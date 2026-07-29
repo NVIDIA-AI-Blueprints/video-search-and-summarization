@@ -139,15 +139,21 @@ class TestNormalizeAlertMessage:
         )
         assert set(result["_normalized_added_fields"]) == {"earlier", "sensorId", "category"}
 
-    def test_object_only_message_raises_attribute_error(self):
-        """Known defect: the guard on line 40 admits an ``object``-only payload,
-        then line 43 dereferences ``sensor`` which is still ``None``.
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Open defect: the guard admits an object-only payload, then "
+            "dereferences the absent 'sensor' and 'analyticsModule' blocks and "
+            "raises AttributeError. Fix: guard each .get('id') on its block. "
+            "When that lands this test XPASSes — drop the marker then."
+        ),
+    )
+    def test_object_only_message_is_normalized(self):
+        """An ``object``-only payload should yield ``objectIds``, not raise."""
+        result = normalize_alert_message({"object": {"id": "obj-1"}})
 
-        Reported rather than fixed — pinned here so the behaviour change is
-        visible if the guard is ever tightened.
-        """
-        with pytest.raises(AttributeError):
-            normalize_alert_message({"object": {"id": "obj-1"}})
+        assert result["objectIds"] == ["obj-1"]
+        assert result["notification_type"] == "alert"
 
 
 class TestStripNormalizationFields:
