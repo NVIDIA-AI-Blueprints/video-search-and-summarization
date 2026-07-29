@@ -235,23 +235,25 @@ function set_alerts_rtvi_vlm_kafka_from_mode() {
   esac
 }
 
-# Derive alerts always-on from MODE, then enable/disable the custom VIOS
-# notification override from ALERT_AGENT_ALWAYS_ON:
-# - true  (2d_vlm): uncomment VST_NOTIFICATION_CONFIG_PATH (alerts webhooks)
-# - false (2d_cv):  keep/comment VST_NOTIFICATION_CONFIG_PATH (shared VIOS default)
-function set_alerts_always_on_from_mode() {
+# Derive alerts mode-specific integrations from MODE:
+# - 2d_vlm: enable always-on/webhooks and disable the Agent → RT-CV endpoint
+# - 2d_cv:  disable always-on/webhooks and enable the Agent → RT-CV endpoint
+function set_alerts_integrations_from_mode() {
   local _generated_env="${1}"
-  local _mode _always_on
+  local _mode _always_on _agent_config_file
   _mode="$(get_env_value "${_generated_env}" "MODE")"
   case "${_mode}" in
     2d_vlm)
       _always_on="true"
+      _agent_config_file="/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml"
       ;;
     *)
       _always_on="false"
+      _agent_config_file="/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
       ;;
   esac
   sed -i "s|^ALERT_AGENT_ALWAYS_ON=.*|ALERT_AGENT_ALWAYS_ON=${_always_on}|" "${_generated_env}"
+  set_env_var "VSS_AGENT_CONFIG_FILE" "${_agent_config_file}"
 
   case "${_always_on}" in
     true)
@@ -259,14 +261,14 @@ function set_alerts_always_on_from_mode() {
       if grep -Eq '^#[[:space:]]*VST_NOTIFICATION_CONFIG_PATH=' "${_generated_env}"; then
         sed -i -E 's|^#[[:space:]]*(VST_NOTIFICATION_CONFIG_PATH=.*)|\1|' "${_generated_env}"
       fi
-      echo "[INFO] Set ALERT_AGENT_ALWAYS_ON=true and uncommented VST_NOTIFICATION_CONFIG_PATH for alerts (MODE=${_mode})"
+      echo "[INFO] Enabled alerts always-on/webhooks and disabled Agent RT-CV registration (MODE=${_mode})"
       ;;
     false)
       # Comment the override so Compose falls back to the shared VIOS default.
       if grep -q '^VST_NOTIFICATION_CONFIG_PATH=' "${_generated_env}"; then
         sed -i -E 's|^(VST_NOTIFICATION_CONFIG_PATH=.*)|# \1|' "${_generated_env}"
       fi
-      echo "[INFO] Set ALERT_AGENT_ALWAYS_ON=false and commented VST_NOTIFICATION_CONFIG_PATH for alerts (MODE=${_mode:-2d_cv})"
+      echo "[INFO] Disabled alerts always-on/webhooks and enabled Agent RT-CV registration (MODE=${_mode:-2d_cv})"
       ;;
   esac
 }
@@ -1371,7 +1373,7 @@ function state_up() {
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
-    set_alerts_always_on_from_mode "${_generated_env}"
+    set_alerts_integrations_from_mode "${_generated_env}"
     # Alerts VLM mode uses a different explicit service list than CV mode.
     if [[ "${mode_env}" == "2d_vlm" ]]; then
       set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"

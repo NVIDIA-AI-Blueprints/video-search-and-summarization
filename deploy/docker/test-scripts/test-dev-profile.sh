@@ -693,14 +693,17 @@ run_dry_run_test "up base dry-run" up -p base -i 127.0.0.1 -d
 run_dry_run_test "up search dry-run" up -p search -i 127.0.0.1 --dry-run
 run_dry_run_test "up lvs dry-run" up -p lvs -i 127.0.0.1 -d
 run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.0.0.1 -m verification -d
-run_dry_run_up_and_check_generated_env "alerts verification disables always-on and keeps VIOS notification override commented" "alerts" \
+run_dry_run_up_and_check_generated_env "alerts verification enables Agent RT-CV registration and disables always-on" "alerts" \
   -i 127.0.0.1 -m verification -d -- \
   "ALERT_AGENT_ALWAYS_ON" "false" \
-  "VST_NOTIFICATION_CONFIG_PATH" ""
-run_dry_run_up_and_check_generated_env "alerts real-time enables always-on and uncomments custom VIOS notifications" "alerts" \
+  "VST_NOTIFICATION_CONFIG_PATH" "" \
+  "RTVI_CV_ENDPOINT" 'http://vss-rtvi-cv:${RTVI_CV_PORT}' \
+  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
+run_dry_run_up_and_check_generated_env "alerts real-time disables Agent RT-CV registration and enables always-on" "alerts" \
   -i 127.0.0.1 -m real-time -d -- \
   "ALERT_AGENT_ALWAYS_ON" "true" \
-  "VST_NOTIFICATION_CONFIG_PATH" '${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/vios/configs/notification_config.json'
+  "VST_NOTIFICATION_CONFIG_PATH" '${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/vios/configs/notification_config.json' \
+  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml"
 run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
@@ -1830,6 +1833,25 @@ if grep -q "RTVI_CV_ENDPOINT: \${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:\${RTVI_CV
   ((TESTS_PASSED++)) || true
 else
   echo "FAIL: vss-agent compose should export RTVI_CV_ENDPOINT for search config"
+  ((TESTS_FAILED++)) || true
+fi
+
+# Alerts verification follows the search profile flow: the agent registers
+# UI-managed streams with RT-CV, while SDRC only proxies VIOS stream processing.
+_alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
+_alerts_vlm_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml"
+_alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
+_alerts_cv_sdrc_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_cv/configs/config.yml.tmpl"
+_alerts_cv_sdrc_cluster="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_cv/configs/docker_cluster_config-rtvi-cv.json.tmpl"
+if grep -q 'rtvi_cv_base_url: ${RTVI_CV_ENDPOINT}' "${_alerts_agent_config}" \
+  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_vlm_agent_config}" \
+  && grep -q '^RTVI_CV_ENDPOINT=http://vss-rtvi-cv:${RTVI_CV_PORT}' "${_alerts_overrides}" \
+  && ! grep -q '^docker-workload-rtvi-cv:' "${_alerts_cv_sdrc_config}" \
+  && [[ ! -e "${_alerts_cv_sdrc_cluster}" ]]; then
+  echo "PASS: alerts verification uses vss-agent instead of SDRC for RT-CV registration"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alerts verification should use vss-agent instead of SDRC for RT-CV registration"
   ((TESTS_FAILED++)) || true
 fi
 

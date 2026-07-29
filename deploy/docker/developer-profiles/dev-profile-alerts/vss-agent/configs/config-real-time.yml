@@ -23,8 +23,6 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       vst_external_url: ${VST_EXTERNAL_URL}
-      # Register UI-managed streams with RT-CV directly; SDRC only proxies VIOS stream processing.
-      rtvi_cv_base_url: ${RTVI_CV_ENDPOINT}
       # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
       enable_audio: ${ENABLE_AUDIO:-false}
     cors:
