@@ -244,11 +244,10 @@ def generate_task(
 
         # ---- instruction.md ------------------------------------------------
         # Note: spec.env notes and query are rendered ({{...}} substituted).
-        action_text = "build and deploy" if runtime_deploy else "build"
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-build-vision-agent` skill to {action_text} the "
+            f"Use the `/vss-build-vision-agent` skill for the "
             f"`{build_profile}` profile on `{platform}`. "
             "Work from `$HOME/video-search-and-summarization` (the VSS repository root).",
             "",
