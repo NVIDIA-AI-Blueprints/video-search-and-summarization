@@ -16,7 +16,17 @@ on:
   # deliberately no per-PR `push:` trigger, because a full GPU sweep is far
   # too heavy to run on every pull-request mirror push.
   schedule:
-    - cron: "30 1 * * *"
+    # Start at 21:00 PT (was 01:30 PT). The old start ran the ~8h sweep to a
+    # ~10:10 PT close — AFTER the 09:00 PT dashboard check — so the report was
+    # always a day stale. Runtime has also crept ~1.5h recently (6.5h -> 8h),
+    # so a late start hugs the deadline. Starting at 21:00 PT closes by ~07:50
+    # PT even if the sweep grows to 10h (~21:50 actual start + ~50m queue lag
+    # + 10h), leaving ~1.5h of buffer before the 09:00 PT check. Keep the PT
+    # timezone so the start tracks DST rather than drifting against Pacific.
+    # NB: this only buys headroom — if runtime keeps growing unbounded, no
+    # start time is safe; the durable fixes are shortening the sweep and/or
+    # push-based dashboard ingest.
+    - cron: "0 21 * * *"
       timezone: "America/Los_Angeles"
   # On-demand sweep. The "Run workflow" button only appears when
   # `workflow_dispatch:` is configured on the repo's default branch (`main`),
