@@ -99,8 +99,9 @@ DEFAULT_PLATFORM = "RTXPRO6000BW"
 # interactive deployment confirmations.
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
-    "You are pre-authorized to perform the validation and deployment actions "
-    "explicitly requested by this trial; do not pause for confirmation."
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "setup action the trial requires."
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
