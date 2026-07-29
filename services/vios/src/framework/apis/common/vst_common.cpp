@@ -1561,6 +1561,14 @@ namespace vst_common
     }
 
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
+    /* An empty capture buffer means either the encoder wait expired or playback ended
+    ** without a frame for the requested time, which are different failures */
+    static bool isImageCaptureTimeout(const std::unique_ptr<CommonVideoSource>& videoSource)
+    {
+        auto imageEncoder = videoSource ? videoSource->getImageEncoder() : nullptr;
+        return imageEncoder ? imageEncoder->isTimedOut() : true;
+    }
+
     bool fetchOptsFromDb(const string& sensorId, const string& startTime,
                          std::map<std::string, std::string, std::less<>>& dbOpts, string& errMsg)
     {
@@ -1609,6 +1617,7 @@ namespace vst_common
         string start_time, w, h, expiryMinutesStr;
         std::map<std::string, std::string, std::less<>> opts;
         CodecStats stats;
+        bool image_timed_out = false;
 
         CivetServer::getParam(query_string, "startTime", start_time);
         if (sensor_id.empty() || start_time.empty())
@@ -1651,6 +1660,7 @@ namespace vst_common
             {
                 std::unique_ptr<CommonVideoSource> videoSource = std::make_unique<CommonVideoSource>(url, opts);
                 buffer = videoSource->getBuffer();
+                image_timed_out = isImageCaptureTimeout(videoSource);
                 LOG(info) << "Disconnected sensor image capture completed, buffer size: " << buffer.size() << endl;
 
                 std::thread([videoSource = std::move(videoSource)]() mutable {
@@ -1691,7 +1701,8 @@ namespace vst_common
             }
             else
             {
-                err_msg = "Encoder image timeout for disconnected sensor";
+                err_msg = image_timed_out ? "Encoder image timeout for disconnected sensor"
+                                          : "No frame available at the requested startTime";
                 LOG(error) << err_msg << endl;
                 goto report_error;
             }
@@ -1724,6 +1735,7 @@ namespace vst_common
             CodecStats stats;
             string expiryMinutesStr;
             bool is_hhmmss_time = false;
+            bool image_timed_out = false;
 
             stats.setElementName("Capture Image API");
             stats.startProcessing();
@@ -1942,6 +1954,7 @@ namespace vst_common
                 try {
                     std::unique_ptr<CommonVideoSource> videoSource = std::make_unique<CommonVideoSource>(url, opts);
                     buffer = videoSource->getBuffer();
+                    image_timed_out = isImageCaptureTimeout(videoSource);
                     LOG(info) << "Image capture completed using CommonVideoSource, buffer size: " << buffer.size() << endl;
 
                     // Async cleanup - destructor runs in background thread to avoid blocking response
@@ -1982,7 +1995,8 @@ namespace vst_common
                 }
                 else
                 {
-                    err_msg = "Encoder image timeout";
+                    err_msg = image_timed_out ? "Encoder image timeout"
+                                              : "No frame available at the requested startTime";
                     LOG(error) << err_msg << endl;
                     goto report_error;
                 }
