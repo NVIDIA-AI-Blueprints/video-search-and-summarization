@@ -566,16 +566,28 @@ def _list_pool_instances(
     seen = {(inst.get("name") or "").lower() for inst in instances}
     registered_allowlist = _registered_pool_allowlist(required_gpu_type)
     if not registered_allowlist:
+        print(
+            "[run-leg] worker inventory: "
+            f"managed={len(instances)} registered_allowlist=0 "
+            "registered_discovered=skipped registered_connected=skipped "
+            "registered_merged=0",
+            flush=True,
+        )
         return instances
-    for node in _list_registered_nodes():
+    registered_nodes = _list_registered_nodes()
+    registered_connected = 0
+    registered_merged = 0
+    for node in registered_nodes:
         name = (node.get("name") or "").strip()
+        status = (node.get("status") or "").upper()
+        if status == "CONNECTED":
+            registered_connected += 1
         if (
             not name
             or name.lower() in seen
             or name.lower() not in registered_allowlist
         ):
             continue
-        status = (node.get("status") or "").upper()
         instances.append({
             **node,
             "name": name,
@@ -587,6 +599,16 @@ def _list_pool_instances(
         })
         _WORKER_TRANSPORTS[name.lower()] = "ssh"
         seen.add(name.lower())
+        registered_merged += 1
+    print(
+        "[run-leg] worker inventory: "
+        f"managed={len(instances) - registered_merged} "
+        f"registered_allowlist={len(registered_allowlist)} "
+        f"registered_discovered={len(registered_nodes)} "
+        f"registered_connected={registered_connected} "
+        f"registered_merged={registered_merged}",
+        flush=True,
+    )
     return instances
 
 
