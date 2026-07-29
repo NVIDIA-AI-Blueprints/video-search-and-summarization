@@ -137,23 +137,27 @@ curl -fsSL --max-time 60 $REPO/$BASE/configs/va_mcp_server_config.yml -o /tmp/so
 the image's other `video_analytics` tools and targets the old package layout):
 
 1. **Resolve which package holds `video_analytics` + the site-packages path** on the image —
-   **probe the filesystem, NOT `import`.** `import agent.video_analytics` succeeds even where no
-   `agent/` directory exists, because `vss_agents/__init__.py` registers `agent` as a runtime
-   alias; mounting under that name makes Docker create an empty `agent/` that shadows the real
-   package, and `vss-va-mcp` crash-loops with `Unknown included functions`. Pick the real on-disk
-   directory (has `video_analytics/`, not a symlink) instead:
+   **probe the filesystem, NOT `import`.** `import`-based probing is unreliable here: a hardcoded or
+   wrongly-guessed package name (e.g. `agent`) can mount under a directory that does not exist on
+   disk, and Docker then creates an empty `agent/` that shadows the real package, so `vss-va-mcp`
+   crash-loops with `Unknown included functions`. Pick the real on-disk directory (has
+   `video_analytics/`, not a symlink) instead:
    ```bash
    docker run --rm --entrypoint /vss-agent/.venv/bin/python3 \
      ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest -c '
-   import os, sysconfig
-   sp = sysconfig.get_paths()["purelib"]
-   for pkg in ("vss_agents", "agent"):
-       d = os.path.join(sp, pkg)
-       if os.path.isdir(os.path.join(d, "video_analytics")) and not os.path.islink(d):
-           print(pkg, sp); break'
+   import os, sys, sysconfig
+   # check purelib AND platlib (the package may live in either); exit non-zero if neither resolves
+   for sp in (sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"]):
+       for pkg in ("vss_agents", "agent"):
+           d = os.path.join(sp, pkg)
+           if os.path.isdir(os.path.join(d, "video_analytics")) and not os.path.islink(d):
+               print(pkg, sp); raise SystemExit(0)
+   sys.stderr.write("no on-disk video_analytics package (vss_agents/ or agent/) under purelib/platlib\n")
+   raise SystemExit(1)'
    ```
-   Set `VSS_AGENT_PKG` (`vss_agents` on `develop-latest` — `agent` is only the alias, no on-disk
-   dir) and `VSS_AGENT_SITE_PACKAGES` from the output.
+   Set `VSS_AGENT_PKG` (`vss_agents` on `develop-latest` — there is no on-disk `agent/` package) and
+   `VSS_AGENT_SITE_PACKAGES` from the output. The probe exits non-zero (empty stdout) if neither
+   resolves — treat that as a hard error, never set `VSS_AGENT_PKG` empty.
 2. **Locate the SOP additions** in the downloaded `tools.py` — a self-contained block of the
    four SOP tool implementations plus their four include-gated registrations. Diffing it
    against the image's own `<pkg>/video_analytics/tools.py` makes them obvious.
@@ -170,10 +174,11 @@ the image's other `video_analytics` tools and targets the old package layout):
    service names (`elasticsearch:9200`, `vst-ingress:30888`), and keep the `video_analytics`
    group with the four `get_sop_*` tools in its `include` list.
 5. **Mount** the adapted `{tools,sop_tools}.py` over
-   `${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/` by applying
-   `sop/sop-report/sop-report-override.yml` as an extra `-f` (it is shipped in the repo — no
-   staging), then bring up just the patched service (`docker compose … up -d vss-va-mcp`;
-   leaves DS-SOP/ELK untouched).
+   `${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/`. The composed build emits this as
+   the generated `_builds/<name>/patches/vss-va-mcp.yml` overlay (what the profile eval checks for);
+   `sop/sop-report/sop-report-override.yml` is the equivalent shipped template for a direct one-off
+   apply as an extra `-f` — same two bind mounts, both sourced from `${SOP_STAGE_DIR}`. Either way,
+   bring up just the patched service (`docker compose … up -d vss-va-mcp`; leaves DS-SOP/ELK untouched).
 6. **Verify:** `docker exec vss-va-mcp /vss-agent/.venv/bin/python3 -c "import ${VSS_AGENT_PKG}.video_analytics.sop_tools"`
    exits 0, and MCP `tools/list` on `:9901` lists the four `get_sop_*` (full runtime checks are
    in the profile eval). Empty/error `get_sop_report` → `mdx-vlm-captions-*` empty or the SOP

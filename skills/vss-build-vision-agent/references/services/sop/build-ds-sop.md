@@ -69,12 +69,16 @@ NV_DS_SOP_IMAGE=ds-sop:1.0.0 docker compose -f deploy/compose.yaml build
 `API_DUMMY_TEST=true` skips `SOPProcessManager`/model load and boots only the API server —
 ideal to prove the image is valid (all heavy imports OK + server serves) without any model.
 ```bash
+set -eu
+trap 'docker rm -f dssop-smoke >/dev/null 2>&1 || true' EXIT
 docker run --rm -d --gpus all --network host \
   -e API_DUMMY_TEST=true -e API_SERVER_PORT=8300 \
   --name dssop-smoke ds-sop:1.0.0
-# wait ~30–60 s for the heavy imports (torch / vLLM / DeepStream / GstRtspServer), then:
-for ep in live ready models metadata; do echo "/v1/$ep:"; curl -s http://localhost:8300/v1/$ep; echo; done
-docker rm -f dssop-smoke
+# wait for the heavy imports (torch / vLLM / DeepStream / GstRtspServer) — poll /v1/ready (~30-60 s):
+for i in $(seq 1 30); do curl -sf --max-time 5 http://localhost:8300/v1/ready >/dev/null 2>&1 && break; sleep 3; done
+curl -sf --max-time 5 http://localhost:8300/v1/ready >/dev/null   # 200 REQUIRED — image boots + serves
+for ep in live models metadata; do echo "/v1/$ep:"; curl -sf --max-time 5 http://localhost:8300/v1/$ep; echo; done
+# (trap removes the container on exit — including when `set -e` aborts on a failed check)
 ```
 **PASS criteria** (all must respond):
 - `/v1/live` → `Service is live.`
@@ -119,6 +123,6 @@ Models are NOT in the image — stage them on the host at runtime.
 - This image is consumed by build-vision-agent's DS-SOP service (contract in `references/services/sop/`).
   Container workdir is `/opt/nvidia/nvds_sop`; key env: `API_SERVER_PORT=8300`,
   `DEFAULT_TOPIC=mdx-vlm-captions`, `SOP_MESSAGING_SCHEMA=JSON`, `VLLM_GPU_MEMORY_UTILIZATION=0.3`
-  (raise to `0.6` on ≤48 GB GPUs), `ENABLE_MESSAGING=1`, and — for DS-SOP→VIOS — `ENABLE_RTSP_OUTPUT=1`
+  (raise to `0.6` on ≤48 GB GPUs), `ENABLE_MESSAGING=1`, and — for DS-SOP→VIOS — `ENABLE_RTSP_OUTPUT=true`
   + `RTSP_PORT=8554`. The service emits SOP records to Kafka **and** an annotated RTSP output VIOS records.
 - Output: `ds-sop:1.0.0` (~50 GB); the Step 2 smoke test exercises all four endpoints.

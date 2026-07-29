@@ -4,9 +4,10 @@
     "vss-generate-video-report"
   ],
   "profile": "sop-1",
+  "runtime_deploy": false,
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": { "gpu_count": 1 }
+      "RTXPRO6000BW": { "gpu_count": 0 }
     }
   },
   "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC access, and the VSS repository at `{{repo_root}}`. This generation eval builds and validates an SOP compliance-monitoring application as a delta off the `alerts` (2d_vlm) Foundation -- `alerts` is the only current developer profile that ships `vss-va-mcp` (the report layer mounts the get_sop_* patch onto it); it also carries ELK, Kafka, Redis, VIOS, and a VLM-perception slot. The get_sop_* patch is downloaded at build time from NVIDIA's public sop-monitoring-blueprints repo (pin 0dd472f) and staged BUILD-LOCAL under `_builds/sop-1/` -- nothing is vendored or written under `deploy/docker/`. It does NOT deploy: `ds-sop:1.0.0` is validated as an image reference (no image, models, or GPU required). Use `_builds/sop-1/` only as a filesystem label; existing files under `deploy/docker/` remain authoritative and unmodified.",

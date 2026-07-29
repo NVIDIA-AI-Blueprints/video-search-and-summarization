@@ -31,5 +31,9 @@
 services:
   vss-va-mcp:
     volumes:
-    - ${SOP_STAGE_DIR}/video_analytics/tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/tools.py:ro
-    - ${SOP_STAGE_DIR}/video_analytics/sop_tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/sop_tools.py:ro
+    # Guarded so an unset var fails `docker compose config` LOUDLY instead of collapsing to an
+    # empty path and bind-mounting an empty dir over the module (vss-va-mcp would crash-loop with
+    # "Unknown included functions"). SOP_STAGE_DIR + VSS_AGENT_PKG have no safe default (both are
+    # resolved at build time — see ../../sop.md § Patch specifics step 1); VSS_AGENT_SITE_PACKAGES does.
+    - ${SOP_STAGE_DIR:?set SOP_STAGE_DIR to the build-local staging dir (_builds/<name>/sop-report)}/video_analytics/tools.py:${VSS_AGENT_SITE_PACKAGES:-/vss-agent/.venv/lib/python3.13/site-packages}/${VSS_AGENT_PKG:?resolve from the image — see ../../sop.md § Patch specifics step 1}/video_analytics/tools.py:ro
+    - ${SOP_STAGE_DIR:?set SOP_STAGE_DIR to the build-local staging dir (_builds/<name>/sop-report)}/video_analytics/sop_tools.py:${VSS_AGENT_SITE_PACKAGES:-/vss-agent/.venv/lib/python3.13/site-packages}/${VSS_AGENT_PKG:?resolve from the image — see ../../sop.md § Patch specifics step 1}/video_analytics/sop_tools.py:ro

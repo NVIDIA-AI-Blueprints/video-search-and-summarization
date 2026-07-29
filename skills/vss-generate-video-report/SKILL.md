@@ -372,9 +372,15 @@ curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID"
 
 ### Step 2 — Fetch the aggregated SOP report from VA-MCP
 
-Call `video_analytics__get_sop_report` on the same endpoint (reuse `$MCP` / `$SID` / `$CT` / `$AC` from Step 1; `tools/call` after `initialize`):
+Call `video_analytics__get_sop_report` on the same endpoint. Each fenced block runs as its own shell, so `$MCP` / `$SID` / `$CT` / `$AC` from Step 1 do NOT carry over — re-establish them and re-`initialize` for a fresh session id here:
 
 ```bash
+MCP="http://${HOST_IP}:9901/mcp"
+CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
+SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
+  | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
 curl -s --max-time 30 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'

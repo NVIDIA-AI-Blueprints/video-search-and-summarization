@@ -36,7 +36,7 @@ Use this service when the workflow requires **SOP compliance monitoring of a pro
 
 | Variable | Required | Default (code/compose) | Notes |
 |---|---|---|---|
-| `DS_SOP_IMAGE` | yes | `ds-sop:1.0.0` | Locally built (see `deploy-ds-sop.md` / the `vss-build-ds-sop` skill). |
+| `DS_SOP_IMAGE` | yes | `ds-sop:1.0.0` | Locally built (see `deploy-ds-sop.md` / `build-ds-sop.md`). |
 | `API_SERVER_PORT` | yes | `8300` | REST API server (host network). |
 | `DEFAULT_TOPIC` | yes | `mdx-vlm-captions` | Code default is already `mdx-vlm-captions` — keep it; it must match the ELK topic. (No `DS_SOP_KAFKA_TOPIC` exists in the source — `messager.py` reads `DEFAULT_TOPIC`.) |
 | `SOP_MESSAGING_SCHEMA` | yes | `JSON` | Code default is already `JSON` (flat-field for the VSS-3.x ELK pipeline + Kibana dashboard). |

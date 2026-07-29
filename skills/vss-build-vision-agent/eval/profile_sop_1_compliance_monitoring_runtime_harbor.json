@@ -4,6 +4,8 @@
     "vss-generate-video-report"
   ],
   "profile": "sop-1-runtime",
+  "runtime_deploy": true,
+  "judge_max_turns": 90,
   "resources": {
     "platforms": {
       "RTXPRO6000BW": { "gpu_count": 1 }

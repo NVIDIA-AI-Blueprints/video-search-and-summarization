@@ -4,7 +4,7 @@
 
 - **Image name** — `ds-sop` (env `${DS_SOP_IMAGE:-ds-sop:1.0.0}`). NOTE: the service is **DS-SOP** (capability `sop-detection`, self-named key `ds-sop`); only the docker image is `ds-sop:1.0.0`.
 - **Tag** — `1.0.0`
-- **Registry** — **local build only** (no registry). Built from `microservices/sop-inference-bp/` in `NVIDIA/sop-monitoring-blueprints` (branch `main`): `NV_DS_SOP_IMAGE=ds-sop:1.0.0 docker compose -f deploy/compose.yaml build` → `ds-sop:1.0.0` (manual: `docker build . -f docker/Docker.build -t ds-sop:1.0.0`). This source ships the **annotated RTSP output** (`:8554/ds-out`, gated by `ENABLE_RTSP_OUTPUT`) that DS-SOP re-streams for VIOS to record; the only code patch is `ddm_pytorch2.patch`, applied by `docker/Docker.build` during the build. See the `vss-build-ds-sop` skill (Step 0 clones the source; Step 1 builds as-is; Step 2 standalone smoke test).
+- **Registry** — **local build only** (no registry). Built from `microservices/sop-inference-bp/` in `NVIDIA/sop-monitoring-blueprints` (branch `main`): `NV_DS_SOP_IMAGE=ds-sop:1.0.0 docker compose -f deploy/compose.yaml build` → `ds-sop:1.0.0` (manual: `docker build . -f docker/Docker.build -t ds-sop:1.0.0`). This source ships the **annotated RTSP output** (`:8554/ds-out`, gated by `ENABLE_RTSP_OUTPUT`) that DS-SOP re-streams for VIOS to record; the only code patch is `ddm_pytorch2.patch`, applied by `docker/Docker.build` during the build. See `build-ds-sop.md` (this bundle — Step 0 clones the source; Step 1 builds as-is; Step 2 standalone smoke test).
 - **Base images** (pulled at build, need `docker login nvcr.io`) — `nvcr.io/nvidia/deepstream:8.0-triton-multiarch` + `nvcr.io/nvidia/blueprint/vss-engine:2.4.1`.
 - **NGC pull requirements** — none at runtime (image is local); models are pulled separately (see Storage). The build step needs nvcr.io access.
 - **Architecture** — x86_64 (Docker.build also supports aarch64/sbsa variants).
@@ -60,25 +60,31 @@ Models are **not** baked into the image — stage on the host before bring-up. D
   Stage into a **build-local copy** and repoint logstash's mount to it — **never edit the
   tracked `deploy/docker/.../elk/logstash/` files** (that dirties upstream):
   ```bash
+  # BUILD_DIR = the build-local _builds/<name> dir; SOP_REF_BUNDLE = this sop/ reference bundle.
+  # Guard both — a bare "<...>" placeholder at the START of a command is parsed by the shell as
+  # input redirection if pasted raw, so substitute real values via guarded vars instead:
+  : "${BUILD_DIR:?set BUILD_DIR to the build-local _builds/<name> dir}"
+  : "${SOP_REF_BUNDLE:?set SOP_REF_BUNDLE to this sop/ reference bundle dir}"
   # 0. build-local copy of the stock logstash config+pipelines tree (untracked, under _builds/)
-  mkdir -p <BUILD_DIR>/patched/services/infra/elk/logstash
+  mkdir -p "${BUILD_DIR}/patched/services/infra/elk/logstash"
   cp -r deploy/docker/services/infra/elk/logstash/. \
-        <BUILD_DIR>/patched/services/infra/elk/logstash/
+        "${BUILD_DIR}/patched/services/infra/elk/logstash/"
   # 1. drop the shipped JSON pipeline into the build-local kafka-pipelines dir
   #    (mounts flat to /usr/share/logstash/pipelines/ in the container)
-  cp <sop-ref-bundle>/sop-vlm-captions-json-logstash.conf \
-     <BUILD_DIR>/patched/services/infra/elk/logstash/pipelines/kafka/
+  cp "${SOP_REF_BUNDLE}/sop-vlm-captions-json-logstash.conf" \
+     "${BUILD_DIR}/patched/services/infra/elk/logstash/pipelines/kafka/"
   # 2. register a SEPARATE pipeline-id in the build-local pipelines-kafka.yml (do NOT merge into
   #    mdx-lvs). Guard the append so a re-run does not duplicate the entry (a duplicate pipeline.id
   #    makes Logstash refuse to start):
-  PK=<BUILD_DIR>/patched/services/infra/elk/logstash/configs/pipelines-kafka.yml
+  PK="${BUILD_DIR}/patched/services/infra/elk/logstash/configs/pipelines-kafka.yml"
   # printf (not a heredoc) so the appended YAML lands at column 0 — no indented terminator, no
   # stray 2-space indent from the surrounding list block:
   grep -q 'sop-vlm-captions-json' "$PK" || \
     printf '\n- pipeline.id: sop-vlm-captions-json\n  path.config: "/usr/share/logstash/pipelines/sop-vlm-captions-json-logstash.conf"\n' >> "$PK"
   # 3. in patches/logstash.yml, repoint logstash's config + pipelines volume SOURCES to the
-  #    build-local copy above; then restart and verify
-  docker restart logstash
+  #    build-local copy above; then RECREATE — a plain `docker restart` keeps the OLD mounts, so
+  #    a changed volume SOURCE only takes effect on recreate:
+  docker compose -f "${BUILD_DIR}/resolved.yml" up -d --force-recreate logstash
   curl -s 'http://localhost:9200/_cat/indices/mdx-vlm-captions*?v'   # expect docs.count > 0
   ```
   See `integrate-ds-sop.md` § Known Integration Constraints → "ELK indexing". A separate
@@ -121,7 +127,7 @@ curl -sf --max-time 10 http://localhost:8300/v1/ready                      # →
 curl -sf --max-time 10 http://localhost:8300/v1/models | grep -q ds_sop_model
 
 # 2. Kafka topic exists and has messages (SOP JSON is being published)
-docker exec kafka kafka-topics.sh --bootstrap-server localhost:29092 \
+docker exec kafka kafka-topics --bootstrap-server localhost:29092 \
   --describe --topic mdx-vlm-captions            # topic exists (data flow confirmed by ES count, step 4)
 
 # 3. ELK: SOP index EXISTS
