@@ -13,7 +13,7 @@ name: ""
 useReleaseNamePrefix: null
 
 image:
-  repository: alpine
+  repository: docker.io/library/alpine
   tag: "3.24.1"
   pullPolicy: IfNotPresent
 

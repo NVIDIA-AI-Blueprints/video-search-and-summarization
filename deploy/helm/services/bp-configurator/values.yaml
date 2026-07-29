@@ -29,7 +29,7 @@ init:
   maxRetries: 60
   retryIntervalSeconds: 2
   image:
-    repository: busybox
+    repository: docker.io/library/busybox
     tag: "1.37.0"
     pullPolicy: IfNotPresent
 
