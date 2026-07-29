@@ -96,10 +96,15 @@ fails, report the failing service and its recent logs; do not declare a partial
 deployment successful.
 
 Deployment and readiness bring the backends **up**; they register no source and
-serve no query. Reading back from a headless build — a `_builds/<name>`
-deployment has no agent to do it — is a separate read-path step: follow
-[`query.md`](query.md) to resolve the CLI endpoints and indexes from the build's
-`resolved.yml` and run against them.
+serve no query. Both ends are separate runtime steps, and a headless
+`_builds/<name>` build has no agent to do either:
+
+- **Write path (provisioning).** Follow [`stream-provisioning.md`](stream-provisioning.md)
+  to register one VIOS source and fan it out by direct REST — consumer ports
+  resolved from `resolved.yml` — to only the consumers the build resolved
+  (RT-CV / RT-Embed / RT-VLM), each driven from the retried VIOS live-proxy URL.
+- **Read path (query).** Follow [`query.md`](query.md) to resolve the CLI
+  endpoints and indexes from the build's `resolved.yml` and run against them.
 
 ## Stop
 
