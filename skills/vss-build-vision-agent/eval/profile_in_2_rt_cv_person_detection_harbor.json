@@ -33,7 +33,7 @@
       ]
     },
     {
-      "query": "Deploy the validated `_builds/in-2/resolved.yml`, wait for selected services to become ready, and leave the deployment running for runtime validation.",
+      "query": "Deploy the validated `_builds/in-2/resolved.yml`, wait for selected services to become ready, and leave the deployment running for runtime validation. Treat the generated deployment as immutable during and after deployment: do not edit files under `deploy/docker/`, do not regenerate the build, and do not patch service configs while diagnosing readiness.",
       "checks": [
         "Deployment uses the validated `_builds/in-2/resolved.yml` as the only Compose file and starts it with `docker compose ... up -d`; harmless deployment options such as `-p <project>` or `--build` are allowed, but it must not re-read Foundation env files, supply `--profile`, use an invented Compose profile, or deploy a copied Compose project.",
         "All selected long-running containers are running or healthy, all selected one-shot containers exit 0, and excluded services are not running.",
@@ -42,7 +42,7 @@
       ]
     },
     {
-      "query": "Validate IN-2 end to end. Use an available warehouse sample video, prove uploaded and streamed media remain retrievable through VIOS, confirm RT-CV publishes `mdx-raw` metadata, and confirm Elasticsearch indexes detection/tracking documents. Report evidence and leave services running unless cleanup is explicitly requested.",
+      "query": "Validate IN-2 end to end without changing the deployment or any file under `deploy/docker/`. Use an available warehouse sample video, prove uploaded and streamed media remain retrievable through VIOS, confirm RT-CV publishes `mdx-raw` metadata, and confirm Elasticsearch indexes detection/tracking documents. In the final response, use these concise evidence sections: Foundation, Effective delta, Changed knobs, Readiness, Playback, Kafka, Elasticsearch. Leave services running unless cleanup is explicitly requested.",
       "checks": [
         "An uploaded warehouse video is retrievable through VIOS playback or clip APIs.",
         "A live NvStreamer source is registered with VIOS and RT-CV is driven from the actual VIOS live-proxy RTSP URL discovered at runtime.",
