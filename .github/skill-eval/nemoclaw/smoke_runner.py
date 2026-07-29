@@ -2235,6 +2235,7 @@ def _worker_bound_setup_message(first_line: str, instance: str) -> bool:
             f"Brev instance '{instance}' not found ",
             f"Brev instance '{instance}' does not meet task requirements:",
             f"Brev instance '{instance}' root disk is ",
+            f"Brev instance '{instance}' root disk could not be determined:",
             f"Brev instance '{instance}' has NVIDIA driver ",
             f"Cannot reach Brev instance '{instance}':",
             f"Unexpected response from instance '{instance}':",

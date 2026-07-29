@@ -216,6 +216,74 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
             brev_env._get_instance_gpu_count_from_catalog = original
 
 
+class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
+    async def test_root_disk_parser_ignores_brev_workspace_suffix(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout="200G\nvss-eval-rtx-1g-2\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {"min_root_disk_gb": 160},
+            )
+
+    async def test_root_disk_floor_rejects_decorated_small_disk_output(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout="117G\nvss-eval-rtx-1g-2\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with (
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "root disk is 117 GB; task requires at least 160 GB",
+            ),
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {"min_root_disk_gb": 160},
+            )
+
+    async def test_required_root_disk_check_fails_closed_on_malformed_output(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout="workspace status unavailable\nvss-eval-rtx-1g-2\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with (
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "root disk could not be determined",
+            ),
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {"min_root_disk_gb": 160},
+            )
+
+
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
     def test_attempt_owner_marker_is_optional_and_ci_scoped(self):

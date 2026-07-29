@@ -4360,6 +4360,10 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 "task requires at least 400 GB"
             ),
             (
+                "Brev instance 'vss-eval-rtx-1g-3' root disk could not be "
+                "determined: df returned no standalone GB size"
+            ),
+            (
                 "Brev instance 'vss-eval-rtx-1g-3' not found "
                 "(is it deleted? wrong org?)"
             ),
