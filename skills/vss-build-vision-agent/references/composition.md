@@ -209,7 +209,8 @@ Then verify:
 - `resolved.yml` contains no stock sentinels such as
   `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
-  directory.
+  directory. This is a validation check only: do not create placeholder files
+  or directories under `deploy/docker/` to satisfy it.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 
