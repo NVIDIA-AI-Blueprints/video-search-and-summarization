@@ -335,13 +335,22 @@ class TestDeprecatedEntryPoints:
     def test_set_default_prompts_is_a_noop(self, manager):
         assert manager._set_default_prompts() is None
 
-    def test_get_prompts_for_entity_is_broken(self, manager):
-        """Known defect: ``get_prompts_for_entity`` calls ``_extract_alert_type``
-        and ``get_fresh_prompt_for_alert_type``, neither of which exists on the
-        class or any base. It has no callers in the tree.
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Open defect: get_prompts_for_entity calls _extract_alert_type and "
+            "get_fresh_prompt_for_alert_type, neither of which exists on the "
+            "class or any base, so it always raises AttributeError. It has no "
+            "callers. Fix: wire it to _extract_alert_type / "
+            "get_fresh_prompts_for_alert_type, or delete the method. When "
+            "either lands this test XPASSes — drop the marker then."
+        ),
+    )
+    def test_get_prompts_for_entity_returns_the_stored_prompt(self, manager, store):
+        store.get.return_value = {"prompt": "Is there a {category}?"}
 
-        Reported rather than fixed — pinned so the breakage is visible if the
-        method is ever wired up.
-        """
-        with pytest.raises(AttributeError, match="_extract_alert_type"):
-            manager.get_prompts_for_entity({"alert": {"type": "collision"}})
+        result = manager.get_prompts_for_entity(
+            {"alert": {"type": "collision"}, "category": "collision"}
+        )
+
+        assert result == [{"question": "Is there a collision?", "expectedAnswer": "yes"}]
