@@ -412,13 +412,6 @@ class BrevEnvironment(BaseEnvironment):
                 f"{(result.stdout or '')[:200]!r}"
             )
 
-        # Live resource checks: root disk + GPU driver. The pool box was
-        # provisioned by the operator and is expected to meet these, but
-        # the checks catch silent regressions (e.g. a driver downgrade or
-        # a box where the big volume mounts on /ephemeral and / is only
-        # ~100 GB — which OOMs on local NIM pulls).
-        await _check_live_resources(self._instance_name, requirements)
-
         # Reap stray on-box agent processes left by a previous trial whose
         # runner-side job was cancelled or SIGKILLed. Cancellation kills the
         # runner-side harbor tree (releasing the box's flock, which dies with
@@ -497,9 +490,17 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
-        # Archive session JSONLs and root-level agent outputs left by
-        # prior trials on this warm-pool box. Without this, harbor's claude-code
-        # mapper merges every
+        # Live resource checks: root disk + GPU driver. Run these only after
+        # the attempt owner marker and clean artifact epoch above are in
+        # place. A warm worker that fails this preflight must not let Harbor
+        # collect another trial's /logs/artifacts as this attempt's evidence.
+        # The pool box was provisioned by the operator and is expected to meet
+        # these requirements, but the checks catch silent regressions (for
+        # example a ~100 GB root filesystem that cannot hold local NIM images).
+        await _check_live_resources(self._instance_name, requirements)
+
+        # Archive session JSONLs and root-level agent outputs left by prior
+        # trials on this warm-pool box. Without this, Harbor's mapper merges every
         # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
         # into one trajectory.json — producing thousand-step trajectories
         # that conflate this trial with every preceding one (observed:
@@ -998,6 +999,8 @@ if [ "$gateway_port" -lt 1024 ] || [ "$gateway_port" -gt 65535 ]; then
   exit 1
 fi
 export NEMOCLAW_GATEWAY_PORT="$gateway_port"
+requested_sandbox_name="$(printf '%s' "${{NEMOCLAW_SANDBOX_NAME:-}}" | \
+  sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 default_gateway_state_dir="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
 if [ "$gateway_port" != "8080" ]; then
   default_gateway_state_dir="${{default_gateway_state_dir}}-${{gateway_port}}"
@@ -1285,13 +1288,36 @@ case "$ci_legacy_recreate" in
         echo "NemoClaw legacy-state repair refused: system_python_unavailable" >&2
         exit 1
       fi
-      export NEMOCLAW_SANDBOX_NAME="${{NEMOCLAW_SANDBOX_NAME:-demo}}"
+      # The historical repair is intentionally scoped to the old CI default.
+      # Preserve an explicit operator override, but temporarily select `demo`
+      # when CI will derive its collision-resistant runtime name below.
+      export NEMOCLAW_SANDBOX_NAME="${{requested_sandbox_name:-demo}}"
       stage "checking CI-owned legacy NemoClaw session state"
       SKILL_EVAL_NEMOCLAW_CI=1 \
         /usr/bin/python3 "$legacy_repair_helper"
     fi
     ;;
 esac
+if [ -n "$requested_sandbox_name" ]; then
+  export NEMOCLAW_SANDBOX_NAME="$requested_sandbox_name"
+else
+  sandbox_uid="$(id -u)"
+  case "$sandbox_uid" in
+    ""|*[!0-9]*)
+      echo "Cannot derive the CI NemoClaw sandbox from the effective uid" >&2
+      exit 1
+      ;;
+  esac
+  # NemoClaw v0.0.97 scopes normal OpenShell RPCs to their gateway, but its
+  # post-exec permission repair discovers Docker containers globally using
+  # only the sandbox-name label. Warm workers can be reached as root or
+  # ubuntu and can retain sibling-gateway `demo` containers. A stable
+  # effective-uid + gateway-port name excludes both collision dimensions
+  # without creating one sandbox/image generation per GitHub run.
+  export NEMOCLAW_SANDBOX_NAME="vss-eval-u${{sandbox_uid}}-p${{gateway_port}}"
+  unset NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE
+  stage "selected isolated CI sandbox $NEMOCLAW_SANDBOX_NAME"
+fi
 recreate_value="$(printf '%s' "${{NEMOCLAW_RECREATE_SANDBOX:-1}}" | \
   sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
 case "$recreate_value" in

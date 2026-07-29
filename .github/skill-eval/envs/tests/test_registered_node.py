@@ -793,6 +793,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
         calls = []
+        lifecycle_events = []
         reset_kwargs = []
         attempt_owner_token = "0123456789abcdef0123456789abcdef"
 
@@ -803,12 +804,15 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             return None
 
         async def fake_check_live_resources(instance, requirements):
+            lifecycle_events.append("live-resource-check")
             return None
 
         async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
             calls.append((instance, command, timeout))
             if "echo harbor-ready" in command:
                 return brev_env.ExecResult(stdout="harbor-ready\n", stderr=None, return_code=0)
+            if "sudo rm -rf /logs/artifacts /logs/verifier" in command:
+                lifecycle_events.append("artifact-reset")
             return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
 
         original_find = brev_env._find_brev_instance
@@ -860,6 +864,10 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             reset_kwargs,
             [{"preserve_openshell_gateway": True}],
+        )
+        self.assertLess(
+            lifecycle_events.index("artifact-reset"),
+            lifecycle_events.index("live-resource-check"),
         )
         reset_commands = [command for _, command, _ in calls if "sudo rm -rf" in command]
         self.assertEqual(len(reset_commands), 1)
@@ -927,6 +935,80 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             'mv "$PROJ"/* "$ARCHIVE/"',
             archive_commands[0],
+        )
+
+    async def test_start_resets_artifact_epoch_before_live_disk_rejection(self):
+        lifecycle_events = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            if "sudo rm -rf /logs/artifacts /logs/verifier" in command:
+                lifecycle_events.append("artifact-reset")
+            stdout = "harbor-ready\n" if "echo harbor-ready" in command else "ok\n"
+            return brev_env.ExecResult(
+                stdout=stdout,
+                stderr=None,
+                return_code=0,
+            )
+
+        async def reject_live_resources(instance, requirements):
+            lifecycle_events.append("live-resource-rejection")
+            raise RuntimeError(
+                f"Brev instance '{instance}' root disk is 117 GB; "
+                "task requires at least 160 GB"
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            task_dir = Path(td) / "task"
+            env_dir = task_dir / "environment"
+            env_dir.mkdir(parents=True)
+            (task_dir / "task.toml").write_text(
+                "[metadata]\nmin_root_disk_gb = 160\n",
+                encoding="utf-8",
+            )
+            env = brev_env.BrevEnvironment()
+            env.environment_dir = env_dir
+            with (
+                mock.patch.object(
+                    env,
+                    "_resolve_instance_name",
+                    return_value="vss-eval-test",
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_find_brev_instance",
+                    new=mock.AsyncMock(
+                        return_value={"name": "vss-eval-test"}
+                    ),
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_check_instance_matches",
+                    new=mock.AsyncMock(return_value=None),
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_check_live_resources",
+                    side_effect=reject_live_resources,
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_run_brev_exec",
+                    side_effect=fake_run_brev_exec,
+                ),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "root disk is 117 GB",
+                ),
+            ):
+                await env.start(force_build=False)
+
+        self.assertEqual(
+            lifecycle_events,
+            ["artifact-reset", "live-resource-rejection"],
         )
 
     async def test_upload_dir_replaces_trial_input_dirs(self):
@@ -1030,6 +1112,50 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("set -eo pipefail\nset +u\nsource ~/.profile", command)
         self.assertIn("source ~/.profile 2>/dev/null || true\nset -u\nexport PATH", command)
         self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
+        self.assertIn(
+            'requested_sandbox_name="$(printf \'%s\' '
+            '"${NEMOCLAW_SANDBOX_NAME:-}"',
+            command,
+        )
+        self.assertIn(
+            'export NEMOCLAW_SANDBOX_NAME="${requested_sandbox_name:-demo}"',
+            command,
+        )
+        self.assertIn(
+            'if [ -n "$requested_sandbox_name" ]; then\n'
+            '  export NEMOCLAW_SANDBOX_NAME="$requested_sandbox_name"',
+            command,
+        )
+        self.assertIn(
+            'export NEMOCLAW_SANDBOX_NAME='
+            '"vss-eval-u${sandbox_uid}-p${gateway_port}"',
+            command,
+        )
+        self.assertIn(
+            "unset NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE",
+            command,
+        )
+        self.assertLess(
+            command.index(
+                'export NEMOCLAW_SANDBOX_NAME='
+                '"${requested_sandbox_name:-demo}"'
+            ),
+            command.index('/usr/bin/python3 "$legacy_repair_helper"'),
+        )
+        self.assertLess(
+            command.index('/usr/bin/python3 "$legacy_repair_helper"'),
+            command.index(
+                'export NEMOCLAW_SANDBOX_NAME='
+                '"vss-eval-u${sandbox_uid}-p${gateway_port}"'
+            ),
+        )
+        self.assertLess(
+            command.index(
+                'export NEMOCLAW_SANDBOX_NAME='
+                '"vss-eval-u${sandbox_uid}-p${gateway_port}"'
+            ),
+            command.index("notebook_setup_adapter.py"),
+        )
         self.assertIn("--required-tools vss_orchestrator__docker_up", command)
         self.assertIn(
             "sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive "

@@ -54,6 +54,13 @@ _CATEGORY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
     (
+        "direct_container_preflight_refused",
+        re.compile(
+            r"NemoClaw direct-container preflight refused: [a-z0-9_]+",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "state_owner_mismatch",
         re.compile(
             r"Refusing non-owner-only DGX Station Express resume directory",

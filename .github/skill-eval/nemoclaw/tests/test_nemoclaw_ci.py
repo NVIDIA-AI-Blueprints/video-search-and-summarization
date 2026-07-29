@@ -64,6 +64,14 @@ setup_failure = load_module(
     "nemoclaw_setup_failure",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "setup_failure.py",
 )
+direct_container_preflight = load_module(
+    "nemoclaw_direct_container_preflight",
+    REPO_ROOT
+    / ".github"
+    / "skill-eval"
+    / "nemoclaw"
+    / "direct_container_preflight.py",
+)
 nemoclaw_deploy_profile_verifier = load_module(
     "nemoclaw_deploy_profile_verifier",
     REPO_ROOT / ".github" / "skill-eval" / "verifiers" / "nemoclaw_deploy_profile.py",
@@ -139,6 +147,169 @@ class SetupFailureDiagnosticTest(unittest.TestCase):
             self.assertEqual(
                 json.loads(encoded)["categories"],
                 ["trusted_lsof_unavailable"],
+            )
+
+    def test_direct_container_refusal_has_a_fixed_safe_category(self):
+        raw_secret = "must-never-reach-an-artifact"
+        diagnostic = setup_failure.classify_setup_failure(
+            f"{raw_secret}\n"
+            "NemoClaw direct-container preflight refused: "
+            "container_image_invalid\n",
+            1,
+        )
+
+        self.assertEqual(
+            diagnostic["categories"],
+            ["direct_container_preflight_refused"],
+        )
+        self.assertNotIn(raw_secret, json.dumps(diagnostic))
+
+
+class DirectContainerPreflightTest(unittest.TestCase):
+    SANDBOX = "vss-eval-u0-p19080"
+    CONTAINER_ID = "a" * 64
+    IMAGE_ID = "sha256:" + ("b" * 64)
+
+    def _runner(
+        self,
+        *,
+        image_ref: str | None = None,
+        candidates: str | None = None,
+        path_types: dict[str, str] | None = None,
+        identities: dict[str, str] | None = None,
+    ):
+        image_ref = image_ref or (
+            f"nemoclaw-sandbox-local:{self.SANDBOX}-1785357013"
+        )
+        candidates = candidates or (
+            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+        )
+        path_types = path_types or {
+            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py": (
+                "regular file"
+            ),
+            "/sandbox/.openclaw": "directory",
+            "/sandbox/.openclaw/openclaw.json": "regular file",
+        }
+        identities = identities or {"-u": "998", "-g": "998"}
+
+        def run(argv, **kwargs):
+            self.assertEqual(kwargs["timeout"], 15)
+            if argv[1] == "ps":
+                return subprocess.CompletedProcess(argv, 0, candidates, "")
+            if argv[1] == "inspect":
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    f"{image_ref}\t{self.IMAGE_ID}\ttrue\n",
+                    "",
+                )
+            if argv[1] == "exec" and "/usr/bin/stat" in argv:
+                path = argv[-1]
+                value = path_types.get(path)
+                return subprocess.CompletedProcess(
+                    argv,
+                    0 if value is not None else 1,
+                    f"{value}\n" if value is not None else "",
+                    "",
+                )
+            if argv[1] == "exec" and "/usr/bin/id" in argv:
+                identity = identities.get(argv[-2])
+                return subprocess.CompletedProcess(
+                    argv,
+                    0 if identity is not None else 1,
+                    f"{identity}\n" if identity is not None else "",
+                    "",
+                )
+            self.fail(f"unexpected preflight command: {argv}")
+
+        return run
+
+    def test_verifies_single_fresh_nemoclaw_container(self):
+        direct_container_preflight.verify_direct_container(
+            self.SANDBOX,
+            run=self._runner(),
+        )
+
+    def test_rejects_a_same_name_container_from_a_non_nemoclaw_image(self):
+        with self.assertRaisesRegex(
+            direct_container_preflight.DirectContainerPreflightError,
+            "container_image_invalid",
+        ):
+            direct_container_preflight.verify_direct_container(
+                self.SANDBOX,
+                run=self._runner(image_ref="openshell/sandbox:legacy"),
+            )
+
+    def test_rejects_ambiguous_or_incomplete_runtime_targets(self):
+        cases = (
+            (
+                self._runner(
+                    candidates=(
+                        f"{self.CONTAINER_ID}\t"
+                        f"openshell-{self.SANDBOX}-one\n"
+                        f"{'c' * 64}\topenshell-{self.SANDBOX}-two\n"
+                    )
+                ),
+                "container_count_invalid",
+            ),
+            (
+                self._runner(
+                    path_types={
+                        "/sandbox/.openclaw": "directory",
+                        "/sandbox/.openclaw/openclaw.json": "regular file",
+                    }
+                ),
+                "repair_helper_invalid",
+            ),
+            (
+                self._runner(identities={"-u": "998", "-g": "0"}),
+                "sandbox_identity_invalid",
+            ),
+        )
+        for runner, reason in cases:
+            with (
+                self.subTest(reason=reason),
+                self.assertRaisesRegex(
+                    direct_container_preflight.DirectContainerPreflightError,
+                    reason,
+                ),
+            ):
+                direct_container_preflight.verify_direct_container(
+                    self.SANDBOX,
+                    run=runner,
+                )
+
+    def test_rejects_container_identity_change_after_inspection(self):
+        initial = (
+            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+        )
+        replacement = (
+            f"{'c' * 64}\topenshell-{self.SANDBOX}-replacement\n"
+        )
+        base_runner = self._runner(candidates=initial)
+        discovery_count = 0
+
+        def changing_runner(argv, **kwargs):
+            nonlocal discovery_count
+            if argv[1] == "ps":
+                discovery_count += 1
+                if discovery_count == 2:
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        replacement,
+                        "",
+                    )
+            return base_runner(argv, **kwargs)
+
+        with self.assertRaisesRegex(
+            direct_container_preflight.DirectContainerPreflightError,
+            "container_identity_changed",
+        ):
+            direct_container_preflight.verify_direct_container(
+                self.SANDBOX,
+                run=changing_runner,
             )
 
 
@@ -323,6 +494,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(ids.count("ci-parameters-1"), 1)
         self.assertEqual(ids.count("ci-parameters-2"), 1)
         self.assertIn("ci-persist-env", ids)
+        self.assertEqual(ids.count("ci-direct-container-preflight"), 1)
         self.assertNotIn("s37-ui-code", ids)
         self.assertNotIn("verify-code", ids)
         self.assertLess(ids.index("ci-parameters-1"), ids.index("e67f6da4"))
@@ -335,6 +507,24 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "nemoclaw onboard --non-interactive --agent {AGENT_RUNTIME}",
             onboard_cell["source"],
         )
+        self.assertLess(
+            ids.index("s31-code"),
+            ids.index("ci-direct-container-preflight"),
+        )
+        self.assertLess(
+            ids.index("ci-direct-container-preflight"),
+            ids.index("s35-code"),
+        )
+        preflight_cell = next(
+            cell
+            for cell in built["cells"]
+            if cell.get("id") == "ci-direct-container-preflight"
+        )
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/direct_container_preflight.py",
+            preflight_cell["source"],
+        )
+        self.assertIn("NEMOCLAW_SANDBOX_NAME", preflight_cell["source"])
 
     def test_build_notebook_injects_parameters_before_derived_cell(self):
         source = {
@@ -5334,6 +5524,12 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             report = mock.Mock()
             blocked = mock.Mock()
             owner_status = mock.Mock()
+            collected_owner = mock.Mock(
+                return_value=smoke_runner.AttemptOwnerStatus(
+                    "verified",
+                    "collected attempt owner marker verified",
+                )
+            )
             discard = mock.Mock()
             release = mock.Mock()
             with (
@@ -5387,6 +5583,11 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 ),
                 mock.patch.object(
                     smoke_runner,
+                    "_attempt_owner_status",
+                    collected_owner,
+                ),
+                mock.patch.object(
+                    smoke_runner,
                     "_discard_contaminated_attempt",
                     discard,
                 ),
@@ -5435,8 +5636,133 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("root disk is 117 GB", reason)
         self.assertIn("retry limit reached", reason)
         owner_status.assert_not_called()
+        self.assertEqual(collected_owner.call_count, 3)
         discard.assert_not_called()
         report.assert_not_called()
+
+    def test_setup_failure_blocks_when_unverified_evidence_cannot_be_discarded(
+        self,
+    ):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-deploy-profile",
+            spec_name="base",
+            spec_path=Path("/tmp/base.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/dataset/base/rtxpro6000bw"),
+            harbor_path=Path("/tmp/dataset/base"),
+            task_name="step-1",
+            deployment_profile="base",
+        )
+        selected = mock.Mock(
+            return_value=(
+                "vss-eval-rtx-1g-2",
+                smoke_runner.WorkerLock(123, object(), None),
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            blocked = mock.Mock()
+            report = mock.Mock()
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30447047501",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "9000",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    selected,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    return_value=(None, None),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    return_value="root disk is 117 GB",
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_owner_status",
+                    return_value=smoke_runner.AttemptOwnerStatus(
+                        "unavailable",
+                        "trial environment setup did not finish",
+                    ),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discard_contaminated_attempt",
+                    return_value=(
+                        False,
+                        "contaminated trial path is outside the current run",
+                    ),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_release_lock",
+                    release,
+                ),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-deploy-profile",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 1)
+        selected.assert_called_once()
+        release.assert_called_once()
+        report.assert_not_called()
+        blocked.assert_called_once()
+        reason = blocked.call_args.kwargs["reason"]
+        self.assertIn("could not be made safe", reason)
+        self.assertIn("outside the current run", reason)
+        self.assertIn("root disk is 117 GB", reason)
 
     def test_setup_failure_near_deadline_retains_capacity_reason(self):
         scenario = smoke_runner.NemoClawScenario(
@@ -5613,6 +5939,12 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                     ),
                 ]
             )
+            collected_owner = mock.Mock(
+                return_value=smoke_runner.AttemptOwnerStatus(
+                    "unavailable",
+                    "trial environment setup did not finish",
+                )
+            )
             discard = mock.Mock(
                 return_value=(True, "removed untrusted trial tree")
             )
@@ -5681,6 +6013,11 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 ),
                 mock.patch.object(
                     smoke_runner,
+                    "_attempt_owner_status",
+                    collected_owner,
+                ),
+                mock.patch.object(
+                    smoke_runner,
                     "_discard_contaminated_attempt",
                     discard,
                 ),
@@ -5725,7 +6062,8 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         )
         self.assertEqual(release.call_count, 5)
         self.assertEqual(owner_status.call_count, 2)
-        discard.assert_called_once()
+        self.assertEqual(collected_owner.call_count, 3)
+        self.assertEqual(discard.call_count, 4)
         report.assert_called_once()
         self.assertEqual(
             report.call_args.kwargs["instance"],
