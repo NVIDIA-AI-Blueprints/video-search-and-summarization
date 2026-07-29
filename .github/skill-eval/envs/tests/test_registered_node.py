@@ -131,6 +131,126 @@ class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
             brev_env._run_brev = original
 
 
+class LocalGpuRunnerMode(unittest.IsolatedAsyncioTestCase):
+    async def test_local_instance_does_not_query_brev(self):
+        async def fail_run_brev(*args, **kwargs):
+            self.fail("local GPU mode must not invoke the Brev CLI")
+
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1"},
+            ),
+            mock.patch.object(brev_env, "_run_brev", fail_run_brev),
+        ):
+            instance = await brev_env._find_brev_instance("gpu-vm-1")
+
+        self.assertTrue(instance["_local_gpu_runner"])
+        self.assertTrue(instance["_registered"])
+
+    async def test_local_exec_bypasses_brev_and_ssh(self):
+        calls = []
+
+        async def fake_local_exec(command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((command, timeout))
+            return brev_env.ExecResult(
+                stdout="local\n", stderr=None, return_code=0
+            )
+
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1"},
+            ),
+            mock.patch.object(brev_env, "_run_local_exec", fake_local_exec),
+        ):
+            result = await brev_env._run_brev_exec(
+                "gpu-vm-1", "echo local", timeout=17
+            )
+
+        self.assertEqual(result.stdout, "local\n")
+        self.assertEqual(calls, [("echo local", 17)])
+
+    async def test_local_environment_exec_does_not_source_stale_profile(self):
+        commands = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            commands.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        environment = brev_env.BrevEnvironment()
+        environment._instance_name = "gpu-vm-1"
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1"},
+            ),
+            mock.patch.object(
+                brev_env, "_run_brev_exec", fake_run_brev_exec
+            ),
+        ):
+            await environment.exec(
+                "echo ready",
+                env={"PR_HEAD_SHA": "fresh"},
+            )
+
+        self.assertEqual(len(commands), 1)
+        self.assertNotIn("source ~/.profile", commands[0][1])
+        self.assertIn("export PR_HEAD_SHA=fresh", commands[0][1])
+
+    async def test_local_copy_strips_instance_endpoint(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source.txt"
+            target = Path(td) / "nested" / "target.txt"
+            source.write_text("payload\n")
+            with mock.patch.dict(
+                os.environ,
+                {"SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1"},
+            ):
+                result = await brev_env._run_brev_copy_once(
+                    str(source),
+                    f"gpu-vm-1:{target}",
+                )
+
+            self.assertEqual(result.return_code, 0)
+            self.assertEqual(target.read_text(), "payload\n")
+
+    async def test_local_hardware_validation_is_live_and_fail_closed(self):
+        async def two_pro_gpus(command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            return brev_env.ExecResult(
+                stdout=(
+                    "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+                    "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+                ),
+                stderr=None,
+                return_code=0,
+            )
+
+        with mock.patch.object(
+            brev_env, "_run_local_exec", two_pro_gpus
+        ):
+            await brev_env._check_local_gpu_requirements(
+                "gpu-vm-1",
+                {
+                    "gpu_type": "RTX PRO 6000",
+                    "gpu_count": 2,
+                    "min_vram_gb_per_gpu": 80,
+                },
+            )
+            with self.assertRaisesRegex(RuntimeError, "matching GPU"):
+                await brev_env._check_local_gpu_requirements(
+                    "gpu-vm-1",
+                    {
+                        "gpu_type": "GEFORCE RTX 4090",
+                        "gpu_count": 1,
+                    },
+                )
+
+
 class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
     def test_registered_instance_bypasses_gpu_name_check(self):

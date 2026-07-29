@@ -82,7 +82,7 @@ jobs:
   plan:
     name: Plan eval matrix
     if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -145,7 +145,10 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    # plan_matrix.py routes supported platforms directly to a GPU runner
+    # carrying model + physical-count labels. Unsupported platforms retain
+    # the coordinator fallback and continue selecting a separate Brev box.
+    runs-on: ${{ matrix.runner_labels }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
@@ -187,13 +190,23 @@ jobs:
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
-          # The runner host (vss-skill-validator-v2) keeps coordinator
-          # secrets in a single .env. Don't echo contents.
+          # CPU coordinators and direct GPU runners keep the same secret
+          # contract under their own home directory. The runner may override
+          # the path with SKILL_EVAL_ENV_FILE; never echo its contents.
+          ENV_FILE="${SKILL_EVAL_ENV_FILE:-$HOME/eval-coordinator/.env}"
+          test -s "$ENV_FILE"
+          test "$(stat -c '%U' "$ENV_FILE")" = root
+          MODE="$(stat -c '%a' "$ENV_FILE")"
+          (( (8#$MODE & 0022) == 0 ))
           set -a
-          source /home/ubuntu/eval-coordinator/.env
+          # shellcheck source=/dev/null
+          source "$ENV_FILE"
           set +a
-          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
-          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+          {
+            printf "SKILL_EVAL_ENV_FILE=%s\n" "$ENV_FILE"
+            printf "COORDINATOR_ENV=loaded\n"
+            printf "CLAUDE_CODE_DISABLE_THINKING=1\n"
+          } >> "$GITHUB_ENV"
 
       - name: Run skills eval agent (single spec)
         id: agent
@@ -227,7 +240,8 @@ jobs:
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           set -a
-          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
+          # shellcheck source=/dev/null
+          source "$SKILL_EVAL_ENV_FILE"   # Anthropic / NGC / Brev or local GPU
           set +a
           # The coordinator .env is operator-managed and may define PATH.
           # Reassert the per-leg runtime afterwards so Claude's Bash children

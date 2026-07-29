@@ -344,6 +344,33 @@ def build_harbor_command(
 
 def harbor_env(instance: str) -> dict[str, str]:
     env = os.environ.copy()
+    # Harbor and the evaluated agent do not need GitHub's job/runner
+    # credentials. Keep only the non-secret GitHub identifiers used for
+    # result scoping; otherwise a tool call inside a trial can inherit the
+    # workflow token or Actions service credentials.
+    for key in tuple(env):
+        if (
+            key in {
+                "CI_ANTHROPIC_API_KEY",
+                "GH_CONFIG_DIR",
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "SYSTEM_ACCESSTOKEN",
+            }
+            or key.startswith("ACTIONS_")
+            or (
+                key.startswith("RUNNER_")
+                and key != "RUNNER_TRACKING_ID"
+            )
+            or (
+                key.startswith("GITHUB_")
+                and key not in {"GITHUB_RUN_ID", "GITHUB_WORKSPACE"}
+            )
+        ):
+            env.pop(key, None)
+    if env.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        env.pop("SSH_AGENT_PID", None)
+        env.pop("SSH_AUTH_SOCK", None)
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
     pythonpath = env.get("PYTHONPATH", "")
@@ -367,6 +394,7 @@ def harbor_env(instance: str) -> dict[str, str]:
     env["BREV_TRANSFER_TOTAL_TIMEOUT_SEC"] = str(
         HARBOR_TRANSFER_OPERATION_BUDGET_SEC
     )
+    env["IS_SANDBOX"] = "1"
     return env
 
 
@@ -1058,6 +1086,10 @@ def _coordinator_env_id() -> str | None:
     Never derive this from `brev ls`: that yields a per-trial instance id,
     and the resulting URL points at a subdomain with no viewer behind it.
     """
+    if os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        # Direct GPU runners publish normal workflow artifacts but do not
+        # host the coordinator's persistent harbor-view service.
+        return None
     env_id = os.environ.get("BREV_ENV_ID", "").strip()
     if env_id:
         return env_id

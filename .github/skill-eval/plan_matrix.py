@@ -67,6 +67,50 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # corrupting an artifact name or escaping a path.
 SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# GPU-hosted Actions runners advertise both their physical hardware and their
+# skill-eval purpose. Keep unsupported platforms on the existing coordinator
+# pool: those jobs still need run_leg.py to select a separate Brev machine.
+COORDINATOR_RUNNER_LABELS = [
+    "self-hosted",
+    "vss-skill-eval-runner",
+]
+GPU_RUNNER_LABELS = {
+    # The current RTX PRO fleet has two GPUs per VM. A one-GPU requirement can
+    # safely run there too; the label describes physical capacity, not the
+    # minimum requested by the spec.
+    "RTXPRO6000BW": [
+        "self-hosted",
+        "Linux",
+        "X64",
+        "vss-skill-eval-gpu",
+        "gpu-nvidia-rtx-pro-6000-blackwell",
+        "gpu-count-2",
+    ],
+    # GPU-independent/ANY legs use the one-GPU RTX 4090 partition so the RTX
+    # PRO machines remain available for two-GPU specs.
+    "ANY": [
+        "self-hosted",
+        "Linux",
+        "X64",
+        "vss-skill-eval-gpu",
+        "gpu-nvidia-geforce-rtx-4090",
+        "gpu-count-1",
+    ],
+    "RTX4090": [
+        "self-hosted",
+        "Linux",
+        "X64",
+        "vss-skill-eval-gpu",
+        "gpu-nvidia-geforce-rtx-4090",
+        "gpu-count-1",
+    ],
+}
+GPU_RUNNER_CAPACITY = {
+    "RTXPRO6000BW": 2,
+    "ANY": 1,
+    "RTX4090": 1,
+}
+
 # `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
 # scenarios, not a dispatchable spec object. It has no `resources.platforms`,
 # so spec_platforms() would choke on it (list has no .get), and the agent can't
@@ -287,6 +331,28 @@ def spec_platforms(spec_path: str) -> list[str]:
     return sorted(spec_platform_config(spec_path))
 
 
+def spec_gpu_count(spec_path: str, platform: str) -> int | None:
+    """Required GPU count for one platform, or None for malformed input."""
+    try:
+        data = json.loads((REPO_ROOT / spec_path).read_text())
+        requirement = data["resources"]["platforms"][platform]
+        return int(requirement.get("gpu_count", 1))
+    except (KeyError, OSError, TypeError, ValueError):
+        return None
+
+
+def runner_labels(platform: str, required_gpu_count: int | None) -> list[str]:
+    """Actions labels for a platform, with fail-safe coordinator fallback."""
+    capacity = GPU_RUNNER_CAPACITY.get(platform)
+    if (
+        capacity is None
+        or required_gpu_count is None
+        or required_gpu_count > capacity
+    ):
+        return list(COORDINATOR_RUNNER_LABELS)
+    return list(GPU_RUNNER_LABELS.get(platform, COORDINATOR_RUNNER_LABELS))
+
+
 def build_matrix(changed: list[str]) -> list[dict]:
     # Explicitly-changed specs vs. skills pulled in wholesale by a non-spec
     # (or adapter) change. A spec reached by both paths appears once.
@@ -349,6 +415,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "spec_stem": "missing-adapter",
                 "platform": "",
                 "kind": "missing_adapter",
+                "runner_labels": runner_labels("", None),
                 # `slug` is the unique per-leg key: path scope + artifact
                 # name. For a real trial it's skill__spec_stem__platform.
                 "slug": f"{skill}__missing-adapter",
@@ -362,6 +429,9 @@ def build_matrix(changed: list[str]) -> list[dict]:
             platforms = sorted(platform_config) or [""]
             for platform in platforms:
                 plat_tag = platform or "no-platform"
+                required_gpu_count = spec_gpu_count(
+                    meta["spec_path"], platform
+                )
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
@@ -369,6 +439,9 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "eval_dir": meta["eval_dir"],
                     "platform": platform,
                     "kind": "eval",
+                    "runner_labels": runner_labels(
+                        platform, required_gpu_count
+                    ),
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
                     "runs_on": runs_on_labels(

@@ -312,6 +312,50 @@ class BuildMatrix(unittest.TestCase):
             ["vss-search-archive__search__L40S",
              "vss-search-archive__search__RTXPRO6000BW"],
         )
+        by_platform = {leg["platform"]: leg["runner_labels"] for leg in inc}
+        self.assertEqual(
+            by_platform["L40S"],
+            ["self-hosted", "vss-skill-eval-runner"],
+        )
+        self.assertEqual(
+            by_platform["RTXPRO6000BW"],
+            [
+                "self-hosted",
+                "Linux",
+                "X64",
+                "vss-skill-eval-gpu",
+                "gpu-nvidia-rtx-pro-6000-blackwell",
+                "gpu-count-2",
+            ],
+        )
+
+    def test_any_platform_uses_single_gpu_4090_partition(self):
+        plan_matrix.spec_platforms = lambda p: ["ANY"]
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(
+            inc[0]["runner_labels"],
+            [
+                "self-hosted",
+                "Linux",
+                "X64",
+                "vss-skill-eval-gpu",
+                "gpu-nvidia-geforce-rtx-4090",
+                "gpu-count-1",
+            ],
+        )
+
+    def test_gpu_runner_capacity_overflow_falls_back_to_coordinator(self):
+        plan_matrix.spec_platforms = lambda p: ["ANY"]
+        plan_matrix.spec_gpu_count = lambda path, platform: 2
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(
+            inc[0]["runner_labels"],
+            ["self-hosted", "vss-skill-eval-runner"],
+        )
 
     def test_mixed_skills_sorted_and_scoped(self):
         inc = plan_matrix.build_matrix([

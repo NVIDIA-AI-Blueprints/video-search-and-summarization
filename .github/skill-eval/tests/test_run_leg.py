@@ -84,6 +84,38 @@ class DiscoverInvocations(unittest.TestCase):
 
 
 class HarborCommand(unittest.TestCase):
+    def test_harbor_env_strips_actions_credentials(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "ACTIONS_RUNTIME_TOKEN": "runtime-secret",
+                "ANTHROPIC_API_KEY": "model-secret",
+                "CI_ANTHROPIC_API_KEY": "duplicate-secret",
+                "GH_TOKEN": "github-secret",
+                "GITHUB_EVENT_PATH": "/tmp/event.json",
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_WORKSPACE": "/tmp/workspace",
+                "RUNNER_TRACKING_ID": "tracking-secret",
+                "SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1",
+                "SSH_AUTH_SOCK": "/tmp/agent.sock",
+            },
+            clear=True,
+        ):
+            env = run_leg.harbor_env("gpu-vm-1")
+
+        self.assertEqual(env["ANTHROPIC_API_KEY"], "model-secret")
+        self.assertEqual(env["GITHUB_RUN_ID"], "123")
+        self.assertEqual(env["IS_SANDBOX"], "1")
+        self.assertEqual(env["RUNNER_TRACKING_ID"], "tracking-secret")
+        for key in (
+            "ACTIONS_RUNTIME_TOKEN",
+            "CI_ANTHROPIC_API_KEY",
+            "GH_TOKEN",
+            "GITHUB_EVENT_PATH",
+            "SSH_AUTH_SOCK",
+        ):
+            self.assertNotIn(key, env)
+
     def test_build_command_uses_env_and_v1_suffix(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
@@ -863,6 +895,17 @@ class TraceUrls(unittest.TestCase):
             self.assertIsNone(run_leg.trace_url(result, self.JOB))
             self.assertIsNone(run_leg.trace_url(Path(td) / "missing.json", self.JOB))
 
+    def test_trace_url_is_disabled_on_direct_gpu_runner(self):
+        with (
+            tempfile.TemporaryDirectory() as td,
+            mock.patch.dict(
+                os.environ,
+                {"SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1"},
+            ),
+        ):
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            self.assertIsNone(run_leg.trace_url(result, self.JOB))
+
     def test_publish_trace_flattens_into_viewer_and_records_url(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/base/l40s"),
@@ -1042,7 +1085,7 @@ class PoolCandidates(unittest.TestCase):
             ["vss-eval-rtx-2g-VM1b"],
         )
 
-    def test_4090_pool_is_limited_to_approved_skills(self):
+    def test_legacy_4090_pool_is_disabled_after_direct_cutover(self):
         env = {
             "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
             "BREV_RTX4090_POOL": (
@@ -1060,36 +1103,24 @@ class PoolCandidates(unittest.TestCase):
 
         self.assertEqual(
             approved,
-            {
-                "vss-eval-rtx-2g-vm1b",
-                "vss-eval-geforce-rtx4090-vm1",
-                "vss-eval-geforce-rtx4090-vm2",
-            },
+            {"vss-eval-rtx-2g-vm1b"},
         )
         self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
 
     def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "alerts_cv"
-        ))
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-manage-alerts", "subscriptions_lifecycle"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "search"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "warehouse"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-dense-captioning", "alerts_profile_api"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-detection-tracking-3d", "deploy"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+        for skill, spec in (
+            ("vss-deploy-profile", "alerts_cv"),
+            ("vss-manage-alerts", "subscriptions_lifecycle"),
+            ("vss-deploy-profile", "search"),
+            ("vss-deploy-profile", "warehouse"),
+            ("vss-deploy-dense-captioning", "alerts_profile_api"),
+            ("vss-deploy-detection-tracking-3d", "deploy"),
+            ("vss-ask-video", None),
+        ):
+            with self.subTest(skill=skill, spec=spec):
+                self.assertFalse(run_leg._rtx4090_supports(skill, spec))
 
-    def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
+    def test_legacy_4090_route_cannot_bypass_direct_runner_ownership(self):
         fleet = [{
             "name": "vss-eval-geforce-rtx4090-vm1",
             "status": "RUNNING",
@@ -1111,7 +1142,7 @@ class PoolCandidates(unittest.TestCase):
             "skill": "vss-deploy-dense-captioning",
         }, "alerts_profile_api")
 
-        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
+        self.assertEqual(approved, [])
         self.assertEqual(unapproved, [])
 
     def test_underprovisioned_registered_node_is_filtered(self):

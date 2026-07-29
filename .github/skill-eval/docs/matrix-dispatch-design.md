@@ -54,12 +54,12 @@ push to pull-request/<N>
                 ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ eval  (strategy.matrix, one leg per (spec, platform))          │
-│  runs-on: [self-hosted, vss-skill-eval-runner]                 │
+│  runs-on: matrix.runner_labels (GPU model/count or coordinator) │
 │  fail-fast: false   max-parallel: <≈ box count>                │
 │                                                                │
 │  each leg:  EVAL_SKILL / EVAL_SPEC set                         │
 │    → foreground agent, single-spec mode (AGENTS.md override)   │
-│    → ensure adapter+dataset → pick a matching box              │
+│    → ensure adapter+dataset → pin local GPU or pick remote box │
 │    → run_leg.py (flock + synchronous Harbor, this spec only)   │
 │    → gather results → POST ITS OWN per-spec comment            │
 │    → DONE:/BLOCKED:                                            │
@@ -115,6 +115,24 @@ today, so this is the same leg count as per-spec — but it generalizes
 cleanly to multi-platform specs (each platform parallelizes onto its own
 runner) and makes the per-`(spec,platform)` output root automatic.
 
+Each matrix entry also carries `runner_labels`. `RTXPRO6000BW` targets
+the two-GPU RTX PRO 6000 Blackwell partition; `ANY` and explicit
+`RTX4090` target the one-GPU RTX 4090 partition. A requirement above the
+advertised partition capacity, an unsupported platform, or a
+platform-less leg fails safely back to the existing coordinator label.
+The plan job itself runs on `ubuntu-24.04` because it needs neither GPU
+nor Brev.
+
+Each direct GPU runner is supervised by
+`vss-skill-eval-gpu-runner.service` and carries a host ownership marker that
+new coordinator code refuses to use remotely. Registration is staged:
+`local-gpu-job-started.sh` rejects jobs until an operator creates
+`/etc/vss-skill-eval/direct-gpu-runner.enabled` after all legacy work on the
+VM has drained. This prevents the local runner's cleanup from overlapping a
+legacy remote trial during cutover. Because the runner and evaluated workload
+share a privileged host, these labels are restricted to the existing
+operator-approved mirror/manual-dispatch workflow trust boundary.
+
 `max-parallel` is capped near the `vss-eval-*` box count so legs don't
 all grab runner slots only to wait inside `run_leg.py`. `fail-fast: false` so one
 failing leg doesn't cancel the others.
@@ -123,7 +141,7 @@ failing leg doesn't cancel the others.
 
 | Component | Change |
 |---|---|
-| `.github/skill-eval/plan_matrix.py` | **new.** Pure-Python, no LLM. Reads the diff (local `git diff`) — or, on a manual sweep, enumerates the picked skill's specs — applies the rules above, prints `matrix` JSON + `has_targets` to `$GITHUB_OUTPUT`. Unit-testable offline. |
+| `.github/skill-eval/plan_matrix.py` | **new.** Pure-Python, no LLM. Reads the diff (local `git diff`) — or, on a manual sweep, enumerates the picked skill's specs — applies the rules above, prints hardware-aware `matrix` JSON + `has_targets` to `$GITHUB_OUTPUT`. Unit-testable offline. |
 | `.github/workflows/skills-eval.yml` | **rewrite.** `plan` job → `eval` matrix job, on push AND `workflow_dispatch` (a manual sweep feeds the picked skill's specs into the same matrix; legs write to `$GITHUB_STEP_SUMMARY` since there's no PR). |
 | `.github/skill-eval/skills_eval_agent.py` | **small add.** New single-spec mode keyed on `EVAL_SKILL`/`EVAL_SPEC`: skip the diff/detection (plan already decided), build a user prompt scoped to one spec, otherwise reuse the existing SDK session, options, hardening, and DONE/BLOCKED enforcement verbatim. |
 | `.github/skill-eval/AGENTS.md` | **add a "Single-spec mode" section** (parallel to "Manual full-sweep mode"): when `EVAL_SPEC` is set, skip step 1's diff — you are handed exactly one `(skill, spec)`; run steps 2–7 for it only, post the one comment, emit the marker. Everything else (hard rules, fleet selection § 5a, wrapper-held lock § 5b, harbor invocation, result format, failure modes) applies unchanged. |
@@ -147,8 +165,8 @@ PreToolUse hook); each leg's foreground agent therefore *must* drive
 
 ## Concurrency / shared-state isolation
 
-All legs of one run share `GITHUB_RUN_ID` and — on a single runner host —
-the same `/tmp/skill-eval/` tree. So every runner-local path is scoped by
+All legs of one run share `GITHUB_RUN_ID`; legs that land on the same runner
+also share its `/tmp/skill-eval/` tree. So every runner-local path is scoped by
 `<leg-slug>/<run_id>` (`leg-slug = <skill>__<spec_stem>__<platform>`,
 == `$EVAL_SLUG`): `datasets/<slug>/<run_id>/`, `results/<slug>/<run_id>/`,
 the viewer entry `_viewer/<slug>__<run_id>__<date>/`, and
@@ -163,13 +181,14 @@ PRs' runs on the same host don't collide either.
 exclusive `flock`, and keeps that file descriptor open while it launches
 every Harbor subprocess for the leg. This serializes trials on a box and
 avoids the broken pattern where an agent acquires a lock in one shell
-call and runs Harbor in a later shell call after the FD has closed. The
-mutex is still valid **only while all eval legs run on one host** — flock
-is host-local. If the `vss-skill-eval-runner` label ever spans multiple
-hosts, two legs could lock their own local files and both drive the same
-brev box (docker/port collision + trajectory corruption via `start()`'s
-archive-on-start racing a live session). Keep the label pinned to one
-host, or move the lock onto the box itself.
+call and runs Harbor in a later shell call after the FD has closed.
+
+For direct GPU runners, the host-local mutex is sufficient: there is exactly
+one Actions runner per VM, `BREV_INSTANCE` is immutably pinned to that same VM,
+and local mode refuses redirection to another fleet member. Coordinator
+fallback legs retain the earlier constraint: coordinators sharing one remote
+Brev pool must share a lock domain, or use a distributed/box-side lock, so two
+hosts cannot claim the same remote box.
 
 ## Open questions / future
 

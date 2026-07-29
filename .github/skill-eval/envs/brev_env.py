@@ -10,6 +10,11 @@ no instance is resolved. The harness does NOT auto-provision — see
 AGENTS.md § 5a for the fleet-selection algorithm the skill-eval
 agent uses to pick a pool member.
 
+When `SKILL_EVAL_LOCAL_GPU_INSTANCE` is set by a hardware-labelled Actions
+runner, the same lifecycle runs directly on that VM. The local instance is
+immutable, its GPU requirements are checked with live `nvidia-smi`, and no Brev
+CLI or SSH hop is used.
+
 Task.toml [metadata] fields consumed:
     gpu_type              — e.g. "L40S", "H100", "RTX PRO 6000"
     gpu_count             — 1 or 2
@@ -29,6 +34,7 @@ import logging
 import os
 from pathlib import Path
 import shlex
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -54,6 +60,18 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 # retrying a transient stall on a fresh connection recovers it. Tunable.
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
+DIRECT_GPU_RUNNER_MARKER = "/etc/vss-skill-eval/direct-gpu-runner"
+
+
+def _local_gpu_instance() -> str:
+    """Runner-pinned local instance name, empty on coordinator hosts."""
+    return os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+
+
+def _is_local_gpu_instance(instance: str | None) -> bool:
+    local = _local_gpu_instance()
+    return bool(local and instance and local.lower() == instance.lower())
+
 
 # Keep every file-transfer API bounded below run_leg.py's recovery headroom.
 # Remote work gets 600 seconds. The public 630-second wall-clock bound also
@@ -137,7 +155,7 @@ class BrevEnvironment(BaseEnvironment):
         return False
 
     def _validate_definition(self) -> None:
-        if not _which("brev"):
+        if not _local_gpu_instance() and not _which("brev"):
             raise RuntimeError(
                 "brev CLI not found. Install from https://docs.brev.dev/"
             )
@@ -180,6 +198,20 @@ class BrevEnvironment(BaseEnvironment):
         }
 
         self._instance_name = self._resolve_instance_name()
+        local_instance = _local_gpu_instance()
+        if local_instance:
+            # A GPU-hosted Actions runner is permanently bound to its own VM.
+            # Ignore task metadata rather than allowing a job to redirect the
+            # local runner to another fleet member.
+            if (
+                self._instance_name
+                and not _is_local_gpu_instance(self._instance_name)
+            ):
+                raise RuntimeError(
+                    "BREV_INSTANCE does not match "
+                    "SKILL_EVAL_LOCAL_GPU_INSTANCE on this runner"
+                )
+            self._instance_name = local_instance
 
         if self._instance_name:
             # Mode 1: validate existing instance's GPU fits task requirements
@@ -190,6 +222,10 @@ class BrevEnvironment(BaseEnvironment):
                 raise RuntimeError(
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
+                )
+            if _is_local_gpu_instance(self._instance_name):
+                await _check_local_gpu_requirements(
+                    self._instance_name, requirements
                 )
             await _check_instance_matches(instance, requirements)
         else:
@@ -202,6 +238,18 @@ class BrevEnvironment(BaseEnvironment):
                 "If you're running harbor manually, export "
                 "BREV_INSTANCE=<vss-eval-*-name> first."
             )
+
+        if not _is_local_gpu_instance(self._instance_name):
+            direct_runner_check = await _run_brev_exec(
+                self._instance_name,
+                f"test ! -e {shlex.quote(DIRECT_GPU_RUNNER_MARKER)}",
+                timeout=30,
+            )
+            if direct_runner_check.return_code != 0:
+                raise RuntimeError(
+                    f"Brev instance '{self._instance_name}' is reserved for "
+                    "its direct GitHub Actions runner"
+                )
 
         # Quick smoke test — ensure exec works
         result = await _run_brev_exec(
@@ -1202,7 +1250,6 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             # Make sure user-installed binaries (claude, uv, etc.) are on PATH
             # even though `brev exec` spawns a non-interactive non-login shell.
             'export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH";',
-            "source ~/.profile 2>/dev/null;",
         ]
         # Ensure /logs/verifier is writable before the verifier exec —
         # Harbor's verifier phase redirects test-stdout.txt there, and the
@@ -1214,6 +1261,12 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             parts.append(
                 "sudo chown -R $(whoami):$(id -gn) /logs/verifier 2>/dev/null || true;"
             )
+        if not _is_local_gpu_instance(self._instance_name):
+            # Remote workers receive the current trial env through .eval_env.
+            # Local runner profiles also source .eval_env, but that file can
+            # contain metadata from a prior remote trial; the local Harbor
+            # process already inherited the current workflow environment.
+            parts.append("source ~/.profile 2>/dev/null;")
         if env:
             for k, v in env.items():
                 parts.append(f"export {shlex.quote(k)}={shlex.quote(v)};")
@@ -1750,6 +1803,41 @@ async def _run_scp(
     )
 
 
+async def _run_local_exec(
+    command: str,
+    timeout: int = BREV_EXEC_TIMEOUT,
+) -> ExecResult:
+    """Execute a Harbor environment command on this GPU runner."""
+    proc = await asyncio.create_subprocess_exec(
+        "bash",
+        "-c",
+        command,
+        cwd=str(Path.home()),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=b""),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        _kill_proc_group(proc)
+        stdout, stderr = await proc.communicate()
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="Command timed out",
+            return_code=124,
+        )
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
 async def _run_brev_exec(
     instance: str,
     command: str,
@@ -1764,6 +1852,8 @@ async def _run_brev_exec(
     a single command string.  Stdin is piped with empty input so the
     brev CLI doesn't enter interactive mode.
     """
+    if _is_local_gpu_instance(instance):
+        return await _run_local_exec(command, timeout)
     if await _is_registered_node(instance):
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
@@ -1840,6 +1930,25 @@ async def _run_brev_copy_once(
     For registered external nodes, transparently falls back to ``scp``
     using the ssh alias (same host:path convention, just with lowercase
     name)."""
+    local_instance = _local_gpu_instance()
+    if local_instance:
+        local_prefix = f"{local_instance}:"
+        src_is_runner = src.lower().startswith(local_prefix.lower())
+        dst_is_runner = dst.lower().startswith(local_prefix.lower())
+        if src_is_runner or dst_is_runner:
+            source = Path(src[len(local_prefix):] if src_is_runner else src)
+            target = Path(dst[len(local_prefix):] if dst_is_runner else dst)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                await asyncio.to_thread(shutil.copy2, source, target)
+            except OSError as exc:
+                return ExecResult(
+                    stdout=None,
+                    stderr=str(exc),
+                    return_code=1,
+                )
+            return ExecResult(stdout="", stderr=None, return_code=0)
+
     # Detect registered-node endpoint on either side: "<name>:<path>"
     for endpoint in (src, dst):
         if ":" not in endpoint:
@@ -2002,6 +2111,17 @@ async def _find_brev_instance(name: str) -> dict | None:
     Retries a few times — `brev ls` sometimes hits transient RPC
     deadline-exceeded errors and returns empty stdout.
     """
+    if _is_local_gpu_instance(name):
+        return {
+            "name": _local_gpu_instance(),
+            "type": "local-gpu-runner",
+            "gpu": "",
+            "instance_type": "local-gpu-runner",
+            "status": "RUNNING",
+            "_registered": True,
+            "_local_gpu_runner": True,
+        }
+
     for attempt in range(4):
         result = await _run_brev("ls", "--json", timeout=30)
         raw = result.stdout or ""
@@ -2106,6 +2226,75 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
     logger.info(
         "Instance '%s' live gpu_count: %d (satisfies required >= %d)",
         instance_name, actual, required_count,
+    )
+
+
+async def _check_local_gpu_requirements(instance_name: str, req: dict) -> None:
+    """Fail closed on the physical hardware of a direct GPU runner."""
+    required_count = int(req.get("gpu_count", 1) or 0)
+    if required_count == 0:
+        return
+
+    result = await _run_local_exec(
+        "nvidia-smi --query-gpu=name,memory.total "
+        "--format=csv,noheader,nounits",
+        timeout=30,
+    )
+    if result.return_code != 0 or not (result.stdout or "").strip():
+        raise RuntimeError(
+            f"Local GPU runner '{instance_name}' failed nvidia-smi: "
+            f"{(result.stderr or result.stdout or '')[-300:]}"
+        )
+
+    gpus: list[tuple[str, int]] = []
+    for line in result.stdout.splitlines():
+        name, separator, memory = line.rpartition(",")
+        if not separator:
+            continue
+        try:
+            memory_mib = int(memory.strip())
+        except ValueError:
+            continue
+        gpus.append((name.strip(), memory_mib))
+
+    required_type = (req.get("gpu_type") or "").upper()
+
+    def matches_type(name: str) -> bool:
+        if not required_type:
+            return True
+        want_tokens = set(required_type.replace("-", " ").split())
+        have_tokens = set(name.upper().replace("-", " ").split())
+        return want_tokens.issubset(have_tokens) or required_type in name.upper()
+
+    matching = [gpu for gpu in gpus if matches_type(gpu[0])]
+    if len(matching) < required_count:
+        names = ", ".join(name for name, _ in gpus) or "none"
+        raise RuntimeError(
+            f"Local GPU runner '{instance_name}' has {len(matching)} matching "
+            f"GPU(s), task requires {required_count} of {required_type or 'any'}; "
+            f"detected: {names}"
+        )
+
+    min_vram_gb = int(req.get("min_vram_gb_per_gpu", 0) or 0)
+    if min_vram_gb:
+        too_small = [
+            f"{name} ({memory_mib} MiB)"
+            for name, memory_mib in matching[:required_count]
+            # Specs use vendor-advertised decimal GB (for example, a 24 GB
+            # RTX 4090 reports about 24564 MiB after firmware reservation).
+            if memory_mib < min_vram_gb * 1000
+        ]
+        if too_small:
+            raise RuntimeError(
+                f"Local GPU runner '{instance_name}' does not provide "
+                f"{min_vram_gb} GB per GPU: {', '.join(too_small)}"
+            )
+
+    logger.info(
+        "Local GPU runner '%s' satisfies gpu_type=%r, gpu_count>=%d",
+        instance_name,
+        required_type,
+        required_count,
     )
 
 
