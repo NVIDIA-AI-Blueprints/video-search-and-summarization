@@ -14,6 +14,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
+COMMANDS = ("nemoclaw", "openshell", "docker", "curl", "uv")
+MCP_SERVER_NAME = "vss_orchestrator"
+SUMMARY_SCHEMA_VERSION = 1
+_SANDBOX_MCP_ERROR_CATEGORIES = frozenset(
+    {
+        "sandbox_mcp_command_failed",
+        "sandbox_mcp_discovery_timeout",
+        "sandbox_mcp_invalid_response",
+        "sandbox_mcp_missing_required_tools",
+        "sandbox_mcp_unavailable",
+    }
+)
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -83,7 +96,13 @@ def _check_sandbox(name: str) -> dict[str, Any]:
 
 def _check_sandbox_mcp(name: str, required_tools: list[str]) -> dict[str, Any]:
     if not shutil.which("nemoclaw"):
-        return {"ok": False, "error": "nemoclaw not found"}
+        return {
+            "ok": False,
+            "error": "nemoclaw not found",
+            "error_category": "sandbox_mcp_unavailable",
+            "required_tools": required_tools,
+            "missing_tools": required_tools,
+        }
 
     cmd = [
         "nemoclaw",
@@ -93,7 +112,7 @@ def _check_sandbox_mcp(name: str, required_tools: list[str]) -> dict[str, Any]:
         "--",
         "mcporter",
         "list",
-        "vss_orchestrator",
+        MCP_SERVER_NAME,
         "--json",
     ]
     try:
@@ -102,19 +121,62 @@ def _check_sandbox_mcp(name: str, required_tools: list[str]) -> dict[str, Any]:
         return {
             "ok": False,
             "error": f"in-sandbox MCP discovery timed out after {exc.timeout}s",
+            "error_category": "sandbox_mcp_discovery_timeout",
             "required_tools": required_tools,
+            "missing_tools": required_tools,
         }
 
-    detail = "\n".join(part for part in (result.stdout, result.stderr) if part)
-    missing_tools = [tool for tool in required_tools if tool not in detail]
+    discovered_tools: set[str] = set()
+    error_category = ""
+    if result.returncode == 0:
+        try:
+            payload = json.loads(result.stdout)
+            if (
+                not isinstance(payload, dict)
+                or payload.get("mode") != "server"
+                or payload.get("name") != MCP_SERVER_NAME
+                or payload.get("status") != "ok"
+            ):
+                raise ValueError("unexpected mcporter server envelope")
+            tools = payload.get("tools")
+            if not isinstance(tools, list):
+                raise ValueError("tools must be a list")
+            for tool in tools:
+                if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+                    raise ValueError("tool entries must contain string names")
+                discovered_tools.add(tool["name"])
+        except (json.JSONDecodeError, ValueError):
+            error_category = "sandbox_mcp_invalid_response"
+    else:
+        error_category = "sandbox_mcp_command_failed"
+
+    prefix = f"{MCP_SERVER_NAME}__"
+
+    def is_discovered(required_tool: str) -> bool:
+        raw_tool = (
+            required_tool[len(prefix) :]
+            if required_tool.startswith(prefix)
+            else required_tool
+        )
+        return required_tool in discovered_tools or raw_tool in discovered_tools
+
+    missing_tools = [tool for tool in required_tools if not is_discovered(tool)]
+    if not error_category and missing_tools:
+        error_category = "sandbox_mcp_missing_required_tools"
     return {
-        "ok": result.returncode == 0 and not missing_tools,
+        "ok": result.returncode == 0 and not error_category and not missing_tools,
         "returncode": result.returncode,
         "required_tools": required_tools,
         "missing_tools": missing_tools,
+        "discovered_tools": sorted(discovered_tools),
+        "error_category": error_category,
         "stdout_tail": (result.stdout or "")[-4000:],
         "stderr_tail": (result.stderr or "")[-2000:],
-        "note": "Runs mcporter tool discovery through the sandbox egress policy.",
+        "note": (
+            "Runs mcporter tool discovery through the sandbox egress policy. "
+            "mcporter reports raw server tool names; required OpenClaw tool "
+            "names are normalized from <server>__<tool> before comparison."
+        ),
     }
 
 
@@ -143,6 +205,87 @@ def _check_mcp(repo_root: Path, mcp_url: str, required_tools: list[str]) -> dict
     }
 
 
+def _build_safe_summary(report: dict[str, Any]) -> dict[str, Any]:
+    command_status = {name: False for name in COMMANDS}
+    for item in report.get("commands", []):
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if name in command_status:
+            command_status[name] = item.get("ok") is True
+
+    sandbox = report.get("sandbox")
+    sandbox = sandbox if isinstance(sandbox, dict) else {}
+    mcp = report.get("mcp")
+    mcp = mcp if isinstance(mcp, dict) else {}
+    sandbox_mcp = report.get("sandbox_mcp")
+    sandbox_mcp = sandbox_mcp if isinstance(sandbox_mcp, dict) else {}
+    missing_tool_values = sandbox_mcp.get("missing_tools")
+    missing_tool_count = (
+        len(missing_tool_values) if isinstance(missing_tool_values, list) else 0
+    )
+
+    categories: list[str] = []
+    if not all(command_status.values()):
+        categories.append("required_commands_unavailable")
+    if sandbox.get("ok") is not True:
+        categories.append("sandbox_unavailable")
+    if sandbox.get("gateway_ok") is not True:
+        categories.append("sandbox_gateway_unhealthy")
+    if mcp.get("ok") is not True:
+        categories.append("host_mcp_unhealthy")
+    if sandbox_mcp.get("ok") is not True:
+        error_category = sandbox_mcp.get("error_category")
+        categories.append(
+            error_category
+            if error_category in _SANDBOX_MCP_ERROR_CATEGORIES
+            else "sandbox_mcp_unavailable"
+        )
+
+    returncode = sandbox_mcp.get("returncode")
+    if not isinstance(returncode, int) or isinstance(returncode, bool):
+        returncode = None
+
+    return {
+        "schema_version": SUMMARY_SCHEMA_VERSION,
+        "ok": report.get("ok") is True,
+        "categories": categories,
+        "commands": command_status,
+        "sandbox": {
+            "ok": sandbox.get("ok") is True,
+            "gateway_ok": sandbox.get("gateway_ok") is True,
+        },
+        "host_mcp": {"ok": mcp.get("ok") is True},
+        "sandbox_mcp": {
+            "ok": sandbox_mcp.get("ok") is True,
+            "return_code": returncode,
+            "missing_required_tool_count": missing_tool_count,
+        },
+    }
+
+
+def _write_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError as exc:
+        raise RuntimeError(
+            f"refusing existing readiness output: {path}"
+        ) from exc
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = -1
+            handle.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", default="/tmp/skill-eval/nemoclaw/nemoclaw.env")
@@ -150,6 +293,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sandbox-name", default=None)
     parser.add_argument("--required-tools", default="")
     parser.add_argument("--output", default="/tmp/skill-eval/nemoclaw/readiness.json")
+    parser.add_argument(
+        "--summary-output",
+        default="/tmp/skill-eval/nemoclaw/readiness-summary.json",
+    )
     args = parser.parse_args(argv)
 
     _load_env_file(Path(args.env_file))
@@ -159,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     required_tools = [item.strip() for item in args.required_tools.split(",") if item.strip()]
 
     report = {
-        "commands": [_check_cmd(name) for name in ("nemoclaw", "openshell", "docker", "curl", "uv")],
+        "commands": [_check_cmd(name) for name in COMMANDS],
         "sandbox": _check_sandbox(sandbox_name),
         "mcp": _check_mcp(repo_root, mcp_url, required_tools),
         "sandbox_mcp": _check_sandbox_mcp(sandbox_name, required_tools),
@@ -171,11 +318,17 @@ def main(argv: list[str] | None = None) -> int:
         and report["sandbox_mcp"]["ok"]
     )
     report["ok"] = ok
+    summary = _build_safe_summary(report)
 
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps(report, indent=2))
+    _write_json(Path(args.output), report)
+    _write_json(Path(args.summary_output), summary)
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    if not ok:
+        categories = ",".join(summary["categories"]) or "unclassified"
+        print(
+            f"NemoClaw readiness failed: categories={categories}",
+            file=sys.stderr,
+        )
     return 0 if ok else 1
 
 
