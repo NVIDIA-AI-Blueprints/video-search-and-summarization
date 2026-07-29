@@ -1302,6 +1302,13 @@ class NemoClawEnvFileTest(unittest.TestCase):
 
         def fake_run(cmd, *, timeout=30, cwd=None):
             calls.append(tuple(cmd))
+            if "get" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="sandbox exists",
+                    stderr="",
+                )
             return subprocess.CompletedProcess(
                 cmd,
                 7,
@@ -1310,109 +1317,209 @@ class NemoClawEnvFileTest(unittest.TestCase):
             )
 
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(readiness, "_run", side_effect=fake_run),
         ):
-            report = readiness._check_sandbox("demo")
+            report = readiness._check_sandbox("demo", "19080")
 
         self.assertFalse(report["ok"])
+        self.assertTrue(report["lookup_ok"])
         self.assertFalse(report["gateway_ok"])
         self.assertIn("failed to connect", report["gateway_stderr_tail"])
         self.assertEqual(
             calls,
             [
                 (
-                    "nemoclaw",
+                    "openshell",
+                    "sandbox",
+                    "get",
+                    "-g",
+                    "nemoclaw-19080",
+                    "demo",
+                ),
+                (
+                    "openshell",
                     "sandbox",
                     "exec",
+                    "--name",
                     "demo",
+                    "-g",
+                    "nemoclaw-19080",
                     "--",
-                    "sh",
-                    "-lc",
-                    "curl -fsS http://127.0.0.1:18789/health >/dev/null",
-                )
+                    "curl",
+                    "--noproxy",
+                    "*",
+                    "-fsS",
+                    "--connect-timeout",
+                    "3",
+                    "--max-time",
+                    "10",
+                    "-o",
+                    "/dev/null",
+                    "http://127.0.0.1:18789/health",
+                ),
             ],
         )
 
-    def test_readiness_reports_missing_nemoclaw(self):
+    def test_readiness_gateway_name_uses_canonical_default_and_scoped_port(self):
+        self.assertEqual(readiness._gateway_name_for_port("8080"), "nemoclaw")
+        self.assertEqual(
+            readiness._gateway_name_for_port("19080"),
+            "nemoclaw-19080",
+        )
+        self.assertEqual(
+            readiness._gateway_name_for_port("08080"),
+            "nemoclaw",
+        )
+
+    def test_readiness_rejects_invalid_gateway_port_without_running_commands(self):
+        for raw_port in ("", "not-a-port", "1023", "65536"):
+            with self.subTest(raw_port=raw_port):
+                with mock.patch.object(readiness, "_run") as run:
+                    report = readiness._check_sandbox("demo", raw_port)
+
+                self.assertFalse(report["ok"])
+                self.assertFalse(report["lookup_ok"])
+                self.assertFalse(report["gateway_ok"])
+                self.assertEqual(report["error"], "gateway port is invalid")
+                run.assert_not_called()
+
+    def test_readiness_reports_missing_openshell(self):
         with (
             mock.patch.object(readiness.shutil, "which", return_value=None),
             mock.patch.object(readiness, "_run") as run,
         ):
-            report = readiness._check_sandbox("demo")
+            report = readiness._check_sandbox("demo", "19080")
 
         self.assertFalse(report["ok"])
+        self.assertFalse(report["lookup_ok"])
         self.assertFalse(report["gateway_ok"])
-        self.assertEqual(report["error"], "nemoclaw not found")
+        self.assertEqual(report["error"], "openshell not found")
         run.assert_not_called()
 
-    def test_readiness_routes_gateway_probe_through_nemoclaw(self):
+    def test_readiness_skips_gateway_probe_when_scoped_lookup_fails(self):
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
                 return_value=subprocess.CompletedProcess(
-                    ["nemoclaw"],
+                    ["openshell", "sandbox", "get"],
                     1,
                     stdout="",
-                    stderr="sandbox routing failed",
+                    stderr="sandbox not found",
                 ),
             ) as run,
         ):
-            report = readiness._check_sandbox("demo")
+            report = readiness._check_sandbox("demo", "19080")
 
         self.assertFalse(report["ok"])
+        self.assertFalse(report["lookup_ok"])
         self.assertFalse(report["gateway_ok"])
-        self.assertIn("routing failed", report["gateway_stderr_tail"])
+        self.assertIn("not found", report["stderr_tail"])
         run.assert_called_once_with(
-            [
-                "nemoclaw",
-                "sandbox",
-                "exec",
-                "demo",
-                "--",
-                "sh",
-                "-lc",
-                "curl -fsS http://127.0.0.1:18789/health >/dev/null",
-            ],
+            ["openshell", "sandbox", "get", "-g", "nemoclaw-19080", "demo"],
             timeout=60,
         )
 
     def test_readiness_accepts_healthy_gateway_inside_sandbox(self):
+        responses = [
+            subprocess.CompletedProcess(
+                ["openshell", "sandbox", "get"],
+                0,
+                stdout="sandbox exists",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                ["openshell", "sandbox", "exec"],
+                0,
+                stdout="healthy",
+                stderr="",
+            ),
+        ]
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
-                return_value=subprocess.CompletedProcess(
-                    ["nemoclaw", "sandbox", "exec", "demo"],
-                    0,
-                    stdout="",
-                    stderr="",
-                ),
+                side_effect=responses,
             ) as run,
         ):
-            report = readiness._check_sandbox("demo")
+            report = readiness._check_sandbox("demo", "8080")
 
         self.assertTrue(report["ok"])
+        self.assertTrue(report["lookup_ok"])
         self.assertTrue(report["gateway_ok"])
-        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(
+            run.call_args_list[1],
+            mock.call(
+                [
+                    "openshell",
+                    "sandbox",
+                    "exec",
+                    "--name",
+                    "demo",
+                    "-g",
+                    "nemoclaw",
+                    "--",
+                    "curl",
+                    "--noproxy",
+                    "*",
+                    "-fsS",
+                    "--connect-timeout",
+                    "3",
+                    "--max-time",
+                    "10",
+                    "-o",
+                    "/dev/null",
+                    "http://127.0.0.1:18789/health",
+                ],
+                timeout=30,
+            ),
+        )
 
     def test_readiness_reports_gateway_probe_timeout(self):
+        sandbox_result = subprocess.CompletedProcess(
+            ["openshell", "sandbox", "get"],
+            0,
+            stdout="sandbox exists",
+            stderr="",
+        )
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
-                side_effect=subprocess.TimeoutExpired(["nemoclaw"], 60),
+                side_effect=[
+                    sandbox_result,
+                    subprocess.TimeoutExpired(["openshell"], 30),
+                ],
             ),
         ):
-            report = readiness._check_sandbox("demo")
+            report = readiness._check_sandbox("demo", "19080")
 
         self.assertFalse(report["ok"])
+        self.assertTrue(report["lookup_ok"])
         self.assertFalse(report["gateway_ok"])
-        self.assertIn("timed out after 60s", report["gateway_stderr_tail"])
+        self.assertIn("timed out after 30s", report["gateway_stderr_tail"])
+
+    def test_readiness_reports_scoped_lookup_timeout(self):
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                side_effect=subprocess.TimeoutExpired(["openshell"], 60),
+            ) as run,
+        ):
+            report = readiness._check_sandbox("demo", "19080")
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["lookup_ok"])
+        self.assertFalse(report["gateway_ok"])
+        self.assertIn("timed out after 60s", report["stderr_tail"])
+        run.assert_called_once()
 
     def test_readiness_discovers_required_mcp_tools_inside_sandbox(self):
         output = json.dumps(
@@ -1586,6 +1693,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
             ],
             "sandbox": {
                 "ok": True,
+                "lookup_ok": True,
                 "gateway_ok": True,
                 "stderr_tail": raw_secret,
             },
@@ -1618,7 +1726,49 @@ class NemoClawEnvFileTest(unittest.TestCase):
             summary["sandbox_mcp"]["missing_required_tool_count"],
             2,
         )
+        self.assertTrue(summary["sandbox"]["lookup_ok"])
         self.assertNotIn("missing_required_tools", summary["sandbox_mcp"])
+
+    def test_readiness_safe_summary_separates_lookup_and_gateway_failures(self):
+        base_report = {
+            "commands": [
+                {"name": name, "ok": True}
+                for name in readiness.COMMANDS
+            ],
+            "mcp": {"ok": True},
+            "sandbox_mcp": {"ok": True, "returncode": 0},
+            "ok": False,
+        }
+
+        lookup_failure = readiness._build_safe_summary(
+            {
+                **base_report,
+                "sandbox": {
+                    "ok": False,
+                    "lookup_ok": False,
+                    "gateway_ok": False,
+                },
+            }
+        )
+        gateway_failure = readiness._build_safe_summary(
+            {
+                **base_report,
+                "sandbox": {
+                    "ok": False,
+                    "lookup_ok": True,
+                    "gateway_ok": False,
+                },
+            }
+        )
+
+        self.assertEqual(
+            lookup_failure["categories"],
+            ["sandbox_unavailable"],
+        )
+        self.assertEqual(
+            gateway_failure["categories"],
+            ["sandbox_gateway_unhealthy"],
+        )
 
     def test_readiness_rejects_wrong_mcporter_server_envelope(self):
         output = json.dumps(
@@ -1690,6 +1840,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
                     "_check_sandbox",
                     return_value={
                         "ok": True,
+                        "lookup_ok": True,
                         "gateway_ok": True,
                         "stderr_tail": raw_secret,
                     },

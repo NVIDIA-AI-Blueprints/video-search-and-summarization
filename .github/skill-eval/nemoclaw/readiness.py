@@ -17,6 +17,8 @@ from typing import Any
 COMMANDS = ("nemoclaw", "openshell", "docker", "curl", "uv")
 MCP_SERVER_NAME = "vss_orchestrator"
 SUMMARY_SCHEMA_VERSION = 1
+DEFAULT_GATEWAY_PORT = 8080
+MIN_GATEWAY_PORT = 1024
 _SANDBOX_MCP_ERROR_CATEGORIES = frozenset(
     {
         "sandbox_mcp_command_failed",
@@ -53,47 +55,102 @@ def _check_cmd(name: str) -> dict[str, Any]:
     return {"name": name, "ok": bool(path), "path": path or ""}
 
 
-def _check_sandbox(name: str) -> dict[str, Any]:
-    if not shutil.which("nemoclaw"):
+def _gateway_name_for_port(raw_port: str) -> str:
+    value = raw_port.strip()
+    if (
+        not value.isascii()
+        or not value.isdigit()
+        or len(value) > 5
+    ):
+        raise ValueError("gateway port is invalid")
+    port = int(value)
+    if port < MIN_GATEWAY_PORT or port > 65535:
+        raise ValueError("gateway port is invalid")
+    return "nemoclaw" if port == DEFAULT_GATEWAY_PORT else f"nemoclaw-{port}"
+
+
+def _check_sandbox(name: str, gateway_port: str) -> dict[str, Any]:
+    try:
+        gateway_name = _gateway_name_for_port(gateway_port)
+    except ValueError:
         return {
             "name": name,
             "ok": False,
+            "lookup_ok": False,
             "gateway_ok": False,
-            "error": "nemoclaw not found",
+            "error": "gateway port is invalid",
         }
-    gateway_error = ""
+    if not shutil.which("openshell"):
+        return {
+            "name": name,
+            "ok": False,
+            "lookup_ok": False,
+            "gateway_ok": False,
+            "error": "openshell not found",
+        }
+
+    lookup_error = ""
     try:
-        gateway_result = _run(
-            [
-                "nemoclaw",
-                "sandbox",
-                "exec",
-                name,
-                "--",
-                "sh",
-                "-lc",
-                "curl -fsS http://127.0.0.1:18789/health >/dev/null",
-            ],
+        sandbox_result = _run(
+            ["openshell", "sandbox", "get", "-g", gateway_name, name],
             timeout=60,
         )
     except subprocess.TimeoutExpired as exc:
-        gateway_result = None
-        gateway_error = (
-            f"in-sandbox OpenClaw gateway health check timed out "
-            f"after {exc.timeout}s"
-        )
+        sandbox_result = None
+        lookup_error = f"sandbox lookup timed out after {exc.timeout}s"
+    lookup_ok = sandbox_result is not None and sandbox_result.returncode == 0
+
+    gateway_error = ""
+    gateway_result = None
+    if lookup_ok:
+        try:
+            gateway_result = _run(
+                [
+                    "openshell",
+                    "sandbox",
+                    "exec",
+                    "--name",
+                    name,
+                    "-g",
+                    gateway_name,
+                    "--",
+                    "curl",
+                    "--noproxy",
+                    "*",
+                    "-fsS",
+                    "--connect-timeout",
+                    "3",
+                    "--max-time",
+                    "10",
+                    "-o",
+                    "/dev/null",
+                    "http://127.0.0.1:18789/health",
+                ],
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired as exc:
+            gateway_error = (
+                f"in-sandbox OpenClaw gateway health check timed out "
+                f"after {exc.timeout}s"
+            )
     gateway_ok = gateway_result is not None and gateway_result.returncode == 0
     gateway_detail = gateway_error
     if gateway_result is not None:
         gateway_detail = (gateway_result.stderr or gateway_result.stdout or "")[-1000:]
     return {
         "name": name,
-        "ok": gateway_ok,
-        "stdout_tail": gateway_result.stdout[-1000:] if gateway_result is not None else "",
+        "gateway_name": gateway_name,
+        "ok": lookup_ok and gateway_ok,
+        "lookup_ok": lookup_ok,
+        "stdout_tail": (
+            sandbox_result.stdout[-1000:]
+            if sandbox_result is not None
+            else ""
+        ),
         "stderr_tail": (
-            gateway_result.stderr[-1000:]
-            if gateway_result is not None
-            else gateway_error
+            sandbox_result.stderr[-1000:]
+            if sandbox_result is not None
+            else lookup_error
         ),
         "gateway_ok": gateway_ok,
         "gateway_stderr_tail": gateway_detail,
@@ -234,9 +291,9 @@ def _build_safe_summary(report: dict[str, Any]) -> dict[str, Any]:
     categories: list[str] = []
     if not all(command_status.values()):
         categories.append("required_commands_unavailable")
-    if sandbox.get("ok") is not True:
+    if sandbox.get("lookup_ok") is not True:
         categories.append("sandbox_unavailable")
-    if sandbox.get("gateway_ok") is not True:
+    elif sandbox.get("gateway_ok") is not True:
         categories.append("sandbox_gateway_unhealthy")
     if mcp.get("ok") is not True:
         categories.append("host_mcp_unhealthy")
@@ -259,6 +316,7 @@ def _build_safe_summary(report: dict[str, Any]) -> dict[str, Any]:
         "commands": command_status,
         "sandbox": {
             "ok": sandbox.get("ok") is True,
+            "lookup_ok": sandbox.get("lookup_ok") is True,
             "gateway_ok": sandbox.get("gateway_ok") is True,
         },
         "host_mcp": {"ok": mcp.get("ok") is True},
@@ -297,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env-file", default="/tmp/skill-eval/nemoclaw/nemoclaw.env")
     parser.add_argument("--mcp-url", default=None)
     parser.add_argument("--sandbox-name", default=None)
+    parser.add_argument("--gateway-port", default=None)
     parser.add_argument("--required-tools", default="")
     parser.add_argument("--output", default="/tmp/skill-eval/nemoclaw/readiness.json")
     parser.add_argument(
@@ -308,12 +367,15 @@ def main(argv: list[str] | None = None) -> int:
     _load_env_file(Path(args.env_file))
     repo_root = _repo_root()
     sandbox_name = args.sandbox_name or os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo")
+    gateway_port = args.gateway_port or os.environ.get(
+        "NEMOCLAW_GATEWAY_PORT", str(DEFAULT_GATEWAY_PORT)
+    )
     mcp_url = args.mcp_url or os.environ.get("MCP_URL", "http://localhost:9988/mcp")
     required_tools = [item.strip() for item in args.required_tools.split(",") if item.strip()]
 
     report = {
         "commands": [_check_cmd(name) for name in COMMANDS],
-        "sandbox": _check_sandbox(sandbox_name),
+        "sandbox": _check_sandbox(sandbox_name, gateway_port),
         "mcp": _check_mcp(repo_root, mcp_url, required_tools),
         "sandbox_mcp": _check_sandbox_mcp(sandbox_name, required_tools),
     }
