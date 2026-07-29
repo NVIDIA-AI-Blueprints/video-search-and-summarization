@@ -1280,16 +1280,6 @@ python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --env-out /tmp/skill-eval/nemoclaw/nemoclaw.env \
   --timeout {cell_timeout}
 stage "notebook setup adapter completed"
-if [ "${{NEMOCLAW_PRESTAGE_ALERTS_MODELS:-1}}" != "0" ]; then
-  DATA_DIR="$REPO/deploy/docker/data-dir"
-  mkdir -p "$DATA_DIR/models/gdino" "$DATA_DIR/models/rtdetr-its"
-  : > "$DATA_DIR/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-  : > "$DATA_DIR/models/rtdetr-its/model_epoch_035.fp16.onnx"
-  chmod 666 \
-    "$DATA_DIR/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx" \
-    "$DATA_DIR/models/rtdetr-its/model_epoch_035.fp16.onnx" 2>/dev/null || true
-  stage "pre-staged alerts model placeholders for NemoClaw real-time evaluation"
-fi
 python3 .github/skill-eval/nemoclaw/readiness.py \
   --env-file /tmp/skill-eval/nemoclaw/nemoclaw.env \
   --required-tools {shlex.quote(required_tools_csv)} \

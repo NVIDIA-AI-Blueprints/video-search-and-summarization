@@ -62,6 +62,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
+from .docker_compose_util import MODE_2D_VLM
+from .docker_compose_util import PROFILE_ALERTS
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
 from .docker_compose_util import create_dry_run_recipe
@@ -882,7 +884,12 @@ async def vss_orchestrator(
                 )
             )
             profile_artifacts = configured_model_artifacts_by_profile.get(profile)
-            if profile_artifacts:
+            profile_mode = resolved_env.get("MODE", "").strip()
+            # Alerts real-time mode deploys RT-VLM without RT-CV, so its
+            # detector artifacts are neither used nor staged by dev-profile.sh.
+            # Verification mode (2d_cv) still requires the model precheck.
+            needs_model_artifacts = not (profile == PROFILE_ALERTS and profile_mode == MODE_2D_VLM)
+            if profile_artifacts and needs_model_artifacts:
                 ngc_cli_api_key = resolved_env.get("NGC_CLI_API_KEY", "").strip()
                 pre_compose_checks.append(
                     PreComposeCheck(

@@ -804,6 +804,67 @@ async def test_docker_up_search_profile_runs_model_artifact_check(tmp_path: Path
     mock_models.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    ("profile_mode", "expected_model_checks"),
+    (("2d_vlm", 0), ("2d_cv", 1), ("", 1)),
+)
+@pytest.mark.asyncio
+async def test_docker_up_alerts_model_check_matches_profile_mode(
+    tmp_path: Path,
+    profile_mode: str,
+    expected_model_checks: int,
+) -> None:
+    config = _make_orchestrator_config(
+        tmp_path,
+        model_artifacts={
+            "alerts": (
+                ModelPackageConfig(
+                    package_ref="nvidia/pkg:1",
+                    artifacts=(
+                        ModelArtifactEntry(
+                            src="model.onnx",
+                            out="model.onnx",
+                            kind="file",
+                        ),
+                    ),
+                ),
+            ),
+        },
+    )
+    async with _orchestrator_group(tmp_path, config=config) as (group, cfg, _tmp_path):
+        compose_id = f"alerts-models-{profile_mode}"
+        env_path = Path(cfg.output_dir) / f"generated.{compose_id}.dry-run.env"
+        compose_path = Path(cfg.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
+        _register_compose_spec(
+            docker_compose_id=compose_id,
+            env_path=env_path,
+            compose_path=compose_path,
+            profile="alerts",
+            env_text=(f"VSS_DATA_DIR={cfg.mdx_data_dir}\nNGC_CLI_API_KEY=test\nMODE={profile_mode}\n"),
+        )
+
+        with (
+            patch(
+                "vss_agents.orchestrator.tools.threading.Thread",
+                side_effect=_run_target_immediately,
+            ),
+            patch("vss_agents.orchestrator.tools.ensure_model_artifacts") as mock_models,
+            patch("vss_agents.orchestrator.tools.ensure_alerts_engine_directories"),
+            patch(
+                "vss_agents.orchestrator.tools.subprocess.Popen",
+                lambda *args, **kwargs: _FakePopen(*args, **kwargs),
+            ),
+        ):
+            result = await _call(
+                group,
+                "docker_up",
+                ComposeUpOperationInput(docker_compose_id=compose_id),
+            )
+
+    assert result["status"] == ComposeStatus.STARTED.value
+    assert mock_models.call_count == expected_model_checks
+
+
 @pytest.mark.asyncio
 async def test_docker_up_alerts_profile_runs_engine_directory_check(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, config, _tmp_path):

@@ -1083,9 +1083,8 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 "install|noninteractive",
                 apt_log.read_text(encoding="utf-8").splitlines(),
             )
-        self.assertIn("NEMOCLAW_PRESTAGE_ALERTS_MODELS", command)
-        self.assertIn("models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx", command)
-        self.assertIn("models/rtdetr-its/model_epoch_035.fp16.onnx", command)
+        self.assertNotIn("NEMOCLAW_PRESTAGE_ALERTS_MODELS", command)
+        self.assertNotIn("pre-staged alerts model placeholders", command)
         self.assertIn(
             "rm -rf /tmp/skill-eval/nemoclaw "
             "/logs/artifacts/nemoclaw",
