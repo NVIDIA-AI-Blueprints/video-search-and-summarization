@@ -54,18 +54,47 @@ Run those `curl` checks with a generous deadline (15 min is reasonable for cold
 NIM warmup) and only declare the deploy done once every documented endpoint
 returns the expected success exit code.
 
-**Cross-profile gate — the VSS Agent must answer on `:8000/health`.** Every
-profile runs the agent, so this probe is required regardless of profile. A
-`running` agent container does not mean the NAT-serve process is listening —
-it can be up while `:8000` never bound (config error, unreachable model
-endpoint), and Step 1 would still pass:
+**Agent gate — only when the build includes the VSS Agent.** Stock profiles run
+`vss-agent`, so it must answer on `:8000/health`; a headless delta prunes it (no
+`:8000` bound at all), so the probe does not apply. Gate on the resolved service
+set rather than assuming every build has an agent:
 
 ```bash
-curl -sf --max-time 15 http://localhost:8000/health >/dev/null && echo "agent OK"
+if docker compose -f "$BUILD_DIR/resolved.yml" config --services | grep -qx vss-agent; then
+  curl -sf --max-time 15 http://localhost:8000/health >/dev/null && echo "agent OK"
+fi
 ```
+
+When it applies, keep this separate from Step 1: a `running` agent container
+does not mean the NAT-serve process is listening — it can be up while `:8000`
+never bound (config error, unreachable model endpoint), and Step 1 would still
+pass.
 
 ## Step 3 — triage slow containers
 
 If any probe times out, dump `docker compose ps` and
 `docker compose logs --tail 100 <slow-service>` and report the slow
 container. Never claim success on a half-warm stack.
+
+## Step 4 — when a check must prove the data plane is advancing
+
+Steps 1–3 prove services are *up*; some runtime checks additionally require
+proving records are *flowing* — e.g. a topic's end offset increases once a
+source is processed. Measure that with **before/after end-offset snapshots**,
+not a consumer tail. Snapshot each named topic's end offset, run the workload,
+snapshot again, and confirm every one increased:
+
+```bash
+# Exec into the kafka service (targeted via the build's resolved.yml) and use the
+# broker's INTERNAL listener localhost:29092 — the same bootstrap the shipped
+# healthcheck uses; no host port and nothing to read from resolved.yml:
+docker compose -f "$BUILD_DIR/resolved.yml" exec -T kafka \
+  kafka-get-offsets --bootstrap-server localhost:29092 --topic mdx-raw --time -1
+# Fallbacks if that binary is absent: `kafka-run-class kafka.tools.GetOffsetShell`,
+# or `kafka-consumer-groups --describe` and read each partition's LOG-END-OFFSET.
+```
+
+`kafka-console-consumer` only shows that *some* messages exist; it gives no
+stable before/after end-offset delta, so it cannot prove a topic advanced for a
+given run. Do the snapshot-run-snapshot comparison for every topic a check
+names.

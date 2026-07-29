@@ -60,7 +60,7 @@ capability checks. Run the mandatory check/create gate in
 [`data-directory.md`](data-directory.md), then deploy that exact file:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" up -d --build --pull-always
+docker compose -f "$BUILD_DIR/resolved.yml" up -d --build
 ```
 
 `COMPOSE_PROFILES` has already filtered the source graph during resolution, and
@@ -94,6 +94,12 @@ Then run the Foundation's stock readiness checks plus checks for every added
 capability owner. Allow cold NIM and RTVI model loads to finish. If a check
 fails, report the failing service and its recent logs; do not declare a partial
 deployment successful.
+
+Deployment and readiness bring the backends **up**; they register no source and
+serve no query. Reading back from a headless build — a `_builds/<name>`
+deployment has no agent to do it — is a separate read-path step: follow
+[`query.md`](query.md) to resolve the CLI endpoints and indexes from the build's
+`resolved.yml` and run against them.
 
 ## Stop
 
