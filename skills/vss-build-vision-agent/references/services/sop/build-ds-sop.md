@@ -50,7 +50,9 @@ cd microservices/sop-inference-bp
 
 ## Step 1 — Build
 ```bash
-# from microservices/sop-inference-bp/ (Step 0)
+# Step 0 ran in a SEPARATE shell — its `cd` does not persist here. Re-enter the source dir
+# (guard so a wrong cwd fails loudly instead of building from the wrong tree):
+cd sop-monitoring-blueprints/microservices/sop-inference-bp || { echo "run Step 0 (clone) first" >&2; exit 1; }
 mkdir -p binaries          # Docker.build bind-mounts ./binaries; Pylon SDK auto-downloads here at build time
 NV_DS_SOP_IMAGE=ds-sop:1.0.0 docker compose -f deploy/compose.yaml build
 # manual equivalent:  docker build . -f docker/Docker.build -t ds-sop:1.0.0

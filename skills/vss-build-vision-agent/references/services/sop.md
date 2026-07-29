@@ -91,7 +91,7 @@ VSS_AGENT_PKG=vss_agents            # develop ships video_analytics under vss_ag
 
 Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
 `ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest`). The `patches/` files
-(`ds-sop.yml`, `vss-va-mcp.yml`) are generated into `_builds/<name>/`, gitignored.
+(`ds-sop.yml`, `vss-va-mcp.yml`, `logstash.yml`) are generated into `_builds/<name>/`, gitignored.
 
 ## Configuration knobs
 
