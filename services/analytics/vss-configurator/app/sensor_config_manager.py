@@ -256,7 +256,7 @@ def fetch_sensor_data_from_msb(delay=60, timeout=5) -> Optional[List[Dict]]:
             time.sleep(delay) 
             continue
 
-def add_sensor(sensor_info: Sensor, delay=30):
+def add_sensor(sensor_info: Sensor, delay=5, max_retries=10):
     logger.debug(f"Adding sensor: {sensor_info.name} to VMS endpoint: {CONFIG['VST_CAMERA_ADD_ENDPOINT']}")
     headers = {"Content-Type": "application/json"}
     sensor_data = {
@@ -269,23 +269,38 @@ def add_sensor(sensor_info: Sensor, delay=30):
         sensor_data["tags"] = f"{sensor_info.region}|{sensor_info.group_id}"
         logger.debug(f"Sensor tags set: {sensor_data['tags']}")
 
-    while True:
+    import random
+    for attempt in range(1, max_retries + 1):
         try:
-            logger.debug(f"Sending POST request to add sensor: {sensor_data['name']}")
+            logger.debug(f"Sending POST request to add sensor: {sensor_data['name']} (attempt {attempt}/{max_retries})")
             response = requests.post(CONFIG['VST_CAMERA_ADD_ENDPOINT'], json=sensor_data, headers=headers, timeout=5)
             if response and response.status_code == 200:
                 logger.info(f"Successfully added sensor: {sensor_data['name']}")
                 logger.debug(f"VMS response: {response.text}")
                 return
-            logger.warning(f"Error adding sensor {sensor_data['name']}. Received status code {response.status_code} from VMS. Retrying in {delay} seconds...")
+            # 409 or a body containing "already" means the sensor is registered — treat as success.
+            if response and (response.status_code == 409 or "already" in response.text.lower()):
+                logger.info(f"Sensor {sensor_data['name']} already exists in VMS — treating as success.")
+                return
+            logger.warning(
+                f"Error adding sensor {sensor_data['name']}. "
+                f"Status {response.status_code} from VMS (attempt {attempt}/{max_retries})."
+            )
             logger.debug(f"VMS error response: {response.text if response else 'No response'}")
         except Exception as e:
-            logger.warning(
-                f"VST sensor add API unreachable Retrying in {delay} seconds..."
+            logger.warning(f"VST sensor add API unreachable (attempt {attempt}/{max_retries}): {repr(e)}")
+
+        if attempt >= max_retries:
+            logger.error(
+                f"Giving up on sensor {sensor_data['name']} after {max_retries} attempts. "
+                "It will not be registered with VMS."
             )
-            logger.debug(f"Exception details: {repr(e)}")
-            time.sleep(delay)
-            continue
+            return
+
+        # Exponential backoff with jitter, applied on every retry path.
+        sleep_time = min(delay * (2 ** (attempt - 1)), 120) + random.uniform(0, 2)
+        logger.info(f"Retrying sensor {sensor_data['name']} in {sleep_time:.1f} seconds...")
+        time.sleep(sleep_time)
 
 def fetch_calibration_from_api(delay):
     """Fetch calibration data from configured API endpoint."""
