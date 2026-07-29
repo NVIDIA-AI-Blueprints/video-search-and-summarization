@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=VSS PostgreSQL HA verified logical backup
+After=network-online.target wg-quick@wg-vss.service
+Wants=network-online.target
+Requires=wg-quick@wg-vss.service
+
+[Service]
+Type=oneshot
+User=vss-pg-backup
+Group=vss-pg-backup
+EnvironmentFile=/etc/vss-postgres-ha/backup.env
+Environment=GNUPGHOME=/run/vss-postgres-ha-backup-gnupg
+RuntimeDirectory=vss-postgres-ha-backup-gnupg
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/libexec/vss-postgres-ha/postgres-ha-backup.sh
+Nice=10
+CPUWeight=10
+IOWeight=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/backups/vss-postgres-ha
+LockPersonality=true
+MemoryDenyWriteExecute=true

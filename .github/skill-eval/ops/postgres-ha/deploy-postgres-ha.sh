@@ -4,7 +4,7 @@
 #
 # Deploy a three-node PostgreSQL/Patroni/etcd quorum on the first three of the
 # eight Brev coordinator machines. All eight machines join a WireGuard overlay
-# and retain their four dormant GitHub runners.
+# and retain their four online standby GitHub runners.
 set -euo pipefail
 umask 077
 
@@ -12,13 +12,20 @@ repository="${GITHUB_REPOSITORY:-NVIDIA-AI-Blueprints/video-search-and-summariza
 state_dir="${POSTGRES_HA_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/vss-skill-eval/postgres-ha}"
 apply=false
 confirm_reset=false
+confirm_etcd_reset=false
+confirm_legacy_drained=false
+confirm_no_legacy_database=false
+resume=false
 publish_github_secret=false
 
 usage() {
     cat >&2 <<'EOF'
 Usage:
   deploy-postgres-ha.sh
-  deploy-postgres-ha.sh --apply --confirm-reset-local-postgres [--publish-github-secret]
+  deploy-postgres-ha.sh --apply --confirm-reset-local-postgres \
+    --confirm-reset-local-etcd \
+    (--confirm-legacy-drained | --confirm-no-legacy-database) \
+    [--resume] [--publish-github-secret]
 
 The default is a read-only preflight. Generated CA material, passwords, and
 DSNs are stored outside the repository under POSTGRES_HA_STATE_DIR.
@@ -29,6 +36,10 @@ while (($#)); do
     case "$1" in
         --apply) apply=true; shift ;;
         --confirm-reset-local-postgres) confirm_reset=true; shift ;;
+        --confirm-reset-local-etcd) confirm_etcd_reset=true; shift ;;
+        --confirm-legacy-drained) confirm_legacy_drained=true; shift ;;
+        --confirm-no-legacy-database) confirm_no_legacy_database=true; shift ;;
+        --resume) resume=true; shift ;;
         --publish-github-secret) publish_github_secret=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; exit 2 ;;
@@ -39,12 +50,27 @@ done
     echo "Invalid GITHUB_REPOSITORY: $repository" >&2
     exit 2
 }
-if [[ "$apply" != true && ("$confirm_reset" == true || "$publish_github_secret" == true) ]]; then
+if [[ "$apply" != true &&
+      ("$confirm_reset" == true ||
+       "$confirm_etcd_reset" == true ||
+       "$confirm_legacy_drained" == true ||
+       "$confirm_no_legacy_database" == true ||
+       "$resume" == true ||
+       "$publish_github_secret" == true) ]]; then
     echo "Mutation flags require --apply" >&2
     exit 2
 fi
 if [[ "$apply" == true && "$confirm_reset" != true ]]; then
     echo "--confirm-reset-local-postgres is required with --apply" >&2
+    exit 2
+fi
+if [[ "$apply" == true && "$confirm_etcd_reset" != true ]]; then
+    echo "--confirm-reset-local-etcd is required with --apply" >&2
+    exit 2
+fi
+if [[ "$apply" == true &&
+      "$confirm_legacy_drained" == "$confirm_no_legacy_database" ]]; then
+    echo "Choose exactly one of --confirm-legacy-drained or --confirm-no-legacy-database" >&2
     exit 2
 fi
 
@@ -53,18 +79,24 @@ repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
 wireguard_key_script="$script_dir/prepare-wireguard-key.sh"
 wireguard_install_script="$script_dir/install-wireguard-node.sh"
 postgres_install_script="$script_dir/install-postgres-ha-node.sh"
+legacy_capture_script="$script_dir/capture-legacy-inventory.sh"
+migration_generator="$script_dir/generate-legacy-migration.py"
+backup_deployer="$script_dir/deploy-postgres-ha-backup.sh"
 patroni_unit="$script_dir/vss-postgres-ha.service"
 lease_schema="$repo_root/.github/skill-eval/postgres-gpu-leases.sql"
 for required in \
     "$wireguard_key_script" \
     "$wireguard_install_script" \
     "$postgres_install_script" \
+    "$legacy_capture_script" \
+    "$migration_generator" \
+    "$backup_deployer" \
     "$patroni_unit" \
     "$lease_schema"; do
     [[ -f "$required" ]] || { echo "Missing deployment input: $required" >&2; exit 1; }
 done
 
-for command in curl git openssl scp ssh; do
+for command in curl git openssl scp sha256sum ssh stat tar; do
     command -v "$command" >/dev/null || {
         echo "Missing local prerequisite: $command" >&2
         exit 1
@@ -89,53 +121,96 @@ for index in "${!coordinators[@]}"; do
     echo "READY: $host (node $expected_index)"
 done
 
-existing_summary="$(
-    ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-        "sudo -u postgres psql -d skill_eval_leases -Atqc 'select count(*) from public.gpu_workers' 2>/dev/null || echo 0"
-)"
-[[ "$existing_summary" =~ ^[0-9]+$ ]] || {
-    echo "Could not safely inventory the existing local lease database" >&2
-    exit 1
-}
-echo "Existing non-HA lease database contains ${existing_summary} worker row(s); it will be backed up before reset."
-
 if [[ "$apply" != true ]]; then
-    echo "Preflight only. Re-run with --apply --confirm-reset-local-postgres."
+    echo "Preflight only. Apply requires explicit PostgreSQL, etcd, and legacy-database confirmations."
     exit 0
-fi
-
-configured_nodes=0
-for index in $(seq 1 3); do
-    if ssh -o BatchMode=yes "${coordinators[$((index - 1))]}" \
-        "sudo test -f /etc/vss-postgres-ha/.node-configured"; then
-        configured_nodes="$((configured_nodes + 1))"
-    fi
-done
-if [[ "$configured_nodes" -ne 0 ]]; then
-    echo "Refusing to reset an existing/partial HA cluster (${configured_nodes}/3 nodes configured)." >&2
-    echo "Verify cluster health, then use finalize-postgres-ha.sh to complete a partial deployment." >&2
-    exit 2
 fi
 
 install -d -m 0700 "$state_dir"
 bundle_dir="$state_dir/bundle"
 secret_dir="$state_dir/secrets"
 inventory_dir="$state_dir/inventory"
-install -d -m 0700 "$bundle_dir" "$secret_dir" "$inventory_dir"
+phase_dir="$state_dir/phases"
+install -d -m 0700 "$bundle_dir" "$secret_dir" "$inventory_dir" "$phase_dir"
+
+started_nodes=0
+for index in $(seq 1 3); do
+    if ssh -o BatchMode=yes "${coordinators[$((index - 1))]}" \
+        "sudo test -f /etc/vss-postgres-ha/.node-configured || sudo test -f /etc/vss-postgres-ha/.install-started"; then
+        started_nodes="$((started_nodes + 1))"
+    fi
+done
+if [[ "$started_nodes" -ne 0 ]]; then
+    if [[ "$resume" != true ]]; then
+        echo "Refusing an existing/partial HA cluster (${started_nodes}/3 nodes started) without --resume." >&2
+        exit 2
+    fi
+    echo "Resuming an explicitly confirmed partial HA deployment (${started_nodes}/3 nodes started)."
+elif [[ "$resume" == true ]]; then
+    echo "--resume was requested, but no configured HA nodes were found" >&2
+    exit 2
+fi
+
+if [[ "$resume" == true ]]; then
+    required_resume_secrets=(
+        ca.key
+        ca.crt
+        cluster-token
+        postgres-password
+        replication-password
+        patroni-rest-password
+        lease-role-password
+        fence-role-password
+        backup-role-password
+    )
+    for secret_name in "${required_resume_secrets[@]}"; do
+        secret_path="$secret_dir/$secret_name"
+        [[ -s "$secret_path" ]] || {
+            echo "Resume requires existing operator secret state: $secret_path" >&2
+            exit 1
+        }
+        if [[ "$secret_name" != "ca.crt" &&
+              "$(stat -c '%a' "$secret_path")" != "600" ]]; then
+            echo "Resume secret must have mode 0600: $secret_path" >&2
+            exit 1
+        fi
+    done
+fi
 
 legacy_inventory_file="$bundle_dir/legacy-inventory.json"
 legacy_capture_file="$bundle_dir/.legacy-inventory.capture"
-if ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-    "sudo -u postgres psql -d skill_eval_leases -Atqc \"SELECT COALESCE(jsonb_agg(jsonb_build_object('gpu_id', w.gpu_id, 'enabled', w.enabled, 'metadata', w.metadata, 'generation', l.generation, 'live', l.owner_id IS NOT NULL AND l.lease_expires_at > statement_timestamp()) ORDER BY w.gpu_id), '[]'::jsonb) FROM public.gpu_workers AS w JOIN public.gpu_leases AS l USING (gpu_id)\"" \
-    >"$legacy_capture_file" 2>/dev/null; then
-    mv "$legacy_capture_file" "$legacy_inventory_file"
-elif [[ -s "$legacy_inventory_file" ]]; then
-    rm -f "$legacy_capture_file"
-    echo "Reusing the secured legacy inventory captured before the local database reset."
+legacy_capture_sha="$phase_dir/legacy-inventory.sha256"
+if [[ "$resume" == true ]]; then
+    [[ -s "$legacy_inventory_file" && -s "$legacy_capture_sha" ]] || {
+        echo "Resume requires the secured inventory and its capture marker" >&2
+        exit 1
+    }
+    (
+        cd "$bundle_dir"
+        sha256sum --check "$legacy_capture_sha"
+    )
+    echo "Using the hash-verified inventory captured before the original reset."
 else
-    rm -f "$legacy_capture_file"
-    echo "No live legacy database or secured migration inventory is available" >&2
-    exit 1
+    remote_capture="/tmp/vss-capture-legacy-inventory.sh"
+    scp -q "$legacy_capture_script" \
+        "vss-skill-validator-distributed-1:${remote_capture}"
+    capture_mode="absent"
+    [[ "$confirm_legacy_drained" == true ]] && capture_mode="drained"
+    if ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
+        "trap 'rm -f \"$remote_capture\"' EXIT HUP INT TERM; chmod 700 '$remote_capture'; sudo '$remote_capture' '$capture_mode'" \
+        >"$legacy_capture_file"; then
+        mv "$legacy_capture_file" "$legacy_inventory_file"
+    else
+        rm -f "$legacy_capture_file"
+        echo "Legacy database fencing/capture failed; no stale snapshot was reused" >&2
+        exit 1
+    fi
+    chmod 0600 "$legacy_inventory_file"
+    (
+        cd "$bundle_dir"
+        sha256sum "$(basename "$legacy_inventory_file")" >"$legacy_capture_sha"
+    )
+    chmod 0600 "$legacy_capture_sha"
 fi
 chmod 0600 "$legacy_inventory_file"
 python3 - "$legacy_inventory_file" <<'PY'
@@ -167,8 +242,7 @@ secret_file() {
 
 ca_key="$secret_dir/ca.key"
 ca_cert="$secret_dir/ca.crt"
-if [[ ! -s "$ca_key" || ! -s "$ca_cert" ]]; then
-    rm -f "$ca_key" "$ca_cert"
+if [[ ! -e "$ca_key" && ! -e "$ca_cert" ]]; then
     openssl genpkey \
         -algorithm EC \
         -pkeyopt ec_paramgen_curve:P-256 \
@@ -180,10 +254,42 @@ if [[ ! -s "$ca_key" || ! -s "$ca_cert" ]]; then
         -days 3650 \
         -key "$ca_key" \
         -subj "/CN=VSS Skill Eval PostgreSQL HA CA/O=NVIDIA" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" \
         -out "$ca_cert"
     chmod 0600 "$ca_key"
     chmod 0644 "$ca_cert"
+elif [[ ! -s "$ca_key" || ! -s "$ca_cert" ]]; then
+    echo "Refusing partial CA state; restore or rotate the deployment state explicitly" >&2
+    exit 1
 fi
+openssl x509 -checkend 2592000 -noout -in "$ca_cert" >/dev/null || {
+    echo "PostgreSQL HA CA is invalid or expires within 30 days" >&2
+    exit 1
+}
+openssl verify -CAfile "$ca_cert" "$ca_cert" >/dev/null
+openssl x509 -in "$ca_cert" -purpose -noout |
+    awk -F ' : ' '
+        $1 == "SSL server CA" && $2 == "Yes" {server_ca=1}
+        $1 == "CRL signing CA" && $2 == "Yes" {crl_ca=1}
+        END {exit !(server_ca && crl_ca)}
+    ' || {
+    echo "PostgreSQL HA CA lacks certificate-signing constraints" >&2
+    exit 1
+}
+ca_key_digest="$(
+    openssl pkey -in "$ca_key" -pubout -outform DER 2>/dev/null |
+        openssl dgst -sha256
+)"
+ca_cert_digest="$(
+    openssl x509 -in "$ca_cert" -pubkey -noout 2>/dev/null |
+        openssl pkey -pubin -outform DER 2>/dev/null |
+        openssl dgst -sha256
+)"
+[[ "$ca_key_digest" == "$ca_cert_digest" ]] || {
+    echo "PostgreSQL HA CA certificate does not match its private key" >&2
+    exit 1
+}
 
 cluster_token_file="$(secret_file cluster-token)"
 postgres_password_file="$(secret_file postgres-password)"
@@ -191,6 +297,7 @@ replication_password_file="$(secret_file replication-password)"
 rest_password_file="$(secret_file patroni-rest-password)"
 lease_password_file="$(secret_file lease-role-password)"
 fence_password_file="$(secret_file fence-role-password)"
+backup_password_file="$(secret_file backup-role-password)"
 
 cluster_token="$(<"$cluster_token_file")"
 postgres_password="$(<"$postgres_password_file")"
@@ -198,6 +305,7 @@ replication_password="$(<"$replication_password_file")"
 rest_password="$(<"$rest_password_file")"
 lease_password="$(<"$lease_password_file")"
 fence_password="$(<"$fence_password_file")"
+backup_password="$(<"$backup_password_file")"
 
 generate_certificate() {
     local name="$1"
@@ -207,9 +315,7 @@ generate_certificate() {
     local csr="$bundle_dir/${name}.csr"
     local cert="$bundle_dir/${name}.crt"
     local extension_file="$bundle_dir/${name}.extensions"
-    if [[ -s "$key" && -s "$cert" ]]; then
-        return
-    fi
+    rm -f "$key" "$csr" "$cert" "$extension_file"
     openssl genpkey \
         -algorithm EC \
         -pkeyopt ec_paramgen_curve:P-256 \
@@ -223,12 +329,30 @@ generate_certificate() {
         -in "$csr" \
         -CA "$ca_cert" \
         -CAkey "$ca_key" \
+        -CAserial "$secret_dir/ca.srl" \
         -CAcreateserial \
         -extfile "$extension_file" \
         -out "$cert" >/dev/null 2>&1
     rm -f "$csr" "$extension_file"
     chmod 0600 "$key"
     chmod 0644 "$cert"
+    openssl x509 -checkend 2592000 -noout -in "$cert" >/dev/null
+    openssl verify -CAfile "$ca_cert" "$cert" >/dev/null
+    local key_digest
+    local cert_digest
+    key_digest="$(
+        openssl pkey -in "$key" -pubout -outform DER 2>/dev/null |
+            openssl dgst -sha256
+    )"
+    cert_digest="$(
+        openssl x509 -in "$cert" -pubkey -noout 2>/dev/null |
+            openssl pkey -pubin -outform DER 2>/dev/null |
+            openssl dgst -sha256
+    )"
+    [[ "$key_digest" == "$cert_digest" ]] || {
+        echo "Generated certificate does not match its private key: $name" >&2
+        exit 1
+    }
 }
 
 declare -a public_ips
@@ -244,7 +368,7 @@ for index in "${!coordinators[@]}"; do
         echo "Invalid public IPv4 returned by $host" >&2
         exit 1
     }
-    public_ips[$node_index]="$public_ip"
+    public_ips[node_index]="$public_ip"
 
     remote_key_script="/tmp/vss-prepare-wireguard-key.sh"
     scp -q "$wireguard_key_script" "${host}:${remote_key_script}"
@@ -257,7 +381,7 @@ for index in "${!coordinators[@]}"; do
         echo "Invalid WireGuard public key returned by $host" >&2
         exit 1
     }
-    wireguard_keys[$node_index]="$public_key"
+    wireguard_keys[node_index]="$public_key"
     printf '%s\t%s\t%s\t%s\n' \
         "$node_index" "$host" "$public_ip" "$public_key" \
         >"$inventory_dir/node-${node_index}.tsv"
@@ -297,22 +421,72 @@ echo "Installing encrypted coordinator overlay..."
 for index in $(seq 1 8); do
     host="${coordinators[$((index - 1))]}"
     remote_dir="/tmp/vss-postgres-ha-wireguard"
-    ssh -o BatchMode=yes "$host" \
+    timeout --kill-after=15s 120s \
+        ssh -o BatchMode=yes -o ConnectTimeout=15 \
+        -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$host" \
         "rm -rf '$remote_dir' && mkdir -m 700 '$remote_dir'"
-    scp -qr "$bundle_dir/wireguard-${index}/." "${host}:${remote_dir}/"
-    scp -q \
+    timeout --kill-after=15s 300s \
+        scp -q -r -o ConnectTimeout=15 \
+        -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+        "$bundle_dir/wireguard-${index}/." "${host}:${remote_dir}/"
+    timeout --kill-after=15s 300s \
+        scp -q -o ConnectTimeout=15 \
+        -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
         "$wireguard_install_script" \
         "${host}:${remote_dir}/install-wireguard-node.sh"
-    ssh -o BatchMode=yes "$host" \
+    timeout --kill-after=30s 1200s \
+        ssh -o BatchMode=yes -o ConnectTimeout=15 \
+        -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$host" \
         "trap 'rm -rf \"$remote_dir\"' EXIT; chmod 700 '$remote_dir/install-wireguard-node.sh' && '$remote_dir/install-wireguard-node.sh' --payload-dir '$remote_dir' --node-index '$index' --coordinator-name '$host'"
 done
 
 for index in $(seq 1 8); do
     host="${coordinators[$((index - 1))]}"
-    ssh -o BatchMode=yes "$host" \
-        "for peer in 10.203.142.1 10.203.142.2 10.203.142.3; do ping -c1 -W3 \"\$peer\" >/dev/null; done"
+    expected_keys=()
+    for peer_index in $(seq 1 8); do
+        ((peer_index == index)) && continue
+        IFS=$'\t' read -r inventory_index _ _ peer_public_key \
+            <"$inventory_dir/node-${peer_index}.tsv"
+        [[ "$inventory_index" == "$peer_index" &&
+           "$peer_public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || {
+            echo "Invalid WireGuard inventory for node $peer_index" >&2
+            exit 1
+        }
+        expected_keys+=("$peer_public_key")
+    done
+    overlay_ready=false
+    for _ in $(seq 1 30); do
+        unset recent_keys
+        declare -A recent_keys=()
+        cutoff="$(($(date +%s) - 90))"
+        while read -r peer_public_key handshake_epoch; do
+            if [[ "$handshake_epoch" =~ ^[0-9]+$ ]] &&
+               ((handshake_epoch >= cutoff)); then
+                recent_keys["$peer_public_key"]=1
+            fi
+        done < <(
+            ssh -o BatchMode=yes "$host" \
+                "sudo wg show wg-vss latest-handshakes"
+        )
+        missing_expected=false
+        for peer_public_key in "${expected_keys[@]}"; do
+            if [[ -z "${recent_keys[$peer_public_key]:-}" ]]; then
+                missing_expected=true
+                break
+            fi
+        done
+        if [[ "$missing_expected" == false ]]; then
+            overlay_ready=true
+            break
+        fi
+        sleep 2
+    done
+    [[ "$overlay_ready" == true ]] || {
+        echo "WireGuard peer handshakes are incomplete on $host" >&2
+        exit 1
+    }
 done
-echo "Verified encrypted paths from all coordinators to all database nodes."
+echo "Verified recent authenticated handshakes across the coordinator overlay."
 
 initial_cluster=""
 for index in $(seq 1 3); do
@@ -536,21 +710,50 @@ done
 echo "Installing PostgreSQL HA packages and configuration..."
 for index in $(seq 1 3); do
     host="${coordinators[$((index - 1))]}"
-    remote_dir="/tmp/vss-postgres-ha-install"
-    ssh -o BatchMode=yes "$host" \
-        "rm -rf '$remote_dir' && mkdir -m 700 '$remote_dir'"
-    scp -qr "$bundle_dir/postgres-${index}/." "${host}:${remote_dir}/"
-    scp -q \
+    payload="$bundle_dir/postgres-${index}"
+    install -m 0700 \
         "$postgres_install_script" \
-        "${host}:${remote_dir}/install-postgres-ha-node.sh"
-    if ssh -o BatchMode=yes "$host" \
-        "chmod 700 '$remote_dir/install-postgres-ha-node.sh' && '$remote_dir/install-postgres-ha-node.sh' --payload-dir '$remote_dir' --node-index '$index' --coordinator-name '$host' --confirm-reset-local-postgres"; then
-        ssh -o BatchMode=yes "$host" "rm -rf '$remote_dir'"
-    else
-        ssh -o BatchMode=yes "$host" "rm -rf '$remote_dir'" || true
+        "$payload/install-postgres-ha-node.sh"
+    payload_archive="$(mktemp --suffix=.tar.gz "$bundle_dir/.postgres-${index}-payload.XXXXXX")"
+    tar -C "$payload" -czf "$payload_archive" .
+    remote_dir="/run/vss-postgres-ha-install"
+    remote_archive="$remote_dir/payload.tar.gz"
+    remote_pending=true
+    cleanup_node_payload() {
+        rm -f "$payload_archive"
+        if [[ "$remote_pending" == true ]]; then
+            ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" \
+                "sudo rm -rf '$remote_dir'" >/dev/null 2>&1 || true
+        fi
+    }
+    trap cleanup_node_payload EXIT HUP INT TERM
+    ssh -o BatchMode=yes "$host" \
+        "sudo rm -rf '$remote_dir' && sudo install -d -m 700 -o root -g root '$remote_dir' && sudo tee '$remote_archive' >/dev/null && sudo chmod 600 '$remote_archive'" \
+        <"$payload_archive"
+    if ! ssh -o BatchMode=yes "$host" \
+        "sudo bash -s -- '$remote_dir' '$index' '$host'" <<'REMOTE'
+set -euo pipefail
+remote_dir="$1"
+node_index="$2"
+coordinator_name="$3"
+trap 'rm -rf "$remote_dir"' EXIT HUP INT TERM
+tar --no-same-owner -xzf "$remote_dir/payload.tar.gz" -C "$remote_dir"
+rm -f "$remote_dir/payload.tar.gz"
+chmod 700 "$remote_dir" "$remote_dir/install-postgres-ha-node.sh"
+"$remote_dir/install-postgres-ha-node.sh" \
+    --payload-dir "$remote_dir" \
+    --node-index "$node_index" \
+    --coordinator-name "$coordinator_name" \
+    --confirm-reset-local-postgres \
+    --confirm-reset-local-etcd
+REMOTE
+    then
         echo "PostgreSQL HA installation failed on $host" >&2
         exit 1
     fi
+    remote_pending=false
+    cleanup_node_payload
+    trap - EXIT HUP INT TERM
 done
 
 echo "Starting three-member etcd quorum..."
@@ -578,15 +781,22 @@ if [[ "$etcd_healthy" != true ]]; then
     exit 1
 fi
 
-echo "Bootstrapping Patroni primary, then synchronous replicas..."
-ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-    "sudo systemctl restart vss-postgres-ha.service"
-leader_ready=false
-for _ in $(seq 1 60); do
-    if ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-        "sudo -u postgres patronictl -c /etc/vss-postgres-ha/patroni.yml list --format json" \
-        >"$bundle_dir/patroni-initial.json" 2>/dev/null &&
-       python3 - "$bundle_dir/patroni-initial.json" <<'PY'
+if [[ "$resume" == true ]]; then
+    echo "Restarting all Patroni members for deployment recovery..."
+    for index in $(seq 1 3); do
+        ssh -o BatchMode=yes "${coordinators[$((index - 1))]}" \
+            "sudo systemctl restart --no-block vss-postgres-ha.service"
+    done
+else
+    echo "Bootstrapping Patroni primary, then synchronous replicas..."
+    ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
+        "sudo systemctl restart vss-postgres-ha.service"
+    leader_ready=false
+    for _ in $(seq 1 60); do
+        if ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
+            "sudo -u postgres patronictl -c /etc/vss-postgres-ha/patroni.yml list --format json" \
+            >"$bundle_dir/patroni-initial.json" 2>/dev/null &&
+           python3 - "$bundle_dir/patroni-initial.json" <<'PY'
 import json
 import sys
 
@@ -594,23 +804,24 @@ members = json.load(open(sys.argv[1], encoding="utf-8"))
 if not any(member.get("Role") == "Leader" for member in members):
     raise SystemExit(1)
 PY
-    then
-        leader_ready=true
-        break
+        then
+            leader_ready=true
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$leader_ready" != true ]]; then
+        ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
+            "sudo systemctl status --no-pager vss-postgres-ha.service; sudo journalctl -u vss-postgres-ha.service -n 80 --no-pager" >&2 || true
+        echo "Patroni primary did not bootstrap" >&2
+        exit 1
     fi
-    sleep 2
-done
-if [[ "$leader_ready" != true ]]; then
-    ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-        "sudo systemctl status --no-pager vss-postgres-ha.service; sudo journalctl -u vss-postgres-ha.service -n 80 --no-pager" >&2 || true
-    echo "Patroni primary did not bootstrap" >&2
-    exit 1
-fi
 
-for index in 2 3; do
-    ssh -o BatchMode=yes "${coordinators[$((index - 1))]}" \
-        "sudo systemctl restart vss-postgres-ha.service"
-done
+    for index in 2 3; do
+        ssh -o BatchMode=yes "${coordinators[$((index - 1))]}" \
+            "sudo systemctl restart vss-postgres-ha.service"
+    done
+fi
 
 cluster_ready=false
 for _ in $(seq 1 90); do
@@ -649,58 +860,16 @@ if [[ "$cluster_ready" != true ]]; then
 fi
 
 legacy_migration_sql="$bundle_dir/legacy-inventory.sql"
-python3 - "$legacy_inventory_file" "$legacy_migration_sql" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-inventory = json.load(open(sys.argv[1], encoding="utf-8"))
-
-
-def quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-statements = [
-    "-- Preserve monotonic fencing generations from the inactive local canary DB."
-]
-for worker in inventory:
-    gpu_id = worker["gpu_id"]
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", gpu_id):
-        raise SystemExit(f"invalid legacy gpu_id: {gpu_id!r}")
-    metadata = json.dumps(worker.get("metadata", {}), separators=(",", ":"))
-    enabled = "true" if worker.get("enabled") else "false"
-    generation = int(worker["generation"])
-    if generation < 0:
-        raise SystemExit(f"invalid legacy generation for {gpu_id}")
-    statements.extend(
-        [
-            (
-                "INSERT INTO public.gpu_workers (gpu_id, enabled, metadata) "
-                f"VALUES ({quote(gpu_id)}, {enabled}, {quote(metadata)}::jsonb) "
-                "ON CONFLICT (gpu_id) DO UPDATE SET "
-                "enabled = EXCLUDED.enabled, metadata = EXCLUDED.metadata, "
-                "updated_at = statement_timestamp();"
-            ),
-            (
-                "UPDATE public.gpu_leases SET "
-                f"generation = GREATEST(generation, {generation}), "
-                "owner_id = NULL, lease_token = NULL, acquired_at = NULL, "
-                "renewed_at = statement_timestamp(), "
-                "lease_expires_at = statement_timestamp() "
-                f"WHERE gpu_id = {quote(gpu_id)};"
-            ),
-        ]
-    )
-pathlib.Path(sys.argv[2]).write_text("\n".join(statements) + "\n", encoding="utf-8")
-PY
-chmod 0600 "$legacy_migration_sql"
+python3 "$migration_generator" \
+    "$legacy_inventory_file" \
+    "$legacy_migration_sql"
 
 bootstrap_sql="$bundle_dir/bootstrap-lease-database.sql"
 cat >"$bootstrap_sql" <<EOF
 \set ON_ERROR_STOP on
 DO \$bootstrap\$
+DECLARE
+    membership record;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'skill_eval_owner') THEN
         CREATE ROLE skill_eval_owner NOLOGIN;
@@ -711,13 +880,39 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'skill_eval_fence') THEN
         CREATE ROLE skill_eval_fence LOGIN;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'skill_eval_backup') THEN
+        CREATE ROLE skill_eval_backup LOGIN;
+    END IF;
+    FOR membership IN
+        SELECT parent.rolname AS granted_role, member.rolname AS member_role
+        FROM pg_catalog.pg_auth_members AS relation
+        JOIN pg_catalog.pg_roles AS parent ON parent.oid = relation.roleid
+        JOIN pg_catalog.pg_roles AS member ON member.oid = relation.member
+        WHERE member.rolname IN (
+            'skill_eval_owner',
+            'skill_eval_lease',
+            'skill_eval_fence',
+            'skill_eval_backup'
+        )
+    LOOP
+        EXECUTE format(
+            'REVOKE %I FROM %I',
+            membership.granted_role,
+            membership.member_role
+        );
+    END LOOP;
+    ALTER ROLE skill_eval_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
     EXECUTE format(
-        'ALTER ROLE skill_eval_lease LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
+        'ALTER ROLE skill_eval_lease LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L',
         '${lease_password}'
     );
     EXECUTE format(
-        'ALTER ROLE skill_eval_fence LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L',
+        'ALTER ROLE skill_eval_fence LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L',
         '${fence_password}'
+    );
+    EXECUTE format(
+        'ALTER ROLE skill_eval_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L',
+        '${backup_password}'
     );
 END
 \$bootstrap\$;
@@ -727,7 +922,7 @@ WHERE NOT EXISTS (
 )\gexec
 \connect eval
 REVOKE CONNECT ON DATABASE eval FROM PUBLIC;
-GRANT CONNECT ON DATABASE eval TO skill_eval_lease, skill_eval_fence;
+GRANT CONNECT ON DATABASE eval TO skill_eval_lease, skill_eval_fence, skill_eval_backup;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 SET ROLE skill_eval_owner;
 \ir postgres-gpu-leases.sql
@@ -736,25 +931,67 @@ RESET ROLE;
 EOF
 chmod 0600 "$bootstrap_sql"
 
-remote_bootstrap="/tmp/vss-postgres-ha-bootstrap"
-ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-    "rm -rf '$remote_bootstrap' && mkdir -m 700 '$remote_bootstrap'"
-scp -q "$bootstrap_sql" \
-    "vss-skill-validator-distributed-1:${remote_bootstrap}/bootstrap.sql"
-scp -q "$lease_schema" \
-    "vss-skill-validator-distributed-1:${remote_bootstrap}/postgres-gpu-leases.sql"
-scp -q "$legacy_migration_sql" \
-    "vss-skill-validator-distributed-1:${remote_bootstrap}/legacy-inventory.sql"
-if ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-    "sudo chown -R postgres:postgres '$remote_bootstrap' && sudo chmod 700 '$remote_bootstrap' && sudo chmod 600 '$remote_bootstrap/bootstrap.sql' '$remote_bootstrap/postgres-gpu-leases.sql' '$remote_bootstrap/legacy-inventory.sql' && sudo -u postgres psql --no-psqlrc -f '$remote_bootstrap/bootstrap.sql'"; then
-    ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-        "sudo rm -rf '$remote_bootstrap'"
-else
-    ssh -o BatchMode=yes vss-skill-validator-distributed-1 \
-        "sudo rm -rf '$remote_bootstrap'" || true
+bootstrap_leader="$(
+    python3 - "$bundle_dir/patroni-cluster.json" <<'PY'
+import json
+import sys
+
+members = json.load(open(sys.argv[1], encoding="utf-8"))
+leaders = [member.get("Member") for member in members if member.get("Role") == "Leader"]
+if len(leaders) != 1 or leaders[0] not in {"vss-pg-1", "vss-pg-2", "vss-pg-3"}:
+    raise SystemExit("could not select exactly one bootstrap leader")
+print("vss-skill-validator-distributed-" + leaders[0].removeprefix("vss-pg-"))
+PY
+)"
+
+bootstrap_payload="$(mktemp -d "$bundle_dir/.bootstrap-payload.XXXXXX")"
+bootstrap_archive="$(mktemp --suffix=.tar.gz "$bundle_dir/.bootstrap-payload.XXXXXX")"
+install -m 0600 "$bootstrap_sql" "$bootstrap_payload/bootstrap.sql"
+install -m 0600 \
+    "$lease_schema" \
+    "$bootstrap_payload/postgres-gpu-leases.sql"
+install -m 0600 \
+    "$legacy_migration_sql" \
+    "$bootstrap_payload/legacy-inventory.sql"
+tar -C "$bootstrap_payload" -czf "$bootstrap_archive" .
+
+remote_bootstrap="/run/vss-postgres-ha-bootstrap"
+remote_bootstrap_archive="$remote_bootstrap/payload.tar.gz"
+bootstrap_pending=true
+cleanup_bootstrap_payload() {
+    rm -rf "$bootstrap_payload" "$bootstrap_archive"
+    if [[ "$bootstrap_pending" == true ]]; then
+        ssh -o BatchMode=yes -o ConnectTimeout=5 "$bootstrap_leader" \
+            "sudo rm -rf '$remote_bootstrap'" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup_bootstrap_payload EXIT HUP INT TERM
+ssh -o BatchMode=yes "$bootstrap_leader" \
+    "sudo rm -rf '$remote_bootstrap' && sudo install -d -m 700 -o root -g root '$remote_bootstrap' && sudo tee '$remote_bootstrap_archive' >/dev/null && sudo chmod 600 '$remote_bootstrap_archive'" \
+    <"$bootstrap_archive"
+if ! ssh -o BatchMode=yes "$bootstrap_leader" \
+    "sudo bash -s -- '$remote_bootstrap'" <<'REMOTE'
+set -euo pipefail
+remote_bootstrap="$1"
+trap 'rm -rf "$remote_bootstrap"' EXIT HUP INT TERM
+tar --no-same-owner \
+    -xzf "$remote_bootstrap/payload.tar.gz" \
+    -C "$remote_bootstrap"
+rm -f "$remote_bootstrap/payload.tar.gz"
+chown -R postgres:postgres "$remote_bootstrap"
+chmod 700 "$remote_bootstrap"
+chmod 600 "$remote_bootstrap"/*.sql
+sudo -u postgres psql \
+    --no-psqlrc \
+    -f "$remote_bootstrap/bootstrap.sql"
+REMOTE
+then
     echo "Lease database bootstrap failed" >&2
     exit 1
 fi
+bootstrap_pending=false
+cleanup_bootstrap_payload
+trap - EXIT HUP INT TERM
 
 hosts_uri="vss-pg-1:5432,vss-pg-2:5432,vss-pg-3:5432"
 common_query="sslmode=verify-full&sslrootcert=/etc/vss-postgres-ha/ca.crt&target_session_attrs=read-write&connect_timeout=5"
@@ -771,32 +1008,17 @@ chmod 0600 "$lease_dsn_file" "$fence_dsn_file" "$admin_dsn_file"
 
 echo "Validating read/write primary discovery from all eight coordinators..."
 for host in "${coordinators[@]}"; do
-    remote_dsn="/tmp/.vss-postgres-ha-validation-dsn"
-    scp -q "$lease_dsn_file" "${host}:${remote_dsn}"
     if ssh -o BatchMode=yes "$host" \
-        "chmod 600 '$remote_dsn' && /home/ubuntu/eval-coordinator/venv/bin/python - '$remote_dsn' <<'PY'
-import pathlib
-import sys
-
-import psycopg
-
-dsn = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8').strip()
-with psycopg.connect(dsn, autocommit=True) as connection:
-    with connection.cursor() as cursor:
-        cursor.execute('SELECT NOT pg_is_in_recovery()')
-        if cursor.fetchone() != (True,):
-            raise SystemExit('multi-host DSN did not select the writable primary')
-PY
-status=\$?
-rm -f '$remote_dsn'
-exit \$status"; then
+        "/home/ubuntu/eval-coordinator/venv/bin/python -c 'import sys, psycopg; dsn = sys.stdin.read().strip(); connection = psycopg.connect(dsn, autocommit=True); cursor = connection.cursor(); cursor.execute(\"SELECT NOT pg_is_in_recovery()\"); result = cursor.fetchone(); cursor.close(); connection.close(); assert result == (True,)' " \
+        <"$lease_dsn_file"; then
         echo "DATABASE READY: $host"
     else
-        ssh -o BatchMode=yes "$host" "rm -f '$remote_dsn'" || true
         echo "Database validation failed from $host" >&2
         exit 1
     fi
 done
+
+POSTGRES_HA_STATE_DIR="$state_dir" "$backup_deployer" --apply
 
 if [[ "$publish_github_secret" == true ]]; then
     gh secret set \

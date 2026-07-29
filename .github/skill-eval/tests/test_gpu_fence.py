@@ -65,6 +65,21 @@ class Cleanup:
         self.calls.append((list(process_groups), reason))
 
 
+def initialize_state(path: Path, generation: int = 0) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "boot_id": Path("/proc/sys/kernel/random/boot_id")
+                .read_text(encoding="utf-8")
+                .strip(),
+                "generation": generation,
+                "process_groups": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 class FenceControllerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -72,6 +87,7 @@ class FenceControllerTests(unittest.TestCase):
         self.clock = Clock()
         self.validator = Validator()
         self.cleanup = Cleanup()
+        initialize_state(self.state_path)
         self.controller = FenceController(
             "gpu-a",
             self.validator,
@@ -219,6 +235,24 @@ class FenceControllerTests(unittest.TestCase):
             controller.startup_cleanup()
         self.assertEqual(len(cleanup.calls), 1)
         self.assertIn("invalid persisted fence state", cleanup.calls[0][1])
+        self.assertTrue(controller.status()["blocked"])
+
+    def test_missing_state_cleans_worker_and_requires_explicit_reinitialization(self):
+        self.state_path.unlink()
+        cleanup = Cleanup()
+        controller = FenceController(
+            "gpu-a",
+            self.validator,
+            state_path=self.state_path,
+            cleanup=cleanup,
+            monotonic=self.clock,
+            shutdown_margin_sec=30,
+        )
+
+        with self.assertRaisesRegex(FenceError, "operator repair"):
+            controller.startup_cleanup()
+        self.assertEqual(len(cleanup.calls), 1)
+        self.assertIn("missing high-water state", cleanup.calls[0][1])
         self.assertTrue(controller.status()["blocked"])
 
     def test_unreadable_state_still_cleans_worker_then_blocks_startup(self):

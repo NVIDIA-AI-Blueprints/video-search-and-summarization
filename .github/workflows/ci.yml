@@ -174,8 +174,11 @@ jobs:
           TEST_POSTGRES_DSN: postgresql://postgres:test@127.0.0.1:5432/leases
         run: |
           python3 .github/skill-eval/tests/test_distributed_lock.py
+          python3 .github/skill-eval/tests/test_generate_legacy_migration.py
           python3 .github/skill-eval/tests/test_gpu_fence.py
+          python3 .github/skill-eval/tests/test_monitoring_health.py
           python3 .github/skill-eval/tests/test_plan_matrix.py
+          python3 .github/skill-eval/tests/test_update_wireguard_client_peer.py
           python3 .github/skill-eval/envs/tests/test_gpu_fence.py
           python3 .github/skill-eval/tests/test_run_leg.py \
             HoldDistributedPoolLock RunCommandLeaseHealth HoldPoolLock \

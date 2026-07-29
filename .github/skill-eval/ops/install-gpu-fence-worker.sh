@@ -9,6 +9,7 @@ umask 077
 gpu_id=""
 database_url_file=""
 eval_user="$(id -un)"
+confirm_drained=false
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 while [[ $# -gt 0 ]]; do
@@ -24,6 +25,10 @@ while [[ $# -gt 0 ]]; do
         --eval-user)
             eval_user="${2:-}"
             shift 2
+            ;;
+        --confirm-drained)
+            confirm_drained=true
+            shift
             ;;
         *)
             echo "Unknown argument: $1" >&2
@@ -41,6 +46,10 @@ done
     exit 2
 }
 id "$eval_user" >/dev/null
+[[ "$confirm_drained" == true ]] || {
+    echo "--confirm-drained is required to initialize or restart the worker fence" >&2
+    exit 2
+}
 [[ -f "$database_url_file" ]] || {
     echo "Missing --database-url-file" >&2
     exit 2
@@ -61,6 +70,7 @@ cleanup_secret() {
         rm -f "$database_url_file"
     fi
     [[ -z "${config_tmp:-}" ]] || rm -f "$config_tmp"
+    [[ -z "${state_tmp:-}" ]] || rm -f "$state_tmp"
 }
 trap cleanup_secret EXIT
 
@@ -120,6 +130,33 @@ ${eval_user} ALL=(root) NOPASSWD: /usr/local/bin/vss-gpu-fence status
 EOF
 sudo chmod 0440 /etc/sudoers.d/vss-gpu-fence
 sudo visudo -cf /etc/sudoers.d/vss-gpu-fence >/dev/null
+
+sudo systemctl stop vss-gpu-fence.service >/dev/null 2>&1 || true
+if ! sudo test -s /var/lib/vss-gpu-fence/high-water.json; then
+    state_tmp="$(mktemp)"
+    python3 - >"$state_tmp" <<'PY'
+import json
+from pathlib import Path
+
+print(
+    json.dumps(
+        {
+            "boot_id": Path(
+                "/proc/sys/kernel/random/boot_id"
+            ).read_text(encoding="utf-8").strip(),
+            "generation": 0,
+            "process_groups": [],
+        },
+        sort_keys=True,
+    )
+)
+PY
+    sudo install -d -m 0700 -o root -g root /var/lib/vss-gpu-fence
+    sudo install -m 0600 -o root -g root \
+        "$state_tmp" /var/lib/vss-gpu-fence/high-water.json
+    rm -f "$state_tmp"
+    state_tmp=""
+fi
 
 sudo systemctl daemon-reload
 sudo systemctl enable vss-gpu-fence.service

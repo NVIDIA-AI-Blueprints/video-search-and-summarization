@@ -2,21 +2,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Generate the Grafana dashboard JSON for distributed CPU coordinators."""
+
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
 
-
 DATASOURCE = {"type": "influxdb", "uid": "${DS_INFLUXDB}"}
-HOST_FILTER = 'r.coordinator_id =~ /^${coordinator:regex}$/'
+HOST_FILTER = "r.coordinator_id =~ /^${coordinator:regex}$/"
 
 
 def flux(measurement: str, field: str, extra: str = "", transform: str = "") -> str:
     clauses = [
-        'from(bucket: v.defaultBucket)',
-        '  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)',
+        "from(bucket: v.defaultBucket)",
+        "  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)",
         '  |> filter(fn: (r) => r.fleet == "vss-skill-eval-distributed")',
         f"  |> filter(fn: (r) => {HOST_FILTER})",
         f'  |> filter(fn: (r) => r._measurement == "{measurement}")',
@@ -33,6 +33,61 @@ def flux(measurement: str, field: str, extra: str = "", transform: str = "") -> 
     if transform:
         clauses.append(transform)
     return "\n".join(clauses)
+
+
+def fresh_flux(measurement: str, field: str, extra: str = "") -> str:
+    clauses = [
+        "from(bucket: v.defaultBucket)",
+        "  |> range(start: -2m)",
+        '  |> filter(fn: (r) => r.fleet == "vss-skill-eval-distributed")',
+        f"  |> filter(fn: (r) => {HOST_FILTER})",
+        f'  |> filter(fn: (r) => r._measurement == "{measurement}")',
+        f'  |> filter(fn: (r) => r._field == "{field}")',
+    ]
+    if extra:
+        clauses.append(f"  |> filter(fn: (r) => {extra})")
+    clauses.extend(
+        [
+            '  |> group(columns: ["coordinator_id"])',
+            "  |> last()",
+        ]
+    )
+    return "\n".join(clauses)
+
+
+def fresh_coverage(
+    extra: str,
+    expected_hosts: int,
+    *,
+    success_value: int = 1,
+    failure_value: int = 0,
+) -> str:
+    return f"""
+import "array"
+
+observed =
+    from(bucket: v.defaultBucket)
+      |> range(start: -2m)
+      |> filter(fn: (r) => r.fleet == "vss-skill-eval-distributed")
+      |> filter(fn: (r) => r._measurement == "vss_ha_probe")
+      |> filter(fn: (r) => r._field == "heartbeat")
+      |> filter(fn: (r) => {extra})
+      |> group(columns: ["coordinator_id"])
+      |> last()
+      |> group()
+      |> count(column: "_value")
+
+baseline = array.from(rows: [{{_time: now(), _value: 0}}])
+
+union(tables: [observed, baseline])
+  |> max(column: "_value")
+  |> map(fn: (r) => ({{
+      r with
+      _time: now(),
+      _value: if r._value == {expected_hosts} then {success_value} else {failure_value},
+      coordinator_id: "coverage"
+  }}))
+""".strip()
 
 
 def target(query: str, ref_id: str = "A") -> dict:
@@ -75,7 +130,11 @@ def panel(
     description: str = "",
 ) -> dict:
     defaults = {
-        "color": {"mode": "palette-classic"},
+        "color": {
+            "mode": "thresholds"
+            if panel_type in {"stat", "gauge"}
+            else "palette-classic"
+        },
         "custom": {
             "axisCenteredZero": False,
             "axisColorMode": "text",
@@ -136,7 +195,7 @@ def dashboard() -> dict:
 from(bucket: v.defaultBucket)
   |> range(start: -2m)
   |> filter(fn: (r) => r.fleet == "vss-skill-eval-distributed")
-  |> filter(fn: (r) => r._measurement == "system" and r._field == "uptime")
+  |> filter(fn: (r) => r._measurement == "vss_ha_probe" and r._field == "heartbeat")
   |> last()
   |> keep(columns: ["coordinator_id"])
   |> group()
@@ -159,11 +218,84 @@ from(bucket: v.defaultBucket)
         "write_bytes",
         transform="  |> derivative(unit: 1s, nonNegative: true)",
     )
+    patroni_healthy = fresh_flux(
+        "vss_ha_cluster",
+        "healthy",
+        "r.coordinator_id =~ /distributed-[123]$/",
+    )
+    etcd_healthy = fresh_flux(
+        "vss_etcd_quorum",
+        "healthy",
+        "r.coordinator_id =~ /distributed-[123]$/",
+    )
+    database_coverage = fresh_coverage(
+        "r.coordinator_id =~ /distributed-[123]$/",
+        3,
+    )
+    backup_result = fresh_flux(
+        "vss_ha_unit",
+        "result_success",
+        'r.unit == "backup" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    restore_result = fresh_flux(
+        "vss_ha_unit",
+        "result_success",
+        'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    backup_timer = fresh_flux(
+        "vss_ha_unit",
+        "active",
+        'r.unit == "backup_timer" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    restore_timer = fresh_flux(
+        "vss_ha_unit",
+        "active",
+        'r.unit == "restore_test_timer" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    backup_valid = fresh_flux(
+        "vss_ha_evidence",
+        "valid",
+        'r.unit == "backup" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    restore_valid = fresh_flux(
+        "vss_ha_evidence",
+        "valid",
+        'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    recovery_coverage = fresh_coverage(
+        "r.coordinator_id =~ /distributed-[45]$/",
+        2,
+    )
+    backup_age = fresh_flux(
+        "vss_ha_evidence",
+        "age_seconds",
+        'r.unit == "backup" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    restore_age = fresh_flux(
+        "vss_ha_evidence",
+        "age_seconds",
+        'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
+    )
+    backup_age_coverage = fresh_coverage(
+        "r.coordinator_id =~ /distributed-[45]$/",
+        2,
+        success_value=0,
+        failure_value=999999999,
+    )
 
     panels = [
         panel(
-            1, "Hosts reporting (last 2m)", "stat", 0, 0, 6, 4,
-            [target(host_count)], "short", minimum=0, maximum=8,
+            1,
+            "Hosts reporting (last 2m)",
+            "stat",
+            0,
+            0,
+            6,
+            4,
+            [target(host_count)],
+            "short",
+            minimum=0,
+            maximum=8,
             panel_thresholds={
                 "mode": "absolute",
                 "steps": [
@@ -175,52 +307,200 @@ from(bucket: v.defaultBucket)
             description="Must remain at 8. A lower value means at least one Telegraf agent stopped reporting.",
         ),
         panel(
-            2, "CPU active", "stat", 6, 0, 6, 4,
-            [target(cpu)], "percent", maximum=100,
+            2,
+            "CPU active",
+            "stat",
+            6,
+            0,
+            6,
+            4,
+            [target(cpu)],
+            "percent",
+            maximum=100,
             description="Latest active CPU percentage by coordinator.",
         ),
         panel(
-            3, "RAM used", "stat", 12, 0, 6, 4,
-            [target(memory)], "percent", maximum=100,
+            3,
+            "RAM used",
+            "stat",
+            12,
+            0,
+            6,
+            4,
+            [target(memory)],
+            "percent",
+            maximum=100,
             description="Latest host memory usage by coordinator.",
         ),
         panel(
-            4, "Root disk free", "stat", 18, 0, 6, 4,
-            [target(disk_free)], "bytes", minimum=0,
+            4,
+            "Root disk free",
+            "stat",
+            18,
+            0,
+            6,
+            4,
+            [target(disk_free)],
+            "bytes",
+            minimum=0,
             panel_thresholds=neutral_thresholds(),
             description="Free bytes on /. Use the disk-used panel for warning thresholds.",
         ),
         panel(
-            5, "CPU active by coordinator", "timeseries", 0, 4, 12, 8,
-            [target(cpu)], "percent", maximum=100,
+            5,
+            "CPU active by coordinator",
+            "timeseries",
+            0,
+            4,
+            12,
+            8,
+            [target(cpu)],
+            "percent",
+            maximum=100,
             description="Warn above 80%; investigate sustained usage above 90%.",
         ),
         panel(
-            6, "RAM used by coordinator", "timeseries", 12, 4, 12, 8,
-            [target(memory)], "percent", maximum=100,
+            6,
+            "RAM used by coordinator",
+            "timeseries",
+            12,
+            4,
+            12,
+            8,
+            [target(memory)],
+            "percent",
+            maximum=100,
             description="Warn above 80%; critical above 90%.",
         ),
         panel(
-            7, "Root disk used", "timeseries", 0, 12, 12, 8,
-            [target(disk_used)], "percent", maximum=100,
+            7,
+            "Root disk used",
+            "timeseries",
+            0,
+            12,
+            12,
+            8,
+            [target(disk_used)],
+            "percent",
+            maximum=100,
             description="Warn above 80%; critical above 90%.",
         ),
         panel(
-            8, "Disk throughput", "timeseries", 12, 12, 12, 8,
-            [target(disk_read, "A"), target(disk_write, "B")], "Bps",
+            8,
+            "Disk throughput",
+            "timeseries",
+            12,
+            12,
+            12,
+            8,
+            [target(disk_read, "A"), target(disk_write, "B")],
+            "Bps",
             panel_thresholds=neutral_thresholds(),
             description="Per-second read and write throughput. Series are grouped by coordinator.",
         ),
         panel(
-            9, "1-minute load average", "timeseries", 0, 20, 12, 8,
-            [target(load)], "short",
+            9,
+            "1-minute load average",
+            "timeseries",
+            0,
+            20,
+            12,
+            8,
+            [target(load)],
+            "short",
             panel_thresholds=neutral_thresholds(),
             description="Compare load with each machine's vCPU count.",
         ),
         panel(
-            10, "Swap used", "timeseries", 12, 20, 12, 8,
-            [target(swap)], "percent", maximum=100,
+            10,
+            "Swap used",
+            "timeseries",
+            12,
+            20,
+            12,
+            8,
+            [target(swap)],
+            "percent",
+            maximum=100,
             description="Sustained swap growth is an early memory-pressure signal.",
+        ),
+        panel(
+            11,
+            "HA cluster health",
+            "stat",
+            0,
+            28,
+            8,
+            6,
+            [
+                target(patroni_healthy, "A"),
+                target(etcd_healthy, "B"),
+                target(database_coverage, "C"),
+            ],
+            "bool",
+            maximum=1,
+            panel_thresholds={
+                "mode": "absolute",
+                "steps": [
+                    {"color": "red", "value": None},
+                    {"color": "green", "value": 1},
+                ],
+            },
+            description="Patroni topology and all three etcd endpoints must be healthy.",
+        ),
+        panel(
+            12,
+            "Backup and restore health",
+            "stat",
+            8,
+            28,
+            8,
+            6,
+            [
+                target(backup_result, "A"),
+                target(restore_result, "B"),
+                target(backup_timer, "C"),
+                target(restore_timer, "D"),
+                target(backup_valid, "E"),
+                target(restore_valid, "F"),
+                target(recovery_coverage, "G"),
+            ],
+            "bool",
+            maximum=1,
+            panel_thresholds={
+                "mode": "absolute",
+                "steps": [
+                    {"color": "red", "value": None},
+                    {"color": "green", "value": 1},
+                ],
+            },
+            description="Fresh timer and result state for both recovery hosts.",
+        ),
+        panel(
+            13,
+            "Backup age",
+            "stat",
+            16,
+            28,
+            4,
+            6,
+            [target(backup_age, "A"), target(backup_age_coverage, "B")],
+            "s",
+            panel_thresholds=thresholds(5400, 7200),
+            description="Latest verified backup should remain under 2h old.",
+        ),
+        panel(
+            14,
+            "Restore proof age",
+            "stat",
+            20,
+            28,
+            4,
+            6,
+            [target(restore_age, "A"), target(backup_age_coverage, "B")],
+            "s",
+            panel_thresholds=thresholds(604800, 691200),
+            description="Latest clean-cluster restore proof should remain under 8d old.",
         ),
     ]
     return {
@@ -235,7 +515,7 @@ from(bucket: v.defaultBucket)
             }
         ],
         "annotations": {"list": []},
-        "description": "CPU, RAM, root disk, disk I/O, load, and availability for eight VSS skill-eval CPU coordinators.",
+        "description": "CPU, RAM, disk, HA service, backup, restore, load, and availability for eight VSS skill-eval coordinators.",
         "editable": True,
         "fiscalYearStartMonth": 0,
         "graphTooltip": 1,

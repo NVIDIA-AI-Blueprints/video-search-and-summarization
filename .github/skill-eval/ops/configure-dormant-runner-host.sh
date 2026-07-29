@@ -2,9 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Configure four repository runners on one CPU coordinator. Runners are
-# registered with a quarantine label and their services remain disabled and
-# stopped. This script never activates a runner.
+# Configure four repository runners on one CPU coordinator. Runners stay
+# online with a standby-only label that no production workflow selects.
 set -euo pipefail
 
 repository="${GITHUB_REPOSITORY:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
@@ -17,9 +16,10 @@ install_root="${RUNNER_INSTALL_ROOT:-/home/ubuntu/actions-runners}"
 coordinator_root="${COORDINATOR_ROOT:-/home/ubuntu/eval-coordinator}"
 standby_label="${RUNNER_STANDBY_LABEL:-vss-skill-eval-standby}"
 coordinator_id="${COORDINATOR_ID:-}"
+defer_start=false
 
 usage() {
-    echo "Usage: $0 --token-file PATH --coordinator-env-file PATH --brev-binary PATH --brev-config-archive PATH --coordinator-id NAME [--repository OWNER/REPO] [--runner-count 4]" >&2
+    echo "Usage: $0 --token-file PATH --coordinator-env-file PATH --brev-binary PATH --brev-config-archive PATH --coordinator-id NAME [--repository OWNER/REPO] [--runner-count 4] [--defer-start]" >&2
 }
 
 while (($#)); do
@@ -32,6 +32,7 @@ while (($#)); do
         --runner-count) runner_count="${2:?missing runner count}"; shift 2 ;;
         --install-root) install_root="${2:?missing install root}"; shift 2 ;;
         --coordinator-id) coordinator_id="${2:?missing coordinator ID}"; shift 2 ;;
+        --defer-start) defer_start=true; shift ;;
         *) usage; exit 2 ;;
     esac
 done
@@ -67,9 +68,8 @@ case "$coordinator_id" in
         ;;
 esac
 
-chmod 600 "$token_file"
 registration_token="$(<"$token_file")"
-trap 'registration_token=""; rm -f "$token_file"' EXIT
+trap 'registration_token=""; rm -f "$token_file" "${validated_env:-}" 2>/dev/null || true' EXIT
 [[ -n "$registration_token" ]] || { echo "registration token is empty" >&2; exit 2; }
 
 sudo apt-get update -qq
@@ -85,17 +85,54 @@ chmod -R go-rwx "$HOME/.brev"
 timeout 30 /usr/local/bin/brev ls --json >/dev/null
 
 mkdir -p "$install_root" "$coordinator_root"
-python3 - "$coordinator_env_file" <<'PY'
+validated_env="$(mktemp)"
+chmod 0600 "$validated_env"
+python3 - "$coordinator_env_file" >"$validated_env" <<'PY'
 import pathlib
+import re
+import shlex
 import sys
 
+allowed = {
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "BREV_REGISTERED_POOL",
+    "BREV_RTX4090_POOL",
+    "GIT_USER_EMAIL",
+    "GIT_USER_NAME",
+    "HF_TOKEN",
+    "JUDGE_MODEL",
+    "LLM_REMOTE_MODEL",
+    "LLM_REMOTE_URL",
+    "NGC_CLI_API_KEY",
+    "NVIDIA_API_KEY",
+    "SKILLS_EVAL_MODEL",
+    "VLM_REMOTE_MODEL",
+    "VLM_REMOTE_URL",
+}
 values = {}
-for raw_line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+for line_number, raw_line in enumerate(
+    pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines(),
+    start=1,
+):
     line = raw_line.strip()
-    if not line or line.startswith("#") or "=" not in line:
+    if not line or line.startswith("#"):
         continue
-    name, value = line.split("=", 1)
-    values[name.strip()] = value.strip()
+    match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", line)
+    if not match:
+        raise SystemExit(
+            f"unsupported coordinator environment syntax on line {line_number}"
+        )
+    name, raw_value = match.groups()
+    if name not in allowed:
+        raise SystemExit(f"unsupported coordinator environment variable: {name}")
+    if name in values:
+        raise SystemExit(f"duplicate coordinator environment variable: {name}")
+    parsed = shlex.split(raw_value, comments=False, posix=True)
+    if len(parsed) > 1:
+        raise SystemExit(f"coordinator environment value must be one token: {name}")
+    values[name] = parsed[0] if parsed else ""
 
 required = {
     "ANTHROPIC_API_KEY",
@@ -106,8 +143,11 @@ if missing:
     raise SystemExit(
         "coordinator environment is missing required values: " + ", ".join(missing)
     )
+for name, value in values.items():
+    print(f"{name}={shlex.quote(value)}")
 PY
-install -m 600 "$coordinator_env_file" "$coordinator_root/.env"
+sudo install -m 0640 -o root -g "$(id -gn)" \
+    "$validated_env" "$coordinator_root/.env"
 python3 -m venv "$coordinator_root/venv"
 "$coordinator_root/venv/bin/python" -m pip install -q --upgrade pip
 "$coordinator_root/venv/bin/python" -m pip install -q "psycopg[binary]>=3.2,<4"
@@ -156,8 +196,7 @@ for index in $(seq 1 "$runner_count"); do
                 --labels "${standby_label},${coordinator_id}" \
                 --work "_work" \
                 --unattended \
-                --replace \
-                --disableupdate
+                --replace
         )
     fi
 
@@ -172,13 +211,23 @@ EOF
         (cd "$runner_dir" && sudo ./svc.sh install "$(id -un)")
     fi
     service_name="$(<"$runner_dir/.service")"
-    sudo systemctl disable --now "$service_name"
-    if systemctl is-active --quiet "$service_name"; then
-        echo "FATAL: $service_name is active after standby configuration" >&2
-        exit 1
+    if [[ "$defer_start" == false ]]; then
+        sudo systemctl enable "$service_name"
+        sudo systemctl start "$service_name"
+        if ! systemctl is-active --quiet "$service_name"; then
+            echo "FATAL: $service_name is inactive after standby configuration" >&2
+            exit 1
+        fi
+        echo "STANDBY: $runner_name ($service_name online, standby-only)"
+    else
+        sudo systemctl mask --runtime "$service_name"
+        echo "STAGED: $runner_name ($service_name remains stopped)"
     fi
-    echo "STANDBY: $runner_name ($service_name disabled and stopped)"
 done
 
 rm -f "$archive"
-echo "Configured ${runner_count} dormant runners on ${coordinator_id}; none activated."
+if [[ "$defer_start" == true ]]; then
+    echo "Configured ${runner_count} stopped standby runners on ${coordinator_id}."
+else
+    echo "Configured ${runner_count} online standby runners on ${coordinator_id}."
+fi

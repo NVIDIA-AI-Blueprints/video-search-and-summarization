@@ -130,6 +130,10 @@ jobs:
         run: |
           # The runner host (vss-skill-validator-v2) keeps coordinator
           # secrets in a single .env. Don't echo contents.
+          if [ "$(stat -c '%U:%G:%a' /home/ubuntu/eval-coordinator/.env)" != "root:ubuntu:640" ]; then
+            echo "FATAL: distributed coordinator environment is not root-protected" >&2
+            exit 1
+          fi
           set -a
           source /home/ubuntu/eval-coordinator/.env
           set +a
@@ -167,6 +171,10 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           assigned_runner_name="${RUNNER_NAME:-}"
           managed_lease_database_url="${CI_GPU_LEASE_DATABASE_URL:-}"
+          if [ "$(stat -c '%U:%G:%a' /home/ubuntu/eval-coordinator/.env)" != "root:ubuntu:640" ]; then
+            echo "FATAL: distributed coordinator environment is not root-protected" >&2
+            exit 1
+          fi
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a

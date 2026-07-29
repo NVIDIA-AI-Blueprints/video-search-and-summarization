@@ -327,7 +327,10 @@ class FenceController:
                 process_groups.clear()
             return generation, process_groups
         except FileNotFoundError:
-            return 0, set()
+            raise FenceError(
+                f"missing high-water state at {self.state_path}; "
+                "explicit drained-worker initialization is required"
+            )
         except (
             OSError,
             KeyError,

@@ -3,13 +3,15 @@
 This directory stages eight CPU coordinators with four GitHub runners each.
 Staging is intentionally inert:
 
-- every runner service is disabled and stopped;
+- every runner service is online for health visibility and automatic runner
+  updates;
 - runners receive `vss-skill-eval-standby`, not
   `vss-skill-eval-postgres`;
 - runner environments select PostgreSQL mode, but no database secret is
   copied by these scripts.
 
-Thus a service-start mistake still cannot match the current workflows.
+Thus an online runner still cannot match a skill-eval workflow until an
+operator explicitly changes its labels.
 
 ## PostgreSQL prerequisite
 
@@ -64,8 +66,9 @@ VALUES
 ON CONFLICT (gpu_id) DO NOTHING;
 ```
 
-Enable only workers whose Brev identity and hardware were verified. The
-schema trigger creates the corresponding lease row.
+The schema trigger creates the corresponding lease row, but `enabled=true`
+alone is insufficient for acquisition. The guarded activation helper sets the
+separate fence attestation only after verifying the worker daemon.
 
 ## Stage 32 runners without accepting jobs
 
@@ -92,7 +95,24 @@ and `${BREV_CONFIG_DIR:-$HOME/.brev}` runtime used to discover and connect to
 GPU workers. Temporary credential payloads are mode 0600 and removed after
 installation. It registers
 `vss-skill-validator-distributed-{1..8}-runner-{1..4}`, then verifies through
-GitHub that all 32 are offline, standby-labeled, and lack the production label.
+GitHub that all 32 are online, idle, standby-labeled, and lack every legacy,
+canary, or PostgreSQL scheduling label. Existing busy or scheduling-labeled
+runners cause restaging to fail before services are touched. Before any
+registration token or API-key payload becomes runner-readable, staging holds a
+root-only host lock, discovers and runtime-masks every GitHub runner unit, and
+verifies that no runner service or Listener/Worker process remains. It extracts
+credentials only inside that critical section, deletes the payload, then
+unmasks and starts exactly the four tracked standby services.
+
+The runners use GitHub's normal automatic update path. For hosts originally
+registered with the temporary `--disableupdate` policy, run:
+
+```bash
+.github/skill-eval/ops/enable-runner-auto-update.sh --apply
+```
+
+The command refuses busy runners, restarts them one at a time, and requires all
+32 to return online.
 
 Store the coordinator DSN in the repository Actions secret
 `GPU_LEASE_DATABASE_URL`:
@@ -123,10 +143,27 @@ export GPU_WORKERS='vss-eval-l40s vss-eval-rtx-1g-2'
   --apply --confirm-drained
 ```
 
-For registered external nodes, also set `REGISTERED_GPU_WORKERS` to the names
-that use direct SSH aliases. The installer requires `sslmode=verify-full`,
+Every worker name must resolve through the operator's direct SSH configuration
+and permit non-interactive sudo. The deployment streams the validation DSN
+into a root-owned directory under `/run`; the remote evaluation user cannot
+read the staged credential. The installer requires `sslmode=verify-full`,
 stores the validation DSN root-only, probes the database function, restarts
 the service, and verifies the expected worker ID and service version.
+
+Enable only that verified inventory in PostgreSQL:
+
+```bash
+export GPU_LEASE_ADMIN_DATABASE_URL_FILE=/secure/path/postgres-admin-dsn
+.github/skill-eval/ops/activate-fenced-gpu-workers.sh
+.github/skill-eval/ops/activate-fenced-gpu-workers.sh \
+  --apply --confirm-drained
+```
+
+The activation helper rechecks every worker's identity, version, idle state,
+fail-closed status, and zero-container dedicated-host invariant before setting
+the database's independent fence attestation. `enabled=true` without that
+attestation cannot be leased. Omitted workers remain unchanged; disable retired
+workers through a separately reviewed database operation.
 
 ## Cutover (separate, explicit operation)
 
@@ -135,7 +172,8 @@ Never mix active flock-only coordinators with active PostgreSQL coordinators.
 1. Verify all configured GPU workers and an empty/expired `gpu_leases` view.
 2. Drain every runner using local-only `flock` and remove its
    `vss-skill-eval-runner` label.
-3. Deploy and verify the GPU fence on every enabled worker.
+3. Deploy and verify the GPU fence, then enable only the verified workers with
+   `activate-fenced-gpu-workers.sh`.
 4. Start one staged runner with only `vss-skill-eval-canary`; run one normal
    Harbor leg and observe renewals plus owner-checked release.
 5. Force-kill a canary coordinator after it launches a long worker process.
@@ -145,8 +183,8 @@ Never mix active flock-only coordinators with active PostgreSQL coordinators.
    additional runner services gradually. The production workflows never
    select the legacy label.
 
-Activation is deliberately not automated here. It changes scheduling state
-and must be a separately reviewed operator action.
+Production runner labeling is deliberately not automated here. It changes
+GitHub scheduling state and must be a separately reviewed operator action.
 
 ### Worker-fencing boundary
 
@@ -155,7 +193,8 @@ validation-only role. Every Harbor mutation and trial command uses its local
 Unix-socket session. A newer generation, invalid lease, database outage past
 the local safety deadline, daemon restart, or shutdown terminates registered
 process groups and all dedicated-worker containers. Admission stays blocked
-unless cleanup postconditions pass.
+unless cleanup postconditions pass. Missing or corrupt high-water state also
+blocks daemon startup; only a drained-worker installer run can initialize it.
 
 This is an operational safety boundary for trusted coordinators and dedicated
 workers, not a hostile multi-tenant sandbox. Administrators with unrestricted

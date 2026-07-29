@@ -213,6 +213,14 @@ class SqlSafetyTests(unittest.TestCase):
         self.assertIn("FOR UPDATE OF L SKIP LOCKED", sql)
         self.assertIn("STATEMENT_TIMESTAMP()", sql)
         self.assertIn("GENERATION = L.GENERATION + 1", sql)
+        self.assertIn("AND W.FENCE_READY", sql)
+
+    def test_worker_inventory_fails_closed_until_fence_attestation(self):
+        sql = self.SCHEMA.upper()
+        self.assertIn("FENCE_READY BOOLEAN NOT NULL DEFAULT FALSE", sql)
+        self.assertIn("GPU_WORKERS_FENCE_ATTESTATION", sql)
+        self.assertIn("AND W.ENABLED", sql)
+        self.assertGreaterEqual(sql.count("AND W.FENCE_READY"), 3)
 
     def test_renewal_requires_unexpired_matching_fence(self):
         sql = self.SCHEMA.upper()
@@ -221,12 +229,10 @@ class SqlSafetyTests(unittest.TestCase):
         self.assertIn("L.GENERATION = REQUESTED_GENERATION", sql)
 
     def test_runtime_client_uses_security_definer_functions_only(self):
-        client_sql = " ".join(
-            (
-                distributed_lock.ACQUIRE_SQL,
-                distributed_lock.RENEW_SQL,
-                distributed_lock.RELEASE_SQL,
-            )
+        client_sql = (
+            f"{distributed_lock.ACQUIRE_SQL} "
+            f"{distributed_lock.RENEW_SQL} "
+            f"{distributed_lock.RELEASE_SQL}"
         ).upper()
         self.assertNotIn("UPDATE GPU_LEASES", client_sql)
         self.assertIn("PUBLIC.ACQUIRE_GPU_LEASE", client_sql)

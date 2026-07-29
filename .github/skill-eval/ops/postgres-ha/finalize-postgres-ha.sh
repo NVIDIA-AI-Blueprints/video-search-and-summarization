@@ -10,15 +10,26 @@ umask 077
 repository="${GITHUB_REPOSITORY:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
 state_dir="${POSTGRES_HA_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/vss-skill-eval/postgres-ha}"
 publish_github_secret=false
-[[ "${1:-}" == "--publish-github-secret" ]] && publish_github_secret=true
-[[ $# -le 1 ]] || {
-    echo "Usage: $0 [--publish-github-secret]" >&2
-    exit 2
-}
+case "$#" in
+    0) ;;
+    1)
+        [[ "$1" == "--publish-github-secret" ]] || {
+            echo "Usage: $0 [--publish-github-secret]" >&2
+            exit 2
+        }
+        publish_github_secret=true
+        ;;
+    *)
+        echo "Usage: $0 [--publish-github-secret]" >&2
+        exit 2
+        ;;
+esac
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
 schema="$repo_root/.github/skill-eval/postgres-gpu-leases.sql"
+migration_generator="$script_dir/generate-legacy-migration.py"
+backup_deployer="$script_dir/deploy-postgres-ha-backup.sh"
 bundle_dir="$state_dir/bundle"
 secret_dir="$state_dir/secrets"
 legacy_inventory="$bundle_dir/legacy-inventory.json"
@@ -26,17 +37,34 @@ ssh_options=(-o BatchMode=yes -o ControlMaster=no -o ControlPath=none)
 
 for required in \
     "$schema" \
+    "$migration_generator" \
+    "$backup_deployer" \
     "$legacy_inventory" \
     "$secret_dir/postgres-password" \
     "$secret_dir/lease-role-password" \
-    "$secret_dir/fence-role-password"; do
+    "$secret_dir/fence-role-password" \
+    "$secret_dir/backup-role-password"; do
     [[ -s "$required" ]] || { echo "Missing secure deployment state: $required" >&2; exit 1; }
 done
 
 cluster_json="$bundle_dir/patroni-cluster.json"
-ssh "${ssh_options[@]}" vss-skill-validator-distributed-1 \
-    "sudo -u postgres patronictl -c /etc/vss-postgres-ha/patroni.yml list --format json" \
-    >"$cluster_json"
+cluster_source=""
+for index in $(seq 1 3); do
+    host="vss-skill-validator-distributed-${index}"
+    cluster_capture="${cluster_json}.capture"
+    if ssh "${ssh_options[@]}" "$host" \
+        "sudo -u postgres patronictl -c /etc/vss-postgres-ha/patroni.yml list --format json" \
+        >"$cluster_capture" 2>/dev/null; then
+        mv "$cluster_capture" "$cluster_json"
+        cluster_source="$host"
+        break
+    fi
+    rm -f "$cluster_capture"
+done
+[[ -n "$cluster_source" ]] || {
+    echo "No PostgreSQL HA node returned Patroni cluster health" >&2
+    exit 1
+}
 leader="$(
     python3 - "$cluster_json" <<'PY'
 import json
@@ -59,61 +87,18 @@ leader_host="vss-skill-validator-distributed-${leader_index}"
 
 lease_password="$(<"$secret_dir/lease-role-password")"
 fence_password="$(<"$secret_dir/fence-role-password")"
+backup_password="$(<"$secret_dir/backup-role-password")"
 postgres_password="$(<"$secret_dir/postgres-password")"
 
 migration_sql="$bundle_dir/legacy-inventory.sql"
-python3 - "$legacy_inventory" "$migration_sql" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-inventory = json.load(open(sys.argv[1], encoding="utf-8"))
-
-
-def quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-statements = ["-- Preserve monotonic generations from the inactive local DB."]
-for worker in inventory:
-    gpu_id = worker["gpu_id"]
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", gpu_id):
-        raise SystemExit(f"invalid legacy gpu_id: {gpu_id!r}")
-    if worker.get("live"):
-        raise SystemExit(f"refusing to migrate a live lease: {gpu_id}")
-    generation = int(worker["generation"])
-    if generation < 0:
-        raise SystemExit(f"invalid generation for {gpu_id}")
-    enabled = "true" if worker.get("enabled") else "false"
-    metadata = json.dumps(worker.get("metadata", {}), separators=(",", ":"))
-    statements.extend(
-        [
-            (
-                "INSERT INTO public.gpu_workers (gpu_id, enabled, metadata) "
-                f"VALUES ({quote(gpu_id)}, {enabled}, {quote(metadata)}::jsonb) "
-                "ON CONFLICT (gpu_id) DO UPDATE SET "
-                "enabled = EXCLUDED.enabled, metadata = EXCLUDED.metadata, "
-                "updated_at = statement_timestamp();"
-            ),
-            (
-                "UPDATE public.gpu_leases SET "
-                f"generation = GREATEST(generation, {generation}), "
-                "owner_id = NULL, lease_token = NULL, acquired_at = NULL, "
-                "renewed_at = statement_timestamp(), "
-                "lease_expires_at = statement_timestamp() "
-                f"WHERE gpu_id = {quote(gpu_id)};"
-            ),
-        ]
-    )
-pathlib.Path(sys.argv[2]).write_text("\n".join(statements) + "\n", encoding="utf-8")
-PY
-chmod 0600 "$migration_sql"
+python3 "$migration_generator" "$legacy_inventory" "$migration_sql"
 
 bootstrap_sql="$bundle_dir/bootstrap-lease-database.sql"
 cat >"$bootstrap_sql" <<EOF
 \set ON_ERROR_STOP on
 DO \$bootstrap\$
+DECLARE
+    membership record;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'skill_eval_owner') THEN
         CREATE ROLE skill_eval_owner NOLOGIN;
@@ -124,8 +109,31 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'skill_eval_fence') THEN
         CREATE ROLE skill_eval_fence LOGIN;
     END IF;
-    EXECUTE format('ALTER ROLE skill_eval_lease LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', '${lease_password}');
-    EXECUTE format('ALTER ROLE skill_eval_fence LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', '${fence_password}');
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'skill_eval_backup') THEN
+        CREATE ROLE skill_eval_backup LOGIN;
+    END IF;
+    FOR membership IN
+        SELECT parent.rolname AS granted_role, member.rolname AS member_role
+        FROM pg_catalog.pg_auth_members AS relation
+        JOIN pg_catalog.pg_roles AS parent ON parent.oid = relation.roleid
+        JOIN pg_catalog.pg_roles AS member ON member.oid = relation.member
+        WHERE member.rolname IN (
+            'skill_eval_owner',
+            'skill_eval_lease',
+            'skill_eval_fence',
+            'skill_eval_backup'
+        )
+    LOOP
+        EXECUTE format(
+            'REVOKE %I FROM %I',
+            membership.granted_role,
+            membership.member_role
+        );
+    END LOOP;
+    ALTER ROLE skill_eval_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+    EXECUTE format('ALTER ROLE skill_eval_lease LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L', '${lease_password}');
+    EXECUTE format('ALTER ROLE skill_eval_fence LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L', '${fence_password}');
+    EXECUTE format('ALTER ROLE skill_eval_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD %L', '${backup_password}');
 END
 \$bootstrap\$;
 SELECT 'CREATE DATABASE eval OWNER skill_eval_owner'
@@ -133,7 +141,7 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = 'eval')
 \gexec
 \connect eval
 REVOKE CONNECT ON DATABASE eval FROM PUBLIC;
-GRANT CONNECT ON DATABASE eval TO skill_eval_lease, skill_eval_fence;
+GRANT CONNECT ON DATABASE eval TO skill_eval_lease, skill_eval_fence, skill_eval_backup;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 SET ROLE skill_eval_owner;
 \ir postgres-gpu-leases.sql
@@ -142,18 +150,49 @@ RESET ROLE;
 EOF
 chmod 0600 "$bootstrap_sql"
 
-remote_dir="/tmp/vss-postgres-ha-bootstrap"
+bootstrap_payload="$(mktemp -d "$bundle_dir/.bootstrap-payload.XXXXXX")"
+bootstrap_archive="$(mktemp "$bundle_dir/.bootstrap-payload.XXXXXX.tar.gz")"
+remote_pending=false
+remote_dir=""
+cleanup_local_bootstrap() {
+    rm -rf "$bootstrap_payload" "$bootstrap_archive"
+    if [[ "$remote_pending" == true ]]; then
+        ssh "${ssh_options[@]}" -o ConnectTimeout=5 "$leader_host" \
+            "sudo rm -rf '$remote_dir'" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup_local_bootstrap EXIT HUP INT TERM
+install -m 0600 "$bootstrap_sql" \
+    "$bootstrap_payload/bootstrap-lease-database.sql"
+install -m 0600 "$schema" "$bootstrap_payload/postgres-gpu-leases.sql"
+install -m 0600 "$migration_sql" "$bootstrap_payload/legacy-inventory.sql"
+tar -C "$bootstrap_payload" -czf "$bootstrap_archive" .
+
+remote_dir="/run/vss-postgres-ha-bootstrap"
+remote_archive="$remote_dir/payload.tar.gz"
+remote_pending=true
+# Both paths are fixed local constants, expanded before the remote command.
+# shellcheck disable=SC2029
 ssh "${ssh_options[@]}" "$leader_host" \
-    "rm -rf '$remote_dir' && mkdir -m 700 '$remote_dir'"
-scp "${ssh_options[@]}" -q \
-    "$bootstrap_sql" "$schema" "$migration_sql" "${leader_host}:${remote_dir}/"
-if ssh "${ssh_options[@]}" "$leader_host" \
-    "sudo chown -R postgres:postgres '$remote_dir' && sudo chmod 700 '$remote_dir' && sudo chmod 600 '$remote_dir/bootstrap-lease-database.sql' '$remote_dir/postgres-gpu-leases.sql' '$remote_dir/legacy-inventory.sql' && sudo -u postgres psql --no-psqlrc -f '$remote_dir/bootstrap-lease-database.sql'"; then
-    ssh "${ssh_options[@]}" "$leader_host" "sudo rm -rf '$remote_dir'"
-else
-    ssh "${ssh_options[@]}" "$leader_host" "sudo rm -rf '$remote_dir'" || true
-    exit 1
-fi
+    "sudo rm -rf '$remote_dir' && sudo install -d -m 700 -o root -g root '$remote_dir' && sudo tee '$remote_archive' >/dev/null && sudo chmod 600 '$remote_archive'" \
+    <"$bootstrap_archive"
+# shellcheck disable=SC2029
+ssh "${ssh_options[@]}" "$leader_host" "sudo bash -s -- '$remote_dir'" <<'REMOTE'
+set -euo pipefail
+remote_dir="$1"
+trap 'rm -rf "$remote_dir"' EXIT HUP INT TERM
+tar --no-same-owner -xzf "$remote_dir/payload.tar.gz" -C "$remote_dir"
+rm -f "$remote_dir/payload.tar.gz"
+chown -R postgres:postgres "$remote_dir"
+chmod 700 "$remote_dir"
+chmod 600 "$remote_dir"/*.sql
+sudo -u postgres psql \
+    --no-psqlrc \
+    -f "$remote_dir/bootstrap-lease-database.sql"
+REMOTE
+remote_pending=false
+cleanup_local_bootstrap
+trap - EXIT HUP INT TERM
 
 hosts_uri="vss-pg-1:5432,vss-pg-2:5432,vss-pg-3:5432"
 query="sslmode=verify-full&sslrootcert=/etc/vss-postgres-ha/ca.crt&target_session_attrs=read-write&connect_timeout=5"
@@ -170,24 +209,13 @@ chmod 0600 "$lease_dsn" "$fence_dsn" "$admin_dsn"
 
 for index in $(seq 1 8); do
     host="vss-skill-validator-distributed-${index}"
-    remote_dsn="/tmp/.vss-postgres-ha-validation-dsn"
-    scp "${ssh_options[@]}" -q "$lease_dsn" "${host}:${remote_dsn}"
     ssh "${ssh_options[@]}" "$host" \
-        "chmod 600 '$remote_dsn' && /home/ubuntu/eval-coordinator/venv/bin/python - '$remote_dsn' <<'PY'
-import pathlib
-import sys
-import psycopg
-dsn = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8').strip()
-with psycopg.connect(dsn, autocommit=True) as connection:
-    with connection.cursor() as cursor:
-        cursor.execute('SELECT NOT pg_is_in_recovery()')
-        assert cursor.fetchone() == (True,)
-PY
-status=\$?
-rm -f '$remote_dsn'
-exit \$status"
+        "/home/ubuntu/eval-coordinator/venv/bin/python -c 'import sys, psycopg; dsn = sys.stdin.read().strip(); connection = psycopg.connect(dsn, autocommit=True); cursor = connection.cursor(); cursor.execute(\"SELECT NOT pg_is_in_recovery()\"); result = cursor.fetchone(); cursor.close(); connection.close(); assert result == (True,)' " \
+        <"$lease_dsn"
     echo "DATABASE READY: $host"
 done
+
+POSTGRES_HA_STATE_DIR="$state_dir" "$backup_deployer" --apply
 
 if [[ "$publish_github_secret" == true ]]; then
     gh secret set GPU_LEASE_DATABASE_URL --repo "$repository" <"$lease_dsn"

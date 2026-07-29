@@ -6,7 +6,8 @@ This package provides:
   `vss-skill-validator-distributed-{1..8}`;
 - push-based delivery to InfluxDB 2.x, suitable for Brev hosts behind NAT;
 - one Grafana dashboard covering CPU, RAM, root disk, disk throughput,
-  load, swap, and host-reporting status;
+  load, swap, host freshness, Patroni topology, etcd quorum, and recovery
+  evidence;
 - no changes to GitHub runner labels or services.
 
 ## Dashboard
@@ -26,7 +27,7 @@ Regenerate the JSON after modifying the generator:
 python3 .github/skill-eval/ops/monitoring/generate_grafana_dashboard.py
 ```
 
-For an immediate operator view without InfluxDB, run the bundled SSH/Brev
+For an immediate operator view without InfluxDB, run the bundled direct-SSH
 dashboard:
 
 ```bash
@@ -36,10 +37,16 @@ python3 .github/skill-eval/ops/monitoring/live_dashboard.py \
 ```
 
 Open `http://127.0.0.1:8765`. The server copies its read-only metrics probe to
-`/tmp` on a coordinator when needed, including after a host reboot. Keep it
-bound to loopback and use an authenticated SSH tunnel when sharing access.
-The Grafana/InfluxDB path remains the persistent production dashboard and
-alerting backend.
+`/tmp` on a coordinator when needed, including after a host reboot or probe
+version change. In addition to CPU, RAM, and disk, cards require exactly one
+Patroni leader, a synchronous standby, and three healthy etcd endpoints on
+coordinators 1–3. They show encrypted-backup and clean-restore evidence on
+coordinators 4 and 5. Cached samples older than 90 seconds are red, and
+`/health` returns HTTP 503 for stale hosts, unhealthy quorum, stopped recovery
+timers, failed backup/restore units, or stale recovery evidence. Keep it bound
+to loopback and use an authenticated SSH tunnel when
+sharing access. The Grafana/InfluxDB path remains the persistent production
+dashboard and alerting backend.
 
 ## InfluxDB setup
 
@@ -62,9 +69,11 @@ INFLUX_ORG=your-org
 INFLUX_BUCKET=vss-skill-eval-hosts
 ```
 
-The staging script transfers this file as a temporary mode-0600 file. Each
-host installs it as `/etc/telegraf/vss-skill-eval.env`, owned by
-`root:telegraf` with mode `0640`, then deletes the temporary copy.
+The staging script requires this file to be mode 0600 and streams a payload
+over SSH into a root-owned directory under `/run`; the runner user cannot read
+the token while deployment is in progress. Each host installs the environment
+as `/etc/telegraf/vss-skill-eval.env`, owned by `root:telegraf` with mode
+`0640`, then removes the root-only payload.
 
 ## Deployment
 
@@ -84,7 +93,7 @@ After verifying all eight host names, start monitoring:
 ```
 
 This starts only `telegraf.service`. It does not start, enable, or relabel any
-GitHub runner, so the machines remain unable to accept skill-eval jobs.
+GitHub runner; existing runners retain their standby-only labels.
 
 ## Suggested Grafana alerts
 
@@ -96,6 +105,12 @@ Create alert rules from the dashboard queries:
 - **RAM pressure:** RAM usage above 90% for 10 minutes.
 - **CPU saturation:** active CPU above 90% for 15 minutes.
 - **Swap growth:** swap usage above 20% for 10 minutes.
+- **Patroni/etcd unsafe:** Patroni topology is unhealthy or fewer than three
+  etcd endpoints are healthy on coordinators 1–3 for 1 minute.
+- **Backup failed or stale:** last backup failed or no successful encrypted
+  backup within 2 hours.
+- **Restore proof failed or stale:** weekly restore test failed or is older
+  than 8 days.
 
 Route host-missing and disk-critical alerts to the team's paging channel;
 the remaining alerts are usually ticket or chat severity.
@@ -110,5 +125,10 @@ journalctl -u telegraf.service --since '10 minutes ago'
 ```
 
 In InfluxDB, confirm exactly eight `coordinator_id` tag values. In Grafana,
-select `All` and verify that CPU, RAM, and root-disk panels contain one series
-per coordinator.
+select `All` and verify CPU, RAM, disk, HA health, plus backup and restore-age
+series for both recovery hosts. The host-count and HA panels use a dedicated
+probe heartbeat with a two-minute window, so a failed exec probe cannot remain
+green merely because Telegraf's base system inputs still report. HA and
+recovery panels also emit explicit 3-node/2-node coverage guards. Missing,
+malformed, or materially future-dated recovery markers report `valid=0` and a
+large failure age rather than appearing fresh.

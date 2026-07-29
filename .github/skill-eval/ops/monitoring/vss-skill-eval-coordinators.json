@@ -12,7 +12,7 @@
   "annotations": {
     "list": []
   },
-  "description": "CPU, RAM, root disk, disk I/O, load, and availability for eight VSS skill-eval CPU coordinators.",
+  "description": "CPU, RAM, disk, HA service, backup, restore, load, and availability for eight VSS skill-eval coordinators.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -38,7 +38,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
             "axisCenteredZero": false,
@@ -123,7 +123,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r._measurement == \"system\" and r._field == \"uptime\")\n  |> last()\n  |> keep(columns: [\"coordinator_id\"])\n  |> group()\n  |> distinct(column: \"coordinator_id\")\n  |> count(column: \"coordinator_id\")",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r._measurement == \"vss_ha_probe\" and r._field == \"heartbeat\")\n  |> last()\n  |> keep(columns: [\"coordinator_id\"])\n  |> group()\n  |> distinct(column: \"coordinator_id\")\n  |> count(column: \"coordinator_id\")",
           "refId": "A"
         }
       ]
@@ -146,7 +146,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
             "axisCenteredZero": false,
@@ -254,7 +254,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
             "axisCenteredZero": false,
@@ -362,7 +362,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
             "axisCenteredZero": false,
@@ -1078,6 +1078,508 @@
           },
           "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"swap\")\n  |> filter(fn: (r) => r._field == \"used_percent\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> group(columns: [\"coordinator_id\"])",
           "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "HA cluster health",
+      "description": "Patroni topology and all three etcd endpoints must be healthy.",
+      "type": "stat",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": 30,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "bool",
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_cluster\")\n  |> filter(fn: (r) => r._field == \"healthy\")\n  |> filter(fn: (r) => r.coordinator_id =~ /distributed-[123]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_etcd_quorum\")\n  |> filter(fn: (r) => r._field == \"healthy\")\n  |> filter(fn: (r) => r.coordinator_id =~ /distributed-[123]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[123]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 3 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Backup and restore health",
+      "description": "Fresh timer and result state for both recovery hosts.",
+      "type": "stat",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 28,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": 30,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "bool",
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n  |> filter(fn: (r) => r._field == \"result_success\")\n  |> filter(fn: (r) => r.unit == \"backup\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n  |> filter(fn: (r) => r._field == \"result_success\")\n  |> filter(fn: (r) => r.unit == \"restore_test\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n  |> filter(fn: (r) => r._field == \"active\")\n  |> filter(fn: (r) => r.unit == \"backup_timer\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n  |> filter(fn: (r) => r._field == \"active\")\n  |> filter(fn: (r) => r.unit == \"restore_test_timer\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n  |> filter(fn: (r) => r._field == \"valid\")\n  |> filter(fn: (r) => r.unit == \"backup\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n  |> filter(fn: (r) => r._field == \"valid\")\n  |> filter(fn: (r) => r.unit == \"restore_test\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "G"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Backup age",
+      "description": "Latest verified backup should remain under 2h old.",
+      "type": "stat",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 28,
+        "w": 4,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": 30,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5400
+              },
+              {
+                "color": "red",
+                "value": 7200
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n  |> filter(fn: (r) => r._field == \"age_seconds\")\n  |> filter(fn: (r) => r.unit == \"backup\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 0 else 999999999,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Restore proof age",
+      "description": "Latest clean-cluster restore proof should remain under 8d old.",
+      "type": "stat",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 28,
+        "w": 4,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": 30,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 604800
+              },
+              {
+                "color": "red",
+                "value": 691200
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: -2m)\n  |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n  |> filter(fn: (r) => r.coordinator_id =~ /^${coordinator:regex}$/)\n  |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n  |> filter(fn: (r) => r._field == \"age_seconds\")\n  |> filter(fn: (r) => r.unit == \"restore_test\" and r.coordinator_id =~ /distributed-[45]$/)\n  |> group(columns: [\"coordinator_id\"])\n  |> last()",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 0 else 999999999,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "B"
         }
       ]
     }

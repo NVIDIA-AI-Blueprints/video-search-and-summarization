@@ -12,9 +12,10 @@ payload_dir=""
 node_index=""
 coordinator_name=""
 confirm_reset=false
+confirm_etcd_reset=false
 
 usage() {
-    echo "Usage: $0 --payload-dir DIR --node-index 1..3 --coordinator-name NAME --confirm-reset-local-postgres" >&2
+    echo "Usage: $0 --payload-dir DIR --node-index 1..3 --coordinator-name NAME --confirm-reset-local-postgres --confirm-reset-local-etcd" >&2
 }
 
 while (($#)); do
@@ -23,6 +24,7 @@ while (($#)); do
         --node-index) node_index="${2:-}"; shift 2 ;;
         --coordinator-name) coordinator_name="${2:-}"; shift 2 ;;
         --confirm-reset-local-postgres) confirm_reset=true; shift ;;
+        --confirm-reset-local-etcd) confirm_etcd_reset=true; shift ;;
         *) usage; exit 2 ;;
     esac
 done
@@ -37,7 +39,10 @@ done
     echo "--confirm-reset-local-postgres is required" >&2
     exit 2
 }
-
+[[ "$confirm_etcd_reset" == true ]] || {
+    echo "--confirm-reset-local-etcd is required" >&2
+    exit 2
+}
 required=(
     ca.crt
     etcd.env
@@ -67,6 +72,10 @@ for secret in \
         exit 1
     }
 done
+
+sudo install -d -m 0755 -o root -g root /etc/vss-postgres-ha
+sudo touch /etc/vss-postgres-ha/.install-started
+sudo chmod 0600 /etc/vss-postgres-ha/.install-started
 
 sudo apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
@@ -102,8 +111,9 @@ if [[ "$first_install" == true ]] &&
             sudo pg_ctlcluster 16 main start
             started_for_backup=true
         fi
-        if ! sudo -u postgres pg_dumpall >"$dump_path"; then
-            rm -f "$dump_path"
+        if ! sudo -u postgres pg_dumpall |
+            sudo tee "$dump_path" >/dev/null; then
+            sudo rm -f "$dump_path"
             if [[ "$started_for_backup" == true ]]; then
                 sudo pg_ctlcluster 16 main stop || true
             fi
@@ -112,7 +122,7 @@ if [[ "$first_install" == true ]] &&
         fi
         sudo install -m 0600 -o root -g root \
             "$dump_path" "$backup_root/pre-patroni-${timestamp}.sql"
-        rm -f "$dump_path"
+        sudo rm -f "$dump_path"
         if [[ "$started_for_backup" == true ]]; then
             sudo pg_ctlcluster 16 main stop
         fi
@@ -121,14 +131,19 @@ if [[ "$first_install" == true ]] &&
     sudo pg_dropcluster --stop 16 main
 fi
 
-if [[ "$first_install" == true && -d /var/lib/etcd && ! -f "$backup_root/pre-etcd.saved" ]]; then
-    if sudo find /var/lib/etcd -mindepth 1 -print -quit | read -r; then
-        sudo tar -C /var/lib -czf "$backup_root/pre-etcd-${timestamp}.tar.gz" etcd
+if [[ "$first_install" == true &&
+      -d /var/lib/etcd/vss-postgres-ha &&
+      ! -f "$backup_root/pre-etcd.saved" ]]; then
+    if sudo test -n "$(sudo ls -A /var/lib/etcd/vss-postgres-ha 2>/dev/null)"; then
+        sudo tar \
+            -C /var/lib/etcd \
+            -czf "$backup_root/pre-etcd-${timestamp}.tar.gz" \
+            vss-postgres-ha
     fi
     sudo touch "$backup_root/pre-etcd.saved"
 fi
 if [[ "$first_install" == true ]]; then
-    sudo rm -rf /var/lib/etcd/*
+    sudo rm -rf /var/lib/etcd/vss-postgres-ha
 fi
 sudo install -d -m 0700 -o etcd -g etcd /var/lib/etcd/vss-postgres-ha
 
@@ -211,5 +226,6 @@ sudo systemctl enable etcd.service vss-postgres-ha.service >/dev/null
 sudo systemctl reset-failed etcd.service vss-postgres-ha.service
 sudo touch /etc/vss-postgres-ha/.node-configured
 sudo chmod 0600 /etc/vss-postgres-ha/.node-configured
+sudo rm -f /etc/vss-postgres-ha/.install-started
 
 echo "Configured PostgreSQL HA node ${node_index}; services remain stopped."

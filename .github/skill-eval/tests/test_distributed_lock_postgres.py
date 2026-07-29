@@ -9,6 +9,8 @@ Set TEST_POSTGRES_DSN to enable:
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -21,9 +23,20 @@ SKILL_EVAL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_EVAL_ROOT))
 
 from distributed_lock import PostgresLeaseClient
-from gpu_fence import FenceController, PostgresLeaseValidator, WorkerCleanup
+from gpu_fence import (
+    FenceController,
+    PostgresLeaseValidator,
+    WorkerCleanup,
+)
 
 DSN = os.environ.get("TEST_POSTGRES_DSN", "")
+_MIGRATION_SPEC = importlib.util.spec_from_file_location(
+    "generate_legacy_migration_postgres_test",
+    SKILL_EVAL_ROOT / "ops" / "postgres-ha" / "generate-legacy-migration.py",
+)
+generate_legacy_migration = importlib.util.module_from_spec(_MIGRATION_SPEC)
+sys.modules[_MIGRATION_SPEC.name] = generate_legacy_migration
+_MIGRATION_SPEC.loader.exec_module(generate_legacy_migration)
 
 
 @unittest.skipUnless(DSN, "TEST_POSTGRES_DSN is not set")
@@ -53,6 +66,18 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
                     ) THEN
                         CREATE ROLE skill_eval_fence LOGIN PASSWORD 'test';
                     END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_roles
+                        WHERE rolname = 'skill_eval_owner'
+                    ) THEN
+                        CREATE ROLE skill_eval_owner NOLOGIN;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_roles
+                        WHERE rolname = 'skill_eval_backup'
+                    ) THEN
+                        CREATE ROLE skill_eval_backup LOGIN PASSWORD 'test';
+                    END IF;
                 END
                 $$;
                 """
@@ -68,6 +93,11 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
                     sql.Identifier(database)
                 )
             )
+            conn.execute(
+                sql.SQL("GRANT CONNECT ON DATABASE {} TO skill_eval_backup").format(
+                    sql.Identifier(database)
+                )
+            )
             conn.execute(schema)
             # Recreate the previous release's broad grants, then reapply the
             # owner migration and prove it removes them.
@@ -78,21 +108,78 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
                 TO skill_eval_lease
                 """
             )
+            conn.execute(
+                """
+                GRANT EXECUTE
+                ON FUNCTION public.acquire_gpu_lease(
+                    text[], text, uuid, integer
+                )
+                TO skill_eval_backup
+                """
+            )
+            conn.execute(
+                """
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT INSERT, UPDATE, DELETE ON TABLES
+                    TO skill_eval_backup;
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT USAGE, UPDATE ON SEQUENCES
+                    TO skill_eval_backup;
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT EXECUTE ON FUNCTIONS
+                    TO skill_eval_backup, PUBLIC;
+                ALTER DEFAULT PRIVILEGES
+                    GRANT INSERT, UPDATE, DELETE ON TABLES
+                    TO skill_eval_backup;
+                ALTER DEFAULT PRIVILEGES
+                    GRANT USAGE, UPDATE ON SEQUENCES
+                    TO skill_eval_backup;
+                ALTER DEFAULT PRIVILEGES
+                    GRANT EXECUTE ON FUNCTIONS
+                    TO skill_eval_backup, PUBLIC;
+                """
+            )
             conn.execute(schema)
+            conn.execute(
+                """
+                CREATE TABLE public.backup_default_acl_probe (
+                    id bigserial PRIMARY KEY,
+                    value text
+                );
+                CREATE FUNCTION public.backup_default_acl_probe()
+                RETURNS integer
+                LANGUAGE sql
+                AS 'SELECT 1';
+                """
+            )
         runtime_params = conninfo_to_dict(DSN)
         runtime_params.update(user="skill_eval_lease", password="test")
         cls.runtime_dsn = make_conninfo(**runtime_params)
         fence_params = conninfo_to_dict(DSN)
         fence_params.update(user="skill_eval_fence", password="test")
         cls.fence_dsn = make_conninfo(**fence_params)
+        backup_params = conninfo_to_dict(DSN)
+        backup_params.update(user="skill_eval_backup", password="test")
+        cls.backup_dsn = make_conninfo(**backup_params)
 
     def setUp(self):
         with self.psycopg.connect(DSN, autocommit=True) as conn:
-            conn.execute("TRUNCATE gpu_leases, gpu_workers CASCADE")
+            conn.execute(
+                "TRUNCATE gpu_leases, gpu_workers, backup_key_registry CASCADE"
+            )
             conn.execute(
                 """
-                INSERT INTO gpu_workers (gpu_id, enabled)
-                VALUES ('gpu-a', true), ('gpu-b', true), ('gpu-disabled', false)
+                INSERT INTO gpu_workers (
+                    gpu_id,
+                    enabled,
+                    fence_ready,
+                    fence_version,
+                    fence_attested_at
+                )
+                VALUES
+                    ('gpu-a', true, true, '1', statement_timestamp()),
+                    ('gpu-b', true, true, '1', statement_timestamp()),
+                    ('gpu-disabled', false, false, NULL, NULL)
                 """
             )
 
@@ -135,6 +222,94 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
     def test_disabled_worker_is_never_leased(self):
         self.assertIsNone(self.client("coordinator-1").try_acquire(["gpu-disabled"]))
 
+    def test_unattested_worker_cannot_be_acquired_or_renewed(self):
+        with self.psycopg.connect(DSN, autocommit=True) as conn:
+            conn.execute(
+                """
+                INSERT INTO gpu_workers (gpu_id, enabled)
+                VALUES ('gpu-unfenced', true)
+                """
+            )
+        self.assertIsNone(self.client("coordinator-1").try_acquire(["gpu-unfenced"]))
+
+        client = self.client("coordinator-2")
+        lease = client.try_acquire(["gpu-a"])
+        with self.psycopg.connect(DSN, autocommit=True) as conn:
+            conn.execute(
+                """
+                UPDATE gpu_workers
+                SET fence_ready = false,
+                    fence_version = NULL,
+                    fence_attested_at = NULL
+                WHERE gpu_id = 'gpu-a'
+                """
+            )
+        with self.assertRaisesRegex(RuntimeError, "lease ownership lost"):
+            client.renew(lease)
+
+    def test_legacy_migration_retry_preserves_post_cutover_state(self):
+        inventory = [
+            {
+                "gpu_id": "legacy-gpu",
+                "enabled": True,
+                "generation": 7,
+                "live": False,
+                "metadata": {"source": "legacy"},
+            }
+        ]
+        migration_sql = generate_legacy_migration.build_sql(inventory)
+        with self.psycopg.connect(DSN, autocommit=True) as conn:
+            conn.execute("TRUNCATE gpu_leases, gpu_workers CASCADE")
+            conn.execute("DROP TABLE IF EXISTS skill_eval_migrations")
+            conn.execute(migration_sql)
+            migrated = conn.execute(
+                """
+                SELECT w.enabled, w.fence_ready, l.generation, l.owner_id
+                FROM gpu_workers AS w
+                JOIN gpu_leases AS l USING (gpu_id)
+                WHERE gpu_id = 'legacy-gpu'
+                """
+            ).fetchone()
+            self.assertEqual(migrated, (True, False, 7, None))
+            self.assertIsNone(self.client("post-migration").try_acquire(["legacy-gpu"]))
+
+            conn.execute(
+                "UPDATE gpu_workers SET enabled = false WHERE gpu_id = 'legacy-gpu'"
+            )
+            conn.execute(
+                """
+                INSERT INTO gpu_workers (
+                    gpu_id,
+                    enabled,
+                    fence_ready,
+                    fence_version,
+                    fence_attested_at
+                )
+                VALUES (
+                    'post-cutover-gpu',
+                    true,
+                    true,
+                    '1',
+                    statement_timestamp()
+                )
+                """
+            )
+            conn.execute(migration_sql)
+            current = conn.execute(
+                """
+                SELECT gpu_id, enabled, fence_ready
+                FROM gpu_workers
+                ORDER BY gpu_id
+                """
+            ).fetchall()
+            self.assertEqual(
+                current,
+                [
+                    ("legacy-gpu", False, False),
+                    ("post-cutover-gpu", True, True),
+                ],
+            )
+
     def test_runtime_role_cannot_forge_rows_but_can_use_fenced_functions(self):
         with (
             self.assertRaises(self.psycopg.errors.InsufficientPrivilege),
@@ -162,6 +337,94 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
         renewed = client.renew(lease)
         self.assertGreater(renewed.expires_at, lease.expires_at)
         self.assertTrue(client.release(renewed))
+
+    def test_backup_role_is_read_only_and_has_no_elevated_attributes(self):
+        with self.psycopg.connect(self.backup_dsn, autocommit=True) as conn:
+            self.assertEqual(
+                conn.execute("SELECT count(*) FROM gpu_workers").fetchone(),
+                (3,),
+            )
+            with self.assertRaises(self.psycopg.errors.InsufficientPrivilege):
+                conn.execute("UPDATE gpu_workers SET enabled = false")
+            with self.assertRaises(self.psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "SELECT * FROM acquire_gpu_lease("
+                    "ARRAY['gpu-a'], 'backup', gen_random_uuid(), 60)"
+                )
+            with self.assertRaises(self.psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO backup_default_acl_probe (value) VALUES ('write')"
+                )
+            with self.assertRaises(self.psycopg.errors.InsufficientPrivilege):
+                conn.execute("SELECT backup_default_acl_probe()")
+        with self.psycopg.connect(DSN, autocommit=True) as conn:
+            default_acl = conn.execute(
+                """
+                SELECT
+                    has_table_privilege(
+                        'skill_eval_backup',
+                        'public.backup_default_acl_probe',
+                        'SELECT'
+                    ),
+                    has_table_privilege(
+                        'skill_eval_backup',
+                        'public.backup_default_acl_probe',
+                        'INSERT'
+                    ),
+                    has_sequence_privilege(
+                        'skill_eval_backup',
+                        'public.backup_default_acl_probe_id_seq',
+                        'SELECT'
+                    ),
+                    has_sequence_privilege(
+                        'skill_eval_backup',
+                        'public.backup_default_acl_probe_id_seq',
+                        'USAGE'
+                    ),
+                    has_function_privilege(
+                        'skill_eval_backup',
+                        'public.backup_default_acl_probe()',
+                        'EXECUTE'
+                    )
+                """
+            ).fetchone()
+            attributes = conn.execute(
+                """
+                SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication,
+                       rolbypassrls
+                FROM pg_roles
+                WHERE rolname = 'skill_eval_backup'
+                """
+            ).fetchone()
+        self.assertEqual(default_acl, (True, False, True, False, False))
+        self.assertEqual(attributes, (False, False, False, False, False))
+
+    def test_backup_key_fingerprint_is_first_writer_authoritative(self):
+        first = "a" * 64
+        second = "b" * 64
+        with self.psycopg.connect(DSN, autocommit=True) as conn:
+            conn.execute(
+                """
+                INSERT INTO backup_key_registry (singleton, sha256)
+                VALUES (true, %s)
+                ON CONFLICT (singleton) DO NOTHING
+                """,
+                (first,),
+            )
+            conn.execute(
+                """
+                INSERT INTO backup_key_registry (singleton, sha256)
+                VALUES (true, %s)
+                ON CONFLICT (singleton) DO NOTHING
+                """,
+                (second,),
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT sha256 FROM backup_key_registry WHERE singleton"
+                ).fetchone(),
+                (first,),
+            )
 
     def test_worker_role_can_only_validate_exact_live_generation(self):
         client = self.runtime_client("runtime-coordinator")
@@ -207,10 +470,23 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, stdout="")
 
         with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "high-water.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "boot_id": Path("/proc/sys/kernel/random/boot_id")
+                        .read_text(encoding="utf-8")
+                        .strip(),
+                        "generation": 0,
+                        "process_groups": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
             controller = FenceController(
                 "gpu-a",
                 PostgresLeaseValidator(self.fence_dsn),
-                state_path=Path(tmp) / "high-water.json",
+                state_path=state_path,
                 cleanup=WorkerCleanup(
                     termination_grace_sec=0,
                     run=fake_run,

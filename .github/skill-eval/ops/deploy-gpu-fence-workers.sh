@@ -31,7 +31,12 @@ for required in "$installer" "$fence_module" "$unit_file"; do
         exit 1
     }
 done
-command -v brev >/dev/null
+for command in ssh tar; do
+    command -v "$command" >/dev/null || {
+        echo "Missing GPU fence deployment prerequisite: $command" >&2
+        exit 1
+    }
+done
 
 workers_text="${GPU_WORKERS:-}"
 [[ -n "$workers_text" ]] || {
@@ -44,11 +49,6 @@ read -r -a workers <<<"$(tr '\n,' '  ' <<<"$workers_text")"
     exit 2
 }
 
-declare -A registered=()
-for worker in ${REGISTERED_GPU_WORKERS:-}; do
-    registered["${worker,,}"]=1
-done
-
 validate_worker() {
     [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]
 }
@@ -56,32 +56,12 @@ validate_worker() {
 remote_exec() {
     local worker="$1"
     shift
-    if [[ -n "${registered[${worker,,}]:-}" ]]; then
-        ssh \
-            -o BatchMode=yes \
-            -o ConnectTimeout=15 \
-            -o ControlMaster=no \
-            -o ControlPath=none \
-            "${worker,,}" "$@"
-    else
-        brev exec "$worker" "$@"
-    fi
-}
-
-remote_copy() {
-    local source="$1"
-    local worker="$2"
-    local destination="$3"
-    if [[ -n "${registered[${worker,,}]:-}" ]]; then
-        scp \
-            -q \
-            -o BatchMode=yes \
-            -o ControlMaster=no \
-            -o ControlPath=none \
-            "$source" "${worker,,}:$destination"
-    else
-        brev copy "$source" "${worker}:$destination"
-    fi
+    ssh \
+        -o BatchMode=yes \
+        -o ConnectTimeout=15 \
+        -o ControlMaster=no \
+        -o ControlPath=none \
+        "$worker" "$@"
 }
 
 echo "Preflighting ${#workers[@]} GPU workers..."
@@ -90,7 +70,7 @@ for worker in "${workers[@]}"; do
         echo "Invalid GPU worker name: $worker" >&2
         exit 2
     }
-    remote_exec "$worker" "true" >/dev/null
+    remote_exec "$worker" "sudo -n true" >/dev/null
     echo "READY: $worker"
 done
 
@@ -113,22 +93,60 @@ permissions="$(stat -c '%a' "$database_url_file")"
     exit 2
 }
 
+payload="$(mktemp -d)"
+archive="$(mktemp --suffix=.tar.gz)"
+remote_dir="/run/vss-gpu-fence-install"
+remote_archive="$remote_dir/payload.tar.gz"
+remote_pending_worker=""
+cleanup() {
+    rm -rf "$payload" "$archive"
+    if [[ -n "$remote_pending_worker" ]]; then
+        remote_exec "$remote_pending_worker" \
+            "sudo rm -rf '$remote_dir'" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+install -m 0700 "$installer" "$payload/install-gpu-fence-worker.sh"
+install -m 0700 "$fence_module" "$payload/gpu_fence.py"
+install -m 0600 "$unit_file" "$payload/vss-gpu-fence.service"
+install -m 0600 "$database_url_file" "$payload/database-url"
+tar -C "$payload" -czf "$archive" .
+
 for worker in "${workers[@]}"; do
-    remote_dir="/tmp/vss-gpu-fence-install"
-    remote_exec "$worker" "rm -rf '$remote_dir' && mkdir -m 700 '$remote_dir'"
-    remote_copy "$installer" "$worker" "$remote_dir/install-gpu-fence-worker.sh"
-    remote_copy "$fence_module" "$worker" "$remote_dir/gpu_fence.py"
-    remote_copy "$unit_file" "$worker" "$remote_dir/vss-gpu-fence.service"
-    remote_copy "$database_url_file" "$worker" "$remote_dir/database-url"
+    remote_pending_worker="$worker"
+    remote_exec "$worker" \
+        "sudo rm -rf '$remote_dir' && sudo install -d -m 700 -o root -g root '$remote_dir' && sudo tee '$remote_archive' >/dev/null && sudo chmod 600 '$remote_archive'" \
+        <"$archive"
     if ! remote_exec "$worker" \
-        "chmod 700 '$remote_dir/install-gpu-fence-worker.sh' && chmod 600 '$remote_dir/database-url' && '$remote_dir/install-gpu-fence-worker.sh' --gpu-id '$worker' --database-url-file '$remote_dir/database-url'"; then
-        remote_exec "$worker" "rm -rf '$remote_dir'" || true
+        "sudo bash -s -- '$remote_dir' '$worker'" <<'REMOTE'
+set -euo pipefail
+remote_dir="$1"
+gpu_id="$2"
+eval_user="${SUDO_USER:?sudo did not preserve the SSH user identity}"
+trap 'rm -rf "$remote_dir"' EXIT HUP INT TERM
+tar --no-same-owner -xzf "$remote_dir/payload.tar.gz" -C "$remote_dir"
+rm -f "$remote_dir/payload.tar.gz"
+chmod 700 "$remote_dir" \
+    "$remote_dir/install-gpu-fence-worker.sh" \
+    "$remote_dir/gpu_fence.py"
+chmod 600 \
+    "$remote_dir/vss-gpu-fence.service" \
+    "$remote_dir/database-url"
+bash "$remote_dir/install-gpu-fence-worker.sh" \
+    --gpu-id "$gpu_id" \
+    --database-url-file "$remote_dir/database-url" \
+    --eval-user "$eval_user" \
+    --confirm-drained
+REMOTE
+    then
         echo "GPU fence install failed on $worker" >&2
         exit 1
     fi
-    remote_exec "$worker" "rm -rf '$remote_dir'"
+    remote_pending_worker=""
 done
 
+cleanup
+trap - EXIT HUP INT TERM
 for worker in "${workers[@]}"; do
     remote_exec "$worker" \
         "sudo systemctl is-active --quiet vss-gpu-fence.service && sudo /usr/local/bin/vss-gpu-fence status | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"version\"] == \"1\" and d[\"gpu_id\"] == \"$worker\" and not d[\"blocked\"]'"
