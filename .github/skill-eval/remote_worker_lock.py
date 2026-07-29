@@ -212,7 +212,12 @@ def _run_acquire_attempt(
         and _has_exact_stdout_line(result, acquired_marker)
     ):
         return True, None, tail
-    locked_owner = remote_lock_owner_from_output(tail)
+    # Protocol markers are emitted on remote stdout.  Keep parsing them from
+    # the complete stdout stream: Brev can append enough SSH/spinner stderr
+    # that the bounded diagnostic tail no longer contains the BUSY line.
+    locked_owner = remote_lock_owner_from_output(
+        (result.stdout or "") if result is not None else ""
+    )
     if locked_owner == owner:
         print(
             f"[skill-eval-lock] reconciled remote lock acquisition on {label}",
@@ -233,7 +238,9 @@ def _run_acquire_attempt(
         and _has_exact_stdout_line(result, acquired_marker)
     ):
         return True, None, tail
-    locked_owner = remote_lock_owner_from_output(tail)
+    locked_owner = remote_lock_owner_from_output(
+        (result.stdout or "") if result is not None else ""
+    )
     if locked_owner == owner:
         print(
             f"[skill-eval-lock] reconciled remote lock acquisition on {label}",
