@@ -54,41 +54,47 @@ def _check_cmd(name: str) -> dict[str, Any]:
 
 
 def _check_sandbox(name: str) -> dict[str, Any]:
-    if not shutil.which("openshell"):
-        return {"name": name, "ok": False, "error": "openshell not found"}
-    sandbox_result = _run(["openshell", "sandbox", "get", name], timeout=60)
-    gateway_result = None
+    if not shutil.which("nemoclaw"):
+        return {
+            "name": name,
+            "ok": False,
+            "gateway_ok": False,
+            "error": "nemoclaw not found",
+        }
     gateway_error = ""
-    if sandbox_result.returncode == 0:
-        try:
-            gateway_result = _run(
-                [
-                    "openshell",
-                    "sandbox",
-                    "exec",
-                    "-n",
-                    name,
-                    "--",
-                    "sh",
-                    "-lc",
-                    "curl -fsS http://127.0.0.1:18789/health >/dev/null",
-                ],
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired as exc:
-            gateway_error = (
-                f"in-sandbox OpenClaw gateway health check timed out "
-                f"after {exc.timeout}s"
-            )
+    try:
+        gateway_result = _run(
+            [
+                "nemoclaw",
+                "sandbox",
+                "exec",
+                name,
+                "--",
+                "sh",
+                "-lc",
+                "curl -fsS http://127.0.0.1:18789/health >/dev/null",
+            ],
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        gateway_result = None
+        gateway_error = (
+            f"in-sandbox OpenClaw gateway health check timed out "
+            f"after {exc.timeout}s"
+        )
     gateway_ok = gateway_result is not None and gateway_result.returncode == 0
     gateway_detail = gateway_error
     if gateway_result is not None:
         gateway_detail = (gateway_result.stderr or gateway_result.stdout or "")[-1000:]
     return {
         "name": name,
-        "ok": sandbox_result.returncode == 0 and gateway_ok,
-        "stdout_tail": sandbox_result.stdout[-1000:],
-        "stderr_tail": sandbox_result.stderr[-1000:],
+        "ok": gateway_ok,
+        "stdout_tail": gateway_result.stdout[-1000:] if gateway_result is not None else "",
+        "stderr_tail": (
+            gateway_result.stderr[-1000:]
+            if gateway_result is not None
+            else gateway_error
+        ),
         "gateway_ok": gateway_ok,
         "gateway_stderr_tail": gateway_detail,
     }
