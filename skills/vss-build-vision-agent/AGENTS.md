@@ -62,6 +62,14 @@ from natural-language capability requests.
 - For that Search-derived RT-CV-only build, the effective profile set must
   include `kibana-init-container-search` and the generated delta must include
   `ENABLE_CRITIC=false`; do not omit either from the final proof.
+- When a Search-derived RT-CV-only build asks for RT-DETR person detection,
+  multi-object tracking, Kafka events, Elasticsearch storage, and VIOS
+  retrieval, use this exact effective service profile set:
+  `kibana-init-container-search,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.
+  Do not keep `vss-video-analytics-api-fusion`; streamed and on-demand
+  detection plus Kafka/Elasticsearch persistence are satisfied by RT-CV,
+  VIOS/VST, Kafka, Logstash, Elasticsearch, and the init/wait peers without
+  the VSS video analytics API service.
 - For Search-derived ingestion + detection + embedding builds, keep
   `vss-search-analytics-2d-fusion` and `rtvi-embed` when indexing/search data
   is requested, but still remove `vss-video-analytics-api-fusion` unless the
@@ -88,6 +96,9 @@ from natural-language capability requests.
   VIOS-provided `url` or `id` request field, and
   `choices[0].message.content`. Do not describe `GET /models` only as an LLM
   or RT-VLM probe; it is also the LVS model-list endpoint for this summary API.
+- In the LVS architecture preview, spell out that the `POST /v1/summarize`
+  request accepts the VIOS-provided `url` or `id`; naming the endpoint without
+  the media-reference field is incomplete proof.
 - In runtime LVS validation, never fabricate a direct file URL or use a sidecar
   file server for media. Register or select media through VIOS, obtain the clip
   URL/id from a VIOS API such as `/storage/file/<streamId>/url?container=mp4`,
@@ -102,3 +113,17 @@ from natural-language capability requests.
   teardown steps.
 - Keep proof concrete: selected Foundation, effective service set, changed env
   values, readiness checks, and browser/API endpoints.
+- For generation-only evals, include an explicit proof checklist in both the
+  architecture preview and final answer when the request matches one of these
+  common compositions:
+  - Dense captions: state that `vss-haproxy-ingress` is retained because it
+    fronts VIOS/VST plus ten non-Agent HTTP backends and uses `init-addr none`;
+    state that no custom Kafka topic definition is needed because
+    `mdx-vlm-captions` is already in `kafka-topic-init-container`'s default
+    `KAFKA_TOPICS`.
+  - Search-derived RT-CV-only person detection: state the exact effective
+    `COMPOSE_PROFILES`, name `kibana`, `logstash`, and
+    `kibana-init-container-search` as retained search peers, and state that
+    `vss-video-analytics-api-fusion` is excluded.
+  - LVS summaries: state that `POST /v1/summarize` uses a VIOS-provided `url`
+    or `id` and returns text in `choices[0].message.content`.
