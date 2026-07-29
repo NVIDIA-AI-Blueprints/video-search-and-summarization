@@ -33,7 +33,7 @@
       "checks": [
         "VST reports at least one registered stream",
         "The run resolved warehouse_safety_0001 and obtained a non-empty clip videoUrl from VST for that sensor",
-        "A local CR3 VLM is ready on localhost:30082 (NIM) — `/v1/models` returns a cosmos3-nano-reasoner or cosmos3-super-reasoner id. Remote VLM does NOT satisfy this check"
+        "A local CR3 VLM is ready on localhost:30082 (NIM) or localhost:8018 (RT-VLM) — whichever the deployment serves, `/v1/models` returns HTTP 200 with an id containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check"
       ]
     },
     {
@@ -41,7 +41,8 @@
       "checks": [
         "The run sourced a VST clip URL for warehouse_safety_0001 (Mode A path A1) rather than posting to http://localhost:8000/generate",
         "The run called a local CR3 VLM `/v1/chat/completions` endpoint (localhost:30082 or localhost:8018) with a cosmos3-nano-reasoner or cosmos3-super-reasoner model and received HTTP 2xx",
-        "The run generated a user-facing video analysis report for warehouse_safety_0001"
+        "The run generated a user-facing video analysis report for warehouse_safety_0001",
+        "The report content is grounded in the warehouse_safety_0001 clip: it describes a warehouse/industrial scene with at least one person/worker, and mentions concrete details related to a ladder and shelving units."
       ]
     },
     {
