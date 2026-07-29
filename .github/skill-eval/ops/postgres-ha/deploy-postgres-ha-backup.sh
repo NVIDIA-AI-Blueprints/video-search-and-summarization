@@ -142,7 +142,11 @@ print("Authoritative backup key fingerprint verified.")
 PY
 )"
 registry_code_b64="$(printf '%s' "$registry_code" | base64 -w0)"
-python3 - "$admin_dsn" "$local_key_sha" <<'PY' |
+registry_verified=false
+for index in 1 2 3; do
+    registry_host="vss-skill-validator-distributed-${index}"
+    set +e
+    python3 - "$admin_dsn" "$local_key_sha" <<'PY' |
 import json
 import pathlib
 import sys
@@ -156,9 +160,34 @@ print(
     )
 )
 PY
-    ssh -o BatchMode=yes -o ControlMaster=no -o ControlPath=none \
-        vss-skill-validator-distributed-1 \
+        ssh -o BatchMode=yes -o ControlMaster=no -o ControlPath=none \
+        -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 \
+        "$registry_host" \
         "/home/ubuntu/eval-coordinator/venv/bin/python -c \"import base64; exec(base64.b64decode('$registry_code_b64'))\""
+    registry_status=("${PIPESTATUS[@]}")
+    set -e
+    payload_status="${registry_status[0]}"
+    ssh_status="${registry_status[1]}"
+    if ((ssh_status == 255)); then
+        echo "Coordinator $index is unreachable; trying the next database coordinator" >&2
+        continue
+    fi
+    ((payload_status == 0)) || {
+        echo "Failed to construct the backup-key registry request" >&2
+        exit "$payload_status"
+    }
+    ((ssh_status == 0)) || {
+        echo "Backup-key registry verification failed through coordinator $index" >&2
+        exit "$ssh_status"
+    }
+    echo "Backup-key registry verified through coordinator $index."
+    registry_verified=true
+    break
+done
+[[ "$registry_verified" == true ]] || {
+    echo "No database coordinator is reachable for backup-key registry verification" >&2
+    exit 1
+}
 
 payload="$(mktemp -d "$bundle_dir/.backup-payload.XXXXXX")"
 archive="$(mktemp --suffix=.tar.gz "$bundle_dir/.backup-payload.XXXXXX")"

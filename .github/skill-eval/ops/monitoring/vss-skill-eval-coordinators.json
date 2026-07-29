@@ -1196,8 +1196,16 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[123]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 3 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_cluster\")\n      |> filter(fn: (r) => r._field == \"healthy\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[123]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 3 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_etcd_quorum\")\n      |> filter(fn: (r) => r._field == \"healthy\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[123]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 3 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "D"
         }
       ]
     },
@@ -1348,8 +1356,48 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n      |> filter(fn: (r) => r._field == \"result_success\")\n      |> filter(fn: (r) => r.unit == \"backup\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
           "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n      |> filter(fn: (r) => r._field == \"result_success\")\n      |> filter(fn: (r) => r.unit == \"restore_test\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n      |> filter(fn: (r) => r._field == \"active\")\n      |> filter(fn: (r) => r.unit == \"backup_timer\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_unit\")\n      |> filter(fn: (r) => r._field == \"active\")\n      |> filter(fn: (r) => r.unit == \"restore_test_timer\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n      |> filter(fn: (r) => r._field == \"valid\")\n      |> filter(fn: (r) => r.unit == \"backup\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "K"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n      |> filter(fn: (r) => r._field == \"valid\")\n      |> filter(fn: (r) => r.unit == \"restore_test\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 1 else 0,\n      coordinator_id: \"coverage\"\n  }))",
+          "refId": "L"
         }
       ]
     },
@@ -1463,7 +1511,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 0 else 999999999,\n      coordinator_id: \"coverage\"\n  }))",
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n      |> filter(fn: (r) => r._field == \"age_seconds\")\n      |> filter(fn: (r) => r.unit == \"backup\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 0 else 999999999,\n      coordinator_id: \"coverage\"\n  }))",
           "refId": "B"
         }
       ]
@@ -1578,7 +1626,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_probe\")\n      |> filter(fn: (r) => r._field == \"heartbeat\")\n      |> filter(fn: (r) => r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 0 else 999999999,\n      coordinator_id: \"coverage\"\n  }))",
+          "query": "import \"array\"\n\nobserved =\n    from(bucket: v.defaultBucket)\n      |> range(start: -2m)\n      |> filter(fn: (r) => r.fleet == \"vss-skill-eval-distributed\")\n      |> filter(fn: (r) => r._measurement == \"vss_ha_evidence\")\n      |> filter(fn: (r) => r._field == \"age_seconds\")\n      |> filter(fn: (r) => r.unit == \"restore_test\" and r.coordinator_id =~ /distributed-[45]$/)\n      |> group(columns: [\"coordinator_id\"])\n      |> last()\n      |> group()\n      |> count(column: \"_value\")\n\nbaseline = array.from(rows: [{_time: now(), _value: 0}])\n\nunion(tables: [observed, baseline])\n  |> max(column: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _time: now(),\n      _value: if r._value == 2 then 0 else 999999999,\n      coordinator_id: \"coverage\"\n  }))",
           "refId": "B"
         }
       ]

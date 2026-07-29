@@ -163,8 +163,9 @@ any backup host is configured, deployment fails instead of silently generating
 a key that cannot decrypt retained backups. Every deployment compares the local
 passphrase digest with every configured recovery host from coordinators 4–8 and
 fails if any replica has drifted. The first valid digest is also registered
-atomically in PostgreSQL; all later deployments must match it. Recovery hosts
-use compare-and-create installation and never overwrite an existing key.
+atomically in PostgreSQL through the first reachable database coordinator among
+nodes 1–3; all later deployments must match it. Recovery hosts use
+compare-and-create installation and never overwrite an existing key.
 Verify:
 
 ```bash

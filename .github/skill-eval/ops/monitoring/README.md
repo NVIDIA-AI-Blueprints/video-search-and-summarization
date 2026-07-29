@@ -126,9 +126,10 @@ journalctl -u telegraf.service --since '10 minutes ago'
 
 In InfluxDB, confirm exactly eight `coordinator_id` tag values. In Grafana,
 select `All` and verify CPU, RAM, disk, HA health, plus backup and restore-age
-series for both recovery hosts. The host-count and HA panels use a dedicated
-probe heartbeat with a two-minute window, so a failed exec probe cannot remain
-green merely because Telegraf's base system inputs still report. HA and
-recovery panels also emit explicit 3-node/2-node coverage guards. Missing,
-malformed, or materially future-dated recovery markers report `valid=0` and a
-large failure age rather than appearing fresh.
+series for both recovery hosts. The host-count panel uses a dedicated probe
+heartbeat with a two-minute window. Every HA, timer, result, validity, backup
+age, and restore-age signal has its own 3-node or 2-node coverage guard, so an
+outdated or partially deployed probe cannot remain green by emitting only a
+heartbeat or a subset of fields. Missing, malformed, or materially future-dated
+recovery markers report `valid=0` and a large failure age rather than appearing
+fresh.

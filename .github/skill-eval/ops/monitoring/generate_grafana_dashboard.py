@@ -56,6 +56,8 @@ def fresh_flux(measurement: str, field: str, extra: str = "") -> str:
 
 
 def fresh_coverage(
+    measurement: str,
+    field: str,
     extra: str,
     expected_hosts: int,
     *,
@@ -69,8 +71,8 @@ observed =
     from(bucket: v.defaultBucket)
       |> range(start: -2m)
       |> filter(fn: (r) => r.fleet == "vss-skill-eval-distributed")
-      |> filter(fn: (r) => r._measurement == "vss_ha_probe")
-      |> filter(fn: (r) => r._field == "heartbeat")
+      |> filter(fn: (r) => r._measurement == "{measurement}")
+      |> filter(fn: (r) => r._field == "{field}")
       |> filter(fn: (r) => {extra})
       |> group(columns: ["coordinator_id"])
       |> last()
@@ -228,7 +230,15 @@ from(bucket: v.defaultBucket)
         "healthy",
         "r.coordinator_id =~ /distributed-[123]$/",
     )
-    database_coverage = fresh_coverage(
+    patroni_coverage = fresh_coverage(
+        "vss_ha_cluster",
+        "healthy",
+        "r.coordinator_id =~ /distributed-[123]$/",
+        3,
+    )
+    etcd_coverage = fresh_coverage(
+        "vss_etcd_quorum",
+        "healthy",
         "r.coordinator_id =~ /distributed-[123]$/",
         3,
     )
@@ -262,8 +272,40 @@ from(bucket: v.defaultBucket)
         "valid",
         'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
     )
-    recovery_coverage = fresh_coverage(
-        "r.coordinator_id =~ /distributed-[45]$/",
+    backup_result_coverage = fresh_coverage(
+        "vss_ha_unit",
+        "result_success",
+        'r.unit == "backup" and r.coordinator_id =~ /distributed-[45]$/',
+        2,
+    )
+    restore_result_coverage = fresh_coverage(
+        "vss_ha_unit",
+        "result_success",
+        'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
+        2,
+    )
+    backup_timer_coverage = fresh_coverage(
+        "vss_ha_unit",
+        "active",
+        'r.unit == "backup_timer" and r.coordinator_id =~ /distributed-[45]$/',
+        2,
+    )
+    restore_timer_coverage = fresh_coverage(
+        "vss_ha_unit",
+        "active",
+        'r.unit == "restore_test_timer" and r.coordinator_id =~ /distributed-[45]$/',
+        2,
+    )
+    backup_valid_coverage = fresh_coverage(
+        "vss_ha_evidence",
+        "valid",
+        'r.unit == "backup" and r.coordinator_id =~ /distributed-[45]$/',
+        2,
+    )
+    restore_valid_coverage = fresh_coverage(
+        "vss_ha_evidence",
+        "valid",
+        'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
         2,
     )
     backup_age = fresh_flux(
@@ -277,7 +319,17 @@ from(bucket: v.defaultBucket)
         'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
     )
     backup_age_coverage = fresh_coverage(
-        "r.coordinator_id =~ /distributed-[45]$/",
+        "vss_ha_evidence",
+        "age_seconds",
+        'r.unit == "backup" and r.coordinator_id =~ /distributed-[45]$/',
+        2,
+        success_value=0,
+        failure_value=999999999,
+    )
+    restore_age_coverage = fresh_coverage(
+        "vss_ha_evidence",
+        "age_seconds",
+        'r.unit == "restore_test" and r.coordinator_id =~ /distributed-[45]$/',
         2,
         success_value=0,
         failure_value=999999999,
@@ -435,7 +487,8 @@ from(bucket: v.defaultBucket)
             [
                 target(patroni_healthy, "A"),
                 target(etcd_healthy, "B"),
-                target(database_coverage, "C"),
+                target(patroni_coverage, "C"),
+                target(etcd_coverage, "D"),
             ],
             "bool",
             maximum=1,
@@ -463,7 +516,12 @@ from(bucket: v.defaultBucket)
                 target(restore_timer, "D"),
                 target(backup_valid, "E"),
                 target(restore_valid, "F"),
-                target(recovery_coverage, "G"),
+                target(backup_result_coverage, "G"),
+                target(restore_result_coverage, "H"),
+                target(backup_timer_coverage, "I"),
+                target(restore_timer_coverage, "J"),
+                target(backup_valid_coverage, "K"),
+                target(restore_valid_coverage, "L"),
             ],
             "bool",
             maximum=1,
@@ -497,7 +555,7 @@ from(bucket: v.defaultBucket)
             28,
             4,
             6,
-            [target(restore_age, "A"), target(backup_age_coverage, "B")],
+            [target(restore_age, "A"), target(restore_age_coverage, "B")],
             "s",
             panel_thresholds=thresholds(604800, 691200),
             description="Latest clean-cluster restore proof should remain under 8d old.",

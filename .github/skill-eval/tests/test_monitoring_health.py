@@ -5,11 +5,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
 
 MONITORING_ROOT = Path(__file__).resolve().parents[1] / "ops" / "monitoring"
+POSTGRES_HA_ROOT = MONITORING_ROOT.parent / "postgres-ha"
 
 
 def load_module(name: str, path: Path):
@@ -104,14 +106,20 @@ class MonitoringHealthTests(unittest.TestCase):
 
     def test_grafana_dashboard_exposes_ha_and_recovery_panels(self):
         dashboard = grafana.dashboard()
-        panels = {panel["title"] for panel in dashboard["panels"]}
+        checked_in_dashboard = json.loads(
+            (MONITORING_ROOT / "vss-skill-eval-coordinators.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(checked_in_dashboard, dashboard)
+        panels = {panel["title"]: panel for panel in dashboard["panels"]}
         self.assertTrue(
             {
                 "HA cluster health",
                 "Backup and restore health",
                 "Backup age",
                 "Restore proof age",
-            }.issubset(panels)
+            }.issubset(panels.keys())
         )
         dashboard_json = str(dashboard)
         self.assertIn("vss_ha_probe", dashboard_json)
@@ -125,6 +133,81 @@ class MonitoringHealthTests(unittest.TestCase):
                     panel["fieldConfig"]["defaults"]["color"]["mode"],
                     "thresholds",
                 )
+
+        ha_coverage = [
+            target["query"]
+            for target in panels["HA cluster health"]["targets"]
+            if 'import "array"' in target["query"]
+        ]
+        self.assertEqual(len(ha_coverage), 2)
+        self.assertTrue(
+            any(
+                'r._measurement == "vss_ha_cluster"' in query
+                and 'r._field == "healthy"' in query
+                for query in ha_coverage
+            )
+        )
+        self.assertTrue(
+            any(
+                'r._measurement == "vss_etcd_quorum"' in query
+                and 'r._field == "healthy"' in query
+                for query in ha_coverage
+            )
+        )
+
+        recovery_coverage = [
+            target["query"]
+            for target in panels["Backup and restore health"]["targets"]
+            if 'import "array"' in target["query"]
+        ]
+        self.assertEqual(len(recovery_coverage), 6)
+        expected_recovery_fields = {
+            ("vss_ha_unit", "result_success", "backup"),
+            ("vss_ha_unit", "result_success", "restore_test"),
+            ("vss_ha_unit", "active", "backup_timer"),
+            ("vss_ha_unit", "active", "restore_test_timer"),
+            ("vss_ha_evidence", "valid", "backup"),
+            ("vss_ha_evidence", "valid", "restore_test"),
+        }
+        for measurement, field, unit in expected_recovery_fields:
+            self.assertTrue(
+                any(
+                    f'r._measurement == "{measurement}"' in query
+                    and f'r._field == "{field}"' in query
+                    and f'r.unit == "{unit}"' in query
+                    for query in recovery_coverage
+                ),
+                (measurement, field, unit),
+            )
+
+        backup_age_coverage = panels["Backup age"]["targets"][1]["query"]
+        restore_age_coverage = panels["Restore proof age"]["targets"][1]["query"]
+        for query, unit in (
+            (backup_age_coverage, "backup"),
+            (restore_age_coverage, "restore_test"),
+        ):
+            self.assertIn('r._measurement == "vss_ha_evidence"', query)
+            self.assertIn('r._field == "age_seconds"', query)
+            self.assertIn(f'r.unit == "{unit}"', query)
+            self.assertNotIn('r._field == "heartbeat"', query)
+
+    def test_backup_registry_uses_first_reachable_database_coordinator(self):
+        deployer = (POSTGRES_HA_ROOT / "deploy-postgres-ha-backup.sh").read_text(
+            encoding="utf-8"
+        )
+        registry_block = deployer[
+            deployer.index("registry_verified=false") : deployer.index(
+                'payload="$(mktemp'
+            )
+        ]
+
+        self.assertIn("for index in 1 2 3; do", registry_block)
+        self.assertIn(
+            'registry_host="vss-skill-validator-distributed-${index}"',
+            registry_block,
+        )
+        self.assertIn("if ((ssh_status == 255)); then", registry_block)
+        self.assertNotIn("vss-skill-validator-distributed-1", registry_block)
 
 
 if __name__ == "__main__":
