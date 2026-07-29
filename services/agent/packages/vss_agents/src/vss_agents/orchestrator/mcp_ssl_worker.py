@@ -155,7 +155,7 @@ class SSLMCPWorker(MCPFrontEndPluginWorker):
         original = mcp_worker.FastMCP
         mcp_worker.FastMCP = _SSLFastMCP
         try:
-            server = await super().create_mcp_server()
+            server: FastMCP = await super().create_mcp_server()
         finally:
             mcp_worker.FastMCP = original
 
