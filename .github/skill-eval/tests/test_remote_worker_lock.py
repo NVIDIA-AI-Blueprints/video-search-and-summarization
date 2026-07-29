@@ -187,6 +187,55 @@ class AcquireReleaseTests(unittest.TestCase):
         self.assertEqual(clears[0], old_owner)
         self.assertEqual(clears[1], lease.owner)
 
+    def test_busy_owner_survives_long_transport_stderr(self):
+        old_owner = "v2__111__1__old-job__1__2__abc"
+        old_owner_cleared = False
+        acquisitions = 0
+        clears: list[str] = []
+        checked: list[str] = []
+        busy_result = Result(
+            1,
+            f"{_marker('BUSY', old_owner)}\n"
+            f"NemoClaw worker is locked by {old_owner} age=20s\n",
+            "ssh transport diagnostics\n" * 100,
+        )
+        self.assertIsNone(
+            remote_lock.remote_lock_owner_from_output(
+                remote_lock._command_tail(busy_result)
+            )
+        )
+
+        def execute(command: str, _timeout: int) -> Result:
+            nonlocal acquisitions, old_owner_cleared
+            if "if mkdir" in command:
+                acquisitions += 1
+                if not old_owner_cleared:
+                    return busy_result
+                owner = _owner_from_acquire_command(command)
+                return Result(0, f"{_marker('ACQUIRED', owner)}\n")
+            owner = _owner_from_clear_command(command)
+            clears.append(owner)
+            if owner == old_owner:
+                old_owner_cleared = True
+            return Result(0, f"{_marker('CLEARED', owner)}\n")
+
+        def inactive(owner: str) -> bool:
+            checked.append(owner)
+            return True
+
+        lease = remote_lock.try_acquire_remote_worker_lock(
+            execute,
+            "worker-b",
+            owner_inactive=inactive,
+        )
+        self.assertIsNotNone(lease)
+        assert lease is not None
+        lease.release()
+
+        self.assertEqual(checked, [old_owner])
+        self.assertEqual(acquisitions, 2)
+        self.assertEqual(clears, [old_owner, lease.owner])
+
     def test_changed_owner_is_never_deleted(self):
         seen: list[tuple[str, int]] = []
 
