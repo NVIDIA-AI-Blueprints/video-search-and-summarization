@@ -229,6 +229,8 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         void sendCachedFrameLoop();
         void sendEosToSink();
         void flushDecoderPipeline();
+        /* Unblock the image encoder when playback ended without a matching frame */
+        void releaseImageCaptureWait();
         
         // Unified storage configuration and management
         bool initUnifiedStorageReader();
@@ -320,6 +322,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::string             m_isoEndTime{""};
         int64_t                 m_epochStartTime{0};
         int64_t                 m_epochEndTime{0};
+        std::atomic<bool>       m_imageFrameDelivered{false};
         int64_t                 m_fileStartTime{0};
         bool                    m_continuosPlayback = false;
         std::time_t             m_lastDRCTime {0};
