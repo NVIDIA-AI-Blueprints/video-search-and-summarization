@@ -429,7 +429,7 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
-        timeout-minutes: 150
+        timeout-minutes: 180
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
@@ -442,25 +442,25 @@ jobs:
           # Give warm GPU workers enough time to become available while keeping
           # the serialized sweep bounded.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=1200
-          # Share one 130-minute cap across discovery, every worker selection,
-          # every Harbor attempt, and all failovers. The 150-minute job retains
-          # 20 minutes for termination, reporting, and artifact upload.
-          export NEMOCLAW_RUN_TIMEOUT_SEC=7800
+          # Share one 150-minute cap across discovery, every worker selection,
+          # every Harbor attempt, and all failovers. The 180-minute job retains
+          # 30 minutes for termination, reporting, and artifact upload.
+          export NEMOCLAW_RUN_TIMEOUT_SEC=9000
           # Keep the shared lock timestamp fresh for older runners that still
           # use a 900-second age cutoff. Ownership is rechecked on every beat.
           export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180
           export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660
-          # The 110-minute Harbor cap covers the 27-minute setup wrapper,
-          # 40-minute shared OpenClaw/profile-readiness budget, 30-minute
-          # verifier ceiling, and 13 minutes of lifecycle overhead. Together
+          # The 130-minute Harbor cap covers the 27-minute setup wrapper,
+          # 55-minute shared OpenClaw/profile-readiness budget, 30-minute
+          # verifier ceiling, and 18 minutes of lifecycle overhead. Together
           # with the 20-minute lock wait, it fits the shared run cap above.
-          export NEMOCLAW_HARBOR_TIMEOUT_SEC=6600
+          export NEMOCLAW_HARBOR_TIMEOUT_SEC=7800
           export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500
           export NEMOCLAW_SETUP_TIMEOUT_SEC=1620
           export NEMOCLAW_SETUP_CELL_TIMEOUT=900
           # One end-to-end budget shared by gateway recovery, OpenClaw, and
           # post-agent profile readiness (not one budget per phase).
-          export NEMOCLAW_AGENT_TIMEOUT_SEC=2400
+          export NEMOCLAW_AGENT_TIMEOUT_SEC=3300
           export NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER=3.0
           # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
           # is online, the smoke runner can place this 1-GPU profile there.
