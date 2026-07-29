@@ -30,6 +30,15 @@ from natural-language capability requests.
   do not prevent startup. Do not add a custom Kafka topic definition for
   `mdx-vlm-captions`; the default `KAFKA_TOPICS` owned by
   `kafka-topic-init-container` already includes it.
+- For a base-derived dense-captioning proposal, explicitly list the six added
+  service keys as `kafka`, `kafka-topic-init-container`,
+  `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, and
+  `logstash`. `logstash` is mandatory: RT-VLM publishes captions to Kafka and
+  `pipelines/kafka/mdx-lvs-logstash.conf` is the checked-in bridge that
+  consumes `mdx-vlm-captions` and writes to Elasticsearch. Also explicitly
+  state that HAProxy fronts VIOS/VST and ten non-Agent HTTP backends, uses
+  `init-addr none`, and that no custom topic definition is required because
+  `mdx-vlm-captions` is already in the default `KAFKA_TOPICS` list.
 - Do not route warehouse or industry-profile requests through this skill unless
   the request is explicitly for a developer-profile-derived composition.
 - In delta mode, add or remove only canonical Compose profile keys and only the
