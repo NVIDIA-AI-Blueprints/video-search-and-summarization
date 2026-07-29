@@ -672,6 +672,25 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertNotIn('LLM_DEVICE_ID = "0"', source)
         self.assertNotIn('VLM_DEVICE_ID = "1"', source)
 
+    def test_vss_notebook_does_not_print_masked_ngc_credentials(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_vss_orchestrator.ipynb"
+            ).read_text()
+        )
+        ngc_cells = [
+            cell for cell in notebook["cells"] if cell.get("id") == "6a72f8d2"
+        ]
+        self.assertEqual(len(ngc_cells), 1)
+        source = "".join(ngc_cells[0].get("source", ""))
+
+        self.assertIn('print("NGC CLI configured.")', source)
+        self.assertNotIn("ngc config current", source)
+
     def test_parameter_cell_preserves_blank_notebook_gpu_defaults(self):
         defaults = {
             "HARDWARE_PROFILE": "RTXPRO6000BW",
@@ -1203,9 +1222,12 @@ class NemoClawEnvFileTest(unittest.TestCase):
     def test_readiness_discovers_required_mcp_tools_inside_sandbox(self):
         output = json.dumps(
             {
+                "mode": "server",
+                "name": "vss_orchestrator",
+                "status": "ok",
                 "tools": [
-                    {"name": "vss_orchestrator__profiles"},
-                    {"name": "vss_orchestrator__docker_status"},
+                    {"name": "profiles"},
+                    {"name": "docker_status"},
                 ]
             }
         )
@@ -1232,6 +1254,10 @@ class NemoClawEnvFileTest(unittest.TestCase):
 
         self.assertTrue(report["ok"])
         self.assertEqual(report["missing_tools"], [])
+        self.assertEqual(
+            report["discovered_tools"],
+            ["docker_status", "profiles"],
+        )
         run.assert_called_once_with(
             [
                 "nemoclaw",
@@ -1279,7 +1305,10 @@ class NemoClawEnvFileTest(unittest.TestCase):
                 return_value=subprocess.CompletedProcess(
                     ["nemoclaw"],
                     0,
-                    stdout='{"tools":[]}',
+                    stdout=(
+                        '{"mode":"server","name":"vss_orchestrator",'
+                        '"status":"ok","tools":[]}'
+                    ),
                     stderr="",
                 ),
             ),
@@ -1294,6 +1323,222 @@ class NemoClawEnvFileTest(unittest.TestCase):
             report["missing_tools"],
             ["vss_orchestrator__profiles"],
         )
+
+    def test_readiness_requires_exact_sandbox_mcp_tool_names(self):
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    ["nemoclaw"],
+                    0,
+                    stdout=(
+                        '{"mode":"server","name":"vss_orchestrator",'
+                        '"status":"ok",'
+                        '"tools":[{"name":"profiles_extended"}]}'
+                    ),
+                    stderr="",
+                ),
+            ),
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                ["vss_orchestrator__profiles"],
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            report["error_category"],
+            "sandbox_mcp_missing_required_tools",
+        )
+        self.assertEqual(
+            report["missing_tools"],
+            ["vss_orchestrator__profiles"],
+        )
+
+    def test_readiness_rejects_invalid_sandbox_mcp_json(self):
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    ["nemoclaw"],
+                    0,
+                    stdout="not-json",
+                    stderr="",
+                ),
+            ),
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                ["vss_orchestrator__profiles"],
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            report["error_category"],
+            "sandbox_mcp_invalid_response",
+        )
+
+    def test_readiness_safe_summary_excludes_raw_diagnostics(self):
+        raw_secret = "sk-readiness-secret"
+        report = {
+            "commands": [
+                {"name": name, "ok": True, "path": f"/secret/{raw_secret}"}
+                for name in readiness.COMMANDS
+            ],
+            "sandbox": {
+                "ok": True,
+                "gateway_ok": True,
+                "stderr_tail": raw_secret,
+            },
+            "mcp": {"ok": False, "message": raw_secret},
+            "sandbox_mcp": {
+                "ok": False,
+                "returncode": 0,
+                "error_category": "sandbox_mcp_missing_required_tools",
+                "missing_tools": [
+                    "vss_orchestrator__profiles",
+                    raw_secret,
+                ],
+                "stdout_tail": raw_secret,
+            },
+            "ok": False,
+        }
+
+        summary = readiness._build_safe_summary(report)
+        encoded = json.dumps(summary, sort_keys=True)
+
+        self.assertNotIn(raw_secret, encoded)
+        self.assertEqual(
+            summary["categories"],
+            [
+                "host_mcp_unhealthy",
+                "sandbox_mcp_missing_required_tools",
+            ],
+        )
+        self.assertEqual(
+            summary["sandbox_mcp"]["missing_required_tool_count"],
+            2,
+        )
+        self.assertNotIn("missing_required_tools", summary["sandbox_mcp"])
+
+    def test_readiness_rejects_wrong_mcporter_server_envelope(self):
+        output = json.dumps(
+            {
+                "mode": "server",
+                "name": "different_server",
+                "status": "ok",
+                "tools": [{"name": "profiles"}],
+            }
+        )
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    ["nemoclaw"],
+                    0,
+                    stdout=output,
+                    stderr="",
+                ),
+            ),
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                ["vss_orchestrator__profiles"],
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            report["error_category"],
+            "sandbox_mcp_invalid_response",
+        )
+
+    def test_readiness_json_writer_refuses_symlinked_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "target.json"
+            target.write_text("sentinel\n", encoding="utf-8")
+            output = Path(td) / "readiness.json"
+            output.symlink_to(target)
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "refusing existing readiness output",
+            ):
+                readiness._write_json(output, {"ok": True})
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "sentinel\n")
+
+    def test_readiness_main_emits_and_writes_only_safe_summary(self):
+        raw_secret = "sk-readiness-secret"
+        with tempfile.TemporaryDirectory() as td:
+            raw_output = Path(td) / "readiness.json"
+            summary_output = Path(td) / "readiness-summary.json"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    readiness,
+                    "_check_cmd",
+                    side_effect=lambda name: {
+                        "name": name,
+                        "ok": True,
+                        "path": f"/secret/{raw_secret}",
+                    },
+                ),
+                mock.patch.object(
+                    readiness,
+                    "_check_sandbox",
+                    return_value={
+                        "ok": True,
+                        "gateway_ok": True,
+                        "stderr_tail": raw_secret,
+                    },
+                ),
+                mock.patch.object(
+                    readiness,
+                    "_check_mcp",
+                    return_value={"ok": False, "message": raw_secret},
+                ),
+                mock.patch.object(
+                    readiness,
+                    "_check_sandbox_mcp",
+                    return_value={
+                        "ok": False,
+                        "returncode": 0,
+                        "error_category": "sandbox_mcp_missing_required_tools",
+                        "missing_tools": [raw_secret],
+                        "stdout_tail": raw_secret,
+                    },
+                ),
+                contextlib.redirect_stdout(stdout),
+                contextlib.redirect_stderr(stderr),
+            ):
+                return_code = readiness.main(
+                    [
+                        "--env-file",
+                        str(Path(td) / "missing.env"),
+                        "--required-tools",
+                        "vss_orchestrator__profiles",
+                        "--output",
+                        str(raw_output),
+                        "--summary-output",
+                        str(summary_output),
+                    ]
+                )
+
+            self.assertEqual(return_code, 1)
+            self.assertIn(raw_secret, raw_output.read_text(encoding="utf-8"))
+            summary_text = summary_output.read_text(encoding="utf-8")
+            self.assertNotIn(raw_secret, summary_text)
+            self.assertNotIn(raw_secret, stdout.getvalue())
+            self.assertNotIn(raw_secret, stderr.getvalue())
+            self.assertIn("NemoClaw readiness failed", stderr.getvalue())
+            self.assertEqual(summary_output.stat().st_mode & 0o777, 0o600)
 
 
 class NemoClawHeadlessRunnerTest(unittest.TestCase):

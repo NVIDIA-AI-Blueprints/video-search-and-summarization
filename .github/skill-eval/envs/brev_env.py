@@ -1263,6 +1263,35 @@ __NEMOCLAW_GATEWAY_RELEASE__
     stage "released stale host gateway on port $gateway_port; fresh onboarding will recreate its bridge"
   fi
 fi
+ci_legacy_recreate="$(printf '%s' "${{NEMOCLAW_RECREATE_SANDBOX:-1}}" | \
+  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+case "$ci_legacy_recreate" in
+  1|true|yes)
+    if [ "$gateway_state_dir" = "$default_gateway_state_dir" ]; then
+      legacy_repair_helper="$(realpath -- \
+        "$REPO/.github/skill-eval/nemoclaw/repair_legacy_state.py" 2>/dev/null || true)"
+      case "$legacy_repair_helper" in
+        "$REPO"/*) ;;
+        *)
+          echo "NemoClaw legacy-state repair refused: helper_path_unsafe" >&2
+          exit 1
+          ;;
+      esac
+      if [ ! -f "$legacy_repair_helper" ] || [ -L "$legacy_repair_helper" ]; then
+        echo "NemoClaw legacy-state repair refused: helper_file_unsafe" >&2
+        exit 1
+      fi
+      if [ ! -x /usr/bin/python3 ]; then
+        echo "NemoClaw legacy-state repair refused: system_python_unavailable" >&2
+        exit 1
+      fi
+      export NEMOCLAW_SANDBOX_NAME="${{NEMOCLAW_SANDBOX_NAME:-demo}}"
+      stage "checking CI-owned legacy NemoClaw session state"
+      SKILL_EVAL_NEMOCLAW_CI=1 \
+        /usr/bin/python3 "$legacy_repair_helper"
+    fi
+    ;;
+esac
 recreate_value="$(printf '%s' "${{NEMOCLAW_RECREATE_SANDBOX:-1}}" | \
   sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
 case "$recreate_value" in
@@ -1333,7 +1362,8 @@ stage "notebook setup adapter completed"
 python3 .github/skill-eval/nemoclaw/readiness.py \
   --env-file /tmp/skill-eval/nemoclaw/nemoclaw.env \
   --required-tools {shlex.quote(required_tools_csv)} \
-  --output /tmp/skill-eval/nemoclaw/readiness.json
+  --output /tmp/skill-eval/nemoclaw/readiness.json \
+  --summary-output /tmp/skill-eval/nemoclaw/readiness-summary.json
 stage "readiness completed"
 __NEMOCLAW_SETUP__
 chmod +x /tmp/skill-eval/nemoclaw/setup.sh
@@ -1358,7 +1388,7 @@ if [ "$setup_rc" -ne 0 ]; then
   fi
 fi
 artifact_copy_rc=0
-for artifact_name in setup.executed.ipynb setup-failure.json; do
+for artifact_name in setup.executed.ipynb readiness-summary.json setup-failure.json; do
   artifact_path="/tmp/skill-eval/nemoclaw/$artifact_name"
   if [ -f "$artifact_path" ] && [ ! -L "$artifact_path" ]; then
     if ! cp -- "$artifact_path" "/logs/artifacts/nemoclaw/$artifact_name"; then

@@ -1178,13 +1178,22 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             command,
         )
         self.assertIn(
+            ".github/skill-eval/nemoclaw/repair_legacy_state.py",
+            command,
+        )
+        self.assertIn("SKILL_EVAL_NEMOCLAW_CI=1", command)
+        self.assertLess(
+            command.index("repair_legacy_state.py"),
+            command.index("notebook_setup_adapter.py"),
+        )
+        self.assertIn(
             "for artifact_name in setup.executed.ipynb "
-            "setup-failure.json",
+            "readiness-summary.json setup-failure.json",
             command,
         )
         self.assertNotIn(
             "for artifact_name in setup.executed.ipynb "
-            "setup-failure.json readiness.json",
+            "readiness-summary.json setup-failure.json readiness.json",
             command,
         )
         self.assertNotIn(
@@ -1282,6 +1291,15 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 json.dumps({"stderr_tail": f"authentication failed: {raw_secret}"}),
                 encoding="utf-8",
             )
+            safe_summary = {
+                "schema_version": 1,
+                "ok": False,
+                "categories": ["host_mcp_unhealthy"],
+            }
+            (stage_dir / "readiness-summary.json").write_text(
+                json.dumps(safe_summary),
+                encoding="utf-8",
+            )
             fake_timeout = fake_bin / "timeout"
             fake_timeout.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             fake_timeout.chmod(0o755)
@@ -1308,6 +1326,14 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(safe_copy.returncode, 0, safe_copy.stderr)
             self.assertTrue((artifact_dir / "setup.executed.ipynb").is_file())
+            self.assertEqual(
+                json.loads(
+                    (artifact_dir / "readiness-summary.json").read_text(
+                        encoding="utf-8"
+                    )
+                ),
+                safe_summary,
+            )
             self.assertFalse((artifact_dir / "readiness.json").exists())
             archived_text = "\n".join(
                 path.read_text(encoding="utf-8")
