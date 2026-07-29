@@ -26,7 +26,7 @@ For this checked-in sample dataset only, the expected camera IDs are `Camera`, `
 
 ## Resolve App Data
 
-Use an existing extracted app-data directory if the user already has one. Otherwise download the NGC warehouse app-data resource named by the user, environment, release notes, or public VSS docs. The expected resource shape is `nvidia/vss-warehouse/vss-warehouse-app-data:<version>`; do not infer the version from this skill.
+Use an existing extracted app-data directory if the user already has one. Otherwise download the NGC warehouse app-data resource named by the user, environment, release notes, or public VSS docs. The expected resource shape is `nvidia/vss-warehouse/vss-warehouse-app-data:<version>`; use the resource for the tested VSS release and do not infer the version from this skill.
 
 Do not print NGC keys. Prefer existing `~/.ngc/config`; only ask for an NGC API key when no usable config or current-session `NGC_CLI_API_KEY` exists.
 
@@ -58,7 +58,7 @@ else
 fi
 
 if [ -z "${APP_DATA_DIR:-}" ]; then
-  WAREHOUSE_APP_DATA_NGC="${WAREHOUSE_APP_DATA_NGC:?set NGC resource, for example nvidia/vss-warehouse/vss-warehouse-app-data:<version>}"
+  WAREHOUSE_APP_DATA_NGC="${WAREHOUSE_APP_DATA_NGC:?set the release-compatible NGC resource, for example nvidia/vss-warehouse/vss-warehouse-app-data:<version>}"
   command -v ngc >/dev/null || { echo "ERROR: ngc CLI is required to download sample app-data. Install/configure NGC CLI or set WAREHOUSE_APP_DATA_DIR to an existing extract." >&2; exit 1; }
   if ! ngc config current >/dev/null 2>&1; then
     if [ -z "${NGC_CLI_API_KEY:-}" ]; then
@@ -93,6 +93,8 @@ fi
 
 test -d "${APP_DATA_DIR}/models/mtmc" || { echo "ERROR: missing sample models under ${APP_DATA_DIR}/models/mtmc" >&2; exit 1; }
 test -d "${APP_DATA_DIR}/models/mv3dt/BodyPose3DNet" || { echo "ERROR: missing BodyPose3DNet under ${APP_DATA_DIR}/models/mv3dt" >&2; exit 1; }
+test -f "${APP_DATA_DIR}/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx" || { echo "ERROR: missing release-compatible RT-DETR model: ${APP_DATA_DIR}/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx" >&2; exit 1; }
+test -f "${APP_DATA_DIR}/models/mv3dt/BodyPose3DNet/bodypose3dnet_accuracy.onnx" || { echo "ERROR: missing BodyPose3DNet ONNX model: ${APP_DATA_DIR}/models/mv3dt/BodyPose3DNet/bodypose3dnet_accuracy.onnx" >&2; exit 1; }
 test -d "${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic" || { echo "ERROR: missing sample videos under ${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic" >&2; exit 1; }
 
 export MODELS_DIR="${APP_DATA_DIR}/models"
@@ -154,7 +156,7 @@ cd "${RTCV3D_APP}"
 INPUT_MODE=file OSD=0 SAVE_VIDEO=1 ./scripts/stage-configs.sh
 ```
 
-Because the sample is finite MP4 input with saved output, use the two-phase BEV launch from `deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the fused BEV recorder and wait for its Kafka consumer group assignment, then start `perception`.
+Because the sample is finite MP4 input with saved output, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the fused BEV recorder and wait for its Kafka consumer group assignment, then start `perception`.
 
 ## Verify Sample Run
 
