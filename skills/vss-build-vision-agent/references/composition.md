@@ -128,15 +128,9 @@ canonical service key. Do not copy unchanged services, volumes, networks, or
 profile files. Add multiple patch paths after the root file when multiple
 service definitions change.
 
-Generated runtime path redirection is a valid service-definition change. If a
-selected upstream service uses relative writable bind mounts that would create
-generated files or directories under `deploy/docker/` (for example SDRC
-`./log`, `./.wdm-env`, or rendered `config.yml` outputs), create a minimal patch
-that changes only those bind sources to `_builds/<name>/generated/...` or to a
-`VSS_DATA_DIR` path. Copy only the needed template/config inputs into the build
-generated directory when the service must render them. Never create `.wdm-env`,
-rendered config files, logs, model engines, sample videos, or data directories
-under `deploy/docker/`.
+Generated runtime path redirection is a valid service-definition change only
+when required by [`data-directory.md`](data-directory.md) to keep build/runtime
+outputs outside the checked-in `deploy/docker/` tree.
 
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
