@@ -3170,7 +3170,7 @@ DAMAGE.
 
 ---
 
-## org.jruby:jruby-complete:10.0.5.0
+## org.jruby:jruby-complete:10.0.6.0
 
 **License Type:** EPL-2.0 OR GPL-2.0 OR LGPL-2.1
 **Scope:** Build/test-time only — used to package the gem and run tests; not shipped.
@@ -4623,7 +4623,7 @@ Public Domain.
 
 ---
 
-## org.logstash:logstash-core:9.4.3
+## org.logstash:logstash-core:9.4.4
 
 **License Type:** Apache-2.0
 
