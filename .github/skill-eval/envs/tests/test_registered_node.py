@@ -1022,7 +1022,67 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("source ~/.profile 2>/dev/null || true\nset -u\nexport PATH", command)
         self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
         self.assertIn("--required-tools vss_orchestrator__docker_up", command)
-        self.assertIn("apt-get install -y -qq libcairo2-dev pkg-config", command)
+        self.assertIn(
+            "sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive "
+            "apt-get install -y -qq libcairo2-dev pkg-config",
+            command,
+        )
+        self.assertNotIn(
+            "sudo -n DEBIAN_FRONTEND=noninteractive apt-get",
+            command,
+        )
+        self.assertIn(
+            "PIP_BREAK_SYSTEM_PACKAGES=1 "
+            "python3 -m pip install --user --quiet "
+            "nbformat nbclient ipykernel",
+            command,
+        )
+        apt_start = command.index("if command -v apt-get")
+        apt_end = command.index(
+            "# Registered workers use a uv-managed Python",
+            apt_start,
+        )
+        apt_script = (
+            "set -e\n"
+            "stage() { :; }\n"
+            + command[apt_start:apt_end]
+        )
+        with tempfile.TemporaryDirectory() as td:
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            apt_log = Path(td) / "apt.log"
+            fake_sudo = fake_bin / "sudo"
+            fake_sudo.write_text(
+                "#!/bin/sh\n"
+                'if [ "${1:-}" = "-n" ]; then shift; fi\n'
+                'exec "$@"\n',
+                encoding="utf-8",
+            )
+            fake_sudo.chmod(0o755)
+            fake_apt = fake_bin / "apt-get"
+            fake_apt.write_text(
+                "#!/bin/sh\n"
+                'printf "%s|%s\\n" "$1" "${DEBIAN_FRONTEND:-}" '
+                '>> "$APT_LOG"\n',
+                encoding="utf-8",
+            )
+            fake_apt.chmod(0o755)
+            apt_result = subprocess.run(
+                ["bash", "-c", apt_script],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "APT_LOG": str(apt_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(apt_result.returncode, 0, apt_result.stderr)
+            self.assertIn(
+                "install|noninteractive",
+                apt_log.read_text(encoding="utf-8").splitlines(),
+            )
         self.assertIn("NEMOCLAW_PRESTAGE_ALERTS_MODELS", command)
         self.assertIn("models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx", command)
         self.assertIn("models/rtdetr-its/model_epoch_035.fp16.onnx", command)
