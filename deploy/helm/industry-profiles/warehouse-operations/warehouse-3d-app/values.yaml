@@ -6,6 +6,9 @@ global:
     - name: ngc-docker-reg-secret
   storageClass: ""
   useReleaseNamePrefix: false
+  # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
+  vios:
+    useSdrc: true
 
 bp-configurator:
   enabled: true
