@@ -37,7 +37,6 @@ FILE_TARGET_SUFFIXES = {
     ".yml",
 }
 GENERATED_BIND_NAMES = {".wdm-env"}
-GENERATED_BIND_DIR_NAMES = {"log", "data-dir"}
 
 
 def walk_strings(value: Any, location: str = "$") -> Iterator[tuple[str, str]]:
@@ -94,22 +93,6 @@ def validate_document(
         source = Path(source_text)
         if not source.is_absolute() or not is_within(source, repo_root):
             continue
-        deploy_docker = repo_root / "deploy" / "docker"
-        if is_within(source, deploy_docker):
-            relative_source_parts = source.resolve(strict=False).relative_to(
-                deploy_docker.resolve(strict=False)
-            ).parts
-            template_source = source.with_name(f"{source.name}.tmpl")
-            if (
-                source.name in GENERATED_BIND_NAMES | GENERATED_BIND_DIR_NAMES
-                or "data-dir" in relative_source_parts
-                or template_source.is_file()
-            ):
-                errors.append(
-                    f"service {service_name!r} bind source writes generated "
-                    f"runtime data under deploy/docker: {source}"
-                )
-                continue
         checked_in_source = read_only or "developer-profiles" in source.parts
         if not checked_in_source:
             continue

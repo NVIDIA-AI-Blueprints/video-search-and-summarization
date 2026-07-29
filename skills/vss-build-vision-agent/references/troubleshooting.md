@@ -17,7 +17,7 @@ Run these checks before changing configuration:
 ```bash
 BUILD_DIR="_builds/<name>"
 docker compose -f "$BUILD_DIR/resolved.yml" ps
-python3 -c 'import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); hits=list(re.finditer(r"(?<!\$)\$\{[^}]+\}", p.read_text())); [print(f"{p}:{h.start()}: {h.group(0)}") for h in hits[:20]]; raise SystemExit(1 if hits else 0)' "$BUILD_DIR/resolved.yml"
+grep -n '\${' "$BUILD_DIR/resolved.yml" | head -20
 docker logs vss-agent --tail 200
 ```
 
@@ -29,7 +29,7 @@ build before deploying.
 | Symptom | Grep / check | Likely cause | Corrective action |
 |---|---|---|---|
 | REST call / endpoint returns connection refused | `curl -sf http://<host>:<port>/docs` or `/health`; `docker compose ps` | Target microservice is not running — crashed, never started, or wrong port. | Probe `/docs` or `/health`; if down, check the container logs, then rebuild or redeploy through this skill. |
-| `resolved.yml` contains unescaped `${...}` | `python3 -c 'import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); hits=list(re.finditer(r"(?<!\$)\$\{[^}]+\}", p.read_text())); [print(h.group(0)) for h in hits[:20]]; raise SystemExit(1 if hits else 0)' "$BUILD_DIR/resolved.yml"` | A required value was absent from the Foundation layers and build override during resolution. Escaped `$${...}` values are container-shell expressions and are valid. | Add the missing value and its derived values to `override.env`, regenerate `resolved.yml`, re-run validation, then deploy. |
+| `resolved.yml` contains `${...}` | `grep -n '\${' "$BUILD_DIR/resolved.yml"` | A required value was absent from the Foundation layers and build override during resolution. | Add the missing value and its derived values to `override.env`, regenerate `resolved.yml`, re-run validation, then deploy. |
 | `docker compose up` says no `resolved.yml` | `test -f "$BUILD_DIR/resolved.yml"` | The resolution step was skipped. | Follow `composition.md` to regenerate the build-local `resolved.yml` first. |
 | NIM container is up but `/generate` or model calls time out | `docker logs <nim-container> --tail 200` and `curl -sf http://<host>:<port>/v1/models` | NIM cold start or model still loading. | Keep polling `/v1/models` or the service health endpoint before retrying the agent request. Do not restart a loading NIM unless logs show a hard failure. |
 | `CUDA out of memory` | Search `docker logs <container> 2>&1` for `out of memory`. | LLM, VLM, RT-VLM, or embedding service is too large for the selected GPU placement. | Follow the profile sizing reference. Typical fixes are lowering `NIM_KVCACHE_PERCENT`, lowering `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, lowering max model length / max sequences, reducing streams, switching one side to remote mode with user approval, or freeing GPUs via `docker compose down`. |
@@ -58,7 +58,11 @@ Foundation and build env layers. The build contract requires a complete
 do not deploy until the resolved file contains no placeholders.
 
 ```bash
-python3 -c 'import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); hits=list(re.finditer(r"(?<!\$)\$\{[^}]+\}", p.read_text())); [print(f"{p}:{h.start()}: {h.group(0)}") for h in hits[:20]]; raise SystemExit(1 if hits else 0)' "$BUILD_DIR/resolved.yml"
+if grep -q '\${' "$BUILD_DIR/resolved.yml"; then
+  echo "FAIL: resolved.yml has unexpanded variables:"
+  grep -n '\${' "$BUILD_DIR/resolved.yml" | head -5
+  exit 1
+fi
 ```
 
 If this check fails, add the missing value and any derived values to

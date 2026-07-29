@@ -128,10 +128,6 @@ canonical service key. Do not copy unchanged services, volumes, networks, or
 profile files. Add multiple patch paths after the root file when multiple
 service definitions change.
 
-Generated runtime path redirection is a valid service-definition change only
-when required by [`data-directory.md`](data-directory.md) to keep build/runtime
-outputs outside the checked-in `deploy/docker/` tree.
-
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
 effective service set and its dependencies are serialized. Normalization then
@@ -206,9 +202,7 @@ Then verify:
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
 - No unrequested service definition is present in a patch.
-- Any patch contains only changed or new service entries; generated path
-  redirection patches change only the affected bind sources or derived config
-  paths.
+- Any patch contains only changed or new service entries.
 - `resolved.yml` contains no real unresolved `${...}` Compose interpolation and
   every selected service's environment is filled in. Escaped `$${...}` variables
   are container-shell expressions, not Compose interpolation failures.
@@ -216,7 +210,6 @@ Then verify:
   `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
   directory.
-- No generated file or directory is created under `deploy/docker/`.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 

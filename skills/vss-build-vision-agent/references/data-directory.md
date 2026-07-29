@@ -5,14 +5,6 @@ Run this gate for every stock or delta build after writing
 creates missing bind sources as `root:root`, and dangling symlinks left by an
 older deployment can make permission or mount setup fail unpredictably.
 
-All generated runtime directories must live outside the checked-in
-`deploy/docker/` tree. Use `VSS_DATA_DIR` for persistent data and
-`_builds/<name>/generated/` for build-local scratch/config outputs such as SDRC
-`.wdm-env`, rendered `config.yml`, and logs. If a selected upstream service has
-a relative writable bind mount that would otherwise create those files under
-`deploy/docker/`, patch only that bind source in `_builds/<name>/patches/`
-before resolving Compose.
-
 ## Check and create
 
 From the repository root:
