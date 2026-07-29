@@ -7590,10 +7590,24 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         source = (REPO_ROOT / ".github" / "workflows" / "skills-eval.yml").read_text(
             encoding="utf-8"
         )
+        nemoclaw_plan_source, nemoclaw_eval_source = source.split(
+            "\n  nemoclaw_plan:", 1
+        )[1].split("\n  nemoclaw-eval:", 1)
 
         self.assertIn("max-parallel: 1", source)
         self.assertIn("nemoclaw_instance:", source)
-        self.assertIn("runs-on: [self-hosted, nemoclaw-ci-runner]", source)
+        self.assertIn(
+            "runs-on: [self-hosted, nemoclaw-ci-runner]",
+            nemoclaw_plan_source,
+        )
+        self.assertIn(
+            "runs-on: [self-hosted, vss-skill-eval-runner]",
+            nemoclaw_eval_source,
+        )
+        self.assertNotIn(
+            "runs-on: [self-hosted, nemoclaw-ci-runner]",
+            nemoclaw_eval_source,
+        )
         self.assertIn("timeout-minutes: 180", source)
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=1200", source)
         self.assertIn("export NEMOCLAW_RUN_TIMEOUT_SEC=9000", source)
