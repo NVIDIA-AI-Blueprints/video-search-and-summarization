@@ -20,7 +20,7 @@
         "The answer names the standalone RT-CV-3D compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
         "The answer lists perception, bev-fusion, bundled mosquitto, bundled kafka, and kafka-topic-init.",
         "The answer says runtime images are resolved with docker compose config --images and does not hardcode a runtime image version.",
-        "The answer does not select a warehouse/profile deployment path unless the user explicitly asked for warehouse.",
+        "The answer does not select vss-deploy-profile unless the user explicitly asked for warehouse.",
         "No docker compose up, docker pull, or docker run command is executed."
       ]
     },
@@ -40,7 +40,7 @@
       "query": "Deploy MV3DT on the sample dataset / 4-cam example dataset. Do not run containers.",
       "checks": [
         "The agent loads vss-deploy-detection-tracking-3d and references/sample-dataset.md for sample-dataset intent.",
-        "The plan keeps the standalone RT-CV-3D compose path unless the user asks for the full warehouse blueprint, which is outside this standalone skill.",
+        "The plan keeps the standalone RT-CV-3D compose path and does not route to vss-deploy-profile unless the user asks for the full warehouse blueprint.",
         "The plan uses NGC warehouse app-data only as the source for sample models/videos and does not infer the app-data version from the skill version.",
         "The plan validates the exact sample model files required by runtime configs before launch.",
         "The plan uses the repo sample calibration.json and images/Top.png, generates transforms.yml, sets NUM_CAMS=4 and INPUT_MODE=file, and points VIDEO_DIR at warehouse-4cams-20mx20m-synthetic.",
@@ -52,8 +52,8 @@
     {
       "query": "How do I deploy multi-view 3D tracking on the VSS warehouse stack with the rest of the warehouse blueprint?",
       "checks": [
-        "The agent treats explicit warehouse intent as the exception and states it is outside the standalone RT-CV-3D skill.",
-        "The answer explains that generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT is handled by warehouse/profile deployment owners.",
+        "The agent treats explicit warehouse intent as the exception and routes to vss-deploy-profile or warehouse compose guidance.",
+        "The answer explains that generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT uses warehouse/profile deployment.",
         "The agent does not claim the standalone compose deploys VST, ELK, agents, LLM, or VLM services."
       ]
     },
