@@ -22,8 +22,10 @@
 - `logstash` requires the broker and the profile's selected `STREAM_TYPE`.
 - When the selected Foundation ships `kibana` and a `kibana-init-container-*`
   key, retain both in any delta that stores data in Elasticsearch — they are the
-  browse surface for that data and are not pruned by forward closure. Do not add
-  `kibana` to a Foundation that does not ship it.
+  browse surface for that data and are not pruned by forward closure. They are
+  **not** part of the Agent/UI tier, so a headless build (no agent/UI) still
+  retains them; do not drop them as "UI". Do not add `kibana` to a Foundation
+  that does not ship it.
 - Use exactly the dashboard initializer matching the selected Foundation.
 - To browse more than one capability's indices from a single Kibana, converge on
   one merged saved-object bundle imported by a single initializer, never two:

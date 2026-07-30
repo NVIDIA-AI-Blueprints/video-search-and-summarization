@@ -12,11 +12,14 @@
   profile's VIOS/NvStreamer path.
 - Agent search requires `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, and
   `ELASTIC_SEARCH_INDEX`.
-- Critique is enabled by default, so RT-VLM is required unless the user
-  explicitly disables critique or `rtvi-vlm` is excluded from the build.
-  When `rtvi-vlm` is absent — whether excluded by the user, or present only for
-  a non-critique purpose (e.g. alert verification) — set `ENABLE_CRITIC=false`
-  in `override.env`.
+- Critique is enabled by default (`ENABLE_CRITIC` unset ⇒ `true`), so RT-VLM is
+  required whenever search critique runs. Set `ENABLE_CRITIC=false` in
+  `override.env` as a **required delta** (not an unchanged default to omit under
+  the step-7 minimization rule) whenever the build does **not** run RT-VLM
+  search critique. Two cases require this flip:
+  - `rtvi-vlm` is excluded from the build; or
+  - `rtvi-vlm` is present but reserved for a non-critique purpose, so it does not
+    serve search critique.
 - `vss-video-analytics-api-fusion` is a **separate** service key from
   `vss-search-analytics-2d-fusion`. The analytics API (`:9901`) provides the
   REST query/browse surface over ES indices; the search-analytics service is the
@@ -46,7 +49,7 @@ requires principal data flows and topics); it is authoritatively defined in
 | `STREAM_TYPE` | Select the checked-in Kafka or Redis analytics config. |
 | `COSMOS_EMBED_ENDPOINT` | Point the Agent at RT-Embed. |
 | `ELASTIC_SEARCH_ENDPOINT`, `ELASTIC_SEARCH_INDEX` | Point the Agent at indexed search data. |
-| `ENABLE_CRITIC` | Keep enabled by default; set to `false` when critique is excluded or `rtvi-vlm` is absent/repurposed (see Required peers). |
+| `ENABLE_CRITIC` | Defaults to `true`. Set to `false` as a **required delta** when search critique is not run — `rtvi-vlm` excluded, or present but reserved for a non-critique purpose. See Required peers. |
 
 ## Sources
 

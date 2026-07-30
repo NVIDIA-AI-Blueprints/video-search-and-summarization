@@ -33,13 +33,11 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 `redis` is a shared peer used by this profile graph (see `services/elk.md` for
 when it is retained).
 
-`vss-haproxy-ingress` fronts VIOS/VST, Kibana, and other data-plane backends on
-a single origin. Its backends use `init-addr none`, so it starts healthy
-regardless of which downstream services are present. Retain it in any delta that
-keeps VIOS or Kibana; prune it only when no routed backend remains in the build.
-
-When a request is ambiguous about whether the VSS web experience is wanted, ask
-rather than silently retaining it.
+`vss-haproxy-ingress` is the optional single-origin front door: retain it only
+when the Agent/UI tier is present or the request explicitly asks to expose
+surfaces through one browse origin; otherwise prune it (headless clients reach
+each backend on its own port). See `services/ingress.md`. When it is ambiguous
+whether a browse origin is wanted, ask rather than silently retaining it.
 
 ## Profile-specific environment knobs
 

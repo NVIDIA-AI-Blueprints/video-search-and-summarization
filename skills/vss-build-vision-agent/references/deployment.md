@@ -64,6 +64,13 @@ docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
   && docker compose -f "$BUILD_DIR/resolved.yml" up -d --build
 ```
 
+Deploy with **only** `-f "$BUILD_DIR/resolved.yml"` (plus optional
+`-p <project>` and `--build`). Do **not** pass `--env-file` — not even the
+build's own `override.env` — and do **not** pass `--profile`: `resolved.yml` is
+already self-contained, and re-reading any env file or supplying a profile flag
+re-injects `COMPOSE_PROFILES`/`FOUNDATION` and breaks the runtime deploy
+contract.
+
 `COMPOSE_PROFILES` has already filtered the source graph during resolution, and
 `docker compose config` baked the project `name`, each service `env_file`, and
 all interpolation into the file. Normalization removes the remaining service

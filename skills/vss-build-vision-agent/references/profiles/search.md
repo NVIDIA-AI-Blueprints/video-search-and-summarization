@@ -38,7 +38,7 @@ kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-
 | `RT_CV_DEVICE_ID`, `RTVI_CV_HOST_PORT`, `MODEL_TYPE`, `MODEL_NAME_2D` | Configure the perception pipeline. |
 | `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the vision encoder NGC artifact owned by `perception-2d-init`; the checked-in RT-CV config uses the fixed RT-DETR warehouse artifact. |
 | `RT_EMBED_DEVICE_ID`, `RTVI_EMBED_PORT`, `MODEL_PATH`, `HF_TOKEN` | Place and configure RT-Embed. |
-| `ENABLE_CRITIC`, `VLM_NAME`, `VLM_BASE_URL`, `VLM_MODEL_TYPE`, `RTVI_VLM_*` | Configure default-enabled result critique through RT-VLM; set `ENABLE_CRITIC=false` only when critique is explicitly excluded. |
+| `ENABLE_CRITIC`, `VLM_NAME`, `VLM_BASE_URL`, `VLM_MODEL_TYPE`, `RTVI_VLM_*` | Configure default-enabled result critique through RT-VLM. `ENABLE_CRITIC` defaults to `true`; set `ENABLE_CRITIC=false` as a **required delta** whenever RT-VLM search critique is not run (e.g. `rtvi-vlm` excluded) — do not leave it at the inherited default. |
 | `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, `ELASTIC_SEARCH_INDEX` | Wire the agent to embedding and retrieval services. |
 | `ELASTICSEARCH_ENABLE_EMBEDDINGS`, `ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM`, `ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM` | Configure indexed vectors. |
 | `LLM_DEVICE_ID`, `RT_VLM_DEVICE_ID`, `RESERVED_DEVICE_IDS`, `FIXED_SHARED_DEVICE_IDS` | Preserve the intended multi-GPU layout. |

@@ -28,6 +28,11 @@ the mapping above is the composition surface, not a second source of truth.
 - This is a singleton owner: one detector instance per build. When multiple
   pipelines or consumers need detection in one build, they share that single
   detector — resolve to one service key and one model family, not two.
+- Selecting or changing the detector/model family is done through the env knobs
+  below (`MODEL_TYPE`, `MODEL_NAME_2D`, `DS_MODEL_FAMILY`, `VISION_ENCODER_*`)
+  plus host-staged artifacts per the RT-CV owner contract. This changes **no
+  service definition**, so it needs no `patches/` entry: do not patch
+  `perception-2d-fusion` or `perception-2d-init` for a model or detector swap.
 
 ## Configuration knobs
 
