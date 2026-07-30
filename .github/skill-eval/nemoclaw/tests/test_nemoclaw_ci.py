@@ -5093,7 +5093,34 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         skills = [row["skill"] for row in rows]
         self.assertEqual(len(skills), len(set(skills)))
-        self.assertTrue(all(row["task_limit"] == "1" for row in rows))
+        self.assertEqual(
+            {
+                row["skill"]: (row["spec_stem"], int(row["task_limit"]))
+                for row in rows
+            },
+            {
+                "vss-ask-video": (
+                    "base_profile_video_understanding",
+                    4,
+                ),
+                "vss-deploy-dense-captioning": (
+                    "alerts_profile_api",
+                    2,
+                ),
+                "vss-deploy-profile": ("base", 1),
+                "vss-generate-video-report": (
+                    "base_profile_report",
+                    4,
+                ),
+                "vss-manage-alerts": ("alerts_vlm_real_time", 2),
+                "vss-query-analytics": ("query_analytics", 3),
+                "vss-setup-behavior-analytics": (
+                    "deploy_search_and_alerts",
+                    1,
+                ),
+                "vss-summarize-video": ("lvs_api_ops", 2),
+            },
+        )
         self.assertIn("vss-deploy-profile", skills)
         self.assertIn("vss-ask-video", skills)
         deploy_row = next(row for row in rows if row["skill"] == "vss-deploy-profile")
@@ -5245,7 +5272,100 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(rows[0]["skill"], "vss-manage-alerts")
         self.assertEqual(rows[0]["spec_stem"], "alerts_vlm_real_time")
         self.assertEqual(rows[0]["platform"], "RTXPRO6000BW")
-        self.assertEqual(rows[0]["task_limit"], "1")
+        self.assertEqual(rows[0]["task_limit"], "2")
+
+    def test_representative_task_prefixes_reach_target_skill_behavior(self):
+        expected_target_queries = {
+            ("vss-ask-video", "base_profile_video_understanding"): (
+                4,
+                "wearing PPE",
+            ),
+            ("vss-deploy-dense-captioning", "alerts_profile_api"): (
+                2,
+                "/vss-deploy-dense-captioning",
+            ),
+            ("vss-deploy-profile", "base"): (
+                1,
+                "/vss-deploy-profile",
+            ),
+            ("vss-generate-video-report", "base_profile_report"): (
+                4,
+                "Give me a report",
+            ),
+            ("vss-manage-alerts", "alerts_vlm_real_time"): (
+                2,
+                "start an alert",
+            ),
+            ("vss-query-analytics", "query_analytics"): (
+                3,
+                "List the sensors",
+            ),
+            ("vss-setup-behavior-analytics", "deploy_search_and_alerts"): (
+                1,
+                "/vss-setup-behavior-analytics",
+            ),
+            ("vss-summarize-video", "lvs_api_ops"): (
+                2,
+                "vss-summarize-video",
+            ),
+        }
+
+        self.assertEqual(
+            smoke_runner.REPRESENTATIVE_TASK_LIMITS,
+            {
+                key: limit
+                for key, (limit, _query_marker) in expected_target_queries.items()
+            },
+        )
+        for (skill, spec_stem), (limit, query_marker) in (
+            expected_target_queries.items()
+        ):
+            with self.subTest(skill=skill, spec=spec_stem):
+                spec = json.loads(
+                    (
+                        REPO_ROOT
+                        / "skills"
+                        / skill
+                        / "evals"
+                        / f"{spec_stem}.json"
+                    ).read_text(encoding="utf-8")
+                )
+                expects = spec["expects"]
+                self.assertGreaterEqual(len(expects), limit)
+                self.assertIn(query_marker, expects[limit - 1]["query"])
+
+    def test_representative_matrix_blocks_unregistered_task_prefix(self):
+        unknown_spec = (
+            REPO_ROOT
+            / "skills"
+            / "vss-ask-video"
+            / "evals"
+            / "future.json"
+        )
+        with mock.patch.object(
+            smoke_runner,
+            "_selected_specs",
+            return_value=(
+                [("vss-ask-video", unknown_spec, ["RTXPRO6000BW"])],
+                [],
+            ),
+        ):
+            rows, blockers = smoke_runner._build_matrix(
+                skills_filter="vss-ask-video",
+                profile_filter=None,
+                platform_filter=None,
+                spec_filter=None,
+                representative_per_skill=True,
+            )
+
+        self.assertEqual(rows, [])
+        self.assertEqual(
+            blockers,
+            [
+                "vss-ask-video/future.json: no bounded representative "
+                "task prefix is registered for the NemoClaw sweep"
+            ],
+        )
 
     def test_alerts_cv_is_blocked_for_nemoclaw_unless_rt_cv_is_enabled(self):
         previous = os.environ.pop("NEMOCLAW_ENABLE_RTCV", None)
