@@ -88,6 +88,22 @@ PLATFORM_GPU_HINTS = {
     "ANY": (),
 }
 
+# A representative matrix row is one bounded spec/platform chain per supported
+# skill. Adapters emit one Harbor task per ``expects`` entry, so each limit must
+# include the prerequisite prefix through the first substantive target-skill
+# task. A blanket limit of one would exercise only deployment prerequisites for
+# most multi-step skills.
+REPRESENTATIVE_TASK_LIMITS = {
+    ("vss-ask-video", "base_profile_video_understanding"): 4,
+    ("vss-deploy-dense-captioning", "alerts_profile_api"): 2,
+    ("vss-deploy-profile", "base"): 1,
+    ("vss-generate-video-report", "base_profile_report"): 4,
+    ("vss-manage-alerts", "alerts_vlm_real_time"): 2,
+    ("vss-query-analytics", "query_analytics"): 3,
+    ("vss-setup-behavior-analytics", "deploy_search_and_alerts"): 1,
+    ("vss-summarize-video", "lvs_api_ops"): 2,
+}
+
 
 class CommandResult(NamedTuple):
     returncode: int
@@ -1056,14 +1072,27 @@ def _build_matrix(
     rows: list[dict[str, str]] = []
     seen_skills: set[str] = set()
     for skill, spec_path, platforms in specs:
+        representative_task_limit = 0
+        if representative_per_skill:
+            if skill in seen_skills:
+                continue
+            seen_skills.add(skill)
+            representative_task_limit = REPRESENTATIVE_TASK_LIMITS.get(
+                (skill, spec_path.stem),
+                0,
+            )
+            if representative_task_limit <= 0:
+                blockers.append(
+                    f"{skill}/{spec_path.name}: no bounded representative "
+                    "task prefix is registered for the NemoClaw sweep"
+                )
+                continue
         selected_platforms = (
             [_preferred_platform(skill, platforms, platform_filter)]
             if representative_per_skill
             else platforms
         )
         for platform in selected_platforms:
-            if representative_per_skill and skill in seen_skills:
-                continue
             slug = "__".join(
                 _safe_slug(part)
                 for part in (skill, spec_path.stem, platform)
@@ -1076,10 +1105,9 @@ def _build_matrix(
                     "spec_path": str(spec_path.relative_to(REPO_ROOT)),
                     "platform": platform,
                     "slug": slug,
-                    "task_limit": "1" if representative_per_skill else "0",
+                    "task_limit": str(representative_task_limit),
                 }
             )
-            seen_skills.add(skill)
     return rows, blockers
 
 
