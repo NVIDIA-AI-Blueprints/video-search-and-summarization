@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Repository-wide guidance for coding agents working in NVIDIA VSS.
+Always-on router for coding agents working in NVIDIA VSS.
 
 ## Always On
 
@@ -8,25 +8,22 @@ Repository-wide guidance for coding agents working in NVIDIA VSS.
   links.
 - Follow `CONTRIBUTING.md` for licensing, DCO sign-off, branch, PR, and test
   expectations.
-- Keep this file as a router. Put source, Docker, Kubernetes, and component
-  specifics in the nearest nested guide or README.
+- Load only the scoped guide that matches the task; avoid reading unrelated
+  deployment, service, skill, or tooling trees.
 - Do not commit secrets, generated runtime data, local `.env` files, logs, model
   downloads, or scratch artifacts.
 - Preserve SPDX headers and existing third-party license notices.
 
 ## Scoped Routing
 
-- Source code changes: read `services/AGENTS.md`, then the nearest service
-  `README.md` or existing service-specific `AGENTS.md`.
-- Docker Compose deployment changes: read `deploy/AGENTS.md` and
-  `deploy/docker/AGENTS.md`.
-- Kubernetes or Helm deployment changes: read `deploy/AGENTS.md` and
-  `deploy/helm/AGENTS.md`.
-- Shared libraries: start with the nearest `README.md` under `libs/`.
-- Utility scripts or data tools: start with the nearest `README.md` under
-  `tools/`.
-- Agent skills under `skills/` are product artifacts; read the target
-  `SKILL.md` and only the references it names.
+| Task area | Read next |
+|---|---|
+| Source services | `services/AGENTS.md`, then the nearest service guide |
+| Docker Compose deployment | `deploy/AGENTS.md`, then `deploy/docker/AGENTS.md` |
+| Kubernetes or Helm deployment | `deploy/AGENTS.md`, then `deploy/helm/AGENTS.md` |
+| Shared libraries | Nearest `README.md` under `libs/` |
+| Utility scripts or data tools | Nearest `README.md` under `tools/` |
+| Agent skills | Target `SKILL.md` and only the references it names |
 
 ## Validation
 

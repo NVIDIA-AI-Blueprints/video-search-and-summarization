@@ -1,20 +1,23 @@
 # AGENTS.md
 
-Scoped guidance for Docker Compose deployment assets.
+Router for Docker Compose deployment assets.
 
 ## Scope
 
 - Applies to `deploy/docker/**`: root Compose, shared services, developer
   profiles, industry profiles, helper scripts, and Docker deployment docs.
-- Use this file as a router. Profile-specific details live in the relevant
-  profile files and README sections.
+- Profile-specific details live in the relevant profile files and README
+  sections.
 
 ## First Reads
 
-- `deploy/docker/README.md` for the external Docker deployment workflow.
-- `deploy/docker/compose.yml` for the top-level include structure.
-- The nearest profile `.env`, `overrides.env`, `compose.yml`, and README before
-  changing a profile.
+| Task area | Read next |
+|---|---|
+| General Docker workflow | `deploy/docker/README.md` |
+| Top-level include behavior | `deploy/docker/compose.yml` |
+| Developer profile | Target profile `.env`, `overrides.env`, `compose.yml`, and README |
+| Industry profile | Target profile `.env`, `compose.yml`, and README |
+| Helper script | Script help text and nearest README |
 
 ## Rules
 
@@ -34,5 +37,4 @@ Scoped guidance for Docker Compose deployment assets.
 - For Compose edits, render the affected stack with the documented env layers
   and run `docker compose config --quiet` when Docker Compose is available.
 - For helper-script edits, run `bash -n` and any documented dry-run/help path.
-- Do not start GPU-heavy or credentialed stacks unless the task explicitly asks
-  for runtime validation.
+- Do not start GPU-heavy or credentialed stacks unless explicitly asked.

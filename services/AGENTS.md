@@ -1,27 +1,26 @@
 # AGENTS.md
 
-Scoped guidance for source code under `services/`.
+Router for source code under `services/`.
 
 ## Scope
 
-- This file routes service changes. More specific `AGENTS.md` or `CLAUDE.md`
-  files under a service take precedence for that service.
-- Prefer the service README and local package metadata over assumptions from
-  other services.
+- More specific `AGENTS.md` or `CLAUDE.md` files under a service take
+  precedence.
+- Read the target service guide only; do not load sibling service context unless
+  the change crosses that service boundary.
 
 ## Routing
 
-- Agent service: read `services/agent/AGENTS.md` and
-  `services/agent/README.md`.
-- Behavior analytics: read `services/analytics/behavior-analytics/AGENTS.md`.
-- Video analytics API: read `services/analytics/video-analytics-api/AGENTS.md`.
-- UI: read `services/ui/README.md` and `services/ui/CONTRIBUTING.md`.
-- Long video summarization: read `services/video-summarization/README.md`.
-- VIOS: read `services/vios/README.md`.
-- RT video intelligence services: read the nearest README under
-  `services/rtvi/`.
-- Alert, SDRC, and configurator services: start with the nearest service
-  README before changing code.
+| Path | Read next |
+|---|---|
+| `services/agent/**` | `services/agent/AGENTS.md` |
+| `services/analytics/behavior-analytics/**` | `services/analytics/behavior-analytics/AGENTS.md` |
+| `services/analytics/video-analytics-api/**` | `services/analytics/video-analytics-api/AGENTS.md` |
+| `services/ui/**` | `services/ui/README.md` and `services/ui/CONTRIBUTING.md` |
+| `services/video-summarization/**` | `services/video-summarization/README.md` |
+| `services/vios/**` | `services/vios/README.md` |
+| `services/rtvi/**` | Nearest README under `services/rtvi/` |
+| Other service paths | Nearest service README |
 
 ## Source Rules
 
@@ -38,5 +37,5 @@ Scoped guidance for source code under `services/`.
 
 - Run the narrowest service-level test or lint command documented by the
   service guide.
-- For cross-service behavior, validate each touched service plus the deployment
+- For cross-service behavior, validate each touched service and the deployment
   config that wires them together.

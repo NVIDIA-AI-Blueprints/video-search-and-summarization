@@ -1,24 +1,21 @@
 # AGENTS.md
 
-Scoped guidance for deployment assets under `deploy/`.
+Router for deployment assets under `deploy/`.
 
 ## Scope
 
-- This file routes deployment changes. Read the Docker or Helm nested guide
-  before editing those trees.
-- Keep deployment guidance focused on external-user operation, not internal
-  automation behavior.
+- Read only the deployment surface that matches the task unless a service
+  contract change requires both Docker and Helm.
+- Keep guidance focused on external-user operation.
 
 ## Routing
 
-- Docker Compose: read `deploy/docker/AGENTS.md` and `deploy/docker/README.md`.
-- Kubernetes or Helm: read `deploy/helm/AGENTS.md` and the nearest chart
-  `README.md`.
-- Service image, port, environment, health, volume, or dependency changes often
-  require both Docker and Helm updates.
-- Developer profiles and industry profiles are user-facing bundles. Preserve
-  their documented intent and avoid moving settings across profile boundaries
-  unless the task asks for it.
+| Task area | Read next |
+|---|---|
+| Docker Compose | `deploy/docker/AGENTS.md` |
+| Kubernetes or Helm | `deploy/helm/AGENTS.md` |
+| Service image, port, env, health, volume, or dependency contract | Matching Docker and Helm surfaces |
+| Developer or industry profile behavior | The target profile README, values/env files, and compose/chart entrypoint |
 
 ## Deployment Rules
 
@@ -34,8 +31,6 @@ Scoped guidance for deployment assets under `deploy/`.
 
 ## Validation
 
-- Validate only the affected deployment surface:
-  - Docker Compose changes: follow `deploy/docker/AGENTS.md`.
-  - Helm changes: follow `deploy/helm/AGENTS.md`.
+- Validate only the affected deployment surface.
 - If validation needs Docker, Helm, GPUs, credentials, or NGC access that are
   unavailable, say exactly which check was skipped.

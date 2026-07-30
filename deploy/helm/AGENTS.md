@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Scoped guidance for Kubernetes and Helm deployment assets.
+Router for Kubernetes and Helm deployment assets.
 
 ## Scope
 
@@ -11,10 +11,11 @@ Scoped guidance for Kubernetes and Helm deployment assets.
 
 ## First Reads
 
-- The nearest `Chart.yaml`, `values.yaml`, and chart `README.md`.
-- Parent profile chart values when editing a subchart consumed by a profile.
-- Matching Docker Compose service/profile files when changing shared deployment
-  behavior.
+| Task area | Read next |
+|---|---|
+| Single chart change | Nearest `Chart.yaml`, `values.yaml`, and chart README |
+| Subchart consumed by a profile | Parent profile values and chart README |
+| Shared service contract | Matching Docker Compose service/profile files |
 
 ## Rules
 
