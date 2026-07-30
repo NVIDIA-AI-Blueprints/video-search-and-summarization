@@ -239,17 +239,6 @@ std::string ImageEnc::getImageBuffer()
     return m_imgBuffer;
 }
 
-void ImageEnc::onLastFrame()
-{
-    std::lock_guard<std::mutex> lock(m_imgBufferLock);
-    if (m_imgBuffer.empty())
-    {
-        LOG(warning) << "ImageEnc: playback ended with no frame to encode" << endl;
-    }
-    m_stop = true;
-    m_imgBufferWait.notify_all();
-}
-
 void ImageEnc::pushBuffer(std::shared_ptr<RawFrameParams> frameData)
 {
     if (frameData->m_sample || frameData->m_fd)
