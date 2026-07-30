@@ -2242,7 +2242,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         calls: list[tuple[str, ...]] = []
         previous = {
             "_run": headless_runner._run,
-            "_gateway_reachable": headless_runner._gateway_reachable,
+            "ensure_openclaw_gateway": headless_runner.ensure_openclaw_gateway,
         }
 
         def fake_run(cmd, *, timeout=30):
@@ -2265,8 +2265,8 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             headless_runner._run = fake_run
-            headless_runner._gateway_reachable = (
-                lambda sandbox, deadline=None: True
+            headless_runner.ensure_openclaw_gateway = (
+                lambda sandbox, logs, deadline=None: None
             )
             try:
                 response = headless_runner.run_openclaw_cli(
@@ -2277,7 +2277,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 )
             finally:
                 headless_runner._run = previous["_run"]
-                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+                headless_runner.ensure_openclaw_gateway = previous[
+                    "ensure_openclaw_gateway"
+                ]
 
             launch_log = (log_dir / "openclaw-launch.log").read_text(encoding="utf-8")
 
@@ -2359,6 +2361,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
 
     def test_gateway_recovery_cannot_launch_after_agent_deadline(self):
         now = [100.0]
+        managed_calls: list[tuple[str, ...]] = []
         sandbox_scripts: list[str] = []
         previous = {
             "_run": headless_runner._run,
@@ -2367,6 +2370,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         }
 
         def fake_run(cmd, *, timeout=30):
+            managed_calls.append(tuple(cmd))
             now[0] = 161.0
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
@@ -2402,9 +2406,13 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 log_dir / "openclaw_gateway_recover.log"
             ).read_text(encoding="utf-8")
 
-        self.assertEqual(len(sandbox_scripts), 1)
-        self.assertIn("127.0.0.1:18789/health", sandbox_scripts[0])
-        self.assertIn("deadline exceeded", recover_log)
+        self.assertEqual(sandbox_scripts, [])
+        self.assertEqual(
+            managed_calls,
+            [("nemoclaw", "sandbox", "recover", "demo")],
+        )
+        self.assertIn("sandbox recover", recover_log)
+        self.assertIn("returncode=0", recover_log)
 
     def test_openclaw_launch_uses_only_remaining_agent_budget(self):
         calls: list[tuple[str, int]] = []
@@ -4203,13 +4211,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertTrue(all("\n" not in arg and "\r" not in arg for arg in command))
         self.assertIn("base64 -d", " ".join(command))
 
-    def test_gateway_recovery_uses_managed_nemoclaw_restart(self):
+    def test_gateway_health_uses_idempotent_sandbox_recover(self):
         calls: list[tuple[str, ...]] = []
-        gateway_checks = iter([False, True])
-        previous = {
-            "_run": headless_runner._run,
-            "_gateway_reachable": headless_runner._gateway_reachable,
-        }
+        previous = headless_runner._run
 
         def fake_run(cmd, *, timeout=30):
             calls.append(tuple(cmd))
@@ -4218,71 +4222,83 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             headless_runner._run = fake_run
-            headless_runner._gateway_reachable = (
-                lambda sandbox, deadline=None: next(gateway_checks)
-            )
             try:
                 headless_runner.ensure_openclaw_gateway("demo", log_dir)
             finally:
-                headless_runner._run = previous["_run"]
-                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+                headless_runner._run = previous
 
             recover_log = (log_dir / "openclaw_gateway_recover.log").read_text(encoding="utf-8")
 
-        self.assertIn("managed restart", recover_log)
+        self.assertIn("sandbox recover", recover_log)
         self.assertIn("returncode=0", recover_log)
         self.assertEqual(
             calls,
-            [("nemoclaw", "sandbox", "gateway", "restart", "demo")],
+            [("nemoclaw", "sandbox", "recover", "demo")],
         )
 
-    def test_gateway_probe_treats_exec_timeout_as_unreachable(self):
-        previous = headless_runner._sandbox_exec
-
-        def timeout(*args, **kwargs):
-            raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout", 20))
-
-        headless_runner._sandbox_exec = timeout
-        try:
-            self.assertFalse(headless_runner._gateway_reachable("demo"))
-        finally:
-            headless_runner._sandbox_exec = previous
-
-    def test_gateway_recovery_falls_back_to_sandbox_recover(self):
+    def test_gateway_nonzero_recovery_fails_closed(self):
         calls: list[tuple[str, ...]] = []
-        gateway_checks = iter([False, True])
-        previous = {
-            "_run": headless_runner._run,
-            "_gateway_reachable": headless_runner._gateway_reachable,
-        }
+        previous = headless_runner._run
 
         def fake_run(cmd, *, timeout=30):
             calls.append(tuple(cmd))
-            returncode = 1 if "restart" in cmd else 0
-            return subprocess.CompletedProcess(cmd, returncode, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="recovery refused",
+                stderr="route ownership mismatch",
+            )
 
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             headless_runner._run = fake_run
-            headless_runner._gateway_reachable = (
-                lambda sandbox, deadline=None: next(gateway_checks)
-            )
             try:
-                headless_runner.ensure_openclaw_gateway("demo", log_dir)
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "gateway recovery failed",
+                ):
+                    headless_runner.ensure_openclaw_gateway("demo", log_dir)
             finally:
-                headless_runner._run = previous["_run"]
-                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+                headless_runner._run = previous
 
             recover_log = (log_dir / "openclaw_gateway_recover.log").read_text(encoding="utf-8")
 
-        self.assertIn("managed restart", recover_log)
         self.assertIn("sandbox recover", recover_log)
+        self.assertIn("returncode=1", recover_log)
+        self.assertIn("recovery refused", recover_log)
         self.assertEqual(
             calls,
-            [
-                ("nemoclaw", "sandbox", "gateway", "restart", "demo"),
-                ("nemoclaw", "sandbox", "recover", "demo"),
-            ],
+            [("nemoclaw", "sandbox", "recover", "demo")],
+        )
+
+    def test_gateway_recovery_timeout_fails_closed(self):
+        calls: list[tuple[str, ...]] = []
+        previous = headless_runner._run
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            raise subprocess.TimeoutExpired(cmd, timeout)
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._run = fake_run
+            try:
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "gateway recovery timed out",
+                ):
+                    headless_runner.ensure_openclaw_gateway("demo", log_dir)
+            finally:
+                headless_runner._run = previous
+
+            recover_log = (
+                log_dir / "openclaw_gateway_recover.log"
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("sandbox recover timed out", recover_log)
+        self.assertEqual(
+            calls,
+            [("nemoclaw", "sandbox", "recover", "demo")],
         )
 
 
