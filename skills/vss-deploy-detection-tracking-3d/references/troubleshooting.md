@@ -12,7 +12,9 @@ Load this reference when setup, staging, launch, RTSP registration, Kafka flow, 
 - [Unsafe Or Mismatched Camera IDs](#unsafe-or-mismatched-camera-ids)
 - [RTSP Streams Do Not Start](#rtsp-streams-do-not-start)
 - [Bundled Resource Conflict](#bundled-resource-conflict)
+- [Staged Broker Mismatch](#staged-broker-mismatch)
 - [Bundled Or External Broker Problems](#bundled-or-external-broker-problems)
+- [TensorRT Engine Build Or Cache Permission](#tensorrt-engine-build-or-cache-permission)
 - [Host Tool Or Python Prerequisite Missing](#host-tool-or-python-prerequisite-missing)
 - [`mdx-raw` Grows But `mdx-bev` Does Not](#mdx-raw-grows-but-mdx-bev-does-not)
 - [OSD Window Missing](#osd-window-missing)
@@ -98,6 +100,12 @@ Symptom: bundled Kafka, Mosquitto, or the DeepStream REST endpoint fails to star
 
 Fix: run the bundled resource preflight in `references/deploy-rtvi-cv-3d-stack.md` before launch. It reuses existing standalone containers without rewriting ports, rejects foreign fixed-name collisions, and for a fresh start selects free Kafka, MQTT, and DeepStream REST ports in standalone `docker/.env`.
 
+## Staged Broker Mismatch
+
+Symptom: port preflight selected a fallback such as `KAFKA_BOOTSTRAP=localhost:19092`, but `mdx-raw` does not grow and `generated/configs/ds-main-config-mv3dt.txt` still contains `localhost;9092;mdx-raw`.
+
+Fix: rerun the workflow in the correct order: bundled resource preflight first, then `generate-configs.sh`, then `stage-configs.sh`, then assert staged `msg-broker-conn-str` matches `KAFKA_BOOTSTRAP` using `configure-cameras.md`. Do not continue with a staged config that points at a stale Kafka port.
+
 ## Bundled Or External Broker Problems
 
 Symptom: perception fails at MQTT init, Kafka dump cannot connect, BEV Fusion remains unhealthy, or `mdx-bev` does not grow.
@@ -123,6 +131,16 @@ timeout 20s ./scripts/kafka-dump.sh --bootstrap "${KAFKA_BOOTSTRAP:-localhost:${
 ```
 
 If advanced Kafka/MQTT TLS/auth is required, use the standalone README custom-broker section.
+
+## TensorRT Engine Build Or Cache Permission
+
+Symptom: first run appears idle for several minutes during model initialization, or logs show TensorRT engine rebuilds followed by permission denied while saving `.engine` files under `MODELS_DIR`.
+
+Fixes:
+
+- Expect cold engine builds to take 5-10 minutes, especially after TensorRT/runtime changes; keep the BEV recorder alive through EOS instead of treating the quiet period as a failure.
+- Verify the model cache directories mounted into `/opt/storage` are writable by the perception container runtime UID/GID, commonly `1000:1000`.
+- With approval, apply a scoped ACL only to the needed model directories, for example `sudo setfacl -m u:1000:rwx -m d:u:1000:rwx "$MODELS_DIR/mv3dt/BodyPose3DNet"`. Do not use broad `chmod 777` or broad recursive `chown`.
 
 ## Host Tool Or Python Prerequisite Missing
 
@@ -256,6 +274,6 @@ Fixes:
 - Generate transforms only when the correct calibration map image is available.
 - Use `BEV_SOURCE=fused` by default for saved output.
 - Use `BEV_SAVE_VIDEO=1` for saved output/headless systems.
-- Start the BEV recorder and wait for Kafka consumer group assignment evidence before file-mode perception or before RTSP stream registration.
+- Start the BEV recorder with the persistent `nohup env ... ./scripts/bev-visualizer.sh` launch pattern, wait for Kafka consumer group assignment evidence, and verify its PID is still alive before file-mode perception or before RTSP stream registration.
 - Select the saved artifact from the current recorder log's `Video saved: ... (N frames)` line; do not glob old `fused_trajectory_video_*.mp4` files.
 - Verify the selected artifact is non-empty, newer than the run start, and parseable by `ffprobe`.

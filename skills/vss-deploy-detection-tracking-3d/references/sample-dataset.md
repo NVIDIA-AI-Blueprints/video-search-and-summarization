@@ -148,15 +148,11 @@ RAW_TOPIC=mdx-raw
 FUSED_TOPIC=mdx-bev
 ```
 
-Use bundled brokers unless the user explicitly asks for external brokers:
+Use bundled brokers unless the user explicitly asks for external brokers. For the sample, run the bundled resource preflight from `references/deploy-rtvi-cv-3d-stack.md` before `generate-configs.sh` or `stage-configs.sh`; otherwise a fallback Kafka port such as `19092` can be selected too late and the staged config may still point at `9092`.
 
-```bash
-cd "${RTCV3D_APP}"
-./scripts/generate-configs.sh "${CALIBRATION_JSON}"
-INPUT_MODE=file OSD=0 SAVE_VIDEO=1 ./scripts/stage-configs.sh
-```
+After the bundled preflight has exported/persisted the selected broker values, continue through `references/configure-cameras.md`: generate configs with `MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}"`, stage with `INPUT_MODE=file OSD=0 SAVE_VIDEO=1`, and assert the staged Kafka `msg-broker-conn-str` matches `KAFKA_BOOTSTRAP`.
 
-Because the sample is finite MP4 input with saved output, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the fused BEV recorder and wait for its Kafka consumer group assignment, then start `perception`.
+Because the sample is finite MP4 input with saved output, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the persistent fused BEV recorder and wait for its Kafka consumer group assignment, verify the recorder PID is still alive, then start `perception`.
 
 ## Verify Sample Run
 
