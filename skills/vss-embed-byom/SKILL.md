@@ -3,25 +3,15 @@ name: vss-embed-byom
 description: >
   Use this skill when adding, wiring, or validating a bring-your-own-model
   implementation for the VSS RT-Embed video embedding microservice, especially
-  VideoPrism on the 3.3.0 / 26.07.3 code line. Covers custom model code,
+  VideoPrism on the VSS 3.3.0 code line. Covers custom model code,
   Docker Compose and Helm overrides, model repository scripts, API validation,
   and operational gotchas.
 license: Apache-2.0
 metadata:
-  author: "Vivek Ankit <vankit@nvidia.com>"
+  version: "3.3.0"
+  author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
-  tags:
-    - nvidia
-    - blueprint
-    - operational
-    - byom
-    - rtvi-embed
-    - videoprism
-  domain: video-search-and-summarization
-owner: "vankit@nvidia.com"
-service: "vss-rt-embed"
-version: "3.3.0"
-reviewed: "2026-07-29"
+  tags: "nvidia blueprint operational byom rtvi-embed videoprism"
 ---
 
 # VSS RT-Embed BYOM
@@ -30,7 +20,7 @@ Use this skill when you need to:
 
 - Add a custom RT-Embed model implementation under `services/rtvi/rt-embed`.
 - Integrate VideoPrism as a bring-your-own-model backend for video embeddings.
-- Override RT-Embed model paths in Docker Compose or Helm for the 26.07.3 image.
+- Override RT-Embed model paths in Docker Compose or Helm for VSS 3.3.0.
 - Validate `/v1/models`, `/v1/generate_video_embeddings`, and text endpoint behavior.
 
 **Trigger phrases:** `vss-embed-byom`, `RT-Embed BYOM`, `VideoPrism embed`,
@@ -81,11 +71,11 @@ the PyTorch path is correct.
 
 ## Deployment Overrides
 
-For Docker Compose on RT-Embed 26.07.3:
+For Docker Compose on RT-Embed 3.3.0:
 
 ```bash
 export RTVI_EMBED_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed
-export RTVI_EMBED_TAG=3.3.0-26.07.3
+export RTVI_EMBED_TAG=3.3.0
 export MODEL_PATH="git:https://huggingface.co/<org>/<videoprism-checkpoint>"
 export MODEL_IMPLEMENTATION_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/videoprism"
 export MODEL_REPOSITORY_SCRIPT_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/videoprism/create_triton_model_repo.py"

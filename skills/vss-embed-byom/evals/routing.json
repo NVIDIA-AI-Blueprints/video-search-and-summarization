@@ -14,7 +14,7 @@
   },
   "expects": [
     {
-      "query": "What skill should I use to integrate VideoPrism as a custom BYOM backend for RT-Embed 26.07.3? Do not deploy anything; just explain the route and key files.",
+      "query": "What skill should I use to integrate VideoPrism as a custom BYOM backend for RT-Embed 3.3.0? Do not deploy anything; just explain the route and key files.",
       "checks": [
         "The agent selects or loads `vss-embed-byom`, not only `vss-deploy-video-embedding`.",
         "The answer identifies VideoPrism as a bring-your-own-model / custom RT-Embed model integration task.",

@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when adding, wiring, or validating a bring-your-own-model implementation for the VSS RT-Embed video embedding microservice, especially VideoPrism on the 3.3.0 / 26.07.3 code line. <br>
+Use this skill when adding, wiring, or validating a bring-your-own-model implementation for the VSS RT-Embed video embedding microservice, especially VideoPrism on the VSS 3.3.0 code line. <br>
 
 This skill is ready for review before commercial/non-commercial use. <br>
 

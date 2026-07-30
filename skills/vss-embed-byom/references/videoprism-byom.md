@@ -1,7 +1,7 @@
 # VideoPrism BYOM For RT-Embed
 
 This reference guides an agent through integrating a VideoPrism-style embedding
-backend with the VSS RT-Embed 3.3.0 / 26.07.3 code path.
+backend with the VSS RT-Embed 3.3.0 code path.
 
 ## 1. Start From The Existing Custom Model Pattern
 
@@ -69,7 +69,6 @@ import torch
 
 from common.chunk_info import ChunkInfo
 from common.logger import logger
-from common.service_exception import ServiceException
 from models.base_vlm_model import BaseVlmModel, InputConfig, VlmGenerationConfig, VlmModelOutput
 
 
@@ -120,19 +119,16 @@ class VideoPrismEmbedModel(BaseVlmModel):
         outputs = []
         for idx, chunk in enumerate(chunks):
             if chunk.chunk_type == "text":
-                # Implement only if VideoPrism has a compatible text encoder.
-                raise ServiceException(
-                    "VideoPrism BYOM text embeddings are not configured",
-                    "BadParameter",
-                    400,
-                )
-
-            frames = video_frames[idx]
-            embedding = self._embed_video(frames)
+                embedding = self._embed_text(chunk.text_input)
+                input_tokens = len(chunk.text_input)
+            else:
+                frames = video_frames[idx]
+                embedding = self._embed_video(frames)
+                input_tokens = frames.numel()
             outputs.append(
                 VlmModelOutput(
                     output="",
-                    input_tokens=frames.numel(),
+                    input_tokens=input_tokens,
                     output_tokens=len(embedding),
                     embeddings=embedding,
                 )
@@ -154,7 +150,8 @@ Video search requires video and text embeddings in the same vector space. If the
 VideoPrism model being integrated is video-only, choose one of these explicit
 behaviors:
 
-1. Return a clear 4xx error for text chunks with a message like
+1. Add a server/handler validation guard that returns a clear 4xx error for
+   text requests with a message like
    `VideoPrism BYOM text embeddings are not configured`.
 2. Pair VideoPrism with a compatible text encoder and guarantee both endpoints
    return the same embedding dimension and semantic space.
@@ -162,10 +159,12 @@ behaviors:
 Do not silently return zero vectors, random vectors, or embeddings from an
 unrelated text model.
 
-If rejecting text in the model wrapper, raise `ServiceException(message,
-"BadParameter", 400)` or add an equivalent server/handler validation guard.
-Do not raise a plain `ValueError` from `generate(...)`; that is handled as an
-unexpected model failure and can surface as HTTP 500.
+For a video-only VideoPrism backend, do not rely on an exception thrown inside
+`generate(...)` to become the user-facing response. Add an explicit
+server/handler validation guard before the text request reaches the model, and
+raise the repo's `ServiceException` with code `BadParameter` and status `400`
+from that guard. Plain `ValueError` or model-level exceptions can be handled as
+unexpected inference failures and surface as HTTP 500.
 
 ## 5. Add Optional Triton/TensorRT Path
 
@@ -201,7 +200,7 @@ For local Compose validation:
 
 ```bash
 export RTVI_EMBED_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed
-export RTVI_EMBED_TAG=3.3.0-26.07.3
+export RTVI_EMBED_TAG=3.3.0
 export RTVI_EMBED_PORT=8017
 export VSS_DATA_DIR="${PWD}/.standalone-data"
 export NGC_API_KEY="<ngc-api-key>"
