@@ -148,5 +148,3 @@ otherwise confirm it fails with a clear 4xx message instead of a server error.
 |---|---|
 | [`references/videoprism-byom.md`](references/videoprism-byom.md) | Step-by-step VideoPrism BYOM implementation and validation checklist. |
 | [`../vss-deploy-video-embedding/SKILL.md`](../vss-deploy-video-embedding/SKILL.md) | Standard RT-Embed deployment, API usage, and troubleshooting. |
-
-<!-- skill signing marker -->
