@@ -732,13 +732,16 @@ rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 # Search: RT-VLM (vss-rtvi-vlm) is always deployed because it serves both the critic and
 # video_understanding. It is activated via the explicit "rtvi-vlm" compose profile (no vlm_
 # NIM profile) and the agent is wired to it with VLM_NAME_SLUG=none, VLM_MODEL_TYPE=rtvi,
-# VLM_BASE_URL=http://rtvi-vlm:8000. RT_VLM_DEVICE_ID follows the shared/VLM device (2).
+# VLM_BASE_URL=http://rtvi-vlm:8000. RT-VLM shares GPU 0 with RT-CV, so device 0 is in
+# FIXED_SHARED_DEVICE_IDS and VLM_MODE derives to local_shared, which caps RT-VLM at the
+# 0.4 H100 shared fraction so RT-CV keeps its headroom.
 run_dry_run_up_and_check_generated_env "generated.env search default wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
-  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
-  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2" \
-  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
+  "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
 _mock_brev_two_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_two_gpu_dir}")
 cat > "${_mock_brev_two_gpu_dir}/nvidia-smi" <<'EOF'
@@ -769,10 +772,12 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
+# Placement comes from the profile env, not the host GPU count, so a 3-GPU host still
+# co-locates RT-VLM with RT-CV on GPU 0 and leaves GPU 2 unused.
 PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
-  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2"
+  "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
 
 # --- Setup paths: data directory and selective downloads (assert dry-run output) ---
 _out_setup="$(mktemp)"
