@@ -181,9 +181,10 @@ class DirectContainerPreflightTest(unittest.TestCase):
         container_image_id: str | None = None,
         running: str = "true",
         paused: str = "false",
+        paused_states: tuple[str, ...] | None = None,
         start_returncode: int = 0,
-        exec_returncode: int = 0,
-        exec_stdout: str | None = None,
+        probe_returncode: int = 0,
+        probe_stdout: str | None = None,
         raise_command: str | None = None,
         raised_exception: BaseException | None = None,
     ):
@@ -193,19 +194,22 @@ class DirectContainerPreflightTest(unittest.TestCase):
         )
         local_image_ids = local_image_ids or (self.IMAGE_ID,)
         container_image_id = container_image_id or self.IMAGE_ID
-        exec_stdout = (
-            exec_stdout
-            if exec_stdout is not None
+        paused_states = paused_states or (paused,)
+        probe_stdout = (
+            probe_stdout
+            if probe_stdout is not None
             else f"{direct_container_preflight.LIFECYCLE_PROBE_SENTINEL}\n"
         )
         calls: list[list[str]] = []
         candidate_call = 0
         image_call = 0
+        inspect_call = 0
 
         def run(argv, **kwargs):
-            nonlocal candidate_call, image_call
+            nonlocal candidate_call, image_call, inspect_call
             argv = list(argv)
             calls.append(argv)
+            self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
             self.assertTrue(kwargs["capture_output"])
             self.assertTrue(kwargs["text"])
             self.assertFalse(kwargs["check"])
@@ -225,12 +229,16 @@ class DirectContainerPreflightTest(unittest.TestCase):
                     kwargs["timeout"],
                     direct_container_preflight.DOCKER_COMMAND_TIMEOUT_SECONDS,
                 )
+                inspected_paused = paused_states[
+                    min(inspect_call, len(paused_states) - 1)
+                ]
+                inspect_call += 1
                 return subprocess.CompletedProcess(
                     argv,
                     0,
                     (
                         f"{image_ref}\t{container_image_id}\t"
-                        f"{running}\t{paused}\n"
+                        f"{running}\t{inspected_paused}\n"
                     ),
                     "",
                 )
@@ -262,24 +270,24 @@ class DirectContainerPreflightTest(unittest.TestCase):
                     "",
                     "secret start failure",
                 )
-            if argv[:3] == ["nemoclaw", "sandbox", "exec"]:
+            if argv[:2] == ["docker", "exec"]:
                 self.assertEqual(
                     kwargs["timeout"],
-                    direct_container_preflight.SANDBOX_EXEC_TIMEOUT_SECONDS,
+                    direct_container_preflight.CONTAINER_PROBE_TIMEOUT_SECONDS,
                 )
-                if raise_command == "exec":
-                    raise raised_exception or OSError("secret exec failure")
+                if raise_command == "probe":
+                    raise raised_exception or OSError("secret probe failure")
                 return subprocess.CompletedProcess(
                     argv,
-                    exec_returncode,
-                    exec_stdout,
-                    "secret exec failure",
+                    probe_returncode,
+                    probe_stdout,
+                    "secret probe failure",
                 )
             self.fail(f"unexpected preflight command: {argv}")
 
         return run, calls
 
-    def test_uses_supported_lifecycle_in_exact_order(self):
+    def test_uses_supported_activation_then_exact_container_probe(self):
         runner, calls = self._runner()
         direct_container_preflight.verify_direct_container(
             self.SANDBOX,
@@ -321,16 +329,12 @@ class DirectContainerPreflightTest(unittest.TestCase):
             "start",
             self.SANDBOX,
         ]
-        expected_exec = [
-            "nemoclaw",
-            "sandbox",
+        expected_probe = [
+            "docker",
             "exec",
-            self.SANDBOX,
-            "--no-tty",
-            "--no-stdin",
-            "--timeout",
-            "30",
-            "--",
+            "--user",
+            "root",
+            self.CONTAINER_ID,
             *direct_container_preflight.LIFECYCLE_PROBE_ARGV,
         ]
         self.assertEqual(
@@ -343,7 +347,7 @@ class DirectContainerPreflightTest(unittest.TestCase):
                 expected_ps,
                 expected_inspect,
                 expected_image_inspect,
-                expected_exec,
+                expected_probe,
                 expected_ps,
                 expected_inspect,
                 expected_image_inspect,
@@ -365,9 +369,7 @@ class DirectContainerPreflightTest(unittest.TestCase):
             tuple(calls[7][-8:]),
             direct_container_preflight.LIFECYCLE_PROBE_ARGV,
         )
-        self.assertFalse(
-            any(argv[:2] == ["docker", "exec"] for argv in calls)
-        )
+        self.assertEqual(calls[7][4], self.CONTAINER_ID)
 
     def test_lifecycle_shell_probe_enforces_paths_and_identity(self):
         eligible_user = next(
@@ -460,7 +462,7 @@ class DirectContainerPreflightTest(unittest.TestCase):
         self.assertGreater(
             notebook_adapter.DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS,
             direct_container_preflight.SANDBOX_START_TIMEOUT_SECONDS
-            + direct_container_preflight.SANDBOX_EXEC_TIMEOUT_SECONDS
+            + direct_container_preflight.CONTAINER_PROBE_TIMEOUT_SECONDS
             + (
                 docker_attestation_calls
                 * direct_container_preflight.DOCKER_COMMAND_TIMEOUT_SECONDS
@@ -468,11 +470,25 @@ class DirectContainerPreflightTest(unittest.TestCase):
         )
 
     def test_allows_paused_running_container(self):
-        runner, _calls = self._runner(paused="true")
+        runner, _calls = self._runner(
+            paused_states=("true", "false", "false"),
+        )
         direct_container_preflight.verify_direct_container(
             self.SANDBOX,
             run=runner,
         )
+
+    def test_refuses_container_that_start_did_not_unpause(self):
+        runner, calls = self._runner(paused="true")
+        with self.assertRaisesRegex(
+            direct_container_preflight.DirectContainerPreflightError,
+            "container_not_activated",
+        ):
+            direct_container_preflight.verify_direct_container(
+                self.SANDBOX,
+                run=runner,
+            )
+        self.assertFalse(any(argv[:2] == ["docker", "exec"] for argv in calls))
 
     def test_tag_mismatch_refuses_before_lifecycle_calls(self):
         runner, calls = self._runner(
@@ -554,24 +570,24 @@ class DirectContainerPreflightTest(unittest.TestCase):
                 direct_container_preflight.verify_direct_container("../bad")
         run.assert_not_called()
 
-    def test_start_and_exec_failures_are_fixed_and_secret_safe(self):
+    def test_start_and_probe_failures_are_fixed_and_secret_safe(self):
         raw_secret = "must-never-reach-the-refusal"
         cases = (
             ("start", 1, None, "sandbox_start_failed"),
             ("start", 0, OSError(raw_secret), "sandbox_start_failed"),
-            ("exec", 1, None, "sandbox_exec_failed"),
+            ("probe", 1, None, "container_probe_failed"),
             (
-                "exec",
+                "probe",
                 0,
-                subprocess.TimeoutExpired(["nemoclaw"], 30, raw_secret),
-                "sandbox_exec_failed",
+                subprocess.TimeoutExpired(["docker"], 30, raw_secret),
+                "container_probe_failed",
             ),
         )
         for command, returncode, raised, reason in cases:
             with self.subTest(command=command, raised=raised is not None):
                 runner, calls = self._runner(
                     start_returncode=returncode if command == "start" else 0,
-                    exec_returncode=returncode if command == "exec" else 0,
+                    probe_returncode=returncode if command == "probe" else 0,
                     raise_command=command if raised is not None else None,
                     raised_exception=raised,
                 )
@@ -587,15 +603,12 @@ class DirectContainerPreflightTest(unittest.TestCase):
                 self.assertIsNone(caught.exception.__cause__)
                 if command == "start":
                     self.assertFalse(
-                        any(
-                            argv[:3] == ["nemoclaw", "sandbox", "exec"]
-                            for argv in calls
-                        )
+                        any(argv[:2] == ["docker", "exec"] for argv in calls)
                     )
 
     def test_success_without_fixed_sentinel_is_refused(self):
         raw_secret = "arbitrary-upstream-output"
-        runner, _calls = self._runner(exec_stdout=raw_secret)
+        runner, _calls = self._runner(probe_stdout=raw_secret)
         with self.assertRaises(
             direct_container_preflight.DirectContainerPreflightError
         ) as caught:
@@ -605,11 +618,11 @@ class DirectContainerPreflightTest(unittest.TestCase):
             )
         self.assertEqual(
             caught.exception.code,
-            "sandbox_exec_sentinel_missing",
+            "container_probe_sentinel_missing",
         )
         self.assertNotIn(raw_secret, str(caught.exception))
 
-    def test_rejects_candidate_or_tag_change_after_exec(self):
+    def test_rejects_candidate_or_tag_change_after_probe(self):
         initial = (
             f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
         )
@@ -648,7 +661,7 @@ class DirectContainerPreflightTest(unittest.TestCase):
                     run=runner,
                 )
 
-    def test_rejects_start_time_identity_change_before_exec(self):
+    def test_rejects_start_time_identity_change_before_probe(self):
         initial = (
             f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
         )
@@ -667,10 +680,7 @@ class DirectContainerPreflightTest(unittest.TestCase):
                 run=runner,
             )
         self.assertFalse(
-            any(
-                argv[:3] == ["nemoclaw", "sandbox", "exec"]
-                for argv in calls
-            )
+            any(argv[:2] == ["docker", "exec"] for argv in calls)
         )
 
     def test_rejects_ambiguous_running_candidate_and_invalid_state(self):
@@ -1097,6 +1107,10 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
             persisted = env_path.read_text(encoding="utf-8")
             self.assertIn("export NEMOCLAW_GATEWAY_PORT=19080\n", persisted)
+            self.assertEqual(
+                namespace["NEMOCLAW_GATEWAY_NAME"],
+                "nemoclaw-19080",
+            )
             self.assertIn(
                 "export OPENSHELL_DOCKER_NETWORK_NAME=openshell-docker\n",
                 persisted,
@@ -1609,6 +1623,47 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             sources["s36-code"],
         )
         self.assertNotIn("!nemoclaw sandbox mcp", sources["s36-code"])
+        self.assertIn(
+            '"openshell", "sandbox", "exec", "--name",',
+            sources["s35-code"],
+        )
+        self.assertIn(
+            '"-g", NEMOCLAW_GATEWAY_NAME, "--",',
+            sources["s35-code"],
+        )
+        self.assertIn(
+            "stdin=_ci_subprocess.DEVNULL",
+            sources["s35-code"],
+        )
+        self.assertIn(
+            f"timeout={notebook_adapter.SANDBOX_EXEC_TIMEOUT_SECONDS}",
+            sources["s35-code"],
+        )
+        self.assertNotIn(
+            "!nemoclaw sandbox exec",
+            sources["s35-code"],
+        )
+        self.assertIn(
+            'cmd = ["openshell", "sandbox", "exec", "--name", '
+            "NEMOCLAW_SANDBOX_NAME,",
+            sources["s36-code"],
+        )
+        self.assertIn(
+            '"-g", NEMOCLAW_GATEWAY_NAME, "--", *args]',
+            sources["s36-code"],
+        )
+        self.assertNotIn(
+            'cmd = ["nemoclaw", "sandbox", "exec"',
+            sources["s36-code"],
+        )
+        self.assertIn(
+            "stdin=subprocess.DEVNULL",
+            sources["s36-code"],
+        )
+        self.assertIn(
+            f"timeout={notebook_adapter.SANDBOX_EXEC_TIMEOUT_SECONDS}",
+            sources["s36-code"],
+        )
         self.assertIn("NEMOCLAW_RECREATE_SANDBOX", sources["s31-code"])
         self.assertIn("if _exit_code != 0 or _recreate_sandbox:", sources["s31-code"])
         self.assertIn(
@@ -1628,6 +1683,16 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             sources["s37-code"].index("env.vars.RTSP_SAMPLE_URL"),
             sources["s37-code"].index("if not config_sets"),
         )
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/direct_container_preflight.py",
+            sources["s37-code"],
+        )
+        self.assertLess(
+            sources["s37-code"].index(
+                ".github/skill-eval/nemoclaw/direct_container_preflight.py"
+            ),
+            sources["s37-code"].index("!nemoclaw sandbox config set"),
+        )
 
     def test_rtsp_config_patch_fails_closed_without_anchor(self):
         with self.assertRaisesRegex(
@@ -1638,6 +1703,23 @@ class NotebookSetupAdapterTest(unittest.TestCase):
                 "s37-code",
                 {"cell_type": "code", "source": "print('changed upstream')\n"},
             )
+
+    def test_ci_exec_patches_fail_closed_without_expected_anchors(self):
+        for cell_id, message in (
+            ("s35-code", "missing the expected sandbox exec"),
+            ("s36-code", "missing the expected sandbox exec command"),
+        ):
+            with (
+                self.subTest(cell_id=cell_id),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                notebook_adapter._patch_ci_cell(
+                    cell_id,
+                    {
+                        "cell_type": "code",
+                        "source": "print('changed upstream')\n",
+                    },
+                )
 
     def test_policy_allows_supported_private_host_gateway_ranges(self):
         policy = (
@@ -4699,7 +4781,16 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         headless_runner._run = fake_run
         headless_runner.shutil_which = lambda name: "/usr/bin/openshell" if name == "openshell" else None
         try:
-            result = headless_runner._sandbox_exec("demo", "echo one\necho two", timeout=30)
+            with mock.patch.dict(
+                os.environ,
+                {"NEMOCLAW_GATEWAY_PORT": "19080"},
+                clear=False,
+            ):
+                result = headless_runner._sandbox_exec(
+                    "demo",
+                    "echo one\necho two",
+                    timeout=30,
+                )
         finally:
             headless_runner._run = previous["_run"]
             headless_runner.shutil_which = previous["shutil_which"]
@@ -4707,7 +4798,19 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(len(calls), 1)
         command = calls[0]
-        self.assertEqual(command[:5], ("openshell", "sandbox", "exec", "-n", "demo"))
+        self.assertEqual(
+            command[:8],
+            (
+                "openshell",
+                "sandbox",
+                "exec",
+                "-n",
+                "demo",
+                "-g",
+                "nemoclaw-19080",
+                "--",
+            ),
+        )
         self.assertTrue(all("\n" not in arg and "\r" not in arg for arg in command))
         self.assertIn("base64 -d", " ".join(command))
 

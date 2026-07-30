@@ -22,9 +22,10 @@ from typing import Any
 
 DEFAULT_ENV_OUT = Path("/tmp/skill-eval/nemoclaw/nemoclaw.env")
 DEFAULT_OUTPUT = Path("/tmp/skill-eval/nemoclaw/setup.executed.ipynb")
-# Covers the supported start budget, exec cleanup, and three Docker
+# Covers the supported start budget, the fixed Docker probe, and three
 # identity/image attestations without shortening their individual deadlines.
 DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS = 660
+SANDBOX_EXEC_TIMEOUT_SECONDS = 60
 SECRET_TEXT_PATTERNS = (
     (
         re.compile(r"(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+"),
@@ -104,6 +105,20 @@ NEMOCLAW_INSTALL_REF = os.environ.get(
 ).strip()
 NEMOCLAW_SANDBOX_NAME = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
 NEMOCLAW_GATEWAY_PORT = os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080").strip() or "8080"
+if (
+    not NEMOCLAW_GATEWAY_PORT.isascii()
+    or not NEMOCLAW_GATEWAY_PORT.isdigit()
+    or len(NEMOCLAW_GATEWAY_PORT) > 5
+    or not 1024 <= int(NEMOCLAW_GATEWAY_PORT) <= 65535
+):
+    raise ValueError(
+        "NEMOCLAW_GATEWAY_PORT must be an integer from 1024 to 65535"
+    )
+NEMOCLAW_GATEWAY_NAME = (
+    "nemoclaw"
+    if int(NEMOCLAW_GATEWAY_PORT) == 8080
+    else f"nemoclaw-{int(NEMOCLAW_GATEWAY_PORT)}"
+)
 os.environ["NEMOCLAW_GATEWAY_PORT"] = NEMOCLAW_GATEWAY_PORT
 OPENSHELL_DOCKER_NETWORK_NAME = (
     os.environ.get("OPENSHELL_DOCKER_NETWORK_NAME", "openshell-docker").strip()
@@ -238,7 +253,7 @@ print(f"Wrote NemoClaw hook token file: {_token_file}")
 '''.strip() + "\n"
 
 DIRECT_CONTAINER_PREFLIGHT_SOURCE = rf'''
-# CI-only guard for NemoClaw v0.0.97's gateway-independent Docker cleanup.
+# CI-only guard for NemoClaw v0.0.97's direct Docker mutation target.
 import subprocess as _ci_subprocess
 import sys as _ci_sys
 
@@ -249,6 +264,7 @@ _ci_preflight = _ci_subprocess.run(
         "--sandbox-name",
         NEMOCLAW_SANDBOX_NAME,
     ],
+    stdin=_ci_subprocess.DEVNULL,
     capture_output=True,
     text=True,
     check=False,
@@ -326,6 +342,90 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             "--agent {AGENT_RUNTIME}",
         )
         return patched
+    if cell_id == "s35-code":
+        workspace_cleanup = (
+            '    !nemoclaw sandbox exec {NEMOCLAW_SANDBOX_NAME} -- sh -c '
+            '"find /sandbox/.openclaw/workspace -mindepth 1 -maxdepth 1 '
+            "-type d -name '*.md' -exec rm -rf '{{}}' ';'\"\n"
+        )
+        if workspace_cleanup not in source:
+            raise ValueError(
+                "NemoClaw workspace cell is missing the expected sandbox exec"
+            )
+        patched = deepcopy(cell)
+        patched["source"] = source.replace(
+            workspace_cleanup,
+            "\n".join(
+                [
+                    "    import subprocess as _ci_subprocess",
+                    "    _ci_workspace_cleanup = _ci_subprocess.run(",
+                    "        [",
+                    '            "openshell", "sandbox", "exec", "--name",',
+                    "            NEMOCLAW_SANDBOX_NAME,",
+                    '            "-g", NEMOCLAW_GATEWAY_NAME, "--",',
+                    '            "find", "/sandbox/.openclaw/workspace",',
+                    '            "-mindepth", "1", "-maxdepth", "1",',
+                    '            "-type", "d", "-name", "*.md",',
+                    '            "-exec", "rm", "-rf", "{}", ";",',
+                    "        ],",
+                    "        stdin=_ci_subprocess.DEVNULL,",
+                    "        capture_output=True,",
+                    "        text=True,",
+                    "        check=False,",
+                    f"        timeout={SANDBOX_EXEC_TIMEOUT_SECONDS},",
+                    "    )",
+                    "    if _ci_workspace_cleanup.returncode != 0:",
+                    "        raise RuntimeError(",
+                    '            "sandbox workspace cleanup failed with exit "',
+                    "            f\"{_ci_workspace_cleanup.returncode}\"",
+                    "        )",
+                    "",
+                ]
+            ),
+            1,
+        )
+        return patched
+    if cell_id == "s36-code":
+        exec_command = (
+            'cmd = ["nemoclaw", "sandbox", "exec", '
+            'NEMOCLAW_SANDBOX_NAME, "--", *args]'
+        )
+        if exec_command not in source:
+            raise ValueError(
+                "NemoClaw MCP cell is missing the expected sandbox exec command"
+            )
+        patched = deepcopy(cell)
+        patched_source = source.replace(
+            exec_command,
+            'cmd = ["openshell", "sandbox", "exec", "--name", '
+            'NEMOCLAW_SANDBOX_NAME,\n'
+            '           "-g", NEMOCLAW_GATEWAY_NAME, "--", *args]',
+            1,
+        )
+        exec_runner = (
+            "result = subprocess.run(cmd, capture_output=True, text=True)"
+        )
+        if exec_runner not in patched_source:
+            raise ValueError(
+                "NemoClaw MCP cell is missing the expected subprocess runner"
+            )
+        patched["source"] = patched_source.replace(
+            exec_runner,
+            "\n".join(
+                [
+                    "result = subprocess.run(",
+                    "        cmd,",
+                    "        stdin=subprocess.DEVNULL,",
+                    "        capture_output=True,",
+                    "        text=True,",
+                    "        check=False,",
+                    f"        timeout={SANDBOX_EXEC_TIMEOUT_SECONDS},",
+                    "    )",
+                ]
+            ),
+            1,
+        )
+        return patched
     if cell_id == "s37-code":
         config_marker = "config_sets = []\n"
         if config_marker not in source:
@@ -333,7 +433,7 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
                 "NemoClaw config cell is missing the expected config_sets declaration"
             )
         patched = deepcopy(cell)
-        patched["source"] = source.replace(
+        patched_source = source.replace(
             config_marker,
             "\n".join(
                 [
@@ -342,6 +442,47 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
                     "# Keep it out of the persisted launcher env and redact notebook artifacts.",
                     "if RTSP_SAMPLE_URL:",
                     '    config_sets.append(("env.vars.RTSP_SAMPLE_URL", RTSP_SAMPLE_URL))',
+                    "",
+                ]
+            ),
+            1,
+        )
+        config_loop = "else:\n    for _key, _value in config_sets:\n"
+        if config_loop not in patched_source:
+            raise ValueError(
+                "NemoClaw config cell is missing the expected config write loop"
+            )
+        patched["source"] = patched_source.replace(
+            config_loop,
+            "\n".join(
+                [
+                    "else:",
+                    "    # Re-attest and reactivate the exact container before",
+                    "    # NemoClaw's direct privileged config mutation path.",
+                    "    import subprocess as _ci_subprocess",
+                    "    import sys as _ci_sys",
+                    "    _ci_config_preflight = _ci_subprocess.run(",
+                    "        [",
+                    "            _ci_sys.executable,",
+                    '            ".github/skill-eval/nemoclaw/'
+                    'direct_container_preflight.py",',
+                    '            "--sandbox-name",',
+                    "            NEMOCLAW_SANDBOX_NAME,",
+                    "        ],",
+                    "        stdin=_ci_subprocess.DEVNULL,",
+                    "        capture_output=True,",
+                    "        text=True,",
+                    "        check=False,",
+                    "        timeout="
+                    f"{DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS},",
+                    "    )",
+                    "    if _ci_config_preflight.returncode != 0:",
+                    "        raise RuntimeError(",
+                    "            (_ci_config_preflight.stderr or",
+                    "             _ci_config_preflight.stdout or",
+                    '             "NemoClaw config preflight failed").strip()',
+                    "        )",
+                    "    for _key, _value in config_sets:",
                     "",
                 ]
             ),

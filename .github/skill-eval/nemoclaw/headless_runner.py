@@ -224,7 +224,13 @@ def _read_hooks_token() -> str:
 
 
 def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 def _deadline_timeout(deadline: float | None, cap_s: int, phase: str) -> int:
@@ -235,6 +241,20 @@ def _deadline_timeout(deadline: float | None, cap_s: int, phase: str) -> int:
     if remaining_s <= 0:
         raise TimeoutError(f"NemoClaw agent deadline exceeded during {phase}")
     return min(cap_s, remaining_s)
+
+
+def _openshell_gateway_name() -> str:
+    raw_port = os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080").strip()
+    if (
+        not raw_port.isascii()
+        or not raw_port.isdigit()
+        or len(raw_port) > 5
+    ):
+        raise ValueError("NEMOCLAW_GATEWAY_PORT is invalid")
+    port = int(raw_port)
+    if port < 1024 or port > 65535:
+        raise ValueError("NEMOCLAW_GATEWAY_PORT is invalid")
+    return "nemoclaw" if port == 8080 else f"nemoclaw-{port}"
 
 
 def _sleep_before_deadline(deadline: float | None, seconds: int) -> None:
@@ -253,7 +273,19 @@ def _sandbox_exec(sandbox_name: str, script: str, *, timeout: int) -> subprocess
     wrapper = f"printf %s {shlex.quote(encoded_script)} | base64 -d | sh"
     if shutil_which("openshell"):
         return _run(
-            ["openshell", "sandbox", "exec", "-n", sandbox_name, "--", "sh", "-lc", wrapper],
+            [
+                "openshell",
+                "sandbox",
+                "exec",
+                "-n",
+                sandbox_name,
+                "-g",
+                _openshell_gateway_name(),
+                "--",
+                "sh",
+                "-lc",
+                wrapper,
+            ],
             timeout=timeout,
         )
     return _run(
