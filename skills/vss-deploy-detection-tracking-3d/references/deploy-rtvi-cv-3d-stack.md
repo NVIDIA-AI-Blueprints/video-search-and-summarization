@@ -494,7 +494,7 @@ fi
 
 ## Two-Phase Launch For BEV
 
-Use this whenever saved output is selected/defaulted, or whenever file input needs live or saved BEV visualization. The BEV visualizer uses a fresh `latest` Kafka consumer group, so the workflow waits for the expected consumer group assignment before starting perception. The recorder must survive long first-run TensorRT engine builds; launch it as a persistent process, not as a background child of a short-lived shell.
+Use this whenever saved output is selected/defaulted, or whenever file input needs live or saved BEV visualization. Display mode starts the DeepStream OSD camera grid and a separate live fused BEV window by default. The BEV visualizer uses a fresh `latest` Kafka consumer group, so the workflow waits for the expected consumer group assignment before starting perception. The recorder/visualizer must survive long first-run TensorRT engine builds; launch it as a persistent process, not as a background child of a short-lived shell.
 
 ```bash
 start_support_services || exit 1
@@ -510,12 +510,27 @@ RUN_ID="${RUN_ID:-$(cat generated/run-state/run-id 2>/dev/null || date +%Y%m%d_%
 RUN_STATE_DIR="${RTCV3D_APP}/generated/run-state"
 mkdir -p "${RUN_STATE_DIR}" bev-output
 BEV_LOG="${RTCV3D_APP}/bev-output/bev-visualizer-${RUN_ID}.log"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+OSD="${OSD:-$(read_env OSD)}"; OSD="${OSD:-0}"
+SAVE_VIDEO="${SAVE_VIDEO:-$(read_env SAVE_VIDEO)}"; SAVE_VIDEO="${SAVE_VIDEO:-0}"
+if [ -z "${DISPLAY:-}" ] && [ -f "${RUN_STATE_DIR}/display.env" ]; then
+  DISPLAY="$(awk -F= '$1 == "DISPLAY" {sub("^[^=]*=", "", $0); print; exit}' "${RUN_STATE_DIR}/display.env")"
+  [ -n "${DISPLAY}" ] && export DISPLAY
+fi
 BEV_SOURCE="${BEV_SOURCE:-fused}"
-BEV_SAVE_VIDEO="${BEV_SAVE_VIDEO:-1}"
+if [ -z "${BEV_SAVE_VIDEO+x}" ]; then
+  if [ "${OSD}" = 1 ] && [ "${SAVE_VIDEO}" != 1 ] && [ -n "${DISPLAY:-}" ]; then
+    BEV_SAVE_VIDEO=0
+  else
+    BEV_SAVE_VIDEO=1
+  fi
+fi
 BEV_KAFKA_TOPIC="${BEV_KAFKA_TOPIC:-${FUSED_TOPIC:-mdx-bev}}"
 BEV_KAFKA_BROKER="${BEV_KAFKA_BROKER:-${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}}"
 
-nohup env BEV_SAVE_VIDEO="${BEV_SAVE_VIDEO}" BEV_SOURCE="${BEV_SOURCE}" BEV_KAFKA_TOPIC="${BEV_KAFKA_TOPIC}" BEV_KAFKA_BROKER="${BEV_KAFKA_BROKER}" BEV_DATASET_PATH="${BEV_DATASET_PATH:?set BEV_DATASET_PATH}" ./scripts/bev-visualizer.sh < /dev/null > "${BEV_LOG}" 2>&1 &
+nohup env PYTHONUNBUFFERED=1 DISPLAY="${DISPLAY:-}" BEV_SAVE_VIDEO="${BEV_SAVE_VIDEO}" BEV_SOURCE="${BEV_SOURCE}" BEV_KAFKA_TOPIC="${BEV_KAFKA_TOPIC}" BEV_KAFKA_BROKER="${BEV_KAFKA_BROKER}" BEV_DATASET_PATH="${BEV_DATASET_PATH:?set BEV_DATASET_PATH}" ./scripts/bev-visualizer.sh < /dev/null > "${BEV_LOG}" 2>&1 &
 pid="$!"
 printf '%s\n' "${pid}" > "${RUN_STATE_DIR}/bev-visualizer.pid"
 readlink -f /proc/"${pid}"/cwd > "${RUN_STATE_DIR}/bev-visualizer.cwd" 2>/dev/null || true
@@ -588,7 +603,7 @@ bev_recorder_alive || exit 1
 start_perception || exit 1
 ```
 
-For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder running through EOS and use `references/verify-and-view.md` to detect premature recorder exit.
+For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder/visualizer running through EOS and use `references/verify-and-view.md` to detect premature exit. For live display file runs, tell the user that `DeepStreamTest5App` is the camera grid and `Bird-Eye View of Multi-View 3D Tracking` is the separate BEV window; after EOS, have them press `q` in the BEV window or safely stop only the tracked current-run PID.
 
 Do not use `deploy/docker/compose.yml`, `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, warehouse `overrides.env`, or warehouse app-data deployment profiles in this skill.
 
