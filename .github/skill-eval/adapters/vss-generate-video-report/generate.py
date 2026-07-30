@@ -3,17 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-generate-video-report skill.
 
-The vss-generate-video-report skill produces video analysis reports by querying the VSS agent's
-``POST /generate`` endpoint and formatting the timestamped response as a
-structured Video Analysis Report markdown.  It requires a **full-remote
-deployed VSS base profile** (deploy mode = ``remote-all``; LLM and VLM both
-via remote launchpad endpoints, no local NIMs). It does NOT deploy VSS
-itself; the coordinator chains a deploy task in front and a VIOS seed task
-before these checks.
+The vss-generate-video-report skill produces Mode A video reports by calling
+an OpenAI-compatible VLM directly with a VIOS clip URL, and Mode B incident
+reports through VA-MCP analytics. It never routes report generation through
+the VSS agent's ``POST /generate`` endpoint.
 
-Because the vss-generate-video-report skill is a thin wrapper around POST /generate — purely
-HTTP, GPU-independent at the harness level — the spec targets **ONE platform**
-by default (RTXPRO6000BW).  Override with ``--platform``.
+The evaluation chain deploys a local base profile for Mode A (integrated CR3
+RT-VLM on host port 8018 plus VIOS), then deploys alerts when Mode B needs
+analytics. The spec targets **ONE platform** by default (RTXPRO6000BW).
+Override with ``--platform``.
 
 ## Directory layout
 
@@ -43,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -99,24 +98,29 @@ def generate_test_script(step: int, spec_name: str) -> str:
 
 
 def generate_solve_script(platform: str) -> str:
-    """Gold solution — assumes VSS base profile is already deployed and a
-    sample warehouse video is already uploaded via VIOS.  The verifier drives
-    the POST /generate assertion; the solution script asserts the agent is
-    live, then defers."""
+    """Reference smoke stub for the local Mode A prerequisites."""
     return (
         "#!/bin/bash\n"
-        f"# Gold solution: vss-generate-video-report on {platform}\n"
-        "# The verifier calls POST /generate directly — the solution script\n"
-        "# just asserts VSS agent is reachable then defers to the verifier.\n"
+        f"# Reference prerequisite smoke check on {platform}\n"
+        "# The verifier judges the requested operation. This script only\n"
+        "# confirms the base profile's VIOS and integrated RT-VLM endpoints.\n"
         "set -euo pipefail\n"
         "\n"
+        'HOST_IP="${HOST_IP:-localhost}"\n'
+        "\n"
         "curl -sf --connect-timeout 5 "
-        "${VSS_AGENT_URL:-http://localhost:8000}/docs "
+        '"http://${HOST_IP}:30888/vst/api/v1/sensor/version" '
         ">/dev/null || {\n"
-        "    echo 'VSS agent is not deployed — cannot solve report task'\n"
+        "    echo 'VIOS is not reachable — cannot solve report task'\n"
         "    exit 1\n"
         "}\n"
-        "echo 'VSS agent is live — verifier will drive POST /generate.'\n"
+        "curl -sf --connect-timeout 5 "
+        '"http://${HOST_IP}:8018/v1/models" '
+        ">/dev/null || {\n"
+        "    echo 'Base RT-VLM is not reachable — cannot solve report task'\n"
+        "    exit 1\n"
+        "}\n"
+        "echo 'VIOS and base RT-VLM are live — verifier will inspect the requested operation.'\n"
     )
 
 
@@ -125,6 +129,41 @@ def _platforms_from_spec(spec: dict) -> list[str]:
     if not declared:
         return [DEFAULT_PLATFORM]
     return [p for p in declared if p in PLATFORMS] or [DEFAULT_PLATFORM]
+
+
+def _substitute_spec(spec: dict, platform: str) -> dict:
+    """Render supported placeholders recursively and reject spec drift."""
+    substitutions = {
+        "platform": platform,
+        "repo_root": "$HOME/video-search-and-summarization",
+    }
+    pattern = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+    def _substitute(value):
+        if isinstance(value, str):
+            return pattern.sub(
+                lambda match: str(
+                    substitutions.get(match.group(1), match.group(0))
+                ),
+                value,
+            )
+        if isinstance(value, list):
+            return [_substitute(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _substitute(item) for key, item in value.items()}
+        return value
+
+    rendered = _substitute(spec)
+    # Docker Go templates legitimately contain the bare control token
+    # ``{{end}}``; it is not an eval placeholder.
+    unresolved = sorted(
+        set(pattern.findall(json.dumps(rendered))) - {"end"}
+    )
+    if unresolved:
+        raise ValueError(
+            "unresolved eval placeholders: " + ", ".join(unresolved)
+        )
+    return rendered
 
 
 # ---------------------------------------------------------------------------
@@ -146,8 +185,18 @@ def generate_task(
     Single-step specs collapse to a flat ``<profile>/<platform_short>/``."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
-    expects = spec.get("expects") or []
+    rendered_spec = _substitute_spec(spec, platform)
+    expects = rendered_spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
+    gpu_count = int(
+        ((rendered_spec.get("resources") or {}).get("platforms") or {})
+        .get(platform, {})
+        .get("gpu_count", 1)
+    )
+    if gpu_count < 1:
+        raise ValueError(
+            "vss-generate-video-report local RT-VLM tasks require gpu_count >= 1"
+        )
 
     for idx, expect in enumerate(expects, 1):
         step_dir = output_root / profile / platform_short
@@ -200,8 +249,9 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vss-generate-video-report",
-            "# exercises POST /generate only, so there is no benefit to local NIMs.",
+            f"gpu_count = {gpu_count}",
+            "# Mode A uses the base profile's local integrated CR3 RT-VLM and VIOS.",
+            "# Mode B may transition the same worker to alerts for VA-MCP analytics.",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -220,16 +270,10 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if not spec_src.exists():
-            legacy = skill_dir / "eval" / spec_name
-            if legacy.exists():
-                spec_src = legacy
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            # Fallback: write the in-memory spec so tests/ is complete
-            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # The verifier must see the same rendered platform/repository values
+        # as instruction.md. Writing the source spec here would leave
+        # {{platform}} unresolved and grade a different contract.
+        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"
@@ -334,10 +378,8 @@ def main() -> None:
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
     print()
-    print("Note: these tasks assume VSS base is already deployed on the target")
-    print("Brev instance and a sample warehouse video has been uploaded via vss-manage-video-io-storage.")
-    print("The coordinator is responsible for chaining those prerequisites ahead")
-    print("of each vss-generate-video-report task in the same subagent queue.")
+    print("Note: the task chain deploys the required base/alerts profiles on the target")
+    print("Brev instance and seeds the sample warehouse video through VIOS as requested.")
 
 
 if __name__ == "__main__":

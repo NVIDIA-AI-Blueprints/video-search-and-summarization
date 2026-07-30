@@ -129,7 +129,7 @@ PLATFORMS: dict[str, dict] = {
 
 PROFILES: dict[str, dict] = {
     "base": {
-        "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
+        "description": "VSS base profile — agent, UI, VST, LLM NIM, integrated RT-VLM",
     },
     "alerts_cv": {
         "description": "VSS alerts profile, CV mode (`vss-deploy-profile -m verification`)",
