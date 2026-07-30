@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Verify NemoClaw's direct Docker repair target through its lifecycle CLI.
+"""Verify NemoClaw's direct Docker repair target after supported activation.
 
 NemoClaw v0.0.97 routes ordinary OpenShell RPCs through the owning gateway,
 but its post-exec mutable-config repair discovers a container from host Docker
 labels. On a warm multi-user or multi-gateway worker, a stale same-name
 container can therefore be selected independently of the sandbox that handled
 the command. This preflight mirrors that label lookup, attests the mutable image
-tag against the container's immutable image ID, and uses NemoClaw's supported
-start/exec lifecycle so OpenShell owns activation and post-exec cleanup.
+tag against the container's immutable image ID, uses NemoClaw's supported
+start lifecycle to activate it, and runs one fixed read-only probe against the
+exact attested container ID. CI executes ordinary sandbox commands through the
+owning OpenShell gateway, avoiding NemoClaw v0.0.97's gateway-independent
+post-exec cleanup path.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ DOCKER_COMMAND_TIMEOUT_SECONDS = 15
 # NemoClaw v0.0.97's supported start probe owns a 300-second readiness
 # budget. Leave process-launch/cleanup margin outside that internal deadline.
 SANDBOX_START_TIMEOUT_SECONDS = 360
-SANDBOX_EXEC_TIMEOUT_SECONDS = 90
+CONTAINER_PROBE_TIMEOUT_SECONDS = 30
 LIFECYCLE_PROBE_SENTINEL = "NEMOCLAW_CI_LIFECYCLE_PREFLIGHT_OK_V1"
 REPAIR_HELPER_PATH = "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
 OPENCLAW_CONFIG_DIR = "/sandbox/.openclaw"
@@ -84,6 +87,7 @@ def _run_checked(
     try:
         result = run(
             list(argv),
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             check=False,
@@ -135,6 +139,7 @@ def _inspect_and_attest_image(
     container_id: str,
     *,
     run: RunCommand,
+    require_unpaused: bool = False,
 ) -> tuple[str, str]:
     inspection = _run_checked(
         [
@@ -167,6 +172,8 @@ def _inspect_and_attest_image(
         or paused not in {"true", "false"}
     ):
         raise DirectContainerPreflightError("container_identity_invalid")
+    if require_unpaused and paused != "false":
+        raise DirectContainerPreflightError("container_not_activated")
 
     resolved_image_id = _run_checked(
         [
@@ -230,40 +237,38 @@ def verify_direct_container(
         sandbox_name,
         container_id,
         run=run,
+        require_unpaused=True,
     )
     if started_image != initial_image:
         raise DirectContainerPreflightError("container_identity_changed")
 
     probe_output = _run_checked(
         [
-            "nemoclaw",
-            "sandbox",
+            "docker",
             "exec",
-            sandbox_name,
-            "--no-tty",
-            "--no-stdin",
-            "--timeout",
-            "30",
-            "--",
+            "--user",
+            "root",
+            container_id,
             *LIFECYCLE_PROBE_ARGV,
         ],
         run=run,
-        failure_code="sandbox_exec_failed",
-        timeout=SANDBOX_EXEC_TIMEOUT_SECONDS,
+        failure_code="container_probe_failed",
+        timeout=CONTAINER_PROBE_TIMEOUT_SECONDS,
     )
     if LIFECYCLE_PROBE_SENTINEL not in {
         line.strip() for line in probe_output.splitlines()
     }:
-        raise DirectContainerPreflightError("sandbox_exec_sentinel_missing")
+        raise DirectContainerPreflightError("container_probe_sentinel_missing")
 
     # Close the lifecycle race: the label lookup and mutable tag must still
-    # resolve to the exact container/image attested before supported exec.
+    # resolve to the exact container/image attested before the read-only probe.
     if _list_candidates(sandbox_name, run=run) != candidates:
         raise DirectContainerPreflightError("container_identity_changed")
     final_image = _inspect_and_attest_image(
         sandbox_name,
         container_id,
         run=run,
+        require_unpaused=True,
     )
     if final_image != initial_image:
         raise DirectContainerPreflightError("container_identity_changed")
