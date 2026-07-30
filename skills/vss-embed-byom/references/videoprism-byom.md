@@ -66,6 +66,7 @@ import os
 from typing import List, Optional
 
 import torch
+from transformers import AutoModel, AutoProcessor
 
 from common.chunk_info import ChunkInfo
 from common.logger import logger
@@ -77,11 +78,21 @@ class VideoPrismEmbedModel(BaseVlmModel):
         self._model_name = os.getenv("VIDEOPRISM_MODEL_NAME", "videoprism")
         self._checkpoint = self.model_path
         logger.info("Initializing VideoPrism model from %s", self._checkpoint)
-        # Load processor/model here.
+        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._dtype = torch.bfloat16 if self._device == "cuda" else torch.float32
+        self._processor = AutoProcessor.from_pretrained(
+            self._checkpoint, local_files_only=True, trust_remote_code=True
+        )
+        self._model = AutoModel.from_pretrained(
+            self._checkpoint, local_files_only=True, trust_remote_code=True
+        ).to(self._device, dtype=self._dtype)
+        self._model.eval()
 
     def _shutdown_model(self):
-        # Release model references, Triton server handles, and CUDA memory here.
-        pass
+        self._model = None
+        self._processor = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     @property
     def model_name(self) -> str:
@@ -140,13 +151,17 @@ class VideoPrismEmbedModel(BaseVlmModel):
         return outputs
 
     def _embed_text(self, text: str) -> List[float]:
-        # Replace with a VideoPrism-compatible text encoder. If the backend is
-        # video-only, reject text requests in the API handler before generate().
-        raise NotImplementedError("VideoPrism text embedding path is not configured")
+        text_inputs = self._processor(text=[text]).to(self._device, dtype=self._dtype)
+        with torch.no_grad():
+            embeddings = self._model.get_text_embeddings(**text_inputs).text_proj
+        return embeddings[0].detach().float().cpu().tolist()
 
     def _embed_video(self, frames: torch.Tensor) -> List[float]:
-        # Replace with VideoPrism preprocessing and model inference.
-        raise NotImplementedError("VideoPrism video embedding path is not configured")
+        video = frames.unsqueeze(0).permute(0, 1, 4, 2, 3)
+        video_inputs = self._processor(videos=video).to(self._device, dtype=self._dtype)
+        with torch.no_grad():
+            embeddings = self._model.get_video_embeddings(**video_inputs).visual_proj
+        return embeddings[0].detach().float().cpu().tolist()
 ```
 
 Always confirm the `VlmModelOutput` dataclass in `models/base_vlm_model.py`
@@ -163,8 +178,8 @@ Video search requires video and text embeddings in the same vector space. If the
 VideoPrism model being integrated is video-only, choose one of these explicit
 behaviors:
 
-1. Add a server/handler validation guard that returns a clear 4xx error for
-   text requests with a message like
+1. Add a route-level validation guard that returns a clear 4xx error for text
+   requests with a message like
    `VideoPrism BYOM text embeddings are not configured`.
 2. Pair VideoPrism with a compatible text encoder and guarantee both endpoints
    return the same embedding dimension and semantic space.
@@ -173,11 +188,14 @@ Do not silently return zero vectors, random vectors, or embeddings from an
 unrelated text model.
 
 For a video-only VideoPrism backend, do not rely on an exception thrown inside
-`generate(...)` to become the user-facing response. Add an explicit
-server/handler validation guard before the text request reaches the model, and
-raise the repo's `ServiceException` with code `BadParameter` and status `400`
-from that guard. Plain `ValueError` or model-level exceptions can be handled as
-unexpected inference failures and surface as HTTP 500.
+`generate(...)`, `rtvi_stream_handler.generate_text_embeddings(...)`, the model
+pipeline, or the failed-request response path to become the user-facing
+response. Those locations cross executor/request-status boundaries and can be
+translated into HTTP 500. Put the guard in the FastAPI
+`/v1/generate_text_embeddings` route in `server/rtvi_embed_server.py`, after the
+request/model validation and before the `loop.run_in_executor(...)` call that
+creates a request id. Raise the repo's `ServiceException` with code
+`BadParameter` and status `400` directly from that route.
 
 ## 5. Add Optional Triton/TensorRT Path
 
