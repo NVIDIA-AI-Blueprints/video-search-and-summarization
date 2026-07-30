@@ -75,7 +75,6 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Run multi-camera 3D / BEV-fusion tracking | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
 | Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](vss-deploy-dense-captioning/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](vss-deploy-video-embedding/SKILL.md) |
-| Add or validate a BYOM embedding backend such as VideoPrism for RT-Embed | [`vss-embed-byom`](vss-embed-byom/SKILL.md) |
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](vss-setup-video-analytics-api/SKILL.md) |
@@ -105,7 +104,6 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream + BEV fusion over calibrated cameras. Auto-chains to calibration when missing. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
 | [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
-| [vss-embed-byom](vss-embed-byom/SKILL.md) | Add, wire, or validate a bring-your-own-model backend for RT-Embed, including VideoPrism on the 3.3.0 code line. |
 
 ### Layer 2 — Downstream analytics
 | Skill | Description |
