@@ -68,7 +68,7 @@ NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
 # worker-local sandbox. Bump this when the trusted NemoClaw runtime image or
 # its direct-container preflight contract changes so a warm worker cannot
 # bind a rebuilt image to stale same-name runtime state.
-NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc097-c4"
+NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc097-c5"
 MAX_SETUP_DIAGNOSTIC_INPUT_CHARS = 4 * 1024 * 1024
 
 

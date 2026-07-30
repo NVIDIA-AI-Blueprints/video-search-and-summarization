@@ -11,7 +11,6 @@ import importlib.util
 import io
 import json
 import os
-import pwd
 import re
 import shlex
 import shutil
@@ -353,103 +352,38 @@ class DirectContainerPreflightTest(unittest.TestCase):
                 expected_image_inspect,
             ],
         )
-        probe = calls[7][-6]
-        for required_check in (
-            '[ "$#" -eq 4 ]',
-            '[ -f "$helper" ] && [ ! -L "$helper" ]',
-            '[ -d "$config_dir" ] && [ ! -L "$config_dir" ]',
-            '[ -f "$config_file" ] && [ ! -L "$config_file" ]',
-            '/usr/bin/id -u "$sandbox_user"',
-            '/usr/bin/id -g "$sandbox_user"',
-            '[ "$sandbox_uid" -gt 0 ] && [ "$sandbox_gid" -gt 0 ]',
+        probe = direct_container_preflight.LIFECYCLE_PROBE_SOURCE
+        self.assertIn(
             direct_container_preflight.LIFECYCLE_PROBE_SENTINEL,
+            probe,
+        )
+        for forbidden_check in (
+            "normalize_mutable_config_perms",
+            "openclaw.json",
+            "sandbox_uid",
+            "sandbox_gid",
         ):
-            self.assertIn(required_check, probe)
+            self.assertNotIn(forbidden_check, probe)
         self.assertEqual(
-            tuple(calls[7][-8:]),
+            tuple(calls[7][-4:]),
             direct_container_preflight.LIFECYCLE_PROBE_ARGV,
         )
         self.assertEqual(calls[7][4], self.CONTAINER_ID)
 
-    def test_lifecycle_shell_probe_enforces_paths_and_identity(self):
-        eligible_user = next(
-            entry.pw_name
-            for entry in pwd.getpwall()
-            if entry.pw_uid > 0 and entry.pw_gid > 0
+    def test_lifecycle_shell_probe_is_fixed_and_read_only(self):
+        accepted = subprocess.run(
+            list(direct_container_preflight.LIFECYCLE_PROBE_ARGV),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            helper = root / "normalize.py"
-            config_dir = root / "openclaw"
-            config_file = config_dir / "openclaw.json"
-            helper.write_text("# test helper\n", encoding="utf-8")
-            config_dir.mkdir()
-            config_file.write_text("{}\n", encoding="utf-8")
 
-            def run_probe(
-                helper_path: Path,
-                directory_path: Path,
-                file_path: Path,
-                user: str,
-            ) -> subprocess.CompletedProcess[str]:
-                return subprocess.run(
-                    [
-                        "/bin/sh",
-                        "-c",
-                        direct_container_preflight.LIFECYCLE_PROBE_SOURCE,
-                        "nemoclaw-ci-preflight-test",
-                        str(helper_path),
-                        str(directory_path),
-                        str(file_path),
-                        user,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-
-            accepted = run_probe(
-                helper,
-                config_dir,
-                config_file,
-                eligible_user,
-            )
-            self.assertEqual(accepted.returncode, 0, accepted.stderr)
-            self.assertEqual(
-                accepted.stdout.strip(),
-                direct_container_preflight.LIFECYCLE_PROBE_SENTINEL,
-            )
-
-            helper_link = root / "helper-link"
-            helper_link.symlink_to(helper)
-            config_dir_link = root / "config-link"
-            config_dir_link.symlink_to(config_dir, target_is_directory=True)
-            config_file_link = config_dir / "config-link.json"
-            config_file_link.symlink_to(config_file)
-            cases = (
-                (root / "missing", config_dir, config_file, eligible_user, 20),
-                (helper_link, config_dir, config_file, eligible_user, 20),
-                (helper, config_dir_link, config_file, eligible_user, 21),
-                (helper, config_dir, config_file_link, eligible_user, 22),
-                (helper, config_dir, config_file, "missing-ci-user", 23),
-                (helper, config_dir, config_file, "root", 23),
-            )
-            for (
-                helper_path,
-                directory_path,
-                file_path,
-                user,
-                returncode,
-            ) in cases:
-                with self.subTest(returncode=returncode, user=user):
-                    rejected = run_probe(
-                        helper_path,
-                        directory_path,
-                        file_path,
-                        user,
-                    )
-                    self.assertEqual(rejected.returncode, returncode)
-                    self.assertEqual(rejected.stdout, "")
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(
+            accepted.stdout.strip(),
+            direct_container_preflight.LIFECYCLE_PROBE_SENTINEL,
+        )
 
     def test_timeout_budget_covers_supported_start_and_all_attestations(self):
         docker_attestation_calls = 9
