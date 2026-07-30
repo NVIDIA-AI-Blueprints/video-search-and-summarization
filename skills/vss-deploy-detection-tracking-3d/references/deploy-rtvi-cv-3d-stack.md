@@ -293,7 +293,7 @@ read_env() {
   awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
 }
 SAVE_VIDEO="${SAVE_VIDEO:-$(read_env SAVE_VIDEO)}"; SAVE_VIDEO="${SAVE_VIDEO:-0}"
-if [ "${SAVE_VIDEO}" = 1 ] || [ "${BEV_SAVE_VIDEO:-0}" = 1 ] || [ -n "${BEV_DATASET_PATH:-}" ]; then
+if [ "${SAVE_VIDEO}" = 1 ] || [ "${BEV_SAVE_VIDEO:-0}" = 1 ]; then
   command -v ffprobe >/dev/null 2>&1 || { echo "ERROR: ffprobe is required to verify saved grid/BEV videos; install ffmpeg or provide ffprobe on PATH before launch" >&2; exit 1; }
 fi
 if [ "${BEV_SAVE_VIDEO:-0}" = 1 ] || [ -n "${BEV_DATASET_PATH:-}" ]; then
