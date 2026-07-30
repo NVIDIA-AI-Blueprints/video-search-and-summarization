@@ -2530,7 +2530,6 @@ bool GstNvVideoDecoder::setFileAndUpdatePipelineState (bool first_time)
             if (m_isImageCapture)
             {
                 LOG(warning) << "Image capture: seek position may be near end of file, not enough frames available" << endl;
-                releaseImageCaptureWait();
             }
             return 0;  // Signal that we can't continue playback
         }
@@ -2563,24 +2562,8 @@ bool GstNvVideoDecoder::setFileAndUpdatePipelineState (bool first_time)
     else
     {
         LOG(warning) << "Need to stop the pipeline as no files are available for playback" << endl;
-        if (m_isImageCapture)
-        {
-            releaseImageCaptureWait();
-        }
         return 0;
     }
-}
-
-void GstNvVideoDecoder::releaseImageCaptureWait()
-{
-    if (m_imageFrameDelivered)
-    {
-        /* A frame is already on its way to the encoder, let it finish encoding */
-        return;
-    }
-    LOG(error) << "Image capture: no frame available at " << m_epochStartTime
-               << " for peer " << m_peerid << ", releasing the encoder wait" << endl;
-    sendEosToSink();
 }
 
 VmsErrorCode GstNvVideoDecoder::update (std::string action, std::string seek_value, bool eos)
@@ -3574,11 +3557,6 @@ GstFlowReturn GstNvVideoDecoder::processJpegImageFromSink(GstElement *appsink)
                 {
                     m_transcodeStats.finishProcessing();
                 }
-                /* Mark the capture as served before handing the frame over: the
-                ** consumer chain encodes asynchronously, and an end-of-playback
-                ** notification arriving in between must not release the encoder
-                ** wait on a capture that already has its frame. */
-                m_imageFrameDelivered = true;
                 sink->m_consumer->onFrame (consumer_frame_data);
             }
         }
