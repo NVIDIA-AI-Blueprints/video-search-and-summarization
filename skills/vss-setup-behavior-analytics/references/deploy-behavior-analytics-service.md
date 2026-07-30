@@ -112,10 +112,15 @@ search profile and select the repo-owned config through the narrow
    ```json
    {
      "env_overrides": [
-       "VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH=${VSS_APPS_DIR}/../../services/analytics/behavior-analytics/configs/search_and_alerts_config.json"
+       "VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH=${VSS_APPS_DIR}/../../services/analytics/behavior-analytics/configs/search_and_alerts_config.json",
+       "COMPOSE_PROFILES=vss-search-analytics-2d-fusion,kafka,kafka-topic-init-container,broker-health-check"
      ]
    }
    ```
+
+   The bounded `COMPOSE_PROFILES` set starts only Behavior Analytics and its
+   CPU broker dependencies. Keep the search profile's GPU-backed perception,
+   RT-Embed, and RT-VLM services out of this standalone CPU task.
 
 2. Call `vss_orchestrator__docker_up` with the returned
    `docker_compose_id`; set `force_recreate: true` so an existing

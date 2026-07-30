@@ -710,7 +710,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
                 persisted,
             )
 
-    def test_parameter_cell_derives_nemoclaw_provider_from_remote_llm_env(self):
+    def test_parameter_cell_maps_remote_runtime_env_and_derives_nemoclaw_provider(self):
         defaults = {
             "HARDWARE_PROFILE": "RTXPRO6000BW",
             "NEMOCLAW_ENDPOINT_URL": "",
@@ -731,8 +731,18 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "EXTERNAL_IP": "",
         }
         env_keys = (
+            "LLM_ENDPOINT_URL",
+            "LLM_NAME",
+            "VSS_LLM_ENDPOINT_URL",
+            "VSS_LLM_NAME",
             "LLM_REMOTE_URL",
             "LLM_REMOTE_MODEL",
+            "VLM_ENDPOINT_URL",
+            "VLM_NAME",
+            "VSS_VLM_ENDPOINT_URL",
+            "VSS_VLM_NAME",
+            "VLM_REMOTE_URL",
+            "VLM_REMOTE_MODEL",
             "ANTHROPIC_BASE_URL",
             "ANTHROPIC_MODEL",
             "ANTHROPIC_API_KEY",
@@ -746,8 +756,10 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         previous = {key: os.environ.get(key) for key in env_keys}
         for key in env_keys:
             os.environ.pop(key, None)
-        os.environ["LLM_REMOTE_URL"] = "https://inference-api.example"
+        os.environ["LLM_REMOTE_URL"] = "https://inference-api.example/v1/models/"
         os.environ["LLM_REMOTE_MODEL"] = "nvidia/example-model"
+        os.environ["VLM_REMOTE_URL"] = "https://vlm-api.example/v1/"
+        os.environ["VLM_REMOTE_MODEL"] = "nvidia/example-vlm"
         os.environ["NVIDIA_API_KEY"] = "nvapi-ci"
         try:
             exec(notebook_adapter.PARAMETER_SOURCE, defaults)
@@ -761,10 +773,41 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["NEMOCLAW_ENDPOINT_URL"], "https://inference-api.example/v1")
         self.assertEqual(defaults["NEMOCLAW_MODEL"], "nvidia/example-model")
         self.assertEqual(defaults["COMPATIBLE_API_KEY"], "nvapi-ci")
+        self.assertEqual(defaults["LLM_ENDPOINT_URL"], "https://inference-api.example")
+        self.assertEqual(defaults["LLM_NAME"], "nvidia/example-model")
+        self.assertEqual(defaults["VLM_ENDPOINT_URL"], "https://vlm-api.example")
+        self.assertEqual(defaults["VLM_NAME"], "nvidia/example-vlm")
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "streamable-http")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9988/mcp")
         self.assertEqual(defaults["MCP_URL"], "http://127.0.0.1:9988/mcp")
+
+    def test_parameter_cell_prefers_nonempty_canonical_then_legacy_runtime_env(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LLM_ENDPOINT_URL": "",
+                "VSS_LLM_ENDPOINT_URL": "https://legacy-llm.example/v1",
+                "LLM_REMOTE_URL": "https://remote-llm.example/v1",
+                "LLM_NAME": "",
+                "VSS_LLM_NAME": "legacy-llm",
+                "LLM_REMOTE_MODEL": "remote-llm",
+                "VLM_ENDPOINT_URL": "https://canonical-vlm.example/v1/models",
+                "VSS_VLM_ENDPOINT_URL": "https://legacy-vlm.example/v1",
+                "VLM_REMOTE_URL": "https://remote-vlm.example/v1",
+                "VLM_NAME": "canonical-vlm",
+                "VSS_VLM_NAME": "legacy-vlm",
+                "VLM_REMOTE_MODEL": "remote-vlm",
+            },
+            clear=True,
+        ):
+            namespace: dict[str, object] = {}
+            exec(notebook_adapter.PARAMETER_SOURCE, namespace)
+
+        self.assertEqual(namespace["LLM_ENDPOINT_URL"], "https://legacy-llm.example")
+        self.assertEqual(namespace["LLM_NAME"], "legacy-llm")
+        self.assertEqual(namespace["VLM_ENDPOINT_URL"], "https://canonical-vlm.example")
+        self.assertEqual(namespace["VLM_NAME"], "canonical-vlm")
 
     def test_parameter_cell_accepts_ngc_api_key_alias(self):
         defaults = {
@@ -3706,6 +3749,25 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             any("8018/v1/health/ready" in " ".join(call) for call in calls)
         )
 
+    def test_dense_captioning_alerts_prompt_uses_source_kafka_container(self):
+        spec = json.loads(
+            (
+                REPO_ROOT
+                / "skills"
+                / "vss-deploy-dense-captioning"
+                / "evals"
+                / "alerts_profile_api.json"
+            ).read_text(encoding="utf-8")
+        )
+        infra_compose = (
+            REPO_ROOT / "deploy" / "docker" / "services" / "infra" / "compose.yml"
+        ).read_text(encoding="utf-8")
+        first_query = spec["expects"][0]["query"]
+
+        self.assertIn("container_name: kafka", infra_compose)
+        self.assertIn("Kafka container `kafka` running", first_query)
+        self.assertNotIn("`mdx-kafka` running", first_query)
+
     def test_wait_for_alerts_profile_passes_with_shared_deadline(self):
         previous = {
             "_run": headless_runner._run,
@@ -4698,6 +4760,20 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 "search_and_alerts_config.json"
             ),
             reference,
+        )
+        bounded_profiles = re.search(
+            r'"COMPOSE_PROFILES=([^"]+)"',
+            reference,
+        )
+        self.assertIsNotNone(bounded_profiles)
+        self.assertEqual(
+            set(bounded_profiles.group(1).split(",")),
+            {
+                "vss-search-analytics-2d-fusion",
+                "kafka",
+                "kafka-topic-init-container",
+                "broker-health-check",
+            },
         )
         self.assertEqual(
             workers,
