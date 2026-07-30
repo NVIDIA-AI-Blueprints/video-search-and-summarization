@@ -106,6 +106,12 @@ def copy_skill(skill_dir: Path, task_dir: Path) -> None:
             shutil.copytree(src, dst / name)
 
 
+def copy_generic_judge(tests_dir: Path) -> None:
+    if not GENERIC_JUDGE.exists():
+        raise FileNotFoundError(f"generic judge not found: {GENERIC_JUDGE}")
+    shutil.copy2(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+
+
 def generate_task(platform: str, spec: dict, spec_path: Path, output_root: Path, skill_dir: Path) -> None:
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
@@ -172,14 +178,17 @@ def generate_task(platform: str, spec: dict, spec_path: Path, output_root: Path,
 
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
-        if GENERIC_JUDGE.exists():
-            shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        test_script = tests_dir / "test.sh"
+        test_script.write_text(generate_test_script(idx, spec_name))
+        test_script.chmod(0o755)
+        copy_generic_judge(tests_dir)
         (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         solution_dir = step_dir / "solution"
         solution_dir.mkdir(exist_ok=True)
-        (solution_dir / "solve.sh").write_text(generate_solve_script())
+        solve_script = solution_dir / "solve.sh"
+        solve_script.write_text(generate_solve_script())
+        solve_script.chmod(0o755)
 
         copy_skill(skill_dir, step_dir)
 
