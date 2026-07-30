@@ -45,10 +45,56 @@ class EnsureMcpTlsCertsTests(unittest.TestCase):
             key = tmp / "key.pem"
             cert.write_text("cert", encoding="utf-8")
             key.write_text("key", encoding="utf-8")
-            with mock.patch.object(helper.shutil, "which", side_effect=AssertionError("openssl must not run")):
+            # No openssl → skip the expiry check and reuse the pair as-is.
+            with (
+                mock.patch.object(helper.shutil, "which", return_value=None),
+                mock.patch.object(helper.subprocess, "run", side_effect=AssertionError("openssl must not run")),
+            ):
                 got_cert, got_key = helper.ensure_mcp_tls_certs(cert, key, san="DNS:localhost")
             self.assertEqual(got_cert, cert.resolve())
             self.assertEqual(got_key, key.resolve())
+
+    def test_keeps_unexpired_existing_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_name:
+            tmp = Path(tmp_name)
+            cert = tmp / "cert.pem"
+            key = tmp / "key.pem"
+            cert.write_text("cert", encoding="utf-8")
+            key.write_text("key", encoding="utf-8")
+
+            def fake_checkend(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                self.assertIn("-checkend", cmd)
+                return subprocess.CompletedProcess(cmd, 0)
+
+            with (
+                mock.patch.object(helper.shutil, "which", return_value="/usr/bin/openssl"),
+                mock.patch.object(helper.subprocess, "run", side_effect=fake_checkend),
+            ):
+                got_cert, got_key = helper.ensure_mcp_tls_certs(cert, key, san="DNS:localhost")
+            self.assertEqual(got_cert, cert.resolve())
+            self.assertEqual(cert.read_text(encoding="utf-8"), "cert")
+
+    def test_raises_when_existing_cert_is_expired(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_name:
+            tmp = Path(tmp_name)
+            cert = tmp / "cert.pem"
+            key = tmp / "key.pem"
+            cert.write_text("expired-cert", encoding="utf-8")
+            key.write_text("expired-key", encoding="utf-8")
+
+            def fake_checkend(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                self.assertIn("-checkend", cmd)
+                return subprocess.CompletedProcess(cmd, 1)
+
+            with (
+                mock.patch.object(helper.shutil, "which", return_value="/usr/bin/openssl"),
+                mock.patch.object(helper.subprocess, "run", side_effect=fake_checkend),
+                self.assertRaises(RuntimeError) as ctx,
+            ):
+                helper.ensure_mcp_tls_certs(cert, key, san="DNS:localhost")
+            self.assertIn("expired", str(ctx.exception))
+            self.assertEqual(cert.read_text(encoding="utf-8"), "expired-cert")
+            self.assertEqual(key.read_text(encoding="utf-8"), "expired-key")
 
     def test_generates_missing_pair_via_openssl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_name:

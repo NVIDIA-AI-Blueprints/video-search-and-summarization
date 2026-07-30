@@ -151,6 +151,11 @@ def ensure_mcp_tls_certs(
 ) -> tuple[Path, Path]:
     """Ensure MCP TLS cert/key exist; generate a self-signed pair only if both are missing.
 
+    An existing pair is reused as-is, but if the cert is already expired the call
+    raises so the failure is obvious at preflight rather than as a TLS handshake
+    error during the health check. Delete the pair and re-run to auto-generate, or
+    replace with a valid cert/key.
+
     Args:
         certfile: Destination PEM certificate path.
         keyfile: Destination PEM private-key path.
@@ -164,8 +169,9 @@ def ensure_mcp_tls_certs(
     Raises:
         FileNotFoundError: if exactly one of cert/key exists (refuses to overwrite
             a partial custom pair by auto-generating).
+        RuntimeError: if the existing cert is expired, or if ``openssl`` is not
+            available when generation is required.
         ValueError: if ``san`` is empty when generation is required.
-        RuntimeError: if ``openssl`` is not available when generation is required.
         subprocess.CalledProcessError: if ``openssl`` fails.
     """
     cert_path = Path(certfile).expanduser().resolve()
@@ -173,6 +179,19 @@ def ensure_mcp_tls_certs(
     cert_exists = cert_path.is_file()
     key_exists = key_path.is_file()
     if cert_exists and key_exists:
+        # -checkend 0 exits non-zero when the cert is already past its notAfter.
+        if shutil.which("openssl"):
+            expired = subprocess.run(
+                ["openssl", "x509", "-checkend", "0", "-noout", "-in", str(cert_path)],
+                capture_output=True,
+                text=True,
+            )
+            if expired.returncode != 0:
+                raise RuntimeError(
+                    f"MCP TLS cert {cert_path} is expired. "
+                    "Delete the cert/key pair and re-run to auto-generate, "
+                    "or replace them with a valid pair.",
+                )
         return cert_path, key_path
     if cert_exists != key_exists:
         raise FileNotFoundError(
