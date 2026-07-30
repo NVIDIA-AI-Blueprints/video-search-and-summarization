@@ -123,15 +123,7 @@ cat "${CONFIG_DIR}/ds-pgie-config.yml"
 echo -e "\nTracker config:"
 cat "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
 
-if [ "${STREAM_TYPE}" = "redis" ]; then
-  echo -e "\nRunning metropolis_perception_app with redis (RT-DETR + MV3DT)..."
-  echo -e "\nMain config:"
-  cat "${CONFIG_DIR}/ds-main-redis-config-mv3dt.txt"
-  exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-redis-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
-else
-  [ "${STREAM_TYPE}" = "kafka" ] || echo "STREAM_TYPE not set or invalid. Defaulting to kafka..."
-  echo -e "\nRunning metropolis_perception_app with kafka (RT-DETR + MV3DT)..."
-  echo -e "\nMain config:"
-  cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
-  exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
-fi
+echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
+echo -e "\nMain config:"
+cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
+exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
