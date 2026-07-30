@@ -64,6 +64,11 @@ NEMOCLAW_ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
 NEMOCLAW_ATTEMPT_OWNER_PATH = "/logs/artifacts/nemoclaw-attempt-owner"
 NEMOCLAW_LAUNCH_STATE_ROOT = "/tmp/skill-eval/nemoclaw/launch-attempts"
 NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
+# Stable across CI runs, but intentionally versioned separately from the
+# worker-local sandbox. Bump this when the trusted NemoClaw runtime image or
+# its direct-container preflight contract changes so a warm worker cannot
+# bind a rebuilt image to stale same-name runtime state.
+NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc097-c1"
 MAX_SETUP_DIAGNOSTIC_INPUT_CHARS = 4 * 1024 * 1024
 
 
@@ -1312,9 +1317,11 @@ else
   # post-exec permission repair discovers Docker containers globally using
   # only the sandbox-name label. Warm workers can be reached as root or
   # ubuntu and can retain sibling-gateway `demo` containers. A stable
-  # effective-uid + gateway-port name excludes both collision dimensions
-  # without creating one sandbox/image generation per GitHub run.
-  export NEMOCLAW_SANDBOX_NAME="vss-eval-u${{sandbox_uid}}-p${{gateway_port}}"
+  # effective-uid + gateway-port name excludes both collision dimensions.
+  # The runtime-contract revision prevents `--fresh` from reattaching a
+  # rebuilt image to stale same-name container state while remaining stable
+  # across GitHub runs.
+  export NEMOCLAW_SANDBOX_NAME="vss-eval-u${{sandbox_uid}}-p${{gateway_port}}-{NEMOCLAW_SANDBOX_CONTRACT_GENERATION}"
   unset NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE
   stage "selected isolated CI sandbox $NEMOCLAW_SANDBOX_NAME"
 fi
