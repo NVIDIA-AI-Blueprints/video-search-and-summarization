@@ -46,12 +46,26 @@ const mockTimelines = new Map([
   }],
 ]);
 
+const mockRefetch = jest.fn(() => Promise.resolve());
+const mockWaitUntilStreamsRemoved = jest.fn(async () => ({ remainingSensorIds: [] as string[] }));
+const mockDeleteRtspStream = jest.fn(() => Promise.resolve({ status: 'success' }));
+const mockDeleteVideo = jest.fn(() => Promise.resolve({ status: 'success' }));
+
+jest.mock('../../lib-src/rtspStream', () => ({
+  deleteRtspStream: (...args: unknown[]) => mockDeleteRtspStream(...(args as [])),
+}));
+
+jest.mock('../../lib-src/videoDelete', () => ({
+  deleteVideo: (...args: unknown[]) => mockDeleteVideo(...(args as [])),
+}));
+
 jest.mock('../../lib-src/hooks', () => ({
   useStreams: () => ({
     streams: [videoStream, rtspStream],
     isLoading: false,
     error: null,
-    refetch: jest.fn(),
+    refetch: mockRefetch,
+    waitUntilStreamsRemoved: mockWaitUntilStreamsRemoved,
   }),
   useStorageTimelines: () => ({
     timelines: mockTimelines,
@@ -185,5 +199,96 @@ describe('VideoManagementComponent — video playback', () => {
     renderComponent();
 
     expect(screen.queryByTestId('video-modal')).not.toBeInTheDocument();
+  });
+});
+
+// NVBug 6243148: selecting an RTSP stream and an uploaded video together and
+// hitting Select All → Delete left the RTSP entry in the grid, stale and
+// unplayable, because VST's stream list still reported it when the UI refetched.
+describe('VideoManagementComponent — Select All delete of mixed RTSP and uploaded videos', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockWaitUntilStreamsRemoved.mockResolvedValue({ remainingSensorIds: [] });
+    mockDeleteRtspStream.mockResolvedValue({ status: 'success' });
+    mockDeleteVideo.mockResolvedValue({ status: 'success' });
+  });
+
+  async function selectAllAndConfirmDelete() {
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select All' })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Select All' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+  }
+
+  it('routes each selected stream to the delete API for its type', async () => {
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    expect(mockDeleteVideo).toHaveBeenCalledWith('https://agent.example.com', videoStream.sensorId);
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith('https://agent.example.com', rtspStream.name);
+  });
+
+  it('waits for VST to stop listing deleted sensors before closing the dialog', async () => {
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledTimes(1);
+    expect(mockWaitUntilStreamsRemoved.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([videoStream.sensorId, rtspStream.sensorId]),
+    );
+    expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps the dialog open with an error when VST still lists a deleted stream', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent(
+      `Unable to remove the following streams: ${rtspStream.name}`,
+    );
+  });
+
+  it('keeps a failed stream selected and reports it without waiting for VST on that id', async () => {
+    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VST'));
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    // Only the successful video delete is waited on
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledWith([videoStream.sensorId]);
+    expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent(rtspStream.name);
+  });
+
+  it('retries only the failed stream when the user confirms again', async () => {
+    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VST'));
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    mockDeleteVideo.mockClear();
+    mockDeleteRtspStream.mockClear();
+    mockWaitUntilStreamsRemoved.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledTimes(1);
+    expect(mockDeleteVideo).not.toHaveBeenCalled();
   });
 });

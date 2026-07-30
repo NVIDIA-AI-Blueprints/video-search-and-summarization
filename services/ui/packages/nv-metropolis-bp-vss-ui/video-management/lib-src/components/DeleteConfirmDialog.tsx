@@ -13,6 +13,8 @@ interface DeleteConfirmDialogProps {
   isOpen: boolean;
   streams: StreamInfo[];
   isDeleting: boolean;
+  /** Set when the previous attempt failed; the dialog stays open so the user can retry. */
+  error?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
   /** `contained` = overlay only the nearest positioned ancestor (Video Management pane). Default `viewport` = full window. */
@@ -26,16 +28,16 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   isOpen,
   streams,
   isDeleting,
+  error = null,
   onCancel,
   onConfirm,
   overlay = 'viewport',
 }) => {
-  // Snapshot the streams prop at the moment the dialog opens. The parent may
-  // clear its `selectedStreams` set during the delete flow (after the API
-  // resolves but before refetch finishes), which would make `streams` go empty
-  // mid-confirm and cause the preview list to vanish while the dialog is still
-  // visible. Snapshotting keeps the displayed list stable for the dialog's
-  // entire open lifetime.
+  // Freeze the preview list for the duration of a delete. The parent clears its
+  // `selectedStreams` set once the API resolves, which would otherwise make the
+  // list vanish while the dialog is still visible. Once the attempt settles the
+  // list tracks the selection again, so a retry after a partial failure shows
+  // only the items that are actually left to delete.
   const [snapshot, setSnapshot] = useState<StreamInfo[]>(streams);
   // Collapsed by default so large selections don't blow out dialog height;
   // "+ N more" expands so the user can verify every item before confirming
@@ -43,12 +45,11 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   const [listExpanded, setListExpanded] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      setSnapshot(streams);
-      setListExpanded(false);
-    }
-    // Intentionally only re-snapshot on open transition, not on every streams change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (isOpen && !isDeleting) setSnapshot(streams);
+  }, [isOpen, isDeleting, streams]);
+
+  useEffect(() => {
+    if (isOpen) setListExpanded(false);
   }, [isOpen]);
 
   useEffect(() => {
@@ -179,6 +180,16 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
               </ul>
             </div>
           )}
+
+          {error && (
+            <div
+              role="alert"
+              data-testid="delete-confirm-error"
+              className="max-h-24 overflow-auto rounded p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+            >
+              <p className="text-sm text-red-600 dark:text-red-400 break-words whitespace-pre-wrap">{error}</p>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -215,7 +226,7 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
                 <path d="M12 2a10 10 0 0 1 10 10" strokeOpacity="1" />
               </svg>
             )}
-            {isDeleting ? 'Deleting...' : 'Confirm'}
+            {isDeleting ? 'Deleting...' : error ? 'Retry' : 'Confirm'}
           </button>
         </div>
       </div>

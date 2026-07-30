@@ -240,6 +240,42 @@ describe('DeleteConfirmDialog — isDeleting state', () => {
   });
 });
 
+describe('DeleteConfirmDialog — error state', () => {
+  it('renders no error block by default', () => {
+    renderDialog();
+    expect(screen.queryByTestId('delete-confirm-error')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a failed delete so it is not swallowed into the console', () => {
+    renderDialog({ error: 'Unable to remove the following streams: Camera 1' });
+
+    const alert = screen.getByTestId('delete-confirm-error');
+    expect(alert).toHaveTextContent('Unable to remove the following streams: Camera 1');
+    expect(alert).toHaveAttribute('role', 'alert');
+  });
+
+  it('relabels Confirm as Retry once an attempt has failed', () => {
+    const { rerender } = renderDialog();
+    expect(screen.getByTestId('delete-confirm-button')).toHaveTextContent('Confirm');
+
+    rerender(
+      <DeleteConfirmDialog
+        {...defaultProps}
+        error="Unable to remove the following streams: Camera 1"
+      />,
+    );
+    expect(screen.getByTestId('delete-confirm-button')).toHaveTextContent('Retry');
+  });
+
+  it('keeps the retry actionable so the user can try the failed items again', () => {
+    const onConfirm = jest.fn();
+    renderDialog({ error: 'Unable to remove the following streams: Camera 1', onConfirm });
+
+    fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('DeleteConfirmDialog — streams snapshot on open', () => {
   // The parent (VideoManagementComponent) clears its `selectedStreams` set
   // mid-delete (after the API resolves, before refetch finishes). Without the
@@ -247,21 +283,42 @@ describe('DeleteConfirmDialog — streams snapshot on open', () => {
   // still mounted and read as "a second dialog flashing" to the user. These
   // tests pin that behaviour so it doesn't regress.
 
-  it('keeps the preview list stable when the streams prop becomes empty mid-open', () => {
+  it('keeps the preview list stable when the streams prop becomes empty mid-delete', () => {
     const streams = [
       makeStream({ name: 'first', streamId: 's1' }),
       makeStream({ name: 'second', streamId: 's2' }),
     ];
-    const { rerender } = renderDialog({ streams });
+    const { rerender } = renderDialog({ streams, isDeleting: true });
 
     expect(screen.getByText('first')).toBeInTheDocument();
     expect(screen.getByText('second')).toBeInTheDocument();
 
-    // Parent clears selection while the dialog is still open.
-    rerender(<DeleteConfirmDialog {...defaultProps} streams={[]} />);
+    // Parent clears selection while the delete is still in flight.
+    rerender(<DeleteConfirmDialog {...defaultProps} isDeleting={true} streams={[]} />);
 
     expect(screen.getByText('first')).toBeInTheDocument();
     expect(screen.getByText('second')).toBeInTheDocument();
+  });
+
+  it('narrows the preview to what is left once a partial delete settles', () => {
+    const both = [
+      makeStream({ name: 'deleted-ok', streamId: 's1' }),
+      makeStream({ name: 'still-there', streamId: 's2' }),
+    ];
+    const { rerender } = renderDialog({ streams: both, isDeleting: true });
+
+    // Delete settles: the parent keeps only the failed stream selected.
+    rerender(
+      <DeleteConfirmDialog
+        {...defaultProps}
+        isDeleting={false}
+        error="Unable to remove the following streams: still-there"
+        streams={[both[1]]}
+      />,
+    );
+
+    expect(screen.queryByText('deleted-ok')).not.toBeInTheDocument();
+    expect(screen.getByText('still-there')).toBeInTheDocument();
   });
 
   it('re-snapshots when the dialog is closed and reopened with a new selection', () => {

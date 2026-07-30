@@ -86,6 +86,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const [selectedStreams, setSelectedStreams] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [loadingStreamId, setLoadingStreamId] = useState<string | null>(null);
@@ -107,7 +108,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     if (!enableVideoUpload) setShowVideos(false);
   }, [enableVideoUpload]);
 
-  const { streams, isLoading, error, refetch } = useStreams({ vstApiUrl });
+  const { streams, isLoading, error, refetch, waitUntilStreamsRemoved } = useStreams({ vstApiUrl });
   const { getEndTimeForStream, getLastTimelineForStream, refetch: refetchTimelines } = useStorageTimelines({ vstApiUrl });
   const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl ?? undefined);
 
@@ -401,17 +402,20 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   // Selected" button is wired to this so a single click never destroys data.
   const handleDeleteSelected = useCallback(() => {
     if (selectedStreams.size === 0 || isDeleting) return;
+    setDeleteError(null);
     setShowDeleteConfirm(true);
   }, [selectedStreams.size, isDeleting]);
 
   const handleCancelDelete = useCallback(() => {
     if (isDeleting) return;
+    setDeleteError(null);
     setShowDeleteConfirm(false);
   }, [isDeleting]);
 
   // Step 2 of delete: invoked by the confirm button inside DeleteConfirmDialog.
-  // This holds the actual destructive API calls that used to live in
-  // handleDeleteSelected.
+  // Keeps the dialog open through agent delete + VST stream-list convergence
+  // (NVBug 6243148). Only closes when VST no longer lists the deleted sensors;
+  // otherwise surfaces which streams could not be removed so the user can retry.
   const handleConfirmDelete = useCallback(async () => {
     if (selectedStreams.size === 0 || isDeleting) return;
 
@@ -429,6 +433,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
     const uniqueSensorIds = Array.from(sensorToStreams.keys());
     setIsDeleting(true);
+    setDeleteError(null);
 
     try {
       const deletePromises = uniqueSensorIds.map(async (sensorId) => {
@@ -453,19 +458,50 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       });
 
       const results = await Promise.allSettled(deletePromises);
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          // eslint-disable-next-line no-console
-          console.error('[VideoManagement] delete failed for sensor', uniqueSensorIds[idx], r.reason);
+
+      const deletedSensorIds: string[] = [];
+      const failedNames: string[] = [];
+      const stillSelected = new Set<string>();
+
+      results.forEach((result, idx) => {
+        const sensorId = uniqueSensorIds[idx];
+        const sensorStreams = sensorToStreams.get(sensorId) || [];
+
+        if (result.status === 'fulfilled') {
+          deletedSensorIds.push(sensorId);
+          return;
         }
+
+        // Keep failures selected so the confirm dialog's retry acts on exactly them
+        failedNames.push(sensorStreams[0]?.name ?? sensorId);
+        sensorStreams.forEach((s) => stillSelected.add(s.streamId));
+        // eslint-disable-next-line no-console
+        console.error('[VideoManagement] delete failed for sensor', sensorId, result.reason);
       });
-      setSelectedStreams(new Set());
-      await Promise.all([refetch(), refetchTimelines()]);
+
+      // Agent accepted the delete — wait until VST's streams list agrees before
+      // claiming success. Closing early is what left RTSP entries stale in the grid.
+      const { remainingSensorIds } = await waitUntilStreamsRemoved(deletedSensorIds);
+      void refetchTimelines();
+
+      for (const sensorId of remainingSensorIds) {
+        const sensorStreams = sensorToStreams.get(sensorId) || [];
+        failedNames.push(sensorStreams[0]?.name ?? sensorId);
+        sensorStreams.forEach((s) => stillSelected.add(s.streamId));
+      }
+
+      setSelectedStreams(stillSelected);
+
+      if (failedNames.length > 0) {
+        setDeleteError(`Unable to remove the following streams: ${failedNames.join(', ')}`);
+        return;
+      }
+
+      setShowDeleteConfirm(false);
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
     }
-  }, [selectedStreams, streams, isDeleting, agentApiUrl, refetch, refetchTimelines]);
+  }, [selectedStreams, streams, isDeleting, agentApiUrl, waitUntilStreamsRemoved, refetchTimelines]);
 
   const controlsComponent = useMemo(
     () => (
@@ -657,6 +693,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           isOpen={showDeleteConfirm}
           streams={selectedStreamInfos}
           isDeleting={isDeleting}
+          error={deleteError}
           onCancel={handleCancelDelete}
           onConfirm={handleConfirmDelete}
         />
