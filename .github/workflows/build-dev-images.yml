@@ -74,7 +74,15 @@ jobs:
       # The content-tag gap check reads GHCR, so the job needs a token. Login
       # before detection, not after: an unauthenticated probe returns "unknown",
       # which fails open and rebuilds everything.
+      #
+      # continue-on-error is load-bearing, not defensive tidiness. A hard-failing
+      # login would stop the job before ghcr_tag_exists could degrade, so a GHCR
+      # outage would block the matrix and the release set entirely -- the exact
+      # opposite of the fail-open posture this check is built on. Letting it fail
+      # leaves detection unauthenticated, every probe returns "unknown", and the
+      # job rebuilds everything. Slower, never wrong.
       - name: Log in to GHCR for the content-tag gap check
+        continue-on-error: true
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
         with:
           registry: ghcr.io
