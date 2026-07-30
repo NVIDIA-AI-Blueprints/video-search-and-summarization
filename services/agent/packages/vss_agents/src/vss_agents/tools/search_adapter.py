@@ -102,6 +102,30 @@ def _result_key(result: SearchResult) -> tuple[str, str, str]:
     return result.sensor_id, result.start_time, result.end_time
 
 
+def _results_overlap(left: SearchResult, right: SearchResult) -> bool:
+    """Return whether two results cover the same sensor and overlapping time."""
+    if left.sensor_id != right.sensor_id:
+        return False
+    try:
+        left_start = iso8601_to_datetime(left.start_time)
+        left_end = iso8601_to_datetime(left.end_time)
+        right_start = iso8601_to_datetime(right.start_time)
+        right_end = iso8601_to_datetime(right.end_time)
+    except (TypeError, ValueError):
+        return False
+    return left_start < right_end and right_start < left_end
+
+
+def _deduplicate_overlapping_results(results: list[SearchResult]) -> list[SearchResult]:
+    """Keep the highest-ranked result for each overlapping segment."""
+    deduplicated: list[SearchResult] = []
+    for result in results:
+        if any(_results_overlap(result, existing) for existing in deduplicated):
+            continue
+        deduplicated.append(result)
+    return deduplicated
+
+
 def _to_nat_result(result: Any) -> SearchResult:
     return SearchResult(
         video_name=result.video_name,
@@ -192,8 +216,10 @@ class NATSearchAdapter:
             )
             query = decomposed.query or query
             if decomposed.video_sources:
+                video_sources = list(decomposed.video_sources)
+            if video_sources:
                 video_sources = _resolve_video_sources_for_search(
-                    decomposed.video_sources,
+                    video_sources,
                     name_to_uuid,
                     search_input.source_type,
                 )
@@ -281,8 +307,7 @@ class NATSearchAdapter:
         search_messages: list[str] = []
         critic_agent = self._critic_agent
         critic_enabled = bool(
-            getattr(self._config, "enable_critic", False)
-            and search_input.agent_mode
+            search_input.agent_mode
             and search_input.use_critic
             and critic_agent is not None
             and prepared.search_mode != "object"
@@ -395,7 +420,9 @@ class NATSearchAdapter:
         if not visible_candidates:
             visible_candidates = list(accumulated.values())
 
-        results = sorted(visible_candidates, key=lambda result: result.similarity, reverse=True)
+        results = _deduplicate_overlapping_results(
+            sorted(visible_candidates, key=lambda result: result.similarity, reverse=True)
+        )
         for result in results:
             result.critic_result = verdicts.get(_result_key(result))
         results = results[:original_top_k]

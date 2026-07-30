@@ -47,7 +47,6 @@ def _runtime() -> SearchRuntime:
 
 def _config(**overrides):
     values = {
-        "enable_critic": True,
         "search_max_iterations": 3,
         "use_attribute_search": True,
     }
@@ -217,6 +216,50 @@ async def test_repeated_results_stop_when_retrieval_makes_no_progress() -> None:
 
 
 @pytest.mark.asyncio
+async def test_overlapping_results_across_iterations_keep_best_ranked_segment() -> None:
+    narrow = _result(1).model_copy(
+        update={
+            "video_name": "narrow",
+            "sensor_id": "sensor-1",
+            "start_time": "2025-01-01T00:00:00Z",
+            "end_time": "2025-01-01T00:00:05Z",
+            "similarity": 0.9,
+        }
+    )
+    rejected = _result(2)
+    wide = narrow.model_copy(
+        update={
+            "video_name": "wide",
+            "end_time": "2025-01-01T00:00:10Z",
+            "similarity": 0.95,
+        }
+    )
+    replacement = _result(3).model_copy(update={"similarity": 0.7})
+    critic = AsyncMock()
+    critic.ainvoke.side_effect = [
+        SimpleNamespace(
+            video_results=[
+                _critic_result(narrow, CriticAgentResult.CONFIRMED),
+                _critic_result(rejected, CriticAgentResult.REJECTED),
+            ]
+        ),
+        SimpleNamespace(
+            video_results=[
+                _critic_result(wide, CriticAgentResult.CONFIRMED),
+                _critic_result(replacement, CriticAgentResult.CONFIRMED),
+            ]
+        ),
+    ]
+    adapter = NATSearchAdapter(_runtime(), _config(), agent_llm=None, critic_agent=critic)
+    fake_search = _FakeSearch([[narrow, rejected], [wide, rejected, replacement]])
+    adapter._search = fake_search
+
+    output = await adapter.run(SearchInput(query="person walking", source_type="video_file", top_k=2, agent_mode=True))
+
+    assert [result.video_name for result in output.data] == ["wide", replacement.video_name]
+
+
+@pytest.mark.asyncio
 async def test_retrieval_stops_at_search_max_iterations() -> None:
     results = [_result(index) for index in range(1, 4)]
     critic = AsyncMock()
@@ -333,3 +376,34 @@ async def test_decomposition_routes_to_explicit_library_search_mode(
     )
 
     assert fake_search.calls[0]["search_mode"] == expected_mode
+
+
+@pytest.mark.asyncio
+async def test_explicit_video_source_is_resolved_when_decomposition_has_no_sources(monkeypatch) -> None:
+    async def _decompose(*args, **kwargs):
+        return DecomposedQuery(query="person walking")
+
+    async def _streams(*args, **kwargs):
+        return {
+            "stream-id": {
+                "name": "clip.mp4",
+                "url": "file:///videos/clip.mp4",
+            }
+        }
+
+    monkeypatch.setattr("vss_agents.tools.search_adapter.decompose_query", _decompose)
+    monkeypatch.setattr("vss_agents.tools.search_adapter.get_streams_info", _streams)
+    adapter = NATSearchAdapter(_runtime(), _config(), agent_llm=object(), critic_agent=None)
+    fake_search = _FakeSearch([[]])
+    adapter._search = fake_search
+
+    await adapter.run(
+        SearchInput(
+            query="person walking",
+            source_type="video_file",
+            video_sources=["clip.mp4"],
+            agent_mode=True,
+        )
+    )
+
+    assert fake_search.calls[0]["video_sources"] == ["stream-id"]
