@@ -56,7 +56,7 @@ spec:
       initContainers:
         {{- if .Values.downloadNgcAppData }}
         - name: wait-for-ngc-app-data
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -79,7 +79,7 @@ spec:
               mountPath: /opt/storage
         {{- else }}
         - name: wait-for-warehouse-videos
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -136,7 +136,7 @@ spec:
         {{- end }}
         {{- if eq ($sw.streamType | default "none") "kafka" }}
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -156,7 +156,7 @@ spec:
               echo "Kafka is ready."
         {{- end }}
         - name: ensure-trt-cache
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c

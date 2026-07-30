@@ -23,7 +23,7 @@ redisHost: ""   # default: <release>-redis
 redisPort: "6379"
 
 image:
-  repository: busybox
+  repository: docker.io/library/busybox
   tag: "1.37.0"
   pullPolicy: IfNotPresent
 

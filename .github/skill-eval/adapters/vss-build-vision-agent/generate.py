@@ -69,7 +69,7 @@ PLATFORMS: dict[str, dict] = {
     "RTXPRO6000BW": {
         "short_name":       "rtxpro6000bw",
         "gpu_type":         "RTX PRO 6000",
-        "gpu_count":        2,
+        "gpu_count":        1,
         "min_vram_per_gpu": 96,
         "brev_search":      "RTX PRO",
         "min_root_disk_gb": 220,
@@ -215,7 +215,12 @@ def generate_task(
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'].
     Multi-step specs produce step-N/ subdirs; single-step specs are flat."""
-    pspec = PLATFORMS[platform]
+    pspec = dict(PLATFORMS[platform])  # copy so we can override per-spec
+    # Let the spec's resources.platforms[platform].gpu_count override the
+    # adapter default — the spec is authoritative for fleet sizing.
+    spec_platform_res = (spec.get("resources") or {}).get("platforms", {}).get(platform, {})
+    if "gpu_count" in spec_platform_res:
+        pspec["gpu_count"] = int(spec_platform_res["gpu_count"])
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
@@ -239,11 +244,10 @@ def generate_task(
 
         # ---- instruction.md ------------------------------------------------
         # Note: spec.env notes and query are rendered ({{...}} substituted).
-        action_text = "build and deploy" if runtime_deploy else "build"
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-build-vision-agent` skill to {action_text} the "
+            f"Use the `/vss-build-vision-agent` skill for the "
             f"`{build_profile}` profile on `{platform}`. "
             "Work from `$HOME/video-search-and-summarization` (the VSS repository root).",
             "",
