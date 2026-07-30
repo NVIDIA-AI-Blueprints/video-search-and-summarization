@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
@@ -169,102 +170,363 @@ class DirectContainerPreflightTest(unittest.TestCase):
     SANDBOX = "vss-eval-u0-p19080"
     CONTAINER_ID = "a" * 64
     IMAGE_ID = "sha256:" + ("b" * 64)
+    IMAGE_REF = f"nemoclaw-sandbox-local:{SANDBOX}-1785357013"
 
     def _runner(
         self,
         *,
         image_ref: str | None = None,
-        candidates: str | None = None,
-        path_types: dict[str, str] | None = None,
-        identities: dict[str, str] | None = None,
+        candidate_outputs: tuple[str, ...] | None = None,
+        local_image_ids: tuple[str, ...] | None = None,
+        container_image_id: str | None = None,
+        running: str = "true",
+        paused: str = "false",
+        start_returncode: int = 0,
+        exec_returncode: int = 0,
+        exec_stdout: str | None = None,
+        raise_command: str | None = None,
+        raised_exception: BaseException | None = None,
     ):
-        image_ref = image_ref or (
-            f"nemoclaw-sandbox-local:{self.SANDBOX}-1785357013"
+        image_ref = image_ref or self.IMAGE_REF
+        candidate_outputs = candidate_outputs or (
+            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n",
         )
-        candidates = candidates or (
-            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+        local_image_ids = local_image_ids or (self.IMAGE_ID,)
+        container_image_id = container_image_id or self.IMAGE_ID
+        exec_stdout = (
+            exec_stdout
+            if exec_stdout is not None
+            else f"{direct_container_preflight.LIFECYCLE_PROBE_SENTINEL}\n"
         )
-        path_types = path_types or {
-            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py": (
-                "regular file"
-            ),
-            "/sandbox/.openclaw": "directory",
-            "/sandbox/.openclaw/openclaw.json": "regular file",
-        }
-        identities = identities or {"-u": "998", "-g": "998"}
+        calls: list[list[str]] = []
+        candidate_call = 0
+        image_call = 0
 
         def run(argv, **kwargs):
-            self.assertEqual(kwargs["timeout"], 15)
-            if argv[1] == "ps":
-                return subprocess.CompletedProcess(argv, 0, candidates, "")
-            if argv[1] == "inspect":
+            nonlocal candidate_call, image_call
+            argv = list(argv)
+            calls.append(argv)
+            self.assertTrue(kwargs["capture_output"])
+            self.assertTrue(kwargs["text"])
+            self.assertFalse(kwargs["check"])
+
+            if argv[:2] == ["docker", "ps"]:
+                self.assertEqual(
+                    kwargs["timeout"],
+                    direct_container_preflight.DOCKER_COMMAND_TIMEOUT_SECONDS,
+                )
+                output = candidate_outputs[
+                    min(candidate_call, len(candidate_outputs) - 1)
+                ]
+                candidate_call += 1
+                return subprocess.CompletedProcess(argv, 0, output, "")
+            if argv[:2] == ["docker", "inspect"]:
+                self.assertEqual(
+                    kwargs["timeout"],
+                    direct_container_preflight.DOCKER_COMMAND_TIMEOUT_SECONDS,
+                )
                 return subprocess.CompletedProcess(
                     argv,
                     0,
-                    f"{image_ref}\t{self.IMAGE_ID}\ttrue\n",
+                    (
+                        f"{image_ref}\t{container_image_id}\t"
+                        f"{running}\t{paused}\n"
+                    ),
                     "",
                 )
-            if argv[1] == "exec" and "/usr/bin/stat" in argv:
-                path = argv[-1]
-                value = path_types.get(path)
+            if argv[:3] == ["docker", "image", "inspect"]:
+                self.assertEqual(
+                    kwargs["timeout"],
+                    direct_container_preflight.DOCKER_COMMAND_TIMEOUT_SECONDS,
+                )
+                output = local_image_ids[
+                    min(image_call, len(local_image_ids) - 1)
+                ]
+                image_call += 1
                 return subprocess.CompletedProcess(
                     argv,
-                    0 if value is not None else 1,
-                    f"{value}\n" if value is not None else "",
+                    0,
+                    f"{output}\n",
                     "",
                 )
-            if argv[1] == "exec" and "/usr/bin/id" in argv:
-                identity = identities.get(argv[-2])
+            if argv[:3] == ["nemoclaw", "sandbox", "start"]:
+                self.assertEqual(
+                    kwargs["timeout"],
+                    direct_container_preflight.SANDBOX_START_TIMEOUT_SECONDS,
+                )
+                if raise_command == "start":
+                    raise raised_exception or OSError("secret start failure")
                 return subprocess.CompletedProcess(
                     argv,
-                    0 if identity is not None else 1,
-                    f"{identity}\n" if identity is not None else "",
+                    start_returncode,
                     "",
+                    "secret start failure",
+                )
+            if argv[:3] == ["nemoclaw", "sandbox", "exec"]:
+                self.assertEqual(
+                    kwargs["timeout"],
+                    direct_container_preflight.SANDBOX_EXEC_TIMEOUT_SECONDS,
+                )
+                if raise_command == "exec":
+                    raise raised_exception or OSError("secret exec failure")
+                return subprocess.CompletedProcess(
+                    argv,
+                    exec_returncode,
+                    exec_stdout,
+                    "secret exec failure",
                 )
             self.fail(f"unexpected preflight command: {argv}")
 
-        return run
+        return run, calls
 
-    def test_verifies_single_fresh_nemoclaw_container(self):
+    def test_uses_supported_lifecycle_in_exact_order(self):
+        runner, calls = self._runner()
         direct_container_preflight.verify_direct_container(
             self.SANDBOX,
-            run=self._runner(),
+            run=runner,
         )
 
-    def test_rejects_a_same_name_container_from_a_non_nemoclaw_image(self):
+        expected_ps = [
+            "docker",
+            "ps",
+            "--no-trunc",
+            "--filter",
+            "label=openshell.ai/managed-by=openshell",
+            "--filter",
+            f"label=openshell.ai/sandbox-name={self.SANDBOX}",
+            "--format",
+            "{{.ID}}\t{{.Names}}",
+        ]
+        expected_inspect = [
+            "docker",
+            "inspect",
+            "--format",
+            (
+                "{{.Config.Image}}\t{{.Image}}\t"
+                "{{.State.Running}}\t{{.State.Paused}}"
+            ),
+            self.CONTAINER_ID,
+        ]
+        expected_image_inspect = [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            "{{.Id}}",
+            self.IMAGE_REF,
+        ]
+        expected_start = [
+            "nemoclaw",
+            "sandbox",
+            "start",
+            self.SANDBOX,
+        ]
+        expected_exec = [
+            "nemoclaw",
+            "sandbox",
+            "exec",
+            self.SANDBOX,
+            "--no-tty",
+            "--no-stdin",
+            "--timeout",
+            "30",
+            "--",
+            *direct_container_preflight.LIFECYCLE_PROBE_ARGV,
+        ]
+        self.assertEqual(
+            calls,
+            [
+                expected_ps,
+                expected_inspect,
+                expected_image_inspect,
+                expected_start,
+                expected_ps,
+                expected_inspect,
+                expected_image_inspect,
+                expected_exec,
+                expected_ps,
+                expected_inspect,
+                expected_image_inspect,
+            ],
+        )
+        probe = calls[7][-6]
+        for required_check in (
+            '[ "$#" -eq 4 ]',
+            '[ -f "$helper" ] && [ ! -L "$helper" ]',
+            '[ -d "$config_dir" ] && [ ! -L "$config_dir" ]',
+            '[ -f "$config_file" ] && [ ! -L "$config_file" ]',
+            '/usr/bin/id -u "$sandbox_user"',
+            '/usr/bin/id -g "$sandbox_user"',
+            '[ "$sandbox_uid" -gt 0 ] && [ "$sandbox_gid" -gt 0 ]',
+            direct_container_preflight.LIFECYCLE_PROBE_SENTINEL,
+        ):
+            self.assertIn(required_check, probe)
+        self.assertEqual(
+            tuple(calls[7][-8:]),
+            direct_container_preflight.LIFECYCLE_PROBE_ARGV,
+        )
+        self.assertFalse(
+            any(argv[:2] == ["docker", "exec"] for argv in calls)
+        )
+
+    def test_lifecycle_shell_probe_enforces_paths_and_identity(self):
+        eligible_user = next(
+            entry.pw_name
+            for entry in pwd.getpwall()
+            if entry.pw_uid > 0 and entry.pw_gid > 0
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            helper = root / "normalize.py"
+            config_dir = root / "openclaw"
+            config_file = config_dir / "openclaw.json"
+            helper.write_text("# test helper\n", encoding="utf-8")
+            config_dir.mkdir()
+            config_file.write_text("{}\n", encoding="utf-8")
+
+            def run_probe(
+                helper_path: Path,
+                directory_path: Path,
+                file_path: Path,
+                user: str,
+            ) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [
+                        "/bin/sh",
+                        "-c",
+                        direct_container_preflight.LIFECYCLE_PROBE_SOURCE,
+                        "nemoclaw-ci-preflight-test",
+                        str(helper_path),
+                        str(directory_path),
+                        str(file_path),
+                        user,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            accepted = run_probe(
+                helper,
+                config_dir,
+                config_file,
+                eligible_user,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                accepted.stdout.strip(),
+                direct_container_preflight.LIFECYCLE_PROBE_SENTINEL,
+            )
+
+            helper_link = root / "helper-link"
+            helper_link.symlink_to(helper)
+            config_dir_link = root / "config-link"
+            config_dir_link.symlink_to(config_dir, target_is_directory=True)
+            config_file_link = config_dir / "config-link.json"
+            config_file_link.symlink_to(config_file)
+            cases = (
+                (root / "missing", config_dir, config_file, eligible_user, 20),
+                (helper_link, config_dir, config_file, eligible_user, 20),
+                (helper, config_dir_link, config_file, eligible_user, 21),
+                (helper, config_dir, config_file_link, eligible_user, 22),
+                (helper, config_dir, config_file, "missing-ci-user", 23),
+                (helper, config_dir, config_file, "root", 23),
+            )
+            for (
+                helper_path,
+                directory_path,
+                file_path,
+                user,
+                returncode,
+            ) in cases:
+                with self.subTest(returncode=returncode, user=user):
+                    rejected = run_probe(
+                        helper_path,
+                        directory_path,
+                        file_path,
+                        user,
+                    )
+                    self.assertEqual(rejected.returncode, returncode)
+                    self.assertEqual(rejected.stdout, "")
+
+    def test_timeout_budget_covers_supported_start_and_all_attestations(self):
+        docker_attestation_calls = 9
+        supported_start_budget = 300
+        self.assertGreaterEqual(
+            direct_container_preflight.SANDBOX_START_TIMEOUT_SECONDS,
+            supported_start_budget
+            + (2 * direct_container_preflight.DOCKER_COMMAND_TIMEOUT_SECONDS),
+        )
+        self.assertGreater(
+            notebook_adapter.DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS,
+            direct_container_preflight.SANDBOX_START_TIMEOUT_SECONDS
+            + direct_container_preflight.SANDBOX_EXEC_TIMEOUT_SECONDS
+            + (
+                docker_attestation_calls
+                * direct_container_preflight.DOCKER_COMMAND_TIMEOUT_SECONDS
+            ),
+        )
+
+    def test_allows_paused_running_container(self):
+        runner, _calls = self._runner(paused="true")
+        direct_container_preflight.verify_direct_container(
+            self.SANDBOX,
+            run=runner,
+        )
+
+    def test_tag_mismatch_refuses_before_lifecycle_calls(self):
+        runner, calls = self._runner(
+            local_image_ids=("sha256:" + ("c" * 64),),
+        )
+        with self.assertRaisesRegex(
+            direct_container_preflight.DirectContainerPreflightError,
+            "container_image_id_mismatch",
+        ):
+            direct_container_preflight.verify_direct_container(
+                self.SANDBOX,
+                run=runner,
+            )
+        self.assertFalse(any(argv[0] == "nemoclaw" for argv in calls))
+
+    def test_rejects_non_nemoclaw_image_before_lifecycle_calls(self):
+        runner, calls = self._runner(image_ref="openshell/sandbox:legacy")
         with self.assertRaisesRegex(
             direct_container_preflight.DirectContainerPreflightError,
             "container_image_invalid",
         ):
             direct_container_preflight.verify_direct_container(
                 self.SANDBOX,
-                run=self._runner(image_ref="openshell/sandbox:legacy"),
+                run=runner,
             )
+        self.assertFalse(any(argv[0] == "nemoclaw" for argv in calls))
 
-    def test_rejects_ambiguous_or_incomplete_runtime_targets(self):
+    def test_rejects_malformed_metadata_names_and_image_ids(self):
+        valid_row = (
+            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+        )
         cases = (
             (
                 self._runner(
-                    candidates=(
-                        f"{self.CONTAINER_ID}\t"
-                        f"openshell-{self.SANDBOX}-one\n"
-                        f"{'c' * 64}\topenshell-{self.SANDBOX}-two\n"
+                    candidate_outputs=(
+                        f"short-id\topenshell-{self.SANDBOX}\n",
                     )
-                ),
-                "container_count_invalid",
+                )[0],
+                "container_metadata_invalid",
             ),
             (
                 self._runner(
-                    path_types={
-                        "/sandbox/.openclaw": "directory",
-                        "/sandbox/.openclaw/openclaw.json": "regular file",
-                    }
-                ),
-                "repair_helper_invalid",
+                    candidate_outputs=(
+                        f"{self.CONTAINER_ID}\tunrelated-runtime\n",
+                    )
+                )[0],
+                "container_name_invalid",
             ),
             (
-                self._runner(identities={"-u": "998", "-g": "0"}),
-                "sandbox_identity_invalid",
+                self._runner(
+                    candidate_outputs=(valid_row,),
+                    local_image_ids=("not-an-image-id",),
+                )[0],
+                "container_image_resolution_invalid",
             ),
         )
         for runner, reason in cases:
@@ -278,189 +540,164 @@ class DirectContainerPreflightTest(unittest.TestCase):
                 direct_container_preflight.verify_direct_container(
                     self.SANDBOX,
                     run=runner,
-                    sleep=lambda _seconds: None,
                 )
 
-    def test_retries_transient_path_probe_and_revalidates_candidate(self):
-        helper_path = (
-            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
-        )
-        base_runner = self._runner()
-        helper_calls = 0
-        candidate_calls = 0
-        delays = []
-
-        def transient_runner(argv, **kwargs):
-            nonlocal candidate_calls, helper_calls
-            if argv[1] == "ps":
-                candidate_calls += 1
-            if (
-                argv[1] == "exec"
-                and "/usr/bin/stat" in argv
-                and argv[-1] == helper_path
+    def test_rejects_invalid_sandbox_name_without_running_commands(self):
+        with mock.patch.object(
+            direct_container_preflight.subprocess,
+            "run",
+        ) as run:
+            with self.assertRaisesRegex(
+                direct_container_preflight.DirectContainerPreflightError,
+                "sandbox_name_invalid",
             ):
-                helper_calls += 1
-                if helper_calls == 1:
-                    raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
-            return base_runner(argv, **kwargs)
+                direct_container_preflight.verify_direct_container("../bad")
+        run.assert_not_called()
 
-        direct_container_preflight.verify_direct_container(
-            self.SANDBOX,
-            run=transient_runner,
-            sleep=delays.append,
-            path_probe_attempts=2,
+    def test_start_and_exec_failures_are_fixed_and_secret_safe(self):
+        raw_secret = "must-never-reach-the-refusal"
+        cases = (
+            ("start", 1, None, "sandbox_start_failed"),
+            ("start", 0, OSError(raw_secret), "sandbox_start_failed"),
+            ("exec", 1, None, "sandbox_exec_failed"),
+            (
+                "exec",
+                0,
+                subprocess.TimeoutExpired(["nemoclaw"], 30, raw_secret),
+                "sandbox_exec_failed",
+            ),
         )
-
-        self.assertEqual(helper_calls, 2)
-        self.assertEqual(candidate_calls, 3)
-        expected_delay = (
-            direct_container_preflight.PATH_TYPE_PROBE_RETRY_DELAY_SECONDS
-        )
-        self.assertEqual(
-            delays,
-            [expected_delay],
-        )
-
-    def test_persistent_path_probe_failure_exhausts_bounded_attempts(self):
-        helper_path = (
-            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
-        )
-        base_runner = self._runner()
-        helper_calls = 0
-        delays = []
-
-        def failing_runner(argv, **kwargs):
-            nonlocal helper_calls
-            if (
-                argv[1] == "exec"
-                and "/usr/bin/stat" in argv
-                and argv[-1] == helper_path
-            ):
-                helper_calls += 1
-                return subprocess.CompletedProcess(
-                    argv,
-                    1,
-                    "",
-                    "container is restarting",
+        for command, returncode, raised, reason in cases:
+            with self.subTest(command=command, raised=raised is not None):
+                runner, calls = self._runner(
+                    start_returncode=returncode if command == "start" else 0,
+                    exec_returncode=returncode if command == "exec" else 0,
+                    raise_command=command if raised is not None else None,
+                    raised_exception=raised,
                 )
-            return base_runner(argv, **kwargs)
+                with self.assertRaises(
+                    direct_container_preflight.DirectContainerPreflightError
+                ) as caught:
+                    direct_container_preflight.verify_direct_container(
+                        self.SANDBOX,
+                        run=runner,
+                    )
+                self.assertEqual(caught.exception.code, reason)
+                self.assertNotIn(raw_secret, str(caught.exception))
+                self.assertIsNone(caught.exception.__cause__)
+                if command == "start":
+                    self.assertFalse(
+                        any(
+                            argv[:3] == ["nemoclaw", "sandbox", "exec"]
+                            for argv in calls
+                        )
+                    )
 
-        with self.assertRaisesRegex(
-            direct_container_preflight.DirectContainerPreflightError,
-            "repair_helper_invalid",
-        ):
+    def test_success_without_fixed_sentinel_is_refused(self):
+        raw_secret = "arbitrary-upstream-output"
+        runner, _calls = self._runner(exec_stdout=raw_secret)
+        with self.assertRaises(
+            direct_container_preflight.DirectContainerPreflightError
+        ) as caught:
             direct_container_preflight.verify_direct_container(
                 self.SANDBOX,
-                run=failing_runner,
-                sleep=delays.append,
-                path_probe_attempts=3,
+                run=runner,
             )
-
-        self.assertEqual(helper_calls, 3)
-        self.assertEqual(len(delays), 2)
-
-    def test_successful_wrong_path_type_fails_without_retry(self):
-        helper_path = (
-            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
+        self.assertEqual(
+            caught.exception.code,
+            "sandbox_exec_sentinel_missing",
         )
-        runner = self._runner(
-            path_types={
-                helper_path: "symbolic link",
-                "/sandbox/.openclaw": "directory",
-                "/sandbox/.openclaw/openclaw.json": "regular file",
-            }
-        )
-        delays = []
+        self.assertNotIn(raw_secret, str(caught.exception))
 
+    def test_rejects_candidate_or_tag_change_after_exec(self):
+        initial = (
+            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+        )
+        replacement = (
+            f"{'c' * 64}\topenshell-{self.SANDBOX}-replacement\n"
+        )
+        changed_image = "sha256:" + ("c" * 64)
+        cases = (
+            (
+                self._runner(
+                    candidate_outputs=(initial, initial, replacement)
+                )[0],
+                "container_identity_changed",
+            ),
+            (
+                self._runner(
+                    local_image_ids=(
+                        self.IMAGE_ID,
+                        self.IMAGE_ID,
+                        changed_image,
+                    )
+                )[0],
+                "container_image_id_mismatch",
+            ),
+        )
+        for runner, reason in cases:
+            with (
+                self.subTest(reason=reason),
+                self.assertRaisesRegex(
+                    direct_container_preflight.DirectContainerPreflightError,
+                    reason,
+                ),
+            ):
+                direct_container_preflight.verify_direct_container(
+                    self.SANDBOX,
+                    run=runner,
+                )
+
+    def test_rejects_start_time_identity_change_before_exec(self):
+        initial = (
+            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+        )
+        replacement = (
+            f"{'c' * 64}\topenshell-{self.SANDBOX}-replacement\n"
+        )
+        runner, calls = self._runner(
+            candidate_outputs=(initial, replacement),
+        )
         with self.assertRaisesRegex(
             direct_container_preflight.DirectContainerPreflightError,
-            "repair_helper_invalid",
+            "container_identity_changed",
         ):
             direct_container_preflight.verify_direct_container(
                 self.SANDBOX,
                 run=runner,
-                sleep=delays.append,
-                path_probe_attempts=3,
             )
-
-        self.assertEqual(delays, [])
-
-    def test_path_probe_retry_refuses_candidate_identity_change(self):
-        helper_path = (
-            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
+        self.assertFalse(
+            any(
+                argv[:3] == ["nemoclaw", "sandbox", "exec"]
+                for argv in calls
+            )
         )
-        initial = (
+
+    def test_rejects_ambiguous_running_candidate_and_invalid_state(self):
+        ambiguous = (
             f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+            f"{'c' * 64}\topenshell-{self.SANDBOX}-other\n"
         )
-        replacement = (
-            f"{'c' * 64}\topenshell-{self.SANDBOX}-replacement\n"
+        cases = (
+            (
+                self._runner(candidate_outputs=(ambiguous,))[0],
+                "container_count_invalid",
+            ),
+            (self._runner(running="false")[0], "container_identity_invalid"),
+            (self._runner(paused="unknown")[0], "container_identity_invalid"),
         )
-        base_runner = self._runner(candidates=initial)
-        candidate_calls = 0
-
-        def changing_runner(argv, **kwargs):
-            nonlocal candidate_calls
-            if argv[1] == "ps":
-                candidate_calls += 1
-                candidates = initial if candidate_calls == 1 else replacement
-                return subprocess.CompletedProcess(argv, 0, candidates, "")
-            if (
-                argv[1] == "exec"
-                and "/usr/bin/stat" in argv
-                and argv[-1] == helper_path
+        for runner, reason in cases:
+            with (
+                self.subTest(reason=reason),
+                self.assertRaisesRegex(
+                    direct_container_preflight.DirectContainerPreflightError,
+                    reason,
+                ),
             ):
-                return subprocess.CompletedProcess(
-                    argv,
-                    1,
-                    "",
-                    "container is restarting",
+                direct_container_preflight.verify_direct_container(
+                    self.SANDBOX,
+                    run=runner,
                 )
-            return base_runner(argv, **kwargs)
-
-        with self.assertRaisesRegex(
-            direct_container_preflight.DirectContainerPreflightError,
-            "container_identity_changed",
-        ):
-            direct_container_preflight.verify_direct_container(
-                self.SANDBOX,
-                run=changing_runner,
-                sleep=lambda _seconds: None,
-                path_probe_attempts=2,
-            )
-
-        self.assertEqual(candidate_calls, 2)
-
-    def test_rejects_container_identity_change_after_inspection(self):
-        initial = (
-            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
-        )
-        replacement = (
-            f"{'c' * 64}\topenshell-{self.SANDBOX}-replacement\n"
-        )
-        base_runner = self._runner(candidates=initial)
-        discovery_count = 0
-
-        def changing_runner(argv, **kwargs):
-            nonlocal discovery_count
-            if argv[1] == "ps":
-                discovery_count += 1
-                if discovery_count == 2:
-                    return subprocess.CompletedProcess(
-                        argv,
-                        0,
-                        replacement,
-                        "",
-                    )
-            return base_runner(argv, **kwargs)
-
-        with self.assertRaisesRegex(
-            direct_container_preflight.DirectContainerPreflightError,
-            "container_identity_changed",
-        ):
-            direct_container_preflight.verify_direct_container(
-                self.SANDBOX,
-                run=changing_runner,
-            )
 
 
 class GatewayReleaseTest(unittest.TestCase):
@@ -675,6 +912,11 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             preflight_cell["source"],
         )
         self.assertIn("NEMOCLAW_SANDBOX_NAME", preflight_cell["source"])
+        self.assertIn(
+            "timeout="
+            f"{notebook_adapter.DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS}",
+            preflight_cell["source"],
+        )
 
     def test_build_notebook_injects_parameters_before_derived_cell(self):
         source = {
