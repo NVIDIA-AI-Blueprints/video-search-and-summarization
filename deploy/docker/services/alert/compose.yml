@@ -53,7 +53,7 @@ services:
       VST_INTERNAL_URL: ${VST_INTERNAL_URL:-http://vst-ingress:${VST_PORT:-30888}}
       ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
       CONFIG_PATH: /app/runtime/config.yml
-      ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
+      ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml
       # Substituted into alert_agent.always_on by env-substitute.py.
       # false for verification (2d_cv); true for real-time (2d_vlm).
       ALERT_AGENT_ALWAYS_ON: ${ALERT_AGENT_ALWAYS_ON:-false}
@@ -108,6 +108,10 @@ services:
       - /app/configs/config.yml
       - --output
       - /app/runtime/config.yml
+      - --optional-source
+      - /app/configs/realtime-config.yml
+      - --optional-output
+      - /app/runtime/realtime-config.yml
       - --
     command: ["/usr/local/bin/python", "enhance_alert_with_vlm.py", "--config", "/app/runtime/config.yml"]
 

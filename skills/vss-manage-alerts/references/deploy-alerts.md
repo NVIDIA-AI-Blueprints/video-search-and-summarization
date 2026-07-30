@@ -41,16 +41,16 @@ Deployment-time contract for the `alert-bridge` microservice (the **Alert Micros
 | Mount Path | Purpose | Type | Size estimate | Required permissions |
 |---|---|---|---|---|
 | `/app/configs/config.yml` | Verifier runtime config (VST/Kafka/Redis/VLM/sinks) | bind (ro) | < 1 MB | readable by container |
-| `/app/configs/realtime-config.yml` | Always-on / realtime rule config (`ALWAYS_ON_RULES_CONFIG`) | bind (ro) | < 1 MB | readable by container |
+| `/app/configs/realtime-config.yml` | Optional always-on / realtime rule config source; required when always-on is enabled | bind (ro) | < 1 MB | readable by container |
 | `/app/alert_type_config.json` | CV `category` → VLM verifier prompt map (CV mode) | bind (ro) | < 1 MB | readable by container |
-| `/app/env-substitute.py` | Entrypoint that folds `${...}` env into `config.yml` | bind (ro) | < 1 MB | readable by container |
-| `/app/runtime` | Resolved config output (`CONFIG_PATH`) | tmpfs | 10 MB | `mode=1777` (compose-set) |
+| `/app/env-substitute.py` | Entrypoint that renders the required main YAML and optional realtime YAML | bind (ro) | < 1 MB | readable by container |
+| `/app/runtime` | Resolved `config.yml` and `realtime-config.yml` outputs (`CONFIG_PATH` / `ALWAYS_ON_RULES_CONFIG`) | tmpfs | 10 MB | `mode=1777` (compose-set) |
 
 No large or persistent volumes are required by `alert-bridge` itself. Durable state (alert configs, prompts, realtime rules) is stored in **Elasticsearch** (`persistence.backend: elasticsearch`, index prefix `ab-`), so it survives `docker compose down` independently of this container. Dedup state lives in **Redis** (TTL-bounded).
 
 ## Startup Behavior
 
-- **Expected startup time:** fast — ~30 s (`start_period: 30s`). No model download; the container only needs its peers reachable. When `ALERT_AGENT_ALWAYS_ON=true` (real-time / `MODE=2d_vlm`), `alert_agent.always_on` is enabled and `ALWAYS_ON_RULES_CONFIG` is validated at boot (a malformed file fails startup).
+- **Expected startup time:** fast — ~30 s (`start_period: 30s`). No model download; the entrypoint resolves the required main YAML and renders the realtime YAML when present, including `${VLM_NAME}` in always-on rules. Profiles without a realtime config continue to start while always-on is disabled. When `ALERT_AGENT_ALWAYS_ON=true` (real-time / `MODE=2d_vlm`), `alert_agent.always_on` is enabled and the rendered `ALWAYS_ON_RULES_CONFIG` is required and validated at boot (a missing or malformed file fails startup).
 - **Startup ordering dependencies:**
   - `kafka` — `service_healthy` (must be able to subscribe to candidate topics)
   - `elasticsearch` — `service_healthy` (verified sink + persistence)

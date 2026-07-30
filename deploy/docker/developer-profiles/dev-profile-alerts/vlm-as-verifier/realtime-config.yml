@@ -10,4 +10,4 @@ always_on_rules:
     always_on_params:
       system_prompt: "You are a helpful assistant."
       prompt: "Is anyone on the ladder without a hardhat or safety vest? Answer yes or no."
-      model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+      model: "${VLM_NAME}"
