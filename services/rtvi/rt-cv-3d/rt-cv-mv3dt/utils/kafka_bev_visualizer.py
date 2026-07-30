@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os, argparse, signal
+import os, tkinter as tk, argparse, signal
 from datetime import datetime, timezone
 from confluent_kafka import Consumer as _ConfluentConsumer
 from schema_pb2 import Frame
@@ -351,11 +351,10 @@ def load_map_and_transforms(dataset_path):
 def setup_map_scaling(map_img, target_width_ratio=0.8, target_height_ratio=0.8, allow_headless=False):
     """Setup map scaling based on screen size"""
     try:
-        import tkinter as tk
         root = tk.Tk()
         screen_width, screen_height = root.winfo_screenwidth(), root.winfo_screenheight()
         root.destroy()
-    except Exception:
+    except tk.TclError:
         # No X display (headless). The offline/video path doesn't need one — fall back to a
         # fixed canvas size (override via MV3DT_BEV_WIDTH/HEIGHT). Real-time mode keeps raising.
         if not allow_headless:
