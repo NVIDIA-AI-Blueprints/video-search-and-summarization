@@ -1,10 +1,10 @@
 # Evaluation Report
 
-Measured NVSkills-Eval results for the `vss-embed-byom` skill.
+Measured NVSkills-Eval results for the `vss-deploy-byom-embedding` skill.
 
 ## Evaluation Summary
 
-- Skill: `vss-embed-byom`
+- Skill: `vss-deploy-byom-embedding`
 - Evaluation date: 2026-07-30
 - NVSkills-Eval profile: `external`
 - Environment: GitHub Actions Skills Eval on `RTXPRO6000BW`
@@ -42,8 +42,8 @@ Underlying evaluation signals used in this run:
 
 The benchmark dataset contains 1 routing spec with 2 independent queries:
 
-- Positive task: route VideoPrism RT-Embed BYOM integration to `vss-embed-byom`.
-- Negative routing task: route default Cosmos-Embed1 RT-Embed deployment to `vss-deploy-video-embedding`, not `vss-embed-byom`.
+- Positive task: route VideoPrism RT-Embed BYOM integration to `vss-deploy-byom-embedding`.
+- Negative routing task: route default Cosmos-Embed1 RT-Embed deployment to `vss-deploy-video-embedding`, not `vss-deploy-byom-embedding`.
 
 ## Results
 
@@ -57,7 +57,7 @@ Both routing tasks exceeded the pass threshold with full reward.
 ## Tier 1: Static Validation Summary
 
 Static skill checks completed with no blocking playbook errors. The compliance
-checker reported one naming-convention warning for `vss-embed-byom`.
+checker completed with no blocking playbook errors for `vss-deploy-byom-embedding`.
 
 ## Tier 2: Deduplication Summary
 

@@ -1,5 +1,5 @@
 ---
-name: vss-embed-byom
+name: vss-deploy-byom-embedding
 description: >
   Use this skill when adding, wiring, or validating a bring-your-own-model
   implementation for the VSS RT-Embed video embedding microservice, especially
@@ -23,7 +23,7 @@ Use this skill when you need to:
 - Override RT-Embed model paths in Docker Compose or Helm for VSS 3.3.0.
 - Validate `/v1/models`, `/v1/generate_video_embeddings`, and text endpoint behavior.
 
-**Trigger phrases:** `vss-embed-byom`, `RT-Embed BYOM`, `VideoPrism embed`,
+**Trigger phrases:** `vss-deploy-byom-embedding`, `RT-Embed BYOM`, `VideoPrism embed`,
 `VideoPrism RT-Embed`, `custom embed model`, `MODEL_IMPLEMENTATION_PATH`,
 `MODEL_REPOSITORY_SCRIPT_PATH`, `bring your own embedding model`.
 

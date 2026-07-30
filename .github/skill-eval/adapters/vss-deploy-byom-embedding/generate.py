@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Generate Harbor routing tasks for the vss-embed-byom skill."""
+"""Generate Harbor routing tasks for the vss-deploy-byom-embedding skill."""
 from __future__ import annotations
 
 import argparse
@@ -69,7 +69,7 @@ def _gpu_count_for_platform(spec: dict, platform: str) -> int:
 def generate_test_script(step: int, spec_name: str) -> str:
     return (
         "#!/bin/bash\n"
-        "# vss-embed-byom verifier delegates to the generic LLM-as-judge.\n"
+        "# vss-deploy-byom-embedding verifier delegates to the generic LLM-as-judge.\n"
         "set -euo pipefail\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
@@ -84,14 +84,14 @@ def generate_solve_script() -> str:
             "#!/bin/bash",
             "# Gold solution placeholder: routing evals are judged from the agent response.",
             "set -euo pipefail",
-            'echo "Use vss-embed-byom for VideoPrism BYOM and vss-deploy-video-embedding for default RT-Embed deployment."',
+            'echo "Use vss-deploy-byom-embedding for VideoPrism BYOM and vss-deploy-video-embedding for default RT-Embed deployment."',
             "",
         ]
     )
 
 
 def copy_skill(skill_dir: Path, task_dir: Path) -> None:
-    dst = task_dir / "skills" / "vss-embed-byom"
+    dst = task_dir / "skills" / "vss-deploy-byom-embedding"
     if dst.exists():
         shutil.rmtree(dst)
     dst.mkdir(parents=True, exist_ok=True)
@@ -143,9 +143,9 @@ def generate_task(platform: str, spec: dict, spec_path: Path, output_root: Path,
             "\n".join(
                 [
                     "[task]",
-                    f'name = "nvidia-vss/vss-embed-byom-routing-{platform_short}{step_suffix}"',
+                    f'name = "nvidia-vss/vss-deploy-byom-embedding-routing-{platform_short}{step_suffix}"',
                     f'description = "RT-Embed BYOM routing query {idx}/{len(expects)} on {platform}"',
-                    f'keywords = ["vss-embed-byom", "rtvi-embed", "videoprism", "{platform}", "routing"]',
+                    f'keywords = ["vss-deploy-byom-embedding", "rtvi-embed", "videoprism", "{platform}", "routing"]',
                     "",
                     "[environment]",
                     'skills_dir = "/skills"',
@@ -156,7 +156,7 @@ def generate_task(platform: str, spec: dict, spec_path: Path, output_root: Path,
                     'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
                     "",
                     "[metadata]",
-                    'skill = "vss-embed-byom"',
+                    'skill = "vss-deploy-byom-embedding"',
                     f'platform = "{platform}"',
                     f'gpu_type = "{pspec["gpu_type"]}"',
                     f'brev_search = "{pspec["brev_search"]}"',
@@ -195,7 +195,7 @@ def generate_task(platform: str, spec: dict, spec_path: Path, output_root: Path,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, help="Dataset output root")
-    parser.add_argument("--skill-dir", required=True, help="Path to skills/vss-embed-byom")
+    parser.add_argument("--skill-dir", required=True, help="Path to skills/vss-deploy-byom-embedding")
     parser.add_argument("--spec", default=None, help="Path to routing spec")
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS), help="Generate one platform")
     args = parser.parse_args()
@@ -219,7 +219,7 @@ def main() -> None:
     print()
 
     for platform in platforms:
-        print(f"  GEN  vss-embed-byom/routing/{PLATFORMS[platform]['short_name']}")
+        print(f"  GEN  vss-deploy-byom-embedding/routing/{PLATFORMS[platform]['short_name']}")
         generate_task(platform, spec, spec_path, output_root, skill_dir)
 
     print()
