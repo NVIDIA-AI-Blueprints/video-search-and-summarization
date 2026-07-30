@@ -55,6 +55,7 @@
       "source_path": "services/alert",
       "context": "services/alert",
       "dockerfile": "services/alert/Dockerfile",
+      "lfs_include": "services/alert/warmup/*",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-alert-ms", "vss-alert-verification"],
       "tag_variables": ["VSS_ALERT_TAG"],
