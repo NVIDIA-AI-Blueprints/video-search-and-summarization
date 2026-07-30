@@ -19,6 +19,7 @@
 
 #include "media_consumer.h"
 #include "videowebRTCsender.h"
+#include "webrtc_frame_timestamper.h"
 #include <atomic>
 #include <mutex>
 #include <queue>
@@ -57,4 +58,5 @@ private:
     void*                                          m_broadcaster = nullptr;
     std::string                                    m_peerIdStreamId{""};
     std::shared_ptr<IMediaDataConsumer>            m_bitstreamConsumer = nullptr;
+    WebrtcFrameTimestamper                         m_frameTimestamper;
 };

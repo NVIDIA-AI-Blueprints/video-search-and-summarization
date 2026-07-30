@@ -37,6 +37,12 @@ jobs:
             sources: services/agent
             tests: services/agent/packages/vss_core/tests,services/agent/packages/vss_agents/tests,services/agent/packages/vss_cli/tests
             python_version: "3.13"
+          - name: alert
+            project_key: TEGRASW_metropolis_vss-alert-verification_alert_agent
+            project_name: metropolis-vss-alert-verification
+            sources: services/alert/src
+            tests: services/alert/test/unit
+            python_version: "3.13"
           - name: ui
             project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
             project_name: video-search-and-summarization-ui
@@ -146,6 +152,10 @@ jobs:
             echo "sonar.coverage.exclusions=$(IFS=,; echo "${agent_coverage_exclusions[*]}")" >> sonar-project.properties
           fi
 
+          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-alert-verification" ]; then
+            echo "sonar.python.coverage.reportPaths=services/alert/coverage.xml" >> sonar-project.properties
+          fi
+
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-skills" ]; then
             # Skills helper scripts (skills/**/scripts/**) have no unit-test or
             # coverage harness in CI, so exclude them from the new-code coverage
@@ -166,13 +176,13 @@ jobs:
           sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
 
       - name: Install uv
-        if: matrix.name == 'agent'
+        if: matrix.python_version != ''
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           version: "0.6.2"
 
       - name: Set up Python
-        if: matrix.name == 'agent'
+        if: matrix.python_version != ''
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python_version }}
@@ -200,6 +210,22 @@ jobs:
             --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
+
+      - name: Install Alert MS test dependencies
+        if: matrix.name == 'alert'
+        working-directory: services/alert
+        run: |
+          uv venv --python "${{ matrix.python_version }}"
+          uv pip install --python .venv/bin/python -r requirements.txt pytest pytest-asyncio pytest-cov
+
+      - name: Generate Alert MS coverage
+        if: matrix.name == 'alert'
+        working-directory: services/alert
+        run: |
+          .venv/bin/pytest test/unit \
+            --cov=src \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
 
       - name: Run SonarQube scanner
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
