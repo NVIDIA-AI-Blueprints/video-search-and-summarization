@@ -77,7 +77,9 @@ def _retaggable(image: dict) -> bool:
     return repository.startswith("ghcr.io/") and bool(image.get("tag"))
 
 
-def alias_plan(release_set: dict, alias: str) -> list[AliasUpdate]:
+def alias_plan(
+    release_set: dict, alias: str, tree_sources: dict[str, str] | None = None
+) -> list[AliasUpdate]:
     if not ALIAS_RE.fullmatch(alias):
         raise ValueError(f"invalid alias {alias!r}")
     if release_set.get("source", {}).get("ref") != "develop":
@@ -93,11 +95,26 @@ def alias_plan(release_set: dict, alias: str) -> list[AliasUpdate]:
         name = str(image.get("name") or "")
         if not tag:
             raise ValueError(f"{name}: incomplete immutable coordinate")
-        # Prefer the digest when the build resolved one; fall back to the tag,
-        # which imagetools resolves at create time. On a no-change commit the
-        # recorded tag is develop-latest, and since nothing changed at this
-        # commit its content IS this commit's content.
-        source = f"{repository}:{tag}@{digest}" if DIGEST_RE.fullmatch(digest) else f"{repository}:{tag}"
+        # tree-<sha> is the only source. It is content-addressed, so it is by
+        # definition the image built from this commit's source for this
+        # component -- immutable, branch-independent, and identical to what a
+        # fresh build would produce. Every build publishes it alongside the
+        # candidate tag (#1385), so a changed image always has one: the reuse
+        # path fails open to a rebuild, which republishes it.
+        #
+        # No fallback. develop-latest is a moving alias on one branch, right
+        # only by accident; the recorded digest is redundant with the content
+        # tag when both exist. A missing content tag means an unchanged image
+        # whose tree predates the content-tag mechanism -- rare, self-healing
+        # on its next source change, and better surfaced as a failed run than
+        # papered over with a reference that may not describe this commit.
+        content_tag = (tree_sources or {}).get(name)
+        if not content_tag:
+            raise ValueError(
+                f"{name}: no content tag for this commit's source tree; "
+                "cannot retag without an immutable source"
+            )
+        source = f"{repository}:{content_tag}"
         updates.append(
             AliasUpdate(
                 name=name,
@@ -122,6 +139,36 @@ def git_tree_sha(repo_root: Path, commit: str, source_path: str) -> str | None:
         return None
     value = result.stdout.strip()
     return value if TREE_RE.fullmatch(value) else None
+
+
+def tree_sources(
+    release_set: dict,
+    repo_root: Path,
+    commit: str,
+    tree_reader: Callable[[Path, str, str], str | None] = git_tree_sha,
+) -> dict[str, str]:
+    """``{image name: tree-<tree_sha>}`` for entries built from repo source.
+
+    The content tag is the *correct* source for an image that was not rebuilt at
+    this commit: it is content-addressed, so ``tree-<sha>`` is by definition the
+    image built from this commit's source for that component. Every build
+    publishes it alongside the candidate tag.
+
+    This is strictly better than falling back to ``develop-latest``, which is a
+    moving alias on a single branch -- right only by accident when nothing
+    changed, and wrong outright on a PR branch whose base has been overtaken.
+    """
+    sources: dict[str, str] = {}
+    for image in release_set.get("images", []):
+        if not _retaggable(image):
+            continue
+        source_path = image.get("source_path")
+        if not source_path:
+            continue  # mirror entries carry no repo source
+        tree_sha = tree_reader(repo_root, commit, str(source_path))
+        if tree_sha:
+            sources[str(image.get("name") or "")] = f"tree-{tree_sha}"
+    return sources
 
 
 def verify_tree_shas(
@@ -202,8 +249,9 @@ def advance(update: AliasUpdate, runner: Runner = command_runner) -> None:
     )
     digest = str(json.loads(observed).get("digest") or "")
     if not update.digest:
-        # Tag-sourced retag: the release set recorded no digest to compare
-        # against, so report what the alias resolved to instead of asserting.
+        # Reuse-pinned entries record no digest. The source was content
+        # addressed, so there is nothing to compare against -- report what the
+        # alias resolved to.
         print(f"[ghcr-alias] {update.name}: {update.target} -> {digest}")
         return
     if digest != update.digest:
@@ -238,8 +286,12 @@ def main() -> int:
         for line in verify_tree_shas(release_set, args.repo_root, args.commit):
             print(f"[ghcr-alias] gate {line}")
 
+    content = tree_sources(release_set, args.repo_root, args.commit)
+    for name, tag in sorted(content.items()):
+        print(f"[ghcr-alias] {name}: content source {tag}")
+
     for alias in aliases:
-        for update in alias_plan(release_set, alias):
+        for update in alias_plan(release_set, alias, content):
             print(f"[ghcr-alias] {update.source} -> {update.target}")
             if not args.dry_run:
                 advance(update)
