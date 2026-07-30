@@ -16,12 +16,12 @@ Two behaviours differ from the original build-only alias mover:
 1. **Every GHCR entry is retagged, not just ``strategy == "build"``.** A tag set
    that skipped ``mirror`` / ``reuse-pinned`` entries would be incomplete at the
    commit, so a SHA-derived coordinate would 404 for those images. Entries are
-   selected on evidence — a ``ghcr.io/`` repository plus a resolved manifest
-   digest — rather than on strategy, so coverage tracks what is *actually*
-   published rather than a hardcoded list. That is 3 images today — vss-agent,
-   vss-agent-ui, vss-alert-ms, the managed set the shared ``VSS_CONTAINER_TAG``
-   governs — and grows on its own as ``ghcr_build`` is enabled for the staged
-   build entries. Non-GHCR pins (nvcr.io) cannot be retagged and are skipped;
+   selected on evidence — a ``ghcr.io/`` repository plus a resolvable source
+   reference — rather than on strategy, so coverage tracks what is *actually*
+   published rather than a hardcoded list. That is 5 images today (vss-agent,
+   vss-agent-ui, vss-alert-ms, vss-video-analytics-api, vss-behavior-analytics)
+   and grows on its own as ``ghcr_build`` is enabled for the staged build
+   entries. Non-GHCR pins (nvcr.io) cannot be retagged and are skipped;
    they are pinned in git at this commit and stay derivable from the repo.
 
 2. **Tree-SHA gate.** ``--verify-tree-sha`` refuses to retag an image whose
@@ -64,14 +64,17 @@ class AliasUpdate:
 def _retaggable(image: dict) -> bool:
     """True when the entry carries enough evidence to retag it in GHCR.
 
-    Selection is on evidence, not strategy: a ``ghcr.io/`` repository and a
-    resolved manifest digest. ``reuse-pinned`` entries may legitimately carry a
-    null digest until the mirror program resolves them — those are skipped
-    rather than treated as an error, because the pin is still derivable from git.
+    Selection is on evidence, not strategy: a ``ghcr.io/`` repository plus
+    *some* resolvable source reference. A digest is preferred, but a tag alone
+    is enough — ``imagetools create`` resolves either.
+
+    Entries with a null digest are the normal case on a no-change commit: every
+    image comes back ``reuse-pinned`` at ``develop-latest`` with no digest,
+    because nothing was built to produce one. Excluding those is what left the
+    tag set with a hole at exactly the commits where build avoidance worked.
     """
     repository = str(image.get("image") or "")
-    digest = str(image.get("digest") or "")
-    return repository.startswith("ghcr.io/") and bool(DIGEST_RE.fullmatch(digest))
+    return repository.startswith("ghcr.io/") and bool(image.get("tag"))
 
 
 def alias_plan(release_set: dict, alias: str) -> list[AliasUpdate]:
@@ -90,10 +93,15 @@ def alias_plan(release_set: dict, alias: str) -> list[AliasUpdate]:
         name = str(image.get("name") or "")
         if not tag:
             raise ValueError(f"{name}: incomplete immutable coordinate")
+        # Prefer the digest when the build resolved one; fall back to the tag,
+        # which imagetools resolves at create time. On a no-change commit the
+        # recorded tag is develop-latest, and since nothing changed at this
+        # commit its content IS this commit's content.
+        source = f"{repository}:{tag}@{digest}" if DIGEST_RE.fullmatch(digest) else f"{repository}:{tag}"
         updates.append(
             AliasUpdate(
                 name=name,
-                source=f"{repository}:{tag}@{digest}",
+                source=source,
                 target=f"{repository}:{alias}",
                 digest=digest,
             )
@@ -193,6 +201,11 @@ def advance(update: AliasUpdate, runner: Runner = command_runner) -> None:
         ]
     )
     digest = str(json.loads(observed).get("digest") or "")
+    if not update.digest:
+        # Tag-sourced retag: the release set recorded no digest to compare
+        # against, so report what the alias resolved to instead of asserting.
+        print(f"[ghcr-alias] {update.name}: {update.target} -> {digest}")
+        return
     if digest != update.digest:
         raise RuntimeError(
             f"{update.name}: alias digest {digest!r} != release-set {update.digest!r}"

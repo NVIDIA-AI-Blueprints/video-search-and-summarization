@@ -79,11 +79,21 @@ class AliasPlanTest(unittest.TestCase):
         names = {item.name for item in alias_plan(release_set(), "develop-latest")}
         self.assertNotIn("vss-configurator", names)
 
-    def test_entry_without_digest_is_excluded(self):
+    def test_entry_without_digest_is_retagged_from_its_tag(self):
+        """The no-change commit case: every entry is reuse-pinned, digest null."""
         data = release_set()
-        data["images"][1]["digest"] = None
+        for image in data["images"]:
+            if image["image"].startswith("ghcr.io/"):
+                image.update(strategy="reuse-pinned", digest=None, tag="develop-latest")
+        plan = alias_plan(data, "develop-abc123abc123")
+        self.assertEqual(len(plan), 3)
+        self.assertTrue(all(item.source.endswith(":develop-latest") for item in plan))
+        self.assertTrue(all("@" not in item.source for item in plan))
+
+    def test_non_ghcr_entry_without_digest_stays_excluded(self):
+        data = release_set()
         names = {item.name for item in alias_plan(data, "develop-latest")}
-        self.assertNotIn("vss-rt-cv", names)
+        self.assertNotIn("vss-configurator", names)
 
     def test_sha_alias_targets_every_image(self):
         plan = alias_plan(release_set(), "develop-deadbeef1234")
@@ -148,6 +158,19 @@ class AdvanceTest(unittest.TestCase):
         advance(update, runner)
         self.assertEqual(commands[0][3], "create")
         self.assertEqual(commands[1][3], "inspect")
+
+    def test_tag_sourced_retag_reports_instead_of_asserting(self):
+        """No recorded digest means nothing to compare against -- must not raise."""
+        data = release_set()
+        for image in data["images"]:
+            if image["image"].startswith("ghcr.io/"):
+                image.update(digest=None, tag="develop-latest")
+        update = alias_plan(data, "develop-abc123abc123")[0]
+
+        def runner(command: list[str]) -> str:
+            return json.dumps({"digest": DIGEST}) if "inspect" in command else ""
+
+        advance(update, runner)  # must not raise
 
     def test_advance_rejects_digest_drift(self):
         update = alias_plan(release_set(), "develop-validated")[0]
