@@ -21,7 +21,10 @@ Include these non-secret deployment values:
 Also include every customized environment value and every value transitively
 derived from it. Examples include model slugs derived from model names, public
 URLs derived from `EXTERNAL_IP`, and `RTVI_VLM_ENDPOINT` derived from a remote
-VLM base URL. Never rely on shell state to fill a value that belongs to the
+VLM base URL. Do not copy unchanged Foundation defaults such as stock
+host-published ports, model names, or feature toggles into a delta just because
+they appear in the Foundation `.env` or `overrides.env`; those layers are read
+during resolution. Never rely on shell state to fill a value that belongs to the
 build contract.
 
 Credential variables are mode-scoped. Validate them with

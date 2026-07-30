@@ -205,7 +205,8 @@ sudo chmod -R 777 /path/to/vss-warehouse-app-data
 
    - **`MODE`**: `2d`, `3d`, or `mv3dt`
    - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` (see comments in that file for 2d, 3d, and mv3dt combinations)
-   - **`MINIMAL_PROFILE`**, GPU hosts, API keys, and any other variables described in the file header
+   -**`COMPOSE_PROFILES`**: `COMPOSE_PROFILES_WH_2D`, `COMPOSE_PROFILES_WH_{KAFKA,REDIS,AUTO_CALIB}_{2D,3D,MV3DT}`, `COMPOSE_PROFILES_WH_{KAFKA,REDIS}_{2D,3D,MV3DT}_MINIMAL`, `COMPOSE_PROFILES_PLAYBACK_{KAFKA,REDIS}_{2D,3D,MV3DT}`
+   - API keys, and any other variables described in the file header
 
 3. **Start the stack**
 

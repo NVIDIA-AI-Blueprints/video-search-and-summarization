@@ -100,10 +100,6 @@ commons:
         required: true
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
-      - variable: MINIMAL_PROFILE
-        required: false
-        allowed_values: ["true", ""]
-        error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       - variable: BP_PROFILE
         allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
@@ -196,10 +192,6 @@ commons:
         required: true
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
-      - variable: MINIMAL_PROFILE
-        required: false
-        allowed_values: ["true", ""]
-        error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
@@ -275,10 +267,6 @@ commons:
         required: true
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
-      - variable: MINIMAL_PROFILE
-        required: false
-        allowed_values: ["true", ""]
-        error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
@@ -366,13 +354,14 @@ commons:
       - trim_sample_videos: 'False if "${SENSOR_INFO_SOURCE}" == "file" else True'
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
-      - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-bev"'
+      - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-raw"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
       - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["kafka:29092"]'
+      - ds_config_latency: '"2000" if "${STREAM_TYPE}" == "redis" else "10000"'
 
   file_operations:
     2d:
@@ -548,6 +537,7 @@ commons:
           msg-broker-conn-str: "${msg-broker-conn-str}"
           msg-broker-config: "${msg-broker-config}"
           msg-broker-proto-lib: "${msg-broker-proto-lib}"
+          latency: "${ds_config_latency}"
 
       # Update NVStreamer configs
       - operation_type: "json_update"
