@@ -100,10 +100,6 @@ commons:
         required: true
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
-      - variable: MINIMAL_PROFILE
-        required: false
-        allowed_values: ["true", ""]
-        error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       - variable: BP_PROFILE
         allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
@@ -196,10 +192,6 @@ commons:
         required: true
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
-      - variable: MINIMAL_PROFILE
-        required: false
-        allowed_values: ["true", ""]
-        error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
@@ -275,10 +267,6 @@ commons:
         required: true
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
-      - variable: MINIMAL_PROFILE
-        required: false
-        allowed_values: ["true", ""]
-        error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
