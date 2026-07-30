@@ -57,6 +57,7 @@ docker-workload-rtvi-cv:
   WDM_WL_REDIS_MSG_FIELD: value
   REDIS_MSG_KEY: vst.event
   WDM_INITIALIZE_FROM_VST: false
+  WDM_KFK_BOOTSTRAP_URL: "kafka:29092"
   WDM_KFK_ENABLE: ${RTVI_CV_WDM_KFK_ENABLE}
   WDM_CLUSTER_TYPE: docker
   WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'

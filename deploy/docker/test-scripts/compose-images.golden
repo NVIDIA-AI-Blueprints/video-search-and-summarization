@@ -20,8 +20,8 @@ deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehou
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/alert/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
-deploy/docker/services/analytics/behavior-analytics/compose.yml nvcr.io/nvstaging/vss-core/vss-behavior-analytics:3.3.0-26.07.4
-deploy/docker/services/analytics/video-analytics-api/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-api:3.2.0
+deploy/docker/services/analytics/behavior-analytics/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics:develop-latest
+deploy/docker/services/analytics/video-analytics-api/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
 deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvidia/vss-core/vss-auto-calibration:3.2.1
 deploy/docker/services/auto-calibration/ui/compose.yml nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:3.2.1
 deploy/docker/services/infra/compose.yml alpine:3.24.1

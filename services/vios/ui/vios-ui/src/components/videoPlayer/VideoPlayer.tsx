@@ -72,6 +72,7 @@ import BitrateSparkline from './videoPlayerUtils/BitrateSparkline';
 import Analytics from './videoPlayerUtils/analytics/Analytics';
 import { useShowEvents, useEventImages } from './videoPlayerUtils/ShowEvents';
 import useVSTUIStore from '../../services/StateManagement';
+import { toWebSocketUrl } from '../../utils/runtimeConfig';
 
 const FALLBACK_START_TIME = '1970-01-01T00:00:00.000Z';
 const DEFAULT_QUALITY = 'auto';
@@ -323,18 +324,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             setConnectionPhase('initial');
         };
 
-        let wsEndpoint = config.liveStreamEndpoint.startsWith('https')
-            ? config.liveStreamEndpoint.replace('https', 'wss')
-            : config.liveStreamEndpoint.replace('http', 'ws');
-
-        let proxy = window.location.pathname;
-        if (proxy !== '/' && proxy.length > 0) {
-            if (proxy[proxy.length - 1] === '/') {
-                proxy = proxy.slice(0, -1);
-            }
-            // Add the proxy path to the endpoint with proper / separator
-            wsEndpoint = `${wsEndpoint}${wsEndpoint.endsWith('/') ? '' : '/'}${proxy}`;
-        }
+        const wsEndpoint = toWebSocketUrl(config.liveStreamEndpoint);
 
         const webStreamerConfig: AppConfig = {
             inboundStreamVideoElementId: videoElementId,

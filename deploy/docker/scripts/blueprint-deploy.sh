@@ -131,6 +131,27 @@ function get_vlm_slug() {
   esac
 }
 
+# Hardware-specific RTVI local VLM GPU memory utilization (empty = keep compose/env default).
+# Matches deploy/docker/scripts/dev-profile.sh for RTXPRO4500BW.
+function get_rtvi_vllm_gpu_memory_utilization() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTXPRO4500BW) echo "0.8" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Hardware-specific RTVI local VLM max model length (empty = keep compose/env default).
+# Matches deploy/docker/scripts/dev-profile.sh.
+function get_rtvi_vlm_max_model_len() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTXPRO4500BW) echo "18000" ;;
+    *) echo "" ;;
+  esac
+}
+
+
 # Gets model name from remote API endpoint (works for both LLM and VLM)
 function get_remote_model_name() {
   local _base_url="${1}"
@@ -868,6 +889,19 @@ function state_up() {
     if [[ "${_vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
+    # RTVI local VLM sizing for RTXPRO4500BW (same as dev-profile.sh).
+    # Remote VLM does not host the model locally.
+    if [[ "${_vlm_mode}" != "remote" ]]; then
+      local _rtvi_vllm_gpu_memory_utilization _rtvi_vlm_max_model_len
+      _rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
+      if [[ -n "${_rtvi_vllm_gpu_memory_utilization}" ]]; then
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_rtvi_vllm_gpu_memory_utilization}"
+      fi
+      _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+      if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
+        set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_rtvi_vlm_max_model_len}"
+      fi
+    fi
     if [[ -n "${llm_base_url}" ]]; then
       set_env_var "LLM_BASE_URL" "${llm_base_url}"
     fi
@@ -919,8 +953,7 @@ function state_up() {
     set_env_var "NUM_STREAMS" "${_num_streams}"
 
     # Select explicit service-list variable for the active warehouse variant.
-    local _minimal_profile _cp_var
-    _minimal_profile="$(get_env_value_from_files "MINIMAL_PROFILE" "${_source_env}" "${_overrides_env}")"
+    local _cp_var
     case "${bp_profile}_${mode}" in
       bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
       bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
@@ -937,9 +970,6 @@ function state_up() {
         return 1
         ;;
     esac
-    if [[ -n "${_minimal_profile}" ]] && ([[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]); then
-      _cp_var="${_cp_var}_MINIMAL"
-    fi
     set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
   fi
 
@@ -1211,3 +1241,4 @@ if [[ "${desired_state}" == "up" ]]; then
 elif [[ "${desired_state}" == "down" ]]; then
   state_down
 fi
+

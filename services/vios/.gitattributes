@@ -25,3 +25,4 @@ prebuilts/aarch64/sbsa/libnvbufsurftransform.so.1.0.0 filter=lfs diff=lfs merge=
 ui/**/*.js -filter -diff -merge text=auto
 ui/**/*.js.map -filter -diff -merge text=auto
 ui/**/*.js.LICENSE.txt -filter -diff -merge text=auto
+ui/vios-ui/public/runtime-config.js -filter diff -merge text

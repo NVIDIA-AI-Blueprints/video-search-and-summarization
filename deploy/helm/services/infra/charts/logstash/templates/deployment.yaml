@@ -42,7 +42,7 @@ spec:
       {{- end }}
       initContainers:
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -57,7 +57,7 @@ spec:
               done
               echo "Kafka is ready."
         - name: wait-for-elasticsearch
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c

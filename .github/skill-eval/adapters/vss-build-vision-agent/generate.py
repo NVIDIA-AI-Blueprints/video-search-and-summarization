@@ -69,7 +69,7 @@ PLATFORMS: dict[str, dict] = {
     "RTXPRO6000BW": {
         "short_name":       "rtxpro6000bw",
         "gpu_type":         "RTX PRO 6000",
-        "gpu_count":        2,
+        "gpu_count":        1,
         "min_vram_per_gpu": 96,
         "brev_search":      "RTX PRO",
         "min_root_disk_gb": 220,
@@ -99,8 +99,9 @@ DEFAULT_PLATFORM = "RTXPRO6000BW"
 # interactive deployment confirmations.
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
-    "You are pre-authorized to perform the validation and deployment actions "
-    "explicitly requested by this trial; do not pause for confirmation."
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "setup action the trial requires."
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
@@ -212,10 +213,16 @@ def generate_task(
     rtcv_skill_dir: Path | None,
     rtembed_skill_dir: Path | None,
     summarize_skill_dir: Path | None,
+    report_skill_dir: Path | None = None,
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'].
     Multi-step specs produce step-N/ subdirs; single-step specs are flat."""
-    pspec = PLATFORMS[platform]
+    pspec = dict(PLATFORMS[platform])  # copy so we can override per-spec
+    # Let the spec's resources.platforms[platform].gpu_count override the
+    # adapter default — the spec is authoritative for fleet sizing.
+    spec_platform_res = (spec.get("resources") or {}).get("platforms", {}).get(platform, {})
+    if "gpu_count" in spec_platform_res:
+        pspec["gpu_count"] = int(spec_platform_res["gpu_count"])
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
@@ -239,11 +246,10 @@ def generate_task(
 
         # ---- instruction.md ------------------------------------------------
         # Note: spec.env notes and query are rendered ({{...}} substituted).
-        action_text = "build and deploy" if runtime_deploy else "build"
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-build-vision-agent` skill to {action_text} the "
+            f"Use the `/vss-build-vision-agent` skill for the "
             f"`{build_profile}` profile on `{platform}`. "
             "Work from `$HOME/video-search-and-summarization` (the VSS repository root).",
             "",
@@ -380,6 +386,16 @@ def generate_task(
                 "v1/summarize",
             )
         )
+        wants_report = any(
+            token in spec_text
+            for token in (
+                "vss-generate-video-report",
+                "generate-video-report",
+                "video report",
+                "sop compliance report",
+                "mode c",
+            )
+        )
         if wants_dense_captioning:
             skills_to_copy.append((rtvi_skill_dir, "vss-deploy-dense-captioning"))
         if wants_rt_cv:
@@ -388,6 +404,8 @@ def generate_task(
             skills_to_copy.append((rtembed_skill_dir, "vss-deploy-video-embedding"))
         if wants_summarization:
             skills_to_copy.append((summarize_skill_dir, "vss-summarize-video"))
+        if wants_report:
+            skills_to_copy.append((report_skill_dir, "vss-generate-video-report"))
         skills_root = step_dir / "skills"
         if skills_root.exists():
             shutil.rmtree(skills_root)
@@ -436,6 +454,10 @@ def main() -> None:
         help="Path to skills/vss-summarize-video (bundled for LVS summarize API checks)",
     )
     parser.add_argument(
+        "--report-skill-dir", default=None,
+        help="Path to skills/vss-generate-video-report (bundled for SOP report checks)",
+    )
+    parser.add_argument(
         "--spec", default=None,
         help="Path to the eval spec JSON (default: <skill-dir>/eval/profile_in_1_streaming_dense_captions.json)",
     )
@@ -457,6 +479,7 @@ def main() -> None:
     rtcv_skill_dir = Path(args.rtcv_skill_dir) if args.rtcv_skill_dir else None
     rtembed_skill_dir = Path(args.rtembed_skill_dir) if args.rtembed_skill_dir else None
     summarize_skill_dir = Path(args.summarize_skill_dir) if args.summarize_skill_dir else None
+    report_skill_dir = Path(args.report_skill_dir) if args.report_skill_dir else None
     repo_root = skill_dir.resolve().parents[1]
     if vios_skill_dir is None:
         candidate = repo_root / "skills" / "vss-manage-video-io-storage"
@@ -464,9 +487,18 @@ def main() -> None:
     if rtvi_skill_dir is None:
         candidate = repo_root / "skills" / "vss-deploy-dense-captioning"
         rtvi_skill_dir = candidate if candidate.exists() else None
+    if rtcv_skill_dir is None:
+        candidate = repo_root / "skills" / "vss-deploy-detection-tracking-2d"
+        rtcv_skill_dir = candidate if candidate.exists() else None
+    if rtembed_skill_dir is None:
+        candidate = repo_root / "skills" / "vss-deploy-video-embedding"
+        rtembed_skill_dir = candidate if candidate.exists() else None
     if summarize_skill_dir is None:
         candidate = repo_root / "skills" / "vss-summarize-video"
         summarize_skill_dir = candidate if candidate.exists() else None
+    if report_skill_dir is None:
+        candidate = repo_root / "skills" / "vss-generate-video-report"
+        report_skill_dir = candidate if candidate.exists() else None
 
     spec_path = (
         Path(args.spec)
@@ -515,7 +547,7 @@ def main() -> None:
         generate_task(
             platform, spec, output_root, skill_dir,
             vios_skill_dir, rtvi_skill_dir, rtcv_skill_dir, rtembed_skill_dir,
-            summarize_skill_dir,
+            summarize_skill_dir, report_skill_dir,
         )
 
     print()
