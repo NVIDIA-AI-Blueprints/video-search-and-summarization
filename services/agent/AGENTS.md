@@ -64,6 +64,7 @@ async def fetch_video_clip(sensor_id: str, start: float, end: float) -> VideoCli
         raise ValueError(f"end ({end}) must be after start ({start})")
     return await self._vst_client.get_clip(sensor_id, start, end)
 
+
 # ❌ Bad — missing types, vague name, no validation
 async def get(id, s, e):
     return await self._vst_client.get_clip(id, s, e)
