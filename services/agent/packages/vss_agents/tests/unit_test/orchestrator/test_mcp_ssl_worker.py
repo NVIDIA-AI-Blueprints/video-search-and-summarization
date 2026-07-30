@@ -19,10 +19,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from mcp.server.fastmcp import FastMCP
+from nat.data_models.config import Config
+from nat.data_models.config import GeneralConfig
+from nat.plugins.mcp.server.front_end_config import MCPFrontEndConfig
 from pydantic import AnyHttpUrl
 import pytest
 
@@ -103,6 +107,34 @@ async def test_create_mcp_server_substitutes_ssl_class_and_restores(
 
 
 @pytest.mark.asyncio
+async def test_create_mcp_server_uses_real_nat_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise the real NAT parent so a release that stops reading the module global fails here.
+
+    This one calls ``MCPFrontEndPluginWorker.create_mcp_server`` itself and asserts the
+    returned instance is ``_SSLFastMCP`` — the same contract the runtime guard on
+    ``SSLMCPWorker.create_mcp_server`` enforces when HTTPS is enabled.
+    """
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "true")
+    original = ssl_mod.mcp_worker.FastMCP
+
+    front_end = MCPFrontEndConfig(
+        name="test-orchestrator-mcp",
+        host="127.0.0.1",
+        port=9901,
+        debug=False,
+        server_auth=None,
+    )
+    worker = ssl_mod.SSLMCPWorker(Config(general=GeneralConfig(front_end=front_end)))
+
+    server = await worker.create_mcp_server()
+
+    assert isinstance(server, ssl_mod._SSLFastMCP)
+    assert ssl_mod.mcp_worker.FastMCP is original
+
+
+@pytest.mark.asyncio
 async def test_create_mcp_server_rewrites_auth_url_when_https(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -174,3 +206,64 @@ async def test_create_mcp_server_allows_base_path_without_https(
         server = await ssl_mod.SSLMCPWorker.create_mcp_server(_make_worker(base_path="/orchestrator"))
 
     assert isinstance(server, FastMCP)
+
+
+async def _capture_uvicorn_config_kwargs(mcp: ssl_mod._SSLFastMCP) -> dict[str, Any]:
+    """Run ``run_streamable_http_async`` with uvicorn patched; return Config kwargs."""
+    captured: dict[str, Any] = {}
+
+    def capture_config(app: Any, **kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        captured["app"] = app
+        return MagicMock(name="uvicorn.Config")
+
+    with (
+        patch("uvicorn.Config", side_effect=capture_config),
+        patch("uvicorn.Server") as mock_server_cls,
+        patch.object(mcp, "streamable_http_app", return_value=MagicMock(name="app")),
+    ):
+        mock_server_cls.return_value.serve = AsyncMock()
+        await mcp.run_streamable_http_async()
+
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_run_streamable_http_passes_ssl_kwargs_when_https(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    cert = tmp_path / "cert.pem"
+    key = tmp_path / "key.pem"
+    cert.write_text("cert", encoding="utf-8")
+    key.write_text("key", encoding="utf-8")
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "true")
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_CERTFILE, str(cert))
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_KEYFILE, str(key))
+
+    mcp = ssl_mod._SSLFastMCP(name="test", host="127.0.0.1", port=9901)
+    kwargs = await _capture_uvicorn_config_kwargs(mcp)
+
+    assert kwargs["ssl_certfile"] == str(cert)
+    assert kwargs["ssl_keyfile"] == str(key)
+
+
+@pytest.mark.asyncio
+async def test_run_streamable_http_omits_ssl_kwargs_when_https_off(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """With HTTPS off, cert/key env vars must not reach uvicorn — same as the stock worker."""
+    cert = tmp_path / "cert.pem"
+    key = tmp_path / "key.pem"
+    cert.write_text("cert", encoding="utf-8")
+    key.write_text("key", encoding="utf-8")
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "false")
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_CERTFILE, str(cert))
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_KEYFILE, str(key))
+
+    mcp = ssl_mod._SSLFastMCP(name="test", host="127.0.0.1", port=9901)
+    kwargs = await _capture_uvicorn_config_kwargs(mcp)
+
+    assert kwargs["ssl_certfile"] is None
+    assert kwargs["ssl_keyfile"] is None
