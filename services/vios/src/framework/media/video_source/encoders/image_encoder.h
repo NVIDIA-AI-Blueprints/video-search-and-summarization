@@ -30,7 +30,6 @@ public:
     ~ImageEnc();
 
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
-    void onLastFrame() override;
     std::string getImageBuffer();
     GstFlowReturn processJpegImageFromSink(GstElement *appsink);
 
