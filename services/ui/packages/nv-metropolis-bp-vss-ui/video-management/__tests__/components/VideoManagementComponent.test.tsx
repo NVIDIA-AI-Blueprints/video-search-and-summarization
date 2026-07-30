@@ -62,6 +62,8 @@ const mockTimelines = new Map([
   }],
 ]);
 
+// Mutable so a test can simulate VST dropping a stream and it reappearing later
+let mockStreamsList = [videoStream, rtspStream];
 const mockRefetch = jest.fn(() => Promise.resolve());
 const mockWaitUntilStreamsRemoved = jest.fn(async () => ({ remainingSensorIds: [] as string[] }));
 const mockDeleteRtspStream = jest.fn(() => Promise.resolve({ status: 'success' }));
@@ -77,7 +79,7 @@ jest.mock('../../lib-src/videoDelete', () => ({
 
 jest.mock('../../lib-src/hooks', () => ({
   useStreams: () => ({
-    streams: [videoStream, rtspStream],
+    streams: mockStreamsList,
     isLoading: false,
     error: null,
     refetch: mockRefetch,
@@ -368,10 +370,23 @@ describe('VideoManagementComponent — video playback', () => {
 describe('VideoManagementComponent — Select All delete of mixed RTSP and uploaded videos', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
     mockWaitUntilStreamsRemoved.mockResolvedValue({ remainingSensorIds: [] });
     mockDeleteRtspStream.mockResolvedValue({ status: 'success' });
     mockDeleteVideo.mockResolvedValue({ status: 'success' });
   });
+
+  async function reopenDeleteDialogAndConfirm() {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Select All' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+  }
 
   async function selectAllAndConfirmDelete() {
     await waitFor(() => {
@@ -450,7 +465,9 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
   });
 
-  it('re-sends the delete for an accepted sensor after the dialog is cancelled and reopened', async () => {
+  // Cancelling only dismisses the dialog — the agent still accepted the delete, so
+  // a later attempt must not repeat the destructive request.
+  it('does not re-send the delete after the dialog is cancelled and reopened', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
       remainingSensorIds: [rtspStream.sensorId],
     });
@@ -463,16 +480,46 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     });
 
     mockDeleteRtspStream.mockClear();
+    mockDeleteVideo.mockClear();
+    mockWaitUntilStreamsRemoved.mockClear();
+
+    await reopenDeleteDialogAndConfirm();
+
+    expect(mockDeleteRtspStream).not.toHaveBeenCalled();
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledWith(
+      expect.arrayContaining([rtspStream.sensorId]),
+    );
+  });
+
+  // Forgetting a settled delete matters: a stream recreated under the same sensor
+  // id must be deletable again rather than polled forever.
+  it('re-sends the delete once VST has dropped the sensor and it reappears', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    const { rerender } = renderComponent();
+    await selectAllAndConfirmDelete();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Select All' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     });
+
+    // VST finally drops the stream, settling the delete
+    mockStreamsList = [videoStream];
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+      rerender(<VideoManagementComponent {...defaultProps} />);
     });
+
+    // A new stream shows up reusing the same sensor id
+    mockStreamsList = [videoStream, rtspStream];
     await act(async () => {
-      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+      rerender(<VideoManagementComponent {...defaultProps} />);
     });
+
+    mockDeleteRtspStream.mockClear();
+
+    await reopenDeleteDialogAndConfirm();
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith('https://agent.example.com', rtspStream.name);
   });

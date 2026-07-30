@@ -481,10 +481,23 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     [streams, selectedStreams]
   );
 
-  // Sensors the agent already accepted a delete for, still waiting on VST to stop
-  // listing them. Retry must only resume polling for these — re-sending the
-  // destructive request would fail against an already-deleted sensor.
+  // Sensors the agent already accepted a delete for, still listed by VST. This
+  // tracks backend state, not dialog state: any later attempt on these must only
+  // resume polling, since re-sending the destructive request would either fail
+  // against an already-deleted sensor or hit a resource recreated under the same
+  // identity. Cancelling the dialog therefore must not clear it.
   const acceptedDeletesRef = useRef<Set<string>>(new Set());
+
+  // Once VST stops listing a sensor the delete is fully settled, so drop it here.
+  // Without this, a stream later recreated under the same sensor id could never be
+  // deleted — every attempt would skip the agent call and just poll forever.
+  useEffect(() => {
+    if (acceptedDeletesRef.current.size === 0) return;
+    const listed = new Set(streams.map((s) => s.sensorId));
+    for (const sensorId of Array.from(acceptedDeletesRef.current)) {
+      if (!listed.has(sensorId)) acceptedDeletesRef.current.delete(sensorId);
+    }
+  }, [streams]);
 
   // Step 1 of delete: just open the confirmation dialog. The Toolbar's "Delete
   // Selected" button is wired to this so a single click never destroys data.
@@ -496,7 +509,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
   const handleCancelDelete = useCallback(() => {
     if (isDeleting) return;
-    acceptedDeletesRef.current.clear();
     setDeleteError(null);
     setShowDeleteConfirm(false);
   }, [isDeleting]);
@@ -611,7 +623,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         return;
       }
 
-      acceptedDeletesRef.current.clear();
       setShowDeleteConfirm(false);
     } finally {
       setIsDeleting(false);
