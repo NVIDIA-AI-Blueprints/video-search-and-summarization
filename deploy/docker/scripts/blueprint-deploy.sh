@@ -953,8 +953,7 @@ function state_up() {
     set_env_var "NUM_STREAMS" "${_num_streams}"
 
     # Select explicit service-list variable for the active warehouse variant.
-    local _minimal_profile _cp_var
-    _minimal_profile="$(get_env_value_from_files "MINIMAL_PROFILE" "${_source_env}" "${_overrides_env}")"
+    local _cp_var
     case "${bp_profile}_${mode}" in
       bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
       bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
@@ -971,9 +970,6 @@ function state_up() {
         return 1
         ;;
     esac
-    if [[ -n "${_minimal_profile}" ]] && ([[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]); then
-      _cp_var="${_cp_var}_MINIMAL"
-    fi
     set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
   fi
 
