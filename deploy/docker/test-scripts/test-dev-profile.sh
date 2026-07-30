@@ -1855,6 +1855,21 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# Alert Bridge must render the always-on rules config so its model follows the
+# deployment-selected VLM_NAME instead of a hardcoded model id.
+_alert_compose="${REPO_ROOT}/deploy/docker/services/alert/compose.yml"
+_alerts_realtime_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml"
+if grep -Fq 'ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq '/app/configs/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq '/app/runtime/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq 'model: "${VLM_NAME}"' "${_alerts_realtime_config}"; then
+  echo "PASS: alert-bridge renders always-on rules with deployment-selected VLM_NAME"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alert-bridge should render always-on rules with deployment-selected VLM_NAME"
+  ((TESTS_FAILED++)) || true
+fi
+
 # Helm passes bare VST host aliases as well as URL-form endpoints; Docker agent needs the same contract.
 _agent_compose="${REPO_ROOT}/deploy/docker/services/agent/compose.yml"
 if grep -Fq "EXTERNAL_IP:" "${_agent_compose}" && grep -Fq "INTERNAL_IP:" "${_agent_compose}" && grep -Fq "VST_BASE_URL:" "${_agent_compose}"; then
