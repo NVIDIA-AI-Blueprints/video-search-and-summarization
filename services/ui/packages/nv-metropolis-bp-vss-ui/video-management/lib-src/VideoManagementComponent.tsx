@@ -341,7 +341,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     refetchTimelinesRef.current();
   }, []);
 
-  const handlePlayStream = useCallback(async (stream: StreamInfo) => {
+  const handlePlayStream = useCallback(async (stream: StreamInfo): Promise<boolean> => {
     let startTime: string;
     let endTime: string;
 
@@ -351,21 +351,23 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       startTime = new Date(now.getTime() - 35000).toISOString();
     } else {
       const range = getLastTimelineForStream(stream.streamId);
-      if (!range) return;
+      if (!range) return false;
       startTime = range.startTime;
       endTime = range.endTime;
     }
 
     setLoadingStreamId(stream.streamId);
     try {
-      await openVideoModal({
+      return await openVideoModal({
         video_name: stream.name,
         start_time: startTime,
         end_time: endTime,
         sensor_id: stream.sensorId,
       });
     } catch {
-      // openVideoModal handles errors internally; catch to prevent unhandled rejection
+      // openVideoModal signals failure through its return value; catch guards
+      // against anything unexpected escaping as an unhandled rejection.
+      return false;
     } finally {
       setLoadingStreamId(null);
     }
