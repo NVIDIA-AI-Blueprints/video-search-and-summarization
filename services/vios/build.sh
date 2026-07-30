@@ -92,10 +92,10 @@ show_help() {
     echo "  all                One-shot: toolchain -> base -> module containers (sensor + streamprocessing"
     echo "                     by default, or whatever module=... lists) -> nvstreamer container."
     echo "  multiarch          Build+push amd64 and arm64 images (per-arch tags) then assemble one"
-    echo "                     multi-arch manifest via 'docker buildx imagetools'. Needs tag=<manifest-tag>"
-    echo "                     (e.g. tag=2.1.0-26.05.4; per-arch tags are derived as -amd64-/-arm64-) and a"
-    echo "                     target (module=<list> and/or nvstreamer). Set IMAGE_REGISTRY to a pushable"
-    echo "                     registry first. amd64 push overlaps the arm64 build."
+    echo "                     multi-arch manifest via 'docker buildx imagetools'. Application targets need"
+    echo "                     tag=<manifest-tag> and module=<list>, nvstreamer, or all. Base images use"
+    echo "                     base-container base-tag=<manifest-tag>. Set IMAGE_REGISTRY to a pushable"
+    echo "                     registry first. Application amd64 push overlaps the arm64 build."
     echo "  multiarch all      Multi-arch equivalent of 'all': builds sensor + streamprocessing + nvstreamer"
     echo "                     for both arches (needs tag=<manifest-tag>). Ingress is separate (already"
     echo "                     multi-arch): ./build.sh container ingress push=1 tag=<tag>."
@@ -153,6 +153,7 @@ show_help() {
     echo "  export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
     echo "  ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing"
     echo "  ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4"
+    echo "  ./build.sh multiarch base-container base-tag=2.1.0-runtime-26.05.4"
     echo "  ./build.sh arch=multiarch all tag=2.1.0-26.05.4   # sensor + streamprocessing + nvstreamer, both arches"
     echo "  ./build.sh container ingress push=1 tag=2.1.0-26.05.4   # ingress (already multi-arch), built separately"
     echo ""
@@ -1256,12 +1257,17 @@ fi
 #
 #   ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing
 #   ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4
+#   ./build.sh multiarch base-container base-tag=2.1.0-runtime-26.05.4
 #
 # Requires IMAGE_REGISTRY to point at a real registry you can push to (e.g.
 # export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev), and `docker login`.
 build_multiarch() {
-    # The multi-arch manifest tag is the standard tag= (as everywhere else).
-    if [[ -z "$TAG" ]]; then
+    # Application manifests use tag=; the base image uses base-tag= so the
+    # command matches the existing single-architecture base-container syntax.
+    if [[ $BASE_IMAGE -eq 1 ]] && [[ -z "$BASE_TAG" ]]; then
+        echo "[ERROR] multiarch base-container requires base-tag=<manifest-tag>, e.g. base-tag=2.1.0-runtime-26.05.4"
+        exit 1
+    elif [[ $BASE_IMAGE -eq 0 ]] && [[ -z "$TAG" ]]; then
         echo "[ERROR] multiarch requires tag=<manifest-tag>, e.g. tag=2.1.0-26.05.4"
         exit 1
     fi
@@ -1281,8 +1287,12 @@ build_multiarch() {
         NVSTREAMER=1
     fi
 
-    if [[ ${#MODULES[@]} -eq 0 ]] && [[ $NVSTREAMER -eq 0 ]]; then
-        echo "[ERROR] multiarch needs a target: module=<list>, nvstreamer, and/or 'all'"
+    if [[ $BASE_IMAGE -eq 1 ]] && \
+       { [[ ${#MODULES[@]} -gt 0 ]] || [[ $NVSTREAMER -eq 1 ]] || [[ $BUILD_ALL -eq 1 ]]; }; then
+        echo "[ERROR] multiarch base-container cannot be combined with module=<list>, nvstreamer, or all"
+        exit 1
+    elif [[ $BASE_IMAGE -eq 0 ]] && [[ ${#MODULES[@]} -eq 0 ]] && [[ $NVSTREAMER -eq 0 ]]; then
+        echo "[ERROR] multiarch needs a target: base-container, module=<list>, nvstreamer, and/or 'all'"
         exit 1
     fi
 
@@ -1306,6 +1316,55 @@ build_multiarch() {
         echo "       target Docker Hub or fail. Set a pushable registry and log in first, e.g.:"
         echo "         export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
         echo "         docker login nvcr.io"
+    fi
+
+    if [[ $BASE_IMAGE -eq 1 ]]; then
+        local base_amd_tag base_arm_tag
+        if [[ "$BASE_TAG" == *-* ]]; then
+            # Insert the architecture before the final release segment:
+            # 2.1.0-runtime-26.07.1 -> 2.1.0-runtime-amd64-26.07.1.
+            base_amd_tag="${BASE_TAG%-*}-amd64-${BASE_TAG##*-}"
+            base_arm_tag="${BASE_TAG%-*}-arm64-${BASE_TAG##*-}"
+        else
+            base_amd_tag="${BASE_TAG}-amd64"
+            base_arm_tag="${BASE_TAG}-arm64"
+        fi
+
+        local base_repo="$IMAGE_REGISTRY/vst-base"
+        local base_extra=""
+        [[ $NO_CACHE -eq 1 ]] && base_extra="no-cache"
+
+        echo "=============================================="
+        echo "multiarch base: $BASE_TAG"
+        echo "  amd64 tag : $base_amd_tag"
+        echo "  arm64 tag : $base_arm_tag"
+        echo "  manifest  : $BASE_TAG"
+        echo "  target    : $base_repo"
+        echo "=============================================="
+
+        # Base images contain no shared compiled object tree, so no make clean
+        # is needed between the architecture-specific Docker builds.
+        # shellcheck disable=SC2086
+        "$0" base-container base-tag="$base_amd_tag" push=1 $base_extra || {
+            echo "[ERROR] amd64 base image build failed"; exit 1; }
+        # shellcheck disable=SC2086
+        "$0" arch=arm64 base-container base-tag="$base_arm_tag" push=1 $base_extra || {
+            echo "[ERROR] arm64 base image build failed"; exit 1; }
+
+        docker buildx imagetools create \
+            --tag "$base_repo:$BASE_TAG" \
+            "$base_repo:$base_arm_tag" \
+            "$base_repo:$base_amd_tag" || {
+                echo "[ERROR] base image manifest creation failed"; exit 1; }
+
+        echo ""
+        echo "================ multiarch base complete ================"
+        echo "  pushed   :"
+        echo "     - $base_repo:$base_amd_tag"
+        echo "     - $base_repo:$base_arm_tag"
+        echo "  manifest : $base_repo:$BASE_TAG"
+        echo "========================================================="
+        return
     fi
 
     # 2.1.0-26.05.4 -> prefix=2.1.0 suffix=26.05.4 -> 2.1.0-<arch>-26.05.4.
