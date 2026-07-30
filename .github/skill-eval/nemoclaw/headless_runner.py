@@ -337,69 +337,35 @@ def post_hook(url: str, token: str, payload: dict[str, Any], timeout: int) -> di
         return {"status": 0, "body": "", "error": str(exc)}
 
 
-def _gateway_reachable(sandbox_name: str, deadline: float | None = None) -> bool:
-    try:
-        result = _sandbox_exec(
-            sandbox_name,
-            "curl -fsS http://127.0.0.1:18789/health >/dev/null",
-            timeout=_deadline_timeout(deadline, 20, "OpenClaw gateway probe"),
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return result.returncode == 0
-
-
 def ensure_openclaw_gateway(
     sandbox_name: str,
     log_dir: Path,
     deadline: float | None = None,
 ) -> None:
     attempts: list[str] = []
+
+    def write_attempts() -> None:
+        (log_dir / "openclaw_gateway_recover.log").write_text(
+            _redact_runtime_text("\n\n".join(attempts) + "\n"),
+            encoding="utf-8",
+        )
+
     try:
-        if _gateway_reachable(sandbox_name, deadline):
-            return
-
-        try:
-            restart = _run(
-                ["nemoclaw", "sandbox", "gateway", "restart", sandbox_name],
-                timeout=_deadline_timeout(
-                    deadline,
-                    120,
-                    "managed OpenClaw gateway restart",
-                ),
-            )
-        except subprocess.TimeoutExpired as exc:
-            restart = None
-            attempts.append(f"managed restart timed out: {exc}")
-        else:
-            attempts.append(
-                "managed restart\n"
-                f"returncode={restart.returncode}\n"
-                f"stdout:\n{restart.stdout or ''}\n"
-                f"stderr:\n{restart.stderr or ''}"
-            )
-
-        if restart is not None and restart.returncode == 0:
-            for _ in range(10):
-                if _gateway_reachable(sandbox_name, deadline):
-                    (log_dir / "openclaw_gateway_recover.log").write_text(
-                        "\n\n".join(attempts) + "\n",
-                        encoding="utf-8",
-                    )
-                    return
-                _sleep_before_deadline(deadline, 3)
-
         try:
             recover = _run(
                 ["nemoclaw", "sandbox", "recover", sandbox_name],
                 timeout=_deadline_timeout(
                     deadline,
-                    300,
+                    360,
                     "NemoClaw sandbox recovery",
                 ),
             )
         except subprocess.TimeoutExpired as exc:
             attempts.append(f"sandbox recover timed out: {exc}")
+            write_attempts()
+            raise RuntimeError(
+                f"OpenClaw gateway recovery timed out for sandbox {sandbox_name}"
+            ) from exc
         else:
             attempts.append(
                 "sandbox recover\n"
@@ -408,27 +374,26 @@ def ensure_openclaw_gateway(
                 f"stderr:\n{recover.stderr or ''}"
             )
 
-        for _ in range(20):
-            if _gateway_reachable(sandbox_name, deadline):
-                (log_dir / "openclaw_gateway_recover.log").write_text(
-                    "\n\n".join(attempts) + "\n",
-                    encoding="utf-8",
-                )
-                return
-            _sleep_before_deadline(deadline, 3)
+        # `sandbox recover` is the supported idempotent health path. A zero
+        # exit means NemoClaw verified or recovered gateway health and its
+        # required routing/forwards. Do not override that result with an
+        # ordinary sandbox-exec curl: OpenClaw can use a child network
+        # namespace and onboarding can select a dashboard port other than
+        # 18789.
+        write_attempts()
+        if recover.returncode == 0:
+            return
+
+        # Recovery can fail closed for registry, route, secret-boundary, MCP,
+        # or forward-ownership checks. Do not bypass that refusal with a
+        # separate force-restart path.
+        raise RuntimeError(
+            f"OpenClaw gateway recovery failed for sandbox {sandbox_name}"
+        )
     except TimeoutError as exc:
         attempts.append(str(exc))
-        (log_dir / "openclaw_gateway_recover.log").write_text(
-            "\n\n".join(attempts) + "\n",
-            encoding="utf-8",
-        )
+        write_attempts()
         raise
-
-    (log_dir / "openclaw_gateway_recover.log").write_text(
-        "\n\n".join(attempts) + "\n",
-        encoding="utf-8",
-    )
-    raise RuntimeError(f"OpenClaw gateway in sandbox {sandbox_name} is not reachable")
 
 
 def _fresh_openclaw_session_id() -> str:
