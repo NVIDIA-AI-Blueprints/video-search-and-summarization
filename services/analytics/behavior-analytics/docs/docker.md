@@ -6,12 +6,7 @@
 docker build -t behavior-analytics -f docker/Dockerfile .
 ```
 
-## Run (host network)
-```bash
-docker run --network=host behavior-analytics python3 apps/playback/playback_frames.py
-```
-
-## Run with custom config
+## Run with a mounted config (host network)
 ```bash
 docker run --network=host \
   -v /path/to/config.json:/behavior-analytics/config.json \
