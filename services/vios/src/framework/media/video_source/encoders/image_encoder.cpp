@@ -223,7 +223,6 @@ std::string ImageEnc::getImageBuffer()
                 + std::chrono::seconds(GET_CONFIG().picture_api_timeout_secs);
             if (m_imgBufferWait.wait_until(lk, until, [this]{ return (m_stop.load()); }) == false)
             {
-                m_timedOut = true;
                 LOG(error) << "Image Buffer wait timeout occured (configured picture_api_timeout_secs="
                            << GET_CONFIG().picture_api_timeout_secs << "s)" << endl;
                 return std::string();
