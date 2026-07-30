@@ -51,6 +51,21 @@ curl -sf "http://${HOST_IP}:${LLM_PORT:-30081}/v1/health/ready"
 Skip a local model probe only when that model is explicitly remote, and probe
 the selected remote `/v1/models` endpoint instead.
 
+## LVS REST API surface
+
+Surface this output contract in the architecture preview and final response for
+summarization builds; it is authoritatively defined in
+`skills/vss-summarize-video/references/integrate-lvs-service.md`.
+
+| Interface | Endpoint | Contract |
+|---|---|---|
+| Readiness | `GET /v1/ready` | Gate summarize calls on a ready LVS server. |
+| Model discovery | `GET /models` | Returns the id sent as the request `model`. |
+| Summarize (output path) | `POST /v1/summarize` | VIOS-uploaded or recorder-stored media enters via a VIOS-provided `url` (HTTP(S)/S3/VIOS-retrievable video URL) or `id` (file/clip id known to LVS), alongside required `model`, `scenario`, and `events`. |
+
+The summary is returned in `choices[0].message.content`. `/v1/stream_summarize`
+and `/v1/generate_captions` are not the output path for stored/uploaded media.
+
 ## Sources
 
 - `deploy/docker/developer-profiles/dev-profile-lvs/.env`
@@ -59,3 +74,4 @@ the selected remote `/v1/models` endpoint instead.
 - `deploy/docker/services/video-summarization/compose.yml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
 - `skills/vss-summarize-video/references/video-summarization-environment-variables.md`
+- `skills/vss-summarize-video/references/integrate-lvs-service.md`

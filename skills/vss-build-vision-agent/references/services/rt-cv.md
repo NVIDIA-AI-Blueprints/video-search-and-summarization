@@ -2,11 +2,18 @@
 
 ## Capabilities and service keys
 
-| Capability | Canonical service profile keys |
-|---|---|
-| Alerts perception | `perception-alerts` |
-| Search model initialization | `perception-2d-init` |
-| Search detection and tracking | `perception-2d-fusion` |
+| Capability | Canonical service profile keys | Foundation | Model family |
+|---|---|---|---|
+| Alerts perception | `perception-alerts` | `alerts` | GDINO |
+| Search model initialization | `perception-2d-init` | `search` | RT-DETR |
+| Search detection and tracking | `perception-2d-fusion` | `search` | RT-DETR |
+
+Select the Foundation that ships the requested model family. RT-DETR and
+GDINO are not interchangeable — each requires its own configs, mounts, and
+class-label taxonomy. The detector model family and its emitted class-label
+taxonomy are authoritatively defined in
+`skills/vss-deploy-detection-tracking-2d/references/integrate-vss-detection-tracking-2d.md`;
+the mapping above is the composition surface, not a second source of truth.
 
 ## Required peers
 

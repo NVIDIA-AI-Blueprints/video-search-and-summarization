@@ -30,7 +30,13 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 | RT-VLM | `rtvi-vlm` |
 
-`redis` is a shared peer used by this profile graph.
+`redis` is a shared peer used by this profile graph (see `services/elk.md` for
+when it is retained).
+
+`vss-haproxy-ingress` fronts VIOS/VST, Kibana, and other data-plane backends on
+a single origin. Its backends use `init-addr none`, so it starts healthy
+regardless of which downstream services are present. Retain it in any delta that
+keeps VIOS or Kibana; prune it only when no routed backend remains in the build.
 
 When a request is ambiguous about whether the VSS web experience is wanted, ask
 rather than silently retaining it.

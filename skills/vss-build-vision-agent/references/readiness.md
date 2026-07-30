@@ -28,13 +28,14 @@ fi
 # input loop already iterates each line. The filter accepts only
 # `running` and `exited 0`; everything else (restarting, unhealthy,
 # exited with non-zero code) is a failure.
-mapfile -t bad < <(
+bad=$(
   docker compose -f "$BUILD_DIR/resolved.yml" ps --format json \
     | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
              | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
 )
-if [ "${#bad[@]}" -gt 0 ]; then
-  printf 'FAIL: %s\n' "${bad[@]}" >&2
+if [ -n "$bad" ]; then
+  echo "FAIL: containers not running or cleanly exited:" >&2
+  printf '%s\n' "$bad" >&2
   exit 1
 fi
 ```

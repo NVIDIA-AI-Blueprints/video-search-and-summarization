@@ -9,7 +9,10 @@
 ## Required peers
 
 - Requires writable model caches and the VIOS clip-storage path.
-- Search event ingestion requires Kafka and the Search analytics owner.
+- Search event ingestion requires Kafka and the Search analytics owner: RT-Embed
+  publishes to `mdx-embed` (`RTVI_EMBED_KAFKA_TOPIC`), which the Search analytics
+  owner filters into `mdx-embed-filtered` (see `services/search.md` for the full
+  write path).
 - `HF_TOKEN` is required only for gated or authenticated Hugging Face access.
 - Redis is required only when Redis error messages are enabled.
 
@@ -20,9 +23,15 @@
 | `RTVI_EMBED_IMAGE`, `RTVI_EMBED_TAG`, `RTVI_EMBED_PORT`, `RT_EMBED_DEVICE_ID` | Select image, host port, and GPU. |
 | `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`, `MODEL_REPOSITORY_SCRIPT_PATH` | Select a supported embedding model implementation. |
 | `RTVI_EMBED_NUM_VLM_PROCS`, `RTVI_EMBED_NUM_GPUS`, `VLM_BATCH_SIZE` | Tune execution parallelism. |
-| `RTVI_EMBED_KAFKA_ENABLED`, `RTVI_EMBED_KAFKA_TOPIC`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding events. |
+| `RTVI_EMBED_KAFKA_ENABLED`, `RTVI_EMBED_KAFKA_TOPIC`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding event publishing (see note below). |
 | `RTVI_EMBED_HF_CACHE`, `NGC_MODEL_CACHE`, `HF_TOKEN`, `NGC_API_KEY` | Configure model caches and credentials. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
+
+The Search Foundation defaults `RTVI_EMBED_KAFKA_ENABLED=false`. Any build that
+includes `rtvi-embed` for event ingestion into Elasticsearch must set
+`RTVI_EMBED_KAFKA_ENABLED=true` and `RTVI_EMBED_KAFKA_TOPIC=mdx-embed` in its
+`override.env`. Without this override the embedding write path is broken:
+RT-Embed produces no Kafka output and `mdx-embed-filtered` remains empty.
 
 ## Sources
 

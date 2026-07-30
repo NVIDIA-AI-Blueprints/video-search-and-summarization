@@ -15,6 +15,15 @@
 - Use `elasticsearch-init-container` with `elasticsearch`.
 - Use `kafka-topic-init-container` and `broker-health-check` with Kafka-backed
   capability owners.
+- `logstash` is the **sole** bridge from Kafka topics to Elasticsearch. No other
+  selected service writes Kafka events into ES indices. A build that publishes to
+  Kafka and stores in Elasticsearch must include `logstash`; omitting it leaves
+  the requested ES storage permanently empty.
+- `logstash` requires the broker and the profile's selected `STREAM_TYPE`.
+- When the selected Foundation ships `kibana` and a `kibana-init-container-*`
+  key, retain both in any delta that stores data in Elasticsearch — they are the
+  browse surface for that data and are not pruned by forward closure. Do not add
+  `kibana` to a Foundation that does not ship it.
 - Use exactly the dashboard initializer matching the selected Foundation.
 - To browse more than one capability's indices from a single Kibana, converge on
   one merged saved-object bundle imported by a single initializer, never two:
@@ -24,7 +33,6 @@
   single-profile one it imports; do not add a second profile's initializer. Where a
   merged bundle already ships, it is the drop-in for that patch (see
   `search-and-alerts-kibana-objects.ndjson` in Sources).
-- `logstash` requires the broker and the profile's selected `STREAM_TYPE`.
 - `redis` may be used without the full ELK/Kafka set when it is only a cache.
 
 ## Configuration knobs

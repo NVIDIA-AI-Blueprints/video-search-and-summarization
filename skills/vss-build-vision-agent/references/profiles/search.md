@@ -6,6 +6,7 @@
   Elasticsearch retrieval, and default-enabled VLM critique.
 - Choose for natural-language video search or combined ingestion + detection +
   embedding requests.
+- See `services/rt-cv.md` for detector model-family → Foundation mapping.
 
 ## Profile Service Set
 

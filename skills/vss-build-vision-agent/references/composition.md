@@ -195,10 +195,12 @@ Create a file under `patches/` only when:
 - an existing service definition must change in a way Compose env interpolation
   cannot express.
 
-A patch may contain only the changed or new `services:` entries. Reuse the
-canonical service key. Do not copy unchanged services, volumes, networks, or
-profile files. Add multiple patch paths after the root file when multiple
-service definitions change.
+A patch may contain only the changed or new `services:` entries under the
+canonical service key. The patch **filename** must be
+`patches/<canonical-COMPOSE_PROFILES-key>.yml` — the same key the service uses
+in `COMPOSE_PROFILES`, not a shortened or generic name. Do not copy unchanged
+services, volumes, networks, or profile files. Add multiple patch paths after
+the root file when multiple service definitions change.
 
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
