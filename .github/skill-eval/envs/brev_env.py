@@ -17,6 +17,9 @@ Task.toml [metadata] fields consumed:
     min_root_disk_gb      — root-disk floor enforced post-resolve
     min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
+    nemoclaw_sample_files — (optional) allowlisted sample MP4s staged into
+                            the isolated NemoClaw sandbox without forwarding
+                            the host's NGC credential
 """
 
 from __future__ import annotations
@@ -70,6 +73,18 @@ NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
 # bind a rebuilt image to stale same-name runtime state.
 NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc097-c5"
 MAX_SETUP_DIAGNOSTIC_INPUT_CHARS = 4 * 1024 * 1024
+NEMOCLAW_SAMPLE_FILES_ALLOWLIST = frozenset(
+    {
+        "sample-drone-bridge.mp4",
+        "sample-sim-box-conveyor.mp4",
+        "sample-sim-jaywalking.mp4",
+        "sample-sim-traffic.mp4",
+        "sample-warehouse-ladder.mp4",
+        "warehouse_sample.mp4",
+        "warehouse_safety_0001.mp4",
+        "warehouse_safety_0002.mp4",
+    }
+)
 
 
 def _is_transient_brev_transport_error(message: str | None) -> bool:
@@ -140,6 +155,33 @@ def _uses_nemoclaw(meta: dict) -> bool:
     """Return True when task metadata opts into the NemoClaw runner."""
     runner = str(meta.get("runner", "")).strip().lower()
     return runner == "nemoclaw" or bool(meta.get("requires_nemoclaw"))
+
+
+def _nemoclaw_sample_files(meta: dict) -> tuple[str, ...]:
+    """Return validated sample fixtures requested by task metadata.
+
+    The filenames are deliberately closed over the published VSS sample-data
+    bundle.  This value becomes part of a remote shell command, so accepting
+    arbitrary paths (or even arbitrary basenames) would cross the host/sandbox
+    trust boundary.
+    """
+    raw = meta.get("nemoclaw_sample_files")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise RuntimeError(
+            "nemoclaw_sample_files metadata must be a TOML array"
+        )
+
+    validated: list[str] = []
+    for value in raw:
+        if not isinstance(value, str) or value not in NEMOCLAW_SAMPLE_FILES_ALLOWLIST:
+            raise RuntimeError(
+                "nemoclaw_sample_files contains an unsupported filename"
+            )
+        if value not in validated:
+            validated.append(value)
+    return tuple(validated)
 
 
 def _nemoclaw_attempt_owner_token() -> str | None:
@@ -965,6 +1007,10 @@ echo "host data purge OK:${purged:- nothing to purge}"
         if isinstance(required_tools, str):
             required_tools = [required_tools]
         required_tools_csv = ",".join(str(tool) for tool in required_tools)
+        sample_files = _nemoclaw_sample_files(meta)
+        sample_files_shell = " ".join(
+            shlex.quote(filename) for filename in sample_files
+        )
 
         remote_setup_timeout = int(os.environ.get("NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC", "3300"))
         cell_timeout = int(os.environ.get("NEMOCLAW_SETUP_CELL_TIMEOUT", "2700"))
@@ -1392,6 +1438,136 @@ python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --env-out /tmp/skill-eval/nemoclaw/nemoclaw.env \
   --timeout {cell_timeout}
 stage "notebook setup adapter completed"
+sample_files=({sample_files_shell})
+if [ "${{#sample_files[@]}}" -gt 0 ]; then
+  # The OpenClaw sandbox intentionally never receives NGC_CLI_API_KEY. Fetch
+  # the public VSS sample bundle on the trusted host, cache it under the repo's
+  # preserved data/ tree, then bridge only explicitly allowlisted MP4s.
+  sample_cache_root="$REPO/data"
+  sample_cache_dir="$sample_cache_root/dev-profile-sample-data"
+  sample_bundle_dir="$sample_cache_root/dev-profile-sample-data_v3.2.0"
+  sample_bundle_archive="$sample_bundle_dir/dev-profile-sample-data.tar.gz"
+  if [ -L "$sample_cache_root" ] || [ -L "$sample_cache_dir" ] || \
+     [ -L "$sample_bundle_dir" ]; then
+    echo "Refusing symlinked NemoClaw sample fixture cache paths" >&2
+    exit 1
+  fi
+  mkdir -p "$sample_cache_root" "$sample_cache_dir"
+  repo_resolved="$(realpath -- "$REPO")"
+  sample_cache_root_resolved="$(realpath -- "$sample_cache_root")"
+  if [ "$sample_cache_root_resolved" != "$repo_resolved/data" ]; then
+    echo "NemoClaw sample fixture cache escapes the synced repository" >&2
+    exit 1
+  fi
+  missing_sample=0
+  for sample_file in "${{sample_files[@]}}"; do
+    if [ ! -s "$sample_cache_dir/$sample_file" ] || \
+       [ -L "$sample_cache_dir/$sample_file" ]; then
+      missing_sample=1
+    fi
+  done
+  if [ "$missing_sample" -ne 0 ]; then
+    if [ ! -s "$sample_bundle_archive" ] || [ -L "$sample_bundle_archive" ]; then
+      ngc_bin="$(type -P ngc 2>/dev/null || true)"
+      if [ -z "$ngc_bin" ]; then
+        echo "NemoClaw sample fixture staging requires the host NGC CLI" >&2
+        exit 1
+      fi
+      if [ -z "${{NGC_CLI_API_KEY:-${{NGC_API_KEY:-}}}}" ]; then
+        echo "NemoClaw sample fixture staging requires the host NGC credential" >&2
+        exit 1
+      fi
+      rm -rf -- "$sample_bundle_dir"
+      stage "downloading the pinned VSS sample-data bundle on the trusted host"
+      (
+        cd "$sample_cache_root"
+        "$ngc_bin" registry resource download-version \
+          nvidia/vss-developer/dev-profile-sample-data:3.2.0 \
+          --org nvidia --team vss-developer
+      )
+    fi
+    if [ -L "$sample_bundle_dir" ] || [ ! -s "$sample_bundle_archive" ] || \
+       [ -L "$sample_bundle_archive" ]; then
+      echo "Pinned VSS sample-data archive is missing after download" >&2
+      exit 1
+    fi
+    rm -rf -- "$sample_cache_dir"
+    tar --no-same-owner --no-same-permissions \
+      -xzf "$sample_bundle_archive" -C "$sample_cache_root"
+    if [ -L "$sample_cache_dir" ]; then
+      echo "Pinned VSS sample-data archive produced an unsafe cache path" >&2
+      exit 1
+    fi
+  fi
+
+  gateway_name="nemoclaw"
+  if [ "$gateway_port" != "8080" ]; then
+    gateway_name="nemoclaw-$gateway_port"
+  fi
+  openshell_bin="$(type -P openshell 2>/dev/null || true)"
+  if [ -z "$openshell_bin" ]; then
+    echo "NemoClaw sample fixture staging requires OpenShell" >&2
+    exit 1
+  fi
+  sandbox_sample_dir="/tmp/vss-sample-data/dev-profile-sample-data"
+  /usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT \
+    -u NGC_CLI_API_KEY -u NGC_API_KEY \
+    "$openshell_bin" -g "$gateway_name" sandbox exec \
+    --name "$NEMOCLAW_SANDBOX_NAME" -- \
+    mkdir -p "$sandbox_sample_dir"
+  for sample_file in "${{sample_files[@]}}"; do
+    sample_source="$sample_cache_dir/$sample_file"
+    if [ ! -f "$sample_source" ] || [ -L "$sample_source" ] || \
+       [ ! -s "$sample_source" ]; then
+      echo "Requested VSS sample fixture is unavailable: $sample_file" >&2
+      exit 1
+    fi
+    sample_source_resolved="$(realpath -- "$sample_source")"
+    sample_cache_resolved="$(realpath -- "$sample_cache_dir")"
+    case "$sample_source_resolved" in
+      "$sample_cache_resolved"/*) ;;
+      *)
+        echo "Requested VSS sample fixture escapes the trusted cache" >&2
+        exit 1
+        ;;
+    esac
+    stage "staging allowlisted sample fixture in NemoClaw: $sample_file"
+    /usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT \
+      -u NGC_CLI_API_KEY -u NGC_API_KEY \
+      "$openshell_bin" -g "$gateway_name" sandbox upload \
+      "$NEMOCLAW_SANDBOX_NAME" "$sample_source_resolved" \
+      "$sandbox_sample_dir/" --no-git-ignore
+    /usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT \
+      -u NGC_CLI_API_KEY -u NGC_API_KEY \
+      "$openshell_bin" -g "$gateway_name" sandbox exec \
+      --name "$NEMOCLAW_SANDBOX_NAME" -- \
+      test -s "$sandbox_sample_dir/$sample_file"
+  done
+  python3 - "$sandbox_sample_dir" "${{sample_files[@]}}" <<'__NEMOCLAW_SAMPLE_REPORT__'
+import json
+import sys
+from pathlib import Path
+
+output = Path("/tmp/skill-eval/nemoclaw/sample-fixtures.json")
+output.write_text(
+    json.dumps(
+        {{
+            "canonical_dir": sys.argv[1],
+            "files": sys.argv[2:],
+            "resource": (
+                "nvidia/vss-developer/"
+                "dev-profile-sample-data:3.2.0"
+            ),
+            "schema_version": 1,
+        }},
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+output.chmod(0o600)
+__NEMOCLAW_SAMPLE_REPORT__
+fi
 python3 .github/skill-eval/nemoclaw/readiness.py \
   --env-file /tmp/skill-eval/nemoclaw/nemoclaw.env \
   --required-tools {shlex.quote(required_tools_csv)} \
@@ -1421,7 +1597,7 @@ if [ "$setup_rc" -ne 0 ]; then
   fi
 fi
 artifact_copy_rc=0
-for artifact_name in setup.executed.ipynb readiness-summary.json setup-failure.json; do
+for artifact_name in setup.executed.ipynb readiness-summary.json setup-failure.json sample-fixtures.json; do
   artifact_path="/tmp/skill-eval/nemoclaw/$artifact_name"
   if [ -f "$artifact_path" ] && [ ! -L "$artifact_path" ]; then
     if ! cp -- "$artifact_path" "/logs/artifacts/nemoclaw/$artifact_name"; then

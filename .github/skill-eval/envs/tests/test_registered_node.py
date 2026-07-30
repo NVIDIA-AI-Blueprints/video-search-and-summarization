@@ -287,6 +287,37 @@ class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
+    def test_sample_fixture_metadata_is_closed_over_published_bundle(self):
+        self.assertEqual(
+            brev_env._nemoclaw_sample_files(
+                {
+                    "nemoclaw_sample_files": [
+                        "warehouse_safety_0001.mp4",
+                        "warehouse_safety_0001.mp4",
+                        "warehouse_sample.mp4",
+                    ]
+                }
+            ),
+            (
+                "warehouse_safety_0001.mp4",
+                "warehouse_sample.mp4",
+            ),
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "unsupported filename",
+        ):
+            brev_env._nemoclaw_sample_files(
+                {"nemoclaw_sample_files": ["../../etc/passwd"]}
+            )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "must be a TOML array",
+        ):
+            brev_env._nemoclaw_sample_files(
+                {"nemoclaw_sample_files": "warehouse_sample.mp4"}
+            )
+
     def test_attempt_owner_marker_is_optional_and_ci_scoped(self):
         with mock.patch.dict(
             os.environ,
@@ -1193,6 +1224,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 'exec "$@"\n',
                 encoding="utf-8",
             )
+
             fake_sudo.chmod(0o755)
             fake_apt = fake_bin / "apt-get"
             fake_apt.write_text(
@@ -1314,7 +1346,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "for artifact_name in setup.executed.ipynb "
-            "readiness-summary.json setup-failure.json",
+            "readiness-summary.json setup-failure.json sample-fixtures.json",
             command,
         )
         self.assertNotIn(
@@ -2105,6 +2137,102 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 "Refusing to repair through symlinked",
                 rejected_parent.stderr,
             )
+
+    async def test_nemoclaw_setup_stages_allowlisted_sample_without_secret(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._ensure_nemoclaw_ready(
+                {
+                    "nemoclaw_sample_files": [
+                        "warehouse_safety_0001.mp4",
+                    ]
+                }
+            )
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertIn(
+            "sample_files=(warehouse_safety_0001.mp4)",
+            command,
+        )
+        self.assertIn(
+            "nvidia/vss-developer/dev-profile-sample-data:3.2.0",
+            command,
+        )
+        self.assertIn(
+            '"$openshell_bin" -g "$gateway_name" sandbox upload',
+            command,
+        )
+        self.assertIn(
+            '"$openshell_bin" -g "$gateway_name" sandbox exec',
+            command,
+        )
+        self.assertIn(
+            'test -s "$sandbox_sample_dir/$sample_file"',
+            command,
+        )
+        self.assertIn(
+            "/usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT",
+            command,
+        )
+        self.assertGreaterEqual(command.count("-u NGC_CLI_API_KEY"), 3)
+        self.assertGreaterEqual(command.count("-u NGC_API_KEY"), 3)
+        self.assertIn("sample-fixtures.json", command)
+        self.assertNotIn("export NGC_CLI_API_KEY=", command)
+        self.assertLess(
+            command.index("notebook setup adapter completed"),
+            command.index("staging allowlisted sample fixture"),
+        )
+        self.assertLess(
+            command.index("staging allowlisted sample fixture"),
+            command.index(
+                "python3 .github/skill-eval/nemoclaw/readiness.py"
+            ),
+        )
+
+    async def test_nemoclaw_setup_rejects_untrusted_sample_before_remote_exec(self):
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+        ) as remote_exec:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "unsupported filename",
+            ):
+                await env._ensure_nemoclaw_ready(
+                    {
+                        "nemoclaw_sample_files": [
+                            "not-a-vss-sample.mp4",
+                        ]
+                    }
+                )
+
+        remote_exec.assert_not_called()
 
     async def test_nemoclaw_setup_exception_uses_secret_safe_categories(self):
         raw_secret = "sk-secret-value"
