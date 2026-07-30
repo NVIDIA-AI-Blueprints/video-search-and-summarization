@@ -21,13 +21,20 @@ current/completed cycle, compliance status, all violations, unique actions, and 
 recent-activity and incident-adapter variants. There is **no** report service, VSS
 agent, web UI, or report LLM in this integration.
 
+When a request bundles the compliance report with the SOP deployment, produce it with
+`/vss-generate-video-report` (Mode C) after the stack is verified — **prefer invoking it via
+the Skill tool** over re-implementing its steps inline, so the report follows the Mode C
+contract (exact `# SOP Compliance Report` title + template sections). (The SOP tools are
+already up by then, so Mode C's prerequisite is satisfied and it will not hand back to
+`/vss-build-vision-agent`.)
+
 ## Required peers
 
 - **ELK** — Elasticsearch (`get_sop_*` reads `mdx-vlm-captions-*`), Logstash (the SOP
   JSON pipeline `sop/sop-vlm-captions-json-logstash.conf` — materialized at build time as a
   build-local overlay + `patches/logstash.yml`; the stock `mdx-lvs` pipeline decodes this topic as protobuf), Kibana. See `services/elk.md`.
 - **Kafka** — DS-SOP publishes per-chunk SOP JSON on `DEFAULT_TOPIC=mdx-vlm-captions`.
-- **VIOS** — registers DS-SOP's annotated `:8554/ds-out` output (`sensor/add` + `camera_streaming`). Persisting it to disk needs a recorder microservice current profiles don't ship — **pending** (see `sop/deploy-ds-sop.md`). See `services/vios.md`.
+- **VIOS** — registers DS-SOP's annotated `:8554/ds-out` output (`sensor/add` + `camera_streaming`) **when the input is a live `rtsp://`/camera source; the on-demand file path binds no `:8554` stream, so this wiring does not apply there**. Persisting it to disk needs a recorder microservice current profiles don't ship — **pending** (see `sop/deploy-ds-sop.md`). See `services/vios.md`.
 - DS-SOP occupies the perception slot — **do not also select RT-VLM** (both target
   `mdx-vlm-captions` and the GPU).
 - The report tools **reuse the existing `vss-va-mcp`** service (self-named key
@@ -57,7 +64,8 @@ Redis, VIOS, and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
   (`patches/vss-va-mcp.yml` — an added bind mount env interpolation cannot express,
   per `composition.md § Artifact contract`).
 
-The DS-SOP → VIOS recording/API wiring is the deploy-time step the Compose patch cannot cover
+The DS-SOP → VIOS recording/API wiring (a **live-source** deploy-time step — not exercised on the
+on-demand file path, which binds no `:8554` stream) is the step the Compose patch cannot cover
 — see `sop/deploy-ds-sop.md`. (The SOP JSON Logstash pipeline is materialized at **build time**:
 a build-local overlay of the stock logstash tree with the SOP `.conf` + a new `pipeline.id`, plus
 `patches/logstash.yml` repointing logstash's volume source — deployment only recreates logstash.)
