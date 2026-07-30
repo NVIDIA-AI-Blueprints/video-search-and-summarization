@@ -2954,6 +2954,18 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 ],
             },
         }
+        compaction = {
+            "type": "compaction",
+            "id": "compaction-1",
+            "parentId": "assistant-retained",
+            "summary": "must not become an ATIF step",
+            "firstKeptEntryId": "assistant-retained",
+            "tokensBefore": 42000,
+        }
+        compaction_successor = {
+            **compaction,
+            "firstKeptEntryId": "assistant-guard",
+        }
         root_jsonl = "\n".join(
             json.dumps(record)
             for record in (
@@ -2998,6 +3010,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                     },
                 },
                 retained,
+                compaction,
             )
         )
         leaf_jsonl = "\n".join(
@@ -3008,12 +3021,8 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                     "id": "run-leaf",
                     "parentSession": root_session,
                 },
-                {
-                    "type": "compaction",
-                    "id": "compaction-1",
-                    "summary": "must not become an ATIF step",
-                },
                 retained_successor,
+                compaction_successor,
                 {
                     "type": "message",
                     "id": "assistant-final",
@@ -3093,6 +3102,11 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             published_session = (
                 artifact_dir / "openclaw.session.jsonl"
             ).read_text(encoding="utf-8")
+            published_records = [
+                json.loads(line)
+                for line in published_session.splitlines()
+                if line.strip()
+            ]
 
         self.assertEqual(report["session_chain_depth"], 2)
         self.assertEqual(
@@ -3119,7 +3133,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             ],
             ["(no assistant text)", "retained turn", "finished"],
         )
-        self.assertEqual(published_session.count("assistant-retained"), 1)
+        published_ids = [record.get("id") for record in published_records]
+        self.assertEqual(published_ids.count("assistant-retained"), 1)
+        self.assertEqual(published_ids.count("compaction-1"), 1)
         self.assertNotIn("must not become an ATIF step", json.dumps(trajectory))
         self.assertEqual(len(scripts), 2)
         self.assertIn("run-leaf.jsonl", scripts[0])
@@ -3169,6 +3185,36 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 [
                     ("root.jsonl", first),
                     ("leaf.jsonl", second),
+                ]
+            )
+
+    def test_openclaw_session_merge_rejects_changed_compaction_summary(self):
+        original = json.dumps(
+            {
+                "type": "compaction",
+                "id": "same-id",
+                "parentId": "kept-user",
+                "summary": "original summary",
+                "firstKeptEntryId": "kept-user",
+                "tokensBefore": 42000,
+            }
+        )
+        successor = json.dumps(
+            {
+                "type": "compaction",
+                "id": "same-id",
+                "parentId": "preserved-assistant",
+                "summary": "changed summary",
+                "firstKeptEntryId": "preserved-assistant",
+                "tokensBefore": 42000,
+            }
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "different content"):
+            headless_runner._merge_openclaw_session_chain(
+                [
+                    ("root.jsonl", original),
+                    ("leaf.jsonl", successor),
                 ]
             )
 

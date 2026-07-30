@@ -574,6 +574,10 @@ def _merge_openclaw_session_chain(
         """Remove only fields OpenClaw rewrites during compaction rotation."""
         comparable = dict(record)
         comparable.pop("parentId", None)
+        if comparable.get("type") == "compaction":
+            # Successor rotation moves this boundary back to the preserved
+            # assistant turn while retaining the compaction record's id.
+            comparable.pop("firstKeptEntryId", None)
         if comparable.get("type") == "message":
             message = comparable.get("message")
             if (
