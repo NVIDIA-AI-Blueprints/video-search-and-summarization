@@ -704,8 +704,8 @@ run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "ba
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
-# L40S forbids local_shared for LLM/VLM; search profile default is local_shared for LLM (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
-LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d
+# L40S forbids local_shared for LLM/VLM; the search profile shares both GPUs (devices 0,1 in FIXED_SHARED), so LLM and VLM must both be remote for L40S to be allowed.
+LLM_ENDPOINT_URL=http://127.0.0.1:1 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x --use-remote-vlm --vlm my-remote-vlm -d
 
 _out_compose_env_order="$(mktemp)"
 _err_compose_env_order="$(mktemp)"
