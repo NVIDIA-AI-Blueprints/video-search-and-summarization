@@ -18,12 +18,16 @@ import argparse
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 
 SANDBOX_NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,61}[a-z0-9]|[a-z]")
 CONTAINER_ID_RE = re.compile(r"[0-9a-f]{64}")
 IMAGE_ID_RE = re.compile(r"sha256:[0-9a-f]{64}")
+PATH_TYPE_PROBE_ATTEMPTS = 3
+PATH_TYPE_PROBE_RETRY_DELAY_SECONDS = 3.0
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
+Sleep = Callable[[float], None]
 
 
 class DirectContainerPreflightError(RuntimeError):
@@ -92,39 +96,64 @@ def _list_candidates(
 
 
 def _require_path_type(
+    sandbox_name: str,
+    candidates: list[tuple[str, str]],
     container_id: str,
     path: str,
     expected_type: str,
     *,
     run: RunCommand,
+    sleep: Sleep,
+    attempts: int,
     failure_code: str,
 ) -> None:
-    actual = _run_checked(
-        [
-            "docker",
-            "exec",
-            "--env",
-            "LC_ALL=C",
-            "--user",
-            "root",
-            container_id,
-            "/usr/bin/stat",
-            "-c",
-            "%F",
-            "--",
-            path,
-        ],
-        run=run,
-        failure_code=failure_code,
-    ).strip()
-    if actual != expected_type:
-        raise DirectContainerPreflightError(failure_code)
+    if attempts < 1:
+        raise ValueError("path type probe attempts must be positive")
+    argv = [
+        "docker",
+        "exec",
+        "--env",
+        "LC_ALL=C",
+        "--user",
+        "root",
+        container_id,
+        "/usr/bin/stat",
+        "-c",
+        "%F",
+        "--",
+        path,
+    ]
+    for attempt in range(attempts):
+        # Onboarding can report success while the final OpenClaw restart is
+        # still settling. Retry only failed execs, and prove the same labeled
+        # singleton still owns the sandbox before every subsequent probe.
+        try:
+            result = run(
+                argv,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None and result.returncode == 0:
+            if (result.stdout or "").strip() != expected_type:
+                raise DirectContainerPreflightError(failure_code)
+            return
+        if attempt + 1 == attempts:
+            raise DirectContainerPreflightError(failure_code)
+        sleep(PATH_TYPE_PROBE_RETRY_DELAY_SECONDS)
+        if _list_candidates(sandbox_name, run=run) != candidates:
+            raise DirectContainerPreflightError("container_identity_changed")
 
 
 def verify_direct_container(
     sandbox_name: str,
     *,
     run: RunCommand = subprocess.run,
+    sleep: Sleep = time.sleep,
+    path_probe_attempts: int = PATH_TYPE_PROBE_ATTEMPTS,
 ) -> None:
     """Verify the singleton container selected by NemoClaw's repair path."""
     if SANDBOX_NAME_RE.fullmatch(sandbox_name) is None:
@@ -159,24 +188,36 @@ def verify_direct_container(
         raise DirectContainerPreflightError("container_identity_invalid")
 
     _require_path_type(
+        sandbox_name,
+        candidates,
         container_id,
         "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py",
         "regular file",
         run=run,
+        sleep=sleep,
+        attempts=path_probe_attempts,
         failure_code="repair_helper_invalid",
     )
     _require_path_type(
+        sandbox_name,
+        candidates,
         container_id,
         "/sandbox/.openclaw",
         "directory",
         run=run,
+        sleep=sleep,
+        attempts=path_probe_attempts,
         failure_code="openclaw_config_directory_invalid",
     )
     _require_path_type(
+        sandbox_name,
+        candidates,
         container_id,
         "/sandbox/.openclaw/openclaw.json",
         "regular file",
         run=run,
+        sleep=sleep,
+        attempts=path_probe_attempts,
         failure_code="openclaw_config_file_invalid",
     )
     for identity_flag in ("-u", "-g"):

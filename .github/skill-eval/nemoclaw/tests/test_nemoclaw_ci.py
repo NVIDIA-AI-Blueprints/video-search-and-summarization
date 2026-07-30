@@ -278,7 +278,157 @@ class DirectContainerPreflightTest(unittest.TestCase):
                 direct_container_preflight.verify_direct_container(
                     self.SANDBOX,
                     run=runner,
+                    sleep=lambda _seconds: None,
                 )
+
+    def test_retries_transient_path_probe_and_revalidates_candidate(self):
+        helper_path = (
+            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
+        )
+        base_runner = self._runner()
+        helper_calls = 0
+        candidate_calls = 0
+        delays = []
+
+        def transient_runner(argv, **kwargs):
+            nonlocal candidate_calls, helper_calls
+            if argv[1] == "ps":
+                candidate_calls += 1
+            if (
+                argv[1] == "exec"
+                and "/usr/bin/stat" in argv
+                and argv[-1] == helper_path
+            ):
+                helper_calls += 1
+                if helper_calls == 1:
+                    raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            return base_runner(argv, **kwargs)
+
+        direct_container_preflight.verify_direct_container(
+            self.SANDBOX,
+            run=transient_runner,
+            sleep=delays.append,
+            path_probe_attempts=2,
+        )
+
+        self.assertEqual(helper_calls, 2)
+        self.assertEqual(candidate_calls, 3)
+        expected_delay = (
+            direct_container_preflight.PATH_TYPE_PROBE_RETRY_DELAY_SECONDS
+        )
+        self.assertEqual(
+            delays,
+            [expected_delay],
+        )
+
+    def test_persistent_path_probe_failure_exhausts_bounded_attempts(self):
+        helper_path = (
+            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
+        )
+        base_runner = self._runner()
+        helper_calls = 0
+        delays = []
+
+        def failing_runner(argv, **kwargs):
+            nonlocal helper_calls
+            if (
+                argv[1] == "exec"
+                and "/usr/bin/stat" in argv
+                and argv[-1] == helper_path
+            ):
+                helper_calls += 1
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    "",
+                    "container is restarting",
+                )
+            return base_runner(argv, **kwargs)
+
+        with self.assertRaisesRegex(
+            direct_container_preflight.DirectContainerPreflightError,
+            "repair_helper_invalid",
+        ):
+            direct_container_preflight.verify_direct_container(
+                self.SANDBOX,
+                run=failing_runner,
+                sleep=delays.append,
+                path_probe_attempts=3,
+            )
+
+        self.assertEqual(helper_calls, 3)
+        self.assertEqual(len(delays), 2)
+
+    def test_successful_wrong_path_type_fails_without_retry(self):
+        helper_path = (
+            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
+        )
+        runner = self._runner(
+            path_types={
+                helper_path: "symbolic link",
+                "/sandbox/.openclaw": "directory",
+                "/sandbox/.openclaw/openclaw.json": "regular file",
+            }
+        )
+        delays = []
+
+        with self.assertRaisesRegex(
+            direct_container_preflight.DirectContainerPreflightError,
+            "repair_helper_invalid",
+        ):
+            direct_container_preflight.verify_direct_container(
+                self.SANDBOX,
+                run=runner,
+                sleep=delays.append,
+                path_probe_attempts=3,
+            )
+
+        self.assertEqual(delays, [])
+
+    def test_path_probe_retry_refuses_candidate_identity_change(self):
+        helper_path = (
+            "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
+        )
+        initial = (
+            f"{self.CONTAINER_ID}\topenshell-{self.SANDBOX}-runtime\n"
+        )
+        replacement = (
+            f"{'c' * 64}\topenshell-{self.SANDBOX}-replacement\n"
+        )
+        base_runner = self._runner(candidates=initial)
+        candidate_calls = 0
+
+        def changing_runner(argv, **kwargs):
+            nonlocal candidate_calls
+            if argv[1] == "ps":
+                candidate_calls += 1
+                candidates = initial if candidate_calls == 1 else replacement
+                return subprocess.CompletedProcess(argv, 0, candidates, "")
+            if (
+                argv[1] == "exec"
+                and "/usr/bin/stat" in argv
+                and argv[-1] == helper_path
+            ):
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    "",
+                    "container is restarting",
+                )
+            return base_runner(argv, **kwargs)
+
+        with self.assertRaisesRegex(
+            direct_container_preflight.DirectContainerPreflightError,
+            "container_identity_changed",
+        ):
+            direct_container_preflight.verify_direct_container(
+                self.SANDBOX,
+                run=changing_runner,
+                sleep=lambda _seconds: None,
+                path_probe_attempts=2,
+            )
+
+        self.assertEqual(candidate_calls, 2)
 
     def test_rejects_container_identity_change_after_inspection(self):
         initial = (
