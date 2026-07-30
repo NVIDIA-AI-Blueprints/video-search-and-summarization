@@ -40,7 +40,12 @@ Toggle via environment:
   (the default) serves plain HTTP. Only ``true``/``false`` are accepted (case-
   insensitive). HTTPS is never inferred from cert/key presence.
 - When ``ORCHESTRATOR_ENABLE_HTTPS=true``, ``ORCHESTRATOR_CERTFILE`` and
-  ``ORCHESTRATOR_KEYFILE`` are both required.
+  ``ORCHESTRATOR_KEYFILE`` are both required and must point at existing PEM
+  files. This module does not invent default paths — callers must set them.
+  The deploy notebook defaults blank values to
+  ``.orchestrator-artifacts/orchestrator_mcp_{cert,key}.pem`` and generates a
+  self-signed pair when both are missing before exporting the env to the
+  serve process.
 - When ``ORCHESTRATOR_ENABLE_HTTPS=false``, cert/key vars are ignored (plain HTTP,
   identical to the stock worker).
 
@@ -84,6 +89,9 @@ def https_enabled() -> bool:
 
 def resolve_ssl_paths() -> tuple[str | None, str | None]:
     """Return ``(certfile, keyfile)`` when HTTPS is enabled, else ``(None, None)``.
+
+    Paths come only from ``ORCHESTRATOR_CERTFILE`` / ``ORCHESTRATOR_KEYFILE`` —
+    there is no built-in default.
 
     Raises:
         ValueError: if HTTPS is enabled but either cert or key env var is unset.
