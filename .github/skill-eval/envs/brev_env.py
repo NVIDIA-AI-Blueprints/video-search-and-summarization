@@ -1004,6 +1004,16 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             'export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH";',
             "source ~/.profile 2>/dev/null;",
         ]
+        # Ensure /logs/verifier is writable before the verifier exec —
+        # Harbor's verifier phase redirects test-stdout.txt there, and the
+        # directory can become root-owned between start() and verifier exec
+        # (observed on warm-pool boxes where artifact collection or a
+        # concurrent process recreates it as root). Only trigger when the
+        # command redirects to /logs/verifier/ (the verifier stdout pattern).
+        if "/logs/verifier/" in command:
+            parts.append(
+                "sudo chown -R $(whoami):$(id -gn) /logs/verifier 2>/dev/null || true;"
+            )
         if env:
             for k, v in env.items():
                 parts.append(f"export {shlex.quote(k)}={shlex.quote(v)};")
