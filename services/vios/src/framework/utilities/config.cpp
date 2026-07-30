@@ -21,6 +21,11 @@
 #include "boost/regex.hpp"
 #include "mm_utils.h"
 #include "unified_storage_types.h"
+#include "network_utils.h"
+#include "utils.h"
+
+#include <chrono>
+#include <thread>
 
 
 using namespace nv_vms;
@@ -762,7 +767,9 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.enable_gem_drawing = overlay.get("enable_gem_drawing", false).asBool();
         m_vmsConfig.analytic_server_address = overlay.get("analytic_server_address", "").asString();
         m_vmsConfig.calibration_file_path = overlay.get("calibration_file_path", "").asString();
+        m_vmsConfig.calibration_file_endpoint = overlay.get("calibration_file_endpoint", "").asString();
         m_vmsConfig.floor_map_file_path = overlay.get("floor_map_file_path", "").asString();
+        m_vmsConfig.floormap_image_endpoint = overlay.get("floormap_image_endpoint", "").asString();
         m_vmsConfig.overlay_3d_sensor_name = overlay.get("3d_overlay_sensor_name", "").asString();
         m_vmsConfig.calibration_mode = overlay.get("calibration_mode", "").asString();
         m_vmsConfig.use_camera_groups = overlay.get("use_camera_groups", false).asBool();
@@ -1069,6 +1076,135 @@ void VmsConfigManager::parseOverlayConfigs(const Json::Value& overlay)
                         m_vmsConfig.color_map[key] = rgb;
                     }
                 }
+            }
+        }
+    }
+}
+
+namespace {
+
+constexpr int kOverlayAssetDownloadMaxRetries = 3;
+constexpr int kOverlayAssetDownloadRetrySleepSec = 5;
+
+bool isValidCalibrationJson(const string& payload)
+{
+    Json::Value root = stringToJson(payload);
+    if (root.isNull() || !root.isObject())
+    {
+        return false;
+    }
+    if (!root.isMember("calibrationType") || !root["calibrationType"].isString() ||
+        root["calibrationType"].asString().empty())
+    {
+        return false;
+    }
+    if (!root.isMember("sensors") || !root["sensors"].isArray() || root["sensors"].empty())
+    {
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool VmsConfigManager::downloadOverlayAsset(const string& endpoint, const string& localPath, bool validateCalibrationJson)
+{
+    if (endpoint.empty())
+    {
+        return false;
+    }
+    if (localPath.empty())
+    {
+        LOG(error) << "Overlay asset local path is empty for endpoint: " << endpoint << endl;
+        return false;
+    }
+
+    const string parentDir = getDirPath(localPath);
+    if (!parentDir.empty() && !isDirExist(parentDir))
+    {
+        createDir(parentDir);
+    }
+
+    for (int attempt = 1; attempt <= kOverlayAssetDownloadMaxRetries; ++attempt)
+    {
+        string payload;
+        LOG(info) << "Downloading overlay asset from " << endpoint
+                  << " (attempt " << attempt << "/" << kOverlayAssetDownloadMaxRetries << ")"
+                  << " -> " << localPath << endl;
+
+        if (!curlGetRequest(endpoint, payload) || payload.empty())
+        {
+            LOG(error) << "Failed to download overlay asset from " << endpoint << endl;
+        }
+        else if (validateCalibrationJson && !isValidCalibrationJson(payload))
+        {
+            LOG(error) << "Downloaded calibration JSON from " << endpoint
+                       << " failed validation (need calibrationType + non-empty sensors)" << endl;
+        }
+        else if (!writeBinaryFile(localPath, payload))
+        {
+            LOG(error) << "Failed to write overlay asset to " << localPath << endl;
+        }
+        else
+        {
+            LOG(info) << "Overlay asset saved to " << localPath << endl;
+            return true;
+        }
+
+        if (attempt < kOverlayAssetDownloadMaxRetries)
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(kOverlayAssetDownloadRetrySleepSec));
+        }
+    }
+
+    return false;
+}
+
+void VmsConfigManager::downloadOverlayAssetsFromEndpoints()
+{
+    // Once per process.
+    if (m_overlayAssetsDownloadAttempted)
+    {
+        return;
+    }
+    m_overlayAssetsDownloadAttempted = true;
+
+    if (!m_vmsConfig.calibration_file_endpoint.empty())
+    {
+        const string& destPath = m_vmsConfig.calibration_file_path;
+        if (!downloadOverlayAsset(m_vmsConfig.calibration_file_endpoint,
+                                  destPath,
+                                  true /* validateCalibrationJson */))
+        {
+            if (!destPath.empty() && isFileExist(destPath))
+            {
+                LOG(warning) << "Using existing local calibration file after endpoint download failure: "
+                             << destPath << endl;
+            }
+            else
+            {
+                LOG(error) << "Calibration endpoint download failed and no local file at "
+                           << destPath << "; overlay calibration will not work" << endl;
+            }
+        }
+    }
+
+    if (!m_vmsConfig.floormap_image_endpoint.empty())
+    {
+        const string& destPath = m_vmsConfig.floor_map_file_path;
+        if (!downloadOverlayAsset(m_vmsConfig.floormap_image_endpoint,
+                                  destPath,
+                                  false /* validateCalibrationJson */))
+        {
+            if (!destPath.empty() && isFileExist(destPath))
+            {
+                LOG(warning) << "Using existing local floor map file after endpoint download failure: "
+                             << destPath << endl;
+            }
+            else
+            {
+                LOG(error) << "Floor map endpoint download failed and no local file at "
+                           << destPath << "; overlay floor map will not work" << endl;
             }
         }
     }

@@ -134,6 +134,9 @@ vios:
     enabled: true
     useSdrEnvoyStyleHeadless: false
     headlessServiceName: ""
+    # No bind-mounts in Helm: download overlay assets from video-analytics-api.
+    calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1%2Fregion%3DRegion-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }

@@ -57,10 +57,12 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
             ,enable_gem_drawing(false)
             ,analytic_server_address("localhost:30080/emdat")
             ,calibration_file_path("")
+            ,calibration_file_endpoint("")
             ,calibration_mode("synthetic")
             ,use_camera_groups(true)
             ,enable_recentering(true)
             ,floor_map_file_path("")
+            ,floormap_image_endpoint("")
             ,overlay_3d_sensor_name("")
             ,overlay_text_font_type(DEFAULT_CUOSD_FONT_TYPE)
             ,bbox_debug_font_size(0)
@@ -312,10 +314,12 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
         LOG2(info) << "\tFrame Drop Enabled: "<< enable_frame_drop << endl;
         LOG2(info) << "\tVideo Metadata Server URL: " << video_metadata_server << endl;
         LOG2(info) << "\tCalibration File Path: " << calibration_file_path << endl;
+        LOG2(info) << "\tCalibration File Endpoint: " << calibration_file_endpoint << endl;
         LOG2(info) << "\tCalibration Mode: " << calibration_mode << endl;
         LOG2(info) << "\tUse Camera Groups: " << use_camera_groups << endl;
         LOG2(info) << "\tEnable Recentering: " << enable_recentering << endl;
         LOG2(info) << "\tFloor Map File Path: " << floor_map_file_path << endl;
+        LOG2(info) << "\tFloor Map Image Endpoint: " << floormap_image_endpoint << endl;
         LOG2(info) << "\t3D Overlay Sensor Name: " << overlay_3d_sensor_name << endl;
         LOG2(info) << "\tVideo Metadata Max results fetched: " << video_metadata_query_batch_size_num_frames << endl;
         LOG2(info) << "\tBbox tolerance in millisec: " << bbox_tolerance_ms << endl;
