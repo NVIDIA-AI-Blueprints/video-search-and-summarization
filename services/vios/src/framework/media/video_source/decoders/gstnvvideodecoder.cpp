@@ -3574,11 +3574,15 @@ GstFlowReturn GstNvVideoDecoder::processJpegImageFromSink(GstElement *appsink)
                 {
                     m_transcodeStats.finishProcessing();
                 }
+                /* Mark the capture as served before handing the frame over: the
+                ** consumer chain encodes asynchronously, and an end-of-playback
+                ** notification arriving in between must not release the encoder
+                ** wait on a capture that already has its frame. */
+                m_imageFrameDelivered = true;
                 sink->m_consumer->onFrame (consumer_frame_data);
             }
         }
     }
-    m_imageFrameDelivered = true;
     m_stop = true;
 
 exit_func:
