@@ -361,7 +361,7 @@ Json::Value VmsServer::getAPIInfo()
 
 void VmsServer::checkLibsSanity ()
 {
-#if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
+#if !defined(SENSOR_MODULE)
     NvBufWrapper::getInstance();
     if (isJetsonPlatform())
     {
@@ -374,6 +374,8 @@ void VmsServer::checkLibsSanity ()
     {
         CudaLoader::getInstance();
     }
+    // Overlay assets download at startup for all non-sensor modules (Jetson + x86).
+    nv_vms::VmsConfigManager::getInstance()->downloadOverlayAssetsFromEndpoints();
 #endif
 }
 

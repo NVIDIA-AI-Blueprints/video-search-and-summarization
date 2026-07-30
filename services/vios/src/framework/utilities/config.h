@@ -103,11 +103,16 @@ class VmsConfigManager
         vector<string> getEdgeDeviceHeaders(bool isEdgeDevice);
         bool validateVideoFileExtension(const std::vector<string>& containers, std::string filename);
         void parseOverlayConfigs(const Json::Value& overlay);
+        // Download calibration.json / floor-map image from absolute HTTP endpoints at startup.
+        // Retries a few times; on failure keeps local paths (overlay may not work).
+        void downloadOverlayAssetsFromEndpoints();
     private:
         VmsConfigManager();
+        bool downloadOverlayAsset(const string& endpoint, const string& localPath, bool validateCalibrationJson);
     private:
         DeviceConfig m_vmsConfig;
         vector<shared_ptr<SensorInfo>> m_backlist;
+        bool m_overlayAssetsDownloadAttempted = false;
 };
 
 } //nv_vms
