@@ -22,6 +22,9 @@ from typing import Any
 
 DEFAULT_ENV_OUT = Path("/tmp/skill-eval/nemoclaw/nemoclaw.env")
 DEFAULT_OUTPUT = Path("/tmp/skill-eval/nemoclaw/setup.executed.ipynb")
+# Covers the supported start budget, exec cleanup, and three Docker
+# identity/image attestations without shortening their individual deadlines.
+DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS = 660
 SECRET_TEXT_PATTERNS = (
     (
         re.compile(r"(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+"),
@@ -234,7 +237,7 @@ print(f"Wrote NemoClaw CI env: {_env_out}")
 print(f"Wrote NemoClaw hook token file: {_token_file}")
 '''.strip() + "\n"
 
-DIRECT_CONTAINER_PREFLIGHT_SOURCE = r'''
+DIRECT_CONTAINER_PREFLIGHT_SOURCE = rf'''
 # CI-only guard for NemoClaw v0.0.97's gateway-independent Docker cleanup.
 import subprocess as _ci_subprocess
 import sys as _ci_sys
@@ -249,7 +252,7 @@ _ci_preflight = _ci_subprocess.run(
     capture_output=True,
     text=True,
     check=False,
-    timeout=60,
+    timeout={DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS},
 )
 if _ci_preflight.returncode != 0:
     raise RuntimeError(

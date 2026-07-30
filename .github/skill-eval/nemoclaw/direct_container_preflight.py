@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Verify NemoClaw's direct Docker repair target before CI mutates config.
+"""Verify NemoClaw's direct Docker repair target through its lifecycle CLI.
 
 NemoClaw v0.0.97 routes ordinary OpenShell RPCs through the owning gateway,
 but its post-exec mutable-config repair discovers a container from host Docker
 labels. On a warm multi-user or multi-gateway worker, a stale same-name
 container can therefore be selected independently of the sandbox that handled
-the command. This preflight mirrors that label lookup and fails closed unless
-the singleton target is the freshly built NemoClaw image with the trusted
-repair helper and OpenClaw config tree.
+the command. This preflight mirrors that label lookup, attests the mutable image
+tag against the container's immutable image ID, and uses NemoClaw's supported
+start/exec lifecycle so OpenShell owns activation and post-exec cleanup.
 """
 
 from __future__ import annotations
@@ -18,16 +18,50 @@ import argparse
 import re
 import subprocess
 import sys
-import time
 from collections.abc import Callable, Sequence
 
 SANDBOX_NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,61}[a-z0-9]|[a-z]")
 CONTAINER_ID_RE = re.compile(r"[0-9a-f]{64}")
 IMAGE_ID_RE = re.compile(r"sha256:[0-9a-f]{64}")
-PATH_TYPE_PROBE_ATTEMPTS = 3
-PATH_TYPE_PROBE_RETRY_DELAY_SECONDS = 3.0
+DOCKER_COMMAND_TIMEOUT_SECONDS = 15
+# NemoClaw v0.0.97's supported start probe owns a 300-second readiness
+# budget. Leave process-launch/cleanup margin outside that internal deadline.
+SANDBOX_START_TIMEOUT_SECONDS = 360
+SANDBOX_EXEC_TIMEOUT_SECONDS = 90
+LIFECYCLE_PROBE_SENTINEL = "NEMOCLAW_CI_LIFECYCLE_PREFLIGHT_OK_V1"
+REPAIR_HELPER_PATH = "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
+OPENCLAW_CONFIG_DIR = "/sandbox/.openclaw"
+OPENCLAW_CONFIG_PATH = "/sandbox/.openclaw/openclaw.json"
+SANDBOX_USER = "sandbox"
+LIFECYCLE_PROBE_SOURCE = f"""\
+set -eu
+export LC_ALL=C
+[ "$#" -eq 4 ] || exit 19
+helper=$1
+config_dir=$2
+config_file=$3
+sandbox_user=$4
+[ -f "$helper" ] && [ ! -L "$helper" ] || exit 20
+[ -d "$config_dir" ] && [ ! -L "$config_dir" ] || exit 21
+[ -f "$config_file" ] && [ ! -L "$config_file" ] || exit 22
+sandbox_uid=$(/usr/bin/id -u "$sandbox_user" 2>/dev/null) || exit 23
+sandbox_gid=$(/usr/bin/id -g "$sandbox_user" 2>/dev/null) || exit 23
+case "$sandbox_uid" in ""|*[!0-9]*) exit 23 ;; esac
+case "$sandbox_gid" in ""|*[!0-9]*) exit 23 ;; esac
+[ "$sandbox_uid" -gt 0 ] && [ "$sandbox_gid" -gt 0 ] || exit 23
+printf '%s\\n' '{LIFECYCLE_PROBE_SENTINEL}'
+"""
+LIFECYCLE_PROBE_ARGV = (
+    "/bin/sh",
+    "-c",
+    LIFECYCLE_PROBE_SOURCE,
+    "nemoclaw-ci-preflight",
+    REPAIR_HELPER_PATH,
+    OPENCLAW_CONFIG_DIR,
+    OPENCLAW_CONFIG_PATH,
+    SANDBOX_USER,
+)
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
-Sleep = Callable[[float], None]
 
 
 class DirectContainerPreflightError(RuntimeError):
@@ -45,6 +79,7 @@ def _run_checked(
     *,
     run: RunCommand,
     failure_code: str,
+    timeout: int = DOCKER_COMMAND_TIMEOUT_SECONDS,
 ) -> str:
     try:
         result = run(
@@ -52,10 +87,10 @@ def _run_checked(
             capture_output=True,
             text=True,
             check=False,
-            timeout=15,
+            timeout=timeout,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise DirectContainerPreflightError(failure_code) from exc
+    except (OSError, subprocess.SubprocessError):
+        raise DirectContainerPreflightError(failure_code) from None
     if result.returncode != 0:
         raise DirectContainerPreflightError(failure_code)
     return result.stdout or ""
@@ -95,67 +130,69 @@ def _list_candidates(
     return rows
 
 
-def _require_path_type(
+def _inspect_and_attest_image(
     sandbox_name: str,
-    candidates: list[tuple[str, str]],
     container_id: str,
-    path: str,
-    expected_type: str,
     *,
     run: RunCommand,
-    sleep: Sleep,
-    attempts: int,
-    failure_code: str,
-) -> None:
-    if attempts < 1:
-        raise ValueError("path type probe attempts must be positive")
-    argv = [
-        "docker",
-        "exec",
-        "--env",
-        "LC_ALL=C",
-        "--user",
-        "root",
-        container_id,
-        "/usr/bin/stat",
-        "-c",
-        "%F",
-        "--",
-        path,
-    ]
-    for attempt in range(attempts):
-        # Onboarding can report success while the final OpenClaw restart is
-        # still settling. Retry only failed execs, and prove the same labeled
-        # singleton still owns the sandbox before every subsequent probe.
-        try:
-            result = run(
-                argv,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=15,
-            )
-        except (OSError, subprocess.SubprocessError):
-            result = None
-        if result is not None and result.returncode == 0:
-            if (result.stdout or "").strip() != expected_type:
-                raise DirectContainerPreflightError(failure_code)
-            return
-        if attempt + 1 == attempts:
-            raise DirectContainerPreflightError(failure_code)
-        sleep(PATH_TYPE_PROBE_RETRY_DELAY_SECONDS)
-        if _list_candidates(sandbox_name, run=run) != candidates:
-            raise DirectContainerPreflightError("container_identity_changed")
+) -> tuple[str, str]:
+    inspection = _run_checked(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            (
+                "{{.Config.Image}}\t{{.Image}}\t"
+                "{{.State.Running}}\t{{.State.Paused}}"
+            ),
+            container_id,
+        ],
+        run=run,
+        failure_code="container_inspection_failed",
+    ).strip()
+    fields = inspection.split("\t")
+    if len(fields) != 4:
+        raise DirectContainerPreflightError("container_inspection_invalid")
+    image_ref, image_id, running, paused = fields
+    trusted_image_prefix = f"nemoclaw-sandbox-local:{sandbox_name}-"
+    image_tag = image_ref.removeprefix(trusted_image_prefix)
+    if (
+        image_ref == image_tag
+        or re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", image_tag) is None
+    ):
+        raise DirectContainerPreflightError("container_image_invalid")
+    if (
+        IMAGE_ID_RE.fullmatch(image_id) is None
+        or running != "true"
+        or paused not in {"true", "false"}
+    ):
+        raise DirectContainerPreflightError("container_identity_invalid")
+
+    resolved_image_id = _run_checked(
+        [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            "{{.Id}}",
+            image_ref,
+        ],
+        run=run,
+        failure_code="container_image_resolution_failed",
+    ).strip()
+    if IMAGE_ID_RE.fullmatch(resolved_image_id) is None:
+        raise DirectContainerPreflightError("container_image_resolution_invalid")
+    if resolved_image_id != image_id:
+        raise DirectContainerPreflightError("container_image_id_mismatch")
+    return image_ref, image_id
 
 
 def verify_direct_container(
     sandbox_name: str,
     *,
     run: RunCommand = subprocess.run,
-    sleep: Sleep = time.sleep,
-    path_probe_attempts: int = PATH_TYPE_PROBE_ATTEMPTS,
 ) -> None:
-    """Verify the singleton container selected by NemoClaw's repair path."""
+    """Verify and exercise the singleton selected by NemoClaw's repair path."""
     if SANDBOX_NAME_RE.fullmatch(sandbox_name) is None:
         raise DirectContainerPreflightError("sandbox_name_invalid")
 
@@ -167,80 +204,68 @@ def verify_direct_container(
     ):
         raise DirectContainerPreflightError("container_name_invalid")
 
-    inspection = _run_checked(
+    initial_image = _inspect_and_attest_image(
+        sandbox_name,
+        container_id,
+        run=run,
+    )
+
+    _run_checked(
         [
-            "docker",
-            "inspect",
-            "--format",
-            "{{.Config.Image}}\t{{.Image}}\t{{.State.Running}}",
-            container_id,
+            "nemoclaw",
+            "sandbox",
+            "start",
+            sandbox_name,
         ],
         run=run,
-        failure_code="container_inspection_failed",
-    ).strip()
-    fields = inspection.split("\t")
-    if len(fields) != 3:
-        raise DirectContainerPreflightError("container_inspection_invalid")
-    image_ref, image_id, running = fields
-    if not image_ref.startswith(f"nemoclaw-sandbox-local:{sandbox_name}-"):
-        raise DirectContainerPreflightError("container_image_invalid")
-    if IMAGE_ID_RE.fullmatch(image_id) is None or running != "true":
-        raise DirectContainerPreflightError("container_identity_invalid")
+        failure_code="sandbox_start_failed",
+        timeout=SANDBOX_START_TIMEOUT_SECONDS,
+    )
 
-    _require_path_type(
-        sandbox_name,
-        candidates,
-        container_id,
-        "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py",
-        "regular file",
-        run=run,
-        sleep=sleep,
-        attempts=path_probe_attempts,
-        failure_code="repair_helper_invalid",
-    )
-    _require_path_type(
-        sandbox_name,
-        candidates,
-        container_id,
-        "/sandbox/.openclaw",
-        "directory",
-        run=run,
-        sleep=sleep,
-        attempts=path_probe_attempts,
-        failure_code="openclaw_config_directory_invalid",
-    )
-    _require_path_type(
-        sandbox_name,
-        candidates,
-        container_id,
-        "/sandbox/.openclaw/openclaw.json",
-        "regular file",
-        run=run,
-        sleep=sleep,
-        attempts=path_probe_attempts,
-        failure_code="openclaw_config_file_invalid",
-    )
-    for identity_flag in ("-u", "-g"):
-        sandbox_identity = _run_checked(
-            [
-                "docker",
-                "exec",
-                "--user",
-                "root",
-                container_id,
-                "/usr/bin/id",
-                identity_flag,
-                "sandbox",
-            ],
-            run=run,
-            failure_code="sandbox_identity_invalid",
-        ).strip()
-        if re.fullmatch(r"[1-9][0-9]*", sandbox_identity) is None:
-            raise DirectContainerPreflightError("sandbox_identity_invalid")
-
-    # Close the inspection race: the label lookup must still resolve to the
-    # exact container whose image and trusted paths were inspected.
+    # `sandbox start` may activate a paused container, but must not redirect
+    # the subsequent exec to a replacement that merely reused the labels.
     if _list_candidates(sandbox_name, run=run) != candidates:
+        raise DirectContainerPreflightError("container_identity_changed")
+    started_image = _inspect_and_attest_image(
+        sandbox_name,
+        container_id,
+        run=run,
+    )
+    if started_image != initial_image:
+        raise DirectContainerPreflightError("container_identity_changed")
+
+    probe_output = _run_checked(
+        [
+            "nemoclaw",
+            "sandbox",
+            "exec",
+            sandbox_name,
+            "--no-tty",
+            "--no-stdin",
+            "--timeout",
+            "30",
+            "--",
+            *LIFECYCLE_PROBE_ARGV,
+        ],
+        run=run,
+        failure_code="sandbox_exec_failed",
+        timeout=SANDBOX_EXEC_TIMEOUT_SECONDS,
+    )
+    if LIFECYCLE_PROBE_SENTINEL not in {
+        line.strip() for line in probe_output.splitlines()
+    }:
+        raise DirectContainerPreflightError("sandbox_exec_sentinel_missing")
+
+    # Close the lifecycle race: the label lookup and mutable tag must still
+    # resolve to the exact container/image attested before supported exec.
+    if _list_candidates(sandbox_name, run=run) != candidates:
+        raise DirectContainerPreflightError("container_identity_changed")
+    final_image = _inspect_and_attest_image(
+        sandbox_name,
+        container_id,
+        run=run,
+    )
+    if final_image != initial_image:
         raise DirectContainerPreflightError("container_identity_changed")
 
 
