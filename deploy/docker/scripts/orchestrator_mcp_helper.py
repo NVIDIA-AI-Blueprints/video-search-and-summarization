@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -206,27 +207,34 @@ def ensure_mcp_tls_certs(
 
     cert_path.parent.mkdir(parents=True, exist_ok=True)
     key_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-days",
-            str(days),
-            "-keyout",
-            str(key_path),
-            "-out",
-            str(cert_path),
-            "-subj",
-            subject,
-            "-addext",
-            f"subjectAltName={san_value}",
-        ],
-        check=True,
-    )
+    # openssl -nodes writes an unencrypted key and respects umask; tighten so the
+    # key is never left world-readable even briefly under a default umask 022.
+    previous_umask = os.umask(0o077)
+    try:
+        subprocess.run(
+            [
+                "openssl",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-days",
+                str(days),
+                "-keyout",
+                str(key_path),
+                "-out",
+                str(cert_path),
+                "-subj",
+                subject,
+                "-addext",
+                f"subjectAltName={san_value}",
+            ],
+            check=True,
+        )
+    finally:
+        os.umask(previous_umask)
+    key_path.chmod(0o600)
     return cert_path, key_path
 
 

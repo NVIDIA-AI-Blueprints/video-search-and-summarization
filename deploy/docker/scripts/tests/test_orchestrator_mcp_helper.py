@@ -104,8 +104,11 @@ class EnsureMcpTlsCertsTests(unittest.TestCase):
 
             def fake_openssl(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
                 del check
-                Path(cmd[cmd.index("-keyout") + 1]).parent.mkdir(parents=True, exist_ok=True)
-                Path(cmd[cmd.index("-keyout") + 1]).write_text("key", encoding="utf-8")
+                key_out = Path(cmd[cmd.index("-keyout") + 1])
+                key_out.parent.mkdir(parents=True, exist_ok=True)
+                key_out.write_text("key", encoding="utf-8")
+                # Mimic openssl -nodes under umask 022: world-readable until we chmod.
+                key_out.chmod(0o644)
                 Path(cmd[cmd.index("-out") + 1]).write_text("cert", encoding="utf-8")
                 return subprocess.CompletedProcess(cmd, 0)
 
@@ -120,6 +123,7 @@ class EnsureMcpTlsCertsTests(unittest.TestCase):
                 )
             self.assertTrue(got_cert.is_file())
             self.assertTrue(got_key.is_file())
+            self.assertEqual(got_key.stat().st_mode & 0o777, 0o600)
             run.assert_called_once()
             cmd = run.call_args.args[0]
             self.assertIn("subjectAltName=DNS:localhost,IP:127.0.0.1", cmd)
