@@ -428,44 +428,47 @@ verify_external_kafka_topics() {
   done
 }
 start_support_services() {
-  cd "${RTCV3D_APP}/docker"
+  cd "${RTCV3D_APP}/docker" || return 1
   if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-    verify_external_kafka_topics
-    docker compose up -d bev-fusion
+    verify_external_kafka_topics || return 1
+    docker compose up -d bev-fusion || return 1
   else
-    COMPOSE_PROFILES=mosquitto,kafka docker compose up -d mosquitto kafka kafka-topic-init bev-fusion
-    wait_healthy vss-mosquitto-mv3dt 120
-    wait_healthy kafka 180
-    wait_topic_init 120
+    COMPOSE_PROFILES=mosquitto,kafka docker compose up -d mosquitto kafka kafka-topic-init bev-fusion || return 1
+    wait_healthy vss-mosquitto-mv3dt 120 || return 1
+    wait_healthy kafka 180 || return 1
+    wait_topic_init 120 || return 1
   fi
-  wait_healthy vss-rtvi-cv-bev-fusion 120
+  wait_healthy vss-rtvi-cv-bev-fusion 120 || return 1
 }
 capture_file_kafka_baseline() {
   if [ "${INPUT_MODE:-}" = file ]; then
-    cd "${RTCV3D_APP}"
-    capture_kafka_offsets "${RUN_STATE_DIR}/kafka-baseline-${RUN_ID}.json" "${RAW_TOPIC:-mdx-raw}" "${FUSED_TOPIC:-mdx-bev}"
+    cd "${RTCV3D_APP}" || return 1
+    capture_kafka_offsets "${RUN_STATE_DIR}/kafka-baseline-${RUN_ID}.json" "${RAW_TOPIC:-mdx-raw}" "${FUSED_TOPIC:-mdx-bev}" || return 1
   fi
 }
 start_perception() {
-  cd "${RTCV3D_APP}/docker"
+  cd "${RTCV3D_APP}/docker" || return 1
   if [ "${INPUT_MODE:-}" = file ]; then
     if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-      docker compose up -d --no-deps --force-recreate perception
+      docker compose up -d --no-deps --force-recreate perception || return 1
     else
-      COMPOSE_PROFILES=mosquitto,kafka docker compose up -d --no-deps --force-recreate perception
+      COMPOSE_PROFILES=mosquitto,kafka docker compose up -d --no-deps --force-recreate perception || return 1
     fi
   else
     if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-      docker compose up -d perception
+      docker compose up -d perception || return 1
     else
-      COMPOSE_PROFILES=mosquitto,kafka docker compose up -d perception
+      COMPOSE_PROFILES=mosquitto,kafka docker compose up -d perception || return 1
     fi
   fi
   if docker inspect vss-rtvi-cv-mv3dt >/dev/null 2>&1; then
     state_dir="${RUN_STATE_DIR:-${RTCV3D_APP}/generated/run-state}"
-    mkdir -p "${state_dir}"
-    docker inspect --format '{{.Id}}' vss-rtvi-cv-mv3dt > "${state_dir}/perception-container-id"
-    docker inspect --format '{{.State.StartedAt}}' vss-rtvi-cv-mv3dt > "${state_dir}/perception-started-at"
+    mkdir -p "${state_dir}" || return 1
+    docker inspect --format '{{.Id}}' vss-rtvi-cv-mv3dt > "${state_dir}/perception-container-id" || return 1
+    docker inspect --format '{{.State.StartedAt}}' vss-rtvi-cv-mv3dt > "${state_dir}/perception-started-at" || return 1
+  else
+    echo "ERROR: perception container was not created" >&2
+    return 1
   fi
 }
 ```
@@ -476,15 +479,15 @@ Use this only when no BEV visualizer/recorder must be active before perception s
 
 ```bash
 if [ "${INPUT_MODE:-}" = file ]; then
-  start_support_services
-  capture_file_kafka_baseline
-  start_perception
+  start_support_services || exit 1
+  capture_file_kafka_baseline || exit 1
+  start_perception || exit 1
 else
-  cd "${RTCV3D_APP}/docker"
+  cd "${RTCV3D_APP}/docker" || exit 1
   if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-    docker compose up -d
+    docker compose up -d || exit 1
   else
-    COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
+    COMPOSE_PROFILES=mosquitto,kafka docker compose up -d || exit 1
   fi
 fi
 ```
@@ -494,8 +497,8 @@ fi
 Use this whenever saved output is selected/defaulted, or whenever file input needs live or saved BEV visualization. The BEV visualizer uses a fresh `latest` Kafka consumer group, so the workflow waits for the expected consumer group assignment before starting perception. The recorder must survive long first-run TensorRT engine builds; launch it as a persistent process, not as a background child of a short-lived shell.
 
 ```bash
-start_support_services
-capture_file_kafka_baseline
+start_support_services || exit 1
+capture_file_kafka_baseline || exit 1
 ```
 
 
@@ -574,15 +577,15 @@ bev_recorder_alive() {
   printf '%s' "${pid}" | grep -Eq '^[0-9]+$' || { echo "ERROR: invalid BEV recorder PID: ${pid}" >&2; return 1; }
   kill -0 "${pid}" 2>/dev/null || { echo "ERROR: BEV recorder is not running before perception starts; see ${BEV_LOG}" >&2; tail -80 "${BEV_LOG}" >&2 || true; return 1; }
 }
-wait_bev_assignment "${BEV_GROUP}" "${BEV_KAFKA_TOPIC}"
-bev_recorder_alive
+wait_bev_assignment "${BEV_GROUP}" "${BEV_KAFKA_TOPIC}" || exit 1
+bev_recorder_alive || exit 1
 ```
 
 Start perception only after the BEV Kafka consumer group assignment is confirmed and the recorder PID is still alive:
 
 ```bash
-bev_recorder_alive
-start_perception
+bev_recorder_alive || exit 1
+start_perception || exit 1
 ```
 
 For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder running through EOS and use `references/verify-and-view.md` to detect premature recorder exit.
@@ -603,27 +606,27 @@ For `INPUT_MODE=file`, never use full-stack `docker compose up -d` or `docker co
 
 ```bash
 cd "${RTCV3D_APP}"
-./scripts/stage-configs.sh
-start_support_services
-capture_file_kafka_baseline
+./scripts/stage-configs.sh || exit 1
+start_support_services || exit 1
+capture_file_kafka_baseline || exit 1
 ```
 
 If BEV recording/viewing is enabled, run the `Two-Phase Launch For BEV` recorder block above through `wait_bev_assignment`, then start perception. If BEV is not enabled, start perception directly:
 
 ```bash
-start_perception
+start_perception || exit 1
 ```
 
 For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because streams are registered only after `ds-ready: YES`:
 
 ```bash
-cd "${RTCV3D_APP}"
-./scripts/stage-configs.sh
-cd docker
+cd "${RTCV3D_APP}" || exit 1
+./scripts/stage-configs.sh || exit 1
+cd docker || exit 1
 if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-  docker compose up -d --force-recreate
+  docker compose up -d --force-recreate || exit 1
 else
-  COMPOSE_PROFILES=mosquitto,kafka docker compose up -d --force-recreate
+  COMPOSE_PROFILES=mosquitto,kafka docker compose up -d --force-recreate || exit 1
 fi
 ```
 

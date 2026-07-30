@@ -141,8 +141,8 @@ Do not launch file-mode perception from this section. After camera configuration
 For stream mode only, when no BEV prestart is required, launch later with:
 
 ```bash
-cd "${RTCV3D_APP}/docker"
-COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
+cd "${RTCV3D_APP}/docker" || exit 1
+COMPOSE_PROFILES=mosquitto,kafka docker compose up -d || exit 1
 ```
 
 ### External Brokers
@@ -209,8 +209,8 @@ Do not launch file-mode perception from this section. After camera configuration
 For stream mode only, when no BEV prestart is required, launch later without bundled broker profiles:
 
 ```bash
-cd "${RTCV3D_APP}/docker"
-docker compose up -d
+cd "${RTCV3D_APP}/docker" || exit 1
+docker compose up -d || exit 1
 ```
 
 Verify `mdx-raw` and `mdx-bev` with the configured `KAFKA_BOOTSTRAP` using the Kafka CLI offset checks in `verify-and-view.md`; use `timeout` around `scripts/kafka-dump.sh` for bounded samples.
