@@ -68,7 +68,7 @@ Underlying evaluation signals used in this run: <br>
 
 
 ## Evaluation Results: <br>
-Pending NVSkills-Eval execution for the new routing evaluation. <br>
+NVSkills-Eval routing completed on `RTXPRO6000BW`: VideoPrism BYOM routing passed 5/5 with reward 1.0, and default Cosmos-Embed1 routing passed 3/3 with reward 1.0. <br>
 
 ## Skill Version(s): <br>
 3.3.0 (source: frontmatter) <br>
