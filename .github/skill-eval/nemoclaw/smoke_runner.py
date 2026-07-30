@@ -825,6 +825,11 @@ def _upsert_metadata(task_dir: Path, updates: dict[str, Any]) -> None:
 
 def _headless_launcher_instruction(skill: str, deployment_profile: str | None) -> str:
     wait_arg = f" \\\n  --wait-profile {deployment_profile}" if deployment_profile else ""
+    runtime_arg = (
+        " \\\n  --runtime-env RTSP_SAMPLE_URL"
+        if skill == "vss-deploy-dense-captioning"
+        else ""
+    )
     return (
         "This Harbor trial is a thin launcher for NemoClaw/OpenClaw.\n\n"
         "Do not complete the task directly from Claude Code. Use Bash to run the "
@@ -836,8 +841,9 @@ def _headless_launcher_instruction(skill: str, deployment_profile: str | None) -
         "  --prompt-file /tests/nemoclaw_prompt.md \\\n"
         "  --log-dir /logs/artifacts/nemoclaw \\\n"
         "  --launch-mode cli \\\n"
+        f"  --expected-skill {skill} \\\n"
         "  --timeout 1500"
-        f"{wait_arg}\n"
+        f"{wait_arg}{runtime_arg}\n"
         "```\n"
     )
 

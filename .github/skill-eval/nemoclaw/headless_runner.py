@@ -4,8 +4,8 @@
 """Launch a NemoClaw/OpenClaw scenario from a Harbor trial.
 
 Harbor remains the result owner. The Harbor agent only invokes this script;
-this script sends the real prompt to the OpenClaw hooks endpoint so the VSS
-skills run inside NemoClaw/OpenClaw with the VSS Orchestrator MCP available.
+this script sends the real prompt to OpenClaw so the VSS skills run inside
+NemoClaw/OpenClaw with the VSS Orchestrator MCP available.
 """
 from __future__ import annotations
 
@@ -53,6 +53,7 @@ RTSP_URI_PATTERN = re.compile(
     r"\brtsps?:(?:(?:\\/|/)){2}(?:(?:\\.)|[^\s\"'<>\\])+",
     re.IGNORECASE,
 )
+CLI_RUNTIME_ENV_KEYS = ("RTSP_SAMPLE_URL",)
 
 
 def _load_env_file(path: Path) -> None:
@@ -233,6 +234,21 @@ def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[st
     )
 
 
+def _run_with_input(
+    cmd: list[str],
+    *,
+    input_text: str,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
 def _deadline_timeout(deadline: float | None, cap_s: int, phase: str) -> int:
     """Return a bounded subprocess timeout without extending an outer deadline."""
     if deadline is None:
@@ -268,25 +284,42 @@ def _sleep_before_deadline(deadline: float | None, seconds: int) -> None:
     time.sleep(min(seconds, remaining_s))
 
 
-def _sandbox_exec(sandbox_name: str, script: str, *, timeout: int) -> subprocess.CompletedProcess[str]:
+def _sandbox_exec(
+    sandbox_name: str,
+    script: str,
+    *,
+    timeout: int,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     encoded_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
-    wrapper = f"printf %s {shlex.quote(encoded_script)} | base64 -d | sh"
+    wrapper = (
+        f"_ci_script=$(printf %s {shlex.quote(encoded_script)} | base64 -d) "
+        '&& exec sh -lc "$_ci_script"'
+    )
     if shutil_which("openshell"):
-        return _run(
-            [
-                "openshell",
-                "sandbox",
-                "exec",
-                "-n",
-                sandbox_name,
-                "-g",
-                _openshell_gateway_name(),
-                "--",
-                "sh",
-                "-lc",
-                wrapper,
-            ],
-            timeout=timeout,
+        command = [
+            "openshell",
+            "sandbox",
+            "exec",
+            "-n",
+            sandbox_name,
+            "-g",
+            _openshell_gateway_name(),
+            "--",
+            "sh",
+            "-lc",
+            wrapper,
+        ]
+        if input_text is not None:
+            return _run_with_input(
+                command,
+                input_text=input_text,
+                timeout=timeout,
+            )
+        return _run(command, timeout=timeout)
+    if input_text is not None:
+        raise RuntimeError(
+            "OpenShell is required for stdin-only NemoClaw runtime values"
         )
     return _run(
         ["nemoclaw", sandbox_name, "exec", "--no-tty", "--", "sh", "-lc", wrapper],
@@ -437,10 +470,13 @@ def _openclaw_cli_command(
     prompt: str,
     timeout_s: int,
     session_id: str | None = None,
+    *,
+    local: bool = False,
 ) -> str:
     session_id = session_id or _fresh_openclaw_session_id()
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1"
     ca_path = "/etc/openshell-tls/ca-bundle.pem"
+    local_arg = "--local " if local else ""
     return (
         "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
         f"export NO_PROXY={shlex.quote(no_proxy)}; "
@@ -448,11 +484,37 @@ def _openclaw_cli_command(
         f"export NODE_EXTRA_CA_CERTS={shlex.quote(ca_path)}; "
         "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
         "openclaw agent --agent main --thinking off "
-        "--json "
+        f"{local_arg}--json "
         f"--timeout {int(timeout_s)} "
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
     )
+
+
+def _cli_runtime_input(runtime_env_keys: list[str]) -> str | None:
+    if not runtime_env_keys:
+        return None
+    if runtime_env_keys != ["RTSP_SAMPLE_URL"]:
+        raise ValueError(
+            "CLI runtime environment must contain only RTSP_SAMPLE_URL"
+        )
+    value = os.environ.get("RTSP_SAMPLE_URL", "")
+    if not value:
+        raise RuntimeError(
+            "RTSP_SAMPLE_URL is required for this NemoClaw skill eval"
+        )
+    if any(character in value for character in ("\0", "\r", "\n")):
+        raise ValueError("RTSP_SAMPLE_URL contains an unsupported control character")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("RTSP_SAMPLE_URL is not a valid RTSP URL") from exc
+    if parsed.scheme.lower() not in {"rtsp", "rtsps"} or not parsed.hostname:
+        raise ValueError("RTSP_SAMPLE_URL must be an rtsp:// or rtsps:// URL")
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("RTSP_SAMPLE_URL contains an invalid port")
+    return value + "\n"
 
 
 def collect_openclaw_cli_log(
@@ -1399,6 +1461,7 @@ def _start_openclaw_cli_async(
     timeout_s: int,
     log_dir: Path,
     deadline: float | None = None,
+    runtime_input: str | None = None,
 ) -> dict[str, Any]:
     ensure_openclaw_gateway(sandbox_name, log_dir, deadline)
     openclaw_timeout_s = _deadline_timeout(
@@ -1421,11 +1484,19 @@ def _start_openclaw_cli_async(
         )
         + "\n",
     )
-    inner = _openclaw_cli_command(
-        prompt,
-        openclaw_timeout_s,
-        root_session_id,
-    )
+    if runtime_input is None:
+        inner = _openclaw_cli_command(
+            prompt,
+            openclaw_timeout_s,
+            root_session_id,
+        )
+    else:
+        inner = _openclaw_cli_command(
+            prompt,
+            openclaw_timeout_s,
+            root_session_id,
+            local=True,
+        )
     cleanup = _openclaw_process_cleanup_script()
     worker = (
         "set +e; "
@@ -1436,8 +1507,17 @@ def _start_openclaw_cli_async(
         "trap 'exit 0' TERM INT HUP; "
         "while :; do sleep 60; done"
     )
+    runtime_setup = (
+        "IFS= read -r RTSP_SAMPLE_URL; "
+        'test -n "$RTSP_SAMPLE_URL" || { '
+        "echo 'RTSP_SAMPLE_URL runtime input is empty' >&2; exit 66; }; "
+        "export RTSP_SAMPLE_URL; "
+        if runtime_input is not None
+        else ""
+    )
     launcher = (
         "set -eu; "
+        f"{runtime_setup}"
         f"mkdir -p {OPENCLAW_RUN_DIR}; "
         "command -v setsid >/dev/null 2>&1 || { "
         "echo 'setsid is required for scoped OpenClaw cleanup' >&2; exit 69; }; "
@@ -1465,13 +1545,29 @@ def _start_openclaw_cli_async(
         f"echo \"$pgid\" > {OPENCLAW_RUN_DIR}/openclaw-agent.pgid; "
         "echo started"
     )
-    result = _sandbox_exec(
-        sandbox_name,
-        launcher,
-        timeout=_deadline_timeout(deadline, 60, "OpenClaw async launcher"),
+    launch_timeout = _deadline_timeout(
+        deadline,
+        60,
+        "OpenClaw async launcher",
     )
+    if runtime_input is None:
+        result = _sandbox_exec(
+            sandbox_name,
+            launcher,
+            timeout=launch_timeout,
+        )
+    else:
+        result = _sandbox_exec(
+            sandbox_name,
+            launcher,
+            timeout=launch_timeout,
+            input_text=runtime_input,
+        )
+    safe_stdout = _redact_runtime_text(result.stdout or "")
+    safe_stderr = _redact_runtime_text(result.stderr or "")
     (log_dir / "openclaw-launch.log").write_text(
-        f"returncode={result.returncode}\nstdout:\n{result.stdout or ''}\nstderr:\n{result.stderr or ''}\n"
+        f"returncode={result.returncode}\nstdout:\n{safe_stdout}\n"
+        f"stderr:\n{safe_stderr}\n"
         "mode=async\n",
         encoding="utf-8",
     )
@@ -1482,8 +1578,8 @@ def _start_openclaw_cli_async(
             "mode": "cli-async",
             "returncode": result.returncode,
         },
-        "stdout_tail": (result.stdout or "")[-4000:],
-        "stderr_tail": (result.stderr or "")[-4000:],
+        "stdout_tail": safe_stdout[-4000:],
+        "stderr_tail": safe_stderr[-4000:],
         "error": "",
         "error_type": "",
         "root_session_file": root_session_file,
@@ -1497,18 +1593,25 @@ def run_openclaw_cli(
     log_dir: Path,
     wait_profile: str = "",
     deadline: float | None = None,
+    runtime_input: str | None = None,
 ) -> dict[str, Any]:
     # The caller may share one end-to-end budget across gateway recovery,
     # OpenClaw, and profile readiness.  Start the local deadline before
     # gateway recovery so a slow recovery cannot silently extend the agent
     # phase beyond that budget.
     deadline = deadline if deadline is not None else time.monotonic() + timeout_s
+    runtime_kwargs = (
+        {"runtime_input": runtime_input}
+        if runtime_input is not None
+        else {}
+    )
     start = _start_openclaw_cli_async(
         sandbox_name,
         prompt,
         timeout_s,
         log_dir,
         deadline,
+        **runtime_kwargs,
     )
     if not _response_ok(start):
         start["body"]["mode"] = "cli"
@@ -1742,6 +1845,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--wait-profile", default="", help="Wait for the live VSS profile to become ready after hook launch")
     parser.add_argument("--expected-skill", default="", help="Fail fast if the prompt file does not reference this skill")
+    parser.add_argument(
+        "--runtime-env",
+        action="append",
+        choices=CLI_RUNTIME_ENV_KEYS,
+        default=[],
+        help=(
+            "Pass one allowlisted runtime value over stdin to an embedded "
+            "OpenClaw CLI agent"
+        ),
+    )
     args = parser.parse_args(argv)
 
     log_dir = Path(args.log_dir)
@@ -1774,7 +1887,13 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if args.launch_mode == "cli":
+            runtime_input = _cli_runtime_input(args.runtime_env)
             try:
+                runtime_kwargs = (
+                    {"runtime_input": runtime_input}
+                    if runtime_input is not None
+                    else {}
+                )
                 response = run_openclaw_cli(
                     sandbox_name,
                     prompt,
@@ -1782,6 +1901,7 @@ def main(argv: list[str] | None = None) -> int:
                     log_dir,
                     wait_profile=args.wait_profile,
                     deadline=agent_deadline,
+                    **runtime_kwargs,
                 )
                 if _response_ok(response):
                     wait_report = wait_for_profile(
@@ -1861,6 +1981,8 @@ def main(argv: list[str] | None = None) -> int:
                         encoding="utf-8",
                     )
         else:
+            if args.runtime_env:
+                raise ValueError("--runtime-env is supported only with --launch-mode cli")
             hooks_token = _read_hooks_token()
             if not hooks_token:
                 response["error"] = "OpenClaw hooks token is not available; run the notebook setup adapter first"

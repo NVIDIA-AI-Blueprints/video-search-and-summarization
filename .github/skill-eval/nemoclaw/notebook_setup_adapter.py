@@ -130,7 +130,7 @@ os.environ["NEMOCLAW_RECREATE_SANDBOX"] = NEMOCLAW_RECREATE_SANDBOX
 RTSP_SAMPLE_URL = os.environ.get("RTSP_SAMPLE_URL", "").strip()
 OPENCLAW_HOOKS_ENABLED = os.environ.get(
     "OPENCLAW_HOOKS_ENABLED",
-    os.environ.get("AGENT_HOOKS_ENABLED", "1"),
+    "0",
 ).lower() not in ("0", "false", "no")
 OPENCLAW_HOOKS_PATH = os.environ.get(
     "OPENCLAW_HOOKS_PATH",
@@ -329,6 +329,22 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(cell.get("source"), str):
         return cell
     source = cell["source"]
+    if cell_id == "e67f6da4":
+        hooks_default = "AGENT_HOOKS_ENABLED = True     # agent webhooks (/hooks)"
+        if hooks_default not in source:
+            raise ValueError(
+                "NemoClaw settings cell is missing the expected hooks default"
+            )
+        patched = deepcopy(cell)
+        patched["source"] = source.replace(
+            hooks_default,
+            (
+                "AGENT_HOOKS_ENABLED = OPENCLAW_HOOKS_ENABLED"
+                "  # CLI evals do not require webhooks"
+            ),
+            1,
+        )
+        return patched
     if cell_id == "4c91fd59":
         return _patch_docker_login_cell(cell)
     if cell_id == "s31-code":
@@ -427,32 +443,13 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
         )
         return patched
     if cell_id == "s37-code":
-        config_marker = "config_sets = []\n"
-        if config_marker not in source:
-            raise ValueError(
-                "NemoClaw config cell is missing the expected config_sets declaration"
-            )
         patched = deepcopy(cell)
-        patched_source = source.replace(
-            config_marker,
-            "\n".join(
-                [
-                    "config_sets = []",
-                    "# Make the eval's runtime RTSP input available to OpenClaw exec tools.",
-                    "# Keep it out of the persisted launcher env and redact notebook artifacts.",
-                    "if RTSP_SAMPLE_URL:",
-                    '    config_sets.append(("env.vars.RTSP_SAMPLE_URL", RTSP_SAMPLE_URL))',
-                    "",
-                ]
-            ),
-            1,
-        )
         config_loop = "else:\n    for _key, _value in config_sets:\n"
-        if config_loop not in patched_source:
+        if config_loop not in source:
             raise ValueError(
                 "NemoClaw config cell is missing the expected config write loop"
             )
-        patched["source"] = patched_source.replace(
+        patched["source"] = source.replace(
             config_loop,
             "\n".join(
                 [

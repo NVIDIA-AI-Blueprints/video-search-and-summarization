@@ -1014,6 +1014,8 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             persisted = env_path.read_text(encoding="utf-8")
 
         self.assertEqual(namespace["RTSP_SAMPLE_URL"], rtsp_url)
+        self.assertFalse(namespace["OPENCLAW_HOOKS_ENABLED"])
+        self.assertFalse(namespace["AGENT_HOOKS_ENABLED"])
         self.assertNotIn("RTSP_SAMPLE_URL", persisted)
         self.assertNotIn(rtsp_url, persisted)
         self.assertEqual(
@@ -1610,12 +1612,17 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         )
         self.assertIn("ssrf_denied|policy_denied", sources["df8210f5"])
         self.assertIn(
-            'config_sets.append(("env.vars.RTSP_SAMPLE_URL", RTSP_SAMPLE_URL))',
-            sources["s37-code"],
+            "AGENT_HOOKS_ENABLED = OPENCLAW_HOOKS_ENABLED",
+            sources["e67f6da4"],
         )
-        self.assertLess(
-            sources["s37-code"].index("env.vars.RTSP_SAMPLE_URL"),
-            sources["s37-code"].index("if not config_sets"),
+        self.assertIn(
+            'os.environ.get(\n    "OPENCLAW_HOOKS_ENABLED",\n    "0",\n)',
+            sources["ci-parameters-1"],
+        )
+        self.assertNotIn("env.vars.RTSP_SAMPLE_URL", sources["s37-code"])
+        self.assertIn(
+            'config_sets.append(("hooks.enabled", "true"))',
+            sources["s37-code"],
         )
         self.assertIn(
             ".github/skill-eval/nemoclaw/direct_container_preflight.py",
@@ -1628,13 +1635,23 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             sources["s37-code"].index("!nemoclaw sandbox config set"),
         )
 
-    def test_rtsp_config_patch_fails_closed_without_anchor(self):
+    def test_config_preflight_patch_fails_closed_without_anchor(self):
         with self.assertRaisesRegex(
             ValueError,
-            "missing the expected config_sets declaration",
+            "missing the expected config write loop",
         ):
             notebook_adapter._patch_ci_cell(
                 "s37-code",
+                {"cell_type": "code", "source": "print('changed upstream')\n"},
+            )
+
+    def test_hooks_default_patch_fails_closed_without_anchor(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing the expected hooks default",
+        ):
+            notebook_adapter._patch_ci_cell(
+                "e67f6da4",
                 {"cell_type": "code", "source": "print('changed upstream')\n"},
             )
 
@@ -2563,6 +2580,105 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         )
         self.assertNotEqual(first_session, second_session)
 
+    def test_cli_runtime_input_accepts_only_a_valid_rtsp_value(self):
+        rtsp_url = "rtsp://user:password@sample.example.test:8554/eval"
+        with mock.patch.dict(
+            os.environ,
+            {"RTSP_SAMPLE_URL": rtsp_url},
+            clear=False,
+        ):
+            self.assertEqual(
+                headless_runner._cli_runtime_input(["RTSP_SAMPLE_URL"]),
+                rtsp_url + "\n",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "only RTSP_SAMPLE_URL",
+            ):
+                headless_runner._cli_runtime_input(
+                    ["RTSP_SAMPLE_URL", "OTHER"]
+                )
+
+        with mock.patch.dict(
+            os.environ,
+            {"RTSP_SAMPLE_URL": ""},
+            clear=False,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "RTSP_SAMPLE_URL is required",
+            ):
+                headless_runner._cli_runtime_input(["RTSP_SAMPLE_URL"])
+
+    def test_rtsp_runtime_uses_embedded_openclaw_without_script_secret(self):
+        rtsp_url = "rtsp://user:password@sample.example.test:8554/eval"
+        calls: list[tuple[str, str, int, str | None]] = []
+        previous = {
+            "ensure_openclaw_gateway": headless_runner.ensure_openclaw_gateway,
+            "_sandbox_exec": headless_runner._sandbox_exec,
+        }
+
+        def fake_sandbox_exec(
+            sandbox,
+            script,
+            *,
+            timeout,
+            input_text=None,
+        ):
+            calls.append((sandbox, script, timeout, input_text))
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout=f"started with {rtsp_url}",
+                stderr=f"diagnostic stdin={rtsp_url}",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner.ensure_openclaw_gateway = (
+                lambda sandbox, logs, deadline=None: None
+            )
+            headless_runner._sandbox_exec = fake_sandbox_exec
+            try:
+                response = headless_runner._start_openclaw_cli_async(
+                    "demo",
+                    "Use /vss-deploy-dense-captioning",
+                    60,
+                    log_dir,
+                    runtime_input=rtsp_url + "\n",
+                )
+            finally:
+                headless_runner.ensure_openclaw_gateway = previous[
+                    "ensure_openclaw_gateway"
+                ]
+                headless_runner._sandbox_exec = previous["_sandbox_exec"]
+
+            launch_log = (
+                log_dir / "openclaw-launch.log"
+            ).read_text(encoding="utf-8")
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(len(calls), 1)
+        sandbox, script, _timeout, input_text = calls[0]
+        self.assertEqual(sandbox, "demo")
+        self.assertEqual(input_text, rtsp_url + "\n")
+        self.assertIn("IFS= read -r RTSP_SAMPLE_URL", script)
+        self.assertIn("export RTSP_SAMPLE_URL", script)
+        self.assertIn("openclaw agent", script)
+        self.assertIn("--local --json", script)
+        self.assertNotIn(rtsp_url, script)
+        self.assertNotIn(rtsp_url, launch_log)
+        self.assertNotIn(rtsp_url, response["stdout_tail"])
+        self.assertNotIn(rtsp_url, response["stderr_tail"])
+        self.assertIn(
+            headless_runner.RTSP_URI_REDACTION,
+            response["stdout_tail"],
+        )
+        self.assertIn(
+            headless_runner.RTSP_URI_REDACTION,
+            response["stderr_tail"],
+        )
+
     def test_healthy_dashboard_forward_is_kept_even_if_registry_is_empty(self):
         calls: list[tuple[str, ...]] = []
         previous = {
@@ -2688,6 +2804,95 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(report["response"]["error_type"], "RuntimeError")
         self.assertIn("does not reference expected skill", report["response"]["error"])
+
+    def test_dense_cli_main_passes_rtsp_runtime_without_artifact_value(self):
+        rtsp_url = "rtsp://user:password@sample.example.test:8554/eval"
+        captured: dict[str, object] = {}
+
+        def fake_run_openclaw(
+            sandbox,
+            message,
+            timeout,
+            logs,
+            wait_profile="",
+            deadline=None,
+            runtime_input=None,
+        ):
+            captured["runtime_input"] = runtime_input
+            return {
+                "status": 200,
+                "body": {"ok": True},
+                "stdout_tail": "",
+                "stderr_tail": "",
+            }
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text(
+                "Use the `/vss-deploy-dense-captioning` skill.",
+                encoding="utf-8",
+            )
+            log_dir = root / "logs"
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {"RTSP_SAMPLE_URL": rtsp_url},
+                    clear=False,
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "run_openclaw_cli",
+                    side_effect=fake_run_openclaw,
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "wait_for_profile",
+                    return_value={"waited": False},
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "stop_openclaw_cli",
+                    return_value=None,
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "collect_openclaw_cli_log",
+                    return_value=None,
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "collect_and_publish_openclaw_trajectory",
+                    return_value={"trajectory_steps": 2},
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                rc = headless_runner.main(
+                    [
+                        "--prompt-file",
+                        str(prompt),
+                        "--log-dir",
+                        str(log_dir),
+                        "--launch-mode",
+                        "cli",
+                        "--expected-skill",
+                        "vss-deploy-dense-captioning",
+                        "--runtime-env",
+                        "RTSP_SAMPLE_URL",
+                    ]
+                )
+
+            published = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (
+                    log_dir / "nemoclaw_hooks_response.json",
+                    log_dir / "agent.log",
+                )
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["runtime_input"], rtsp_url + "\n")
+        self.assertNotIn(rtsp_url, published)
 
     def test_cli_launch_runs_openclaw_agent_inside_sandbox(self):
         calls: list[tuple[str, ...]] = []
@@ -4747,6 +4952,80 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         )
         self.assertTrue(all("\n" not in arg and "\r" not in arg for arg in command))
         self.assertIn("base64 -d", " ".join(command))
+
+    def test_sandbox_exec_passes_rtsp_only_over_openshell_stdin(self):
+        rtsp_url = "rtsp://user:password@sample.example.test:8554/eval"
+        calls: list[tuple[tuple[str, ...], str, int]] = []
+        previous = {
+            "_run_with_input": headless_runner._run_with_input,
+            "shutil_which": headless_runner.shutil_which,
+        }
+
+        def fake_run_with_input(cmd, *, input_text, timeout):
+            calls.append((tuple(cmd), input_text, timeout))
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout="started",
+                stderr="",
+            )
+
+        headless_runner._run_with_input = fake_run_with_input
+        headless_runner.shutil_which = (
+            lambda name: "/usr/bin/openshell"
+            if name == "openshell"
+            else None
+        )
+        try:
+            with mock.patch.dict(
+                os.environ,
+                {"NEMOCLAW_GATEWAY_PORT": "19080"},
+                clear=False,
+            ):
+                result = headless_runner._sandbox_exec(
+                    "demo",
+                    (
+                        "IFS= read -r RTSP_SAMPLE_URL; "
+                        "test -n \"$RTSP_SAMPLE_URL\""
+                    ),
+                    timeout=30,
+                    input_text=rtsp_url + "\n",
+                )
+        finally:
+            headless_runner._run_with_input = previous["_run_with_input"]
+            headless_runner.shutil_which = previous["shutil_which"]
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(calls), 1)
+        command, input_text, timeout = calls[0]
+        self.assertEqual(input_text, rtsp_url + "\n")
+        self.assertEqual(timeout, 30)
+        self.assertEqual(
+            command[:8],
+            (
+                "openshell",
+                "sandbox",
+                "exec",
+                "-n",
+                "demo",
+                "-g",
+                "nemoclaw-19080",
+                "--",
+            ),
+        )
+        self.assertNotIn(rtsp_url, "\0".join(command))
+        self.assertIn('exec sh -lc "$_ci_script"', command[-1])
+        self.assertNotIn("base64 -d | sh", command[-1])
+        local = subprocess.run(
+            ["sh", "-lc", command[-1]],
+            input=input_text,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(local.returncode, 0)
+        self.assertEqual(local.stdout, "")
+        self.assertEqual(local.stderr, "")
 
     def test_gateway_health_uses_idempotent_sandbox_recover(self):
         calls: list[tuple[str, ...]] = []
@@ -8642,9 +8921,25 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("Never request GPU 1", prompt)
         self.assertIn("headless_runner.py", instruction)
         self.assertIn("--wait-profile base", instruction)
+        self.assertIn("--expected-skill vss-ask-video", instruction)
+        self.assertNotIn("--runtime-env", instruction)
         self.assertIn('runner = "nemoclaw"', task_toml)
         self.assertIn('expected_skill = "vss-ask-video"', task_toml)
         self.assertIn("vss_orchestrator__docker_status", task_toml)
+
+    def test_dense_captioning_launcher_requests_stdin_rtsp_runtime(self):
+        instruction = smoke_runner._headless_launcher_instruction(
+            "vss-deploy-dense-captioning",
+            "alerts",
+        )
+
+        self.assertIn(
+            "--expected-skill vss-deploy-dense-captioning",
+            instruction,
+        )
+        self.assertIn("--runtime-env RTSP_SAMPLE_URL", instruction)
+        self.assertIn("--wait-profile alerts", instruction)
+        self.assertNotIn("rtsp://", instruction)
 
     def test_nemoclaw_wrapper_rejects_conflicting_gpu_boundary(self):
         with self.assertRaisesRegex(RuntimeError, "disagrees with task gpu_count=1"):
