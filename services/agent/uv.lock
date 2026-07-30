@@ -4093,11 +4093,15 @@ requires-dist = [
 name = "nvidia-vss-cli"
 source = { editable = "packages/vss_cli" }
 dependencies = [
+    { name = "click" },
     { name = "nvidia-vss-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "nvidia-vss-core", editable = "packages/vss_core" }]
+requires-dist = [
+    { name = "click", specifier = ">=8.1" },
+    { name = "nvidia-vss-core", editable = "packages/vss_core" },
+]
 
 [[package]]
 name = "nvidia-vss-core"
