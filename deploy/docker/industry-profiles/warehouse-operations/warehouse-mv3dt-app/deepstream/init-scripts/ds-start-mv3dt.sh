@@ -10,7 +10,7 @@
 
 echo "##### RT-DETR + MV3DT pipeline #####"
 
-MQTT_HOST=
+MQTT_HOST=${MQTT_HOST:-mosquitto}
 MQTT_PORT=${MQTT_PORT:-1883}
 MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
 cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app

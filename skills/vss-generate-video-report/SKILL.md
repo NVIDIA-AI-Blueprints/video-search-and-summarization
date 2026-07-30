@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-report
-description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
+description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
   version: "3.2.9"
@@ -11,12 +11,13 @@ metadata:
 
 # Report
 
-Generate a video analysis report by routing to one of two backends — **never via** `POST /generate` on the VSS agent.
+Generate a video analysis report by routing to one of three backends — **never via** `POST /generate` on the VSS agent.
 
 | Mode | Backend |
 |---|---|
 | **A. Video clip** | `A1` `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** OR `A2` local video file on disk or base64 video + explicit VLM endpoint |
 | **B. Incident range** | `/vss-query-analytics` → incident list → narrative report |
+| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `:9901`) → SOP compliance report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range. See **Examples** below for the request phrasings that route to each mode.
 
@@ -25,10 +26,10 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 ## Instructions
 
 0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths.
-1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts (match against *Examples*).
-2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off to `/vss-deploy-profile` only when the required local services are needed and missing.
-3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B has no prompt-approval step.)
-4. **Run that mode's numbered steps** — *Mode A* or *Mode B* below.
+1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts, Mode C when the request asks for an SOP / compliance report (match against *Examples*).
+2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-agent` for the SOP tools).
+3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B and Mode C have no prompt-approval step.)
+4. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
 5. **Rewrite every user-facing clip URL** before embedding it in the report: prefer
    `VSS_PUBLIC_URL` origin rewrite on Kubernetes; fall back to
    `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` on Docker Compose (*Browser-playable clip URL*).
@@ -43,6 +44,7 @@ Output contract for evaluators:
 - Mode B MUST use heading level `#` for the top title. Do not use `## Incident Report`, `## Incident Range Report`, or any alternate wording.
 - Mode B empty-range output MUST be exactly one plain-text line (no markdown heading/table/list/extra lines) in this format:
   `No incidents found for scope <scope> in range <start_time> to <end_time>.`
+- Mode C top title MUST be exactly `# SOP Compliance Report`, with the template's Basic Information / Compliance Summary / SOP Violations sections.
 
 ---
 
@@ -53,6 +55,7 @@ Output contract for evaluators:
 - "Report on incidents from 12:31Z to 12:32Z" → **Mode B**
 - "Report on alerts today" / "what incidents happened on `<sensor>` last hour" → **Mode B**
 - "Summarize alerts on `<sensor>` between `<t1>` and `<t2>`" → **Mode B**
+- "Generate an SOP compliance report for `<sensor>` from `<t1>` to `<t2>`" / "compliance report on `<sensor>` last hour" / "SOP status report for `<sensor>`" → **Mode C**
 
 ---
 
@@ -73,6 +76,7 @@ Never route reports through VSS-agent `POST /generate`.
 ## Runtime prerequisites
 
 This skill is profile-agnostic for Mode A. A specific profile does **not** have to be pre-deployed as long as the chosen Mode A input path and VLM path are available.
+**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see `skills/vss-build-vision-agent/references/services/sop.md` § Patch specifics).
 
 ### Endpoint resolution (Kubernetes vs Docker)
 
@@ -106,6 +110,7 @@ On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
 | **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
 | **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
 | **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
+| **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `:9901` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
 
 Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
@@ -123,9 +128,14 @@ curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev
 
 # Mode B — VA-MCP reachable (Docker / host port today; not part of base K8s operate)
 curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+
+# Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
+# tools/list on :9901 (two-step JSON-RPC, see Mode C Step 1) must include
+# video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
+# hand off to /vss-build-vision-agent and do NOT proceed with Mode C.
 ```
 
-If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B). **Always** confirm deploy with the user first.
+If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-agent` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
 
 ---
 
@@ -628,19 +638,73 @@ When zero results:
 
 ---
 
+## Mode C — SOP compliance report
+
+Use for "generate an SOP compliance report" over a sensor + time range. Data comes from the SOP tools on VA-MCP (added by the SOP profile); this skill aggregates and renders the template itself.
+
+### Step 1 — Resolve the sensor + time range
+
+- Capture the named sensor as `sensor_id`. `start_time` / `end_time` are ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`); resolve relative phrases ("last hour", "today") against the host clock.
+- Confirm the SOP tools are present (once). The four `get_sop_*` tools are added by the SOP patch and are **not** in the base `/vss-query-analytics` tool set, so call the VA-MCP endpoint directly (two-step MCP JSON-RPC: `initialize` → `tools/list`):
+
+```bash
+MCP="http://${HOST_IP}:9901/mcp"
+CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
+SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
+  | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
+curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
+  || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-agent to compose the SOP profile" >&2; exit 1; }
+```
+
+(No bash arrays — POSIX-`sh` safe; the session id is guarded, and the tool check exits non-zero when `get_sop_report` is missing.)
+
+### Step 2 — Fetch the aggregated SOP report from VA-MCP
+
+Call `video_analytics__get_sop_report` on the same endpoint. Each fenced block runs as its own shell, so `$MCP` / `$SID` / `$CT` / `$AC` from Step 1 do NOT carry over — re-establish them and re-`initialize` for a fresh session id here:
+
+```bash
+MCP="http://${HOST_IP}:9901/mcp"
+CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
+SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
+  | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
+curl -s --max-time 30 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
+```
+
+Returns `report_summary` (total messages, current / completed cycle, compliance status), `sop_violations` (missing / mis-ordered steps per cycle with timestamps), `actions_observed` (unique actions, latest action — **no total field**; the total action count equals `report_summary` total messages, one action per chunk), and a `formatted_report` markdown string.
+
+Read-only boundary (mandatory): Mode C is strictly read-only. Never write, seed, backfill, or mutate Elasticsearch/VA data. **Reproduce the tool's numbers and action names verbatim** — DS-SOP actions are numbered classifications (e.g. "(1) first fan", "(10) not belong"); never paraphrase, rename, or invent them.
+
+### Step 3 — Fill the SOP Compliance Report template
+
+Copy [`references/report-templates/sop-compliance-report.md`](references/report-templates/sop-compliance-report.md), fill every placeholder from the Step 2 result (message count, compliance status, cycle counts, the missing / mis-ordered step tables, actions observed), and return the rendered markdown. For placeholders `get_sop_report` does not carry: generate `{report_id}` + `{report_date}`, set `{agent_version}` to `vss-generate-video-report (Mode C)`, and set `{video_analysis_details}` / `{snapshot_image}` to `N/A` (Mode C runs no report-time VLM and fetches no media), and set `{total_actions}` to `report_summary`'s total-messages count (`get_sop_report` has no total-actions field — there is one action per chunk, so total actions = total messages; do not invent a separate number). Fill `{notes}` with the data provenance and snapshot caveats (source/scope, the bounded `end_time` used, the doc count vs the 1000-doc `get_sop_report` cap, and that a live stream never reaches EOS so `final_*` counts stay 0 and every violation is per-chunk); fill `{recommendations}` with the compliance interpretation (recurring missing / mis-ordered steps and whether they reflect the source clip rather than an operator fault). Keep the source asset unchanged; never leave a placeholder, and never include template instructions in a filled cell.
+
+If `get_sop_report` returns an error or zero messages for the range/scope, STOP and return a one-line empty-range statement naming the sensor + range. Do not render the full template, invent data, or fall back to another mode.
+
+---
+
 ## Error Handling
 
 - If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step. Do not fabricate a report from partial or missing data.
 - If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
 - If a clip URL cannot be rewritten to the public host/port, omit it from the rendered report and call out that the browser-playable URL could not be produced.
 - For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.
+- For Mode C, if `get_sop_report` returns `{"error": ...}` or no messages, treat it as an empty range (Mode C Step 3), not a crash; surface any tool / ES error with the failing call and next recovery step.
 
 ---
 
 ## Cross-Reference
 
 - **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1.
-- **`/vss-query-analytics`** — incident retrieval (and verdict / reasoning enrichment) for Mode B Step 2.
+- **`/vss-query-analytics`** — incident retrieval for Mode B Step 2. (Mode C does **not** use it — it calls VA-MCP's `get_sop_report` directly; see Mode C Step 2.)
+- **`/vss-build-vision-agent`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-agent/references/services/sop/`).
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
 - **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Step 3 loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.
