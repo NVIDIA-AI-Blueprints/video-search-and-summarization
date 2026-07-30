@@ -62,7 +62,9 @@ Every response: `{"reason": "<REASON>", "status": "HTTP/1.1 <code> <phrase>", "d
 
 ## Rules YAML (read-only knowledge)
 
-Resolution order (first match wins): `$ALWAYS_ON_RULES_CONFIG` → `./realtime-config.yaml` → `./realtime-config-sample.yaml` (sample ships at `services/alert/realtime-config-sample.yaml`). Shape: top-level `always_on_rules:` — a non-empty list with unique `rule_id`s; each entry carries `rule_id`, `alert_type`, optional `description`, and `always_on_params` where `prompt` / `system_prompt` / `model` are **required** and `live_stream_url` / `alert_type` / `sensor_name` are **derived** from the camera event (setting them is a config error). The YAML is validated at Alert Bridge startup when the gate is on.
+Resolution order (first match wins): `$ALWAYS_ON_RULES_CONFIG` → `./realtime-config.yaml` → `./realtime-config-sample.yaml` (sample ships at `services/alert/realtime-config-sample.yaml`). In Docker, the mounted source is rendered through `env-substitute.py` to `/app/runtime/realtime-config.yml`, and `ALWAYS_ON_RULES_CONFIG` points at that rendered file. This lets a rule use `model: "${VLM_NAME}"` so it follows the deployment-selected local, alternate, or remote VLM.
+
+Shape: top-level `always_on_rules:` — a non-empty list with unique `rule_id`s; each entry carries `rule_id`, `alert_type`, optional `description`, and `always_on_params` where `prompt` / `system_prompt` / `model` are **required** and `live_stream_url` / `alert_type` / `sensor_name` are **derived** from the camera event (setting them is a config error). Omitting `model` does not select an available model; it fails startup validation. The rendered YAML is validated at Alert Bridge startup when the gate is on.
 
 ## Troubleshooting — "why aren't always-on alerts appearing?"
 

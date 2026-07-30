@@ -26,6 +26,7 @@ When deploying or switching to **verification**, leave `ALERT_AGENT_ALWAYS_ON=fa
 
 - **VLM is RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint.** Default `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`. No standalone `cosmos-reason2-8b` NIM service is started.
 - **`VLM_NAME` must match RT-VLM's `/v1/models` basename.** Set `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` for the default Cosmos3 Nano BF16 path; alert-bridge / agent get HTTP 400 "No such model" otherwise (see `vllm_compatible_model.py::get_model_info` for the lookup logic).
+- **Always-on rules follow `VLM_NAME`.** Alert Bridge renders both its main config and `realtime-config.yml` through `env-substitute.py`; the developer alerts rule uses `model: "${VLM_NAME}"`. Do not remove `model` (the always-on schema requires it) or replace it with a hardcoded model id.
 - **`VLM_NAME_SLUG=none`** for alerts — `COMPOSE_PROFILES` does not include a `vlm_local_*_<slug>` segment. The only LLM/VLM compose profile that matters for alerts is `llm_${LLM_MODE}_${LLM_NAME_SLUG}`.
 - **`VLM_PORT=8018`** by default (RT-VLM). Set to `30082` when `VLM_MODE=remote` (RT-VLM not started; agent points at the remote endpoint).
 - **Alert-bridge** (port 9080) is the bridge between RT-VLM events / behavior analytics and the agent's realtime alerting API. Verification mode reads from RT-CV → behavior analytics → alert-bridge → VLM verification. Real-time mode reads from RT-VLM → alert-bridge directly.
