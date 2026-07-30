@@ -22,6 +22,7 @@ from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+from mcp.server.fastmcp import FastMCP
 from pydantic import AnyHttpUrl
 import pytest
 
@@ -73,6 +74,12 @@ def test_resolve_ssl_paths_returns_existing(monkeypatch: pytest.MonkeyPatch, tmp
     assert ssl_mod.resolve_ssl_paths() == (str(cert), str(key))
 
 
+def _make_worker(host: str = "localhost", port: int = 9901, base_path: str | None = None) -> Any:
+    worker = ssl_mod.SSLMCPWorker.__new__(ssl_mod.SSLMCPWorker)
+    worker.front_end_config = SimpleNamespace(host=host, port=port, base_path=base_path)
+    return worker
+
+
 @pytest.mark.asyncio
 async def test_create_mcp_server_substitutes_ssl_class_and_restores(
     monkeypatch: pytest.MonkeyPatch,
@@ -80,24 +87,19 @@ async def test_create_mcp_server_substitutes_ssl_class_and_restores(
     monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "false")
     captured: dict[str, Any] = {}
 
-    class FakeParentServer:
-        def __init__(self) -> None:
-            self.settings = SimpleNamespace(auth=None)
-
-    async def fake_super_create(self: Any) -> FakeParentServer:
+    # Mirrors NAT: resolve FastMCP through the module global at call time.
+    async def fake_super_create(self: Any) -> Any:
         captured["fastmcp_during_super"] = ssl_mod.mcp_worker.FastMCP
-        return FakeParentServer()
+        return ssl_mod.mcp_worker.FastMCP(name="test")
 
-    worker = ssl_mod.SSLMCPWorker.__new__(ssl_mod.SSLMCPWorker)
-    worker.front_end_config = SimpleNamespace(host="localhost", port=9901)
     original = ssl_mod.mcp_worker.FastMCP
 
     with patch.object(ssl_mod.MCPFrontEndPluginWorker, "create_mcp_server", fake_super_create):
-        server = await ssl_mod.SSLMCPWorker.create_mcp_server(worker)
+        server = await ssl_mod.SSLMCPWorker.create_mcp_server(_make_worker())
 
     assert captured["fastmcp_during_super"] is ssl_mod._SSLFastMCP
     assert ssl_mod.mcp_worker.FastMCP is original
-    assert isinstance(server, FakeParentServer)
+    assert isinstance(server, ssl_mod._SSLFastMCP)
 
 
 @pytest.mark.asyncio
@@ -107,17 +109,68 @@ async def test_create_mcp_server_rewrites_auth_url_when_https(
     monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "true")
     auth = MagicMock()
 
-    class FakeParentServer:
-        def __init__(self) -> None:
-            self.settings = SimpleNamespace(auth=auth)
-
-    async def fake_super_create(self: Any) -> FakeParentServer:
-        return FakeParentServer()
-
-    worker = ssl_mod.SSLMCPWorker.__new__(ssl_mod.SSLMCPWorker)
-    worker.front_end_config = SimpleNamespace(host="0.0.0.0", port=9901)
+    async def fake_super_create(self: Any) -> Any:
+        server = ssl_mod.mcp_worker.FastMCP(name="test")
+        server.settings.auth = auth
+        return server
 
     with patch.object(ssl_mod.MCPFrontEndPluginWorker, "create_mcp_server", fake_super_create):
-        await ssl_mod.SSLMCPWorker.create_mcp_server(worker)
+        await ssl_mod.SSLMCPWorker.create_mcp_server(_make_worker(host="0.0.0.0"))
 
     assert auth.resource_server_url == AnyHttpUrl("https://0.0.0.0:9901")
+
+
+@pytest.mark.asyncio
+async def test_create_mcp_server_rejects_non_fastmcp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "false")
+
+    async def fake_super_create(self: Any) -> Any:
+        return SimpleNamespace(settings=SimpleNamespace(auth=None))
+
+    with patch.object(ssl_mod.MCPFrontEndPluginWorker, "create_mcp_server", fake_super_create):
+        with pytest.raises(RuntimeError, match="non-FastMCP server"):
+            await ssl_mod.SSLMCPWorker.create_mcp_server(_make_worker())
+
+
+@pytest.mark.asyncio
+async def test_create_mcp_server_rejects_stock_fastmcp_when_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A NAT version that bypasses the module global must fail loudly, not serve HTTP."""
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "true")
+
+    async def fake_super_create(self: Any) -> Any:
+        return FastMCP(name="test")
+
+    with patch.object(ssl_mod.MCPFrontEndPluginWorker, "create_mcp_server", fake_super_create):
+        with pytest.raises(RuntimeError, match="TLS-capable FastMCP subclass"):
+            await ssl_mod.SSLMCPWorker.create_mcp_server(_make_worker())
+
+
+@pytest.mark.asyncio
+async def test_create_mcp_server_rejects_base_path_with_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "true")
+
+    async def fake_super_create(self: Any) -> Any:
+        raise AssertionError("must fail before delegating to NAT")
+
+    with patch.object(ssl_mod.MCPFrontEndPluginWorker, "create_mcp_server", fake_super_create):
+        with pytest.raises(ValueError, match="base_path"):
+            await ssl_mod.SSLMCPWorker.create_mcp_server(_make_worker(base_path="/orchestrator"))
+
+
+@pytest.mark.asyncio
+async def test_create_mcp_server_allows_base_path_without_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(ssl_mod.ORCHESTRATOR_ENABLE_HTTPS, "false")
+
+    async def fake_super_create(self: Any) -> Any:
+        return ssl_mod.mcp_worker.FastMCP(name="test")
+
+    with patch.object(ssl_mod.MCPFrontEndPluginWorker, "create_mcp_server", fake_super_create):
+        server = await ssl_mod.SSLMCPWorker.create_mcp_server(_make_worker(base_path="/orchestrator"))
+
+    assert isinstance(server, FastMCP)

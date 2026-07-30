@@ -27,8 +27,12 @@ NAT 1.6's ``MCPFrontEndPluginWorker.create_mcp_server`` hardcodes ``FastMCP(...)
 and does not expose a FastMCP class/factory hook. ``SSLMCPWorker`` therefore
 temporarily substitutes :class:`_SSLFastMCP` for the module-level ``FastMCP``
 binding while calling ``super().create_mcp_server()``, so auth wiring stays in
-NAT and only the server class differs. When HTTPS is enabled, the stock
-``http://`` ``resource_server_url`` is rewritten to ``https://``.
+NAT and only the server class differs. That substitution depends on NAT
+resolving ``FastMCP`` through its module global, so the returned instance is
+checked before use: a NAT version that constructs the class some other way
+fails at startup instead of silently serving plain HTTP behind an ``https://``
+contract. When HTTPS is enabled, the stock ``http://`` ``resource_server_url``
+is rewritten to ``https://``.
 
 Toggle via environment:
 
@@ -40,9 +44,10 @@ Toggle via environment:
 - When ``ORCHESTRATOR_ENABLE_HTTPS=false``, cert/key vars are ignored (plain HTTP,
   identical to the stock worker).
 
-Note: this override is bypassed when ``base_path`` is configured, because NAT
-mounts the app with its own ``uvicorn.Config`` in that case. The orchestrator
-config does not set ``base_path``.
+Note: these overrides are bypassed when ``base_path`` is configured, because NAT
+mounts the app with its own ``uvicorn.Config`` in that case. Rather than serve
+plain HTTP under an ``https://`` contract, ``SSLMCPWorker`` rejects that
+combination at startup. The orchestrator config does not set ``base_path``.
 """
 
 import logging
@@ -147,17 +152,37 @@ class SSLMCPWorker(MCPFrontEndPluginWorker):
 
     Because NAT 1.6 does not expose a FastMCP factory hook, this worker substitutes
     :class:`_SSLFastMCP` for the module-level ``FastMCP`` name during
-    ``super().create_mcp_server()`` and then aligns the auth resource URL scheme
-    when HTTPS is enabled.
+    ``super().create_mcp_server()``, verifies the substitution took effect, and then
+    aligns the auth resource URL scheme when HTTPS is enabled.
     """
 
     async def create_mcp_server(self) -> FastMCP:
+        # With base_path set, NAT serves the app from its own uvicorn.Config, which
+        # carries no TLS parameters — the overrides in _SSLFastMCP never run.
+        if https_enabled() and self.front_end_config.base_path:
+            raise ValueError(
+                f"{ORCHESTRATOR_ENABLE_HTTPS}=true is not supported together with "
+                f"base_path={self.front_end_config.base_path!r}: NAT mounts the app with its own "
+                "uvicorn.Config that has no TLS parameters, so the server would serve plain HTTP. "
+                "Unset base_path or disable HTTPS.",
+            )
+
         original = mcp_worker.FastMCP
         mcp_worker.FastMCP = _SSLFastMCP
         try:
-            server: FastMCP = await super().create_mcp_server()
+            server = await super().create_mcp_server()
         finally:
             mcp_worker.FastMCP = original
+
+        # Substituting the module global only works while NAT resolves FastMCP through
+        # it. If that ever changes, fail here rather than serving HTTP as if it were HTTPS.
+        if not isinstance(server, FastMCP):
+            raise RuntimeError(f"NAT returned a non-FastMCP server: {type(server)!r}")
+        if https_enabled() and not isinstance(server, _SSLFastMCP):
+            raise RuntimeError(
+                "NAT did not construct the TLS-capable FastMCP subclass; the FastMCP "
+                "substitution in SSLMCPWorker is incompatible with this NAT version.",
+            )
 
         # NAT hardcodes http:// for resource_server_url; rewrite when HTTPS is on.
         auth = server.settings.auth
