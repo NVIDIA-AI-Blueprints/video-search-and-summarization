@@ -162,8 +162,17 @@ def main() -> int:
             f"/repos/{args.repository}/actions/workflows/ci.yml/runs?{ci_query}",
         ).get("workflow_runs", [])
         if not any(item.get("conclusion") == "success" for item in ci_runs):
+            # Say only what was checked. This asserts a successful ci.yml
+            # *workflow* run — which is a larger set than the required merge
+            # checks, and does NOT imply the downstream GitLab pipeline ran:
+            # `trigger-downstream-pipeline` is gated on has-ghcr-build-entries
+            # and is skipped on develop whenever every entry is reuse-pinned
+            # (the normal case, since the PR already built those trees).
+            # Skipped jobs do not fail a workflow, so a green ci.yml here can
+            # coexist with no downstream run at all.
             raise RuntimeError(
-                f"commit {source_sha} has no successful GitHub CI/downstream run"
+                f"commit {source_sha} has no successful ci.yml workflow run "
+                "(this does not verify the downstream GitLab pipeline)"
             )
 
     if release_set.get("source", {}).get("commit") != source_sha:
