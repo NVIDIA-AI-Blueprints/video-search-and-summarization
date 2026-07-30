@@ -15,13 +15,13 @@
   },
   "expects": [
     {
-      "query": "Plan only; do not run commands, start containers, call AMC/VIOS, download data, or modify files. Deploy rtvi-cv-3d on /data/videos/cam_*.mp4 with MODELS_DIR=/data/vss-app-data/models and BEV_DATASET_PATH=/data/mv3dt/bev-dataset, but I do not have calibration yet.",
+      "query": "Plan only; do not run commands, start containers, call AMC/VIOS, download data, or modify files. Deploy rtvi-cv-3d on /data/videos/cam_*.mp4 with MODELS_DIR=/data/vss-app-data/models and BEV_DATASET_PATH=/data/mv3dt/bev-dataset, but I do not have calibration yet. Return a detailed ordered plan that includes the future post-AMC export steps without executing them: fetching the mv3dt_result ZIP, calling export_calibration with POST, validating the export response, downloading calibration to a temporary file, validating camera sensors, and atomically publishing calibration.json.",
       "checks": [
         "The plan loads vss-deploy-detection-tracking-3d and identifies missing calibration before deployment.",
         "The plan hands off to vss-generate-video-calibration for local MP4 calibration instead of inventing calibration files.",
-        "After AMC completes, the plan fetches mv3dt_result ZIP and requires export_calibration POST success instead of ignoring failures.",
-        "The plan validates the AMC export response and downloads calibration to a temporary file before atomically renaming it to calibration.json.",
-        "The exported calibration is valid JSON with at least two safe unique camera sensors where type == camera.",
+        "After AMC completes, the plan explicitly fetches the mv3dt_result ZIP and describes calling the AMC export_calibration POST endpoint; failed or nonzero export responses block deployment instead of being ignored.",
+        "The plan explicitly validates the AMC export response, downloads calibration to a temporary file, validates it, and atomically renames it to calibration.json rather than reusing an old export.",
+        "The exported calibration validation filters sensors to type == camera and requires valid JSON with at least two non-empty, safe, unique camera IDs.",
         "The plan stages transforms.yml/map.png for BEV and treats BEV as ready only after both files are present in one BEV_DATASET_PATH.",
         "The planned final deployment uses standalone config generation and compose, never warehouse calibration mount paths.",
         "The agent does not actually deploy containers, invoke AMC/VIOS APIs, register RTSP streams, or require the placeholder /data and rtsp:// resources to exist."
