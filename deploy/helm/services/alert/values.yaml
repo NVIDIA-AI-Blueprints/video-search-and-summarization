@@ -67,7 +67,7 @@ tolerations: []
 waitForDependencies:
   enabled: false
   image:
-    repository: busybox
+    repository: docker.io/library/busybox
     tag: "1.37.0"
     pullPolicy: IfNotPresent
   kafkaHost: ""

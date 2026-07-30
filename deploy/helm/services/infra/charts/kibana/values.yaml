@@ -47,7 +47,7 @@ init:
   # Selects packaged NDJSON under configs/objects/{alerts,search,lvs,warehouse-2d,warehouse-3d,warehouse-mv3dt}.ndjson
   objectsBundle: ""
   image:
-    repository: alpine
+    repository: docker.io/library/alpine
     tag: "3.24.1"
     pullPolicy: IfNotPresent
   backoffLimit: 10
