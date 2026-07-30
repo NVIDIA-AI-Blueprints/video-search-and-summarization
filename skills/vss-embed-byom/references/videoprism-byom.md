@@ -50,10 +50,12 @@ triton_model_repo/text_embeddings/config.pbtxt   # only if VideoPrism has text e
 
 Mirror the shape of the Cosmos sample:
 
-- Import `BaseVlmModel`, `VlmGenerationConfig`, `VlmModelOutput`, and `ChunkInfo`.
+- Import `BaseVlmModel`, `InputConfig`, `VlmGenerationConfig`, `VlmModelOutput`, and `ChunkInfo`.
 - Load the VideoPrism processor/model in `_initialize_model`.
 - Implement `model_name`.
 - Implement `can_batch`.
+- Implement all remaining `BaseVlmModel` abstract methods:
+  `can_enqueue_requests`, `get_model_info`, and `get_input_config`.
 - Implement `generate(...)`.
 - Return embeddings as Python lists, not CUDA tensors.
 
@@ -67,7 +69,8 @@ import torch
 
 from common.chunk_info import ChunkInfo
 from common.logger import logger
-from models.base_vlm_model import BaseVlmModel, VlmGenerationConfig, VlmModelOutput
+from common.service_exception import ServiceException
+from models.base_vlm_model import BaseVlmModel, InputConfig, VlmGenerationConfig, VlmModelOutput
 
 
 class VideoPrismEmbedModel(BaseVlmModel):
@@ -88,6 +91,23 @@ class VideoPrismEmbedModel(BaseVlmModel):
     def can_batch(self, item1, item2):
         return True
 
+    def can_enqueue_requests(self) -> bool:
+        return True
+
+    @staticmethod
+    def get_model_info(model_path: str, vlm_model_type: str = "") -> tuple[str, str, str]:
+        model_name = os.getenv("VIDEOPRISM_MODEL_NAME", "videoprism")
+        return model_name, "custom", "nvidia"
+
+    @staticmethod
+    def get_input_config(model_path: str, vlm_model_type: str = "") -> InputConfig:
+        return InputConfig(
+            num_frames=int(os.getenv("VIDEOPRISM_NUM_FRAMES", "8")),
+            use_jpeg_encoding=False,
+            width=int(os.getenv("VIDEOPRISM_FRAME_WIDTH", "224")),
+            height=int(os.getenv("VIDEOPRISM_FRAME_HEIGHT", "224")),
+        )
+
     def generate(
         self,
         query: str,
@@ -101,7 +121,11 @@ class VideoPrismEmbedModel(BaseVlmModel):
         for idx, chunk in enumerate(chunks):
             if chunk.chunk_type == "text":
                 # Implement only if VideoPrism has a compatible text encoder.
-                raise ValueError("VideoPrism BYOM text embeddings are not configured")
+                raise ServiceException(
+                    "VideoPrism BYOM text embeddings are not configured",
+                    "BadParameter",
+                    400,
+                )
 
             frames = video_frames[idx]
             embedding = self._embed_video(frames)
@@ -137,6 +161,11 @@ behaviors:
 
 Do not silently return zero vectors, random vectors, or embeddings from an
 unrelated text model.
+
+If rejecting text in the model wrapper, raise `ServiceException(message,
+"BadParameter", 400)` or add an equivalent server/handler validation guard.
+Do not raise a plain `ValueError` from `generate(...)`; that is handled as an
+unexpected model failure and can surface as HTTP 500.
 
 ## 5. Add Optional Triton/TensorRT Path
 
