@@ -22,6 +22,7 @@
 #include <functional>
 #include <math.h>
 
+#include "rtc_base/logging.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/thread.h"
 #include "openssl/hmac.h"
@@ -1978,21 +1979,55 @@ void PeerConnectionManager::resolveAndValidateRP()
     }
 }
 
+namespace {
+
+/* webRTC filters its own log output on the LoggingConfig singleton, not on
+ * LogMessage::LogToDebug(). That config defaults to LS_INFO and is created by
+ * the first call that touches the logging subsystem, after which
+ * InitializeLogging() is a no-op. It therefore has to be installed before
+ * anything else logs, otherwise webRTC keeps writing its LS_INFO chatter to
+ * stderr whatever LogToDebug() is set to. */
+void configureWebrtcLogging(webrtc::LoggingSeverity severity)
+{
+    webrtc::LoggingConfig log_config;
+    /* min_severity drops messages below `severity` at the RTC_LOG call site,
+     * debug_severity gates what reaches stderr. Both are needed. */
+    log_config.set_min_severity(severity);
+    log_config.set_debug_severity(severity);
+    log_config.set_log_timestamp(true);
+    log_config.set_log_thread(true);
+
+    const bool applied = webrtc::InitializeLogging(std::move(log_config));
+
+    /* Keeps GetLogToDebug() reporting the effective level for its callers. */
+    webrtc::LogMessage::LogToDebug(severity);
+    /* Already carried by the config; repeated so timestamps survive the case
+     * where the config above was rejected as already installed. */
+    webrtc::LogMessage::LogTimestamps(true);
+
+    const webrtc::LoggingSeverity effective_severity = webrtc::GetLoggingConfig().debug_severity();
+    if (!applied && effective_severity != severity)
+    {
+        LOG(warning) << "webRTC logging was already initialized at severity " << effective_severity
+                     << ", requested severity " << severity << " not applied to its log output" << endl;
+    }
+}
+
+}  // namespace
+
 /* ---------------------------------------------------------------------------
 **  check if factory is initialized
 ** -------------------------------------------------------------------------*/
 void PeerConnectionManager::InitializePeerConnection()
 {
-    int logLevel              = webrtc::LS_ERROR;
+    webrtc::LoggingSeverity logLevel = webrtc::LS_ERROR;
     // To print webrtc latency stats
     if (GET_CONFIG().enable_latency_logging == true)
     {
         logLevel              = webrtc::LS_WARNING;
     }
-    webrtc::LogMessage::LogToDebug((webrtc::LoggingSeverity)logLevel);
-    webrtc::LogMessage::LogTimestamps();
-    webrtc::LogMessage::LogThreads();
-    LOG(verbose) << "Logger level:" <<  webrtc::LogMessage::GetLogToDebug() << std::endl;
+    configureWebrtcLogging(logLevel);
+    LOG(info) << "Logger level:" <<  webrtc::LogMessage::GetLogToDebug() << std::endl;
 #ifdef ASYNC_API
     m_eventLoop.setParent(this);
 #endif

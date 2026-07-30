@@ -82,8 +82,13 @@ void WebrtcSinkConsumer::onFrame(std::shared_ptr<RawFrameParams> frame_data)
         /* Create a VideoFrame to pass it further in webRTC framework */
         if (yuv_buffer.get() != nullptr)
         {
+            const WebrtcFrameTimestamp frame_timestamp = m_frameTimestamper.next();
+
             webrtc::VideoFrame webRTC_input_video_frame  = webrtc::VideoFrame::Builder()
                                         .set_video_frame_buffer(yuv_buffer)
+                                        .set_rotation(webrtc::kVideoRotation_0)
+                                        .set_timestamp_us(frame_timestamp.m_timestampUs)
+                                        .set_timestamp_rtp(frame_timestamp.m_rtpTimestamp)
                                         .build();
             std::lock_guard<std::mutex> lock(m_broadcasterMutex);
             if (m_broadcaster != nullptr)
