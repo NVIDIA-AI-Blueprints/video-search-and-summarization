@@ -11,7 +11,10 @@
 echo "##### RT-DETR + MV3DT pipeline #####"
 
 ARCH="$(uname -m)"
-export LD_PRELOAD="/usr/lib/${ARCH}-linux-gnu/libgomp.so.1:/usr/lib/${ARCH}-linux-gnu/libGLdispatch.so.0"
+# libgomp/libGLdispatch must load first to reserve static TLS; keep any
+# preloads supplied by the image or operator after them.
+MV3DT_PRELOAD="/usr/lib/${ARCH}-linux-gnu/libgomp.so.1:/usr/lib/${ARCH}-linux-gnu/libGLdispatch.so.0"
+export LD_PRELOAD="${MV3DT_PRELOAD}${LD_PRELOAD:+:${LD_PRELOAD}}"
 
 MQTT_HOST=${MQTT_HOST:-mosquitto}
 MQTT_PORT=${MQTT_PORT:-1883}
