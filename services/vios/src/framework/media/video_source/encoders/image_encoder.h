@@ -32,8 +32,6 @@ public:
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void onLastFrame() override;
     std::string getImageBuffer();
-    /* True when getImageBuffer() gave up waiting instead of being signalled */
-    bool isTimedOut() const { return m_timedOut; }
     GstFlowReturn processJpegImageFromSink(GstElement *appsink);
 
 private:
@@ -45,7 +43,6 @@ private:
     std::mutex              m_imgBufferLock;
     std::string             m_imgBuffer;
     std::atomic<bool>       m_stop {false};
-    std::atomic<bool>       m_timedOut {false};
 
     GstElement*             m_pipeline      = nullptr;
     GstElement*             m_source        = nullptr;
