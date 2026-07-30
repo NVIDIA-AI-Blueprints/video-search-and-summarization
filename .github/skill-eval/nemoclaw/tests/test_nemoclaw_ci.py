@@ -1730,6 +1730,33 @@ class SkillsEvalAgentProtocolTest(unittest.TestCase):
 
 
 class NemoClawEnvFileTest(unittest.TestCase):
+    def test_readiness_commands_close_stdin(self):
+        completed = subprocess.CompletedProcess(
+            ["openshell", "sandbox", "get"],
+            0,
+            stdout="",
+            stderr="",
+        )
+        with mock.patch.object(
+            readiness.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            result = readiness._run(
+                ["openshell", "sandbox", "get"],
+                timeout=17,
+            )
+
+        self.assertIs(result, completed)
+        run.assert_called_once_with(
+            ["openshell", "sandbox", "get"],
+            cwd=None,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=17,
+        )
+
     def test_headless_runner_reads_hooks_token_from_token_file(self):
         with tempfile.TemporaryDirectory() as td:
             token_path = Path(td) / "hooks_token"
@@ -2115,12 +2142,12 @@ class NemoClawEnvFileTest(unittest.TestCase):
             }
         )
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
                 return_value=subprocess.CompletedProcess(
-                    ["nemoclaw"],
+                    ["openshell"],
                     0,
                     stdout=output,
                     stderr="",
@@ -2129,6 +2156,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
         ):
             report = readiness._check_sandbox_mcp(
                 "demo",
+                "19080",
                 [
                     "vss_orchestrator__profiles",
                     "vss_orchestrator__docker_status",
@@ -2143,10 +2171,13 @@ class NemoClawEnvFileTest(unittest.TestCase):
         )
         run.assert_called_once_with(
             [
-                "nemoclaw",
+                "openshell",
                 "sandbox",
                 "exec",
+                "--name",
                 "demo",
+                "-g",
+                "nemoclaw-19080",
                 "--",
                 "mcporter",
                 "list",
@@ -2156,14 +2187,53 @@ class NemoClawEnvFileTest(unittest.TestCase):
             timeout=90,
         )
 
+    def test_readiness_mcp_rejects_invalid_gateway_without_running_commands(self):
+        with (
+            mock.patch.object(readiness.shutil, "which") as which,
+            mock.patch.object(readiness, "_run") as run,
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                "not-a-port",
+                ["vss_orchestrator__profiles"],
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["error"], "gateway port is invalid")
+        self.assertEqual(
+            report["error_category"],
+            "sandbox_mcp_unavailable",
+        )
+        which.assert_not_called()
+        run.assert_not_called()
+
+    def test_readiness_mcp_requires_openshell_for_scoped_routing(self):
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value=None),
+            mock.patch.object(readiness, "_run") as run,
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                "19080",
+                ["vss_orchestrator__profiles"],
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["error"], "openshell not found")
+        self.assertEqual(
+            report["error_category"],
+            "sandbox_mcp_unavailable",
+        )
+        run.assert_not_called()
+
     def test_readiness_rejects_sandbox_mcp_policy_denial(self):
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
                 return_value=subprocess.CompletedProcess(
-                    ["nemoclaw"],
+                    ["openshell"],
                     1,
                     stdout="",
                     stderr="HTTP 403: ssrf_denied",
@@ -2172,6 +2242,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
         ):
             report = readiness._check_sandbox_mcp(
                 "demo",
+                "19080",
                 ["vss_orchestrator__profiles"],
             )
 
@@ -2181,12 +2252,12 @@ class NemoClawEnvFileTest(unittest.TestCase):
 
     def test_readiness_rejects_missing_sandbox_mcp_tools(self):
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
                 return_value=subprocess.CompletedProcess(
-                    ["nemoclaw"],
+                    ["openshell"],
                     0,
                     stdout=(
                         '{"mode":"server","name":"vss_orchestrator",'
@@ -2198,6 +2269,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
         ):
             report = readiness._check_sandbox_mcp(
                 "demo",
+                "19080",
                 ["vss_orchestrator__profiles"],
             )
 
@@ -2209,12 +2281,12 @@ class NemoClawEnvFileTest(unittest.TestCase):
 
     def test_readiness_requires_exact_sandbox_mcp_tool_names(self):
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
                 return_value=subprocess.CompletedProcess(
-                    ["nemoclaw"],
+                    ["openshell"],
                     0,
                     stdout=(
                         '{"mode":"server","name":"vss_orchestrator",'
@@ -2227,6 +2299,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
         ):
             report = readiness._check_sandbox_mcp(
                 "demo",
+                "19080",
                 ["vss_orchestrator__profiles"],
             )
 
@@ -2242,12 +2315,12 @@ class NemoClawEnvFileTest(unittest.TestCase):
 
     def test_readiness_rejects_invalid_sandbox_mcp_json(self):
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
                 return_value=subprocess.CompletedProcess(
-                    ["nemoclaw"],
+                    ["openshell"],
                     0,
                     stdout="not-json",
                     stderr="",
@@ -2256,6 +2329,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
         ):
             report = readiness._check_sandbox_mcp(
                 "demo",
+                "19080",
                 ["vss_orchestrator__profiles"],
             )
 
@@ -2361,12 +2435,12 @@ class NemoClawEnvFileTest(unittest.TestCase):
             }
         )
         with (
-            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(
                 readiness,
                 "_run",
                 return_value=subprocess.CompletedProcess(
-                    ["nemoclaw"],
+                    ["openshell"],
                     0,
                     stdout=output,
                     stderr="",
@@ -2375,6 +2449,7 @@ class NemoClawEnvFileTest(unittest.TestCase):
         ):
             report = readiness._check_sandbox_mcp(
                 "demo",
+                "19080",
                 ["vss_orchestrator__profiles"],
             )
 

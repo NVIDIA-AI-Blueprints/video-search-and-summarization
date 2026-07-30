@@ -52,7 +52,14 @@ def _load_env_file(path: Path) -> None:
 
 
 def _run(cmd: list[str], *, timeout: int = 30, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 def _check_cmd(name: str) -> dict[str, Any]:
@@ -232,21 +239,38 @@ def _check_sandbox(name: str, gateway_port: str) -> dict[str, Any]:
     }
 
 
-def _check_sandbox_mcp(name: str, required_tools: list[str]) -> dict[str, Any]:
-    if not shutil.which("nemoclaw"):
+def _check_sandbox_mcp(
+    name: str,
+    gateway_port: str,
+    required_tools: list[str],
+) -> dict[str, Any]:
+    try:
+        gateway_name = _gateway_name_for_port(gateway_port)
+    except ValueError:
         return {
             "ok": False,
-            "error": "nemoclaw not found",
+            "error": "gateway port is invalid",
+            "error_category": "sandbox_mcp_unavailable",
+            "required_tools": required_tools,
+            "missing_tools": required_tools,
+        }
+    if not shutil.which("openshell"):
+        return {
+            "ok": False,
+            "error": "openshell not found",
             "error_category": "sandbox_mcp_unavailable",
             "required_tools": required_tools,
             "missing_tools": required_tools,
         }
 
     cmd = [
-        "nemoclaw",
+        "openshell",
         "sandbox",
         "exec",
+        "--name",
         name,
+        "-g",
+        gateway_name,
         "--",
         "mcporter",
         "list",
@@ -452,7 +476,11 @@ def main(argv: list[str] | None = None) -> int:
         "commands": [_check_cmd(name) for name in COMMANDS],
         "sandbox": _check_sandbox(sandbox_name, gateway_port),
         "mcp": _check_mcp(repo_root, mcp_url, required_tools),
-        "sandbox_mcp": _check_sandbox_mcp(sandbox_name, required_tools),
+        "sandbox_mcp": _check_sandbox_mcp(
+            sandbox_name,
+            gateway_port,
+            required_tools,
+        ),
     }
     ok = (
         all(item["ok"] for item in report["commands"])
