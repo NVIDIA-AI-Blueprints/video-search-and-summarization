@@ -28,16 +28,16 @@
       "Runs bundled resource preflight before config generation/staging and asserts the staged Kafka sink matches the selected KAFKA_BOOTSTRAP.",
       "Plans saved perception grid and saved fused BEV by default for the finite file run.",
       "Uses a persistent BEV recorder launch and verifies the recorder survives until perception starts.",
-      "Does not use warehouse compose commands or route away from standalone unless the user explicitly asks for the full warehouse stack."
+      "Does not route to vss-deploy-profile or use warehouse compose commands."
     ]
   },
   {
     "id": "mv3dt-warehouse-explicit-exception",
     "question": "I want warehouse MV3DT as part of the full warehouse blueprint with the rest of the warehouse services. Which skill should handle that?",
-    "expected_skill": "outside-standalone-skill",
-    "ground_truth": "Explicit warehouse MV3DT requests are outside the standalone RT-CV-3D skill and should be handled by warehouse/profile deployment owners.",
+    "expected_skill": "vss-deploy-profile",
+    "ground_truth": "Explicit warehouse MV3DT requests route away from the standalone RT-CV-3D skill to the warehouse/profile deployment skill and warehouse compose files.",
     "expected_behavior": [
-      "States that explicit warehouse-blueprint MV3DT intent is outside the standalone RT-CV-3D skill.",
+      "Routes explicit warehouse-blueprint MV3DT intent to vss-deploy-profile or the warehouse deployment references.",
       "Explains that vss-deploy-detection-tracking-3d is the default for standalone MV3DT but not for combined warehouse deployment.",
       "Does not instruct the user to use the standalone compose file for the full warehouse blueprint.",
       "Does not print plaintext API tokens."
