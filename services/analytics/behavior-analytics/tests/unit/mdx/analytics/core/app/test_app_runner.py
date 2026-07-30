@@ -81,6 +81,19 @@ class TestRunFunctionality:
         forwarded_log = mock_app_runner_cls.call_args[0][3]
         assert os.path.isabs(forwarded_log)
 
+    @patch('sys.argv', [
+        'test_app.py',
+        '--config', 'tests/unit/resources/test_config.json',
+    ])
+    @patch('mdx.analytics.core.app.app_runner.AppRunner')
+    @patch('mdx.analytics.core.app.app_runner.setup_logging')
+    def test_run_uses_builtin_logging_when_log_config_omitted(self, mock_setup_logging, mock_app_runner_cls):
+        """An image without bundled configs must explicitly select built-in logging."""
+        run(MockBaseApp)
+
+        mock_setup_logging.assert_called_once_with(None)
+        assert mock_app_runner_cls.call_args[0][3] is None
+
 
 class TestAppRunnerInitialization:
     """Test suite for AppRunner initialization functionality."""

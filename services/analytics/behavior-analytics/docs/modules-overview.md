@@ -153,8 +153,8 @@ files to `CONFIG_DIR`; **each worker** runs a `ConfigFileMonitor` that watches
 
 **Add runtime-config support for a new field** → allowlist it in
 `config_validator.py`, add a value validator, and make sure the consumer
-**reads at use-time** so `invalidate_caches()` refreshes it (see CLAUDE.md +
-`docs/dynamic-config.md`).
+**reads at use-time** so `invalidate_caches()` refreshes it (see the
+`README.md` development guide and `docs/dynamic-config.md`).
 
 ### transform/detection/
 
@@ -188,7 +188,7 @@ Uses `InferenceConfig` from `schema/config.py`.
 
 ## tools/ — Dev-only CLI utilities
 
-**The only subpackage allowed to use `print()`** (see CLAUDE.md).
+**The only subpackage allowed to use `print()`** (see the `README.md` development guide).
 
 | File | What it does |
 |---|---|
@@ -256,4 +256,4 @@ Referenced in `pyrightconfig.json` via `extraPaths`.
 - Configuration details: `docs/configuration.md`
 - Building an app: `docs/building-mdx-analytics-app.md` (and the `new-app` skill)
 - Incident detection: `docs/incident-detection.md` (and the `new-incident` skill)
-- Repo rules for agents: `../CLAUDE.md`
+- Contributor conventions: `../README.md#development-guide`

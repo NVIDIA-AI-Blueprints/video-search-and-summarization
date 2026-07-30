@@ -79,6 +79,48 @@ The default configurations live under [`configs/`](./configs/) (one JSON per pro
 
 For the full schema and dynamic-config behavior (runtime updates via Flask endpoint), see [`docs/configuration.md`](./docs/configuration.md) and [`docs/dynamic-config.md`](./docs/dynamic-config.md).
 
+## Development Guide
+
+### Contributing Conventions
+
+- Add the Apache-2.0 SPDX header to every new Python file, using the current year.
+- Use `logging.getLogger(__name__)`; do not use `print()` outside `src/mdx/analytics/core/tools/`.
+- Use modern Python 3.13 type syntax, explicit imports, and Sphinx-style docstrings.
+- Keep lines within 120 characters. Use `pipenv run ruff format <path>` and `pipenv run ruff check <path>`.
+- Catch specific exceptions; do not use bare `except:`.
+- Do not edit generated files under `src/mdx/analytics/core/schema/proto/`.
+- Prefer composition over inheritance; `BaseApp` is the deliberate application-level abstraction.
+
+`src/mdx/analytics/core/utils/anomaly_util.py` retains historical camelCase names. Do not copy that style into new code.
+
+Runtime-configuration behavior is documented in [`docs/dynamic-config.md`](./docs/dynamic-config.md), with the full
+configuration schema in [`docs/configuration.md`](./docs/configuration.md).
+
+### Packaging
+
+Package metadata and runtime dependencies live in `pyproject.toml`. The thin `setup.py` supplies the base version (`3.3.0`)
+and appends the optional `VERSION_SUFFIX` used by CI for development and release-candidate builds.
+
+Runtime dependencies are duplicated in `pyproject.toml` and the `Pipfile`. When changing a runtime dependency:
+
+1. Update both files.
+2. Regenerate `Pipfile.lock`.
+3. Confirm that development dependencies remain under `[dev-packages]`.
+
+### Pre-flight Checklist
+
+Before submitting a change:
+
+1. Syntax-check the touched Python files.
+2. Run the unit tests matching the touched package.
+3. Cover every new or changed branch with tests.
+4. Run formatting and lint checks.
+5. Preserve SPDX headers and avoid unrelated reformatting.
+6. Confirm there are no stray `print()` calls, bare `except:` blocks, or edits to generated protobuf files.
+
+See [`docs/testing.md`](./docs/testing.md) for unit, coverage, integration-test, and cleanup commands. See
+[`docs/modules-overview.md`](./docs/modules-overview.md) for package structure and code navigation.
+
 ## Documentation
 
 - [Installation and Usage](./docs/installation-and-usage.md)
