@@ -83,7 +83,7 @@ sdrc:
 elasticsearch:
   enabled: false
 
-# Kibana (Deployment + kibana.yml + optional dashboard import Job). Profiles set infra.kibana.init.objectsBundle (alerts|search|lvs) when init.enabled.
+# Kibana (Deployment + kibana.yml + optional dashboard import Job). Profiles set infra.kibana.init.objectsBundle (alerts|search|lvs|search-and-alerts) when init.enabled.
 kibana:
   enabled: false
 
