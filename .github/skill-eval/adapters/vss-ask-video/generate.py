@@ -145,6 +145,16 @@ def _platforms_from_spec(spec: dict) -> list[str]:
     return [p for p in declared if p in PLATFORMS] or [DEFAULT_PLATFORM]
 
 
+def _nemoclaw_sample_files(expect: dict) -> list[str]:
+    """Return the sample fixtures explicitly requested by one eval step."""
+    raw = expect.get("nemoclaw_sample_files") or []
+    if not isinstance(raw, list) or not all(
+        isinstance(value, str) for value in raw
+    ):
+        raise ValueError("nemoclaw_sample_files must be a JSON array of strings")
+    return raw
+
+
 def _substitute_spec(spec: dict, platform: str) -> dict:
     substitutions = {
         "platform": platform,
@@ -251,6 +261,12 @@ def generate_task(
             f"check_count = {len(expect.get('checks') or [])}",
             "",
         ]
+        sample_files = _nemoclaw_sample_files(expect)
+        if sample_files:
+            meta_lines.insert(
+                -1,
+                f"nemoclaw_sample_files = {json.dumps(sample_files)}",
+            )
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
         # environment/ placeholder (BrevEnvironment takes over)

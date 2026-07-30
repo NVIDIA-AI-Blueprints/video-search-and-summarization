@@ -21,7 +21,10 @@
       ]
     },
     {
-      "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading. Only consider the upload successful once /sensor/list actually shows the sensor.",
+      "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the exact staged source file `/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4` to VIOS with timestamp 2025-01-01T00:00:00.000Z. Do not synthesize or substitute media. If it exists, skip the uploading. Only consider the upload successful once /sensor/list actually shows the sensor.",
+      "nemoclaw_sample_files": [
+        "warehouse_safety_0001.mp4"
+      ],
       "checks": [
         "The run checked whether warehouse_safety_0001 was already present on VST/VIOS before uploading (or skipped upload because it already existed)",
         "VST sensor list includes a sensor for warehouse_safety_0001",

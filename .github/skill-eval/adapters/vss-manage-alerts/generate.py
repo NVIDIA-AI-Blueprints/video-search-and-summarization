@@ -164,6 +164,16 @@ def _solve_sh(platform: str, mode: str) -> str:
     )
 
 
+def _nemoclaw_sample_files(expect: dict) -> list[str]:
+    """Return the sample fixtures explicitly requested by one eval step."""
+    raw = expect.get("nemoclaw_sample_files") or []
+    if not isinstance(raw, list) or not all(
+        isinstance(value, str) for value in raw
+    ):
+        raise ValueError("nemoclaw_sample_files must be a JSON array of strings")
+    return raw
+
+
 def _task_toml(
     *,
     platform: str,
@@ -176,6 +186,7 @@ def _task_toml(
     pspec: dict,
     spec_stem: str,
     step_suffix: str,
+    sample_files: list[str],
 ) -> str:
     short = pspec["short_name"]
     # Deploy-mode-aware label + keywords (verification CV vs VLM real-time).
@@ -215,6 +226,11 @@ def _task_toml(
         f"check_count = {check_count}",
         "",
     ]
+    if sample_files:
+        lines.insert(
+            -1,
+            f"nemoclaw_sample_files = {json.dumps(sample_files)}",
+        )
     return "\n".join(lines)
 
 
@@ -308,6 +324,7 @@ def generate_platform_mode(
             pspec=pspec,
             spec_stem=spec_stem,
             step_suffix=step_suffix,
+            sample_files=_nemoclaw_sample_files(expect),
         )
         (step_dir / "task.toml").write_text(toml_content)
 
