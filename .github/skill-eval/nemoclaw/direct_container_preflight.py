@@ -9,10 +9,11 @@ labels. On a warm multi-user or multi-gateway worker, a stale same-name
 container can therefore be selected independently of the sandbox that handled
 the command. This preflight mirrors that label lookup, attests the mutable image
 tag against the container's immutable image ID, uses NemoClaw's supported
-start lifecycle to activate it, and runs one fixed read-only probe against the
-exact attested container ID. CI executes ordinary sandbox commands through the
-owning OpenShell gateway, avoiding NemoClaw v0.0.97's gateway-independent
-post-exec cleanup path.
+start lifecycle to activate it, and runs one fixed read-only exec sentinel
+against the exact attested container ID. The later host-side ``config set`` is
+the authoritative test of NemoClaw's privileged mutation path. CI executes
+ordinary sandbox commands through the owning OpenShell gateway, avoiding
+NemoClaw v0.0.97's gateway-independent post-exec cleanup path.
 """
 
 from __future__ import annotations
@@ -32,26 +33,8 @@ DOCKER_COMMAND_TIMEOUT_SECONDS = 15
 SANDBOX_START_TIMEOUT_SECONDS = 360
 CONTAINER_PROBE_TIMEOUT_SECONDS = 30
 LIFECYCLE_PROBE_SENTINEL = "NEMOCLAW_CI_LIFECYCLE_PREFLIGHT_OK_V1"
-REPAIR_HELPER_PATH = "/usr/local/lib/nemoclaw/normalize_mutable_config_perms.py"
-OPENCLAW_CONFIG_DIR = "/sandbox/.openclaw"
-OPENCLAW_CONFIG_PATH = "/sandbox/.openclaw/openclaw.json"
-SANDBOX_USER = "sandbox"
 LIFECYCLE_PROBE_SOURCE = f"""\
 set -eu
-export LC_ALL=C
-[ "$#" -eq 4 ] || exit 19
-helper=$1
-config_dir=$2
-config_file=$3
-sandbox_user=$4
-[ -f "$helper" ] && [ ! -L "$helper" ] || exit 20
-[ -d "$config_dir" ] && [ ! -L "$config_dir" ] || exit 21
-[ -f "$config_file" ] && [ ! -L "$config_file" ] || exit 22
-sandbox_uid=$(/usr/bin/id -u "$sandbox_user" 2>/dev/null) || exit 23
-sandbox_gid=$(/usr/bin/id -g "$sandbox_user" 2>/dev/null) || exit 23
-case "$sandbox_uid" in ""|*[!0-9]*) exit 23 ;; esac
-case "$sandbox_gid" in ""|*[!0-9]*) exit 23 ;; esac
-[ "$sandbox_uid" -gt 0 ] && [ "$sandbox_gid" -gt 0 ] || exit 23
 printf '%s\\n' '{LIFECYCLE_PROBE_SENTINEL}'
 """
 LIFECYCLE_PROBE_ARGV = (
@@ -59,10 +42,6 @@ LIFECYCLE_PROBE_ARGV = (
     "-c",
     LIFECYCLE_PROBE_SOURCE,
     "nemoclaw-ci-preflight",
-    REPAIR_HELPER_PATH,
-    OPENCLAW_CONFIG_DIR,
-    OPENCLAW_CONFIG_PATH,
-    SANDBOX_USER,
 )
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 
