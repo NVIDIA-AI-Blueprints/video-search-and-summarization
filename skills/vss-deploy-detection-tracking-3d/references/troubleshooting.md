@@ -1,449 +1,196 @@
-# MV3DT troubleshooting
+# Standalone RT-CV-3D MV3DT Troubleshooting
 
-Parent: [`../SKILL.md`](../SKILL.md). MV3DT-specific failure modes. For broader warehouse issues that apply to 2D/3D/MV3DT alike, the deeper reference is [`../../vss-deploy-profile/references/warehouse-debug.md`](../../vss-deploy-profile/references/warehouse-debug.md).
+Load this reference when setup, staging, launch, RTSP registration, Kafka flow, OSD, saved video, or BEV visualization fails.
 
-## Top failure modes (in order of frequency)
+## Wrong Deployment Path
 
-### Only a fraction of cameras actually running (per-GPU stream cap)
+Symptom: commands mention `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, VST, ELK, Kibana, Logstash, or `deploy/docker/industry-profiles/warehouse-operations`.
 
-**Symptom:** You set `NUM_STREAMS=4` but `mdx-raw` only shows 2 sensors, perception logs 2 FPS lines, the VST sensor list has 2 entries.
+Fix: return to `services/rtvi/rt-cv-3d/rt-cv-mv3dt`, use `docker/compose.yml`, and launch with the standalone broker mode selected in `deploy-rtvi-cv-3d-stack.md`. Use the warehouse/profile skill only when the user explicitly asked for warehouse MV3DT or a combined warehouse deployment.
 
-**Cause:** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)` and applies a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` so `final_stream_count` `.mp4` files remain (lex-sorted, last N kept). Per-GPU caps live in `blueprint-configurator/blueprint_config.yml:592-642`; see the table in `SKILL.md` Prerequisites §3.
+## Runtime Image Confusion
 
-Two common variants:
-- `HARDWARE_PROFILE` set to a slug not in the canonical table (e.g. `A6000`) — the configurator falls back to defaults and may apply an unintended cap. Use the slug from SKILL.md Prerequisites §3.
-- More cameras than the GPU's `mv3dt` cap supports — the configurator trims the dataset to the cap.
-
-**Diagnose:**
-```bash
-ls "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"*.mp4 | wc -l
-grep '^HARDWARE_PROFILE=' "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env" \
-  || grep '^HARDWARE_PROFILE=' "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
-docker logs vss-configurator-mv3dt 2>&1 | grep -iE 'keep_count|final_stream_count|max_streams'
-```
-
-**Fix:** Either accept the cap (and tell the user explicitly), or move to a GPU with a higher cap. Re-source missing `.mp4` files from a backup; the configurator will trim again on next deploy unless `HARDWARE_PROFILE` covers your camera count. See [`configure-cameras.md`](configure-cameras.md) Step 2 for the lookup table.
-
-### Perception reports `Active sources : 0` after a redeploy with a new dataset
-
-**Symptom:** Containers are all up and healthy; perception logs the configured sensor names but every PERF line shows `0.00000` FPS and `Active sources : 0`. `vss-configurator-mv3dt` logs `Error adding sensor <name>. Received status code 501 from VMS. Retrying...` and `vss-vios-sensor` logs `Sensors count limit reached`. `vss-vios-streamprocessing` may log `ProxyRTSPClient ... RTSP "DESCRIBE" command failed; trying again` for stream URLs that no longer correspond to files on disk.
-
-**Cause:** Named docker volumes (notably `mdx_vios_pg_data` — VST's Postgres) persist across `docker compose down` by design. When a redeploy switches dataset / camera set / camera names, the previous deploy's sensor records remain in the VST DB. VST enforces a per-device sensor cap that matches `max_streams_supported` for the GPU; with the cap already occupied by records from the prior deploy, new registrations from the configurator return HTTP 501. The public DELETE API only reaches sensors whose owning device is currently registered, so some prior records can sit beyond its scope.
-
-**Diagnose:**
-```bash
-docker logs --tail 30 vss-configurator-mv3dt 2>&1 | grep -iE 'status code 501|Sensors count|Successfully added'
-docker logs --tail 30 vss-vios-sensor       2>&1 | grep -iE 'count limit|sensor/add|hasSpace'
-docker logs --tail 30 vss-vios-nvstreamer-mv3dt 2>&1 | grep -iE 'Exceeded sync file|DESCRIBE' | tail
-curl -sf "http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/list" \
-  | jq -r '.[] | "\(.sensorId)  \(.name)"'
-```
-
-If the sensor list shows names from a previous dataset (or more entries than `min(NUM_STREAMS, max_streams_supported)`), VST state is the cause.
-
-**Fix:** Reset VST state and redeploy from a clean slate:
+Resolved runtime images come only from Compose:
 
 ```bash
-cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v
-
-bash scripts/cleanup_all_datalog.sh \
-  -e industry-profiles/warehouse-operations/generated.env \
-  --skip-revert-from-oldest-backup
-
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
-  up --detach --pull always
+cd "${RTCV3D_APP}/docker"
+docker compose config --images | sort -u
 ```
 
-`down -v` resets the named volumes (including the VST Postgres DB), so configurator re-registers sensors fresh from the current calibration. See [`teardown.md`](teardown.md) for the full discussion and [`configure-cameras.md`](configure-cameras.md) Step 5 for the targeted-trim alternative when you want to keep most state.
+Do not infer image tags from this skill's version or hardcode release tags in troubleshooting steps.
 
-### `vss-rtvi-cv-mv3dt` crashes at startup with `MqttCommunicator` "invalid node" / tracker submit failures
+## Missing Models
 
-**Symptom:** `vss-rtvi-cv-mv3dt` reaches stream init, then exits. Logs show:
-
-```
-new stream added [0:<uuid>:cam_01]
-!![Exception] [MqttCommunicator] Error initializing pub/sub info: invalid node; first invalid key: "cam_01"
-ERROR from tracking_tracker: Failed to submit input to tracker
-gstnvtracker: Low-level tracker lib returned error 1
-App run failed
-```
-
-**Cause:** The perception container ships a hardcoded `pub_sub_info_config.yml` (`warehouse-mv3dt-app/deepstream/configs/pub_sub_info_config.yml`) and tracker config (`ds-mv3dt-tracker-config.yml`) that expect camera names `Camera` (first), `Camera_01`, `Camera_02`, … VST registered sensors under the actual video filenames (here `cam_00..cam_03`), so the MQTT pub/sub map lookup fails and the tracker can't initialize. Common for custom datasets where the user's videos / AMC defaults don't match the sample convention.
-
-**Diagnose:**
-```bash
-docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -E 'pubBrokerTopicStr|stream_name|invalid node|MqttCommunicator' | head -30
-curl -sf "http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/list" | jq -r '.[].name' | sort
-jq -r '.sensors[].id' "${CAL_DIR}/calibration.json" | sort
-```
-
-If the VST sensor names and calibration sensor IDs don't match `Camera / Camera_01 / Camera_02 / ...`, that's the issue.
-
-**Fix:** Tear down (`down -v` to clear VST sensor state), then walk [`configure-cameras.md`](configure-cameras.md) **Step 0** — rename videos, `camInfo/*.yml`, and `sensors[].id` in `calibration.json` to the `Camera, Camera_NN` convention together. Redeploy.
-
-### VST streamprocessing logs `No calibration data found for sensor: Camera...`
-
-**Symptom:** VST video streams are present, but overlays are missing. `vss-vios-streamprocessing` logs show:
-
-```
-No calibration data found for sensor: Camera
-No calibration data found for sensor: Camera_01
-```
-
-**Cause:** The VST runtime stream names are `Camera, Camera_01, ...`, but the deployed `calibration.json` still has AMC/VGGT IDs such as `cam_00, cam_01, ...`. Streamprocessing matches by sensor name and cannot find the calibration entries.
-
-**Diagnose:**
-```bash
-docker logs vss-vios-streamprocessing 2>&1 | grep 'No calibration data found' | tail
-jq -r '.sensors[].id' "${CAL_DIR}/calibration.json"
-curl -sf "http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/list" | jq -r '.[].name' | sort
-```
-
-**Fix:** Walk [`configure-cameras.md`](configure-cameras.md) **Step 0** and apply the normalization (`APPLY_RENAME=1`) so videos, `camInfo/*.yml`, and `sensors[].id` all use `Camera, Camera_01, ...`. Then recreate streamprocessing or do a clean redeploy if VST already registered stale sensors. Re-run [`verify-and-view.md`](verify-and-view.md) Step 4b before reporting success.
-
-### `vss-behavior-analytics-mv3dt` restart loop with `calibration 'upsert-all' payload failed schema validation`
-
-**Symptom:** `vss-behavior-analytics-mv3dt` is in `Restarting` state. Logs show:
-
-```
-[ERROR] calibration 'upsert-all' payload failed schema validation: sensors/0/group/alias: '' should be non-empty; sensors/0/group/dimensions: [] is too short; sensors/0/group/name: '' should be non-empty; sensors/0/group/origin: [] is too short; sensors/0/group/type: '' should be non-empty (+ N more ...)
-```
-
-**Cause:** API-only AMC/VGGT `export_calibration?calibration_type=cartesian` can leave `sensors[].group`, `sensors[].region`, or `sensors[].place` as empty objects/arrays when the user didn't define ROIs / regions in the AMC UI Parameters step. The schema validator rejects these and the container exits 1.
-
-**Diagnose:**
-```bash
-jq '.sensors[0] | {group, region, place}' "${CAL_DIR}/calibration.json"
-# Empty group.name / region.placeLevel / place=[] confirm the cause.
-```
-
-**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4a** — the inline `jq` block patches placeholder values into the empty fields so the validator passes. For metric BEV bounds, populate these in the AMC UI Parameters step before export or tune them after deploy using [`verify-and-view.md`](verify-and-view.md) **Tune BEV `group` / `region` for better overlays**.
-
-### `vss-import-calibration-output-mv3dt` exits 1 with `imageMetadata.json not found`
-
-**Symptom:** Under the extended deployment (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` runs once and exits 1. Logs show:
-
-```
-importing calibration ...
-{"success":true}importing images ...
-imageMetadata.json not found at /opt/vss/images/imageMetadata.json
-Exiting Script.
-```
-
-Stack otherwise runs; VST video wall renders raw video without overlays because the import didn't populate the metadata index in Elasticsearch.
-
-**Cause:** AMC's MV3DT export doesn't produce `images/Top.png` + `images/imageMetadata.json`; the importer expects both at the bind-mounted path. This only applies to the extended service list; the corresponding `_MINIMAL` list does not deploy this container.
-
-**Diagnose:**
-```bash
-ls "${CAL_DIR}/images/" 2>/dev/null
-docker logs vss-import-calibration-output-mv3dt 2>&1 | tail -10
-```
-
-**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4b** — synthesize `Top.png` from the user's `layout.png` (or any project-output PNG) and write a matching `imageMetadata.json` with a `place` string mirroring `sensors[0].place`. Then force-recreate the one-shot importer so logs reflect only the retry — no full redeploy needed.
+Symptom: compose fails with `MODELS_DIR` errors, perception cannot load models, or image starts then exits during model init.
 
 ```bash
-cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
-  up --no-deps --force-recreate import-calibration-output-container-mv3dt
+cd "${RTCV3D_APP}"
+MODELS_DIR="${MODELS_DIR:?set MODELS_DIR from docker/.env or user input}"
+ls "${MODELS_DIR}/mtmc"
+ls "${MODELS_DIR}/mv3dt/BodyPose3DNet"
 ```
 
-### `vss-import-calibration-output-mv3dt` exits 0 but overlays are missing
+Fix: download/extract app-data, set `MODELS_DIR` to its `models` directory in standalone `docker/.env`, then restage/redeploy.
 
-**Symptom:** Under the extended deployment (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` shows `Exited (0)`, but VST overlays are missing. Importer logs include `{"error":"Something broke!"}` or video-analytics API logs show `EACCES: permission denied, open '/web-api-app/files/...'`.
+## No `camInfo` Or Wrong Camera Count
 
-**Cause:** The video-analytics API upload bind (`${VSS_DATA_DIR}/data_log/vss_video_analytics_api:/web-api-app/files`) is not writable by the API container. The importer uses `curl` without failing on HTTP error responses, so the one-shot can exit 0 even when the API rejected the calibration/image upload.
+Symptom: `stage-configs.sh` warns no camInfo, file input fails, BEV Fusion waits, or perception logs camera config errors.
 
-**Diagnose:**
 ```bash
-docker logs vss-import-calibration-output-mv3dt 2>&1 | tail -50
-docker logs vss-video-analytics-api-mv3dt 2>&1 | grep -iE 'EACCES|permission denied|Something broke|error' | tail -20
-docker exec vss-video-analytics-api-mv3dt sh -lc 'touch /web-api-app/files/.amc_write_test && rm -f /web-api-app/files/.amc_write_test'
+cd "${RTCV3D_APP}"
+find generated/camInfo -maxdepth 1 -type f -name '*.yml' | sort
 ```
 
-**Fix:** Create the upload directory before retrying and apply the same scoped ACL used in `SKILL.md` Prerequisites §4. Then restart the API and rerun the one-shot importer; no full redeploy is needed.
+Fix: validate `calibration.json` with `configure-cameras.md`; `NUM_CAMS` must count only sensors where `type == "camera"`, and generated camInfo count must match that filtered camera count.
+
+## Unsafe Or Mismatched Camera IDs
+
+Symptom: file-mode input starts with missing source files, stream registration does not match calibration, or camInfo generation fails.
+
+Fix: camera ids must be non-empty, unique, safe filename tokens containing only letters, digits, dot, underscore, or dash, with no path separators, traversal components, or control characters. Do not mutate source videos. Point `VIDEO_DIR` at files already named `<sensor_id>.mp4` or create `generated/video-input/<sensor_id>.mp4` symlinks when the mapping is explicit or unambiguous.
+
+## RTSP Streams Do Not Start
+
+Symptom: `ds-ready: YES` appears but FPS stays 0 after stream registration.
 
 ```bash
-API_UPLOAD_DIR="${VSS_DATA_DIR}/data_log/vss_video_analytics_api"
-mkdir -p "${API_UPLOAD_DIR}"
-setfacl -R    -m u:1000:rwx "${API_UPLOAD_DIR}"
-setfacl -R -d -m u:1000:rwx "${API_UPLOAD_DIR}"
-
-docker restart vss-video-analytics-api-mv3dt
-
-cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
-  up --no-deps --force-recreate import-calibration-output-container-mv3dt
+cd "${RTCV3D_APP}"
+./scripts/add-streams.sh --list
+docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | grep -iE 'error|rtsp|source|fps' | tail -50
 ```
 
-Re-run [`verify-and-view.md`](verify-and-view.md) Step 4b. Do not report success until the import check is clean.
+Fixes:
 
-### `vss-rtvi-cv-bev-fusion` not healthy / `/tmp/fusion_ready` missing
+- Ensure each `add-streams.sh` key exactly matches a generated camInfo basename.
+- Removal also requires the original `NAME=rtsp://...` mapping: `./scripts/add-streams.sh --remove 'Camera_01=rtsp://host/cam1'`.
+- Verify each RTSP URL is reachable from the deployment host.
+- Confirm streams are synchronized and close to 30 FPS.
+- After `add-streams.sh`, validate exact stream count and camera IDs with `configure-cameras.md`.
 
-**Cause(s):**
-- Broker not ready — `broker-health-check` hasn't completed yet, so `mdx-raw` topic doesn't exist.
-- `MAX_EXPECTED_SENSORS` (= `NUM_STREAMS`) higher than actual streams — fusion buffers and waits.
-- `STREAM_TYPE` in `generated.env` doesn't match the broker selected by `BP_PROFILE` (for example, `STREAM_TYPE=kafka` with `BP_PROFILE=bp_wh_redis`).
+## Bundled Or External Broker Problems
 
-**Diagnose:**
+Symptom: perception fails at MQTT init, Kafka dump cannot connect, BEV Fusion remains unhealthy, or `mdx-bev` does not grow.
+
 ```bash
-docker ps --filter name=broker-health-check          # must show Exited (0)
+docker ps --format '{{.Names}}	{{.Status}}'   | awk '$1 ~ /^(vss-mosquitto-mv3dt|kafka|vss-rtvi-cv-bev-fusion)$/ {print}'
+docker logs --tail 100 vss-mosquitto-mv3dt 2>&1 | tail -30 || true
+docker logs --tail 100 kafka 2>&1 | tail -30 || true
 docker logs --tail 100 vss-rtvi-cv-bev-fusion 2>&1 | tail -30
-docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null \
-  || docker exec redis redis-cli KEYS 'mdx*'
+```
 
-# Verify fusion health (NOT via docker exec ... test -f /tmp/fusion_ready — the image strips test out of PATH):
+For external brokers, confirm the basic endpoints and regenerated MQTT config:
+
+```bash
+cd "${RTCV3D_APP}"
+MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}" ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
+# Use the Kafka CLI offset helpers from verify-and-view.md with KAFKA_BOOTSTRAP.
+timeout 20s ./scripts/kafka-dump.sh --bootstrap "${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}" --topic "${RAW_TOPIC:-mdx-raw}" --count 5
+```
+
+If advanced Kafka/MQTT TLS/auth is required, use the standalone README custom-broker section.
+
+## `mdx-raw` Grows But `mdx-bev` Does Not
+
+Cause: BEV Fusion is not receiving enough synchronized per-camera measurements, `MAX_EXPECTED_SENSORS` does not match actual camera count, or time skew is too large.
+
+```bash
 docker inspect --format '{{.State.Health.Status}}' vss-rtvi-cv-bev-fusion
+cd "${RTCV3D_APP}"
+# Use the Kafka CLI offset helpers from verify-and-view.md to compare mdx-raw and mdx-bev high-watermark offsets.
 ```
 
-**Fix:** Wait if `broker-health-check` is still `Up` (it can take 2–3 min). If it `Exited` non-zero, check broker logs (`docker logs kafka` or `docker logs redis`). If `MAX_EXPECTED_SENSORS` mismatch: walk [`configure-cameras.md`](configure-cameras.md) again.
+Fixes:
 
-### `vss-rtvi-cv-mv3dt` exits / `ds-start-mv3dt.sh` fails
+- Confirm `NUM_CAMS` equals the filtered camera count and generated camInfo count.
+- Confirm all file/RTSP inputs are active.
+- Check camera clock synchronization; at 30 FPS, frame timestamps should agree within about 33 ms.
+- Tune BEV Fusion timing env values only after validating camera count and stream activity.
 
-**Cause(s):**
-- `camInfo/cam_*.yaml` mount is missing or empty (calibration not landed).
-- `NUM_STREAMS` doesn't equal the count of `camInfo/*.yaml` files — DeepStream batch size mismatches model expectations.
-- The per-file model download did not place BodyPose3DNet at `${VSS_DATA_DIR}/models/BodyPose3DNet/bodypose3dnet_accuracy.onnx` — perception can't load weights.
-
-**Diagnose:**
-```bash
-DATASET="${SAMPLE_VIDEO_DATASET:?}"
-CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
-
-ls -l "${CAL_DIR}/camInfo/" | head
-docker exec vss-rtvi-cv-mv3dt ls /tmp/camInfo/ 2>/dev/null   # what perception actually sees
-docker exec vss-rtvi-cv-mv3dt ls /opt/storage/BodyPose3DNet/ 2>/dev/null
-docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | tail -60
-```
-
-**Fix:** Re-walk [`calibration-workflow.md`](calibration-workflow.md) Step 4 and [`configure-cameras.md`](configure-cameras.md). For missing models, confirm `NGC_CLI_API_KEY` is valid, `${VSS_DATA_DIR}/models/` is writable, and ds-start phase 0 completed successfully (check `vss-rtvi-cv-mv3dt` logs for download output). The required files are `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx` and `${VSS_DATA_DIR}/models/BodyPose3DNet/bodypose3dnet_accuracy.onnx`; they no longer come from the app-data model subtree.
-
-### `mosquitto` unhealthy
-
-**Cause(s):**
-- The effective `MQTT_HOST` / `MQTT_PORT` values from `.env` plus `generated.env` don't match the mosquitto container's actual host/port.
-- Mosquitto's bind port (`1883` by default) already in use on the host.
-
-**Diagnose:**
-```bash
-set -a
-. "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
-. "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
-set +a
-printf 'MQTT_HOST=%s\nMQTT_PORT=%s\n' "${MQTT_HOST}" "${MQTT_PORT}"
-ss -tlnp | grep ':1883'                         # port collision check
-docker logs --tail 50 mosquitto 2>&1 | tail
-```
-
-**Fix:** Override `MQTT_HOST=localhost` and `MQTT_PORT=1883` in `generated.env` (mosquitto uses `network_mode: host`). If another process has 1883, stop it or choose a different `MQTT_PORT` in `generated.env`, then redeploy.
-
-### BEV out of sync — frames look stale or duplicated
-
-**Cause(s):**
-- Camera clocks drift; per-camera frame timestamps fall outside `SENSOR_TIMEOUT_MS` window (default 100 ms).
-- `BUFFER_DURATION_S` too short for the actual end-to-end latency.
-
-**Diagnose:**
-Watch `mdx-bev` rate vs `mdx-raw` rate over a minute. The shipped Kafka image is `confluentinc/cp-kafka:8.3.0` which uses `kafka-get-offsets` (not the older `kafka-run-class kafka.tools.GetOffsetShell` — that class is gone):
-```bash
-docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-raw
-docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-bev
-```
-If `mdx-bev` grows much slower than `mdx-raw` × num cameras, fusion is dropping under-late frames.
-
-**Fix:** Override the env in `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml:52` (`SENSOR_TIMEOUT_MS`) and `:54` (`BUFFER_DURATION_S`) via env file:
+## OSD Window Missing
 
 ```bash
-# Add to industry-profiles/warehouse-operations/generated.env
-echo 'SENSOR_TIMEOUT_MS=300' >> "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
-echo 'BUFFER_DURATION_S=3.0' >> "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+echo "DISPLAY=${DISPLAY:-}"
+ls /tmp/.X11-unix 2>/dev/null || true
+command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>&1 && echo 'display ok'
+docker logs --tail 100 vss-rtvi-cv-mv3dt 2>&1 | grep -iE 'display|egl|x11|sink0|error'
 ```
 
-Then `docker compose ... up -d` to apply. Tune upward incrementally.
+Fixes:
 
-### BodyPose3DNet TRT engine build hangs first start
+- Restage with `OSD=1` only after a working display is detected.
+- Ask before modifying X11 access.
+- Do not use broad `xhost +`.
+- If no display is available, ask before switching to `SAVE_VIDEO=1` and saved BEV output.
 
-**Symptom:** `vss-rtvi-cv-mv3dt` sits in `(starting)` for many minutes. No FPS lines yet.
+## File-Input Completion Versus Crash
 
-**Normal:** First-start engine build takes 3–8 min on H100, 8–15 min on L4. Tail `docker logs -f vss-rtvi-cv-mv3dt` for `Build engine successfully`.
-
-**Diagnose if it's truly stuck (>15 min):**
-```bash
-docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | grep -iE 'cuda|out of memory|killed|error' | tail -20
-nvidia-smi
-```
-If GPU OOM appears, perception is competing with another workload on `RT_CV_DEVICE_ID`. Free the GPU (or change `RT_CV_DEVICE_ID` in the active `generated.env`) and redeploy.
-
-### AMC MV3DT export ZIP missing `transforms.yml` / `camInfo/*.yaml`
-
-**Cause(s):**
-- `result_type=amc` requested but AMC didn't actually finish — `project_state != COMPLETED`.
-- VGGT path requested (`result_type=vggt`) but VGGT wasn't run or didn't complete.
-
-**Diagnose:**
-```bash
-curl -s "http://localhost:8010/v1/get_project_info/${project_id}" | jq '.project_info | {project_state, vggt_state}'
-curl -s "http://localhost:8010/v1/amc/calibrate/${project_id}/log" | tail -60
-```
-
-**Fix:** Per [`calibration-workflow.md`](calibration-workflow.md) Step 2 — re-poll until `project_state == COMPLETED`. If VGGT requested, also check `vggt_state == COMPLETED` (VGGT only runs if the model file is staged).
-
-### VST video wall (`/vst` on `:30888`) unreachable
-
-**Cause(s):**
-- The browser opened the base port instead of `http://<HOST_IP>:30888/vst`.
-- VST stack didn't come up (sensor-ms / postgres in bad state).
-- Firewall blocks port 30888 from the browser host.
-- `HOST_IP` is `localhost` and you're trying to reach from a remote browser.
-
-**Diagnose:**
-```bash
-docker ps | grep -E 'vios|sensor-ms|centralizedb'
-ss -tlnp | grep ':30888'
-curl -sf "http://localhost:30888/vst/api/v1/sensor/list"   # from the host itself
-```
-
-**Fix:** If VST containers are missing, the selected service list did not activate them — confirm `COMPOSE_PROFILES` resolves from `COMPOSE_PROFILES_WH_KAFKA_MV3DT` or `COMPOSE_PROFILES_WH_REDIS_MV3DT`. If `HOST_IP=localhost` in `generated.env`, change it to the actual reachable IP and redeploy (Compose substitutes at start time). For firewall, port-forward via SSH (`ssh -L 30888:localhost:30888`) or open the port on the host.
-
-### VST video wall: "Failed to create Video Source" despite a healthy pipeline
-
-**Symptom:** VST UI loads at `http://<HOST_IP>:30888/vst` fine. Click play on any sensor → `Playback Error: Error 22: Failed to create Video Source`, `Error 2: Failed to start inbound stream`, or an ICE-negotiation failure. Data is flowing — `mdx-raw` and `mdx-bev` offsets are growing, `vss-vios-streamprocessing` is writing per-minute mkv chunks to `${VSS_DATA_DIR}/data_log/`, `rtsp://<HOST_IP>:30554/live/<sensorId>` is serving valid H264.
-
-**Cause:** WebRTC negotiation fails between the browser and VST — the ICE candidates advertise a host/UDP port the browser can't reach. Common triggers:
-- **Outbound STUN** to `stun.l.google.com:19302` (VST's default `stunurl_list`). Corp / VPN blocks Google STUN frequently.
-- **Inbound UDP** on a random port range (VST's default `webrtc_port_range: {min:0, max:0}`). Corp / cloud / on-prem firewalls that don't pass arbitrary UDP make ICE negotiation fail.
-- **Edge and remote hosts (Thor, cloud VM, SSH / VPN / NAT).** When you reach the host only through an SSH tunnel and forward just the TCP UI port (`-L 30888:...`), the dashboard loads but the UDP media path isn't tunnelled, so playback fails with `Error 2` / `Error 22`. This is the most common cause on IGX-THOR / AGX-THOR. See [`verify-and-view.md` § Edge and remote hosts](verify-and-view.md).
-
-**Sensor-status caveat.** While WebRTC is blocked, `GET /vst/api/v1/sensor/list` may report `state: "offline"` and `url: null` for each sensor. That field reflects browser-reachability, not pipeline health — if `streamprocessing` is actively recording chunks, the pipeline is fine. Focus diagnostics on the transport layer, not the sensor status.
-
-**Diagnose:**
-```bash
-# Pipeline is healthy?
-docker logs --tail 50 vss-vios-streamprocessing 2>&1 | grep -E 'write|mkv|chunk' | tail
-ls -la "${VSS_DATA_DIR}/data_log/" | head
-
-# RTSP source reachable?
-ffprobe -v error -timeout 5000000 "rtsp://${HOST_IP}:30554/live/<sensorId>" 2>&1 | head
-
-# Browser network access?
-curl -fI "http://${HOST_IP}:30888/vst" -o /dev/null -w "%{http_code}\n"   # 200 = UI works
-nc -zu stun.l.google.com 19302                                            # blocked? STUN unreachable
-```
-
-**Workarounds** (in order of effort):
-1. **Run the browser on the host itself.** VNC, X-forwarding, or RDP — bypasses the WebRTC firewall entirely.
-2. **Bypass VST UI, use RTSP directly.** `ffplay rtsp://<HOST_IP>:30554/live/<sensorId>` if port 30554 is reachable. Over SSH this tunnels cleanly (RTSP is TCP): `ssh -L 30554:localhost:30554 <user>@<host>`, then `ffplay rtsp://localhost:30554/live/<sensorId>`. No overlays, but you see the raw stream.
-3. **Bypass UI entirely; consume `mdx-bev`.** Data is on the broker — write a downstream consumer.
-4. **Self-host a TURN server** on TCP/443 and reconfigure VST's `stunurl_list` / `webrtc_port_range`. Heavyweight; out of scope for this skill.
-
-### VST overlays show the sample warehouse layout, or 3D bboxes do not align with custom calibration
-
-**Symptom:** VST top-view widget displays the bundled sample warehouse layout and/or 3D bounding boxes do not line up with the camera views, even though `calibration.json` at `<CAL_DIR>` looks correct, AMC overlay images in the project output look correct, perception is at 30 FPS, and `mdx-bev` is growing. Re-running AMC, switching detectors, or running VGGT refinement does not change the VST overlay.
-
-**Cause:** `services/vios/streamprocessing/docker-compose.yaml` may include bind-mount sources that point at the bundled sample dataset instead of `${SAMPLE_VIDEO_DATASET}`. VST reads overlay configuration from its container configuration directory, so for custom datasets the VST overlay may use the sample `cameraMatrix` while perception, behavior-analytics, and video-analytics-api read from the custom dataset calibration path.
-
-**Diagnose:**
-```bash
-docker inspect vss-vios-streamprocessing \
-  --format '{{range .Mounts}}{{println .Destination " <- " .Source}}{{end}}' \
-  | grep -E "calibration\.json|Top\.png"
-# If either source path contains "warehouse-4cams-20mx20m-synthetic" instead of your ${SAMPLE_VIDEO_DATASET}, update the mount sources.
-```
-
-**Fix:** Apply the update from [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 0b so the sample-data path resolves through `${SAMPLE_VIDEO_DATASET}`. Then recreate `streamprocessing-ms-mv3dt` in place and hard-refresh the VST tab. Full stack restart is not required.
-
-### No bounding-box overlays in VST video wall
-
-**Expected behavior under `MINIMAL_PROFILE="true"`.** Overlays require Elasticsearch + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt`. These services are present in the extended `COMPOSE_PROFILES_WH_*_MV3DT` lists and absent from the corresponding `_MINIMAL` lists. See [`verify-and-view.md`](verify-and-view.md) Step 5.
-
-**Fix:** Tear down ([`teardown.md`](teardown.md)), set `MINIMAL_PROFILE=""` in `generated.env`, select the non-`_MINIMAL` MV3DT service list, and redeploy ([`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md)). There is no "minimal + just ELK" middle path; the extended services are selected as a complete list.
-
-In the VST UI itself, overlays are off by default per stream — enable via the video player's options menu.
-
-### `error from registry: Incorrect Repository Format` during compose pull
-
-**Symptom:** `docker compose up --pull always --build` aborts mid-pull with `error from registry: Incorrect Repository Format`. No containers are created. Failure is non-deterministic across Docker / Compose versions — what works on one host fails on another with the same env inputs.
-
-**Cause:** A handful of services in `services/infra/compose.yml` are locally built but declared with bare-tag `image:` fields (e.g. `image: elasticsearch` — no registry, no version). With `--pull always`, compose tries to resolve those references against the default registry (Docker Hub) before considering the build context. Some Docker / Compose versions reject the resolution outright and abort the whole `up`; others fall through to the build and succeed. The repo-side fix is to scope these references (e.g. `image: <project>-elasticsearch:local`); until that lands, work around it from the deploy side.
-
-**Workaround A — pre-build the locally-built services, then `up` without `--pull always` (version-independent, no system changes):**
+For `INPUT_MODE=file`, `vss-rtvi-cv-mv3dt` exits after EOS by design. `Exited (0)` with `App run successful` in logs is success, not a failed deployment.
 
 ```bash
-cd "${VSS_APPS_DIR}"
-
-# Discover services whose resolved image: lacks a registry/host prefix —
-# these are the ones compose tries (and may fail) to pull as Docker Hub refs.
-LOCAL_SVCS=$(docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config 2>/dev/null \
-  | python3 -c "
-import sys, yaml
-d = yaml.safe_load(sys.stdin)
-for n, s in (d.get('services') or {}).items():
-    img = s.get('image', '')
-    head = img.split(':')[0]
-    if s.get('build') and '/' not in head and '.' not in head:
-        print(n)
-")
-echo "Will pre-build: $LOCAL_SVCS"
-
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env build $LOCAL_SVCS
-
-# Now bring up the rest. Drop --pull always (default --pull missing will
-# fetch registry images that aren't local; the pre-built ones are skipped).
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
-  up --detach --force-recreate
+status="$(docker inspect --format '{{.State.Status}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+exit_code="$(docker inspect --format '{{.State.ExitCode}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+oom="$(docker inspect --format '{{.State.OOMKilled}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+echo "status=${status} exit=${exit_code} oom=${oom}"
+docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | tail -100
 ```
 
-**Workaround B — pin Docker / Compose to a known-good version.** The warehouse-deploy skill documents this in [`../../vss-deploy-profile/references/warehouse.md`](../../vss-deploy-profile/references/warehouse.md) (search "Incorrect Repository Format"). Two caveats specific to this fallback:
+Classify:
 
-- Downgrading the Docker engine often switches the underlying containerd major version. The local image store from the previous Docker is invisible to the older containerd snapshotter — the first `compose up` after the pin re-pulls every NGC image (10+ GB).
-- It's a system-wide change. Workaround A is the safer first attempt if anything else on the host depends on the current Docker version.
+- `status=exited exit=0` plus `App run successful`: completed finite file-input run; verify artifacts and Kafka offsets against pre-run baselines.
+- `exit` non-zero, `oom=true`, missing success log, or fatal/error logs before outputs are written: crash/failure; inspect logs before cleanup.
+- RTSP input should remain running until stopped; unexpected exit is a failure.
 
-### Image pull 401 / 403 from `nvcr.io`
+## Kafka Verification Hangs
 
-**Cause(s):**
-- `docker login nvcr.io` not run (or token expired).
-- `NGC_CLI_API_KEY` doesn't have access to the image — `vss-core` lives in `nvidia`, and your key may not see it.
+Do not run an unbounded live-tail after finite MP4 input has completed. For file mode, use offset baselines or bounded beginning reads only when the topic is known fresh:
 
-**Diagnose:**
 ```bash
-docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
-ngc registry image list "nvidia/vss-core/*" 2>&1 | head -5
+cd "${RTCV3D_APP}"
+# Use the Kafka CLI offset helpers from verify-and-view.md for baseline comparison.
+timeout 20s ./scripts/kafka-dump.sh --bootstrap "${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}" --topic "${RAW_TOPIC:-mdx-raw}" --from-beginning --count 20
+timeout 20s ./scripts/kafka-dump.sh --bootstrap "${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}" --topic "${FUSED_TOPIC:-mdx-bev}" --from-beginning --count 20
 ```
 
-**Fix:** Re-login. If `nvidia/vss-core/*` does not list the image, the key does not have access — confirm with `ngc org list`, then use a key with access to the published VSS images.
+For active RTSP, live-tail sampling is acceptable only with `--count` and an outer `timeout`.
 
-### Pipeline stalls at end-of-video (videos mode) — `Active sources : 0`, offsets flat
+## Saved Video Missing Or Stale
 
-**Symptom:** A `videos`-mode deploy runs fine, then after the clips reach end-of-file the VST wall goes black, perception logs `Active sources : 0` with `PERF` FPS `0.00000`, and DeepStream spins in `gst_rtspsrc_reconnect ... Resetting source N, attempts: NN` (climbing). Kafka `mdx-raw`/`mdx-bev` offsets (or Redis stream lengths) stop growing. `vss-vios-nvstreamer-mv3dt` logs a rapid `GST_MESSAGE_EOS → pause → startStream → EOS` cycle.
-
-**Cause:** input MP4s are finite. `nv_streamer_loop_playback: true` (in `warehouse-mv3dt-app/nvstreamer/configs/vst-config.json`) is the default, but the loop is **not reliably seamless** — at EOS the RTSP session can drop to DeepStream instead of continuing, and DeepStream's reconnect doesn't always re-establish. Short clips loop for a while, then desync.
-
-**Do NOT** `docker restart vss-vios-nvstreamer-mv3dt` to recover — it leaves nvstreamer rejecting DESCRIBEs with `RTSP lookup: Exceeded sync file count, ignoring the request` → `404 Stream Not Found`, even though `vst/api/v1/sensor/list` still shows sensors `online`. The file streams don't re-sync on a bare restart.
-
-**Fix (reliable recovery):** clean redeploy from a reset state — same as the "`Active sources : 0` after a redeploy" fix above:
 ```bash
-cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v
-bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env --skip-revert-from-oldest-backup
-# re-apply data_log perms (SKILL.md Prerequisites §4), then:
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env up --detach --pull always
+cd "${RTCV3D_APP}"
+RUN_START_EPOCH="${RUN_START_EPOCH:-$(cat generated/run-state/run-start-epoch 2>/dev/null || echo 0)}"
+GRID="video-output/grid-view.mkv"
+test -s "${GRID}" || echo "missing or empty ${GRID}"
+[ "$(stat -c %Y "${GRID}" 2>/dev/null || echo 0)" -ge "${RUN_START_EPOCH}" ] || echo "grid video predates current run"
+ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 "${GRID}" || true
+docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | grep -iE 'sink2|encoder|nvenc|video-output|error' | tail -50
 ```
-Videos and the landed calibration survive (separate paths). This recovers the stream but only buys another clip-length before the next EOS.
 
-**Durable fix (for unattended / long demos):** make the source effectively continuous so EOS rarely fires — concatenate each `Camera*.mp4` into one long file (stream-copy, no re-encode), e.g. via the ffmpeg `concat` demuxer, and stage the long files under `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/`. Then redeploy.
+Fixes:
 
-## When to drop down to `warehouse-debug.md`
+- Restage with `SAVE_VIDEO=1`.
+- For file input, wait for EOS.
+- For live RTSP, stop/remux when done if seekability is needed.
+- On GPUs without NVENC, apply the software encoder instructions from the standalone README.
 
-For general warehouse-blueprint issues (NGC permissions, low FPS tuning beyond MV3DT, GPU saturation across multiple stacks, broker tuning, NGC app-data extraction), the deeper reference is [`../../vss-deploy-profile/references/warehouse-debug.md`](../../vss-deploy-profile/references/warehouse-debug.md). That's an MV3DT-aware reference too, just broader.
+## BEV Visualizer Fails Or Saves Old Output
 
-## Clean reset
+```bash
+cd "${RTCV3D_APP}"
+test -f "${BEV_DATASET_PATH}/map.png" || echo 'missing map.png'
+test -f "${BEV_DATASET_PATH}/transforms.yml" || echo 'missing transforms.yml'
+test -s generated/run-state/bev-visualizer.group || echo 'BEV Kafka consumer group missing'
+test -s generated/run-state/bev-consumer-group-"$(cat generated/run-state/run-id 2>/dev/null)".txt || echo 'BEV Kafka assignment evidence missing'
+test -f generated/run-state/bev-visualizer.pid && ps -p "$(cat generated/run-state/bev-visualizer.pid)" || true
+BEV_LOG="$(cat generated/run-state/bev-visualizer.log 2>/dev/null || true)"
+[ -n "${BEV_LOG}" ] && tail -80 "${BEV_LOG}"
+```
 
-If multiple things are off and you want to start clean: [`teardown.md`](teardown.md). Tear down, fix env, redeploy.
+Fixes:
+
+- Resolve `BEV_DATASET_PATH` to one directory containing both `map.png` and `transforms.yml`.
+- Generate transforms only when the correct calibration map image is available.
+- Use `BEV_SOURCE=fused` by default for saved output.
+- Use `BEV_SAVE_VIDEO=1` for saved output/headless systems.
+- Start the BEV recorder and wait for Kafka consumer group assignment evidence before file-mode perception or before RTSP stream registration.
+- Select the saved artifact from the current recorder log's `Video saved: ... (N frames)` line; do not glob old `fused_trajectory_video_*.mp4` files.
+- Verify the selected artifact is non-empty, newer than the run start, and parseable by `ffprobe`.

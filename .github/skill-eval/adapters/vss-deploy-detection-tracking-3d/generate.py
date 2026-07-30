@@ -8,20 +8,14 @@ RTVI-CV-3D / MV3DT stack (Multi-View 3D Tracking) — per-camera
 DeepStream perception plus BEV Fusion over multiple calibrated cameras.
 
 Four eval specs ship with the skill:
-  - evals/deploy.json           — Full deploy/verify/teardown flow on the
-                                  bundled sample dataset (3 steps)
-  - evals/calibration-chain.json — End-to-end custom-data calibration
-                                  chain + deploy + teardown (2 steps)
-  - evals/routing.json          — CPU-only routing coverage eval; no
-                                  containers deployed (4 queries, 1 step
-                                  each treated as single-step)
-  - evals/evals.json            — Static routing/knowledge tests (no
-                                  deploy, JSON array format)
+  - evals/deploy.json            — Independent deploy/verify/teardown scenarios
+  - evals/calibration-chain.json — Independent missing-calibration handoff scenarios
+  - evals/routing.json           — CPU-only independent routing coverage queries
+  - evals/evals.json             — Static routing/knowledge tests (no deploy,
+                                   JSON array format)
 
-All specs target RTXPRO6000BW. deploy.json and calibration-chain.json
-are multi-step (state preserved between steps); routing.json is
-single-step (each query is independent, treated as one step with all
-queries as checks).
+All specs target RTXPRO6000BW. Entries under `expects` are independent scenarios;
+the adapter emits each one as its own single-step task with a one-entry spec file.
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-3d/generate.py \\
@@ -113,6 +107,22 @@ def _spec_kind(spec_path: Path) -> str:
     return stem
 
 
+def _scenario_slug(idx: int, expect: dict) -> str:
+    """Stable task-dir suffix for one independent expect entry."""
+    label = str(expect.get("id") or expect.get("query") or f"query-{idx}").lower()
+    label = re.sub(r"[^a-z0-9]+", "-", label).strip("-")
+    if len(label) > 48:
+        label = label[:48].rstrip("-")
+    return f"q{idx}-{label or 'scenario'}"
+
+
+def _single_expect_spec(rendered_spec: dict, expect: dict) -> dict:
+    """Return a copy of the rendered spec containing only this scenario."""
+    single = dict(rendered_spec)
+    single["expects"] = [expect]
+    return single
+
+
 def _gpu_count_for_platform(spec: dict, platform: str) -> int:
     """Read gpu_count from spec's resources.platforms.<platform>."""
     declared = ((spec.get("resources") or {}).get("platforms") or {})
@@ -172,11 +182,7 @@ def generate_task(
     skill_dir: Path,
     calibration_skill_dir: Path | None,
 ) -> None:
-    """Emit Harbor task directories for one (spec, platform) pair.
-
-    Multi-step specs get step-<N>/ subdirs; single-step specs get a flat
-    layout.
-    """
+    """Emit one independent single-step Harbor task per expect entry."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
@@ -186,16 +192,15 @@ def generate_task(
     gpu_count = _gpu_count_for_platform(spec, platform)
 
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
-        step_dir = output_root / kind / platform_short
-        if len(expects) > 1:
-            step_dir = step_dir / f"step-{idx}"
+        scenario = _scenario_slug(idx, expect)
+        step_dir = output_root / kind / (f"{platform_short}-{scenario}" if len(expects) > 1 else platform_short)
         step_dir.mkdir(parents=True, exist_ok=True)
 
         # instruction.md
         instruction = [
             PREAMBLE,
             "",
-            f"## Query {idx} of {len(expects)}",
+            f"## Independent Query {idx} of {len(expects)}",
             "",
             expect.get("query", ""),
             "",
@@ -205,11 +210,11 @@ def generate_task(
         (step_dir / "instruction.md").write_text("\n".join(instruction) + "\n")
 
         # task.toml
-        step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        step_suffix = f"-{scenario}" if len(expects) > 1 else ""
         meta_lines = [
             "[task]",
             f'name = "nvidia-vss/vss-deploy-detection-tracking-3d-{kind}-{platform_short}{step_suffix}"',
-            f'description = "MV3DT {kind} query {idx}/{len(expects)} on {platform}"',
+            f'description = "MV3DT {kind} independent query {idx}/{len(expects)} on {platform}"',
             f'keywords = ["vss-deploy-detection-tracking-3d", "mv3dt", "{kind}", "{platform}"]',
             "",
             "[environment]",
@@ -219,8 +224,7 @@ def generate_task(
             'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
             'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
             'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
-            # Higher turn budget for multi-step deploy trials with deep
-            # trajectories (AMC chain can exceed 25 turns easily).
+            # Higher turn budget for deep deploy trials and AMC handoff trajectories.
             'JUDGE_MAX_TURNS = "50"',
             "",
             "[metadata]",
@@ -231,8 +235,8 @@ def generate_task(
             f"gpu_count = {gpu_count}",
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             "min_root_disk_gb = 120",
-            f"step_index = {idx}",
-            f"step_count = {len(expects)}",
+            "step_index = 1",
+            "step_count = 1",
             f"check_count = {len(expect.get('checks') or [])}",
             "",
         ]
@@ -246,18 +250,17 @@ def generate_task(
         # tests/
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
+        (tests_dir / spec_name).write_text(json.dumps(_single_expect_spec(rendered_spec, expect), indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform, kind))
 
-        # skills/ — include the primary skill + calibration skill (for
-        # the calibration-chain spec which chains to it)
+        # skills/ — include the primary skill + calibration skill for calibration handoff scenarios
         dst = step_dir / "skills" / "vss-deploy-detection-tracking-3d"
         if dst.exists():
             shutil.rmtree(dst)
@@ -290,14 +293,7 @@ def generate_routing_task(
     output_root: Path,
     skill_dir: Path,
 ) -> None:
-    """Generate tasks for the routing spec (evals.json-style array or
-    routing.json with multiple independent queries).
-
-    For the routing spec (routing.json), each query in `expects` is
-    independent — treated as a single-step spec. The framework runs
-    them as step-1..N but skip-on-prior-fail is semantically irrelevant
-    (each is self-contained).
-    """
+    """Generate one independent single-step task per routing query."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
@@ -307,16 +303,15 @@ def generate_routing_task(
     gpu_count = _gpu_count_for_platform(spec, platform)
 
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
-        step_dir = output_root / kind / platform_short
-        if len(expects) > 1:
-            step_dir = step_dir / f"step-{idx}"
+        scenario = _scenario_slug(idx, expect)
+        step_dir = output_root / kind / (f"{platform_short}-{scenario}" if len(expects) > 1 else platform_short)
         step_dir.mkdir(parents=True, exist_ok=True)
 
         # instruction.md — routing queries are informational only
         instruction = [
             PREAMBLE,
             "",
-            f"## Query {idx} of {len(expects)}",
+            f"## Independent Query {idx} of {len(expects)}",
             "",
             expect.get("query", ""),
             "",
@@ -326,11 +321,11 @@ def generate_routing_task(
         ]
         (step_dir / "instruction.md").write_text("\n".join(instruction) + "\n")
 
-        step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        step_suffix = f"-{scenario}" if len(expects) > 1 else ""
         meta_lines = [
             "[task]",
             f'name = "nvidia-vss/vss-deploy-detection-tracking-3d-{kind}-{platform_short}{step_suffix}"',
-            f'description = "MV3DT routing query {idx}/{len(expects)} on {platform}"',
+            f'description = "MV3DT routing independent query {idx}/{len(expects)} on {platform}"',
             f'keywords = ["vss-deploy-detection-tracking-3d", "mv3dt", "{kind}", "{platform}", "routing"]',
             "",
             "[environment]",
@@ -349,8 +344,8 @@ def generate_routing_task(
             f"gpu_count = {gpu_count}",
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             "min_root_disk_gb = 60",
-            f"step_index = {idx}",
-            f"step_count = {len(expects)}",
+            "step_index = 1",
+            "step_count = 1",
             f"check_count = {len(expect.get('checks') or [])}",
             "",
         ]
@@ -364,10 +359,10 @@ def generate_routing_task(
         # tests/
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
+        (tests_dir / spec_name).write_text(json.dumps(_single_expect_spec(rendered_spec, expect), indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"
@@ -472,8 +467,9 @@ def main() -> None:
                 calibration_skill_dir,
             )
 
+    task_count = len(platforms) * max(1, len(spec.get("expects", [])))
     print()
-    print(f"Generated {len(platforms)} task(s) under {output_root}/{kind}/")
+    print(f"Generated {task_count} independent task(s) under {output_root}/{kind}/")
 
 
 if __name__ == "__main__":

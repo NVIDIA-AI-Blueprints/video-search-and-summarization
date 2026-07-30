@@ -1,293 +1,401 @@
-# Configure cameras (sync NUM_STREAMS to calibration)
+# Configure Cameras And Stage Configs
 
-Parent: [`../SKILL.md`](../SKILL.md). Run **after** calibration is on disk (either ship-with-repo for `sample`, or landed by [`calibration-workflow.md`](calibration-workflow.md), or user-supplied) and **before** [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
+Load this reference after the input source is known and before launching or redeploying standalone RT-CV-3D MV3DT.
 
-The shipped warehouse `overrides.env` defaults to `NUM_STREAMS=4` and a 4-camera sample. If you're using the sample as-is, this reference is a no-op — skim and continue. It's load-bearing only when the user's actual camera count differs from 4, or when redeploying after AMC trimmed cameras down.
+## Inputs To Resolve
 
-## Why this matters
+- `RTCV3D_APP`: `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
+- `CALIBRATION_JSON`: path to the user's `calibration.json`.
+- `INPUT_MODE`: `file` for local MP4s or `stream` for RTSP.
+- `VIDEO_DIR`: required only for `INPUT_MODE=file`.
+- `NUM_CAMS`: count of valid camera sensors from `calibration.json` where `type == "camera"`.
+- Broker mode: bundled brokers by default; external MQTT/Kafka only when explicitly requested.
+- Visualization choice: live OSD, saved output, live BEV, saved BEV, both, or neither. Saved output means perception grid plus fused BEV by default.
+- `BEV_DATASET_PATH`: required for live/saved BEV and must contain both `map.png` and `transforms.yml`.
 
-`NUM_STREAMS` propagates to several places that must agree — when they disagree, perception will either process fewer streams than expected or fail at engine build:
+If `CALIBRATION_JSON` is missing, stop here and load `calibration-workflow.md`.
 
-| Consumer | Where | What it does |
-|---|---|---|
-| `vss-configurator-mv3dt` | `blueprint-configurator/blueprint_config.yml` line 579–586 | Computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)`. For sample/videos, applies a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/`; for RTSP, keep `camera_info.json`, calibration, and `NUM_STREAMS` aligned yourself. |
-| `vss-rtvi-cv-bev-fusion` | `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml:53` (`MAX_EXPECTED_SENSORS: ${NUM_STREAMS:-4}`) | BEV Fusion buffers per-camera detections; if `MAX_EXPECTED_SENSORS` < actual streams, late cameras get dropped from fused frames |
-| `vss-rtvi-cv-mv3dt` (perception) | `warehouse-mv3dt-app.yml:290-291` (`BATCH_SIZE` and `MAX_BATCH_SIZE` set to `${NUM_STREAMS:-4}`) | DeepStream batch size — wrong value triggers reallocation or OOM at engine build |
-| `vss-vios-nvstreamer-mv3dt` / VST sensor-ms | streamcount registration with VST | If configurator registers more sensors than calibration covers, perception will receive frames for un-calibrated cameras and reject them |
+## Validate Calibration
 
-The authoritative source for **how many cameras you have** is `calibration.json` — it has an explicit `sensors[]` array. Use that as ground truth; the `camInfo/` directory listing is a fallback.
-
-## Step 0 — Normalize camera names to the perception convention
-
-The perception container ships a hardcoded `pub_sub_info_config.yml` (`warehouse-mv3dt-app/deepstream/configs/pub_sub_info_config.yml`) and tracker config (`warehouse-mv3dt-app/deepstream/configs/ds-mv3dt-tracker-config.yml`) expecting cameras named `Camera` (first), `Camera_01`, `Camera_02`, … When VST registers sensors under any other name — e.g. `cam_00..cam_03` from AMC defaults that follow the user's video filenames, or `Camera_00` with the leading-zero variant — perception fails at MQTT init and the tracker can't submit frames:
-
-```
-!![Exception] [MqttCommunicator] Error initializing pub/sub info: invalid node; first invalid key: "cam_01"
-ERROR from tracking_tracker: Failed to submit input to tracker
-gstnvtracker: Low-level tracker lib returned error 1
-```
-
-VST infers sensor names from the video filename, so the rename must touch videos, `camInfo/*.yml`, and the `sensors[].id` field in `calibration.json` together. Run **once** before deploy — once VST has registered sensors with the old names, use Step 5 below to reconcile VST state before redeploy (see [`troubleshooting.md`](troubleshooting.md) "Perception reports `Active sources : 0`").
-
-Skip when:
-- Q1 = `sample` (calibration ships with the correct names already).
-- The user supplied a calibration that already uses `Camera, Camera_01..N`.
-
-Idempotent and guarded: the block below is a no-op when the first sensor is already named `Camera`. It defaults to **dry-run** and prints the planned changes. For custom AMC/VGGT outputs whose sensor IDs are `cam_00..`, review the plan and re-run with `APPLY_RENAME=1` before deploy; otherwise VST streamprocessing cannot match runtime stream names to calibration IDs. When applied, it writes `calibration.pre-normalize.json` and `camera-normalization-manifest.json` under `CAL_DIR` before changing files in place.
+The standalone generator processes only sensors whose `type` is `camera`; validation must use that same filtered list.
 
 ```bash
-DATASET="${SAMPLE_VIDEO_DATASET:?}"
-CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
-VIDEO_DIR="${VSS_DATA_DIR}/videos/${DATASET}"
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+CALIBRATION_JSON="${CALIBRATION_JSON:?set path to calibration.json}"
+test -f "${CALIBRATION_JSON}" || { echo "ERROR: calibration.json not found: ${CALIBRATION_JSON}"; exit 1; }
 
-APPLY_RENAME="${APPLY_RENAME:-0}" \
-VSS_APPS_DIR="${VSS_APPS_DIR}" VSS_DATA_DIR="${VSS_DATA_DIR}" \
-  SAMPLE_VIDEO_DATASET="${DATASET}" python3 - <<'PY'
-import json, os, shutil
-from pathlib import Path
-
-DATASET = os.environ["SAMPLE_VIDEO_DATASET"]
-APPLY = os.environ.get("APPLY_RENAME") == "1"
-CAL_DIR = Path(os.environ["VSS_APPS_DIR"]) / "industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data" / DATASET
-VID_DIR = Path(os.environ["VSS_DATA_DIR"]) / "videos" / DATASET
-
-cal_path = CAL_DIR / "calibration.json"
-d = json.loads(cal_path.read_text())
-
-if not d.get("sensors"):
-    raise SystemExit("calibration.json has no sensors[] — re-walk calibration-workflow.md Step 3d")
-
-# Idempotent: skip when first sensor is already "Camera"
-if d["sensors"][0].get("id") == "Camera":
-    print("already normalized — skipping rename")
-    raise SystemExit(0)
-
-# Build remap: index 0 -> "Camera"; indices >=1 -> "Camera_NN" (zero-padded width 2).
-# Matches the shipped pub_sub_info_config.yml / tracker config naming.
-remap = {}
-for i, s in enumerate(d["sensors"]):
-    new = "Camera" if i == 0 else f"Camera_{i:02d}"
-    remap[s["id"]] = new
-
-operations = []
-
-def plan_rename(src, dst, label):
-    if src.exists():
-        if src == dst:
-            return
-        if dst.exists():
-            raise SystemExit(f"refusing to overwrite existing {label}: {dst}")
-        operations.append((label, src, dst))
-
-# 1. Rename video files (extension-agnostic)
-for old_name, new_name in remap.items():
-    for ext in ("mp4", "m4v", "mkv", "MP4"):
-        src = VID_DIR / f"{old_name}.{ext}"
-        plan_rename(src, VID_DIR / f"{new_name}.{ext}", "video")
-
-# 2. Rename camInfo files — AMC default (camInfo_NN.yml), sensor-id-named (<id>.yml),
-#    or extension variants. Pick the first that exists per sensor index.
-caminfo = CAL_DIR / "camInfo"
-for i, (old_name, new_name) in enumerate(remap.items()):
-    for cand in (
-        f"camInfo_{i:02d}.yml", f"camInfo_{i:02d}.yaml",
-        f"{old_name}.yml",     f"{old_name}.yaml",
-    ):
-        src = caminfo / cand
-        if src.exists():
-            plan_rename(src, caminfo / f"{new_name}.yml", "camInfo")
-            break
-
-print("camera name remap:", remap)
-for label, src, dst in operations:
-    print(f"{label}: {src.name} -> {dst.name}")
-print("calibration.json: sensor IDs will be rewritten")
-
-if not APPLY:
-    print("dry-run only — re-run with APPLY_RENAME=1 to apply these changes")
-    raise SystemExit(0)
-
-backup = CAL_DIR / "calibration.pre-normalize.json"
-if not backup.exists():
-    shutil.copy2(cal_path, backup)
-manifest = CAL_DIR / "camera-normalization-manifest.json"
-manifest.write_text(json.dumps({"dataset": DATASET, "remap": remap, "cal_dir": str(CAL_DIR), "video_dir": str(VID_DIR)}, indent=2))
-
-for label, src, dst in operations:
-    src.rename(dst)
-
-# 3. Rewrite sensor IDs and any cross-references (e.g. globalCoordinates sibling refs)
-txt = json.dumps(d, indent=2)
-for old, new_name in remap.items():
-    txt = txt.replace(f'"{old}"', f'"{new_name}"')
-cal_path.write_text(txt)
-print("renamed sensor IDs to:", [s["id"] for s in json.loads(txt)["sensors"]])
-print(f"backup: {backup}")
-print(f"manifest: {manifest}")
+CALIBRATION_JSON="${CALIBRATION_JSON}" python3 - <<'PY'
+import json, os, re
+path = os.environ['CALIBRATION_JSON']
+with open(path, encoding='utf-8') as f:
+    d = json.load(f)
+sensors = d.get('sensors')
+if not isinstance(sensors, list):
+    raise SystemExit("ERROR: calibration.json must contain a sensors list")
+ids = []
+for s in sensors:
+    if not isinstance(s, dict) or s.get('type') != 'camera':
+        continue
+    sid = s.get('id')
+    if not isinstance(sid, str) or not sid:
+        raise SystemExit("ERROR: every camera sensor needs a non-empty string id")
+    if sid in {'.', '..'} or '/' in sid or '\\' in sid:
+        raise SystemExit(f"ERROR: unsafe camera id for filename/path use: {sid!r}")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in sid):
+        raise SystemExit(f"ERROR: camera id contains control characters: {sid!r}")
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+', sid):
+        raise SystemExit(f"ERROR: camera id must contain only letters, digits, dot, underscore, or dash: {sid!r}")
+    if 'cameraMatrix' not in s:
+        raise SystemExit(f"ERROR: camera sensor {sid!r} is missing cameraMatrix")
+    ids.append(sid)
+if len(ids) < 2:
+    raise SystemExit(f"ERROR: MV3DT requires at least 2 camera sensors; found {len(ids)}")
+if len(ids) != len(set(ids)):
+    raise SystemExit("ERROR: camera sensor ids must be unique")
+print("NUM_CAMS=" + str(len(ids)))
+print("CAMERA_IDS=" + ",".join(ids))
 PY
 ```
 
-If sensor IDs in `calibration.json` use a different pattern (e.g. user-supplied names like `north-cam`, `loading-dock`), the same block still works — it remaps by `sensors[]` order to `Camera, Camera_01, Camera_02, …`. The mapping doesn't preserve semantics; rename your videos/camInfo manually first if you need a specific order.
+Use the printed `NUM_CAMS` for `docker/.env`. File-mode MP4 basenames and RTSP registration keys must match `CAMERA_IDS` exactly.
 
-## Step 1 — Count cameras from `calibration.json`
+## Broker Mode
+
+Default to bundled brokers. Use external brokers only when the user explicitly asks. Initialize broker state once and keep these variables exported for config generation, Compose launch, BEV visualizer startup, and verification. If deployment will happen in a later shell, write the same broker values, including `USE_EXTERNAL_BROKERS`, into standalone `docker/.env`.
 
 ```bash
-DATASET="${SAMPLE_VIDEO_DATASET:?}"
-CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+REQUEST_EXTERNAL_BROKERS="${REQUEST_EXTERNAL_BROKERS:-${USE_EXTERNAL_BROKERS:-0}}"
+RAW_TOPIC="${RAW_TOPIC:-$(read_env RAW_TOPIC)}"; RAW_TOPIC="${RAW_TOPIC:-mdx-raw}"
+FUSED_TOPIC="${FUSED_TOPIC:-$(read_env FUSED_TOPIC)}"; FUSED_TOPIC="${FUSED_TOPIC:-mdx-bev}"
+KAFKA_PORT="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"
 
-# Authoritative: parse calibration.json's sensors[] array (id field per sensor)
-if test -f "${CAL_DIR}/calibration.json"; then
-  CAM_COUNT=$(jq '.sensors | length' "${CAL_DIR}/calibration.json")
-  SENSOR_IDS=$(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json")
-  echo "From calibration.json: ${CAM_COUNT} sensors — ${SENSOR_IDS}"
+if [ "${REQUEST_EXTERNAL_BROKERS}" = 1 ]; then
+  MQTT_HOST="${MQTT_HOST:?set external MQTT_HOST}"
+  MQTT_PORT="${MQTT_PORT:?set external MQTT_PORT}"
+  KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:?set external KAFKA_BOOTSTRAP}"
+  USE_EXTERNAL_BROKERS=1
 else
-  # Fallback: count camInfo files. The shipped sample uses Camera*.yml; AMC
-  # output may be cam_*.yaml. Accept both extensions AND both naming patterns.
-  CAM_COUNT=$(find "${CAL_DIR}/camInfo/" -maxdepth 1 \
-    \( -name 'cam_*.yml' -o -name 'cam_*.yaml' -o -name 'Camera*.yml' -o -name 'Camera*.yaml' \) \
-    2>/dev/null | wc -l)
-  echo "From camInfo/ (fallback): ${CAM_COUNT} files"
+  MQTT_HOST="${MQTT_HOST:-$(read_env MQTT_HOST)}"; MQTT_HOST="${MQTT_HOST:-localhost}"
+  MQTT_PORT="${MQTT_PORT:-$(read_env MQTT_PORT)}"; MQTT_PORT="${MQTT_PORT:-1883}"
+  KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-$(read_env KAFKA_BOOTSTRAP)}"
+  KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}"
+  USE_EXTERNAL_BROKERS=0
 fi
-
-test "${CAM_COUNT}" -ge 2 || { echo "ERROR: MV3DT requires ≥2 cameras"; exit 1; }
+export MQTT_HOST MQTT_PORT KAFKA_BOOTSTRAP RAW_TOPIC FUSED_TOPIC KAFKA_PORT USE_EXTERNAL_BROKERS
+printf 'USE_EXTERNAL_BROKERS=%s\nMQTT_HOST=%s\nMQTT_PORT=%s\nKAFKA_BOOTSTRAP=%s\nRAW_TOPIC=%s\nFUSED_TOPIC=%s\n' \
+  "${USE_EXTERNAL_BROKERS}" "${MQTT_HOST}" "${MQTT_PORT}" "${KAFKA_BOOTSTRAP}" "${RAW_TOPIC}" "${FUSED_TOPIC}"
 ```
 
-If `CAM_COUNT == 0`: calibration not actually landed yet — go back to [`calibration-workflow.md`](calibration-workflow.md) Step 4. If you're on the sample path and this happens, check the actual directory contents — the shipped sample uses `Camera.yml`, `Camera_01.yml`, `Camera_02.yml`, `Camera_03.yml`.
+### Bundled Brokers
 
-If `CAM_COUNT == 1`: MV3DT is a multi-view stack — single-camera deployment isn't supported. Use the 2D / 3D-per-camera paths in `vss-deploy-profile/references/warehouse.md` instead.
-
-## Step 2 — Check against the GPU's `max_streams_supported`
-
-Before propagating `NUM_STREAMS`, confirm the GPU can actually run that many MV3DT streams. For sample/videos, the configurator can trim the video set to the GPU's cap when `NUM_STREAMS` exceeds it. For RTSP, set `NUM_STREAMS` to the number of entries in `camera_info.json` and keep it within the supported count.
+Use the generated default MQTT endpoint and the bundled Kafka profile:
 
 ```bash
-ENV_FILE="${ENV_FILE:-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env}"
-[ -f "${ENV_FILE}" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
-HARDWARE_PROFILE_VAL=$(grep '^HARDWARE_PROFILE=' "${ENV_FILE}" | cut -d= -f2)
-echo "HARDWARE_PROFILE=${HARDWARE_PROFILE_VAL}"
-
-# Lookup public MV3DT supported stream count from the Warehouse Quickstart Guide.
-case "${HARDWARE_PROFILE_VAL}" in
-  RTXPRO6000BW)  CAP=18 ;;
-  H100)          CAP=13 ;;
-  L40S)          CAP=7  ;;
-  IGX-THOR)      CAP=4  ;;
-  DGX-SPARK)     CAP=4  ;;
-  *)             CAP="?"; echo "WARN: HARDWARE_PROFILE=${HARDWARE_PROFILE_VAL} is not in the public MV3DT table; check .env and blueprint_config.yml before proceeding" ;;
-esac
-
-echo "GPU cap for mv3dt: ${CAP}"
-echo "Calibrated cameras: ${CAM_COUNT}"
-echo "Effective stream count = min(${CAM_COUNT}, ${CAP})"
+cd "${RTCV3D_APP}"
+USE_EXTERNAL_BROKERS=0
+export USE_EXTERNAL_BROKERS
+./scripts/generate-configs.sh "${CALIBRATION_JSON}"
 ```
 
-If `CAP < CAM_COUNT`, the user has more cameras than the GPU can process at MV3DT batch size. For sample/videos, the configurator's `keep_count` file_management op will trim `.mp4` files at `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` down to `CAP`. For RTSP, reduce the camera list/calibration to the supported count or use a larger GPU before deploy. Decide:
-
-- **Accept the cap.** Continue — perception will run with `CAP` streams, fusion will see `CAP` cameras. Tell the user explicitly so they're not surprised.
-- **Move to a larger GPU.** Re-check `HARDWARE_PROFILE` against the actual hardware (see SKILL.md Prerequisites §3 for the supported MV3DT hardware slugs).
-- **Override the cap.** Add a hardware-profile override in `blueprint-configurator/blueprint_config.yml` (advanced, requires understanding the trade-off — FPS will drop).
-
-## Step 3 — Sync NUM_STREAMS in generated.env
+Launch later with:
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
-[ -f "${ENV_FILE}" ] || cp "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env" "${ENV_FILE}"
+cd "${RTCV3D_APP}/docker"
+COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
+```
 
-# Use the lesser of CAM_COUNT and CAP — match what the configurator will compute
-[ "${CAP}" = "?" ] && EFFECTIVE="${CAM_COUNT}" \
-  || EFFECTIVE=$(( CAM_COUNT < CAP ? CAM_COUNT : CAP ))
+### External Brokers
 
-# Idempotent in-place replace
-if grep -q '^NUM_STREAMS=' "${ENV_FILE}"; then
-  sed -i "s/^NUM_STREAMS=.*/NUM_STREAMS=${EFFECTIVE}/" "${ENV_FILE}"
+For a plain external-host broker request, collect and confirm `MQTT_HOST`, `MQTT_PORT`, and `KAFKA_BOOTSTRAP`, then run the broker initialization block above with `REQUEST_EXTERNAL_BROKERS=1`. Advanced TLS/auth configuration remains delegated to the standalone README custom-broker section.
+
+Validate endpoint reachability before config generation. This is a TCP reachability check; protocol-level TLS/auth validation belongs to the advanced path.
+
+```bash
+REQUEST_EXTERNAL_BROKERS=1
+MQTT_HOST="${MQTT_HOST:?set external MQTT_HOST}"
+MQTT_PORT="${MQTT_PORT:?set external MQTT_PORT}"
+KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:?set external KAFKA_BOOTSTRAP}"
+USE_EXTERNAL_BROKERS=1
+export MQTT_HOST MQTT_PORT KAFKA_BOOTSTRAP USE_EXTERNAL_BROKERS
+python3 - <<'PY'
+import os, socket
+endpoints = [(os.environ['MQTT_HOST'], int(os.environ['MQTT_PORT']))]
+for item in os.environ['KAFKA_BOOTSTRAP'].split(','):
+    host, port = item.rsplit(':', 1)
+    endpoints.append((host.strip(), int(port)))
+for host, port in endpoints:
+    try:
+        with socket.create_connection((host, port), timeout=5):
+            print(f"reachable: {host}:{port}")
+    except OSError as exc:
+        raise SystemExit(f"ERROR: cannot reach {host}:{port}: {exc}")
+PY
+```
+
+Generate the MQTT pub/sub config with the external broker explicitly; `generate-configs.sh` does not read `docker/.env` automatically. Do not rely on the container startup rewrite to replace hostnames later: the generated config must already contain the intended hostname endpoint.
+
+```bash
+cd "${RTCV3D_APP}"
+MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}" ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
+```
+
+Confirm the generated config contains the intended broker endpoint using the utility venv Python, where PyYAML is already installed by the standalone helpers:
+
+```bash
+cd "${RTCV3D_APP}"
+# shellcheck disable=SC1091
+source "${RTCV3D_APP}/scripts/ensure-venv.sh"
+ensure_venv || { echo "ERROR: could not set up utils/venv" >&2; exit 1; }
+MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}" "${VENV_PY}" - <<'PY'
+import os, yaml
+path = 'generated/pub_sub_info_config.yml'
+endpoint = os.environ['MQTT_ENDPOINT']
+with open(path, encoding='utf-8') as f:
+    d = yaml.safe_load(f)
+values = []
+values.extend((d.get('pubBrokerTopicStr') or {}).values())
+for peers in (d.get('subPeerBrokerTopicStrs') or {}).values():
+    values.extend(peers or [])
+bad = [v for v in values if not isinstance(v, str) or not v.startswith(endpoint + ';/trck/')]
+if bad:
+    raise SystemExit(f"ERROR: generated pub/sub config does not consistently use {endpoint}: {bad[:3]}")
+print(f"pub/sub config uses {endpoint}")
+PY
+```
+
+Launch later without bundled broker profiles:
+
+```bash
+cd "${RTCV3D_APP}/docker"
+docker compose up -d
+```
+
+Verify `mdx-raw` and `mdx-bev` with the configured `KAFKA_BOOTSTRAP` using the Kafka CLI offset checks in `verify-and-view.md`; use `timeout` around `scripts/kafka-dump.sh` for bounded samples.
+
+## Generate Runtime Camera Configs
+
+```bash
+cd "${RTCV3D_APP}"
+if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
+  MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}" ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
 else
-  echo "NUM_STREAMS=${EFFECTIVE}" >> "${ENV_FILE}"
+  ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
 fi
-
-grep '^NUM_STREAMS=' "${ENV_FILE}"
+CAMINFO_COUNT="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' | wc -l | tr -d ' ')"
+test "${CAMINFO_COUNT}" = "${NUM_CAMS}" || { echo "ERROR: generated camInfo count ${CAMINFO_COUNT} != NUM_CAMS ${NUM_CAMS}"; exit 1; }
 ```
 
-This single key drives all three consumers above — compose substitutes `${NUM_STREAMS}` at `up` time. For RTSP, it must also equal the number of sensors in `SENSOR_FILE_PATH`; for sample/videos, it must equal the effective dataset/calibration count.
+This produces:
 
-## Step 4 — Confirm DeepStream batch size
+- `generated/camInfo/<sensor>.yml`
+- `generated/pub_sub_info_config.yml`
 
-The shipped DeepStream config under `warehouse-mv3dt-app/deepstream/configs/` references `BATCH_SIZE` via env at runtime (set by `vss-configurator-mv3dt`). If the user hand-edited that config (rare), confirm `batch-size = NUM_STREAMS`:
+## Resolve BEV Assets
+
+Run this section whenever live BEV is requested, saved BEV is requested, or saved output is selected/defaulted. The BEV visualizer cannot run from `calibration.json` alone; `BEV_DATASET_PATH` must be one directory containing both files:
+
+- `map.png`: the BEV/floor-plan image used during calibration
+- `transforms.yml`: the world-ground-plane to map-pixel transform used by the visualizer
+
+Resolve assets in this order:
+
+1. Use an explicit `BEV_DATASET_PATH` only if it already contains both files.
+2. If calibration came from the AMC handoff, use the `BEV_DATASET_PATH` returned by `calibration-workflow.md` only if both files are present.
+3. If the user supplied `MAP_PNG` and `TRANSFORMS_YML`, stage them into `generated/bev-dataset/` with stable names and use that directory.
+4. If the user supplied `MAP_PNG` but not `TRANSFORMS_YML`, look for `transforms.yml` near `calibration.json` and AMC output directories before generating it.
+5. If the correct calibration map image is available but no transform file exists, generate transforms with `scripts/generate-transforms.sh` and write the result under `generated/bev-dataset/`.
+6. If neither path works, ask for the map image used during calibration or a directory containing both files. Do not run BEV visualization, and do not claim saved BEV output, until both files exist.
 
 ```bash
-DS_CFG_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs"
-grep -RnE '^batch-size|^max-batch-size' "${DS_CFG_DIR}" 2>/dev/null | head
+cd "${RTCV3D_APP}"
+CALIBRATION_JSON="${CALIBRATION_JSON:?set CALIBRATION_JSON}"
+BEV_READY=0
+for candidate in   "${BEV_DATASET_PATH:-}"   "$(dirname "${CALIBRATION_JSON}")"   "$(dirname "${CALIBRATION_JSON}")/bev-dataset"   "$(dirname "${CALIBRATION_JSON}")/bev"   "${RTCV3D_APP}/generated/bev-dataset"; do
+  if [ -n "${candidate}" ] && [ -f "${candidate}/map.png" ] && [ -f "${candidate}/transforms.yml" ]; then
+    BEV_DATASET_PATH="$(cd "${candidate}" && pwd)"
+    BEV_READY=1
+    break
+  fi
+done
+if [ "${BEV_READY}" = 0 ] && [ -n "${MAP_PNG:-}" ] && [ -z "${TRANSFORMS_YML:-}" ]; then
+  for candidate in     "$(dirname "${CALIBRATION_JSON}")/transforms.yml"     "$(dirname "${CALIBRATION_JSON}")/bev-dataset/transforms.yml"     "$(dirname "${CALIBRATION_JSON}")/bev/transforms.yml"     "${RTCV3D_APP}/generated/bev-dataset/transforms.yml"; do
+    [ -f "${candidate}" ] && { TRANSFORMS_YML="$(readlink -f "${candidate}")"; break; }
+  done
+fi
+if [ "${BEV_READY}" = 0 ] && [ -n "${MAP_PNG:-}" ] && [ -n "${TRANSFORMS_YML:-}" ]    && [ -f "${MAP_PNG}" ] && [ -f "${TRANSFORMS_YML}" ]; then
+  BEV_DATASET_PATH="${RTCV3D_APP}/generated/bev-dataset"
+  mkdir -p "${BEV_DATASET_PATH}"
+  ln -sfn "$(readlink -f "${MAP_PNG}")" "${BEV_DATASET_PATH}/map.png"
+  ln -sfn "$(readlink -f "${TRANSFORMS_YML}")" "${BEV_DATASET_PATH}/transforms.yml"
+  BEV_READY=1
+fi
+if [ "${BEV_READY}" = 0 ] && [ -n "${MAP_PNG:-}" ] && [ -f "${MAP_PNG}" ]; then
+  BEV_DATASET_PATH="${RTCV3D_APP}/generated/bev-dataset"
+  mkdir -p "${BEV_DATASET_PATH}"
+  ln -sfn "$(readlink -f "${MAP_PNG}")" "${BEV_DATASET_PATH}/map.png"
+  ./scripts/generate-transforms.sh "${CALIBRATION_JSON}" "${BEV_DATASET_PATH}/map.png" -o "${BEV_DATASET_PATH}/transforms.yml" --force
+  BEV_READY=1
+fi
+if [ "${BEV_READY}" = 1 ]; then
+  test -f "${BEV_DATASET_PATH}/map.png" || { echo "ERROR: missing ${BEV_DATASET_PATH}/map.png"; exit 1; }
+  test -f "${BEV_DATASET_PATH}/transforms.yml" || { echo "ERROR: missing ${BEV_DATASET_PATH}/transforms.yml"; exit 1; }
+  echo "BEV_DATASET_PATH=${BEV_DATASET_PATH}"
+else
+  echo "BEV assets unresolved: provide BEV_DATASET_PATH with map.png + transforms.yml, or provide MAP_PNG from calibration so transforms.yml can be generated."
+fi
 ```
 
-Expected: lines show `${BATCH_SIZE}` / `${NUM_STREAMS}` (good — env-driven) or a number equal to `EFFECTIVE`. `vss-configurator-mv3dt` materializes the final DeepStream config on first start, so manual edits here are usually unnecessary — only intervene if a previous deploy left stale numbers.
+Do not use `generate-transforms.sh` without the real calibration map image for production BEV output.
 
-## Step 5 — (Re-deploy only) Reconcile VST sensors with the new calibration
+## Configure `docker/.env`
 
-Relevant only when this is a **re-deploy** after the camera set changed (e.g. user re-calibrated with a different camera count, switched dataset slugs, or renamed cameras). On a fresh deploy, VST is empty — skip.
+Edit only the standalone env file at `docker/.env`. Do not edit warehouse env files.
 
-`vss-configurator-mv3dt` registers cameras with VST on start; it expects the VST sensor list and the new calibration to align by camera **name** (`Camera`, `Camera_01`, …). Default to the targeted VST API path below when the user wants to preserve existing broker, database, and overlay history.
+Required values:
 
-### Default — targeted sensor trim via the VST API
+```text
+MODELS_DIR=/path/to/app-data/models
+NUM_CAMS=<filtered-camera-count-from-calibration>
+INPUT_MODE=file        # or stream
+VIDEO_DIR=/path/to/videos  # required for file mode
+GPU_DEVICE=0
+DS_HTTP_PORT=9000
+MQTT_HOST=localhost    # or explicit external broker host
+MQTT_PORT=1883
+KAFKA_BOOTSTRAP=<configured kafka bootstrap>
+USE_EXTERNAL_BROKERS=0  # set to 1 only for explicit external broker deployments
+RAW_TOPIC=mdx-raw
+FUSED_TOPIC=mdx-bev
+```
 
-Use this path when you only need to remove sensors that no longer appear in the new calibration:
+## File Input Checks
+
+Use this for recorded MP4s. There is no `add-streams.sh` step for file input; the container reads one local file per camera from `VIDEO_DIR`.
+
+If the user supplied a directory whose `.mp4` basenames already match generated sensor ids, set `VIDEO_DIR` to that directory. If the user supplied individual files or files with different names, do not rename the source files. Create a generated symlink directory only when each file can be mapped to a sensor id explicitly (`sensor_id=/path/cam.mp4`) or unambiguously by count/order.
 
 ```bash
-VST_HOST="${HOST_IP:-localhost}"
-VST_PORT="${VST_PORT:-30888}"
-CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
-
-# Calibration uses camera names (e.g. "Camera", "Camera_01") in .sensors[].id
-KEEP_NAMES=$(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json")
-
-# VST exposes sensors as { sensorId: <uuid>, name: <camera-name>, ... }.
-# Match on the `name` field, delete by `sensorId`.
-curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" \
-  | jq -r '.[] | "\(.sensorId) \(.name)"' \
-  | while read sid name; do
-      if ! echo "${KEEP_NAMES}" | grep -Fxq "${name}"; then
-        curl -X DELETE "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/${sid}"
-      fi
-    done
-
-# Verify
-curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" | jq -r '.[].name' | sort
+cd "${RTCV3D_APP}"
+mkdir -p generated/video-input
+ln -sfn /path/to/source_cam_1.mp4 generated/video-input/<sensor_id_1>.mp4
+ln -sfn /path/to/source_cam_2.mp4 generated/video-input/<sensor_id_2>.mp4
+# Set VIDEO_DIR=${RTCV3D_APP}/generated/video-input in docker/.env
 ```
 
-Then proceed straight to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md). If the API returns HTTP 404 for some records, or the next start reports `Sensors count limit reached`, use the clean-reset path below after confirming the user accepts the volume reset.
-
-### Last resort — reset compose volumes with `down -v`
-
-> **WARNING:** `docker compose down -v` removes the containers and named volumes for this MV3DT compose project, not just VST sensor records. That resets data such as VST Postgres sensor metadata (`mdx_vios_pg_data`), broker/Kafka state and offsets (`mdx_mdx-kafka`), Elasticsearch overlay/index data, Logstash state, and any anonymous volumes created by compose. Use this only when the targeted VST API path does not fully reconcile the sensor set, or when the user explicitly wants a clean redeploy.
+Validate file input using the resolved `VIDEO_DIR` value, not by sourcing `.env`:
 
 ```bash
-cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
-  down -v
+cd "${RTCV3D_APP}"
+VIDEO_DIR="${VIDEO_DIR:?set VIDEO_DIR from docker/.env or user input}"
+test "${INPUT_MODE:-file}" = "file" || { echo "ERROR: INPUT_MODE must be file for recorded MP4 input"; exit 1; }
+test -d "${VIDEO_DIR}" || { echo "ERROR: VIDEO_DIR missing: ${VIDEO_DIR}"; exit 1; }
+missing=0
+for cam_file in generated/camInfo/*.yml; do
+  cam="$(basename "${cam_file}" .yml)"
+  if [ ! -f "${VIDEO_DIR}/${cam}.mp4" ]; then
+    echo "MISSING: ${VIDEO_DIR}/${cam}.mp4"
+    missing=1
+  fi
+done
+test "${missing}" = 0 || { echo "ERROR: each camera needs a matching <sensor_id>.mp4"; exit 1; }
 ```
 
-After the reset, proceed to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md). See [`teardown.md`](teardown.md) for the full discussion of `down -v` semantics.
+Recorded clips play once and the perception container exits at end-of-stream.
 
-## Step 6 — Sanity check before deploy
+## Display And Save-Video Decision
+
+Detect display capability before staging configs:
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
-[ -f "${ENV_FILE}" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
-
-# Triplet must agree:
-echo "calibration.json sensors: $(jq '.sensors | length' "${CAL_DIR}/calibration.json" 2>/dev/null || echo MISSING)"
-echo "camInfo files:            $(find "${CAL_DIR}/camInfo/" -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | wc -l)"
-echo "NUM_STREAMS (runtime env): $(grep '^NUM_STREAMS=' "${ENV_FILE}" | cut -d= -f2)"
-echo "GPU cap for mv3dt:        ${CAP}"
-
-# Sensor IDs must match VST runtime names exactly: Camera, Camera_01, ...
-ok=1; i=0
-while IFS= read -r id; do
-  expected="Camera"
-  test "$i" -eq 0 || expected=$(printf 'Camera_%02d' "$i")
-  test "$id" = "$expected" || { echo "sensor ID mismatch: got '$id', expected '$expected'"; ok=0; }
-  i=$((i + 1))
-done < <(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json")
-test "$ok" -eq 1 || { echo "Run Step 0 with APPLY_RENAME=1 before deploy"; exit 1; }
+RTCV3D_DISPLAY_AVAILABLE=0
+if [ -n "${DISPLAY:-}" ] && [ -d /tmp/.X11-unix ]; then
+  if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>&1; then
+    RTCV3D_DISPLAY_AVAILABLE=1
+  elif command -v xset >/dev/null 2>&1 && xset q >/dev/null 2>&1; then
+    RTCV3D_DISPLAY_AVAILABLE=1
+  fi
+fi
+echo "RTCV3D_DISPLAY_AVAILABLE=${RTCV3D_DISPLAY_AVAILABLE}"
 ```
 
-All three counts should line up, `NUM_STREAMS` ≤ `CAP`, and sensor IDs should follow `Camera, Camera_01, ...`. Now proceed to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
+Selection rules:
+
+- If the user asked to save video or save output, set `SAVE_VIDEO=1` regardless of display availability and save fused BEV by default after `BEV_DATASET_PATH` resolves with both required files.
+- If the user asked for both live and saved output, set `OSD=1 SAVE_VIDEO=1` when display is available and start saved fused BEV in parallel.
+- If display is available and the user did not ask to save, set `OSD=1 SAVE_VIDEO=0`.
+- If display is not available, tell the user no working display was detected and ask before using saved output. If approved, save both perception grid and fused BEV by default after BEV assets resolve.
+- Do not run broad `xhost +`. Ask before changing X11 access and prefer scoped access.
+
+`SAVE_VIDEO=1` only controls the perception camera-grid sink. Saved BEV is a separate `scripts/bev-visualizer.sh` process with `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`; start it before data flows.
+
+## Stage Configs
+
+Choose one command after the display/save decision:
+
+```bash
+cd "${RTCV3D_APP}"
+INPUT_MODE=stream OSD=0 SAVE_VIDEO=0 ./scripts/stage-configs.sh
+INPUT_MODE=stream OSD=1 SAVE_VIDEO=0 ./scripts/stage-configs.sh
+INPUT_MODE=stream OSD=0 SAVE_VIDEO=1 ./scripts/stage-configs.sh
+INPUT_MODE=stream OSD=1 SAVE_VIDEO=1 ./scripts/stage-configs.sh
+INPUT_MODE=file OSD=1 SAVE_VIDEO=0 ./scripts/stage-configs.sh
+INPUT_MODE=file OSD=0 SAVE_VIDEO=1 ./scripts/stage-configs.sh
+INPUT_MODE=file OSD=1 SAVE_VIDEO=1 ./scripts/stage-configs.sh
+```
+
+Expected outputs:
+
+- `generated/configs/`
+- `generated/configs/ds-main-config-mv3dt.txt`
+- `generated/configs/ds-mv3dt-tracker-config.yml`
+
+If saved BEV is selected/defaulted, verify resolved BEV assets before launch:
+
+```bash
+test -f "${BEV_DATASET_PATH:?set BEV_DATASET_PATH}/map.png" || { echo "ERROR: BEV map.png missing"; exit 1; }
+test -f "${BEV_DATASET_PATH}/transforms.yml" || { echo "ERROR: BEV transforms.yml missing"; exit 1; }
+```
+
+If these assets are missing, return to `Resolve BEV Assets`. Continue with perception-grid-only output only if the user explicitly accepts that reduced output.
+
+## RTSP Stream Registration
+
+Use this only after compose is running and `docker logs vss-rtvi-cv-mv3dt` shows `ds-ready: YES`.
+
+If the user supplied RTSP URLs, run this registration step as part of deployment. Use explicit `<sensor_id>=<rtsp_url>` pairs when present. If the user supplied only bare RTSP URLs, map them to calibration sensor ids in order only when the URL count exactly matches the generated camInfo count and the order is clear from the calibration handoff; otherwise ask the user for the sensor-id mapping before registering streams.
+
+```bash
+cd "${RTCV3D_APP}"
+./scripts/add-streams.sh   '<sensor_id_1>=rtsp://host/path1'   '<sensor_id_2>=rtsp://host/path2'
+
+./scripts/add-streams.sh --list
+./scripts/add-streams.sh --remove '<sensor_id_1>=rtsp://host/path1'
+```
+
+Validate exact stream count and camera IDs after registration:
+
+```bash
+cd "${RTCV3D_APP}"
+EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f
+' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
+./scripts/add-streams.sh --list > generated/run-state/stream-info.txt
+EXPECTED_IDS="${EXPECTED_IDS}" python3 - <<'PY'
+import os, re
+expected = [x for x in os.environ['EXPECTED_IDS'].split(',') if x]
+text = open('generated/run-state/stream-info.txt', encoding='utf-8').read()
+count_match = re.search(r'stream-count:\s*(\d+)', text)
+count = int(count_match.group(1)) if count_match else -1
+ids = sorted(re.findall(r'camera_id=([^\s]+)', text))
+if count != len(expected):
+    raise SystemExit(f"ERROR: registered stream-count {count} != expected {len(expected)}")
+if ids != sorted(expected):
+    raise SystemExit(f"ERROR: registered camera ids {ids} != expected {sorted(expected)}")
+print("registered stream set matches calibration")
+PY
+```
+
+Each `<sensor_id>` must exactly match a file in `generated/camInfo/<sensor_id>.yml` and an id in `calibration.json`.
