@@ -117,12 +117,16 @@ class VideoPrismEmbedModel(BaseVlmModel):
         **kwargs,
     ) -> List[VlmModelOutput]:
         outputs = []
-        for idx, chunk in enumerate(chunks):
+        video_frame_iter = iter(video_frames or [])
+        for chunk in chunks:
             if chunk.chunk_type == "text":
                 embedding = self._embed_text(chunk.text_input)
                 input_tokens = len(chunk.text_input)
             else:
-                frames = video_frames[idx]
+                try:
+                    frames = next(video_frame_iter)
+                except StopIteration:
+                    raise RuntimeError("Missing decoded video frames for video chunk") from None
                 embedding = self._embed_video(frames)
                 input_tokens = frames.numel()
             outputs.append(
@@ -200,7 +204,8 @@ For local Compose validation:
 
 ```bash
 export RTVI_EMBED_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed
-export RTVI_EMBED_TAG=3.3.0
+# Pin a published RT-Embed image tag for the VSS 3.3.0 code line.
+export RTVI_EMBED_TAG="${RTVI_EMBED_TAG:-3.3.0}"
 export RTVI_EMBED_PORT=8017
 export VSS_DATA_DIR="${PWD}/.standalone-data"
 export NGC_API_KEY="<ngc-api-key>"

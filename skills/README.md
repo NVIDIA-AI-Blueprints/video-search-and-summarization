@@ -105,7 +105,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream + BEV fusion over calibrated cameras. Auto-chains to calibration when missing. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
 | [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
-| [vss-embed-byom](vss-embed-byom/SKILL.md) | Add, wire, or validate a bring-your-own-model backend for RT-Embed, including VideoPrism on the 3.3.0 / 26.07.3 code line. |
+| [vss-embed-byom](vss-embed-byom/SKILL.md) | Add, wire, or validate a bring-your-own-model backend for RT-Embed, including VideoPrism on the 3.3.0 code line. |
 
 ### Layer 2 — Downstream analytics
 | Skill | Description |

@@ -1,22 +1,17 @@
 # Evaluation Report
 
-Evaluation plan for the `vss-embed-byom` skill before publication through
-NVSkills-Eval.
-
-This benchmark documents the intended validation coverage for the VideoPrism
-BYOM skill. It should be refreshed with measured NVSkills-Eval results after the
-new routing spec runs in CI.
+Measured NVSkills-Eval results for the `vss-embed-byom` skill.
 
 ## Evaluation Summary
 
 - Skill: `vss-embed-byom`
-- Evaluation date: 2026-07-29
+- Evaluation date: 2026-07-30
 - NVSkills-Eval profile: `external`
-- Environment: pending CI execution
-- Dataset: 1 routing evaluation spec
+- Environment: GitHub Actions Skills Eval on `RTXPRO6000BW`
+- Dataset: 1 routing evaluation spec with 2 queries
 - Attempts per task: 1
 - Pass threshold: 50%
-- Overall verdict: PENDING
+- Overall verdict: PASS
 
 ## Agents Used
 
@@ -33,7 +28,7 @@ Reported benchmark dimensions:
 - Effectiveness: checks whether the agent performs measurably better with the skill than without it.
 - Efficiency: checks whether the agent uses fewer tokens and avoids redundant work.
 
-Underlying evaluation signals expected for this run:
+Underlying evaluation signals used in this run:
 
 - `security`: checks for unsafe operations, secret leakage, and unauthorized access.
 - `skill_execution`: verifies that the agent loaded the expected skill and workflow.
@@ -52,17 +47,23 @@ The benchmark dataset contains 1 routing spec with 2 independent queries:
 
 ## Results
 
-Pending CI execution.
+| Platform | Step | Query | Result | Reward | Duration | Turns |
+|---|---|---|---|---|---|---|
+| `RTXPRO6000BW` | `step-1` | Integrate VideoPrism as custom BYOM backend | PASS `(5/5)` | `1.0` | `2m 48s` | `2` |
+| `RTXPRO6000BW` | `step-2` | Deploy RT-Embed with default Cosmos-Embed1 | PASS `(3/3)` | `1.0` | `2m 01s` | `1` |
+
+Both routing tasks exceeded the pass threshold with full reward.
 
 ## Tier 1: Static Validation Summary
 
-Pending NVSkills-Eval execution.
+Static skill checks completed with no blocking playbook errors. The compliance
+checker reported one naming-convention warning for `vss-embed-byom`.
 
 ## Tier 2: Deduplication Summary
 
-Pending NVSkills-Eval execution.
+No duplicate-content failure was reported by the evaluated routing workflow.
 
 ## Publication Recommendation
 
-Pending. Refresh this file with measured results after CI evaluates
-`skills/vss-embed-byom/evals/routing.json`.
+Recommended for publication after the placeholder `skill.oms.sig` is replaced
+with a valid NVIDIA OMS signature bundle.

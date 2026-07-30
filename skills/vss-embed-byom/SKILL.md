@@ -27,6 +27,14 @@ Use this skill when you need to:
 `VideoPrism RT-Embed`, `custom embed model`, `MODEL_IMPLEMENTATION_PATH`,
 `MODEL_REPOSITORY_SCRIPT_PATH`, `bring your own embedding model`.
 
+## When Not To Use
+
+Do not use this skill for a standard RT-Embed deployment with the default
+Cosmos-Embed1 backend. Use
+[`vss-deploy-video-embedding`](../vss-deploy-video-embedding/SKILL.md) for
+normal image pulls, Compose/Helm startup, health checks, and API smoke tests
+when no custom model wrapper or BYOM path is being added.
+
 ## Scope
 
 RT-Embed BYOM uses the existing `custom` model loader. The deployment chooses the
@@ -75,7 +83,8 @@ For Docker Compose on RT-Embed 3.3.0:
 
 ```bash
 export RTVI_EMBED_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed
-export RTVI_EMBED_TAG=3.3.0
+# Pin a published RT-Embed image tag for the VSS 3.3.0 code line.
+export RTVI_EMBED_TAG="${RTVI_EMBED_TAG:-3.3.0}"
 export MODEL_PATH="git:https://huggingface.co/<org>/<videoprism-checkpoint>"
 export MODEL_IMPLEMENTATION_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/videoprism"
 export MODEL_REPOSITORY_SCRIPT_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/videoprism/create_triton_model_repo.py"
