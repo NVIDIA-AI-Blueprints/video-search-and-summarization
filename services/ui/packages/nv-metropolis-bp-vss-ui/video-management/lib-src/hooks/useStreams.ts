@@ -45,11 +45,12 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     };
   }, []);
 
-  const fetchStreams = useCallback(async ({ silent = false }: { silent?: boolean } = {}): Promise<StreamInfo[]> => {
+  /** Resolves to `null` when the listing could not be read — never confuse that with "VST has no streams". */
+  const fetchStreams = useCallback(async ({ silent = false }: { silent?: boolean } = {}): Promise<StreamInfo[] | null> => {
     if (!vstApiUrl) {
       setError('VST API URL not configured');
       setIsLoading(false);
-      return [];
+      return null;
     }
 
     const apiEndpoints = createApiEndpoints(vstApiUrl);
@@ -77,7 +78,7 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
       if (!silent && isMountedRef.current) {
         setError(err instanceof Error ? err.message : 'Failed to fetch streams');
       }
-      return [];
+      return null;
     } finally {
       if (!silent && isMountedRef.current) setIsLoading(false);
     }
@@ -92,7 +93,10 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
 
     const pending = new Set(sensorIds);
 
-    const dropGone = (listed: StreamInfo[]) => {
+    const dropGone = (listed: StreamInfo[] | null) => {
+      // A poll that failed says nothing about what VST still holds. Reading it as
+      // an empty list would confirm a deletion that may not have happened.
+      if (listed === null) return;
       const present = new Set(listed.map((s) => s.sensorId));
       for (const sensorId of Array.from(pending)) {
         if (!present.has(sensorId)) pending.delete(sensorId);

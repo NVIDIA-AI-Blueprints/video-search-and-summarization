@@ -481,6 +481,11 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     [streams, selectedStreams]
   );
 
+  // Sensors the agent already accepted a delete for, still waiting on VST to stop
+  // listing them. Retry must only resume polling for these — re-sending the
+  // destructive request would fail against an already-deleted sensor.
+  const acceptedDeletesRef = useRef<Set<string>>(new Set());
+
   // Step 1 of delete: just open the confirmation dialog. The Toolbar's "Delete
   // Selected" button is wired to this so a single click never destroys data.
   const handleDeleteSelected = useCallback(() => {
@@ -491,6 +496,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
   const handleCancelDelete = useCallback(() => {
     if (isDeleting) return;
+    acceptedDeletesRef.current.clear();
     setDeleteError(null);
     setShowDeleteConfirm(false);
   }, [isDeleting]);
@@ -515,11 +521,16 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     }
 
     const uniqueSensorIds = Array.from(sensorToStreams.keys());
+    // Retry after a convergence timeout: the agent already took these, so only
+    // the VST wait below needs repeating.
+    const alreadyAcceptedSensorIds = uniqueSensorIds.filter((id) => acceptedDeletesRef.current.has(id));
+    const sensorIdsToDelete = uniqueSensorIds.filter((id) => !acceptedDeletesRef.current.has(id));
+
     setIsDeleting(true);
     setDeleteError(null);
 
     try {
-      const deletePromises = uniqueSensorIds.map(async (sensorId) => {
+      const deletePromises = sensorIdsToDelete.map(async (sensorId) => {
         const sensorStreams = sensorToStreams.get(sensorId) || [];
         const firstStream = sensorStreams[0];
 
@@ -542,13 +553,17 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
       const results = await Promise.allSettled(deletePromises);
 
-      const deletedSensorIds: string[] = [];
+      const deletedSensorIds: string[] = [...alreadyAcceptedSensorIds];
       const failedNames: string[] = [];
       const stillSelected = new Set<string>();
 
+      const nameFor = (sensorId: string) =>
+        sensorToStreams.get(sensorId)?.[0]?.name ?? sensorId;
+      const keepSelected = (sensorId: string) =>
+        (sensorToStreams.get(sensorId) || []).forEach((s) => stillSelected.add(s.streamId));
+
       results.forEach((result, idx) => {
-        const sensorId = uniqueSensorIds[idx];
-        const sensorStreams = sensorToStreams.get(sensorId) || [];
+        const sensorId = sensorIdsToDelete[idx];
 
         if (result.status === 'fulfilled') {
           deletedSensorIds.push(sensorId);
@@ -556,30 +571,47 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         }
 
         // Keep failures selected so the confirm dialog's retry acts on exactly them
-        failedNames.push(sensorStreams[0]?.name ?? sensorId);
-        sensorStreams.forEach((s) => stillSelected.add(s.streamId));
+        failedNames.push(nameFor(sensorId));
+        keepSelected(sensorId);
         // eslint-disable-next-line no-console
         console.error('[VideoManagement] delete failed for sensor', sensorId, result.reason);
       });
+
+      deletedSensorIds.forEach((sensorId) => acceptedDeletesRef.current.add(sensorId));
 
       // Agent accepted the delete — wait until VST's streams list agrees before
       // claiming success. Closing early is what left RTSP entries stale in the grid.
       const { remainingSensorIds } = await waitUntilStreamsRemoved(deletedSensorIds);
       void refetchTimelines();
 
+      const unconfirmed = new Set(remainingSensorIds);
+      deletedSensorIds.forEach((sensorId) => {
+        if (!unconfirmed.has(sensorId)) acceptedDeletesRef.current.delete(sensorId);
+      });
+
+      const unconfirmedNames: string[] = [];
       for (const sensorId of remainingSensorIds) {
-        const sensorStreams = sensorToStreams.get(sensorId) || [];
-        failedNames.push(sensorStreams[0]?.name ?? sensorId);
-        sensorStreams.forEach((s) => stillSelected.add(s.streamId));
+        unconfirmedNames.push(nameFor(sensorId));
+        keepSelected(sensorId);
       }
 
       setSelectedStreams(stillSelected);
 
-      if (failedNames.length > 0) {
-        setDeleteError(`Unable to remove the following streams: ${failedNames.join(', ')}`);
+      if (failedNames.length > 0 || unconfirmedNames.length > 0) {
+        const messages: string[] = [];
+        if (failedNames.length > 0) {
+          messages.push(`Unable to remove the following streams: ${failedNames.join(', ')}`);
+        }
+        if (unconfirmedNames.length > 0) {
+          messages.push(
+            `Deletion was accepted but these are still listed by VST: ${unconfirmedNames.join(', ')}. Retry to check again.`
+          );
+        }
+        setDeleteError(messages.join('\n'));
         return;
       }
 
+      acceptedDeletesRef.current.clear();
       setShowDeleteConfirm(false);
     } finally {
       setIsDeleting(false);

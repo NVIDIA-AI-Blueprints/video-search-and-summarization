@@ -110,6 +110,81 @@ describe('useStreams — waitUntilStreamsRemoved', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
+  // A poll that errors out returns no streams, which must not be read as
+  // "VST dropped the sensor" — that would close the dialog on a stale stream.
+  it('does not treat a failed poll as confirmed removal', async () => {
+    const fetchMock = jest.fn(async (): Promise<Response> => {
+      throw new Error('network down');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let waitResult: { remainingSensorIds: string[] } | undefined;
+    await act(async () => {
+      const pending = result.current.waitUntilStreamsRemoved([rtspStream.sensorId]);
+      await jest.advanceTimersByTimeAsync(
+        DELETED_STREAM_POLL_DELAYS_MS.reduce((sum, d) => sum + d, 0),
+      );
+      waitResult = await pending;
+    });
+
+    expect(waitResult).toEqual({ remainingSensorIds: [rtspStream.sensorId] });
+  });
+
+  it('keeps polling a sensor when one poll fails and a later one confirms removal', async () => {
+    let call = 0;
+    const responses: (StreamInfo[] | 'error')[] = [
+      [videoStream, rtspStream], // initial load
+      'error',                   // immediate silent check fails
+      [videoStream],             // next poll confirms removal
+    ];
+    globalThis.fetch = jest.fn(async () => {
+      const next = responses[Math.min(call, responses.length - 1)];
+      call += 1;
+      if (next === 'error') throw new Error('transient failure');
+      return { ok: true, json: async () => streamsPayload(next) } as Response;
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    await waitFor(() => expect(result.current.streams).toHaveLength(2));
+
+    let waitResult: { remainingSensorIds: string[] } | undefined;
+    await act(async () => {
+      const pending = result.current.waitUntilStreamsRemoved([rtspStream.sensorId]);
+      await jest.advanceTimersByTimeAsync(DELETED_STREAM_POLL_DELAYS_MS[0]);
+      waitResult = await pending;
+    });
+
+    expect(waitResult).toEqual({ remainingSensorIds: [] });
+  });
+
+  it('leaves the grid untouched when a background poll fails', async () => {
+    let call = 0;
+    globalThis.fetch = jest.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        return { ok: true, json: async () => streamsPayload([videoStream, rtspStream]) } as Response;
+      }
+      throw new Error('transient failure');
+    }) as unknown as typeof fetch;
+
+    const { result } = renderHook(() => useStreams({ vstApiUrl: VST_API_URL }));
+    await waitFor(() => expect(result.current.streams).toHaveLength(2));
+
+    await act(async () => {
+      const pending = result.current.waitUntilStreamsRemoved([rtspStream.sensorId]);
+      await jest.advanceTimersByTimeAsync(
+        DELETED_STREAM_POLL_DELAYS_MS.reduce((sum, d) => sum + d, 0),
+      );
+      await pending;
+    });
+
+    expect(names(result.current.streams)).toEqual([videoStream.name, rtspStream.name]);
+    expect(result.current.error).toBeNull();
+  });
+
   it('does nothing when no sensors were deleted', async () => {
     const fetchMock = mockVstStreams([videoStream, rtspStream]);
 

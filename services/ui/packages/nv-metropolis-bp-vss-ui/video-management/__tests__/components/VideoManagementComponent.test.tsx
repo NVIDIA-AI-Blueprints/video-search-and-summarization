@@ -417,9 +417,64 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await selectAllAndConfirmDelete();
 
     expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
+    // The agent accepted this delete, so it must not be reported as a failure
     expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent(
-      `Unable to remove the following streams: ${rtspStream.name}`,
+      `Deletion was accepted but these are still listed by VST: ${rtspStream.name}`,
     );
+    expect(screen.getByTestId('delete-confirm-error')).not.toHaveTextContent(
+      'Unable to remove the following streams',
+    );
+  });
+
+  // A convergence timeout is not a failed delete: re-sending it would target a
+  // sensor the agent already removed.
+  it('re-polls without re-sending the delete when VST has not converged yet', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    mockDeleteVideo.mockClear();
+    mockDeleteRtspStream.mockClear();
+    mockWaitUntilStreamsRemoved.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+
+    expect(mockDeleteRtspStream).not.toHaveBeenCalled();
+    expect(mockDeleteVideo).not.toHaveBeenCalled();
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledWith([rtspStream.sensorId]);
+    expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
+  });
+
+  it('re-sends the delete for an accepted sensor after the dialog is cancelled and reopened', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+
+    mockDeleteRtspStream.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Select All' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith('https://agent.example.com', rtspStream.name);
   });
 
   it('keeps a failed stream selected and reports it without waiting for VST on that id', async () => {
