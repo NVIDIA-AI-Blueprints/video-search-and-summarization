@@ -36,7 +36,6 @@ class ResolveOpenshellGatewayContainerTests(unittest.TestCase):
             self.assertIsNone(helper.resolve_openshell_gateway_container("demo"))
 
 
-
 class EnsureMcpTlsCertsTests(unittest.TestCase):
     def test_returns_existing_paths_without_openssl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_name:
