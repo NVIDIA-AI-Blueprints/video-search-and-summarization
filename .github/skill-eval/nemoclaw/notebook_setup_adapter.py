@@ -35,11 +35,24 @@ PARAMETER_SOURCE = r'''
 # not contain API keys.
 import os
 
-def _openai_base_url(url):
+def _endpoint_base_url(url):
     url = (url or "").strip().rstrip("/")
-    if url and not url.endswith("/v1"):
-        url = f"{url}/v1"
+    for suffix in ("/v1/models", "/v1"):
+        if url.endswith(suffix):
+            url = url[:-len(suffix)].rstrip("/")
+            break
     return url
+
+def _openai_base_url(url):
+    url = _endpoint_base_url(url)
+    return f"{url}/v1" if url else ""
+
+def _first_nonempty(*values):
+    for value in values:
+        value = str(value or "").strip()
+        if value:
+            return value
+    return ""
 
 def _notebook_default(name, fallback=""):
     return globals().get(name, fallback)
@@ -131,16 +144,21 @@ if COMPATIBLE_API_KEY:
     os.environ["COMPATIBLE_API_KEY"] = COMPATIBLE_API_KEY
 
 # Optional VSS endpoint/model overrides used by the orchestrator MCP server.
-# Accept the legacy VSS_* names while populating the names used by the split
+# Accept both the legacy VSS_* names and the skill-eval coordinator's
+# *_REMOTE_* names while populating the names used by the split
 # deploy_vss_orchestrator.ipynb notebook.
-LLM_NAME = os.environ.get(
-    "LLM_NAME",
-    os.environ.get("VSS_LLM_NAME", _notebook_default("LLM_NAME", "")),
-).strip()
-LLM_ENDPOINT_URL = os.environ.get(
-    "LLM_ENDPOINT_URL",
-    os.environ.get("VSS_LLM_ENDPOINT_URL", _notebook_default("LLM_ENDPOINT_URL", "")),
-).strip()
+LLM_NAME = _first_nonempty(
+    os.environ.get("LLM_NAME"),
+    os.environ.get("VSS_LLM_NAME"),
+    os.environ.get("LLM_REMOTE_MODEL"),
+    _notebook_default("LLM_NAME", ""),
+)
+LLM_ENDPOINT_URL = _endpoint_base_url(_first_nonempty(
+    os.environ.get("LLM_ENDPOINT_URL"),
+    os.environ.get("VSS_LLM_ENDPOINT_URL"),
+    os.environ.get("LLM_REMOTE_URL"),
+    _notebook_default("LLM_ENDPOINT_URL", ""),
+))
 LLM_MODEL_TYPE = os.environ.get(
     "LLM_MODEL_TYPE",
     os.environ.get("VSS_LLM_MODEL_TYPE", _notebook_default("LLM_MODEL_TYPE", "")),
@@ -153,14 +171,18 @@ OPENAI_API_KEY = os.environ.get(
     "OPENAI_API_KEY",
     os.environ.get("VSS_OPENAI_API_KEY", _notebook_default("OPENAI_API_KEY", "")),
 ).strip()
-VLM_NAME = os.environ.get(
-    "VLM_NAME",
-    os.environ.get("VSS_VLM_NAME", _notebook_default("VLM_NAME", "")),
-).strip()
-VLM_ENDPOINT_URL = os.environ.get(
-    "VLM_ENDPOINT_URL",
-    os.environ.get("VSS_VLM_ENDPOINT_URL", _notebook_default("VLM_ENDPOINT_URL", "")),
-).strip()
+VLM_NAME = _first_nonempty(
+    os.environ.get("VLM_NAME"),
+    os.environ.get("VSS_VLM_NAME"),
+    os.environ.get("VLM_REMOTE_MODEL"),
+    _notebook_default("VLM_NAME", ""),
+)
+VLM_ENDPOINT_URL = _endpoint_base_url(_first_nonempty(
+    os.environ.get("VLM_ENDPOINT_URL"),
+    os.environ.get("VSS_VLM_ENDPOINT_URL"),
+    os.environ.get("VLM_REMOTE_URL"),
+    _notebook_default("VLM_ENDPOINT_URL", ""),
+))
 VLM_MODEL_TYPE = os.environ.get(
     "VLM_MODEL_TYPE",
     os.environ.get("VSS_VLM_MODEL_TYPE", _notebook_default("VLM_MODEL_TYPE", "")),
