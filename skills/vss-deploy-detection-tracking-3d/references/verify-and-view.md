@@ -404,9 +404,11 @@ For live RTSP, stop the stack or perception container when done; the `.mkv` may 
 
 ## BEV Visualization And Saved BEV
 
-BEV visualization is a separate host-side Kafka consumer. Saved-output mode should produce saved fused BEV by default, alongside `video-output/grid-view.mkv`, when `BEV_DATASET_PATH` contains `map.png` and `transforms.yml`.
+BEV visualization is a separate host-side Kafka consumer. Display mode should show two windows when BEV assets are available: `DeepStreamTest5App` for the camera-grid OSD and `Bird-Eye View of Multi-View 3D Tracking` for fused BEV. Saved-output mode should produce saved fused BEV by default, alongside `video-output/grid-view.mkv`, when `BEV_DATASET_PATH` contains `map.png` and `transforms.yml`.
 
 The deploy flow records the BEV consumer group and Kafka assignment evidence under `generated/run-state/`. Do not start finite file input before that assignment is confirmed.
+
+For live display runs, tell the user the OSD window closes with perception when file input reaches EOS, but the separate BEV window may remain open; press `q` in the BEV window to close it. For agent-managed or unattended closeout, stop only the tracked current-run BEV PID using the safe identity validation from `references/teardown.md`; never use broad process-kill patterns.
 
 Expected saved output:
 
@@ -523,6 +525,6 @@ Report these concrete items:
 - Input mode and filtered camera count.
 - For RTSP: exact registered stream set, no duplicates, every expected source recent non-zero FPS, and growing `mdx-raw`/`mdx-bev` offsets.
 - For file input: `Exited (0)` plus `App run successful`, and `mdx-raw`/`mdx-bev` offsets greater than pre-run baselines.
-- OSD mode or exact current-run artifact paths, including `video-output/grid-view.mkv` and saved BEV output when selected/defaulted, with ffprobe evidence.
+- OSD mode and BEV mode: for live display, report both expected windows and BEV closeout (`q` or safe tracked-PID stop); for saved output, report exact current-run artifact paths including `video-output/grid-view.mkv` and saved BEV output with ffprobe evidence.
 
 Do not report VST URLs or warehouse overlay URLs for this standalone skill.

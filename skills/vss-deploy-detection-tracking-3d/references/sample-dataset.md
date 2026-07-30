@@ -157,7 +157,7 @@ After the bundled preflight has exported/persisted the selected broker values, c
 
 For a generic sample request such as "deploy MV3DT on the sample dataset", do not force saved output before probing display availability. Use the display probe in `references/configure-cameras.md` first:
 
-- If a working display is found and the user did not ask to save, stage `INPUT_MODE=file OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and start live fused BEV before perception so both OSD and BEV windows can render.
+- If a working display is found and the user did not ask to save, stage `INPUT_MODE=file OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and start live fused BEV before perception so both the `DeepStreamTest5App` camera grid and `Bird-Eye View of Multi-View 3D Tracking` BEV windows can render.
 - If no working display is found, state the probe result and use the saved fallback: stage `INPUT_MODE=file OSD=0 SAVE_VIDEO=1`, set `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`, and verify saved grid plus fused BEV artifacts.
 - If the user explicitly asked to save, stage with `SAVE_VIDEO=1` even when display is available; use `OSD=1 SAVE_VIDEO=1` only when the user asked for both live and saved output.
 
@@ -171,4 +171,4 @@ Use the file-input success criteria in `verify-and-view.md`:
 - `mdx-raw` and `mdx-bev` offsets exceed pre-run baselines.
 - For saved output, `video-output/grid-view.mkv` is from the current run, non-empty, and `ffprobe` can parse it.
 - For saved BEV, the current-run fused BEV video is from `bev-output/`, non-empty, `ffprobe` can parse it, and the current BEV recorder log contains `Video saved` with a positive frame count.
-- For live display mode, report the detected `DISPLAY`, OSD/live BEV mode, BEV consumer group assignment evidence, and that the windows should be closed with `q`.
+- For live display mode, report the detected `DISPLAY`, OSD/live BEV mode, BEV consumer group assignment evidence, and that the `DeepStreamTest5App` and BEV windows should be closed with `q`; after file EOS, verify the BEV window was closed or safely stop the tracked current-run BEV PID.

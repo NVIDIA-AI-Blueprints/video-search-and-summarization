@@ -45,7 +45,7 @@
         "The plan validates the exact sample model files required by runtime configs before launch.",
         "The plan uses the repo sample calibration.json and images/Top.png, generates transforms.yml, sets NUM_CAMS=4 and INPUT_MODE=file, and points VIDEO_DIR at warehouse-4cams-20mx20m-synthetic.",
         "The sample plan runs bundled resource preflight before generate-configs.sh/stage-configs.sh and validates the staged Kafka sink after staging.",
-        "The plan does not force saved output for the generic sample request before probing display availability; it uses live OSD plus live fused BEV when a working display is found, and saved grid plus saved fused BEV only for headless fallback or an explicit save request.",
+        "The plan does not force saved output for the generic sample request before probing display availability; it uses both the live OSD camera-grid window and live fused BEV window when a working display is found, starts BEV before file playback, and handles BEV closeout with q or safe tracked-PID stop after EOS.",
         "No docker compose up, docker pull, ngc download, or docker run command is executed."
       ]
     },
