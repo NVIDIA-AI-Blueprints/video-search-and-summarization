@@ -88,7 +88,7 @@ Use the exported `NUM_CAMS` and `CAMERA_IDS` from `generated/run-state/cameras.e
 
 ## Broker Mode
 
-Default to bundled brokers. Use external brokers only when the user explicitly asks. Initialize broker state once and keep these variables exported for config generation, Compose launch, BEV visualizer startup, and verification. If deployment will happen in a later shell, write the same broker values, including `USE_EXTERNAL_BROKERS`, into standalone `docker/.env`.
+Default to bundled brokers. Use external brokers only when the user explicitly asks. Initialize broker state before `generate-configs.sh` or `stage-configs.sh` so generated pub/sub config and staged DeepStream Kafka sink use the final selected broker endpoints. If deployment will happen in a later shell, write the same broker values, including `USE_EXTERNAL_BROKERS`, into standalone `docker/.env`.
 
 ```bash
 cd "${RTCV3D_APP:?set RTCV3D_APP}"
@@ -120,16 +120,23 @@ printf 'USE_EXTERNAL_BROKERS=%s\nMQTT_HOST=%s\nMQTT_PORT=%s\nKAFKA_BOOTSTRAP=%s\
 
 ### Bundled Brokers
 
-Use the generated default MQTT endpoint and the bundled Kafka profile:
+Before generating camera configs or staging DeepStream configs, load `references/deploy-rtvi-cv-3d-stack.md` and run its `Bundled Resource Preflight`. That preflight may change `MQTT_PORT`, `KAFKA_PORT`, `KAFKA_CONTROLLER_PORT`, `DS_HTTP_PORT`, and `KAFKA_BOOTSTRAP` in standalone `docker/.env`; running it after staging can leave generated configs pointed at the old defaults.
 
 ```bash
 cd "${RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
 USE_EXTERNAL_BROKERS=0
-export USE_EXTERNAL_BROKERS
-./scripts/generate-configs.sh "${CALIBRATION_JSON}"
+MQTT_HOST="${MQTT_HOST:-$(read_env MQTT_HOST)}"; MQTT_HOST="${MQTT_HOST:-localhost}"
+MQTT_PORT="${MQTT_PORT:-$(read_env MQTT_PORT)}"; MQTT_PORT="${MQTT_PORT:-1883}"
+KAFKA_PORT="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"
+KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-$(read_env KAFKA_BOOTSTRAP)}"; KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}"
+export USE_EXTERNAL_BROKERS MQTT_HOST MQTT_PORT KAFKA_BOOTSTRAP
+printf 'bundled brokers selected: mqtt=%s:%s kafka=%s\n' "${MQTT_HOST}" "${MQTT_PORT}" "${KAFKA_BOOTSTRAP}"
 ```
 
-Do not launch file-mode perception from this section. After camera configuration, use `deploy-rtvi-cv-3d-stack.md` for the actual launch so file-mode Kafka baselines and optional BEV assignment are established before `perception` starts.
+Do not launch file-mode perception from this section. After camera configuration, use `references/deploy-rtvi-cv-3d-stack.md` for the actual launch so file-mode Kafka baselines and optional BEV assignment are established before `perception` starts.
 
 For stream mode only, when no BEV prestart is required, launch later with:
 
@@ -197,7 +204,7 @@ print(f"pub/sub config uses {endpoint}")
 PY
 ```
 
-Do not launch file-mode perception from this section. After camera configuration, use `deploy-rtvi-cv-3d-stack.md` so file-mode Kafka baselines and optional BEV assignment are established before `perception` starts.
+Do not launch file-mode perception from this section. After camera configuration, use `references/deploy-rtvi-cv-3d-stack.md` so file-mode Kafka baselines and optional BEV assignment are established before `perception` starts.
 
 For stream mode only, when no BEV prestart is required, launch later without bundled broker profiles:
 
@@ -212,11 +219,12 @@ Verify `mdx-raw` and `mdx-bev` with the configured `KAFKA_BOOTSTRAP` using the K
 
 ```bash
 cd "${RTCV3D_APP}"
-if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-  MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}" ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
-else
-  ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
-fi
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+MQTT_HOST="${MQTT_HOST:-$(read_env MQTT_HOST)}"; MQTT_HOST="${MQTT_HOST:-localhost}"
+MQTT_PORT="${MQTT_PORT:-$(read_env MQTT_PORT)}"; MQTT_PORT="${MQTT_PORT:-1883}"
+MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}" ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
 CAMINFO_COUNT="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' | wc -l | tr -d ' ')"
 test "${CAMINFO_COUNT}" = "${NUM_CAMS}" || { echo "ERROR: generated camInfo count ${CAMINFO_COUNT} != NUM_CAMS ${NUM_CAMS}"; exit 1; }
 ```
@@ -384,6 +392,25 @@ Expected outputs:
 - `generated/configs/`
 - `generated/configs/ds-main-config-mv3dt.txt`
 - `generated/configs/ds-mv3dt-tracker-config.yml`
+
+Assert the staged Kafka sink matches the selected broker after every staging run:
+
+```bash
+cd "${RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+KAFKA_BOOTSTRAP_EFFECTIVE="${KAFKA_BOOTSTRAP:-$(read_env KAFKA_BOOTSTRAP)}"; KAFKA_BOOTSTRAP_EFFECTIVE="${KAFKA_BOOTSTRAP_EFFECTIVE:-localhost:${KAFKA_PORT:-9092}}"
+RAW_TOPIC_EFFECTIVE="${RAW_TOPIC:-$(read_env RAW_TOPIC)}"; RAW_TOPIC_EFFECTIVE="${RAW_TOPIC_EFFECTIVE:-mdx-raw}"
+KAFKA_HOST="${KAFKA_BOOTSTRAP_EFFECTIVE%%:*}"
+KAFKA_PORT_ONLY="${KAFKA_BOOTSTRAP_EFFECTIVE##*:}"
+EXPECTED_CONN="msg-broker-conn-str=${KAFKA_HOST};${KAFKA_PORT_ONLY};${RAW_TOPIC_EFFECTIVE}"
+grep -qxF "${EXPECTED_CONN}" generated/configs/ds-main-config-mv3dt.txt || {
+  echo "ERROR: staged Kafka sink does not match selected broker: expected ${EXPECTED_CONN}" >&2
+  grep '^msg-broker-conn-str=' generated/configs/ds-main-config-mv3dt.txt >&2 || true
+  exit 1
+}
+```
 
 If saved BEV is selected/defaulted, verify resolved BEV assets before launch:
 

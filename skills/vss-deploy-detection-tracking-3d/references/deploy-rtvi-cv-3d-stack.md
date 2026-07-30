@@ -77,6 +77,42 @@ test -d "${MODELS_DIR}/mv3dt/BodyPose3DNet" || { echo "ERROR: BodyPose3DNet miss
 
 If models/assets are missing, follow the standalone README model-download section and the public VSS docs at https://docs.nvidia.com/vss/latest/object-detection-tracking.html. Do not print NGC keys.
 
+Cold TensorRT engine initialization can take 5-10 minutes on the first run or when packaged engines are incompatible with the installed TensorRT runtime. The perception container commonly writes rebuilt engines as UID/GID `1000`; preflight cache writeability before launch and use a scoped ACL only after user approval if needed:
+
+```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+MODELS_DIR="${MODELS_DIR:-$(read_env MODELS_DIR)}"
+CONTAINER_UID="${RTCV3D_CONTAINER_UID:-1000}"
+CONTAINER_GID="${RTCV3D_CONTAINER_GID:-1000}"
+for d in "${MODELS_DIR}/mtmc" "${MODELS_DIR}/mv3dt/BodyPose3DNet"; do
+  test -d "${d}" || { echo "ERROR: model cache dir missing: ${d}" >&2; exit 1; }
+  if command -v getfacl >/dev/null 2>&1; then getfacl -cp "${d}" | sed -n '1,12p'; fi
+  if python3 - "${CONTAINER_UID}" "${CONTAINER_GID}" "${d}" <<'PYCHECK'
+import os, stat, sys
+uid = int(sys.argv[1]); gid = int(sys.argv[2]); path = sys.argv[3]
+st = os.stat(path)
+mode = st.st_mode
+ok = ((st.st_uid == uid and mode & stat.S_IWUSR and mode & stat.S_IXUSR) or
+      (st.st_gid == gid and mode & stat.S_IWGRP and mode & stat.S_IXGRP) or
+      (mode & stat.S_IWOTH and mode & stat.S_IXOTH))
+sys.exit(0 if ok else 1)
+PYCHECK
+  then
+    :
+  elif command -v getfacl >/dev/null 2>&1 && getfacl -cp "${d}" | grep -Eq "^(user:${CONTAINER_UID}:.*w.*x|group:${CONTAINER_GID}:.*w.*x)"; then
+    :
+  else
+    echo "WARN: container uid ${CONTAINER_UID}:${CONTAINER_GID} may not persist TensorRT engines in ${d}." >&2
+    echo "      With approval, use a scoped ACL: sudo setfacl -m u:${CONTAINER_UID}:rwx -m d:u:${CONTAINER_UID}:rwx '${d}'" >&2
+  fi
+done
+```
+
+Do not fix model-cache write failures with broad `chmod 777` or broad recursive `chown`.
+
 ## Preflight Config
 
 Run `references/configure-cameras.md` before this section when calibration, input mode, display mode, broker mode, or staged configs are not already prepared.
@@ -155,7 +191,7 @@ done
 
 ## Bundled Resource Preflight
 
-Run this before bundled-broker launch. If standalone RT-CV-3D containers from this app already exist, reuse them and do not rewrite broker ports. For a fresh bundled start, verify fixed container-name ownership and choose free host ports for Kafka, MQTT, and the DeepStream REST endpoint. Skip this section for explicit external-broker mode.
+Run this before `generate-configs.sh`, `stage-configs.sh`, or bundled-broker launch. If standalone RT-CV-3D containers from this app already exist, reuse them and do not rewrite broker ports. For a fresh bundled start, verify fixed container-name ownership and choose free host ports for Kafka, MQTT, and the DeepStream REST endpoint. Skip this section for explicit external-broker mode.
 
 ```bash
 cd "${RTCV3D_APP:?set RTCV3D_APP}"
@@ -455,7 +491,7 @@ fi
 
 ## Two-Phase Launch For BEV
 
-Use this whenever saved output is selected/defaulted, or whenever file input needs live or saved BEV visualization. The BEV visualizer uses a fresh `latest` Kafka consumer group, so the workflow waits for the expected consumer group assignment before starting perception. This uses Kafka CLI inspection; it does not require runtime script changes.
+Use this whenever saved output is selected/defaulted, or whenever file input needs live or saved BEV visualization. The BEV visualizer uses a fresh `latest` Kafka consumer group, so the workflow waits for the expected consumer group assignment before starting perception. The recorder must survive long first-run TensorRT engine builds; launch it as a persistent process, not as a background child of a short-lived shell.
 
 ```bash
 start_support_services
@@ -476,7 +512,7 @@ BEV_SAVE_VIDEO="${BEV_SAVE_VIDEO:-1}"
 BEV_KAFKA_TOPIC="${BEV_KAFKA_TOPIC:-${FUSED_TOPIC:-mdx-bev}}"
 BEV_KAFKA_BROKER="${BEV_KAFKA_BROKER:-${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}}"
 
-BEV_SAVE_VIDEO="${BEV_SAVE_VIDEO}" BEV_SOURCE="${BEV_SOURCE}" BEV_KAFKA_TOPIC="${BEV_KAFKA_TOPIC}" BEV_KAFKA_BROKER="${BEV_KAFKA_BROKER}" BEV_DATASET_PATH="${BEV_DATASET_PATH:?set BEV_DATASET_PATH}" ./scripts/bev-visualizer.sh > "${BEV_LOG}" 2>&1 &
+nohup env BEV_SAVE_VIDEO="${BEV_SAVE_VIDEO}" BEV_SOURCE="${BEV_SOURCE}" BEV_KAFKA_TOPIC="${BEV_KAFKA_TOPIC}" BEV_KAFKA_BROKER="${BEV_KAFKA_BROKER}" BEV_DATASET_PATH="${BEV_DATASET_PATH:?set BEV_DATASET_PATH}" ./scripts/bev-visualizer.sh < /dev/null > "${BEV_LOG}" 2>&1 &
 pid="$!"
 printf '%s\n' "${pid}" > "${RUN_STATE_DIR}/bev-visualizer.pid"
 readlink -f /proc/"${pid}"/cwd > "${RUN_STATE_DIR}/bev-visualizer.cwd" 2>/dev/null || true
@@ -533,16 +569,23 @@ wait_bev_assignment() {
   tail -80 "${BEV_LOG}" >&2 || true
   return 1
 }
+bev_recorder_alive() {
+  pid="$(cat "${RUN_STATE_DIR}/bev-visualizer.pid" 2>/dev/null || true)"
+  printf '%s' "${pid}" | grep -Eq '^[0-9]+$' || { echo "ERROR: invalid BEV recorder PID: ${pid}" >&2; return 1; }
+  kill -0 "${pid}" 2>/dev/null || { echo "ERROR: BEV recorder is not running before perception starts; see ${BEV_LOG}" >&2; tail -80 "${BEV_LOG}" >&2 || true; return 1; }
+}
 wait_bev_assignment "${BEV_GROUP}" "${BEV_KAFKA_TOPIC}"
+bev_recorder_alive
 ```
 
-Start perception only after the BEV Kafka consumer group assignment is confirmed:
+Start perception only after the BEV Kafka consumer group assignment is confirmed and the recorder PID is still alive:
 
 ```bash
+bev_recorder_alive
 start_perception
 ```
 
-For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately.
+For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder running through EOS and use `references/verify-and-view.md` to detect premature recorder exit.
 
 Do not use `deploy/docker/compose.yml`, `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, warehouse `overrides.env`, or warehouse app-data deployment profiles in this skill.
 

@@ -63,6 +63,22 @@ current_logs() {
     docker logs vss-rtvi-cv-mv3dt 2>&1
   fi
 }
+bev_recorder_has_saved_video() {
+  log="$(cat "${RUN_STATE_DIR}/bev-visualizer.log" 2>/dev/null || true)"
+  [ -n "${log}" ] && [ -f "${log}" ] || return 1
+  awk '/Video saved:/ { line=$0; sub(/^.*\(/, "", line); sub(/ frames\).*$/, "", line); if (line ~ /^[0-9]+$/ && line > 0) ok=1 } END { exit ok ? 0 : 1 }' "${log}"
+}
+check_bev_recorder_during_file_run() {
+  pid="$(cat "${RUN_STATE_DIR}/bev-visualizer.pid" 2>/dev/null || true)"
+  [ -n "${pid}" ] || return 0
+  printf '%s' "${pid}" | grep -Eq '^[0-9]+$' || { echo "ERROR: invalid tracked BEV recorder PID: ${pid}" >&2; exit 1; }
+  if ! kill -0 "${pid}" 2>/dev/null && ! bev_recorder_has_saved_video; then
+    log="$(cat "${RUN_STATE_DIR}/bev-visualizer.log" 2>/dev/null || true)"
+    echo "ERROR: BEV recorder exited before file-mode EOS without saving a positive-frame video; log=${log}" >&2
+    [ -n "${log}" ] && tail -80 "${log}" >&2 || true
+    exit 1
+  fi
+}
 
 docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | tail -80
 
@@ -97,6 +113,7 @@ if [ "${INPUT_MODE:-}" = file ]; then
 
   eos_deadline=$((SECONDS + ${FILE_EOS_TIMEOUT:-900}))
   while :; do
+    check_bev_recorder_during_file_run
     PERCEPTION_STATUS="$(docker inspect --format '{{.State.Status}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
     [ "${PERCEPTION_STATUS}" = exited ] && break
     [ "${SECONDS}" -lt "${eos_deadline}" ] || { echo "ERROR: file-input perception did not reach EOS before timeout; status=${PERCEPTION_STATUS:-missing}" >&2; exit 1; }
@@ -120,7 +137,7 @@ fi
 
 For `INPUT_MODE=stream`, 0 FPS before RTSP registration is normal. After streams are registered, the perception container should remain running until stopped; an unexpected exit is a failure.
 
-For `INPUT_MODE=file`, clips start immediately and the perception container exits when all files finish. Do not require `ds-ready: YES` in file mode; `Pipeline running` is useful startup evidence when present, but `Exited (0)` plus `App run successful`, Kafka offset deltas, and saved artifact checks determine success. Verify Kafka offsets and saved artifacts instead of restarting perception.
+For `INPUT_MODE=file`, clips start immediately and the perception container exits when all files finish. Do not require `ds-ready: YES` in file mode; `Pipeline running` is useful startup evidence when present, but `Exited (0)` plus `App run successful`, Kafka offset deltas, and saved artifact checks determine success. Cold TensorRT compilation can keep the run active for 5-10 minutes before messages appear, so keep the BEV recorder process alive until EOS/finalization. Verify Kafka offsets and saved artifacts instead of restarting perception.
 
 ## Kafka Offsets
 

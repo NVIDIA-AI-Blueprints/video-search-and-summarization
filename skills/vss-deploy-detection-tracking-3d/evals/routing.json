@@ -31,9 +31,9 @@
         "The plan uses INPUT_MODE=file and validates that MP4 basenames match filtered camera sensor ids from calibration.json.",
         "The plan detects display availability and, for headless/saved output, stages with SAVE_VIDEO=1 and starts saved fused BEV by default when map assets are present.",
         "The plan records Kafka offset baselines before starting finite-file perception.",
-        "The plan waits for BEV Kafka consumer group assignment evidence before starting perception.",
+        "The plan waits for BEV Kafka consumer group assignment evidence and verifies the persistent BEV recorder PID is alive before starting perception.",
         "The plan preflights ffprobe before saved-output runs and validates current-run grid and BEV artifacts with timestamp, size, ffprobe, and BEV log frame-count evidence.",
-        "The plan uses bundled broker mode, runs bundled resource preflight, captures Kafka baselines before file-mode perception, and does not use warehouse BP_PROFILE syntax."
+        "The plan uses bundled broker mode, runs bundled resource preflight before config generation/staging, asserts the staged Kafka sink matches KAFKA_BOOTSTRAP, captures Kafka baselines before file-mode perception, and does not use warehouse BP_PROFILE syntax."
       ]
     },
     {
@@ -44,6 +44,7 @@
         "The plan uses NGC warehouse app-data only as the source for sample models/videos and does not infer the app-data version from the skill version.",
         "The plan validates the exact sample model files required by runtime configs before launch.",
         "The plan uses the repo sample calibration.json and images/Top.png, generates transforms.yml, sets NUM_CAMS=4 and INPUT_MODE=file, and points VIDEO_DIR at warehouse-4cams-20mx20m-synthetic.",
+        "The sample plan runs bundled resource preflight before generate-configs.sh/stage-configs.sh and validates the staged Kafka sink after staging.",
         "The plan saves both perception grid video and fused BEV video by default for the finite sample run.",
         "No docker compose up, docker pull, ngc download, or docker run command is executed."
       ]

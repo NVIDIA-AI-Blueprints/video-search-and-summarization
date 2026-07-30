@@ -7,7 +7,7 @@
     "expected_behavior": [
       "Loads vss-deploy-detection-tracking-3d for generic MV3DT intent.",
       "Identifies the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
-      "Uses bundled broker mode, but for file input starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
+      "Uses bundled broker mode, but for file input runs bundled resource preflight before config generation/staging, starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
       "Reports resolved runtime images only from docker compose config --images and does not hardcode a runtime image version.",
       "Does not mention warehouse compose as the deployment path.",
       "Does not print plaintext API tokens."
@@ -25,7 +25,9 @@
       "Validates the exact sample model files required by runtime configs before launch.",
       "Uses sample videos from warehouse-4cams-20mx20m-synthetic and sample camera ids Camera, Camera_01, Camera_02, Camera_03.",
       "Uses the repo sample calibration.json and Top.png, then generates transforms.yml for BEV_DATASET_PATH.",
+      "Runs bundled resource preflight before config generation/staging and asserts the staged Kafka sink matches the selected KAFKA_BOOTSTRAP.",
       "Plans saved perception grid and saved fused BEV by default for the finite file run.",
+      "Uses a persistent BEV recorder launch and verifies the recorder survives until perception starts.",
       "Does not route to vss-deploy-profile or use warehouse compose commands."
     ]
   },
