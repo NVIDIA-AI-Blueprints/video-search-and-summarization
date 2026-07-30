@@ -10,6 +10,7 @@ This is still the standalone RT-CV-3D path. Do not switch to warehouse compose f
 - [Resolve App Data](#resolve-app-data)
 - [Stage Sample Calibration And BEV Assets](#stage-sample-calibration-and-bev-assets)
 - [Env Values For The Sample](#env-values-for-the-sample)
+- [Display And Visualization](#display-and-visualization)
 - [Verify Sample Run](#verify-sample-run)
 
 ## What The Sample Uses
@@ -128,7 +129,7 @@ mkdir -p "${BEV_DATASET_PATH}"
 ln -sfn "${MAP_PNG}" "${BEV_DATASET_PATH}/map.png"
 ./scripts/generate-transforms.sh "${CALIBRATION_JSON}" "${BEV_DATASET_PATH}/map.png" -o "${BEV_DATASET_PATH}/transforms.yml" --force
 
-export CALIBRATION_JSON MAP_PNG BEV_DATASET_PATH NUM_CAMS=4 INPUT_MODE=file SAVE_VIDEO=1 BEV_SAVE_VIDEO=1 BEV_SOURCE=fused
+export CALIBRATION_JSON MAP_PNG BEV_DATASET_PATH NUM_CAMS=4 INPUT_MODE=file BEV_SOURCE=fused
 ```
 
 Then load `configure-cameras.md` and continue from `Validate Calibration`. The file-input checks should pass because the sample videos match the sample camera IDs exactly.
@@ -142,7 +143,7 @@ MODELS_DIR=<APP_DATA_DIR>/models
 NUM_CAMS=4
 INPUT_MODE=file
 VIDEO_DIR=<APP_DATA_DIR>/videos/warehouse-4cams-20mx20m-synthetic
-SAVE_VIDEO=1
+# Set SAVE_VIDEO after the display/save decision.
 USE_EXTERNAL_BROKERS=0
 RAW_TOPIC=mdx-raw
 FUSED_TOPIC=mdx-bev
@@ -150,9 +151,17 @@ FUSED_TOPIC=mdx-bev
 
 Use bundled brokers unless the user explicitly asks for external brokers. For the sample, run the bundled resource preflight from `references/deploy-rtvi-cv-3d-stack.md` before `generate-configs.sh` or `stage-configs.sh`; otherwise a fallback Kafka port such as `19092` can be selected too late and the staged config may still point at `9092`.
 
-After the bundled preflight has exported/persisted the selected broker values, continue through `references/configure-cameras.md`: generate configs with `MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}"`, stage with `INPUT_MODE=file OSD=0 SAVE_VIDEO=1`, and assert the staged Kafka `msg-broker-conn-str` matches `KAFKA_BOOTSTRAP`.
+After the bundled preflight has exported/persisted the selected broker values, continue through `references/configure-cameras.md`: generate configs with `MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}"`, run the display probe, stage with the selected `OSD`/`SAVE_VIDEO` values, and assert the staged Kafka `msg-broker-conn-str` matches `KAFKA_BOOTSTRAP`.
 
-Because the sample is finite MP4 input with saved output, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the persistent fused BEV recorder and wait for its Kafka consumer group assignment, verify the recorder PID is still alive, then start `perception`.
+## Display And Visualization
+
+For a generic sample request such as "deploy MV3DT on the sample dataset", do not force saved output before probing display availability. Use the display probe in `references/configure-cameras.md` first:
+
+- If a working display is found and the user did not ask to save, stage `INPUT_MODE=file OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and start live fused BEV before perception so both OSD and BEV windows can render.
+- If no working display is found, state the probe result and use the saved fallback: stage `INPUT_MODE=file OSD=0 SAVE_VIDEO=1`, set `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`, and verify saved grid plus fused BEV artifacts.
+- If the user explicitly asked to save, stage with `SAVE_VIDEO=1` even when display is available; use `OSD=1 SAVE_VIDEO=1` only when the user asked for both live and saved output.
+
+For any sample file-input run that uses live or saved BEV, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the persistent fused BEV visualizer/recorder and wait for its Kafka consumer group assignment, verify the PID is still alive, then start `perception`.
 
 ## Verify Sample Run
 
@@ -160,5 +169,6 @@ Use the file-input success criteria in `verify-and-view.md`:
 
 - `vss-rtvi-cv-mv3dt` exits with code `0` after EOS and logs `App run successful`.
 - `mdx-raw` and `mdx-bev` offsets exceed pre-run baselines.
-- `video-output/grid-view.mkv` is from the current run, non-empty, and `ffprobe` can parse it.
-- Current-run fused BEV video is from `bev-output/`, non-empty, `ffprobe` can parse it, and the current BEV recorder log contains `Video saved` with a positive frame count.
+- For saved output, `video-output/grid-view.mkv` is from the current run, non-empty, and `ffprobe` can parse it.
+- For saved BEV, the current-run fused BEV video is from `bev-output/`, non-empty, `ffprobe` can parse it, and the current BEV recorder log contains `Video saved` with a positive frame count.
+- For live display mode, report the detected `DISPLAY`, OSD/live BEV mode, BEV consumer group assignment evidence, and that the windows should be closed with `q`.

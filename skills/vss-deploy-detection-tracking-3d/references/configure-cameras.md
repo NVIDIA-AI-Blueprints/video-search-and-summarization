@@ -348,26 +348,61 @@ Recorded clips play once and the perception container exits at end-of-stream.
 
 ## Display And Save-Video Decision
 
-Detect display capability before staging configs:
+Run this probe every time before choosing `OSD=0` as the headless fallback. Do not infer headless mode from GPU presence, whether `xdpyinfo` is installed, or a stale/missing `DISPLAY`; test the current `DISPLAY` and X socket candidates such as `:0` and `:1`.
 
 ```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}" || exit 1
+mkdir -p generated/run-state
 RTCV3D_DISPLAY_AVAILABLE=0
-if [ -n "${DISPLAY:-}" ] && [ -d /tmp/.X11-unix ]; then
-  if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>&1; then
-    RTCV3D_DISPLAY_AVAILABLE=1
-  elif command -v xset >/dev/null 2>&1 && xset q >/dev/null 2>&1; then
-    RTCV3D_DISPLAY_AVAILABLE=1
-  fi
+RTCV3D_DISPLAY_REASON="no working X11 display detected"
+RTCV3D_DISPLAY=""
+DISPLAY_CANDIDATES=""
+add_display_candidate() {
+  d="$1"
+  [ -n "${d}" ] || return 0
+  case " ${DISPLAY_CANDIDATES} " in
+    *" ${d} "*) ;;
+    *) DISPLAY_CANDIDATES="${DISPLAY_CANDIDATES} ${d}" ;;
+  esac
+}
+add_display_candidate "${DISPLAY:-}"
+if [ -d /tmp/.X11-unix ]; then
+  for sock in /tmp/.X11-unix/X*; do
+    [ -S "${sock}" ] || continue
+    add_display_candidate ":${sock##*/X}"
+  done
 fi
-echo "RTCV3D_DISPLAY_AVAILABLE=${RTCV3D_DISPLAY_AVAILABLE}"
+for d in ${DISPLAY_CANDIDATES}; do
+  if command -v xdpyinfo >/dev/null 2>&1 && DISPLAY="${d}" xdpyinfo >/dev/null 2>&1; then
+    RTCV3D_DISPLAY_AVAILABLE=1
+    RTCV3D_DISPLAY="${d}"
+    RTCV3D_DISPLAY_REASON="xdpyinfo succeeded"
+    break
+  fi
+  if command -v xset >/dev/null 2>&1 && DISPLAY="${d}" xset q >/dev/null 2>&1; then
+    RTCV3D_DISPLAY_AVAILABLE=1
+    RTCV3D_DISPLAY="${d}"
+    RTCV3D_DISPLAY_REASON="xset succeeded"
+    break
+  fi
+done
+if [ "${RTCV3D_DISPLAY_AVAILABLE}" = 1 ]; then
+  export DISPLAY="${RTCV3D_DISPLAY}"
+fi
+{
+  printf 'RTCV3D_DISPLAY_AVAILABLE=%s\n' "${RTCV3D_DISPLAY_AVAILABLE}"
+  printf 'DISPLAY=%s\n' "${RTCV3D_DISPLAY:-${DISPLAY:-}}"
+  printf 'DISPLAY_CANDIDATES=%s\n' "${DISPLAY_CANDIDATES# }"
+  printf 'RTCV3D_DISPLAY_REASON=%s\n' "${RTCV3D_DISPLAY_REASON}"
+} | tee generated/run-state/display.env
 ```
 
 Selection rules:
 
 - If the user asked to save video or save output, set `SAVE_VIDEO=1` regardless of display availability and save fused BEV by default after `BEV_DATASET_PATH` resolves with both required files.
 - If the user asked for both live and saved output, set `OSD=1 SAVE_VIDEO=1` when display is available and start saved fused BEV in parallel.
-- If display is available and the user did not ask to save, set `OSD=1 SAVE_VIDEO=0`.
-- If display is not available, tell the user no working display was detected and use saved output as the fallback: set `SAVE_VIDEO=1` and save both perception grid and fused BEV after BEV assets resolve.
+- If display is available and the user did not ask to save, set `OSD=1 SAVE_VIDEO=0`, preserve/export the detected `DISPLAY`, and start live fused BEV when BEV assets are present.
+- If display is not available, tell the user no working display was detected. When interaction is available, confirm saved output before continuing; in autonomous/eval runs, use saved output as the fallback and state that decision. Set `SAVE_VIDEO=1` and save both perception grid and fused BEV after BEV assets resolve.
 - Do not run broad `xhost +`. Ask before changing X11 access and prefer scoped access.
 
 `SAVE_VIDEO=1` only controls the perception camera-grid sink. Saved BEV is a separate `scripts/bev-visualizer.sh` process with `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`; start it before data flows.
