@@ -497,16 +497,12 @@ class ViaServer:
         )
         async def list_video_files(
             purpose: Annotated[
-                str,
+                Purpose,
                 Query(
-                    description="Only return files with the given purpose.",
-                    max_length=36,
-                    pattern=r"^[a-zA-Z]*$",
+                    description="Only return files with the given purpose. Must be 'vision'.",
                 ),
             ],
         ) -> ListFilesResponse:
-            if purpose != "vision":
-                return {"data": [], "object": "list"}
             try:
                 rtvi_resp = self._stream_handler._vlm_pipeline.list_files(purpose)
             except Exception as e:
@@ -1910,3 +1906,4 @@ if __name__ == "__main__":
 
     server = ViaServer(args)
     server.run()
+
