@@ -103,9 +103,21 @@ class AliasPlanTest(unittest.TestCase):
             all(item.target.endswith(":develop-deadbeef1234") for item in plan)
         )
 
-    def test_non_develop_release_set_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "only from develop"):
-            alias_plan(release_set("pull-request/1190"), "develop-validated")
+    def test_pull_request_ref_is_accepted(self):
+        """A PR branch publishes pr-<N>-* and needs the same complete coverage."""
+        plan = alias_plan(release_set("pull-request/1190"), "pr-1190-abc123abc123", ALL_CONTENT)
+        self.assertEqual(len(plan), 3)
+        self.assertTrue(
+            all(item.target.endswith(":pr-1190-abc123abc123") for item in plan)
+        )
+
+    def test_unexpected_ref_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "expected develop or pull-request"):
+            alias_plan(release_set("refs/heads/random"), "develop-validated")
+
+    def test_malformed_pull_request_ref_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "expected develop or pull-request"):
+            alias_plan(release_set("pull-request/abc"), "develop-validated")
 
     def test_empty_plan_is_rejected(self):
         data = release_set()

@@ -49,6 +49,10 @@ from typing import Callable
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+# Refs whose candidate set may be retagged. develop publishes develop-<sha12>;
+# a PR branch publishes pr-<N>-<sha12>, and both need every GHCR image present
+# or a consumer deriving a coordinate from the ref 404s on the untouched ones.
+RETAGGABLE_REF_RE = re.compile(r"^(?:develop|pull-request/\d+)$")
 TREE_RE = re.compile(r"^[0-9a-f]{40}$")
 Runner = Callable[[list[str]], str]
 
@@ -82,8 +86,11 @@ def alias_plan(
 ) -> list[AliasUpdate]:
     if not ALIAS_RE.fullmatch(alias):
         raise ValueError(f"invalid alias {alias!r}")
-    if release_set.get("source", {}).get("ref") != "develop":
-        raise ValueError("validated developer alias may advance only from develop")
+    ref = str(release_set.get("source", {}).get("ref") or "")
+    if not RETAGGABLE_REF_RE.fullmatch(ref):
+        raise ValueError(
+            f"refusing to retag from ref {ref!r}; expected develop or pull-request/<N>"
+        )
 
     updates: list[AliasUpdate] = []
     for image in release_set.get("images", []):
