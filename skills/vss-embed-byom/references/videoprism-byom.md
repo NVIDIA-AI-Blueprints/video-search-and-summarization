@@ -138,6 +138,15 @@ class VideoPrismEmbedModel(BaseVlmModel):
                 )
             )
         return outputs
+
+    def _embed_text(self, text: str) -> List[float]:
+        # Replace with a VideoPrism-compatible text encoder. If the backend is
+        # video-only, reject text requests in the API handler before generate().
+        raise NotImplementedError("VideoPrism text embedding path is not configured")
+
+    def _embed_video(self, frames: torch.Tensor) -> List[float]:
+        # Replace with VideoPrism preprocessing and model inference.
+        raise NotImplementedError("VideoPrism video embedding path is not configured")
 ```
 
 Always confirm the `VlmModelOutput` dataclass in `models/base_vlm_model.py`
