@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Unit tests for plan_matrix.build_matrix — the diff -> dispatch rules.
@@ -73,91 +72,68 @@ class SkillFilePaths(unittest.TestCase):
 
 
 class RunsOnLabels(unittest.TestCase):
-    """Spec hardware declaration -> runner label set.
-
-    Parity target is run_leg.pool_candidates, which reads
-    `int(metadata.get("gpu_count", 1) or 0)` and guards its GPU-type
-    filter with `if required_count > 0 and required_type`.
-    """
-
-    def test_single_gpu_platform(self):
+    def test_rtx_pro_uses_1449_model_and_demand_labels(self):
         self.assertEqual(
-            plan_matrix.runs_on_labels("L40S", {"gpu_count": 1}),
-            ["self-hosted", "vss-eval", "gpu-l40s", "gpus-1"],
+            plan_matrix.runs_on_labels(
+                "RTXPRO6000BW",
+                {"gpu_count": 2},
+            ),
+            [
+                "self-hosted",
+                "vss-eval",
+                "gpu-rtxpro6000bw",
+                "gpus-2",
+            ],
         )
 
-    def test_two_gpu_platform(self):
-        self.assertEqual(
-            plan_matrix.runs_on_labels("RTXPRO6000BW", {"gpu_count": 2}),
-            ["self-hosted", "vss-eval", "gpu-rtxpro6000bw", "gpus-2"],
-        )
-
-    def test_absent_gpu_count_defaults_to_one(self):
-        """pool_candidates' `metadata.get("gpu_count", 1)` default."""
-        self.assertEqual(
-            plan_matrix.runs_on_labels("L40S", {"modes": ["remote-all"]}),
-            ["self-hosted", "vss-eval", "gpu-l40s", "gpus-1"],
-        )
-        self.assertEqual(
-            plan_matrix.runs_on_labels("L40S", None),
-            ["self-hosted", "vss-eval", "gpu-l40s", "gpus-1"],
-        )
-
-    def test_zero_gpu_count_drops_the_platform_label_too(self):
-        """GPU-independent legs must not be pinned to a GPU box.
-
-        pool_candidates only applies its type filter when
-        `required_count > 0`, so a zero-GPU spec accepts any RUNNING box
-        regardless of the platform it names. Emitting `gpu-rtxpro6000bw`
-        here would be *more* restrictive than today's placement.
-        """
-        self.assertEqual(
-            plan_matrix.runs_on_labels("RTXPRO6000BW", {"gpu_count": 0}),
-            ["self-hosted", "vss-eval"],
-        )
-        self.assertEqual(
-            plan_matrix.runs_on_labels("ANY", {"gpu_count": 0}),
-            ["self-hosted", "vss-eval"],
-        )
-
-    def test_null_or_garbage_gpu_count_is_zero(self):
-        """pool_candidates' trailing `or 0` on a present-but-falsy value."""
-        for raw in (None, "", "two"):
-            self.assertEqual(
-                plan_matrix.runs_on_labels("L40S", {"gpu_count": raw}),
-                ["self-hosted", "vss-eval"],
-                raw,
-            )
-
-    def test_any_platform_carries_no_gpu_type_label(self):
+    def test_any_is_model_independent(self):
         self.assertEqual(
             plan_matrix.runs_on_labels("ANY", {"gpu_count": 1}),
             ["self-hosted", "vss-eval", "gpus-1"],
         )
 
-    def test_unknown_platform_falls_back_to_a_normalised_slug(self):
+    def test_absent_gpu_count_defaults_to_one(self):
         self.assertEqual(
-            plan_matrix.runs_on_labels("GB200 NVL", {"gpu_count": 1}),
-            ["self-hosted", "vss-eval", "gpu-gb200-nvl", "gpus-1"],
+            plan_matrix.runs_on_labels(
+                "RTXPRO6000BW",
+                {"modes": ["standalone"]},
+            ),
+            ["self-hosted", "vss-eval", "gpu-rtxpro6000bw", "gpus-1"],
         )
 
-    def test_every_known_platform_has_a_label(self):
-        for platform in ("H100", "L40S", "RTXPRO6000BW", "DGX-SPARK", "IGX-THOR"):
-            labels = plan_matrix.runs_on_labels(platform, {"gpu_count": 1})
-            self.assertEqual(len(labels), 4, platform)
-            self.assertTrue(labels[2].startswith("gpu-"), platform)
+    def test_zero_gpu_drops_model_and_count(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("ANY", {"gpu_count": 0}),
+            ["self-hosted", "vss-eval"],
+        )
+
+    def test_unsupported_platform_uses_coordinator(self):
+        for platform in ("L40S", "H100", "GB200 NVL"):
+            self.assertEqual(
+                plan_matrix.runs_on_labels(platform, {"gpu_count": 1}),
+                ["self-hosted", "vss-skill-eval-runner"],
+                platform,
+            )
+
+    def test_capacity_overflow_uses_coordinator(self):
+        self.assertEqual(
+            plan_matrix.runs_on_labels("RTX4090", {"gpu_count": 2}),
+            ["self-hosted", "vss-skill-eval-runner"],
+        )
+
+    def test_invalid_gpu_count_fails_plan(self):
+        for raw in ("two", True, 1.5, -1):
+            with self.assertRaisesRegex((TypeError, ValueError), "gpu_count"):
+                plan_matrix.runs_on_labels("ANY", {"gpu_count": raw})
 
 
 class RealSpecCorpus(unittest.TestCase):
-    """Every spec in skills/ must yield a well-formed label set.
-
-    Unlike BuildMatrix this reads the real tree on purpose: the point is
-    that no spec on disk produces a label a runner could never carry.
-    """
+    """The live spec corpus always emits schedulable, well-formed labels."""
 
     def setUp(self):
         self.specs = sorted(
-            p for p in (plan_matrix.REPO_ROOT / "skills").glob("*/eval*/*.json")
+            p
+            for p in (plan_matrix.REPO_ROOT / "skills").glob("*/eval*/*.json")
             if p.name not in plan_matrix.EXCLUDED_SPEC_NAMES
         )
         if not self.specs:
@@ -165,33 +141,43 @@ class RealSpecCorpus(unittest.TestCase):
 
     def test_every_platform_entry_yields_valid_labels(self):
         seen = 0
+        allowed_prefixes = (
+            plan_matrix.BASE_GPU_RUNNER_LABELS,
+            plan_matrix.COORDINATOR_RUNNER_LABELS,
+        )
         for spec in self.specs:
             rel = str(spec.relative_to(plan_matrix.REPO_ROOT))
             for platform, config in plan_matrix.spec_platform_config(rel).items():
                 labels = plan_matrix.runs_on_labels(platform, config)
                 seen += 1
-                # GitHub matches labels case-insensitively; keep the emitted
-                # form strictly lowercase so box registration is unambiguous.
                 for label in labels:
-                    self.assertRegex(label, r"^[a-z0-9][a-z0-9-]*$", f"{rel} {label}")
-                self.assertEqual(labels[:2], list(plan_matrix.BASE_LABELS), rel)
+                    self.assertRegex(
+                        label,
+                        r"^[a-z0-9][a-z0-9-]*$",
+                        f"{rel} {label}",
+                    )
+                self.assertIn(labels[:2], allowed_prefixes, rel)
                 self.assertLessEqual(
-                    sum(1 for x in labels if x.startswith("gpu-")), 1, rel
+                    sum(1 for label in labels if label.startswith("gpu-")),
+                    1,
+                    rel,
                 )
                 self.assertLessEqual(
-                    sum(1 for x in labels if x.startswith("gpus-")), 1, rel
+                    sum(1 for label in labels if label.startswith("gpus-")),
+                    1,
+                    rel,
                 )
         self.assertGreater(seen, 0)
 
     def test_a_gpu_type_label_never_appears_without_a_count(self):
-        """The zero-GPU parity rule, asserted across the real corpus."""
         for spec in self.specs:
             rel = str(spec.relative_to(plan_matrix.REPO_ROOT))
             for platform, config in plan_matrix.spec_platform_config(rel).items():
                 labels = plan_matrix.runs_on_labels(platform, config)
-                if any(x.startswith("gpu-") for x in labels):
+                if any(label.startswith("gpu-") for label in labels):
                     self.assertTrue(
-                        any(x.startswith("gpus-") for x in labels), f"{rel} {platform}"
+                        any(label.startswith("gpus-") for label in labels),
+                        f"{rel} {platform}",
                     )
 
 
@@ -266,8 +252,10 @@ class BuildMatrix(unittest.TestCase):
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["kind"], "missing_adapter")
         self.assertEqual(inc[0]["slug"], "vss-no-adapter__missing-adapter")
-        # Commits an adapter, runs no trial — must not claim a GPU.
-        self.assertEqual(inc[0]["runs_on"], ["self-hosted", "vss-eval"])
+        self.assertEqual(
+            inc[0]["runs_on"],
+            ["self-hosted", "vss-skill-eval-runner"],
+        )
 
     def test_every_leg_carries_runs_on(self):
         inc = plan_matrix.build_matrix([
@@ -277,7 +265,6 @@ class BuildMatrix(unittest.TestCase):
         self.assertTrue(inc)
         for leg in inc:
             self.assertIn("runs_on", leg)
-            self.assertEqual(leg["runs_on"][:2], ["self-hosted", "vss-eval"])
 
     def test_runs_on_tracks_the_spec_declaration(self):
         plan_matrix.spec_platform_config = lambda p: {
@@ -285,14 +272,19 @@ class BuildMatrix(unittest.TestCase):
             "RTXPRO6000BW": {"gpu_count": 2},
         }
         inc = plan_matrix.build_matrix(["skills/vss-search-archive/evals/search.json"])
+        by_platform = {leg["platform"]: leg["runs_on"] for leg in inc}
         self.assertEqual(
-            {leg["platform"]: leg["runs_on"] for leg in inc},
-            {
-                "L40S": ["self-hosted", "vss-eval", "gpu-l40s", "gpus-1"],
-                "RTXPRO6000BW": [
-                    "self-hosted", "vss-eval", "gpu-rtxpro6000bw", "gpus-2",
-                ],
-            },
+            by_platform["L40S"],
+            ["self-hosted", "vss-skill-eval-runner"],
+        )
+        self.assertEqual(
+            by_platform["RTXPRO6000BW"],
+            [
+                "self-hosted",
+                "vss-eval",
+                "gpu-rtxpro6000bw",
+                "gpus-2",
+            ],
         )
 
     def test_slug_carries_platform(self):
@@ -312,7 +304,7 @@ class BuildMatrix(unittest.TestCase):
             ["vss-search-archive__search__L40S",
              "vss-search-archive__search__RTXPRO6000BW"],
         )
-        by_platform = {leg["platform"]: leg["runner_labels"] for leg in inc}
+        by_platform = {leg["platform"]: leg["runs_on"] for leg in inc}
         self.assertEqual(
             by_platform["L40S"],
             ["self-hosted", "vss-skill-eval-runner"],
@@ -321,39 +313,37 @@ class BuildMatrix(unittest.TestCase):
             by_platform["RTXPRO6000BW"],
             [
                 "self-hosted",
-                "Linux",
-                "X64",
-                "vss-skill-eval-gpu",
-                "gpu-nvidia-rtx-pro-6000-blackwell",
-                "gpu-count-2",
+                "vss-eval",
+                "gpu-rtxpro6000bw",
+                "gpus-2",
             ],
         )
 
-    def test_any_platform_uses_single_gpu_4090_partition(self):
-        plan_matrix.spec_platforms = lambda p: ["ANY"]
+    def test_any_platform_uses_count_capability_without_model(self):
+        plan_matrix.spec_platform_config = lambda p: {
+            "ANY": {"gpu_count": 1}
+        }
         inc = plan_matrix.build_matrix(
             ["skills/vss-search-archive/evals/search.json"]
         )
         self.assertEqual(
-            inc[0]["runner_labels"],
+            inc[0]["runs_on"],
             [
                 "self-hosted",
-                "Linux",
-                "X64",
-                "vss-skill-eval-gpu",
-                "gpu-nvidia-geforce-rtx-4090",
-                "gpu-count-1",
+                "vss-eval",
+                "gpus-1",
             ],
         )
 
     def test_gpu_runner_capacity_overflow_falls_back_to_coordinator(self):
-        plan_matrix.spec_platforms = lambda p: ["ANY"]
-        plan_matrix.spec_gpu_count = lambda path, platform: 2
+        plan_matrix.spec_platform_config = lambda p: {
+            "RTX4090": {"gpu_count": 2}
+        }
         inc = plan_matrix.build_matrix(
             ["skills/vss-search-archive/evals/search.json"]
         )
         self.assertEqual(
-            inc[0]["runner_labels"],
+            inc[0]["runs_on"],
             ["self-hosted", "vss-skill-eval-runner"],
         )
 

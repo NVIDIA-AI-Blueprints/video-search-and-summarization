@@ -109,10 +109,10 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.has_targets == 'true'
-    # plan_matrix.py routes supported platforms directly to a GPU runner
-    # carrying model + physical-count labels. Unsupported platforms retain
-    # the coordinator fallback and continue selecting a separate Brev box.
-    runs-on: ${{ matrix.runner_labels }}
+    # Periodic broad hardware coverage keeps the existing coordinator,
+    # Brev fleet selection, and per-instance locking path. Only per-PR
+    # skills-eval.yml consumes matrix.runs_on for direct GPU placement.
+    runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false

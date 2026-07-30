@@ -54,7 +54,7 @@ push to pull-request/<N>
                 ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ eval  (strategy.matrix, one leg per (spec, platform))          │
-│  runs-on: matrix.runner_labels (GPU model/count or coordinator) │
+│  runs-on: matrix.runs_on (PR #1449 GPU demand or coordinator)   │
 │  fail-fast: false   max-parallel: <≈ box count>                │
 │                                                                │
 │  each leg:  EVAL_SKILL / EVAL_SPEC set                         │
@@ -115,13 +115,18 @@ today, so this is the same leg count as per-spec — but it generalizes
 cleanly to multi-platform specs (each platform parallelizes onto its own
 runner) and makes the per-`(spec,platform)` output root automatic.
 
-Each matrix entry also carries `runner_labels`. `RTXPRO6000BW` targets
-the two-GPU RTX PRO 6000 Blackwell partition; `ANY` and explicit
-`RTX4090` target the one-GPU RTX 4090 partition. A requirement above the
-advertised partition capacity, an unsupported platform, or a
+Each matrix entry also carries PR #1449's `runs_on` contract.
+`RTXPRO6000BW` requests `vss-eval + gpu-rtxpro6000bw + gpus-N`;
+`ANY` requests only `vss-eval + gpus-N`; explicit `RTX4090` adds
+`gpu-rtx4090`. Two-GPU runners advertise both `gpus-1` and `gpus-2`.
+A requirement above installed capacity, an unsupported platform, or a
 platform-less leg fails safely back to the existing coordinator label.
 The plan job itself runs on `ubuntu-24.04` because it needs neither GPU
 nor Brev.
+
+Only the per-PR workflow consumes `matrix.runs_on`. The daily broad-hardware
+workflow deliberately remains on `self-hosted + vss-skill-eval-runner`, where
+`run_leg.py` keeps Brev selection and per-instance locking.
 
 Each direct GPU runner is supervised by
 `vss-skill-eval-gpu-runner.service` and carries a host ownership marker that
@@ -132,6 +137,13 @@ VM has drained. This prevents the local runner's cleanup from overlapping a
 legacy remote trial during cutover. Because the runner and evaluated workload
 share a privileged host, these labels are restricted to the existing
 operator-approved mirror/manual-dispatch workflow trust boundary.
+
+Activation also requires Harbor viewer option B: an always-on Brev-hosted
+`harbor view`, a private shared POSIX/NFS mount on every GPU VM,
+`SKILL_EVAL_VIEWER_BASE_URL`, and an explicit retention value. The hook checks
+mount identity and write/read/delete access before admitting work. These
+infrastructure values are not provisioned by this repository, so the runners
+stay staged until operators supply them.
 
 `max-parallel` is capped near the `vss-eval-*` box count so legs don't
 all grab runner slots only to wait inside `run_leg.py`. `fail-fast: false` so one

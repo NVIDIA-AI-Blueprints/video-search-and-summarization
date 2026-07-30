@@ -12,6 +12,7 @@ WORKFLOWS = (
     REPO_ROOT / ".github" / "workflows" / "skills-eval.yml",
     REPO_ROOT / ".github" / "workflows" / "skills-eval-daily.yml",
 )
+PR_WORKFLOW, DAILY_WORKFLOW = WORKFLOWS
 INSTALLER = REPO_ROOT / ".github" / "skill-eval" / "install-local-gpu-runner.sh"
 JOB_HOOK = REPO_ROOT / ".github" / "skill-eval" / "local-gpu-job-started.sh"
 SERVICE = REPO_ROOT / ".github" / "skill-eval" / "local-gpu-runner.service"
@@ -28,8 +29,19 @@ class GpuRunnerWorkflowContract(unittest.TestCase):
     def test_eval_jobs_consume_planned_hardware_labels(self):
         for workflow in WORKFLOWS:
             text = workflow.read_text()
-            self.assertIn("runs-on: ${{ matrix.runner_labels }}", text)
             self.assertIn("runs-on: ubuntu-24.04", text)
+        self.assertIn(
+            "runs-on: ${{ matrix.runs_on }}",
+            PR_WORKFLOW.read_text(),
+        )
+        self.assertIn(
+            "runs-on: [self-hosted, vss-skill-eval-runner]",
+            DAILY_WORKFLOW.read_text(),
+        )
+        self.assertNotIn(
+            "runs-on: ${{ matrix.runs_on }}",
+            DAILY_WORKFLOW.read_text(),
+        )
 
     def test_coordinator_environment_path_is_runner_relative(self):
         for workflow in WORKFLOWS:
@@ -58,6 +70,10 @@ class GpuRunnerWorkflowContract(unittest.TestCase):
         self.assertIn("ExecStart=/opt/actions-runner/supervise.sh", service)
         self.assertIn("while true", supervisor)
         self.assertIn("direct-gpu-runner.enabled", hook)
+        self.assertIn("mountpoint -q", hook)
+        self.assertIn("SKILL_EVAL_VIEWER_BASE_URL", hook)
+        self.assertIn("SKILL_EVAL_VIEWER_RETENTION_DAYS", installer)
+        self.assertIn("SKILL_EVAL_VIEWER_SHARED", installer)
         self.assertIn("Driver/library version mismatch", hook)
         self.assertIn("nvidia-quarantine", hook)
         self.assertIn("DIRECT_GPU_RUNNER_MARKER", brev_env)

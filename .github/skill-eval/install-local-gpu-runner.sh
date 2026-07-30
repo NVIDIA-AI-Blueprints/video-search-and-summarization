@@ -7,7 +7,7 @@
 # Example:
 #   printf '%s\n' "$TOKEN" | sudo ./install-local-gpu-runner.sh \
 #     --repo-url https://github.com/org/repo --runner-name gpu-1 \
-#     --labels vss-skill-eval-gpu,gpu-nvidia-rtx-pro-6000-blackwell,gpu-count-2,gpu-node-pro-1 \
+#     --labels vss-skill-eval-gpu,vss-eval,gpu-rtxpro6000bw,gpus-1,gpus-2,gpu-nvidia-rtx-pro-6000-blackwell,gpu-count-2,gpu-node-pro-1 \
 #     --local-instance gpu-1 --runner-version 2.336.0 \
 #     --runner-sha256 <published-linux-x64-sha256> \
 #     --nvidia-pin 580.105.08
@@ -67,8 +67,8 @@ if [[ ! "$nvidia_pin" =~ ^[0-9]+([.][0-9]+){1,3}$ ]]; then
   echo "--nvidia-pin must be a numeric driver version" >&2
   exit 2
 fi
-for command in curl docker flock install nvidia-ctk nvidia-smi pgrep python3 \
-  sha256sum systemctl tar
+for command in curl docker flock install mountpoint nvidia-ctk nvidia-smi \
+  pgrep python3 sha256sum systemctl tar
 do
   command -v "$command" >/dev/null || {
     echo "missing required command: $command" >&2
@@ -108,9 +108,11 @@ gpu_count="${#gpu_names[@]}"
 case "${gpu_names[0]}" in
   *"RTX PRO 6000 Blackwell"*)
     expected_model_label="gpu-nvidia-rtx-pro-6000-blackwell"
+    scheduling_model_label="gpu-rtxpro6000bw"
     ;;
   *"GeForce RTX 4090"*)
     expected_model_label="gpu-nvidia-geforce-rtx-4090"
+    scheduling_model_label="gpu-rtx4090"
     ;;
   *)
     echo "unsupported local GPU model: ${gpu_names[0]}" >&2
@@ -125,8 +127,16 @@ for gpu_name in "${gpu_names[@]}"; do
 done
 label_set=",$runner_labels,"
 for required_label in \
-  vss-skill-eval-gpu "$expected_model_label" "gpu-count-$gpu_count"
+  vss-skill-eval-gpu vss-eval "$scheduling_model_label" \
+  "$expected_model_label" "gpu-count-$gpu_count"
 do
+  [[ "$label_set" == *",$required_label,"* ]] || {
+    echo "runner labels must include $required_label" >&2
+    exit 2
+  }
+done
+for count in $(seq 1 "$gpu_count"); do
+  required_label="gpus-$count"
   [[ "$label_set" == *",$required_label,"* ]] || {
     echo "runner labels must include $required_label" >&2
     exit 2
@@ -163,6 +173,10 @@ allowed = {
     "NGC_CLI_API_KEY",
     "NVIDIA_API_KEY",
     "RTSP_SAMPLE_URL",
+    "SKILL_EVAL_VIEWER_BASE_URL",
+    "SKILL_EVAL_VIEWER_RETENTION_DAYS",
+    "SKILL_EVAL_VIEWER_ROOT",
+    "SKILL_EVAL_VIEWER_SHARED",
     "VLM_REMOTE_MODEL",
     "VLM_REMOTE_URL",
 }
@@ -187,6 +201,59 @@ chmod 0600 "$env_tmp"
 mv -f "$env_tmp" "$coordinator_env"
 chmod 0600 "$coordinator_env"
 
+# Viewer option B is a hard activation gate for direct runners: a private
+# shared POSIX/NFS mount served by one central Harbor viewer on Brev/NetBird.
+# Read in an isolated shell so API keys from the coordinator file never enter
+# the installer/config.sh environment. Copy only these non-secret values into
+# the runner's own .env for the job-started preflight.
+mapfile -t viewer_config < <(
+  bash -c '
+    set -a
+    # shellcheck source=/dev/null
+    source "$1"
+    printf "%s\n" \
+      "${SKILL_EVAL_VIEWER_ROOT:-}" \
+      "${SKILL_EVAL_VIEWER_BASE_URL:-}" \
+      "${SKILL_EVAL_VIEWER_SHARED:-}" \
+      "${SKILL_EVAL_VIEWER_RETENTION_DAYS:-}"
+  ' _ "$coordinator_env"
+)
+((${#viewer_config[@]} == 4)) || {
+  echo "viewer configuration contains invalid newlines" >&2
+  exit 2
+}
+viewer_root="${viewer_config[0]}"
+viewer_base_url="${viewer_config[1]}"
+viewer_shared="${viewer_config[2]}"
+viewer_retention_days="${viewer_config[3]}"
+[[ "$viewer_root" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+  echo "SKILL_EVAL_VIEWER_ROOT must be a safe absolute path" >&2
+  exit 2
+}
+[[ "$viewer_base_url" =~ ^https?://[^[:space:]]+$ \
+  && "$viewer_base_url" != *"@"* ]] || {
+  echo "SKILL_EVAL_VIEWER_BASE_URL must be an http(s) URL" >&2
+  exit 2
+}
+[[ "$viewer_shared" == "1" ]] || {
+  echo "direct runners require SKILL_EVAL_VIEWER_SHARED=1" >&2
+  exit 2
+}
+if [[ ! "$viewer_retention_days" =~ ^[0-9]+$ ]] \
+  || ((10#$viewer_retention_days < 1 || 10#$viewer_retention_days > 3650))
+then
+  echo "SKILL_EVAL_VIEWER_RETENTION_DAYS must be 1..3650" >&2
+  exit 2
+fi
+test -d "$viewer_root" || {
+  echo "shared viewer root is not a directory: $viewer_root" >&2
+  exit 1
+}
+mountpoint -q "$viewer_root" || {
+  echo "shared viewer root is not mounted: $viewer_root" >&2
+  exit 1
+}
+
 if [[ -e "$runner_dir/.runner" ]]; then
   echo "$runner_dir is already configured; refusing to replace it" >&2
   exit 1
@@ -209,6 +276,10 @@ BREV_INSTANCE=$local_instance
 SKILL_EVAL_ENV_FILE=$coordinator_env
 SKILL_EVAL_LOCAL_GPU_INSTANCE=$local_instance
 SKILL_EVAL_NVIDIA_PIN=$nvidia_pin
+SKILL_EVAL_VIEWER_BASE_URL=$viewer_base_url
+SKILL_EVAL_VIEWER_RETENTION_DAYS=$viewer_retention_days
+SKILL_EVAL_VIEWER_ROOT=$viewer_root
+SKILL_EVAL_VIEWER_SHARED=1
 EOF
 chmod 0600 "$runner_dir/.env"
 

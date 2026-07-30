@@ -145,10 +145,9 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.has_targets == 'true'
-    # plan_matrix.py routes supported platforms directly to a GPU runner
-    # carrying model + physical-count labels. Unsupported platforms retain
-    # the coordinator fallback and continue selecting a separate Brev box.
-    runs-on: ${{ matrix.runner_labels }}
+    # PR #1449 contract: model/count demand labels route supported per-PR
+    # legs directly; unsupported platforms retain the coordinator fallback.
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
@@ -252,6 +251,14 @@ jobs:
           export PATH="$skill_eval_venv_dir/bin:$PATH"
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          if [ -n "${SKILL_EVAL_LOCAL_GPU_INSTANCE:-}" ]; then
+            # Direct runner activation requires option B: one central Harbor
+            # viewer over a private Brev/NetBird shared POSIX/NFS mount.
+            : "${SKILL_EVAL_VIEWER_ROOT:?missing shared viewer root}"
+            : "${SKILL_EVAL_VIEWER_BASE_URL:?missing central viewer URL}"
+            : "${SKILL_EVAL_VIEWER_RETENTION_DAYS:?missing viewer retention policy}"
+            test "${SKILL_EVAL_VIEWER_SHARED:-}" = "1"
+          fi
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"

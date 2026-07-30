@@ -9,6 +9,51 @@ if [[ ! -e "$enable_marker" ]]; then
   exit 1
 fi
 
+# Harbor viewer parity is a hard admission gate for direct GPU runners.
+# Option B requires the exact configured path to be a private shared POSIX/NFS
+# mount behind Brev/NetBird, served by one central `harbor view` process.
+: "${SKILL_EVAL_VIEWER_ROOT:?direct runner requires SKILL_EVAL_VIEWER_ROOT}"
+: "${SKILL_EVAL_VIEWER_BASE_URL:?direct runner requires SKILL_EVAL_VIEWER_BASE_URL}"
+: "${SKILL_EVAL_VIEWER_RETENTION_DAYS:?direct runner requires SKILL_EVAL_VIEWER_RETENTION_DAYS}"
+[[ "${SKILL_EVAL_VIEWER_SHARED:-}" == "1" ]] || {
+  echo "direct runner requires SKILL_EVAL_VIEWER_SHARED=1" >&2
+  exit 1
+}
+[[ "$SKILL_EVAL_VIEWER_ROOT" == /* ]] || {
+  echo "SKILL_EVAL_VIEWER_ROOT must be absolute" >&2
+  exit 1
+}
+[[ "$SKILL_EVAL_VIEWER_BASE_URL" =~ ^https?://[^[:space:]]+$ \
+  && "$SKILL_EVAL_VIEWER_BASE_URL" != *"@"* ]] || {
+  echo "SKILL_EVAL_VIEWER_BASE_URL must be an http(s) URL" >&2
+  exit 1
+}
+if [[ ! "$SKILL_EVAL_VIEWER_RETENTION_DAYS" =~ ^[0-9]+$ ]] \
+  || ((10#$SKILL_EVAL_VIEWER_RETENTION_DAYS < 1)) \
+  || ((10#$SKILL_EVAL_VIEWER_RETENTION_DAYS > 3650))
+then
+  echo "SKILL_EVAL_VIEWER_RETENTION_DAYS must be 1..3650" >&2
+  exit 1
+fi
+test -d "$SKILL_EVAL_VIEWER_ROOT"
+mountpoint -q "$SKILL_EVAL_VIEWER_ROOT" || {
+  echo "shared Harbor viewer root is not mounted: $SKILL_EVAL_VIEWER_ROOT" >&2
+  exit 1
+}
+viewer_probe="$(mktemp "$SKILL_EVAL_VIEWER_ROOT/.vss-viewer-hook.XXXXXX")"
+cleanup_viewer_probe() {
+  rm -f "$viewer_probe"
+}
+trap cleanup_viewer_probe EXIT
+viewer_probe_payload="vss-viewer-hook:$$:$(date +%s)"
+printf '%s\n' "$viewer_probe_payload" >"$viewer_probe"
+[[ "$(<"$viewer_probe")" == "$viewer_probe_payload" ]] || {
+  echo "shared Harbor viewer write/read probe failed" >&2
+  exit 1
+}
+rm -f "$viewer_probe"
+trap - EXIT
+
 # During cutover, fail closed if a legacy coordinator still has an agent
 # connected over SSH. Do not let local startup cleanup tear down that trial.
 for agent_pid in $(pgrep -f \

@@ -508,10 +508,12 @@ The canonical harbor command is in § Harbor invocation.
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
-`plan_matrix.py` routes `RTXPRO6000BW` legs to
-`vss-skill-eval-gpu + gpu-nvidia-rtx-pro-6000-blackwell + gpu-count-2`
-and `ANY`/`RTX4090` legs to
-`vss-skill-eval-gpu + gpu-nvidia-geforce-rtx-4090 + gpu-count-1`.
+Following PR #1449's contract, `plan_matrix.py` emits `runs_on` labels.
+`RTXPRO6000BW` legs request
+`vss-eval + gpu-rtxpro6000bw + gpus-N`; `ANY` requests
+`vss-eval + gpus-N` without a model constraint; explicit `RTX4090` requests
+`vss-eval + gpu-rtx4090 + gpus-1`. Two-GPU runners advertise both
+`gpus-1` and `gpus-2`, so the count label expresses demand.
 `L40S`, `H100`, platform-less, and unknown-platform legs retain the
 `vss-skill-eval-runner` coordinator path until matching direct runners exist.
 The labels are a scheduling filter; local mode still checks the physical GPU
@@ -521,7 +523,9 @@ Direct runners are installed as the persistent
 `vss-skill-eval-gpu-runner.service` systemd service. Registration leaves each
 runner online but staged: its job-start hook rejects work until an operator
 creates `/etc/vss-skill-eval/direct-gpu-runner.enabled` after the legacy queue
-drains. Do not add these self-hosted labels to `pull_request` workflows or
+drains. The same hook also requires a mounted central Harbor viewer root,
+central URL, and explicit retention policy (§ Harbor viewer); missing viewer
+parity is a hard activation failure. Do not add these self-hosted labels to `pull_request` workflows or
 unapproved fork refs. The runner and evaluated workload share one privileged
 GPU host; this topology is only for the existing operator-approved
 `pull-request/<N>` mirror and manual-dispatch trust boundary.
@@ -721,25 +725,39 @@ dataset for that spec, rerun. Do not start modifying flags.
 
 ## Harbor viewer
 
-On coordinator runners, `harbor view` runs persistently under the
-`harbor-view.service` systemd unit at `http://localhost:8080`,
-serving the **shared, fixed** `/tmp/skill-eval/results/_viewer`,
-tunneled to `https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer
-to pick up a trial, its directory must live under
-`/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>/` as a
-**real dir (not a symlink)**, flattened — no nested `<date>/` level.
-The `<leg-slug>` keeps concurrent legs from colliding on one viewer
-entry.
+The selected direct-runner design is **one central `harbor view` process
+backed by private shared POSIX/NFS storage behind Brev/NetBird**. The viewer
+root is `SKILL_EVAL_VIEWER_ROOT`. Coordinators retain the historical
+`/tmp/skill-eval/results/_viewer` default when it is absent.
+`SKILL_EVAL_VIEWER_BASE_URL` is the central browser origin. Coordinators may
+still fall back to `https://harbor-<BREV_ENV_ID>.brevlab.com`; direct GPU
+runners never derive a per-box URL.
+
+Shared mode sets `SKILL_EVAL_VIEWER_SHARED=1`. Before copying, `run_leg.py`
+requires the configured path to be the mount point itself and performs a
+write/read/delete probe. The direct runner's job-start hook runs the same gate
+before admitting a job. A publication failure remains non-fatal to the eval
+verdict, but is emitted as an Actions warning and recorded in
+`<results-root>/trace-publish-failures.tsv`.
+
+The flattened destination is
+`<viewer-root>/<leg-slug>__<run_id>__<date>/` as a **real directory (not a
+symlink)**. `SKILL_EVAL_VIEWER_RETENTION_DAYS` enables age-based retention for
+new, repository-owned job directories. It must be explicitly chosen before
+direct-runner activation; there is no destructive default. A cross-host
+`flock` plus per-job active marker protects current publications. Unmarked
+legacy/history directories are never deleted.
 
 **`run_leg.py` does this publish for you** (`publish_trace`), after
 every trial including timed-out ones. It copies (never moves) the
 date dir's *contents* into a pre-made job dir — the workflow's
 "Collect results" step runs *after* this agent and tars `$RES` for
 the artifact, so a `mv` would upload an artifact with no
-`result.json`. Copying keeps `$RES` intact for the collector (which
-excludes `agent/` from the public tarball) while the `_viewer` copy
-keeps `agent/` for the live Harbor Trace tab. You do not run `cp`
-yourself.
+`result.json`. Copying keeps `$RES` intact for the collector, which always
+excludes `agent/` from workflow artifacts. The shared viewer may retain
+`agent/` only on the private Brev-hosted NFS path for Harbor's Trace tab;
+never expose that mount publicly or copy trajectories to external storage.
+You do not run `cp` yourself.
 
 ### Trace URLs — read them, never build them
 
@@ -756,14 +774,15 @@ assemble a Harbor URL by hand.** A step with no row errored before
 producing `result.json` — report it without a trace link rather than
 inventing one.
 
-Direct GPU runners do not host `harbor-view.service`, so `run_leg.py`
-intentionally omits trace URLs there. Their complete trial results remain
-available through the workflow artifact.
+Direct GPU runners do not host `harbor-view.service`. They publish through
+the mounted central root and use `SKILL_EVAL_VIEWER_BASE_URL`. They remain
+staged until the always-on Brev NFS/viewer host, every runner mount, and the
+central URL/tunnel or internal DNS are configured and verified.
 
 The URL shape is:
 
 ```
-https://harbor-<COORDINATOR_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+<SKILL_EVAL_VIEWER_BASE_URL>/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
 Two things make hand-assembly unreliable, which is why it moved into
@@ -777,12 +796,11 @@ the wrapper:
   than 404ing. That is indistinguishable from missing trace data.
   (Observed on PR #1254, run 30284131217: all seven step links were
   built with the filter and every one opened empty.)
-- **`BREV_ENV_ID` is the coordinator host's env id** (the CI runner,
+- **`BREV_ENV_ID` is only the coordinator fallback host id** (the CI runner,
   set by Brev in `/etc/environment`). It is **NOT** a per-trial
   instance id from `brev ls --json` (the `id` field of `vss-eval-*`
-  or `harbor-*` entries). The coordinator runs `harbor view`;
-  per-trial boxes do not. `run_leg.py` reads the runner env and falls
-  back to `/etc/environment` — never substitute from `brev ls`.
+  or `harbor-*` entries). Direct runners use the configured central base URL;
+  never substitute a direct runner or per-trial id from `brev ls`.
 
 Every segment `run_leg.py` emits comes from the trial's own
 `result.json` (`source`, `agent_info.name`,

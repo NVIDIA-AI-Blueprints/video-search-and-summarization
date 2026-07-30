@@ -24,13 +24,11 @@ A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
 of an adapterless skill don't race to commit it N times.
 
-Each leg also carries `runs_on`: the runner label set implied by the
-spec's own `resources.platforms.<PLATFORM>` block (see runs_on_labels).
-This resolves the spec -> hardware mapping at PLAN time, where today
-run_leg.py re-derives it at LEG time from `brev ls` under a flock.
-Nothing consumes `runs_on` yet — it is emitted so the mapping can be
-reviewed against current placement before the GPU boxes are registered
-as runners in their own right.
+Each leg carries `runs_on`, following PR #1449's scheduler contract:
+`self-hosted,vss-eval`, an optional `gpu-*` model label, and a `gpus-N`
+demand label. Current direct-runner coverage is intentionally limited to
+the installed RTX PRO 6000 Blackwell / RTX 4090 fleet; other platforms
+retain the coordinator path.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
@@ -67,48 +65,25 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # corrupting an artifact name or escaping a path.
 SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
-# GPU-hosted Actions runners advertise both their physical hardware and their
-# skill-eval purpose. Keep unsupported platforms on the existing coordinator
-# pool: those jobs still need run_leg.py to select a separate Brev machine.
+# PR #1449's common direct-runner contract. A two-GPU runner advertises both
+# `gpus-1` and `gpus-2`; the matrix label is demand, not physical capacity.
+BASE_GPU_RUNNER_LABELS = [
+    "self-hosted",
+    "vss-eval",
+]
 COORDINATOR_RUNNER_LABELS = [
     "self-hosted",
     "vss-skill-eval-runner",
 ]
-GPU_RUNNER_LABELS = {
-    # The current RTX PRO fleet has two GPUs per VM. A one-GPU requirement can
-    # safely run there too; the label describes physical capacity, not the
-    # minimum requested by the spec.
-    "RTXPRO6000BW": [
-        "self-hosted",
-        "Linux",
-        "X64",
-        "vss-skill-eval-gpu",
-        "gpu-nvidia-rtx-pro-6000-blackwell",
-        "gpu-count-2",
-    ],
-    # GPU-independent/ANY legs use the one-GPU RTX 4090 partition so the RTX
-    # PRO machines remain available for two-GPU specs.
-    "ANY": [
-        "self-hosted",
-        "Linux",
-        "X64",
-        "vss-skill-eval-gpu",
-        "gpu-nvidia-geforce-rtx-4090",
-        "gpu-count-1",
-    ],
-    "RTX4090": [
-        "self-hosted",
-        "Linux",
-        "X64",
-        "vss-skill-eval-gpu",
-        "gpu-nvidia-geforce-rtx-4090",
-        "gpu-count-1",
-    ],
+DIRECT_PLATFORM_LABELS = {
+    "ANY": None,
+    "RTX4090": "gpu-rtx4090",
+    "RTXPRO6000BW": "gpu-rtxpro6000bw",
 }
-GPU_RUNNER_CAPACITY = {
-    "RTXPRO6000BW": 2,
-    "ANY": 1,
+DIRECT_PLATFORM_CAPACITY = {
+    "ANY": 2,
     "RTX4090": 1,
+    "RTXPRO6000BW": 2,
 }
 
 # `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
@@ -118,94 +93,6 @@ GPU_RUNNER_CAPACITY = {
 # routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
 # never becomes a matrix leg.
 EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
-
-# --- Runner labels -----------------------------------------------------
-# Every leg carries a `runs_on` label set derived from the spec's own
-# hardware declaration, so the eval job *can* be placed by Actions with
-# `runs-on: ${{ matrix.runs_on }}` once the GPU boxes are registered as
-# runners in their own right. NOTHING CONSUMES THIS YET — skills-eval.yml
-# still pins the coordinator pool and run_leg.py still does fleet
-# selection + flock. This computes and publishes the mapping so it can be
-# reviewed and diffed against today's placement before any runner moves.
-
-# Labels the GPU boxes themselves would carry. Deliberately NOT
-# `vss-skill-eval-runner`: that label is on the coordinator's runner
-# processes, which are not the machines the trials run on.
-BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
-
-# `resources.platforms` key -> GPU-type label. `ANY` is GPU-independent
-# and contributes no `gpu-*` label. Keys mirror the PLATFORMS tables in
-# .github/skill-eval/adapters/*/generate.py.
-PLATFORM_LABELS: dict[str, str | None] = {
-    "H100": "gpu-h100",
-    "L40S": "gpu-l40s",
-    "RTXPRO6000BW": "gpu-rtxpro6000bw",
-    "DGX-SPARK": "gpu-dgx-spark",
-    "IGX-THOR": "gpu-igx-thor",
-    "ANY": None,
-}
-
-# run_leg.pool_candidates reads `int(metadata.get("gpu_count", 1) or 0)`:
-# an ABSENT declaration means one GPU, while an explicit 0/null means
-# GPU-independent. Mirror both so a label set places a leg exactly where
-# the runtime selector would have. 15 of the 50 platform entries in
-# skills/*/evals/ omit gpu_count today and rely on this default.
-DEFAULT_GPU_COUNT = 1
-
-
-def _platform_label(platform: str) -> str | None:
-    """GPU-type label for a `resources.platforms` key."""
-    if platform in PLATFORM_LABELS:
-        return PLATFORM_LABELS[platform]
-    # Unknown key: still emit something deterministic, but say so — a
-    # typo'd platform would otherwise produce a label no box carries and
-    # the job would queue until GitHub cancels it at 24 h.
-    slug = re.sub(r"[^a-z0-9]+", "-", platform.lower()).strip("-")
-    print(
-        f"warning: unknown platform {platform!r} — no entry in "
-        f"PLATFORM_LABELS; emitting {'gpu-' + slug if slug else '(none)'}",
-        file=sys.stderr,
-    )
-    return f"gpu-{slug}" if slug else None
-
-
-def _gpu_count(config: dict) -> int:
-    """Declared GPU demand, matching run_leg's coercion exactly."""
-    raw = config.get("gpu_count", DEFAULT_GPU_COUNT)
-    try:
-        return max(0, int(raw))
-    except (TypeError, ValueError):
-        # Explicit null / "" / garbage -> 0, same as run_leg's `or 0`.
-        return 0
-
-
-def runs_on_labels(platform: str, config: dict | None) -> list[str]:
-    """Runner labels for one leg, from the spec's hardware declaration.
-
-    `gpus-N` is a *demand*: the job asks for exactly N. A box advertises
-    every count it can satisfy — a 2-GPU box carries both `gpus-1` and
-    `gpus-2` — which is how pool_candidates' "over-provisioned boxes
-    remain valid" rule survives a static label set.
-
-    `gpu_count: 0` means GPU-independent and drops BOTH the `gpus-*` and
-    the `gpu-*` label, so the leg can land on any box. That mirrors
-    pool_candidates exactly: its type filter is guarded by
-    `if required_count > 0 and required_type`, so a zero-GPU spec ignores
-    the declared platform and "accepts any RUNNING box". 7 of the 50
-    platform entries are zero-GPU today (the ANY specs, and
-    detection-tracking-3d/routing on RTXPRO6000BW) — under labels they
-    stop competing for GPU boxes at all.
-    """
-    labels = list(BASE_LABELS)
-    count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
-    if count <= 0:
-        return labels
-    if platform:
-        label = _platform_label(platform)
-        if label:
-            labels.append(label)
-    labels.append(f"gpus-{count}")
-    return labels
 
 
 def list_changed_files() -> list[str]:
@@ -331,26 +218,40 @@ def spec_platforms(spec_path: str) -> list[str]:
     return sorted(spec_platform_config(spec_path))
 
 
-def spec_gpu_count(spec_path: str, platform: str) -> int | None:
-    """Required GPU count for one platform, or None for malformed input."""
-    try:
-        data = json.loads((REPO_ROOT / spec_path).read_text())
-        requirement = data["resources"]["platforms"][platform]
-        return int(requirement.get("gpu_count", 1))
-    except (KeyError, OSError, TypeError, ValueError):
-        return None
+def _gpu_count(config: dict) -> int:
+    """Validated GPU demand; absent means one, explicit null/empty means zero."""
+    raw = config.get("gpu_count", 1)
+    if raw is None or raw == "":
+        return 0
+    if isinstance(raw, bool):
+        raise TypeError(f"gpu_count must be an integer, got {raw!r}")
+    if isinstance(raw, int):
+        count = raw
+    elif isinstance(raw, str) and re.fullmatch(r"[+-]?\d+", raw.strip()):
+        count = int(raw)
+    else:
+        raise TypeError(f"gpu_count must be an integer, got {raw!r}")
+    if count < 0:
+        raise ValueError(f"gpu_count must be non-negative, got {count}")
+    return count
 
 
-def runner_labels(platform: str, required_gpu_count: int | None) -> list[str]:
-    """Actions labels for a platform, with fail-safe coordinator fallback."""
-    capacity = GPU_RUNNER_CAPACITY.get(platform)
-    if (
-        capacity is None
-        or required_gpu_count is None
-        or required_gpu_count > capacity
-    ):
+def runs_on_labels(platform: str, config: dict | None) -> list[str]:
+    """PR #1449 scheduler labels, with coordinator fallback for unsupported GPUs."""
+    if not platform or config is None:
         return list(COORDINATOR_RUNNER_LABELS)
-    return list(GPU_RUNNER_LABELS.get(platform, COORDINATOR_RUNNER_LABELS))
+    count = _gpu_count(config)
+    if count == 0:
+        return list(BASE_GPU_RUNNER_LABELS)
+    capacity = DIRECT_PLATFORM_CAPACITY.get(platform)
+    if capacity is None or count > capacity:
+        return list(COORDINATOR_RUNNER_LABELS)
+    labels = list(BASE_GPU_RUNNER_LABELS)
+    model_label = DIRECT_PLATFORM_LABELS[platform]
+    if model_label:
+        labels.append(model_label)
+    labels.append(f"gpus-{count}")
+    return labels
 
 
 def build_matrix(changed: list[str]) -> list[dict]:
@@ -415,13 +316,12 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "spec_stem": "missing-adapter",
                 "platform": "",
                 "kind": "missing_adapter",
-                "runner_labels": runner_labels("", None),
+                # No trial runs; keep adapter generation on the coordinator.
+                "runs_on": list(COORDINATOR_RUNNER_LABELS),
                 # `slug` is the unique per-leg key: path scope + artifact
                 # name. For a real trial it's skill__spec_stem__platform.
                 "slug": f"{skill}__missing-adapter",
                 "name": f"{skill} · missing-adapter",
-                # Commits an adapter; runs no trial and needs no GPU.
-                "runs_on": list(BASE_LABELS),
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
@@ -429,9 +329,6 @@ def build_matrix(changed: list[str]) -> list[dict]:
             platforms = sorted(platform_config) or [""]
             for platform in platforms:
                 plat_tag = platform or "no-platform"
-                required_gpu_count = spec_gpu_count(
-                    meta["spec_path"], platform
-                )
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
@@ -439,14 +336,12 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "eval_dir": meta["eval_dir"],
                     "platform": platform,
                     "kind": "eval",
-                    "runner_labels": runner_labels(
-                        platform, required_gpu_count
+                    "runs_on": runs_on_labels(
+                        platform,
+                        platform_config.get(platform),
                     ),
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
-                    "runs_on": runs_on_labels(
-                        platform, platform_config.get(platform)
-                    ),
                 })
     return include
 
@@ -494,11 +389,8 @@ def emit(include: list[dict]) -> None:
     print(f"has_targets={has_targets}")
     print(f"legs={len(include)}")
     for leg in include:
-        # runs_on is trace only and nothing consumes it yet, so a leg built
-        # without it must not fail the plan — unlike slug, which is checked
-        # strictly above because downstream paths depend on it.
-        runs_on = " ".join(leg.get("runs_on") or []) or "-"
-        print(f"  - {leg['name']}  [{leg['kind']}]  runs_on={runs_on}")
+        labels = " ".join(leg.get("runs_on") or []) or "-"
+        print(f"  - {leg['name']}  [{leg['kind']}]  runs_on={labels}")
     print(f"matrix={matrix}")
 
 

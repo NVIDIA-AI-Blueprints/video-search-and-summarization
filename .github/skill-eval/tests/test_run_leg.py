@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Unit tests for run_leg.py.
@@ -17,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+from typing import ClassVar
 from unittest import mock
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -828,7 +828,7 @@ class TraceUrls(unittest.TestCase):
     """
 
     # Shape mirrors a real trial's result.json.
-    RESULT = {
+    RESULT: ClassVar[dict] = {
         "task_name": "nvidia-vss/vss-generate-video-report-base-l40s-step-7",
         "trial_name": "step-7__E6dBECL",
         "source": "l40s",
@@ -846,14 +846,27 @@ class TraceUrls(unittest.TestCase):
     )
 
     def setUp(self):
-        self._orig_env = os.environ.get("BREV_ENV_ID")
+        self._orig_env = {
+            name: os.environ.get(name)
+            for name in (
+                "BREV_ENV_ID",
+                "SKILL_EVAL_LOCAL_GPU_INSTANCE",
+                "SKILL_EVAL_VIEWER_BASE_URL",
+                "SKILL_EVAL_VIEWER_RETENTION_DAYS",
+                "SKILL_EVAL_VIEWER_ROOT",
+                "SKILL_EVAL_VIEWER_SHARED",
+            )
+        }
+        for name in self._orig_env:
+            os.environ.pop(name, None)
         os.environ["BREV_ENV_ID"] = "13xh5gpe7"
 
     def tearDown(self):
-        if self._orig_env is None:
-            os.environ.pop("BREV_ENV_ID", None)
-        else:
-            os.environ["BREV_ENV_ID"] = self._orig_env
+        for name, value in self._orig_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
     def _write_result(self, directory: Path, payload=None) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -906,6 +919,69 @@ class TraceUrls(unittest.TestCase):
             result = self._write_result(Path(td) / "step-7__E6dBECL")
             self.assertIsNone(run_leg.trace_url(result, self.JOB))
 
+    def test_direct_gpu_runner_uses_only_configured_central_url(self):
+        with (
+            tempfile.TemporaryDirectory() as td,
+            mock.patch.dict(
+                os.environ,
+                {
+                    "SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1",
+                    "SKILL_EVAL_VIEWER_BASE_URL": "https://harbor.internal.example/",
+                },
+            ),
+        ):
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            url = run_leg.trace_url(result, self.JOB)
+
+        self.assertTrue(url.startswith("https://harbor.internal.example/jobs/"))
+        self.assertNotIn("brevlab.com", url)
+
+    def test_viewer_base_url_rejects_embedded_credentials(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "SKILL_EVAL_VIEWER_BASE_URL": (
+                    "https://user:secret@harbor.internal.example"
+                ),
+            },
+        ), self.assertRaisesRegex(ValueError, "VIEWER_BASE_URL"):
+            run_leg._configured_viewer_base_url()
+
+    def test_direct_viewer_gate_requires_config_mount_and_retention(self):
+        with (
+            tempfile.TemporaryDirectory() as td,
+            mock.patch.dict(
+                os.environ,
+                {
+                    "SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1",
+                    "SKILL_EVAL_VIEWER_BASE_URL": "https://harbor.internal.example",
+                    "SKILL_EVAL_VIEWER_RETENTION_DAYS": "30",
+                    "SKILL_EVAL_VIEWER_ROOT": td,
+                    "SKILL_EVAL_VIEWER_SHARED": "1",
+                },
+            ),
+            mock.patch.object(run_leg.os.path, "ismount", return_value=True),
+        ):
+            run_leg.validate_direct_viewer_gate()
+
+        with mock.patch.dict(
+            os.environ,
+            {"SKILL_EVAL_LOCAL_GPU_INSTANCE": "gpu-vm-1"},
+            clear=True,
+        ), self.assertRaisesRegex(RuntimeError, "VIEWER_ROOT"):
+            run_leg.validate_direct_viewer_gate()
+
+    def test_shared_preflight_rejects_unmounted_path(self):
+        with (
+            tempfile.TemporaryDirectory() as td,
+            mock.patch.object(run_leg.os.path, "ismount", return_value=False),
+            self.assertRaisesRegex(RuntimeError, "not a mount point"),
+        ):
+            run_leg.preflight_viewer_storage(
+                Path(td),
+                shared_required=True,
+            )
+
     def test_publish_trace_flattens_into_viewer_and_records_url(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/base/l40s"),
@@ -944,6 +1020,61 @@ class TraceUrls(unittest.TestCase):
         self.assertEqual(row[2], url)
         self.assertIn("/jobs/leg__30284131217__2026-07-27__17-16-47/tasks/", url)
 
+    def test_publish_failure_is_nonfatal_and_writes_marker(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-7",
+            chain_key="base_l40s",
+        )
+        with (
+            tempfile.TemporaryDirectory() as td,
+            mock.patch.object(
+                run_leg,
+                "publish_trace",
+                side_effect=RuntimeError("shared viewer root is not mounted"),
+            ),
+        ):
+            results_root = Path(td) / "results"
+            self.assertIsNone(
+                run_leg.publish_trace_safely(
+                    results_root,
+                    invocation,
+                    0.0,
+                    "leg",
+                    "1",
+                )
+            )
+            marker = results_root / run_leg.TRACE_FAILURES_FILE
+            row = marker.read_text().strip().split("\t")
+
+        self.assertEqual(row[:2], ["step-7", "RuntimeError"])
+        self.assertIn("not mounted", row[2])
+
+    def test_retention_deletes_only_owned_inactive_old_jobs(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            current = root / "current"
+            stale = root / "stale"
+            active = root / "active"
+            unowned = root / "unowned"
+            for directory in (current, stale, active, unowned):
+                directory.mkdir()
+            for directory in (current, stale, active):
+                (directory / run_leg.VIEWER_OWNER_MARKER).touch()
+            (active / run_leg.VIEWER_ACTIVE_MARKER).touch()
+            old = time.time() - 3 * 86400
+            os.utime(stale, (old, old))
+            os.utime(active, (old, old))
+            os.utime(unowned, (old, old))
+
+            run_leg.prune_viewer_root(root, current, retention_days=1)
+
+            self.assertFalse(stale.exists())
+            self.assertTrue(current.exists())
+            self.assertTrue(active.exists())
+            self.assertTrue(unowned.exists())
+            self.assertTrue((root / run_leg.VIEWER_RETENTION_LOCK).is_file())
+
     def test_publish_trace_returns_none_when_trial_produced_no_result(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/base/l40s"),
@@ -963,7 +1094,7 @@ class TraceUrls(unittest.TestCase):
 
 
 class PoolCandidates(unittest.TestCase):
-    FLEET = [
+    FLEET: ClassVar[list[dict]] = [
         {"name": "vss-eval-rtx-1g-2", "status": "RUNNING",
          "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
         {"name": "vss-eval-rtx-1g-3", "status": "STOPPED",
@@ -1063,7 +1194,7 @@ class PoolCandidates(unittest.TestCase):
         orig_managed = run_leg._list_brev_instances
         orig_registered = run_leg._list_registered_nodes
         try:
-            run_leg._list_brev_instances = lambda: []
+            run_leg._list_brev_instances = list
             run_leg._list_registered_nodes = lambda: [
                 {"name": "vss-eval-rtx-2g-VM1b", "status": "Connected"},
                 {"name": "vss-eval-rtx-2g-skybridge", "status": "Connected"},
@@ -1192,11 +1323,13 @@ class HoldPoolLock(unittest.TestCase):
             fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             try:
                 start = time.monotonic()
-                with self.assertRaises(run_leg.LockTimeoutError):
-                    with run_leg.hold_pool_lock(
+                with (
+                    self.assertRaises(run_leg.LockTimeoutError),
+                    run_leg.hold_pool_lock(
                         lambda: ["box-a"], lock_dir, timeout_sec=0
-                    ):
-                        pass
+                    ),
+                ):
+                    pass
                 self.assertLess(time.monotonic() - start, 5)
             finally:
                 held.close()
