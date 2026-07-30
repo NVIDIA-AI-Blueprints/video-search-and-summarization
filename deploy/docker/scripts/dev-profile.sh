@@ -1062,14 +1062,15 @@ function process_args() {
         fi
       fi
 
-      # Search deploys a local RT-VLM (critic + video_understanding) that requires a
-      # dedicated GPU unless --use-remote-vlm is provided. On 2-GPU Brev launchables
-      # that GPU is unavailable, so fail fast instead of a broken deployment.
+      # Search deploys a local RT-VLM (critic + video_understanding) that shares GPU 0
+      # with RT-CV, while RT-Embed and the LLM share GPU 1, so two GPUs are the floor
+      # unless --use-remote-vlm is provided. A single-GPU Brev launchable cannot host
+      # that layout, so fail fast instead of a broken deployment.
       if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
         local _brev_gpu_count
         _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
-        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
-          echo "[ERROR] Search deploys a local RT-VLM that requires a dedicated GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
+        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -lt 2 ]]; then
+          echo "[ERROR] Search deploys a local RT-VLM and needs at least 2 GPUs, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
           ((_all_good++))
         fi
       fi
