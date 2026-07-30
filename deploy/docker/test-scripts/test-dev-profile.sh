@@ -1478,6 +1478,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasone
   "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
 
+run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasoner-fp8 maps to RT-VLM FP8 path+basename" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner-fp8 -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
+
 run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT-VLM git path+basename" "base" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
@@ -1485,6 +1491,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT
   "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
 
 # Search routes --vlm through RT-VLM (integrated checkpoint), same as base/lvs; see the base --vlm tests above.
+run_dry_run_up_and_check_generated_env "generated.env search --vlm cosmos3-reasoner-fp8 maps to RT-VLM FP8 path+basename" "search" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner-fp8 -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
+
 run_dry_run_up_and_check_generated_env "generated.env search --vlm Qwen maps to RT-VLM git path+basename" "search" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
