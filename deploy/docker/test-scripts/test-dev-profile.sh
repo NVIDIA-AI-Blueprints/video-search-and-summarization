@@ -995,7 +995,7 @@ _compose_mv3dt_root="${_warehouse_root}/warehouse-mv3dt-app"
 _helm_mv3dt_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
 if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_mv3dt_start}" \
   && grep -q 'PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml" \
-  && grep -q 'PERCEPTION_TAG:-3.3.0-26.07.1' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
+  && grep -q 'PERCEPTION_TAG:-3.3.0-26.07.2' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
   echo "PASS: warehouse MV3DT startup script and perception fallback are aligned across Compose and Helm"
   ((TESTS_PASSED++)) || true
 else
