@@ -446,6 +446,10 @@ rtvi:
         value: "60"
       - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
         value: "10"
+      # Intentionally empty: under K8s each rtvi-vlm pod holds a dedicated GPU
+      # (nvidia.com/gpu: 1 in services/rtvi/charts/rtvi-vlm), so vLLM's own
+      # default applies. Docker's 0.4 compensates for sharing device 0 with
+      # RT-CV in local_shared mode, which has no Kubernetes equivalent.
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
       - name: VLM_BATCH_SIZE
