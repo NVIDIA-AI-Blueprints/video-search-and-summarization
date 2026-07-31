@@ -447,6 +447,7 @@ class AnomalyDetector:
             points=candidatePoints,
             smooth_min_points=len(candidatePoints) + 1,
             distance_stride=1,
+            calibration_type=self.calibration_type,
             enable_geo=self.app_config.traj_geo_coord_enable,
         )
         candidatePointsR = candidatePoints[::-1]
@@ -457,6 +458,7 @@ class AnomalyDetector:
             points=candidatePointsR,
             smooth_min_points=len(candidatePointsR) + 1,
             distance_stride=1,
+            calibration_type=self.calibration_type,
             enable_geo=self.app_config.traj_geo_coord_enable,
         )
 

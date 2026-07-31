@@ -160,7 +160,7 @@ class UberApp(BaseApp):
         """
         Build behaviors from a batch of frames, then run whichever detection stages are enabled.
 
-        The detectors enrich ``batch.active_behaviors`` in place, so their edits reach whatever is
+        The detectors enrich ``behavior_batch.active_behaviors`` in place, so their edits reach whatever is
         written -- including under ``behaviorEmitOnce``, where the behavior published when a track
         ends is the last snapshot enriched here.
 
@@ -186,22 +186,22 @@ class UberApp(BaseApp):
             updated_messages = self.calibration.filter_messages_by_roi(updated_messages)
 
         frames_by_id = group_messages_by_frame_id(updated_messages) if self.collision_detection else {}
-        batch = self.state_mgmt.process_batch(messages_to_map(updated_messages))
+        behavior_batch = self.state_mgmt.process_batch(messages_to_map(updated_messages))
 
         events = []
-        for trip in batch.trip_behaviors:
+        for trip in behavior_batch.trip_behaviors:
             events.extend(self.tripwire_event.get_events(trip))
             events.extend(self.roi_event.get_events(trip))
 
-        anomalies, incidents = self._detect(batch.active_behaviors, frames, frames_by_id, stats)
+        anomalies, incidents = self._detect(behavior_batch.active_behaviors, frames, frames_by_id, stats)
 
-        logger.info(f"Batch {stats.batch_id} - Created a total of {len(batch.active_behaviors)} behavior(s), "
-                    f"writing {len(batch.behaviors_to_write)}")
+        logger.info(f"Batch {stats.batch_id} - Created a total of {len(behavior_batch.active_behaviors)} behavior(s), "
+                    f"writing {len(behavior_batch.behaviors_to_write)}")
         logger.info(f"Batch {stats.batch_id} - Created a total of {len(events)} event(s)")
 
         # Written unconditionally: a destination the config does not define is a disabled output,
         # so a profile keeps the streams it wants by defining them and silently drops the rest.
-        self.write_behaviors(batch.behaviors_to_write)
+        self.write_behaviors(behavior_batch.behaviors_to_write)
         self.write_events(events)
         self.write_anomalies(anomalies)
         self.write_incidents(incidents)
