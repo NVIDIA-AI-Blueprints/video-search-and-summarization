@@ -140,7 +140,34 @@ from the inventory and publishes:
 - `tree-<tree_sha>` — content-addressed, drives reuse and the post-merge retag
 - OCI labels `com.nvidia.vss.{image_name,source_path,source_tree_sha}`
 
+Both tags are pushed in a single `build-push-action` call with `push: true`, so
+they name the same manifest and therefore the same digest. Nothing posts a
+digest separately — the digest *is* the content hash of what was pushed, so it
+exists the moment the push lands.
+
 Nothing in `ci-vss-oss` needs changing.
+
+#### Later commits usually publish nothing new
+
+Only commits that touch your `source_path` rebuild. On every other develop
+commit your image is **re-tagged, not rebuilt**: the post-merge retag points that
+commit's `develop-<sha12>` at the existing manifest, sourced from `tree-<sha>`.
+
+So this is expected, not a bug:
+
+```bash
+docker manifest inspect .../vss-video-summarization:develop-aaaaaaaaaaaa   # sha256:1234...
+docker manifest inspect .../vss-video-summarization:develop-bbbbbbbbbbbb   # sha256:1234...  same
+```
+
+Several `develop-<sha>` tags sharing one digest means the source did not change
+between those commits. It is what makes the candidate set complete at every tip
+without rebuilding 5 images per push.
+
+One consequence worth knowing: the release set records `digest: null` for images
+it did not rebuild, even though GHCR holds the digest perfectly well. *"GHCR has
+the digest"* and *"the release set recorded the digest"* are different questions.
+The retag sources from `tree-<sha>` precisely so it never needs the recorded one.
 
 ---
 
