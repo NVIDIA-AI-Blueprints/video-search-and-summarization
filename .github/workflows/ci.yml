@@ -1202,12 +1202,18 @@ jobs:
     timeout-minutes: 140
     outputs:
       has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
+      run-downstream: ${{ steps.release-set.outputs.run_downstream }}
     permissions:
       actions: read
       contents: read
     steps:
+      # Full history: the downstream gate diffs changed paths against the
+      # previous commit. A shallow checkout makes that diff fail, which
+      # fails open and runs downstream for every push -- safe, but it
+      # defeats the gate.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Wait for successful GHCR release set
@@ -1218,6 +1224,8 @@ jobs:
           python3 .github/scripts/prepare_downstream_release_set.py \
             --attempts 520 \
             --interval-seconds 15 \
+            --repo-root . \
+            --before "${{ github.event.before }}" \
             --release-set-output downstream-release-set.json
 
       - name: Upload downstream release-set handoff
@@ -1253,7 +1261,7 @@ jobs:
       - wait-for-build-dev-images
     if: >-
       success() &&
-      needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries == 'true'
+      needs.wait-for-build-dev-images.outputs.run-downstream == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
