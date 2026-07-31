@@ -43,6 +43,18 @@ from lib.xDS.grpc_xds_server import (
 from lib import tracing
 from lib.logging import configure_root_logging
 from lib.wdm_swagger_ui import openapi_public_server_root, register_wdm_swagger_ui
+from lib.lifecycle.http_header import (
+    ACTION_ADD,
+    ACTION_DELETE,
+    ACTION_REPROVISION,
+    MODE_HTTP_HEADER,
+    build_http_lifecycle_event_payload,
+    extract_header_value,
+    is_message_bus_lifecycle_mode,
+    lifecycle_header_name,
+    match_http_lifecycle_action,
+    normalize_lifecycle_ingress_mode,
+)
 import requests
 import os
 import os.path
@@ -747,6 +759,10 @@ change_id_add = app.config["WDM_WL_CHANGE_ID_ADD"]
 change_id_reprovision = app.config["WDM_WL_CHANGE_ID_REPROVISION"]
 change_id_del = app.config["WDM_WL_CHANGE_ID_DEL"]
 change_id_pod_configure = app.config["WDM_WL_CHANGE_ID_POD_CONFIGURE"]
+lifecycle_ingress_mode = normalize_lifecycle_ingress_mode(
+    app.config.get("WDM_LIFECYCLE_INGRESS_MODE")
+)
+app.config["WDM_LIFECYCLE_INGRESS_MODE"] = lifecycle_ingress_mode
 cache_method = app.config["WDM_CACHE_METHOD"]
 if cache_method == 'redis':
     wl_spec_obj = app.config["WDM_REDIS_CACHE_OBJECT"]
@@ -1201,6 +1217,194 @@ def remove_stream():
     except Exception as e:
         app.logger.exception("remove_stream failed for stream_id=%s", stream_id)
         return jsonify({"error": str(e), "stream_id": stream_id}), 500
+
+
+def _http_header_lifecycle_json_body():
+    raw_body = request.get_data(cache=True)
+    if raw_body is None or raw_body.strip() == b"":
+        return None, None
+
+    body = request.get_json(silent=True)
+    if body is None:
+        return None, _http_header_lifecycle_error(
+            "JSON lifecycle body is required when a body is present", 400
+        )
+    if not isinstance(body, dict):
+        return None, _http_header_lifecycle_error(
+            "JSON lifecycle body must be an object", 400
+        )
+    return body, None
+
+
+def _http_header_lifecycle_error(message, status_code, **details):
+    response = {"error": message}
+    response.update(details)
+    return jsonify(response), status_code
+
+
+def _cached_stream_lifecycle_payload(stream_id):
+    try:
+        spec_list = cfg.getworkLoadSpecById(stream_id)
+    except Exception:
+        app.logger.exception("failed to load cached lifecycle state for %s", stream_id)
+        return None
+
+    if isinstance(spec_list, dict):
+        return spec_list
+    if spec_list and isinstance(spec_list, (list, tuple)):
+        first_spec = spec_list[0]
+        if isinstance(first_spec, dict):
+            return first_spec
+    return None
+
+
+def _stream_known_for_lifecycle(stream_id, cached_payload):
+    if cached_payload is not None:
+        return True
+    try:
+        return redisMsging.getIdPodMapping(stream_id) is not None
+    except Exception:
+        app.logger.exception("failed to read route mapping for %s", stream_id)
+        return False
+
+
+def _ensure_lifecycle_trace_context(stream_id, span_name):
+    global id_ctx_mapping
+    if stream_id not in id_ctx_mapping:
+        otel_parent_span, parent_context = tracing.create_parent_span(
+            stream_id, span_name, redisMsging
+        )
+        id_ctx_mapping[stream_id] = {
+            "context": parent_context,
+            "span": otel_parent_span,
+        }
+        return parent_context
+    return id_ctx_mapping[stream_id]["context"]
+
+
+def _close_lifecycle_trace_context(stream_id):
+    mapping = id_ctx_mapping.pop(stream_id, None)
+    if mapping is None:
+        return
+    span = mapping.get("span")
+    if span is not None:
+        span.end()
+
+
+@app.route(
+    "/<path:lifecycle_path>",
+    methods=["DELETE", "GET", "PATCH", "POST", "PUT"],
+)
+def http_header_lifecycle_ingress(lifecycle_path):
+    has_body = bool((request.get_data(cache=True) or b"").strip())
+    try:
+        action = match_http_lifecycle_action(
+            request.method, request.path, app.config, has_body=has_body
+        )
+    except ValueError as exc:
+        app.logger.error("invalid HTTP lifecycle binding: %s", exc)
+        return _http_header_lifecycle_error(str(exc), 500)
+    if action is None:
+        return jsonify({"error": "not found"}), 404
+
+    try:
+        mode = normalize_lifecycle_ingress_mode(
+            app.config.get("WDM_LIFECYCLE_INGRESS_MODE")
+        )
+    except ValueError as exc:
+        app.logger.error("invalid lifecycle ingress mode: %s", exc)
+        return _http_header_lifecycle_error(str(exc), 500)
+
+    if mode != MODE_HTTP_HEADER:
+        return _http_header_lifecycle_error(
+            "HTTP-header lifecycle ingress is not active",
+            409,
+            mode=mode,
+            action=action,
+        )
+
+    header_name = lifecycle_header_name(app.config)
+    stream_id = extract_header_value(request.headers, header_name)
+    if stream_id is None:
+        return _http_header_lifecycle_error(
+            "missing stream id header: %s" % header_name,
+            400,
+            header=header_name,
+        )
+
+    body, error_response = _http_header_lifecycle_json_body()
+    if error_response is not None:
+        return error_response
+
+    cached_payload = None
+    if action in (ACTION_DELETE, ACTION_REPROVISION):
+        cached_payload = _cached_stream_lifecycle_payload(stream_id)
+        if action == ACTION_REPROVISION and cached_payload is None:
+            return _http_header_lifecycle_error(
+                "stream not found", 404, stream_id=stream_id
+            )
+        if action == ACTION_DELETE and not _stream_known_for_lifecycle(
+            stream_id, cached_payload
+        ):
+            return _http_header_lifecycle_error(
+                "stream not found", 404, stream_id=stream_id
+            )
+
+    payload_body = cached_payload if cached_payload is not None else body
+    original_json = build_http_lifecycle_event_payload(
+        app.config, action, stream_id, payload_body
+    )
+    wl_d = original_json[app.config["WDM_EVENT_OBJECT_FIELD"]]
+
+    try:
+        parent_context = _ensure_lifecycle_trace_context(
+            stream_id, "http_header_lifecycle_ingress()"
+        )
+        if action == ACTION_ADD:
+            response = provisionStreamRedis(
+                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            )
+        elif action == ACTION_DELETE:
+            response = deprovisionStreamRedis(
+                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            )
+            _close_lifecycle_trace_context(stream_id)
+        elif action == ACTION_REPROVISION:
+            response = reprovisionStreamRedis(
+                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            )
+        else:
+            return _http_header_lifecycle_error(
+                "unsupported lifecycle action", 500, action=action
+            )
+
+        if response is PROVISION_DEFERRED_UNREADY_PODS:
+            return jsonify(
+                {
+                    "status": "deferred",
+                    "reason": "workload replicas are not ready",
+                    "mode": MODE_HTTP_HEADER,
+                    "action": action,
+                    "stream_id": stream_id,
+                }
+            ), 503
+
+        return jsonify(
+            {
+                "status": "ok",
+                "mode": MODE_HTTP_HEADER,
+                "action": action,
+                "stream_id": stream_id,
+            }
+        ), 200
+    except MaxReplicaException as me:
+        app.logger.error("Max replica exception %s", me)
+        return _http_header_lifecycle_error(str(me), 500, stream_id=stream_id)
+    except Exception as exc:
+        app.logger.exception(
+            "HTTP-header lifecycle failed action=%s stream_id=%s", action, stream_id
+        )
+        return _http_header_lifecycle_error(str(exc), 500, stream_id=stream_id)
 
 
 @app.route("/get_wl_replica_data", methods=["GET"])
@@ -2294,8 +2498,14 @@ def __initPodState():
 
 
 def redisListener():
+    if not is_message_bus_lifecycle_mode(app.config):
+        app.logger.info(
+            "Redis lifecycle listener disabled by WDM_LIFECYCLE_INGRESS_MODE=%s",
+            app.config.get("WDM_LIFECYCLE_INGRESS_MODE"),
+        )
+        return True
     if __initPodState():
-        app.logger.info ("Redis listener starting")
+        app.logger.info ("Redis lifecycle listener starting")
         tr = Thread(target=redisGetStreamData)
         tr.start()
         return True
@@ -2988,10 +3198,17 @@ if __name__ == "__main__":  # Script executed directly?
         app.logger.exception("Couldn't clear WL spec file")
     
     listners = False
-    if bus is not None:
+    if bus is not None and is_message_bus_lifecycle_mode(app.config):
         listen_kill_server()
         bus.run()
         app.logger.info("Kafka Listerner started")
+    elif bus is not None:
+        listners = True
+        app.logger.info(
+            "Kafka lifecycle listener disabled by WDM_LIFECYCLE_INGRESS_MODE=%s; "
+            "WDM_KFK_ENABLE remains available for internal broker use",
+            app.config.get("WDM_LIFECYCLE_INGRESS_MODE"),
+        )
     else:
         listners = True
         if app.config["WDM_KFK_ENABLE"]:

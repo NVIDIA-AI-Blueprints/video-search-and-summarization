@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Local example SDRC workload config for HTTP-header stream lifecycle testing.
+# This file intentionally lives under services/sdrc/tests/http-header-lifecycle
+# so production warehouse blueprint configs do not need lifecycle demo endpoints.
+
+docker-workload-rtvi-cv:
+  wl_obj_name: vss-rtvi-cv
+  port: 4004
+  enable: true
+
+  # Workload provisioning target.
+  WDM_CLUSTER_TYPE: docker
+  WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-rtvi-cv.json
+  WDM_TARGET_PORT_MAPPING: '{"vss-rtvi-cv": 9000}'
+  WDM_WL_ADD_URL: /api/v1/stream/add
+  WDM_WL_DELETE_URL: /api/v1/stream/remove
+  WDM_WL_CHANGE_ID_ADD: camera_streaming
+  WDM_WL_CHANGE_ID_DEL: camera_remove
+  WDM_WL_CHANGE_ID_REPROVISION: reprovision
+  WDM_WL_THRESHOLD: 100
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 3
+  WDM_ADD_REMOVE_REQUEST_TIMEOUT: 5
+  WDM_ADD_CALL_DELAY: 0.1
+  WDM_REAPPLY_ON_WL_RESTART: true
+
+  # Redis and cache state.
+  WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-http-header-cg
+  WDM_REDIS_CACHE_OBJECT: rtvi-cv-http-header-data
+  WDM_REDIS_MSG_KEY: vst.event
+  REDIS_MSG_KEY: vst.event
+  WDM_WL_REDIS_MSG_FIELD: value
+  WDM_WL_REDIS_SERVER: redis
+  WDM_WL_REDIS_PORT: 6379
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_KFK_ENABLE: false
+  WDM_KFK_BOOTSTRAP_URL: kafka:29092
+
+  # Envoy listener for callers that want workload-compatible URLs.
+  WDM_XDS_USE_POD_DNS: true
+  WDM_XDS_USE_IP_ADDRESS: false
+  WDM_WL_CONFIG_PORT: "9000"
+  WDM_CONFIG_PORT: 9000
+  WDM_MS_LISTENER_PORT: 10001
+  ENVOY_ROUTE_HEADER: streamid
+  NOHEADERTARGETROUTE: false
+  HEADERLESS_SERVICE_ENDPOINTS: "[]"
+
+  # HTTP-header lifecycle ingress.
+  # Clients call http://localhost:10001 plus these paths.
+  WDM_LIFECYCLE_INGRESS_MODE: http
+  WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER: streamid
+  WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH: /api/v1/stream/add
+  WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD: POST
+  WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH: /api/v1/stream/remove
+  WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD: POST
+  WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH: /api/v1/stream/add
+  WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD: POST
+
+  WDM_DISABLE_WERKZEUG_LOGGING: true
+  OTEL_SDK_DISABLED: true

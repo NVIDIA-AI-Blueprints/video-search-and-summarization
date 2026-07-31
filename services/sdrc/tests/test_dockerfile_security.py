@@ -16,6 +16,14 @@ def test_wdm_router_dockerfile_removes_setuptools_from_runtime():
     assert "/root/.cache/uv" in dockerfile
 
 
+def test_wdm_router_downloads_protobuf_sdist_without_build_isolation():
+    dockerfile = (REPO_ROOT / "envoy" / "Dockerfile.wdm-router").read_text(encoding="utf-8")
+
+    assert 'grep -v "^protobuf==" /wdm/requirements.txt' in dockerfile
+    assert "pip3 download protobuf==3.20.0" in dockerfile
+    assert "--no-build-isolation" in dockerfile
+
+
 def test_runtime_requirements_do_not_pin_setuptools():
     requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -38,7 +46,7 @@ def test_runtime_dependency_pins_remediate_non_protobuf_cves():
 
     for dependency_file in (requirements, pyproject):
         assert "redis==4.4.4" in dependency_file
-        assert "werkzeug==3.0.3" in dependency_file
+        assert "werkzeug==3.1.8" in dependency_file
         assert "redis==4.4.2" not in dependency_file
         assert "werkzeug==2.3.8" not in dependency_file
         assert "envoy-reader" not in dependency_file
