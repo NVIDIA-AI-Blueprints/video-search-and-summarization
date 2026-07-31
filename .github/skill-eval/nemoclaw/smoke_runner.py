@@ -825,11 +825,6 @@ def _upsert_metadata(task_dir: Path, updates: dict[str, Any]) -> None:
 
 def _headless_launcher_instruction(skill: str, deployment_profile: str | None) -> str:
     wait_arg = f" \\\n  --wait-profile {deployment_profile}" if deployment_profile else ""
-    runtime_arg = (
-        " \\\n  --runtime-env RTSP_SAMPLE_URL"
-        if skill == "vss-deploy-dense-captioning"
-        else ""
-    )
     return (
         "This Harbor trial is a thin launcher for NemoClaw/OpenClaw.\n\n"
         "Do not complete the task directly from Claude Code. Use Bash to run the "
@@ -843,7 +838,7 @@ def _headless_launcher_instruction(skill: str, deployment_profile: str | None) -
         "  --launch-mode cli \\\n"
         f"  --expected-skill {skill} \\\n"
         "  --timeout 1500"
-        f"{wait_arg}{runtime_arg}\n"
+        f"{wait_arg}\n"
         "```\n"
     )
 
@@ -871,14 +866,16 @@ def _generic_nemoclaw_prompt(
         else ""
     )
     rtsp_probe_guidance = (
-        "Before registering the exact `RTSP_SAMPLE_URL`, verify only that the "
-        "variable is set without printing its value. Then call "
+        "As your first OpenClaw `exec` call, before registering the "
+        "`RTSP_SAMPLE_URL`, run exactly "
+        "`test -n \"${RTSP_SAMPLE_URL:-}\" && printf "
+        "'RTSP_SAMPLE_URL is set\\n'` through the OpenClaw `exec` tool and "
+        "require the sole output `RTSP_SAMPLE_URL is set`. Then call "
         "`vss_orchestrator__rtsp_sample_probe` with no URL argument and require "
         "`status=success`, `has_video=true`, and `video_stream_count>=1`. "
         "The tool probes only the orchestrator host's configured runtime sample; "
-        "never pass the URL through MCP. The URL is secret-bearing: never echo "
-        "it or include it in the final "
-        "response. A timeout, probe failure, or no-video result is terminal; "
+        "never pass the URL through MCP or print its value. A timeout, probe "
+        "failure, or no-video result is terminal; "
         "do not register a substitute stream.\n\n"
         if skill == "vss-deploy-dense-captioning"
         else ""
