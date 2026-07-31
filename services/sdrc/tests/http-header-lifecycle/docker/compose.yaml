@@ -11,7 +11,8 @@
 #   docker compose up
 #
 # The SDRC workload config is local to ./configs/config.yml. Runtime files are
-# written only to ./.generated so the warehouse blueprint trees are not mutated.
+# written only to this directory's ./.generated path so warehouse blueprint
+# trees are not mutated.
 
 name: sdrc-http-header-lifecycle
 

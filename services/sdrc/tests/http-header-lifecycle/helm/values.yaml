@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  useReleaseNamePrefix: false
+
+infra:
+  enabled: true
+  phoenix:
+    enabled: false
+  redis:
+    enabled: true
+    persistence:
+      storageClass: ""
+      size: 5Gi
+  sdrc:
+    enabled: true
+    configFilePath: configs/sdrc/config.yml
+    config:
+      configMapName: sdrc-http-header-config
+      key: config.yml
+      mountPath: /config.yml
+    service:
+      # Extra Service ports for Envoy listeners generated from per-workload
+      # WDM_MS_LISTENER_PORT values. This example exposes the RTVI-CV
+      # HTTP-header lifecycle facade on 10001 so callers can use workload
+      # routes such as /api/v1/stream/add through SDRC.
+      workloadListeners:
+        - name: rtvi-cv-http
+          port: 10001
+          targetPort: 10001
+
+rtvi:
+  enabled: true
+  vss-rtvi-cv:
+    enabled: true
+    profileMode: standalone-2d
+    replicas: 1
+    standaloneWarehouse:
+      streamType: redis
+      hardwareProfile: ""
+    downloadNgcAppData: false
+    downloadModelsFromNgc: false
+    streamAffinity:
+      enabled: true
+      hashHeader: streamid
+    persistence:
+      storageClass: ""
+      models:
+        size: 80Gi
