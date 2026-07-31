@@ -98,10 +98,11 @@ across frames.
 
 | File | What it does |
 |---|---|
-| `state/behavior/state_management_base.py` | Base for Euclidean/image-plane variants |
-| `state/behavior/state_management_e.py` | Euclidean behavior state (`StateMgmtE`, `StateMgmtEWithTripwire`) |
-| `state/behavior/state_management_i.py` | Image-plane behavior state |
-| `state/behavior/state_management.py` | Shared helpers / composition |
+| `state/behavior/state_management_base.py` | `StateMgmtBase` — `process_batch` and the `BehaviorBatch` result; base for all coordinate systems |
+| `state/behavior/state_management_e.py` | Euclidean behavior state (`StateMgmtE`) |
+| `state/behavior/behavior_holdback.py` | `BehaviorHoldback` — holds behaviors back for `behaviorEmitOnce` |
+| `state/behavior/state_management_i.py` | Image-plane behavior state (`StateMgmtI`) |
+| `state/behavior/state_management.py` | Geographic behavior state (`StateMgmt`) — adds map matching |
 | `state/frame/frame_state_management.py` | `FrameStateMgmt` — **all frame-level incident detection** (proximity, restricted-area, confined-area, FOV-count) |
 | `state/amr/amr_state_management.py` | `AmrStateMgmt` — AMR (autonomous mobile robot) state |
 | `state/video_embedding/video_embedding_state_mgmt.py` | Embedding aggregation for video search |

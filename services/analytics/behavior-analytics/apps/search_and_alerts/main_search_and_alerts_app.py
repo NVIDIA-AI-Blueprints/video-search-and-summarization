@@ -41,7 +41,7 @@ class SearchAndAlertsApp(BaseApp):
 
     **Behavior path** (raw frames → behaviors):
         Read raw frames, filter by sensor, convert to messages, transform via calibration,
-        update per-sensor behavior state, write behaviors to output.
+        process the batch through behavior state management, write its output behaviors.
 
     **Embedding path** (video embeddings → output):
         Read video embeddings, group by sensor ID, process per-sensor via video embedding
@@ -109,8 +109,8 @@ class SearchAndAlertsApp(BaseApp):
         Build behaviors from a batch of raw frames.
 
         Filters frames by sensor ID, converts frames to messages (using state_mgmt_filter),
-        transforms messages via calibration, groups by sensor, and updates behavior state
-        per sensor. Non-None behaviors are written to the behavior output stream.
+        transforms messages via calibration, groups them by track key, and processes the whole
+        batch in one call. ``BehaviorBatch.behaviors_to_write`` is written to the behavior stream.
 
         :param list[nvSchema.Frame] frames: Raw frame batch from read_raw
         :param BatchStats stats: Batch processing statistics (e.g. batch_id)
@@ -130,18 +130,12 @@ class SearchAndAlertsApp(BaseApp):
             updated_messages = [self.calibration.transform(msg) for msg in batch_messages]
             updated_messages_map = messages_to_map(updated_messages)
 
-            behaviors = []
+            batch = self.state_mgmt.process_batch(updated_messages_map)
 
-            for sensor_id, msgs in updated_messages_map.items():
+            logger.info(f"Batch {stats.batch_id} - Created a total of {len(batch.active_behaviors)} behavior(s), "
+                        f"writing {len(batch.behaviors_to_write)}")
 
-                behavior = self.state_mgmt.update_behavior(message_key=sensor_id, messages=msgs)
-
-                if behavior:
-                    behaviors.append(behavior)
-
-            logger.info(f"Batch {stats.batch_id} - Created a total of {len(behaviors)} behavior(s)")
-
-            self.write_behaviors(behaviors)
+            self.write_behaviors(batch.behaviors_to_write)
 
     def process_chunk_embeddings(self, video_embeddings: list[nvSchema.VisionLLM], stats: BatchStats) -> None:
         """
@@ -169,12 +163,19 @@ class SearchAndAlertsApp(BaseApp):
         Shutdown handler to flush pending state before exit.
 
         Fetches any pending video embeddings from the per-sensor state manager, writes them
-        via write_embed_filtered, then calls the base close().
+        via write_embed_filtered, writes behaviors still held back by emit-once mode,
+        then calls the base close().
         """
         pending = self._vid_embed_state_mgmt.get_pending_video_embeddings()
 
         logger.info(f"Flushing any pending video embeddings - found {len(pending)}.")
         self.write_embed_filtered(pending)
+
+        pending_behaviors = self.state_mgmt.flush_behaviors()
+
+        if pending_behaviors:
+            logger.info(f"Flushing {len(pending_behaviors)} pending behavior(s) before shutdown.")
+            self.write_behaviors(pending_behaviors)
 
         super().close()
 

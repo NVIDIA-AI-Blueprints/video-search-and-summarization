@@ -15,12 +15,13 @@
 
 import bisect
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import Behavior, Message, ObjectState, Coordinate
 from mdx.analytics.core.schema.trajectory.trajectory_base import TrajectoryBase
+from mdx.analytics.core.stream.state.behavior.behavior_holdback import BehaviorHoldback
 from mdx.analytics.core.transform.calibration.calibration_base import CalibrationBase
 from mdx.analytics.core.utils.crp import CRP
 from mdx.analytics.core.utils.schema_util import get_sensor_id_from_behavior_id, model_to_embeddings
@@ -28,6 +29,35 @@ from mdx.analytics.core.utils.schema_util import get_sensor_id_from_behavior_id,
 logger = logging.getLogger(__name__)
 
 TAIL_CAP = 16  # max tail_ts entries — bounds bisect-insert memory at sampling == 1
+
+
+@dataclass
+class BehaviorBatch:
+    """
+    Everything one batch of messages produced.
+
+    A plain dataclass rather than a pydantic model: this never crosses a wire, and it is built once
+    per batch on the hot path. The lists hold live references, so enriching an entry of
+    ``active_behaviors`` in place -- adding anomaly info, compacting -- is visible to whatever
+    is written. Replacing the objects instead of mutating them would break that.
+
+    :ivar list[Behavior] active_behaviors: One per track that this batch updated. Feed these to
+        detection and enrich them in place.
+    :ivar list[Behavior] trip_behaviors: One per track, covering the previous tail plus this batch's
+        points. Used for tripwire and ROI events; always empty in geographic coordinates, which does
+        not track trips.
+    :ivar list[Behavior] behaviors_to_write: What to write to the behavior stream. The emission
+        policy is already resolved here, so no caller needs to know whether ``behaviorEmitOnce`` is
+        on: it is either the active behaviors or the tracks that just ended.
+
+    Examples::
+        >>> batch = state_manager.process_batch(messages_map)
+        >>> app.write_behaviors(batch.behaviors_to_write)
+    """
+
+    active_behaviors: list[Behavior] = field(default_factory=list)
+    trip_behaviors: list[Behavior] = field(default_factory=list)
+    behaviors_to_write: list[Behavior] = field(default_factory=list)
 
 
 class StateMgmtBase:
@@ -45,10 +75,12 @@ class StateMgmtBase:
     :ivar CalibrationBase calibration: Calibration object for the application.
     :ivar dict[str, ObjectState] state: Dictionary to store object states.
     :ivar dict[str, datetime] sensor_latest_timestamp: Dictionary mapping sensor IDs to their latest timestamps.
+    :ivar BehaviorHoldback behavior_holdback: Holds behaviors back when ``behaviorEmitOnce`` is enabled.
 
     Examples::
         >>> state_manager = StateMgmtBase(config, calibration)
-        >>> print(f"Initialized state management with {len(state_manager.state)} states")
+        >>> batch = state_manager.process_batch(messages_map)
+        >>> print(f"Written {len(batch.behaviors_to_write)} behavior(s)")
     """
 
     def __init__(self, config: AppConfig, calibration: CalibrationBase) -> None:
@@ -56,6 +88,103 @@ class StateMgmtBase:
         self.calibration: CalibrationBase = calibration
         self.state: dict[str, ObjectState] = dict()
         self.sensor_latest_timestamp: dict[str, datetime] = dict()
+        self.behavior_holdback: BehaviorHoldback = BehaviorHoldback()
+
+    def process_batch(self, messages_map: dict[str, list[Message]]) -> BehaviorBatch:
+        """
+        Process one whole batch of messages, grouped by track key.
+
+        Taking the entire batch rather than a key at a time is deliberate. Deciding which tracks have
+        fallen silent is only sound once every message in the batch has reached its state and every
+        sensor clock has advanced; judging it key by key would end tracks whose own messages are
+        still sitting later in the same batch. Owning the loop here makes that impossible to get
+        wrong from the outside -- one call is one batch.
+
+        :param dict[str, list[Message]] messages_map: Messages grouped by key (sensor ID + object ID),
+            as produced by ``messages_to_map``.
+        :return BehaviorBatch: Behaviors updated by this batch, their trip states, and what to write.
+
+        Examples::
+            >>> batch = state_manager.process_batch(messages_to_map(messages))
+            >>> app.write_behaviors(batch.behaviors_to_write)
+        """
+        batch = BehaviorBatch()
+
+        for message_key, messages in messages_map.items():
+            behavior, trip_behavior = self._process_key(message_key, messages)
+            if behavior:
+                batch.active_behaviors.append(behavior)
+            if trip_behavior:
+                batch.trip_behaviors.append(trip_behavior)
+
+        # Retain before ending, so a track that both produced a behavior and fell silent in the same
+        # batch still reaches the stream: the sweep below releases whatever was just retained.
+        if self.config.behavior_emit_once:
+            self.behavior_holdback.retain(batch.active_behaviors)
+
+        # Runs in both modes -- ending a track is what reclaims its state, so per-batch mode depends
+        # on it too, even though it holds nothing back.
+        self._end_inactive_behaviors()
+
+        if self.config.behavior_emit_once:
+            batch.behaviors_to_write = self.behavior_holdback.take_ended()
+        else:
+            batch.behaviors_to_write = (
+                self._carry_over_held_behaviors(batch.active_behaviors) + batch.active_behaviors
+            )
+
+        return batch
+
+    def _carry_over_held_behaviors(self, active_behaviors: list[Behavior]) -> list[Behavior]:
+        """
+        Hand over anything still held back, once, after ``behaviorEmitOnce`` is switched off.
+
+        ``behaviorEmitOnce`` is runtime-updatable, so tracks can be left held when it flips. They
+        cannot simply be dropped -- a track that fell silent around the flip would never be written
+        at all -- but neither can they trickle out as they end: per-batch output resumes immediately
+        and writes progressively more complete behaviors for the same IDs, so a snapshot released
+        later would arrive with an older ``end`` than one already sent and regress it downstream.
+
+        So the holdback is emptied in one go, minus any track already producing fresh output this
+        batch. After that it stays empty and this is a no-op.
+
+        :param list[Behavior] active_behaviors: Behaviors this batch produced, whose tracks already
+            have fresher output and so need nothing carried over.
+        :return list[Behavior]: Held behaviors worth writing, ahead of this batch's own output.
+        """
+        if not self.behavior_holdback.pending and not self.behavior_holdback.ended:
+            return []
+
+        fresh_ids = {behavior.id for behavior in active_behaviors}
+        carried = [behavior for behavior in self.behavior_holdback.flush() if behavior.id not in fresh_ids]
+        logger.info(f"behaviorEmitOnce switched off; handing over {len(carried)} held behavior(s)")
+
+        return carried
+
+    def flush_behaviors(self) -> list[Behavior]:
+        """
+        Return every behavior still held back, ended or not, and drop it.
+
+        Intended for shutdown, where tracks that were still live would otherwise be lost. Returns an
+        empty list unless emit-once is enabled, since nothing is ever held back in per-batch mode.
+
+        :return list[Behavior]: Behaviors to write before the app stops.
+
+        Examples::
+            >>> app.write_behaviors(state_manager.flush_behaviors())
+        """
+        return self.behavior_holdback.flush()
+
+    def live_object_ids(self) -> list[str]:
+        """
+        Keys of the tracks currently held in state, for detectors that need to know what is live.
+
+        :return list[str]: Track keys (sensor ID + object ID).
+
+        Examples::
+            >>> detector.update_live_object(state_manager.live_object_ids())
+        """
+        return list(self.state.keys())
 
     def _get_current_timestamp(self, sensorId: str) -> datetime | None:
         """
@@ -96,25 +225,40 @@ class StateMgmtBase:
                 logger.info(f"Updating sensor latest timestamp: {msg.sensor.id} to {msg.timestamp}")
                 self.sensor_latest_timestamp[msg.sensor.id] = msg.timestamp
 
-    def _delete_expired_object_state(self) -> None:
+    def _end_inactive_behaviors(self) -> None:
         """
-        Delete object states that have not been updated within the behavior state timeout period.
+        End tracks that have been quiet for at least ``behaviorStateValidInterval`` seconds.
+
+        That gap is the same threshold :meth:`_is_valid_state` uses to reject a continuation, so once
+        it passes the track can no longer be extended -- any later observation starts a new one, which
+        makes it the point at which the track is provably over. Ending is therefore also when the
+        object state is reclaimed: nothing further can be added to it, and a returning object ID
+        simply starts a fresh track.
+
+        Inactivity is measured per sensor in *event* time (``sensor_latest_timestamp``), not against
+        the wall clock, for two reasons. A sensor's clock must only advance on its own data, so busy
+        sensors cannot age out the tracks of a sensor whose batch is still in flight. And because the
+        threshold is short, wall-clock comparison would misread ingestion lag or backpressure as
+        silence and cut live tracks short. This mirrors :meth:`_is_valid_state`, which also compares
+        event timestamps.
+
+        A sensor that stops streaming freezes its own clock, so its tracks are never ended and their
+        state is retained. That residue is bounded -- a silent sensor contributes no new object IDs --
+        and it is released when the app stops.
+
+        Only correct at end of batch, once every key has been through :meth:`_process_key` and all
+        sensor clocks are current -- see :meth:`process_batch`, its only caller.
 
         :return: None
-
-        Examples::
-            >>> state_manager = StateMgmtBase(config)
-            >>> state_manager._delete_expired_object_state()
-            >>> print(f"Remaining states: {len(state_manager.state)}")
         """
         for behavior_id in list(self.state.keys()):
-            sensor_id = get_sensor_id_from_behavior_id(behavior_id)
-            current_timestamp = self._get_current_timestamp(sensor_id)
-            if not current_timestamp:
+            sensor_timestamp = self.sensor_latest_timestamp.get(get_sensor_id_from_behavior_id(behavior_id))
+            if not sensor_timestamp:
                 continue
-            if (current_timestamp - self.state[behavior_id].end).total_seconds() > self.config.behavior_state_timeout:
-                logger.info(f"Deleting expired state: {behavior_id}")
+            if (sensor_timestamp - self.state[behavior_id].end).total_seconds() >= self.config.behavior_state_valid_interval:
+                logger.info(f"Track ended, releasing state: {behavior_id}")
                 del self.state[behavior_id]
+                self.behavior_holdback.end_track(behavior_id, reason="track inactive")
 
     def _is_valid_state(self, old_state: ObjectState, new_state: ObjectState, interval: int) -> bool:
         """
@@ -281,6 +425,11 @@ class StateMgmtBase:
 
         # If no old state or invalid transition, use new state for both
         if not state or not self._is_valid_state(state, new_state, self.config.behavior_state_valid_interval):
+            if state:
+                # The gap proves the previous track ended, so its retained behavior is final; ending it
+                # here -- before this batch retains the replacement under the same key -- keeps at most
+                # one pending behavior per key.
+                self.behavior_holdback.end_track(message_key, reason="track replaced after discontinuity")
             self.state[message_key] = new_state
             self._update_object_state_model(new_state, embeddings)
             logger.info(f"Created new Object State: {message_key}\n"
@@ -405,27 +554,24 @@ class StateMgmtBase:
             }
         )
 
-    def update_behavior(self, message_key: str, messages: list[Message], **kwargs) -> Any:
+    def _process_key(self, message_key: str, messages: list[Message]) -> tuple[Behavior | None, Behavior | None]:
         """
-        Update behavior based on messages.
+        Advance one track with its share of the current batch.
 
-        Default implementation: updates sensor timestamps, gets/updates object and trip state,
-        prunes expired state, builds trajectories, and returns (behavior, trip_behavior).
-        Subclasses may override or call super() and adapt the return value.
+        Updates the sensor clock, folds the messages into the track's object and trip state, and
+        builds a behavior for each. Called only by :meth:`process_batch`, which owns the batch-wide
+        steps -- expiry and the emission policy -- that are only sound once every key is done.
+
+        Subclasses override this when a coordinate system produces something different; geographic
+        coordinates, for instance, track no trips and return ``None`` for the trip behavior.
 
         :param str message_key: Key for the message (sensor ID + object ID).
-        :param list[Message] messages: List of messages to process.
-        :return Any: Tuple (behavior, trip_behavior) or (None, None) when no valid state.
-
-        Examples::
-            >>> state_manager = StateMgmtBase(config)
-            >>> messages = [Message(sensor=Sensor(id="sensor1"))]
-            >>> behavior = state_manager.update_behavior("sensor1_obj1", messages)
-            >>> print(f"Updated behavior: {behavior}")
+        :param list[Message] messages: Messages for this key in the current batch.
+        :return tuple[Behavior | None, Behavior | None]: The track's behavior and trip behavior, or
+            ``(None, None)`` when the messages yielded no valid state.
         """
         self._update_sensor_latest_timestamp(messages)
         state, trip_state, last_message = self._get_object_trip_state_and_message(message_key, messages)
-        self._delete_expired_object_state()
         if not state or not trip_state or not last_message:
             return None, None
 
