@@ -321,6 +321,7 @@ jobs:
             .github/skill-eval/tests/test_lvs_deployment_config.py \
             .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
+            deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             -q
 
       - name: Upload coverage report
