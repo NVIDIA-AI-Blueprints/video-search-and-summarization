@@ -122,7 +122,12 @@ jobs:
       # starts stripping fixtures the analytics integration jobs depend on.
       - name: Verify LFS exclusion boundaries
         run: |
-          vios='repo/services/vios/prebuilts/aarch64/aws/libaws-c-auth.so'
+          # Must be a regular file, not a symlink: git archive stores a symlink's
+          # target text, so libaws-c-auth.so (mode 120000, content
+          # "libaws-c-auth.so.1.0.0") would never match the pointer signature and
+          # would fail this step for every run. All 126 vios LFS pointers are
+          # regular files; this is the resolved target of that symlink.
+          vios='repo/services/vios/prebuilts/aarch64/aws/libaws-c-auth.so.1.0.0'
           keep='repo/services/analytics/behavior-analytics/tests/integration/expected_output/smart_city/mdx-behavior-data.json'
           if ! tar -xzOf source.tar.gz "$vios" | head -c 64 | grep -q '^version https://git-lfs'; then
             echo "::error::$vios is not an LFS pointer; lfs.fetchexclude is not taking effect"
