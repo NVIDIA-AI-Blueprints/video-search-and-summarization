@@ -306,8 +306,10 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     # happens once at `vss configure` time, so this is the search itself.
     search_request = mock_services.requests_ending_with("/_search")[-1]
     assert search_request.path == "/mdx-embed-filtered-2025-01-01/_search"
-    # EmbedSearch alone overfetches when ES filters may discard KNN hits.
-    assert search_request.body["size"] == 5
+    # Two multipliers compound: Search doubles top_k so merging adjacent
+    # windows can still yield top_k results, and EmbedSearch overfetches 5x
+    # because ES filters may discard KNN hits. top_k=1 -> 2 -> 10.
+    assert search_request.body["size"] == 10
     assert search_request.body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
     assert "warehouse_clip" in json.dumps(search_request.body)
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)

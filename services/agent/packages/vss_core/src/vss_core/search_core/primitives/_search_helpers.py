@@ -479,6 +479,14 @@ async def execute_core_search(
     # ----- SETUP COMMON QUERY PARAMETERS -----
     top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
     original_top_k = top_k
+    # Merging collapses runs of adjacent windows into one result *after*
+    # retrieval, so fetching exactly ``top_k`` guarantees returning fewer than
+    # ``top_k`` whenever any two hits are contiguous -- ten hits covering five
+    # adjacent pairs come back as five results. Fetch headroom so the count
+    # survives the collapse. The agent's own search tool doubles here for the
+    # same reason; matching it keeps the two implementations comparable.
+    if getattr(config, "merge_adjacent", True):
+        top_k = top_k * 2
     top_k = min(top_k, _DOWNSTREAM_MAX_TOP_K)
 
     # Collected here (before routing) so a routing-affecting decision like
