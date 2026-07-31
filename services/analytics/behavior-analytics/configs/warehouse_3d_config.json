@@ -38,6 +38,10 @@
 			{
 				"name": "events",
 				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
 			}
 		]
 	},
