@@ -1317,6 +1317,11 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         )
         self.assertIn("run_uv_sync", source)
         self.assertIn('"uv", "sync", "--no-dev", "--extra", "agent"', source)
+        self.assertIn("ORCHESTRATOR_MCP_NAT_BIN", source)
+        self.assertIn("ORCHESTRATOR_MODULE_PATH", source)
+        self.assertIn("ORCHESTRATOR_MCP_SOURCE_SHA256", source)
+        self.assertIn('os.environ.get("PR_HEAD_SHA", "").strip()', source)
+        self.assertIn("[str(ORCHESTRATOR_MCP_NAT_BIN), \"mcp\", \"--help\"]", source)
         self.assertIn("ensure_agent_venv", source)
         self.assertIn('command.append("--clear")', source)
         self.assertIn('if "--force" in uv_venv_help.stdout', source)
@@ -1654,9 +1659,30 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertIn("NEMOCLAW_RECREATE_SANDBOX", sources["s31-code"])
         self.assertIn("if _exit_code != 0 or _recreate_sandbox:", sources["s31-code"])
         self.assertIn(
-            "check_mcp_health(MCP_URL, AGENT_DIR)",
+            "orchestrator_mcp_helper.check_mcp_health(",
             sources["042eabd1"],
         )
+        self.assertIn(
+            "expected_instance_id=VSS_ORCHESTRATOR_MCP_INSTANCE_ID",
+            sources["042eabd1"],
+        )
+        self.assertIn(
+            "expected_source_sha256=ORCHESTRATOR_MCP_SOURCE_SHA256",
+            sources["042eabd1"],
+        )
+        self.assertIn(
+            "expected_git_sha=ORCHESTRATOR_MCP_GIT_SHA",
+            sources["042eabd1"],
+        )
+        self.assertIn(
+            "stop_existing_orchestrator_mcp_listener(",
+            sources["042eabd1"],
+        )
+        self.assertIn(
+            "str(ORCHESTRATOR_MCP_NAT_BIN)",
+            sources["042eabd1"],
+        )
+        self.assertIn("env = agent_env.copy()", sources["042eabd1"])
         self.assertIn(
             'MCP_URL = f"http://127.0.0.1:{MCP_PORT}/mcp"',
             sources["20b35654"],
