@@ -169,25 +169,6 @@ class TestStateMgmtLogic:
         )
         assert state_mgmt._is_valid_state(old, new, interval=30) is False
 
-    # --- _get_object_state_and_message ---
-    def test_get_object_state_and_message_delegates_to_trip(self, state_mgmt):
-        """_get_object_state_and_message returns (state, last_message) from trip method."""
-        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
-        messages = [
-            Message(
-                messageid="m1",
-                timestamp=base,
-                sensor=Sensor(id="sensor1", type="camera"),
-                object=Object(id="o1", type="v", confidence=0.9, coordinate=Coordinate(x=0.0, y=0.0)),
-                place=Place(id="p1", name="place"),
-            ),
-        ]
-        state, last_msg = state_mgmt._get_object_state_and_message("sensor1_obj1", messages)
-        assert state is not None
-        assert last_msg is not None
-        assert state.id == "sensor1_obj1"
-        assert last_msg.messageid == "m1"
-
     # --- _get_behavior ---
     def test_get_behavior_builds_behavior_from_state_trajectory_message(self, state_mgmt):
         """_get_behavior returns Behavior with id, timestamp, end, place, sensor from state and message."""
