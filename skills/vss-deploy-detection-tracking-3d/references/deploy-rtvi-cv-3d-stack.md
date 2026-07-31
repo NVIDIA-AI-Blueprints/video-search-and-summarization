@@ -371,8 +371,8 @@ On DGX-SPARK, switch `PERCEPTION_TAG` to its `-sbsa` variant in the active `gene
 
 ```bash
 # PERCEPTION_TAG ships an SBSA variant for DGX-SPARK — comment the default, uncomment the -sbsa line:
-# PERCEPTION_TAG="3.2.1"
-PERCEPTION_TAG="3.3.0-sbsa-26.07.1"
+# PERCEPTION_TAG="3.3.0-26.07.2"
+PERCEPTION_TAG="3.3.0-sbsa-26.07.2"
 ```
 
 The `blueprint-configurator` enforces this: on `HARDWARE_PROFILE=DGX-SPARK` it validates that `PERCEPTION_TAG` contains `sbsa`.

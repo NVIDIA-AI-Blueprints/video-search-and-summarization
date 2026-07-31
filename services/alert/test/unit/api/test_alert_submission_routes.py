@@ -206,10 +206,18 @@ class TestAlertSubmissionHealth:
 
 class TestSubmitIncident:
     def test_json_body_goes_to_the_json_path(self, client, service):
-        response = client.post("/api/v1/incidents", json={"id": "inc-1"})
+        body = {
+            "id": "inc-1",
+            "sensorId": "cam-1",
+            "timestamp": "2026-05-12T00:00:00Z",
+            "end": "2026-05-12T00:00:30Z",
+            "category": "collision",
+        }
+
+        response = client.post("/api/v1/incidents", json=body)
 
         assert response.status_code == 202
-        service.submit_nvschema_incident.assert_awaited_once_with({"id": "inc-1"})
+        service.submit_nvschema_incident.assert_awaited_once_with(body)
         service.submit_nvschema_incident_protobuf.assert_not_awaited()
 
     def test_protobuf_content_type_goes_to_the_protobuf_path(self, client, service):
