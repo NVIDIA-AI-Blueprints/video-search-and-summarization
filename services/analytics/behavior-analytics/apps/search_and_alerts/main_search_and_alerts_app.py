@@ -21,6 +21,8 @@ from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
 from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.stream.state.frame.frame_state_management import FrameStateMgmt
 from mdx.analytics.core.stream.state.video_embedding.video_embedding_state_mgmt import VideoEmbeddingStateMgmt
+from mdx.analytics.core.transform.event.roi_event import ROIEvent
+from mdx.analytics.core.transform.event.tripwire_event import TripwireEvent
 from mdx.analytics.core.utils.schema_util import group_frames_by_sensor_id, group_video_embeddings_by_sensor_id, messages_to_map, nv_frame_to_messages
 from mdx.analytics.core.utils.processing_stats import BatchStats
 
@@ -39,9 +41,12 @@ class SearchAndAlertsApp(BaseApp):
         update per-sensor frame state, detect violations (proximity, restricted area, confined
         area, FOV count), write incidents.
 
-    **Behavior path** (raw frames → behaviors):
+    **Behavior path** (raw frames → behaviors + events):
         Read raw frames, filter by sensor, convert to messages, transform via calibration,
-        process the batch through behavior state management, write its output behaviors.
+        process the batch through behavior state management, write its output behaviors, and
+        turn the batch's trip states into ROI/tripwire events. Sensors with no ROIs or tripwires
+        defined -- including every sensor when the app runs without a calibration file -- simply
+        produce no events.
 
     **Embedding path** (video embeddings → output):
         Read video embeddings, group by sensor ID, process per-sensor via video embedding
@@ -55,6 +60,8 @@ class SearchAndAlertsApp(BaseApp):
 
     :ivar FrameStateMgmt frame_state_mgmt: Per-sensor frame state manager for incident detection
     :ivar StateMgmt state_mgmt: Per-sensor behavior state manager
+    :ivar ROIEvent roi_event: ROI entry/exit event generator
+    :ivar TripwireEvent tripwire_event: Tripwire crossing event generator
     :ivar VideoEmbeddingStateMgmt _vid_embed_state_mgmt: Per-sensor video embedding state manager
     """
 
@@ -69,6 +76,8 @@ class SearchAndAlertsApp(BaseApp):
 
         self.frame_state_mgmt = FrameStateMgmt(self.config)
         self.state_mgmt = StateMgmt(self.config, self.calibration)
+        self.roi_event = ROIEvent(self.config, self.calibration)
+        self.tripwire_event = TripwireEvent(self.config, self.calibration)
         self._vid_embed_state_mgmt = VideoEmbeddingStateMgmt(self.config.video_embedding)
 
         self.register_processor(
@@ -132,10 +141,17 @@ class SearchAndAlertsApp(BaseApp):
 
             batch = self.state_mgmt.process_batch(updated_messages_map)
 
+            events = []
+            for trip in batch.trip_behaviors:
+                events.extend(self.tripwire_event.get_events(trip))
+                events.extend(self.roi_event.get_events(trip))
+
             logger.info(f"Batch {stats.batch_id} - Created a total of {len(batch.active_behaviors)} behavior(s), "
                         f"writing {len(batch.behaviors_to_write)}")
+            logger.info(f"Batch {stats.batch_id} - Created a total of {len(events)} event(s)")
 
             self.write_behaviors(batch.behaviors_to_write)
+            self.write_events(events)
 
     def process_chunk_embeddings(self, video_embeddings: list[nvSchema.VisionLLM], stats: BatchStats) -> None:
         """
