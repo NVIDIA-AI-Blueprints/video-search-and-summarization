@@ -32,6 +32,10 @@
 				"value": "mdx-incidents"
 			},
 			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
 				"name": "embed",
 				"value": "mdx-embed"
 			},
