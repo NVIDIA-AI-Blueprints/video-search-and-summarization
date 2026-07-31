@@ -381,16 +381,19 @@ async def test_docker_logs_success(tmp_path: Path):
         completed = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout="stdout line\n",
-            stderr="stderr line\n",
+            stdout="stdout line\nstderr line\n",
+            stderr=None,
         )
 
-        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
+        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed) as to_thread:
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="vss-agent"))
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["logs"] == "stdout line\nstderr line\n"
     assert result["logs_truncated"] is False
-    assert result["stderr_included"] is True
+    assert result["streams_merged"] is True
+    assert to_thread.call_args.kwargs["stdout"] is subprocess.PIPE
+    assert to_thread.call_args.kwargs["stderr"] is subprocess.STDOUT
+    assert "capture_output" not in to_thread.call_args.kwargs
 
 
 @pytest.mark.asyncio
@@ -409,7 +412,12 @@ async def test_docker_logs_truncates_large_output(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_docker_logs_failure(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="No such container")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="No such container",
+            stderr=None,
+        )
 
         with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="missing"))

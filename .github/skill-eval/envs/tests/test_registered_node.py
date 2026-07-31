@@ -848,7 +848,10 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             'repo_mdx="$HOME/video-search-and-summarization/.mdx_data"',
             command,
         )
-        self.assertIn('sudo find "$repo_mdx" -mindepth 1 -delete', command)
+        self.assertIn("for sub in data_log agent_eval videos nvstreamer", command)
+        self.assertIn('d="$repo_mdx/$sub"', command)
+        self.assertNotIn('find "$repo_mdx" -mindepth 1 -delete', command)
+        self.assertIn("Preserve models/", command)
 
     async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
         calls = []
@@ -2629,7 +2632,9 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("sudo rm -rf \"$stale_path\"", command)
         self.assertIn("git clean failed; repairing checkout ownership", command)
         self.assertIn("-path \"$REPO/data\" -prune", command)
+        self.assertIn("-path \"$REPO/.mdx_data/models\" -prune", command)
         self.assertEqual(command.count("-e /.env"), 3)
+        self.assertEqual(command.count("-e /.mdx_data/models/"), 3)
         self.assertNotIn("-e .env", command)
         self.assertIn("Nested dotenv files must be removed", command)
 

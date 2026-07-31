@@ -965,11 +965,16 @@ fi
 purged=""
 repo_mdx="$HOME/video-search-and-summarization/.mdx_data"
 if [ -d "$repo_mdx" ]; then
-  sudo find "$repo_mdx" -mindepth 1 -delete || {
-    echo "failed to purge $repo_mdx" >&2
-    exit 1
-  }
-  purged="$purged $repo_mdx"
+  # Preserve models/: it is the orchestrator's persistent NGC artifact cache.
+  for sub in data_log agent_eval videos nvstreamer; do
+    d="$repo_mdx/$sub"
+    [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete || {
+      echo "failed to purge $d" >&2
+      exit 1
+    }
+    purged="$purged $d"
+  done
 fi
 for root in /opt/vss-data "$HOME"/vss-data; do
   [ -d "$root" ] || continue
@@ -1678,11 +1683,12 @@ fi
         - **Existing git checkout** — `git remote set-url` (handles
           cross-fork PRs) + `git fetch <PR_HEAD_SHA>` + hard reset.
 
-        Preserves `data/` (NGC sample bundle) and the repository-root
-        `.env` (active trial overrides) on `git clean`. Nested dotenv
-        files are deliberately removed so a prior trial cannot change
-        service runtime settings. Fails loud — `set -euo pipefail` so any
-        sync error short-circuits start() before the agent runs.
+        Preserves `data/` (NGC sample bundle), `.mdx_data/models/`
+        (orchestrator NGC artifact cache), and the repository-root `.env`
+        (active trial overrides) on `git clean`. Nested dotenv files are
+        deliberately removed so a prior trial cannot change service runtime
+        settings. Fails loud — `set -euo pipefail` so any sync error
+        short-circuits start() before the agent runs.
         """
         # PR_HEAD_SHA + PR_REPO come from the workflow step's env. Inject
         # them into this remote command directly instead of relying on
@@ -1714,8 +1720,8 @@ else
   git reset --hard FETCH_HEAD
 fi
 # Drop leftover working-tree state from a prior trial, but keep data/
-# (sample-data extract — slow to re-pull from NGC) and root .env tweaks
-# the active trial may have placed. Nested dotenv files must be removed:
+# (sample-data extract), .mdx_data/models/ (orchestrator NGC artifacts),
+# and root .env tweaks the active trial may have placed. Nested dotenv files must be removed:
 # services such as the orchestrator load them from their working directory.
 # Some VSS services write root-owned bind-mount content under the checkout,
 # so remove known deployment output dirs with sudo before falling back to
@@ -1725,14 +1731,16 @@ for stale_path in "$REPO/deployments" "$REPO/deploy/docker/data-dir"; do
     sudo rm -rf "$stale_path" || true
   fi
 done
-if ! git clean -fdx -e data/ -e /.env; then
+if ! git clean -fdx -e data/ -e /.env -e /.mdx_data/models/; then
   echo "git clean failed; repairing checkout ownership and retrying" >&2
   sudo find "$REPO" \
     -path "$REPO/.git" -prune -o \
     -path "$REPO/data" -prune -o \
+    -path "$REPO/.mdx_data/models" -prune -o \
     -path "$REPO/.env" -prune -o \
     -exec chown -h "$(id -u):$(id -g)" {{}} + || true
-  git clean -fdx -e data/ -e /.env 2>/dev/null || sudo git clean -fdx -e data/ -e /.env
+  git clean -fdx -e data/ -e /.env -e /.mdx_data/models/ 2>/dev/null || \
+    sudo git clean -fdx -e data/ -e /.env -e /.mdx_data/models/
 fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """

@@ -9749,6 +9749,7 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn("shared placement on GPU 0", prompt)
             self.assertIn("Never request GPU 1", prompt)
             self.assertIn("git clean -fdx -e data/ -e /.env", solve_script)
+            self.assertIn("-e /.mdx_data/models/", solve_script)
             self.assertNotIn("git clean -fdx -e data/ -e .env", solve_script)
 
     def test_nemoclaw_prompt_bounds_multi_gpu_device_ids(self):

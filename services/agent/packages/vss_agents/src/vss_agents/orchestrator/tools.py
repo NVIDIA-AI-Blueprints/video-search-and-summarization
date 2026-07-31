@@ -1441,21 +1441,18 @@ async def vss_orchestrator(
                 subprocess.run,
                 ["docker", "logs", "--tail", str(input.tail), "--", input.container_name],
                 cwd=str(deployments_dir),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
             )
+            raw_logs = result.stdout or ""
             if result.returncode != 0:
                 return {
                     "status": ComposeStatus.ERROR.value,
                     "container_name": input.container_name,
                     "tail": input.tail,
-                    "error": result.stderr.strip() or "Failed to fetch container logs.",
+                    "error": raw_logs.strip() or "Failed to fetch container logs.",
                 }
-            raw_logs = result.stdout
-            if result.stderr:
-                if raw_logs and not raw_logs.endswith("\n"):
-                    raw_logs += "\n"
-                raw_logs += result.stderr
             logs = _truncate_text_to_max_bytes(raw_logs, max_bytes=_MAX_DOCKER_LOG_RESPONSE_BYTES)
             return {
                 "status": ComposeStatus.SUCCESS.value,
@@ -1463,7 +1460,7 @@ async def vss_orchestrator(
                 "tail": input.tail,
                 "logs": logs,
                 "logs_truncated": logs != raw_logs,
-                "stderr_included": bool(result.stderr),
+                "streams_merged": True,
                 "log_bytes": len(logs.encode("utf-8")),
             }
 
