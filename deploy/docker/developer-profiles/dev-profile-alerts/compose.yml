@@ -14,7 +14,6 @@
 # limitations under the License.
 
 services:
-
   vss-behavior-analytics-alerts:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
@@ -92,10 +91,10 @@ services:
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
       - $VSS_APPS_DIR/engines/:/opt/engines/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.json:/opt/config/models-download.json:ro
 
     environment:
-      MODEL_TYPE: ${MODEL_TYPE}
       STREAM_TYPE: ${STREAM_TYPE}
       MODEL_NAME_2D: ${MODEL_NAME_2D}
       NUM_SENSORS: ${NUM_SENSORS}
@@ -103,6 +102,8 @@ services:
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "true"
       DS_CONFIG_FILE: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/run_config-api-rtdetr-protobuf.txt
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
       kafka-topic-init-container:
         condition: service_completed_successfully

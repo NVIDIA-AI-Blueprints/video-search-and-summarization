@@ -99,42 +99,7 @@ spec:
             - name: models
               mountPath: /opt/storage
         {{- end }}
-        {{- if .Values.downloadModelsFromNgc }}
-        - name: wait-for-models
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - /bin/bash
-            - -c
-            - |
-              set -e
-              MODELS_ROOT="/models-data"
-              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
-              ELAPSED=0
-              while true; do
-                READY=true
-                {{- range .Values.ngcModelsToDownload }}
-                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
-                  READY=false
-                fi
-                {{- end }}
-                if [[ "${READY}" == "true" ]]; then
-                  break
-                fi
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
-                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
-                  exit 1
-                fi
-                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
-                sleep 15
-                ELAPSED=$((ELAPSED + 15))
-              done
-              echo "[INFO] Model files present, proceeding."
-          volumeMounts:
-            - name: models
-              mountPath: /models-data
-        {{- end }}
-        {{- if eq ($sw.streamType | default "none") "kafka" }}
+                {{- if eq ($sw.streamType | default "none") "kafka" }}
         - name: wait-for-kafka
           image: docker.io/library/busybox:1.37.0
           command:
@@ -161,9 +126,9 @@ spec:
             - sh
             - -c
             - |
-              mkdir -p /opt/storage/trt-cache
-              chmod 777 /opt/storage/trt-cache
-              echo "[INFO] TensorRT engine cache dir ready."
+              mkdir -p /opt/storage/trt-cache /opt/storage/sparse4d
+              chmod 777 /opt/storage/trt-cache /opt/storage/sparse4d
+              echo "[INFO] TensorRT engine directories ready."
           volumeMounts:
             - name: models
               mountPath: /opt/storage
@@ -171,11 +136,12 @@ spec:
         - name: vss-rtvi-cv
           image: {{ include "vss-rtvi-cv.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
           workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
           command:
             - bash
-            - -c
-            - ./ds-start.sh
+            - /startup-script/ds-start.sh
           {{- if .Values.httpPort }}
           ports:
             - name: http
@@ -231,7 +197,7 @@ spec:
             - name: SPARSE4D_CONFIG_PATH
               value: "/opt/data/ds-configurator/"
             - name: SPARSE4D_ENGINE_PATH
-              value: "/opt/storage/"
+              value: "/opt/storage/sparse4d/"
             - name: CUDA_MPS_PIPE_DIRECTORY
               value: "/tmp/nvidia-mps-via/"
             - name: CUSTOM_LIB_PATH
@@ -248,14 +214,35 @@ spec:
             - name: HARDWARE_PROFILE
               value: {{ $sw.hardwareProfile | quote }}
             {{- end }}
+            {{- if .Values.downloadModelsFromNgc }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | quote }}
+                  key: {{ .Values.ngcApiKeySecretKey | quote }}
+            - name: MODELS_MANIFEST_PATH
+              value: "/startup-script/models-download.json"
+            - name: MODELS_DEST_ROOT
+              value: "/opt/storage"
+            - name: STORAGE_UID
+              value: {{ (.Values.ngcDownload.storageUid | default 1001) | quote }}
+            - name: STORAGE_GID
+              value: {{ (.Values.ngcDownload.storageGid | default 1001) | quote }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "auto"
+            - name: DOWNLOAD_MODELS_SCRIPT
+              value: "/startup-script/download-models.sh"
+            {{- else }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "never"
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: models
               mountPath: /opt/storage
-            - name: wh-start
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
-              subPath: ds-start.sh
+            - name: startup-script
+              mountPath: /startup-script
               readOnly: true
             - name: wh-cal
               mountPath: /opt/data/ds-configurator/calibration.json
@@ -264,6 +251,10 @@ spec:
             - name: wh3d-labels
               mountPath: /opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
               subPath: labels.txt
+              readOnly: true
+            - name: wh3d-labels
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy
+              subPath: _ov_kmeans900_v2.2.npy
               readOnly: true
             - name: wh3d-cfg
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config-ocr.yaml
@@ -309,13 +300,10 @@ spec:
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
-        - name: wh-start
+        - name: startup-script
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-ds-start
             defaultMode: 493
-            items:
-              - key: ds-start.sh
-                path: ds-start.sh
         - name: wh-cal
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d-calibration
@@ -330,6 +318,8 @@ spec:
             items:
               - key: labels.txt
                 path: labels.txt
+              - key: _ov_kmeans900_v2.2.npy
+                path: _ov_kmeans900_v2.2.npy
         - name: wh3d-cfg
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d
