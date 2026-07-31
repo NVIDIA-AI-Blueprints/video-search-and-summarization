@@ -272,7 +272,7 @@ timeout 20s ./scripts/kafka-dump.sh --bootstrap "${KAFKA_BOOTSTRAP_EFFECTIVE}" -
 
 ## RTSP Stream Set And FPS
 
-For live RTSP deployment, success requires exact stream registration and recent non-zero FPS for every expected source.
+For live RTSP deployment, success requires exact stream registration and recent non-zero FPS for every expected source. `STREAM_ADD_SUCCESS` and `stream-count` only prove REST registration; they do not prove DeepStream is processing frames. If the stream set is correct but `Active sources : 0`, FPS is zero, or Kafka offsets do not grow after bounded checks, return to `configure-cameras.md` and use the generic static RTSP `[source-list]` fallback with the same `sensor_id=rtsp://...` mappings, then rerun this verification.
 
 ```bash
 cd "${RTCV3D_APP}"
