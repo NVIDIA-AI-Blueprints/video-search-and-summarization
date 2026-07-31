@@ -211,3 +211,57 @@ def test_equality_comparison():
 
     assert traj1 == traj2  # Same points and timing
     assert traj1 != traj3  # Different IDs
+
+
+class TestCalibrationTypeUnits:
+    """
+    Speed units must follow the coordinate system, not the class.
+
+    CalibrationI produces raw pixel coordinates -- bbox centre, explicitly without perspective
+    correction -- so an image-space rate is pixels per second. Applying the m/s to mph factor to it
+    yields a meaningless number, which is what happened before ``speed`` and ``speed_over_time``
+    were gated the way ``bearing`` already was.
+    """
+
+    def _trajectory(self, calibration_type):
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        points = [Coordinate(x=100.0, y=200.0, z=0.0), Coordinate(x=200.0, y=200.0, z=0.0)]
+        start = datetime(2025, 3, 1, 12, 0, 0)
+        kwargs = dict(
+            id="t", start=start, end=start + timedelta(seconds=2), points=points,
+            smooth_min_points=3, smooth_window_size=3, distance_stride=1, speed_segment_size=3,
+        )
+        return TrajectoryE(**kwargs, calibration_type=calibration_type) if calibration_type else kwargs
+
+    def test_image_speed_is_pixels_per_second(self):
+        """100 px covered in 2 s reads as 50, not 50 scaled by an m/s constant."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        assert self._trajectory(CalibrationType.IMAGE).speed == pytest.approx(50.0)
+
+    def test_cartesian_speed_still_converts_to_mph(self):
+        """Metric coordinates keep the m/s to mph conversion."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        from mdx.analytics.core.utils.distance_util import MPS_TO_MPH
+        assert self._trajectory(CalibrationType.CARTESIAN).speed == pytest.approx(50.0 * MPS_TO_MPH)
+
+    def test_image_matches_the_base_class(self):
+        """In image coordinates TrajectoryE must agree with TrajectoryBase on every override."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        from mdx.analytics.core.schema.trajectory.trajectory_i import TrajectoryI
+
+        kwargs = self._trajectory(None)
+        image = TrajectoryE(**kwargs, calibration_type=CalibrationType.IMAGE)
+        base = TrajectoryI(**kwargs)
+
+        assert image.speed == base.speed
+        assert image.speed_over_time == base.speed_over_time
+        assert image.bearing == base.bearing
+
+    def test_geographic_coordinates_are_rejected_by_every_override(self):
+        """Geo belongs to Trajectory; TrajectoryE refuses it consistently rather than only in bearing."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        geo = self._trajectory(CalibrationType.GEO)
+
+        for attribute in ("speed", "speed_over_time", "bearing"):
+            with pytest.raises(ValueError, match="does not support geographic"):
+                getattr(geo, attribute)
