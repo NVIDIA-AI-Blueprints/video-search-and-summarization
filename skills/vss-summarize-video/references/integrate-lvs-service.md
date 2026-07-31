@@ -126,7 +126,7 @@ jq -e '.choices[0].message.content | length > 0'
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `LVS_BACKEND_URL` | Host-facing LVS API URL used by operators and agents | `http://${HOST_IP}:38111` | Yes |
-| `LVS_IMAGE` | LVS image repository | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Yes |
+| `LVS_IMAGE` | LVS image repository | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | Yes |
 | `LVS_TAG` | LVS image tag | release-specific tag | Yes |
 | `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `false` | No |
 | `LVS_DATABASE_BACKEND` | Active database backend | `elasticsearch_db` | Yes |

@@ -222,9 +222,11 @@ class TestHappyPath:
 class TestMessagesMissingTimeFields:
     """A message without ``timestamp``/``end`` must not crash the pipeline.
 
-    The VST call reads both keys unguarded, so the KeyError has to be absorbed
-    and turned into a media-collection failure — this is the outcome the
-    service depends on, and it was previously only reached implicitly.
+    The VST call reads both keys unguarded, so ``_prepare_message_context``
+    rejects such a message before any prompt lookup or VST call rather than
+    letting a ``KeyError`` surface from ``_resolve_video_url``. The event is
+    dropped and counted as ``malformed_message``: it never reached a verdict,
+    so nothing is published to the sink.
     """
 
     @pytest.mark.asyncio
@@ -235,22 +237,22 @@ class TestMessagesMissingTimeFields:
 
         await run(pipeline, message)
 
-        assert error_published(sink)
+        assert not error_published(sink)
         assert not success_published(sink)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("missing", ["timestamp", "end"])
-    async def test_a_missing_time_field_is_reported_as_a_media_failure(
+    async def test_a_missing_time_field_is_recorded_as_malformed(
         self, pipeline, sink, missing
     ):
         message = dict(MESSAGE)
         del message[missing]
 
-        await run(pipeline, message)
+        with patch("handlers.event_loop_pipeline_mixin.record_event_complete") as record:
+            await run(pipeline, message)
 
-        info = published_document(sink)["info"]
-        assert str(info["verificationResponseCode"]) == "404"
-        assert "No video recording found" in info["verificationResponseStatus"]
+        assert record.call_args.kwargs["failure_reason"] == "malformed_message"
+        pipeline._vst_handler.get_video_stream_url_async.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_message_with_neither_time_field_does_not_raise(self, pipeline, sink):
@@ -258,7 +260,8 @@ class TestMessagesMissingTimeFields:
 
         await run(pipeline, message)
 
-        assert error_published(sink)
+        assert not error_published(sink)
+        assert not success_published(sink)
 
     @pytest.mark.asyncio
     async def test_the_vlm_is_never_called_without_a_video(self, pipeline):

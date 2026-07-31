@@ -223,13 +223,23 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      # For multi-arch: 3.3.0-26.07.1
-      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.1
-      tag: 3.3.0-26.07.1
+      # For multi-arch: 3.3.0-26.07.2
+      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
+      tag: 3.3.0-26.07.2
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
-    modelType: cnn
+    env:
+      DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_CONFIG_FILE: ds-main-config.txt
+      DS_VISION_ENCODER: "true"
+      DS_TRACKER_REID: "true"
+      DS_SHOW_SENSOR_ID: "false"
+      DS_MODE_FLAG: "1"
+      DS_MESSAGE_RATE: "1"
+      VISION_ENCODER_MODEL: siglip_v2
+      VISION_ENCODER_VERSION: v1.1
+      STREAM_TYPE: kafka
     otelSdkDisabled: 'true'
     otelServiceName: rtvi-cv
     downloadModelsFromNgc: true
@@ -251,15 +261,19 @@ rtvi:
     # here to match models.visionEncoder.model / .version when swapping encoders.
     ngcModelsToDownload:
       - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
         destPath: siglip_v2_v1.1.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
         destPath: siglip_v2_v1.1_weights.bin
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
         destPath: siglip_v2_v1.1_tokenizer
     models:
@@ -382,7 +396,7 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
-    modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+    modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
     sharedNimPort: "8000"
     waitForKafka:
       enabled: false
@@ -446,6 +460,10 @@ rtvi:
         value: "60"
       - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
         value: "10"
+      # Intentionally empty: under K8s each rtvi-vlm pod holds a dedicated GPU
+      # (nvidia.com/gpu: 1 in services/rtvi/charts/rtvi-vlm), so vLLM's own
+      # default applies. Docker's 0.4 compensates for sharing device 0 with
+      # RT-CV in local_shared mode, which has no Kubernetes equivalent.
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
       - name: VLM_BATCH_SIZE
@@ -566,7 +584,7 @@ agent:
     # The VLM is served by rtvi-vlm (see rtvi.vss-rtvi-vlm) for both the critic and
     # video_understanding. Model id must match the rtvi-vlm /v1/models advertisement,
     # not the cosmos3-reasoner NIM id.
-    vlmName: nim_nvidia_cosmos3-nano-reasoner_bf16-final
+    vlmName: nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix
     # Search routes VLM calls (critic and video_understanding) through vss-rtvi-vlm.
     # rtviVlmServiceName feeds the RTVI_VLM_BASE_URL env below; leave rtviVlmBaseUrl empty
     # to use the in-cluster service.
@@ -689,7 +707,7 @@ agent:
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_bf16-final") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix") }}'
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
@@ -888,6 +906,7 @@ nims:
     replicas: 1
     nimModelSize: 'nano'
     # Empty so the NIM uses its built-in manifest; BF16 pinned via nimModelProfile.
+    # This standalone path stays BF16 while rtvi.vss-rtvi-vlm defaults to the FP8 checkpoint.
     nimModelName: ''
     nimModelProfile: 'e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3'
     resources:

@@ -181,6 +181,7 @@ services:
       AI_BRIDGE_ENDPOINT: ${AI_BRIDGE_ENDPOINT}
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false
+      SEND_CONFIG_TO_SDR: false
     env_file:
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
@@ -190,11 +191,6 @@ services:
       - |
         import os
         import sys
-
-        os.environ["SEND_CONFIG_TO_SDR"] = (
-            os.environ.get("SEND_CONFIG_TO_SDR")
-            or ("false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true")
-        )
         os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
@@ -225,7 +221,8 @@ services:
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
-      - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/models-download.json:/opt/config/models-download.json:ro
+      - $VSS_DATA_DIR/models/:/opt/storage/
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0
@@ -234,6 +231,8 @@ services:
       DS_MODE_FLAG: "1"
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "false"
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
       sdr-controller:
         condition: service_started
