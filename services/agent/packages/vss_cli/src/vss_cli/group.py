@@ -32,12 +32,14 @@ from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
 from dataclasses import field as dc_field
+import inspect
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 from typing import final
 
 import click
+from pydantic import ValidationError
 
 from . import config as config_mod
 from . import params as params_mod
@@ -60,6 +62,13 @@ class Action:
     name: str
     summary: str
     Input: type[BaseModel]
+    #: Services this path actually calls. Declared per action, not per group,
+    #: because a group's paths rarely need the same backends -- an embedding
+    #: search never contacts the CV service, so demanding it would make an
+    #: otherwise-usable deployment refuse a search it could serve. The
+    #: framework checks these before dispatch so every group reports a missing
+    #: backend the same way.
+    requires: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -78,6 +87,11 @@ class Context:
     #: Memory tier, once it exists. Until then ``status``/``get``/``list``
     #: have nothing to read and say so plainly (exit 4).
     memory: Any = None
+    #: Values from :attr:`CommandGroup.extra_params` -- flags a group declares
+    #: outside its input model. Kept separate from the request so a group can
+    #: route them wherever they belong (runtime config, transport, ...) rather
+    #: than having them silently folded into the payload.
+    extra: dict[str, Any] = dc_field(default_factory=dict)
 
 
 @dataclass
@@ -89,6 +103,52 @@ class Result:
     #: Populated once jobs are minted; feeds the completion marker (§7.2).
     job_id: str = ""
     extra: dict[str, Any] = dc_field(default_factory=dict)
+
+
+class InvalidInput(click.ClickException):
+    """A payload the action's input model rejected (exit 2).
+
+    Carries the ``[vss] invalid input:`` prefix so a harness can distinguish a
+    malformed call from a backend failure without parsing pydantic's output.
+    """
+
+    exit_code = int(Exit.INVALID_INPUT)
+
+    def format_message(self) -> str:
+        return f"[vss] invalid input: {self.message}"
+
+
+def _format_validation(exc: ValidationError) -> str:
+    """Render pydantic errors as ``field: reason``, comma-separated."""
+    parts = []
+    for error in exc.errors():
+        location = ".".join(str(piece) for piece in error["loc"]) or "(payload)"
+        parts.append(f"{location}: {error['msg']}")
+    return "; ".join(parts)
+
+
+def _require_services(action: Action, ctx: Context) -> None:
+    """Fail before dispatch when the deployment lacks a service the action calls.
+
+    Checked here rather than inside each group so the diagnostic is uniform,
+    and checked per action so a deployment missing one optional service still
+    serves the paths that never touch it.
+    """
+    if not action.requires:
+        return
+    if ctx.deployment is None:
+        raise config_mod.ConfigError(
+            f"no deployment configured, and `{action.name}` needs "
+            f"{', '.join(sorted(action.requires))}. Run `vss configure --base-url <origin>` first."
+        )
+    missing = sorted(name for name in action.requires if not ctx.deployment.has(name))
+    if missing:
+        known = ", ".join(sorted(ctx.deployment.services)) or "(none)"
+        raise config_mod.ConfigError(
+            f"`{action.name}` needs {', '.join(missing)}, which the deployment at "
+            f"{ctx.deployment.base_url} does not expose; it has: {known}. "
+            f"Re-run `vss configure --base-url {ctx.deployment.base_url}` if the deployment changed."
+        )
 
 
 class MemoryUnavailable(click.ClickException):
@@ -201,12 +261,30 @@ class CommandGroup(ABC):
         owner = self
         model = action.Input
 
+        extra_names = {p.name for p in owner.extra_params if p.name}
+
         def callback(**values: Any) -> None:
             ctx = _context_from(values)
+            ctx.extra = {k: v for k, v in values.items() if k in extra_names and v is not None and v != ()}
             supplied = params_mod.collect(model, values)
             payload = _merge_json_payload(values.get("json_payload"), supplied)
-            inputs = model(**payload)
-            _emit(owner.run(action.name if owner.actions else "", inputs, ctx), ctx)
+            try:
+                inputs = model(**payload)
+            except ValidationError as exc:
+                # Input the model rejects is the caller's error, not a crash:
+                # report it as exit 2 with the offending fields named, rather
+                # than letting a pydantic traceback out as a generic exit 1.
+                raise InvalidInput(_format_validation(exc)) from exc
+            _require_services(action, ctx)
+            try:
+                result = owner.run(action.name if owner.actions else "", inputs, ctx)
+            except ValidationError as exc:
+                # A group's input model is a CLI-shaped subset of whatever the
+                # library accepts, so the library can still reject a value that
+                # passed here (a timestamp typed as a string, say). That is
+                # equally the caller's error and gets the same exit 2.
+                raise InvalidInput(_format_validation(exc)) from exc
+            _emit(result, ctx)
 
         return click.Command(
             name=action.name,
@@ -217,6 +295,10 @@ class CommandGroup(ABC):
             ],
             callback=callback,
             short_help=action.summary,
+            # The input model's docstring is the long help. Keeping the two
+            # together means the description of what a path does lives beside
+            # the fields it accepts, rather than drifting from them.
+            help=inspect.cleandoc(model.__doc__ or action.summary),
         )
 
     def _handle_command(self, verb: str, fn: Any) -> click.Command:

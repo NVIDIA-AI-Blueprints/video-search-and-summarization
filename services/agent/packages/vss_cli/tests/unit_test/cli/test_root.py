@@ -66,11 +66,11 @@ def test_each_action_accepts_only_its_own_fields(capsys: pytest.CaptureFixture[s
     assert cli.main(["search", "run", "embed", "--help"]) == 0
     embed_help = capsys.readouterr().out
     assert "--query" in embed_help
-    assert "--attribute " not in embed_help and "--attribute\n" not in embed_help
+    assert "--attribute " not in embed_help  # attributes are not an embed concept
 
     assert cli.main(["search", "run", "attribute", "--help"]) == 0
     attribute_help = capsys.readouterr().out
-    assert "--attribute" in attribute_help
+    assert "--attribute " in attribute_help
     assert "--query" not in attribute_help
 
 

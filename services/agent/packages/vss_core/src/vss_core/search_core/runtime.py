@@ -263,6 +263,12 @@ class SearchRuntime:
     rrf_w: float = 0.5
     top_percent_filter: float | None = None
     request_timeout_seconds: int = 30
+    #: Merge contiguous same-sensor chunks into one result. A 5s window that
+    #: matches usually has neighbours that also match; merging reports one
+    #: event rather than several fragments of it. Disable to see the raw
+    #: retrieval chunks -- which is what the agent's search tools return, so
+    #: this is the knob that makes the two paths comparable.
+    merge_adjacent: bool = True
 
     @property
     def raw_index(self) -> str | None:

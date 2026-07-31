@@ -103,10 +103,15 @@ def option_for(name: str, field: FieldInfo) -> click.Option | None:
     click_type, multiple = _click_type(field.annotation, field)
     inner, _ = _unwrap_optional(field.annotation)
 
-    # Tri-state booleans become a --x/--no-x pair so "unset" stays
-    # distinguishable from "explicitly false"; the runtime needs that to know
-    # whether to fall back to the configured default.
     if inner is bool:
+        # A flag whose declared name already reads as a negation ("--no-x")
+        # becomes a single switch: the field defaults to on, so the positive
+        # spelling would never change anything and is dead surface.
+        if flag.startswith("--no-"):
+            return click.Option([flag, name], is_flag=True, default=False, help=field.description or "")
+        # Otherwise a --x/--no-x pair, so "unset" stays distinguishable from
+        # "explicitly false" -- which matters only when something else (a
+        # config file, a deployment default) can supply the value.
         negative = flag.replace("--", "--no-", 1)
         return click.Option(
             [f"{flag}/{negative}", name],

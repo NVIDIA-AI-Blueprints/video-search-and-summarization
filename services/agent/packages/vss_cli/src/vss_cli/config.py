@@ -119,6 +119,21 @@ class Deployment:
     #: config sends someone chasing a connection error.
     written_at: str = ""
 
+    def has(self, name: str) -> bool:
+        """Whether the deployment exposes a usable URL for ``name``."""
+        service = self.services.get(name)
+        return bool(service and service.url)
+
+    def endpoint_or_none(self, name: str) -> str | None:
+        """Resolve a service's URL, or None when it is not exposed.
+
+        For services an action can do without -- a search still returns hits
+        when VST is absent, it just cannot mint media links. Callers that
+        genuinely require a service use :meth:`endpoint`.
+        """
+        service = self.services.get(name)
+        return service.url if service and service.url else None
+
     def endpoint(self, name: str) -> str:
         """Resolve one service's URL, or raise with something actionable."""
         service = self.services.get(name)

@@ -101,6 +101,7 @@ class SearchConfig(Protocol):
 
     default_max_results: int
     embed_confidence_threshold: float
+    merge_adjacent: bool = True
     fusion_method: str
     w_attribute: float
     w_embed: float
@@ -692,7 +693,8 @@ async def execute_core_search(
         # Percentage-based filtering
         search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
 
-        search_results = _fusion.merge_consecutive_results(search_results)
+        if getattr(config, "merge_adjacent", True):
+            search_results = _fusion.merge_consecutive_results(search_results)
 
     result_count = len(search_results)
     yield AgentMessageChunk(

@@ -33,6 +33,7 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
+from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.errors import LibraryError
 
 from .._internal.embed_translation import params_to_embed_input
@@ -68,6 +69,29 @@ class _SupportsRun(Protocol):
     """
 
     async def run(self, inp: Any) -> Any: ...
+
+
+class _AttributeSearchUnavailable:
+    """Stands in for the attribute leg when no RT-CV endpoint is configured.
+
+    ``Search`` composes an embedding leg and an attribute leg, but only some of
+    its modes use the latter. Building the real ``AttributeSearch`` eagerly
+    made every mode require RT-CV, so a deployment running embeddings without
+    the CV service could not run an embedding search at all. This satisfies the
+    same one-method surface and fails only if a mode actually invokes it.
+    """
+
+    def __init__(self, detail: str = "rtvi_cv_endpoint is not configured") -> None:
+        self._detail = detail
+
+    async def run(self, inp: Any) -> Any:  # noqa: ARG002 - signature is the _SupportsRun contract
+        raise ConfigurationError(
+            f"attribute search is unavailable: {self._detail}. "
+            f"Only search_mode='embed' works without an RT-CV endpoint."
+        )
+
+    async def aclose(self) -> None:
+        return None
 
 
 class _PrimitiveAdapter:
@@ -150,9 +174,16 @@ def _wrap_embed(primitive: EmbedSearch) -> _PrimitiveAdapter:
     return _PrimitiveAdapter(primitive, _coerce_embed_payload)
 
 
-def _wrap_attribute(primitive: AttributeSearch) -> _PrimitiveAdapter:
+def _wrap_attribute(primitive: AttributeSearch | _AttributeSearchUnavailable) -> _PrimitiveAdapter:
     # Orchestrator expects a bare list of AttributeSearchResult, not the envelope.
     return _PrimitiveAdapter(primitive, _coerce_attribute_payload, unwrap_output=lambda out: out.results)
+
+
+def _attribute_leg(rt: SearchRuntime) -> AttributeSearch | _AttributeSearchUnavailable:
+    """The attribute leg, or a stand-in when the runtime has no RT-CV endpoint."""
+    if not (rt.rtvi_cv_endpoint or "").strip():
+        return _AttributeSearchUnavailable()
+    return AttributeSearch.from_runtime(rt)
 
 
 class Search:
@@ -169,7 +200,7 @@ class Search:
         self,
         *,
         embed: EmbedSearch,
-        attribute: AttributeSearch,
+        attribute: AttributeSearch | _AttributeSearchUnavailable,
         behavior_es: ElasticIndex,
         behavior_index: str,
         behavior_index_wildcard: str = "mdx-behavior-*",
@@ -180,6 +211,7 @@ class Search:
         rrf_w: float = 0.5,
         top_percent_filter: float | None = None,
         embed_confidence_threshold: float = 0.1,
+        merge_adjacent: bool = True,
         default_max_results: int = 10,
         # VST URLs are needed by execute_core_search via its config object
         vst_internal_url: str = "",
@@ -206,6 +238,7 @@ class Search:
         self._config = SimpleNamespace(
             attribute_search_tool="attribute_search",
             embed_confidence_threshold=embed_confidence_threshold,
+            merge_adjacent=merge_adjacent,
             default_max_results=default_max_results,
             fusion_method=fusion_method,
             w_attribute=w_attribute,
@@ -290,7 +323,7 @@ class Search:
 
         return cls(
             embed=embed if embed is not None else EmbedSearch.from_runtime(rt),
-            attribute=attribute if attribute is not None else AttributeSearch.from_runtime(rt),
+            attribute=attribute if attribute is not None else _attribute_leg(rt),
             behavior_es=behavior_es_obj,
             behavior_index=rt.behavior_index,
             behavior_index_wildcard=rt.behavior_index_wildcard,
@@ -301,6 +334,7 @@ class Search:
             rrf_w=rt.rrf_w,
             top_percent_filter=rt.top_percent_filter,
             embed_confidence_threshold=rt.embed_confidence_threshold,
+            merge_adjacent=rt.merge_adjacent,
             default_max_results=rt.default_max_results,
             vst_internal_url=rt.require("vst_internal_url"),
             vst_external_url=rt.require("vst_external_url"),

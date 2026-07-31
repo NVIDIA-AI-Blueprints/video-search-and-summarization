@@ -75,7 +75,21 @@ class _Common(BaseModel):
 
 
 class EmbedInput(_Common):
-    """`vss search run embed` -- embedding similarity only."""
+    """Semantic similarity against video-chunk embeddings.
+
+    The query text is embedded by RT-Embed (the deployment's cosmos-embed
+    model, whichever `vss configure` recorded) and matched by cosine
+    similarity against the per-chunk vectors in `mdx-embed-filtered-*`. Those
+    vectors were produced at ingest time from the video frames themselves, so
+    this finds footage that *looks like* the description.
+
+    It cannot filter on detections: object classes, colours and other
+    attributes live in a different index and are not part of the embedding.
+    Use `attribute` for those, or `fusion` to rank embedding hits by them.
+
+    Contiguous matching windows are merged into one result by default; pass
+    --no-merge-adjacent for the raw chunks.
+    """
 
     query: str = Field(..., description="Text to embed and match against video embeddings.")
     description: str | None = Field(None, description="Free-text description accompanying the query.")
@@ -85,7 +99,18 @@ class EmbedInput(_Common):
 
 
 class AttributeInput(_Common):
-    """`vss search run attribute` -- attribute filtering only."""
+    """Structured match against detected-object attributes.
+
+    Queries `mdx-behavior-*`, the documents RT-CV writes for every object it
+    detects and tracks (class, colour, and other extracted attributes), and
+    optionally `mdx-raw-*` for frame-level lookups. No embeddings are involved
+    and nothing is embedded at query time.
+
+    This is the right path when the thing you are looking for is a property a
+    detector reports ("white jacket", "forklift") rather than a scene you
+    would describe in prose. It will not find anything the CV pipeline did not
+    detect, however well it matches the words.
+    """
 
     attributes: list[str] = Field(
         ...,
@@ -95,7 +120,33 @@ class AttributeInput(_Common):
 
 
 class FusionInput(_Common):
-    """`vss search run fusion` -- both legs, fused."""
+    """Embedding retrieval, re-ranked by attribute evidence.
+
+    The two legs are NOT symmetric, and this is the thing to understand
+    before using it: the embedding leg decides *which* results exist, and the
+    attribute leg only decides how they are *ordered*.
+
+    \b
+    1. --query is embedded and matched against `mdx-embed-filtered-*`,
+       producing the candidate set (identical to `run embed`).
+    2. For each candidate, `mdx-behavior-*` is queried for the --attribute
+       terms within that candidate's sensor and time window. Per-candidate
+       attribute scores are summed, then normalised by how many attributes
+       were supplied.
+    3. The two scores are combined by --fusion-method:
+         rrf (default)            1/(embed_rank + rrf_k) + rrf_w * attr_score
+         weighted_linear          w_embed * embed_score + w_attribute * attr_score
+         rrf_with_attribute_rank  as rrf, but ranked on the attribute side
+
+    Consequence: an object matching every attribute is unreachable if the
+    embedding leg did not surface its window. Attributes cannot add results,
+    only reorder them. If you want attribute matches regardless of visual
+    similarity, use `run attribute`.
+
+    Fallback: when the best embed score is below --embed-confidence-threshold
+    the embedding leg is judged uninformative and the search degrades to
+    attribute-only.
+    """
 
     query: str = Field(..., description="Visual query for the embedding leg.")
     description: str | None = Field(None, description="Free-text description accompanying the query.")
@@ -110,7 +161,14 @@ class FusionInput(_Common):
 
 
 class ObjectInput(_Common):
-    """`vss search run object` -- retrieval by tracked object id."""
+    """Retrieve every window containing specific tracked objects.
+
+    Looks up the given object ids -- the tracker-assigned identities carried
+    in `mdx-behavior-*` -- and returns their windows directly. No text is
+    embedded and no similarity is computed; this is an identity lookup, not a
+    search, and is the path to use after another search has surfaced an
+    object id you want to follow through the footage.
+    """
 
     object_ids: list[int] = Field(
         ...,
@@ -139,6 +197,15 @@ class SearchTuning(BaseModel):
     embed_confidence_threshold: float | None = Field(
         None, ge=0.0, le=1.0, description="Score floor below which fusion falls back to attribute-only."
     )
+    no_merge_adjacent: bool = Field(
+        False,
+        description=(
+            "Report raw retrieval windows instead of merging contiguous same-sensor "
+            "ones into a single result. Merging is on by default; this matches what "
+            "the agent's search API returns."
+        ),
+        json_schema_extra={"cli_flag": "--no-merge-adjacent"},
+    )
 
 
 def _deployment_or_raise() -> config_mod.Deployment:
@@ -150,29 +217,32 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     """Build a SearchRuntime from the recorded deployment.
 
     Every endpoint and index here was reported by a backend, not typed by a
-    caller -- which is the point of `vss configure`. A missing service raises
-    :class:`vss_cli.config.ConfigError` naming what *is* available, so the
-    failure arrives with the fix attached instead of as a connection timeout
-    deep inside a search.
+    caller -- which is the point of `vss configure`.
+
+    Nothing is required *here*: the framework has already checked the action's
+    declared :attr:`~vss_cli.group.Action.requires` against the deployment, so
+    a service still absent at this point is one the action does not call.
+    Resolving it to None keeps the deployment usable for the paths it can
+    serve instead of failing them all on the strictest path's needs.
     """
     from vss_core.search_core.runtime import SearchRuntime
 
-    es = deployment.endpoint("elasticsearch")
+    es = deployment.endpoint_or_none("elasticsearch")
     embed_service = deployment.services.get("rt_embed")
     es_service = deployment.services.get("elasticsearch")
+    # VST takes the *origin*, not the mount: search_core appends the
+    # `/vst/api/v1/...` prefix itself, so handing it the mounted `.../vst`
+    # yields `/vst/vst/api/v1/...`. Absent VST, the search still runs and
+    # simply returns no media links.
+    vst = deployment.base_url if deployment.has("vst") else None
 
     kwargs: dict[str, Any] = {
         "es_endpoint": es,
         "behavior_es_endpoint": es,
-        "cosmos_embed_endpoint": deployment.endpoint("rt_embed"),
-        "rtvi_cv_endpoint": deployment.endpoint("rtvi_cv"),
-        # VST takes the *origin*, not the mount: search_core appends the
-        # `/vst/api/v1/...` prefix itself, so handing it the mounted
-        # `.../vst` yields `/vst/vst/api/v1/...`. Asserting the mount exists
-        # first keeps the "not routed" diagnostic rather than silently
-        # producing URLs that 404 much later.
-        "vst_internal_url": (deployment.endpoint("vst") and deployment.base_url),
-        "vst_external_url": (deployment.endpoint("vst") and deployment.base_url),
+        "cosmos_embed_endpoint": deployment.endpoint_or_none("rt_embed"),
+        "rtvi_cv_endpoint": deployment.endpoint_or_none("rtvi_cv"),
+        "vst_internal_url": vst,
+        "vst_external_url": vst,
     }
     if embed_service and embed_service.models:
         kwargs["cosmos_embed_model"] = embed_service.models[0]
@@ -200,11 +270,37 @@ class SearchGroup(CommandGroup):
     #: combinations ("search_mode='embed' does not accept attributes",
     #: "search_mode='object' requires at least one object_id"). Those states
     #: are now unrepresentable -- `run embed` has no --attribute to pass.
+    #:
+    #: `requires` is per path, and deliberately excludes VST: it only mints
+    #: media links, so a deployment without it still searches. `embed` not
+    #: requiring `rtvi_cv` is the point -- a deployment running embeddings
+    #: without the CV service can serve embedding search, and used to be
+    #: refused for a service that path never calls.
     actions: ClassVar[Sequence[Action]] = (
-        Action("embed", "Embedding similarity only.", EmbedInput),
-        Action("attribute", "Attribute filtering only.", AttributeInput),
-        Action("fusion", "Both legs, fused.", FusionInput),
-        Action("object", "Retrieval by tracked object id.", ObjectInput),
+        Action(
+            "embed",
+            "Semantic similarity over video-chunk embeddings (mdx-embed-*).",
+            EmbedInput,
+            requires=frozenset({"elasticsearch", "rt_embed"}),
+        ),
+        Action(
+            "attribute",
+            "Structured match over detected-object attributes (mdx-behavior-*).",
+            AttributeInput,
+            requires=frozenset({"elasticsearch", "rtvi_cv"}),
+        ),
+        Action(
+            "fusion",
+            "Embedding retrieval re-ranked by attribute evidence.",
+            FusionInput,
+            requires=frozenset({"elasticsearch", "rt_embed", "rtvi_cv"}),
+        ),
+        Action(
+            "object",
+            "Identity lookup by tracked object id.",
+            ObjectInput,
+            requires=frozenset({"elasticsearch", "rtvi_cv"}),
+        ),
     )
     extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SearchTuning))
 
@@ -215,7 +311,12 @@ class SearchGroup(CommandGroup):
 
         deployment = ctx.deployment or _deployment_or_raise()
         payload = inputs.model_dump(exclude_none=True, exclude_defaults=True)
-        tuning = {k: payload.pop(k) for k in list(payload) if k in SearchTuning.model_fields}
+        # Tuning arrives via extra_params, never the request: SearchInput is
+        # extra=forbid, so these would be a hard validation error in payload.
+        tuning = {k: v for k, v in ctx.extra.items() if k in SearchTuning.model_fields}
+        # The flag reads as a negation; the runtime field is positive.
+        if tuning.pop("no_merge_adjacent", False):
+            tuning["merge_adjacent"] = False
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action

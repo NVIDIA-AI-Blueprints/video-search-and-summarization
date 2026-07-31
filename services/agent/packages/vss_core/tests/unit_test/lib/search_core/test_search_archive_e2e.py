@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import threading
 from typing import TYPE_CHECKING
 from typing import Any
@@ -137,6 +138,14 @@ class _MockSearchServices:
                 },
             )
             return
+        if method == "GET" and path.startswith("/_cat/indices"):
+            # `vss configure` reads the index inventory from the cluster
+            # itself, so the mock has to answer it.
+            self._send_json(
+                handler,
+                [{"index": "mdx-embed-filtered-2025-01-01"}, {"index": "mdx-behavior-2025-01-01"}],
+            )
+            return
         if method == "POST" and path.endswith("/_search"):
             self._send_json(handler, self._search_response_for(path, body))
             return
@@ -156,7 +165,7 @@ class _MockSearchServices:
         self._send_json(handler, {"error": f"unexpected {method} {path}"}, status=404)
 
     def _search_response_for(self, path: str, body: Any) -> dict[str, Any]:
-        if path == "/video_embeddings/_search":
+        if path == "/mdx-embed-filtered-2025-01-01/_search":
             return self.search_response
         if isinstance(body, dict) and body.get("query", {}).get("term", {}).get("object.id.keyword") is not None:
             return _object_embedding_response()
@@ -224,7 +233,7 @@ def search_config(tmp_path: Path, mock_services: _MockSearchServices) -> Path:
 functions:
   embed_search:
     es_endpoint: {mock_services.base_url}
-    es_index: video_embeddings
+    es_index: mdx-embed-filtered-2025-01-01
     cosmos_embed_endpoint: {mock_services.base_url}
     vst_internal_url: {mock_services.base_url}
     vst_external_url: {mock_services.external_vst_url}
@@ -280,7 +289,7 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             # is untrusted data, so ':'/'+'/etc. are escaped to prevent query
             # tampering. '%3A' decodes back to ':' at the VST server.
             "screenshot_url": (
-                f"{mock_services.external_vst_url}/vst/api/v1/replay/stream/"
+                f"{mock_services.base_url}/vst/api/v1/replay/stream/"
                 f"{_STREAM_ID}/picture?startTime={quote(_START_TIME, safe='')}"
             ),
             "similarity": 0.86,
@@ -293,36 +302,15 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     assert embed_request.body["text_input"] == ["red forklift"]
     assert embed_request.body["model"] == "cosmos-embed1-448p-anomaly-detection"
 
-    # The deployment preflight probes the configured index once before the
-    # actual search request.
+    # No preflight probe in the request path any more: index discovery
+    # happens once at `vss configure` time, so this is the search itself.
     search_request = mock_services.requests_ending_with("/_search")[-1]
-    assert search_request.path == "/video_embeddings/_search"
+    assert search_request.path == "/mdx-embed-filtered-2025-01-01/_search"
     # EmbedSearch alone overfetches when ES filters may discard KNN hits.
     assert search_request.body["size"] == 5
     assert search_request.body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
     assert "warehouse_clip" in json.dumps(search_request.body)
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)
-
-
-def test_search_archive_cli_streams_status_and_final_events(
-    agent_root: Path,
-    mock_services: _MockSearchServices,
-) -> None:
-    result = _run_search_archive(
-        agent_root,
-        mock_services,
-        "--query",
-        "red forklift",
-        "--source-type",
-        "video_file",
-        "--stream",
-    )
-
-    assert result.returncode == 0, result.stderr
-    events = _json_lines(result.stdout)
-    assert [event["type"] for event in events][-1] == "final"
-    assert any(event["type"] == "status" and event["stage"] == "tool_call" for event in events)
-    assert events[-1]["output"]["data"][0]["video_name"] == "warehouse_clip.mp4"
 
 
 def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
@@ -332,14 +320,12 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     result = _run_search_archive(
         agent_root,
         mock_services,
-        "--query",
-        "person wearing a white jacket",
         "--attribute",
         "white jacket",
-        "--search-mode",
-        "attribute",
         "--top-k",
         "1",
+        # search_mode is the sub-action now
+        action="attribute",
     )
 
     assert result.returncode == 0, result.stderr
@@ -365,10 +351,10 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
         "person in a white jacket climbing a ladder",
         "--attribute",
         "white jacket",
-        "--search-mode",
-        "fusion",
         "--top-k",
         "1",
+        # search_mode is the sub-action now
+        action="fusion",
     )
 
     assert result.returncode == 0, result.stderr
@@ -379,7 +365,7 @@ def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
     ]
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body["text_input"] == "white jacket"
     search_paths = [request.path for request in mock_services.requests_ending_with("/_search")]
-    assert search_paths.count("/video_embeddings/_search") == 2
+    assert search_paths.count("/mdx-embed-filtered-2025-01-01/_search") == 1
     assert search_paths.count("/mdx-behavior-2025-01-01/_search") == 1
 
 
@@ -390,14 +376,12 @@ def test_search_archive_cli_object_id_path_skips_query_embedding(
     result = _run_search_archive(
         agent_root,
         mock_services,
-        "--query",
-        "find objects similar to tracked person 42",
         "--object-id",
         "42",
-        "--search-mode",
-        "object",
         "--top-k",
         "1",
+        # search_mode is the sub-action now
+        action="object",
     )
 
     assert result.returncode == 0, result.stderr
@@ -423,7 +407,7 @@ def test_search_archive_cli_rejects_removed_critic_options(
     )
 
     assert result.returncode == 2
-    assert "unrecognized arguments: --use-critic" in result.stderr
+    assert "No such option" in result.stderr and "--use-critic" in result.stderr
     assert mock_services.requests_for("/v1/chat/completions") == []
 
 
@@ -445,11 +429,19 @@ def test_search_archive_cli_validation_errors_exit_2(
     assert mock_services.requests == []
 
 
-def test_search_archive_cli_missing_runtime_args_exit_4(agent_root: Path) -> None:
+def test_search_archive_cli_unconfigured_deployment_exits_4(tmp_path: Path, agent_root: Path) -> None:
+    """No recorded deployment is a configuration error, not a usage error.
+
+    Endpoints are no longer per-call flags (NFR-6), so the failure this guards
+    moved: it is now an empty ``$VSS_CONFIG_HOME``, and the message has to name
+    the command that fixes it.
+    """
+    env = _subprocess_env(agent_root)
+    env["VSS_CONFIG_HOME"] = str(tmp_path / "empty-config-home")
     result = subprocess.run(
-        [*_search_archive_command(), "--query", "red forklift"],
+        [*_search_archive_command(), "embed", "--query", "red forklift", "--log-level", "ERROR"],
         cwd=agent_root,
-        env=_subprocess_env(agent_root),
+        env=env,
         text=True,
         capture_output=True,
         stdin=subprocess.DEVNULL,
@@ -457,8 +449,8 @@ def test_search_archive_cli_missing_runtime_args_exit_4(agent_root: Path) -> Non
         check=False,
     )
 
-    assert result.returncode == 4
-    assert "missing required backend/runtime CLI option(s)" in result.stderr
+    assert result.returncode == 4, result.stderr
+    assert "vss configure" in result.stderr
 
 
 @pytest.mark.asyncio
@@ -485,19 +477,24 @@ async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
     assert out.data[0].video_name == "warehouse_clip.mp4"
     assert out.data[0].similarity == 0.86
     assert _single(mock_services.requests_for("/v1/generate_text_embeddings")).body["text_input"] == ["red forklift"]
-    assert _single(mock_services.requests_ending_with("/_search")).path == "/video_embeddings/_search"
+    assert _single(mock_services.requests_ending_with("/_search")).path == "/mdx-embed-filtered-2025-01-01/_search"
 
 
 def _run_search_archive(
     agent_root: Path,
     services: _MockSearchServices,
     *args: str,
+    action: str = "embed",
 ) -> subprocess.CompletedProcess[str]:
-    command = [*_search_archive_command(), *_runtime_args(services), *args]
+    command = [*_search_archive_command(), action, *_runtime_args(services), *args]
+    config_home = Path(tempfile.mkdtemp(prefix="vss-e2e-config-"))
+    _write_deployment_config(config_home, services)
+    env = _subprocess_env(agent_root)
+    env["VSS_CONFIG_HOME"] = str(config_home)
     return subprocess.run(
         command,
         cwd=agent_root,
-        env=_subprocess_env(agent_root),
+        env=env,
         text=True,
         capture_output=True,
         stdin=subprocess.DEVNULL,
@@ -521,32 +518,41 @@ def _search_archive_command() -> list[str]:
 
 
 def _runtime_args(services: _MockSearchServices) -> list[str]:
-    return [
-        "--es-endpoint",
-        services.base_url,
-        "--behavior-es-endpoint",
-        services.base_url,
-        "--cosmos-embed-endpoint",
-        services.base_url,
-        "--rtvi-cv-endpoint",
-        services.base_url,
-        "--vst-internal-url",
-        services.base_url,
-        "--vst-external-url",
-        services.external_vst_url,
-        "--cosmos-embed-model",
-        "cosmos-embed1-448p-anomaly-detection",
-        "--video-embed-index",
-        "video_embeddings",
-        "--default-max-results",
-        "5",
-        "--embed-confidence-threshold",
-        "0.1",
-        "--behavior-index",
-        "mdx-behavior-2025-01-01",
-        "--log-level",
-        "ERROR",
-    ]
+    """Per-call flags that survive NFR-6.
+
+    Endpoints and index names are no longer passed here -- they come from the
+    recorded deployment (see :func:`_write_deployment_config`), because they
+    describe a deployment rather than a request.
+    """
+    return ["--embed-confidence-threshold", "0.1", "--log-level", "ERROR"]
+
+
+def _write_deployment_config(home: Path, services: _MockSearchServices) -> None:
+    """Write the config `vss configure` would have produced for the mocks."""
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "base_url": services.base_url,
+                "written_at": "2025-01-01T00:00:00+00:00",
+                "services": {
+                    "agent": {"url": services.base_url},
+                    "vst": {"url": f"{services.base_url}/vst"},
+                    "elasticsearch": {
+                        "url": services.base_url,
+                        "indices": ["mdx-embed-filtered-2025-01-01", "mdx-behavior-2025-01-01"],
+                    },
+                    "rt_embed": {
+                        "url": services.base_url,
+                        "models": ["cosmos-embed1-448p-anomaly-detection"],
+                    },
+                    "rtvi_cv": {"url": services.base_url},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _subprocess_env(agent_root: Path) -> dict[str, str]:
