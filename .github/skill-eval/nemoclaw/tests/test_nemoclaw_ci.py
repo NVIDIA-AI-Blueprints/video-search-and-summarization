@@ -1195,6 +1195,40 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(namespace["VLM_ENDPOINT_URL"], "https://canonical-vlm.example")
         self.assertEqual(namespace["VLM_NAME"], "canonical-vlm")
 
+    def test_parameter_cell_uses_https_for_orchestrator_when_enabled(self):
+        with tempfile.TemporaryDirectory() as td:
+            env_path = Path(td) / "nemoclaw.env"
+            token_path = Path(td) / "hooks_token"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "ORCHESTRATOR_ENABLE_HTTPS": "true",
+                    "VSS_ORCHESTRATOR_MCP_PORT": "10443",
+                    "HOST_INTERNAL_ALIAS": "host.nemoclaw.internal",
+                    "NEMOCLAW_CI_ENV_OUT": str(env_path),
+                    "NEMOCLAW_HOOKS_TOKEN_FILE": str(token_path),
+                },
+                clear=True,
+            ):
+                namespace: dict[str, object] = {}
+                exec(notebook_adapter.PARAMETER_SOURCE, namespace)
+                exec(notebook_adapter.PERSIST_SOURCE, namespace)
+
+                self.assertIs(namespace["ORCHESTRATOR_ENABLE_HTTPS"], True)
+                self.assertEqual(namespace["MCP_SCHEME"], "https")
+                self.assertEqual(
+                    namespace["VSS_ORCHESTRATOR_MCP_URL"],
+                    "https://host.nemoclaw.internal:10443/mcp",
+                )
+                self.assertEqual(
+                    namespace["MCP_URL"], "https://127.0.0.1:10443/mcp"
+                )
+                self.assertEqual(os.environ["ORCHESTRATOR_ENABLE_HTTPS"], "true")
+                self.assertIn(
+                    "export ORCHESTRATOR_ENABLE_HTTPS=True\n",
+                    env_path.read_text(encoding="utf-8"),
+                )
+
     def test_parameter_cell_accepts_ngc_api_key_alias(self):
         defaults = {
             "HARDWARE_PROFILE": "RTXPRO6000BW",
@@ -1727,7 +1761,11 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         )
         self.assertIn("env = agent_env.copy()", sources["042eabd1"])
         self.assertIn(
-            'MCP_URL = f"http://127.0.0.1:{MCP_PORT}/mcp"',
+            'MCP_SCHEME = "https" if ORCHESTRATOR_ENABLE_HTTPS else "http"',
+            sources["20b35654"],
+        )
+        self.assertIn(
+            'f"{MCP_SCHEME}://127.0.0.1:{MCP_PORT}/mcp"',
             sources["20b35654"],
         )
         self.assertIn("ssrf_denied|policy_denied", sources["df8210f5"])
