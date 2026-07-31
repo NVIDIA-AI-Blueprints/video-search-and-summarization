@@ -6,9 +6,25 @@ import { videoStream, rtspStream } from '../helpers/streamFixtures';
 
 const mockOpenVideoModal = jest.fn(() => Promise.resolve());
 const mockCloseVideoModal = jest.fn();
+const mockChunkedUpload = jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' });
+const mockNotifyUploadComplete = jest.fn().mockResolvedValue(undefined);
+let lastUploadDialogProps: any = null;
+let lastUploadProgressPopupProps: any = null;
+let lastUploadSuccessPopupProps: any = null;
 
 jest.mock('@nemo-agent-toolkit/ui', () => ({
-  UploadFilesDialog: () => null,
+  UploadFilesDialog: (props: any) => {
+    lastUploadDialogProps = props;
+    return null;
+  },
+  UploadProgressPopup: (props: any) => {
+    lastUploadProgressPopupProps = props;
+    return <div data-testid="upload-progress-popup" />;
+  },
+  UploadSuccessPopup: (props: any) => {
+    lastUploadSuccessPopupProps = props;
+    return <div data-testid="upload-success-popup" />;
+  },
   useChatVideoUploadCompleteSubscription: jest.fn(),
   VideoModal: ({ isOpen, title }: { isOpen: boolean; title: string }) =>
     isOpen ? <div data-testid="video-modal">{title}</div> : null,
@@ -24,8 +40,8 @@ jest.mock('@nemo-agent-toolkit/ui', () => ({
 }));
 
 jest.mock('../../lib-src/chunkedUpload', () => ({
-  chunkedUpload: jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' }),
-  notifyUploadComplete: jest.fn().mockResolvedValue(undefined),
+  chunkedUpload: (...args: any[]) => mockChunkedUpload(...args),
+  notifyUploadComplete: (...args: any[]) => mockNotifyUploadComplete(...args),
 }));
 
 const mockTimelines = new Map([
@@ -84,6 +100,7 @@ jest.mock('../../lib-src/api', () => ({
   createApiEndpoints: () => ({
     LIVE_PICTURE: jest.fn(),
     REPLAY_PICTURE: jest.fn(),
+    UPLOAD_FILE: 'https://vst.example.com/vst/v1/storage/file',
   }),
 }));
 
@@ -107,6 +124,9 @@ function renderComponent(props: Partial<Parameters<typeof VideoManagementCompone
 describe('VideoManagementComponent — video playback', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    lastUploadDialogProps = null;
+    lastUploadProgressPopupProps = null;
+    lastUploadSuccessPopupProps = null;
   });
 
   it('renders play buttons for all streams', async () => {
@@ -185,5 +205,145 @@ describe('VideoManagementComponent — video playback', () => {
     renderComponent();
 
     expect(screen.queryByTestId('video-modal')).not.toBeInTheDocument();
+  });
+
+  it('uses uploadFilename from dialog for VST upload and complete notification', async () => {
+    renderComponent();
+
+    expect(lastUploadDialogProps).toBeTruthy();
+    const file = new File(['123'], 'wh_test_6.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-1',
+          file,
+          uploadFilename: 'renamed_video.mp4',
+          formData: { embedding: false },
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(mockChunkedUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file,
+          fileName: 'renamed_video.mp4',
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockNotifyUploadComplete).toHaveBeenCalledWith(
+        'https://agent.example.com',
+        'renamed_video.mp4',
+        expect.any(Object),
+        { embedding: false },
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it('uses uploadFilename as-is without appending extension (matches Chat behavior)', async () => {
+    renderComponent();
+
+    expect(lastUploadDialogProps).toBeTruthy();
+    const file = new File(['123'], 'wh_test_6.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-2',
+          file,
+          uploadFilename: 'renamed_video',
+          formData: {},
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(mockChunkedUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file,
+          fileName: 'renamed_video',
+        }),
+      );
+    });
+  });
+
+  it('falls back to file.name when uploadFilename is empty', async () => {
+    renderComponent();
+
+    const file = new File(['123'], 'original_name.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-fallback',
+          file,
+          uploadFilename: '',
+          formData: {},
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(mockChunkedUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file,
+          fileName: 'original_name.mp4',
+        }),
+      );
+    });
+  });
+
+  it('passes onCancelSingle to UploadProgressPopup for per-file cancel', async () => {
+    mockChunkedUpload.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ sensorId: 'mock-sensor' }), 500)),
+    );
+
+    renderComponent();
+    const file = new File(['data'], 'slow.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        { id: 'cancel-test', file, uploadFilename: 'slow', formData: {} },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(lastUploadProgressPopupProps).toBeTruthy();
+      expect(typeof lastUploadProgressPopupProps.onCancelSingle).toBe('function');
+      expect(typeof lastUploadProgressPopupProps.onCancelAll).toBe('function');
+    });
+
+    mockChunkedUpload.mockResolvedValue({ sensorId: 'mock-sensor' });
+  });
+
+  it('renders common progress and success popups in upload flow', async () => {
+    renderComponent();
+    const file = new File(['123'], 'demo.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-3',
+          file,
+          uploadFilename: 'demo_renamed.mp4',
+          formData: {},
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument();
+      expect(lastUploadSuccessPopupProps?.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            filename: 'demo_renamed.mp4',
+          }),
+        ]),
+      );
+    });
   });
 });
