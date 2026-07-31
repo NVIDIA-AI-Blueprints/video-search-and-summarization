@@ -963,6 +963,14 @@ fi
         """Purge per-trial VSS state that lives in host bind-mounts."""
         cmd = r"""set -uo pipefail
 purged=""
+repo_mdx="$HOME/video-search-and-summarization/.mdx_data"
+if [ -d "$repo_mdx" ]; then
+  sudo find "$repo_mdx" -mindepth 1 -delete || {
+    echo "failed to purge $repo_mdx" >&2
+    exit 1
+  }
+  purged="$purged $repo_mdx"
+fi
 for root in /opt/vss-data "$HOME"/vss-data; do
   [ -d "$root" ] || continue
   for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do

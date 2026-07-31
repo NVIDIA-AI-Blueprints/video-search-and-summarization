@@ -319,7 +319,15 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_docker_list_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="alpha\nbeta\n", stderr="")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=(
+                "alpha\trunning\tUp 2 minutes (healthy)\talpha:latest\t0.0.0.0:8000->8000/tcp\n"
+                "beta\tcreated\tCreated\tbeta:latest\t\n"
+            ),
+            stderr="",
+        )
 
         with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(
@@ -329,6 +337,27 @@ async def test_docker_list_success(tmp_path: Path):
             )
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["container_names"] == ["alpha", "beta"]
+    assert result["running_container_names"] == ["alpha"]
+    assert result["containers"] == [
+        {
+            "name": "alpha",
+            "state": "running",
+            "status": "Up 2 minutes (healthy)",
+            "health": "healthy",
+            "image": "alpha:latest",
+            "ports": "0.0.0.0:8000->8000/tcp",
+        },
+        {
+            "name": "beta",
+            "state": "created",
+            "status": "Created",
+            "health": "none",
+            "image": "beta:latest",
+            "ports": "",
+        },
+    ]
+    assert result["includes_stopped"] is False
+    assert "created or stopped" in result["readiness_warning"]
 
 
 @pytest.mark.asyncio
@@ -349,13 +378,19 @@ async def test_docker_list_failure(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_docker_logs_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="log line\n", stderr="")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="stdout line\n",
+            stderr="stderr line\n",
+        )
 
         with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="vss-agent"))
     assert result["status"] == ComposeStatus.SUCCESS.value
-    assert result["logs"] == "log line\n"
+    assert result["logs"] == "stdout line\nstderr line\n"
     assert result["logs_truncated"] is False
+    assert result["stderr_included"] is True
 
 
 @pytest.mark.asyncio
@@ -996,6 +1031,37 @@ async def test_docker_up_watcher_success_streams_logs_and_finishes(tmp_path: Pat
     assert op.pid == 4321
     assert any("started" in line for line in op.log_lines)
     assert any("Compose operation succeeded" in line for line in op.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_docker_up_watcher_stops_on_terminal_dependency_failure(tmp_path: Path):
+    async with _orchestrator_group(tmp_path) as (group, config, _tmp_path):
+        compose_id = "base-depfail1"
+        env_path = Path(config.output_dir) / f"generated.{compose_id}.dry-run.env"
+        compose_path = Path(config.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
+        _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
+
+        process = _FakePopen(
+            lines=[
+                "Container vss-vios-postgres Waiting",
+                "Container vss-vios-postgres Error dependency centralizedb failed to start",
+            ],
+            exit_code=0,
+        )
+        with (
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.subprocess.Popen", return_value=process),
+        ):
+            result = await _call(group, "docker_up", ComposeUpOperationInput(docker_compose_id=compose_id))
+
+    op = tools_mod._COMPOSE_OPERATIONS.peek(result["docker_compose_ops_id"])
+    assert op is not None
+    assert op.status == ComposeStatus.ERROR.value
+    assert op.running is False
+    assert op.exit_code == 1
+    assert process.terminate_calls == 1
+    assert any("Detected terminal compose dependency failure" in line for line in op.log_lines)
+    assert any("retry docker_up after remediation" in line for line in op.log_lines)
 
 
 @pytest.mark.asyncio

@@ -856,7 +856,17 @@ def _generic_nemoclaw_prompt(
     profile_guidance = (
         f"The generated eval metadata requires the `{deployment_profile}` VSS profile. "
         "Before exercising the skill, use the VSS Orchestrator MCP server to deploy "
-        "or confirm that profile if it is not already healthy.\n\n"
+        "or confirm that profile if it is not already healthy. This is a warm CI "
+        "worker whose Docker images are preserved between trials, so call "
+        "`vss_orchestrator__docker_up` with `pull_always=true` and "
+        "`force_recreate=true` to refresh moving `develop-latest` images. Poll "
+        "`vss_orchestrator__docker_status` until it returns a terminal `success` "
+        "with `running=false`; a `running` operation is never deployment success. "
+        "Never infer readiness from container-name presence. If compose reports a "
+        "dependency start failure, inspect the structured `docker_list` states and "
+        "combined `docker_logs`, remediate, and retry `docker_up`. Proceed only "
+        "after the target host's profile-required functional endpoints—including "
+        "the Agent API on port 8000 and UI on port 3000—respond successfully.\n\n"
         if deployment_profile
         else ""
     )

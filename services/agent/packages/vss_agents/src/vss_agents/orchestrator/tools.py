@@ -20,7 +20,7 @@ Exposes nine tools that wrap the orchestrator utilities:
   - prereqs: run Docker/GPU prerequisite checks
   - docker_generate : resolve env + compose YAML artifacts
   - docker_read: fetch generated env/yaml by docker_compose_id
-  - docker_list: list docker container names
+  - docker_list: list docker container names and runtime states
   - docker_logs: fetch docker logs by container name
   - docker_up: fire-and-return docker compose up
   - docker_status: poll docker_up status and logs
@@ -88,6 +88,13 @@ _COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
 _COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
 _MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 _DEEP_CLEAN_RM_TIMEOUT_S: Final[int] = 300
+
+
+def _is_terminal_compose_dependency_failure(action: str, line: str) -> bool:
+    """Return whether compose reported an unrecoverable dependency start failure."""
+
+    normalized = " ".join(line.lower().split())
+    return action == ComposeAction.UP.value and "error dependency" in normalized and "failed to start" in normalized
 
 
 @dataclass
@@ -385,7 +392,7 @@ class ComposeArtifactsInput(BaseModel):
 
 
 class ComposeContainersInput(BaseModel):
-    """Input for docker_list lookup."""
+    """Input for docker_list container-state lookup."""
 
     all_containers: bool = Field(
         default=True,
@@ -1031,17 +1038,31 @@ async def vss_orchestrator(
                     op.process = process
                     op.status = ComposeStatus.RUNNING.value
 
+            terminal_dependency_failure: str | None = None
             if process.stdout is None:
+                exit_code = process.wait()
+                _finish_compose_op(docker_compose_ops_id, exit_code=exit_code)
                 return
             try:
                 for line in process.stdout:
                     line = line.rstrip("\n")
                     _append_op_log(line)
+                    if _is_terminal_compose_dependency_failure(action, line):
+                        terminal_dependency_failure = line
+                        _append_op_log(
+                            "Detected terminal compose dependency failure; "
+                            "stopping the stuck compose client so the deployment can be diagnosed and retried."
+                        )
+                        with _COMPOSE_OPS_LOCK:
+                            op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
+                        if op is not None:
+                            _terminate_running_op(op)
+                        break
             finally:
                 exit_code = process.wait()
-                final_exit_code = exit_code
+                final_exit_code = 1 if terminal_dependency_failure is not None else exit_code
                 post_success_cb_error: str | None = None
-                if exit_code == 0 and post_success_cb is not None:
+                if final_exit_code == 0 and post_success_cb is not None:
                     try:
                         post_success_cb(_append_op_log)
                     except Exception as exc:
@@ -1053,11 +1074,17 @@ async def vss_orchestrator(
                 if resolved_status == ComposeStatus.SUCCESS.value:
                     status_log_message = "Compose operation succeeded."
                 elif resolved_status == ComposeStatus.ERROR.value:
-                    status_log_message = (
-                        f"Compose operation failed during post-success step: {post_success_cb_error}"
-                        if post_success_cb_error is not None
-                        else f"Compose operation failed with exit code {exit_code}."
-                    )
+                    if terminal_dependency_failure is not None:
+                        status_log_message = (
+                            "Compose operation failed after a terminal dependency error. "
+                            "Inspect docker_list states and docker_logs, then retry docker_up after remediation."
+                        )
+                    elif post_success_cb_error is not None:
+                        status_log_message = (
+                            f"Compose operation failed during post-success step: {post_success_cb_error}"
+                        )
+                    else:
+                        status_log_message = f"Compose operation failed with exit code {exit_code}."
                 else:
                     status_log_message = f"Compose operation finished with status '{resolved_status}'."
                 _append_op_log(status_log_message)
@@ -1325,8 +1352,18 @@ async def vss_orchestrator(
     if "docker_list" in _config.include:
 
         async def _docker_list(input: ComposeContainersInput) -> dict:
-            """List docker container names."""
-            args = ["docker", "ps", "--format", "{{.Names}}"]
+            """List Docker containers with state, health, image, and ports.
+
+            When all_containers=true, container_names includes created and stopped
+            containers. Use containers[].state/health and functional endpoint probes
+            for readiness; name presence alone never proves a service is running.
+            """
+            args = [
+                "docker",
+                "ps",
+                "--format",
+                "{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}",
+            ]
             if input.all_containers:
                 args.insert(2, "--all")
 
@@ -1343,12 +1380,51 @@ async def vss_orchestrator(
                     "error": result.stderr.strip() or "Failed to list Docker containers.",
                 }
 
-            raw = result.stdout.strip()
-            container_names = [line.strip() for line in raw.splitlines() if line.strip()] if raw else []
+            raw = result.stdout.rstrip("\r\n")
+            containers: list[dict[str, str]] = []
+            for line in raw.splitlines() if raw else []:
+                fields = line.split("\t", 4)
+                if len(fields) != 5:
+                    return {
+                        "status": ComposeStatus.ERROR.value,
+                        "error": "Docker returned an invalid container-state row.",
+                    }
+                name, state, status_text, image, ports = (field.strip() for field in fields)
+                normalized_status = status_text.lower()
+                if "(healthy)" in normalized_status:
+                    health = "healthy"
+                elif "(unhealthy)" in normalized_status:
+                    health = "unhealthy"
+                elif "(health: starting)" in normalized_status:
+                    health = "starting"
+                else:
+                    health = "none"
+                containers.append(
+                    {
+                        "name": name,
+                        "state": state,
+                        "status": status_text,
+                        "health": health,
+                        "image": image,
+                        "ports": ports,
+                    }
+                )
+
+            container_names = [container["name"] for container in containers]
+            running_container_names = [
+                container["name"] for container in containers if container["state"].lower() == "running"
+            ]
 
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "container_names": container_names,
+                "running_container_names": running_container_names,
+                "containers": containers,
+                "includes_stopped": input.all_containers,
+                "readiness_warning": (
+                    "container_names may include created or stopped containers; "
+                    "require running state, healthy status where defined, and functional endpoint probes."
+                ),
             }
 
         group.add_function(name="docker_list", fn=_docker_list, description=_docker_list.__doc__)
@@ -1375,13 +1451,19 @@ async def vss_orchestrator(
                     "tail": input.tail,
                     "error": result.stderr.strip() or "Failed to fetch container logs.",
                 }
-            logs = _truncate_text_to_max_bytes(result.stdout, max_bytes=_MAX_DOCKER_LOG_RESPONSE_BYTES)
+            raw_logs = result.stdout
+            if result.stderr:
+                if raw_logs and not raw_logs.endswith("\n"):
+                    raw_logs += "\n"
+                raw_logs += result.stderr
+            logs = _truncate_text_to_max_bytes(raw_logs, max_bytes=_MAX_DOCKER_LOG_RESPONSE_BYTES)
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "container_name": input.container_name,
                 "tail": input.tail,
                 "logs": logs,
-                "logs_truncated": logs != result.stdout,
+                "logs_truncated": logs != raw_logs,
+                "stderr_included": bool(result.stderr),
                 "log_bytes": len(logs.encode("utf-8")),
             }
 
