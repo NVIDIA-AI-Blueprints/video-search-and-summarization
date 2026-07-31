@@ -19,6 +19,12 @@ ADAPTER = (
     REPO_ROOT
     / ".github/skill-eval/adapters/vss-generate-video-report/generate.py"
 )
+LOCAL_RT_VLM_ENV_OVERRIDES = [
+    "VLM_MODE=local_shared",
+    "VLM_MODEL_TYPE=rtvi",
+    "VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+    "VLM_NAME_SLUG=none",
+]
 
 
 def _load_adapter():
@@ -52,12 +58,34 @@ def test_base_report_eval_uses_integrated_local_rt_vlm() -> None:
     for index in (0, 2):
         contract = _step_contract(steps[index])
         assert "vss-rtvi-vlm" in contract
-        assert "VLM_MODE=local" in contract
-        assert "VLM_MODEL_TYPE=rtvi" in contract
+        assert "`VLM_MODE=local`" in contract
+        assert "`VLM_MODE=local_shared`" in contract
+        assert "`VLM_MODEL_TYPE=rtvi`" in contract
         assert "VIA_VLM_ENDPOINT=" in contract
         assert "non-`none` CR3 `MODEL_PATH`" in contract
         assert "VLM_MODEL_TO_USE=cosmos-reason3" in contract
         assert "remote" in contract.lower()
+
+    expected_overrides = json.dumps(LOCAL_RT_VLM_ENV_OVERRIDES)
+    assert (
+        f"`env_overrides={expected_overrides}` exactly" in steps[0]["query"]
+    )
+    assert len(steps[0]["checks"]) == 6
+    override_check = steps[0]["checks"][0]
+    assert "vss_orchestrator__docker_generate" in override_check
+    assert "containing all four required key/value pairs in any order" in override_check
+    for override in LOCAL_RT_VLM_ENV_OVERRIDES:
+        assert f"`{override}`" in override_check
+    assert "Unrelated extra overrides are allowed" in override_check
+    assert "conflicting value for any of those four VLM keys" in override_check
+    assert "docker inspect vss-agent" in override_check
+    assert "an exact `VLM_MODE=local` or `VLM_MODE=local_shared`" in override_check
+    assert "`VLM_MODE=local_shared`" in override_check
+    assert "`VLM_MODEL_TYPE=rtvi`" in override_check
+    assert (
+        "`VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final`"
+        in override_check
+    )
 
     assert "nim_nvidia_cosmos3-nano-reasoner_bf16-final" in steps[0]["query"]
 
@@ -229,6 +257,10 @@ def test_generated_report_dataset_preserves_rt_vlm_contract() -> None:
         solve_stub = (step_dirs[0] / "solution/solve.sh").read_text()
 
     assert "${HOST_IP:-localhost}:8018" in step_one_instruction
+    assert (
+        f"env_overrides={json.dumps(LOCAL_RT_VLM_ENV_OVERRIDES)}"
+        in step_one_instruction
+    )
     assert "RTXPRO6000BW" in step_one_instruction
     assert "${HOST_IP:-localhost}:8018" in step_three_instruction
     assert "new report on warehouse_safety_0001" in step_five_instruction

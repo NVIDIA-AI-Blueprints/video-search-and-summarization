@@ -38,6 +38,12 @@ OPENCLAW_LAUNCH_SESSION_METADATA = "openclaw-launch-session.json"
 OPENCLAW_LLM_TIMEOUT_RETRY_MIN_SECONDS = 120
 OPENCLAW_LLM_TIMEOUT_RETRY_MAX_SECONDS = 600
 OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS = 120
+RTSP_TOOL_ENV_READY_SENTINEL = "RTSP_SAMPLE_URL is set"
+RTSP_TOOL_ENV_PROBE_COMMAND = (
+    'test -n "${RTSP_SAMPLE_URL:-}" && '
+    "printf 'RTSP_SAMPLE_URL is set\\n'"
+)
+RTSP_TOOL_ID = "openclaw:core:exec"
 OPENCLAW_LLM_TIMEOUT_TEXT = (
     "GatewayClientRequestError: FailoverError: LLM request timed out"
 )
@@ -71,7 +77,6 @@ RTSP_URI_PATTERN = re.compile(
     r"\brtsps?:(?:(?:\\/|/)){2}(?:(?:\\.)|[^\s\"'<>\\])+",
     re.IGNORECASE,
 )
-CLI_RUNTIME_ENV_KEYS = ("RTSP_SAMPLE_URL",)
 
 
 def _load_env_file(path: Path) -> None:
@@ -252,21 +257,6 @@ def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[st
     )
 
 
-def _run_with_input(
-    cmd: list[str],
-    *,
-    input_text: str,
-    timeout: int,
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd,
-        input=input_text,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-
-
 def _deadline_timeout(deadline: float | None, cap_s: int, phase: str) -> int:
     """Return a bounded subprocess timeout without extending an outer deadline."""
     if deadline is None:
@@ -307,7 +297,6 @@ def _sandbox_exec(
     script: str,
     *,
     timeout: int,
-    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     encoded_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
     wrapper = (
@@ -328,17 +317,7 @@ def _sandbox_exec(
             "-lc",
             wrapper,
         ]
-        if input_text is not None:
-            return _run_with_input(
-                command,
-                input_text=input_text,
-                timeout=timeout,
-            )
         return _run(command, timeout=timeout)
-    if input_text is not None:
-        raise RuntimeError(
-            "OpenShell is required for stdin-only NemoClaw runtime values"
-        )
     return _run(
         ["nemoclaw", sandbox_name, "exec", "--no-tty", "--", "sh", "-lc", wrapper],
         timeout=timeout,
@@ -509,32 +488,6 @@ def _openclaw_cli_command(
     )
 
 
-def _cli_runtime_input(runtime_env_keys: list[str]) -> str | None:
-    if not runtime_env_keys:
-        return None
-    if runtime_env_keys != ["RTSP_SAMPLE_URL"]:
-        raise ValueError(
-            "CLI runtime environment must contain only RTSP_SAMPLE_URL"
-        )
-    value = os.environ.get("RTSP_SAMPLE_URL", "")
-    if not value:
-        raise RuntimeError(
-            "RTSP_SAMPLE_URL is required for this NemoClaw skill eval"
-        )
-    if any(character in value for character in ("\0", "\r", "\n")):
-        raise ValueError("RTSP_SAMPLE_URL contains an unsupported control character")
-    try:
-        parsed = urllib.parse.urlsplit(value)
-        port = parsed.port
-    except ValueError as exc:
-        raise ValueError("RTSP_SAMPLE_URL is not a valid RTSP URL") from exc
-    if parsed.scheme.lower() not in {"rtsp", "rtsps"} or not parsed.hostname:
-        raise ValueError("RTSP_SAMPLE_URL must be an rtsp:// or rtsps:// URL")
-    if port is not None and not 1 <= port <= 65535:
-        raise ValueError("RTSP_SAMPLE_URL contains an invalid port")
-    return value + "\n"
-
-
 def collect_openclaw_cli_log(
     sandbox_name: str,
     log_dir: Path,
@@ -558,6 +511,132 @@ def collect_openclaw_cli_log(
     (log_dir / "openclaw-agent.log").write_text(
         _redact_runtime_text(result.stdout or ""),
         encoding="utf-8",
+    )
+
+
+def _assert_rtsp_tool_shell_visibility(trajectory_path: Path) -> None:
+    """Require the exact successful OpenClaw exec-tool probe in ATIF."""
+    try:
+        trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "RTSP runtime tool-shell trajectory is unavailable"
+        ) from exc
+    steps = trajectory.get("steps") if isinstance(trajectory, dict) else None
+    if not isinstance(steps, list):
+        raise RuntimeError("RTSP runtime tool-shell trajectory has no steps")
+
+    for step in steps:
+        if not isinstance(step, dict) or step.get("source") != "agent":
+            continue
+        calls = step.get("tool_calls")
+        observation = step.get("observation")
+        results = (
+            observation.get("results")
+            if isinstance(observation, dict)
+            else None
+        )
+        if not isinstance(calls, list):
+            continue
+        result_by_call = {
+            result["source_call_id"]: result["content"]
+            for result in (results if isinstance(results, list) else ())
+            if isinstance(result, dict)
+            and isinstance(result.get("source_call_id"), str)
+            and isinstance(result.get("content"), str)
+        }
+        for call in calls:
+            if not isinstance(call, dict):
+                continue
+            function_name = call.get("function_name")
+            arguments = call.get("arguments")
+            if function_name == "exec" or (
+                isinstance(function_name, str)
+                and function_name.rsplit(":", 1)[-1] == "exec"
+            ):
+                raise RuntimeError(
+                    "OpenClaw's first exec tool call bypassed the pinned "
+                    "OpenClaw exec-tool wrapper"
+                )
+            if function_name != "tool_call" or not isinstance(
+                arguments,
+                dict,
+            ):
+                continue
+            tool_id = arguments.get("id")
+            if (
+                isinstance(tool_id, str)
+                and tool_id.rsplit(":", 1)[-1] == "exec"
+                and tool_id != RTSP_TOOL_ID
+            ):
+                raise RuntimeError(
+                    "OpenClaw's first exec tool call used an unpinned exec tool"
+                )
+            if (
+                tool_id != RTSP_TOOL_ID
+            ):
+                continue
+            # The eval contract requires this probe to be the first shell
+            # action. Once the first pinned exec tool call is encountered,
+            # no later call may repair a different or failed command.
+            tool_args = arguments.get("args")
+            if (
+                not isinstance(tool_args, dict)
+                or tool_args.get("command") != RTSP_TOOL_ENV_PROBE_COMMAND
+            ):
+                raise RuntimeError(
+                    "OpenClaw's first exec tool call was not the canonical "
+                    "RTSP_SAMPLE_URL probe"
+                )
+            call_id = call.get("tool_call_id")
+            if not isinstance(call_id, str):
+                raise RuntimeError(
+                    "OpenClaw's first exec tool call had no result identity"
+                )
+            try:
+                envelope = json.loads(result_by_call.get(call_id, ""))
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "OpenClaw's first exec tool call result was not JSON"
+                ) from exc
+            if not isinstance(envelope, dict):
+                raise RuntimeError(
+                    "OpenClaw's first exec tool call result was not an object"
+                )
+            tool = envelope.get("tool")
+            result = envelope.get("result")
+            if (
+                not isinstance(tool, dict)
+                or tool.get("id") != RTSP_TOOL_ID
+                or not isinstance(result, dict)
+            ):
+                raise RuntimeError(
+                    "OpenClaw's first exec tool call result did not attest "
+                    "the pinned exec tool"
+                )
+            content = result.get("content")
+            details = result.get("details")
+            if (
+                isinstance(content, list)
+                and len(content) == 1
+                and isinstance(content[0], dict)
+                and content[0].get("type") == "text"
+                and content[0].get("text") == RTSP_TOOL_ENV_READY_SENTINEL
+                and isinstance(details, dict)
+                and details.get("status") == "completed"
+                and type(details.get("exitCode")) is int
+                and details.get("exitCode") == 0
+                and details.get("aggregated")
+                == RTSP_TOOL_ENV_READY_SENTINEL
+            ):
+                return
+            raise RuntimeError(
+                "OpenClaw's first exec tool call did not return the exact "
+                "successful RTSP_SAMPLE_URL sentinel"
+            )
+    raise RuntimeError(
+        "OpenClaw trajectory did not prove RTSP_SAMPLE_URL visibility "
+        "inside an actual exec tool shell"
     )
 
 
@@ -1661,7 +1740,6 @@ def _start_openclaw_cli_async(
     timeout_s: int,
     log_dir: Path,
     deadline: float | None = None,
-    runtime_input: str | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
     ensure_openclaw_gateway(sandbox_name, log_dir, deadline)
@@ -1697,19 +1775,11 @@ def _start_openclaw_cli_async(
     # filename. Never let its local snapshot masquerade as attempt 2 if the
     # continuation reaches its deadline before a stopped-state snapshot.
     (log_dir / "openclaw-agent.log").unlink(missing_ok=True)
-    if runtime_input is None:
-        inner = _openclaw_cli_command(
-            prompt,
-            openclaw_timeout_s,
-            root_session_id,
-        )
-    else:
-        inner = _openclaw_cli_command(
-            prompt,
-            openclaw_timeout_s,
-            root_session_id,
-            local=True,
-        )
+    inner = _openclaw_cli_command(
+        prompt,
+        openclaw_timeout_s,
+        root_session_id,
+    )
     cleanup = _openclaw_process_cleanup_script()
     worker = (
         "set +e; "
@@ -1720,17 +1790,8 @@ def _start_openclaw_cli_async(
         "trap 'exit 0' TERM INT HUP; "
         "while :; do sleep 60; done"
     )
-    runtime_setup = (
-        "IFS= read -r RTSP_SAMPLE_URL; "
-        'test -n "$RTSP_SAMPLE_URL" || { '
-        "echo 'RTSP_SAMPLE_URL runtime input is empty' >&2; exit 66; }; "
-        "export RTSP_SAMPLE_URL; "
-        if runtime_input is not None
-        else ""
-    )
     launcher = (
         "set -eu; "
-        f"{runtime_setup}"
         f"mkdir -p {OPENCLAW_RUN_DIR}; "
         "command -v setsid >/dev/null 2>&1 || { "
         "echo 'setsid is required for scoped OpenClaw cleanup' >&2; exit 69; }; "
@@ -1763,19 +1824,11 @@ def _start_openclaw_cli_async(
         60,
         "OpenClaw async launcher",
     )
-    if runtime_input is None:
-        result = _sandbox_exec(
-            sandbox_name,
-            launcher,
-            timeout=launch_timeout,
-        )
-    else:
-        result = _sandbox_exec(
-            sandbox_name,
-            launcher,
-            timeout=launch_timeout,
-            input_text=runtime_input,
-        )
+    result = _sandbox_exec(
+        sandbox_name,
+        launcher,
+        timeout=launch_timeout,
+    )
     safe_stdout = _redact_runtime_text(result.stdout or "")
     safe_stderr = _redact_runtime_text(result.stderr or "")
     (log_dir / "openclaw-launch.log").write_text(
@@ -1807,18 +1860,12 @@ def run_openclaw_cli(
     log_dir: Path,
     wait_profile: str = "",
     deadline: float | None = None,
-    runtime_input: str | None = None,
 ) -> dict[str, Any]:
     # The caller may share one end-to-end budget across gateway recovery,
     # OpenClaw, and profile readiness.  Start the local deadline before
     # gateway recovery so a slow recovery cannot silently extend the agent
     # phase beyond that budget.
     deadline = deadline if deadline is not None else time.monotonic() + timeout_s
-    runtime_kwargs = (
-        {"runtime_input": runtime_input}
-        if runtime_input is not None
-        else {}
-    )
     poll_sec = max(5, int(os.environ.get("NEMOCLAW_OPENCLAW_POLL_SEC", "15")))
     attempt_prompt = prompt
     retry_session_id: str | None = None
@@ -1870,7 +1917,7 @@ def run_openclaw_cli(
                 retry_now + attempt_timeout_s,
             )
 
-        start_kwargs = dict(runtime_kwargs)
+        start_kwargs: dict[str, Any] = {}
         if retry_session_id is not None:
             start_kwargs["session_id"] = retry_session_id
         start = _start_openclaw_cli_async(
@@ -2280,16 +2327,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--wait-profile", default="", help="Wait for the live VSS profile to become ready after hook launch")
     parser.add_argument("--expected-skill", default="", help="Fail fast if the prompt file does not reference this skill")
-    parser.add_argument(
-        "--runtime-env",
-        action="append",
-        choices=CLI_RUNTIME_ENV_KEYS,
-        default=[],
-        help=(
-            "Pass one allowlisted runtime value over stdin to an embedded "
-            "OpenClaw CLI agent"
-        ),
-    )
     args = parser.parse_args(argv)
 
     log_dir = Path(args.log_dir)
@@ -2309,12 +2346,12 @@ def main(argv: list[str] | None = None) -> int:
         else deadline
     )
     prompt = ""
+    expected_skill = args.expected_skill.strip()
     response: dict[str, Any] = {"status": 0, "body": "", "error": ""}
     wait_report = {"waited": False}
     try:
         prompt = Path(args.prompt_file).read_text(encoding="utf-8")
         (log_dir / "nemoclaw_prompt.md").write_text(prompt, encoding="utf-8")
-        expected_skill = args.expected_skill.strip()
         if expected_skill and f"`/{expected_skill}`" not in prompt and f"/{expected_skill}" not in prompt:
             raise RuntimeError(
                 f"prompt file {args.prompt_file} does not reference expected "
@@ -2322,13 +2359,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if args.launch_mode == "cli":
-            runtime_input = _cli_runtime_input(args.runtime_env)
             try:
-                runtime_kwargs = (
-                    {"runtime_input": runtime_input}
-                    if runtime_input is not None
-                    else {}
-                )
                 response = run_openclaw_cli(
                     sandbox_name,
                     prompt,
@@ -2336,8 +2367,45 @@ def main(argv: list[str] | None = None) -> int:
                     log_dir,
                     wait_profile=args.wait_profile,
                     deadline=agent_deadline,
-                    **runtime_kwargs,
                 )
+                if expected_skill == "vss-deploy-profile":
+                    diagnostic_error: dict[str, Any] | None = None
+                    try:
+                        diagnostic = _run(
+                            [
+                                sys.executable,
+                                str(
+                                    Path(__file__).with_name(
+                                        "postgres_health_diagnostic.py"
+                                    )
+                                ),
+                                "--log-dir",
+                                str(log_dir),
+                            ],
+                            timeout=_deadline_timeout(
+                                deadline,
+                                30,
+                                "PostgreSQL health diagnostic",
+                            ),
+                        )
+                        if diagnostic.returncode != 0:
+                            diagnostic_error = {
+                                "completed": False,
+                                "exit_code": diagnostic.returncode,
+                            }
+                    except (OSError, subprocess.TimeoutExpired, TimeoutError) as exc:
+                        diagnostic_error = {
+                            "completed": False,
+                            "error_type": type(exc).__name__,
+                        }
+                    if diagnostic_error is not None:
+                        diagnostic_error["schema_version"] = 1
+                        (
+                            log_dir / "postgres-health-diagnostic-error.json"
+                        ).write_text(
+                            json.dumps(diagnostic_error, indent=2) + "\n",
+                            encoding="utf-8",
+                        )
                 if _response_ok(response):
                     wait_report = wait_for_profile(
                         args.wait_profile,
@@ -2349,6 +2417,7 @@ def main(argv: list[str] | None = None) -> int:
                 cleanup_errors: list[str] = []
                 stop_error = ""
                 trajectory_error = ""
+                runtime_attestation_error = ""
                 cli_log_collected = False
                 try:
                     stop_openclaw_cli(sandbox_name, deadline)
@@ -2392,6 +2461,23 @@ def main(argv: list[str] | None = None) -> int:
                         "trajectory: "
                         f"{type(exc).__name__}: {trajectory_error}"
                     )
+                if (
+                    expected_skill == "vss-deploy-dense-captioning"
+                    and not trajectory_error
+                ):
+                    try:
+                        _assert_rtsp_tool_shell_visibility(
+                            log_dir / "trajectory.json"
+                        )
+                    except Exception as exc:
+                        runtime_attestation_error = _redact_runtime_text(
+                            str(exc)
+                        )
+                        cleanup_errors.append(
+                            "runtime-tool-shell: "
+                            f"{type(exc).__name__}: "
+                            f"{runtime_attestation_error}"
+                        )
                 if stop_error and _response_ok(response):
                     response = {
                         "status": 500,
@@ -2407,6 +2493,23 @@ def main(argv: list[str] | None = None) -> int:
                             f"could not be cleaned up: {stop_error}"
                         ),
                         "error_type": "OpenClawCleanupError",
+                    }
+                elif runtime_attestation_error and _response_ok(response):
+                    response = {
+                        "status": 500,
+                        "body": {
+                            "ok": False,
+                            "mode": "cli",
+                            "returncode": 1,
+                        },
+                        "stdout_tail": response.get("stdout_tail", ""),
+                        "stderr_tail": response.get("stderr_tail", ""),
+                        "error": (
+                            "OpenClaw completed but runtime visibility in its "
+                            "actual exec tool shell was not proven: "
+                            f"{runtime_attestation_error}"
+                        ),
+                        "error_type": "OpenClawRuntimeEnvAttestationError",
                     }
                 elif trajectory_error and _response_ok(response):
                     response = {
@@ -2430,8 +2533,6 @@ def main(argv: list[str] | None = None) -> int:
                         encoding="utf-8",
                     )
         else:
-            if args.runtime_env:
-                raise ValueError("--runtime-env is supported only with --launch-mode cli")
             hooks_token = _read_hooks_token()
             if not hooks_token:
                 response["error"] = "OpenClaw hooks token is not available; run the notebook setup adapter first"

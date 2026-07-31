@@ -54,18 +54,42 @@ sys.path.insert(0, str(ENVS_DIR))
 import brev_env  # noqa: E402
 
 
-class RtspSampleUrlResolution(unittest.TestCase):
-    def test_uses_public_default_when_unset(self):
-        with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": ""}):
-            self.assertEqual(
-                brev_env._resolve_rtsp_sample_url(),
-                "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03",
+class NemoClawCiRtspEnvironment(unittest.TestCase):
+    def test_dense_captioning_nemoclaw_uses_fixed_public_relay(self):
+        with mock.patch.dict(
+            os.environ,
+            {"RTSP_SAMPLE_URL": "rtsp://operator.example.test/override"},
+        ):
+            forwarded = dict(
+                brev_env._nemoclaw_ci_rtsp_environment(
+                    {
+                        "runner": "nemoclaw",
+                        "expected_skill": "vss-deploy-dense-captioning",
+                    }
+                )
             )
 
-    def test_preserves_operator_override(self):
-        custom_url = "rtsp://stream.example.test:8554/eval"
-        with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": custom_url}):
-            self.assertEqual(brev_env._resolve_rtsp_sample_url(), custom_url)
+        self.assertEqual(
+            forwarded,
+            {
+                "NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL": "1",
+                "RTSP_SAMPLE_URL": (
+                    "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+                ),
+            },
+        )
+
+    def test_non_nemoclaw_or_other_skill_is_not_marked(self):
+        for metadata in (
+            {"expected_skill": "vss-deploy-dense-captioning"},
+            {"runner": "nemoclaw", "expected_skill": "vss-ask-video"},
+            {"runner": "nemoclaw"},
+        ):
+            with self.subTest(metadata=metadata):
+                self.assertEqual(
+                    brev_env._nemoclaw_ci_rtsp_environment(metadata),
+                    (),
+                )
 
 
 class RegisteredNodeDetection(unittest.TestCase):
@@ -2377,6 +2401,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--agent-log-dir /logs/agent", command)
         self.assertIn("--wait-profile base", command)
         self.assertIn("--expected-skill vss-ask-video", command)
+        self.assertNotIn("--runtime-env", command)
         self.assertIn(
             "--prompt-file /tmp/skill-eval/nemoclaw/current_prompt.md",
             command,
@@ -2491,6 +2516,58 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md", command)
         self.assertIn("--expected-skill vss-deploy-profile", command)
         self.assertNotIn("--prompt-file /tests/nemoclaw_prompt.md", command)
+
+    async def test_dense_captioning_launcher_has_no_rtsp_argv(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="ok",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp) / "rtxpro6000bw"
+            tests_dir = task_dir / "tests"
+            env_dir = task_dir / "environment"
+            tests_dir.mkdir(parents=True)
+            env_dir.mkdir()
+            (tests_dir / "nemoclaw_prompt.md").write_text(
+                "Use /vss-deploy-dense-captioning for this trial.\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ):
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "expected_skill": "vss-deploy-dense-captioning",
+                }
+                await env.exec(
+                    "claude --print 'run python3 .github/skill-eval/"
+                    "nemoclaw/headless_runner.py'",
+                    timeout_sec=123,
+                )
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn(
+            "--expected-skill vss-deploy-dense-captioning",
+            command,
+        )
+        self.assertNotIn("--runtime-env", command)
+        self.assertNotIn(brev_env.DEFAULT_RTSP_SAMPLE_URL, command)
 
     async def test_nemoclaw_launcher_bypasses_outer_claude_without_metadata(self):
         calls = []

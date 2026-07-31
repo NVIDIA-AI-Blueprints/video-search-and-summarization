@@ -144,17 +144,26 @@ REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
 DEFAULT_RTSP_SAMPLE_URL = (
     "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
 )
-
-
-def _resolve_rtsp_sample_url() -> str:
-    """Return the operator-provided RTSP sample URL or the public default."""
-    return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
+NEMOCLAW_CI_RTSP_INJECTION_FLAG = "NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL"
 
 
 def _uses_nemoclaw(meta: dict) -> bool:
     """Return True when task metadata opts into the NemoClaw runner."""
     runner = str(meta.get("runner", "")).strip().lower()
     return runner == "nemoclaw" or bool(meta.get("requires_nemoclaw"))
+
+
+def _nemoclaw_ci_rtsp_environment(meta: dict) -> tuple[tuple[str, str], ...]:
+    """Return the fixed CI-only RTSP environment for the supported task."""
+    if (
+        _uses_nemoclaw(meta)
+        and meta.get("expected_skill") == "vss-deploy-dense-captioning"
+    ):
+        return (
+            (NEMOCLAW_CI_RTSP_INJECTION_FLAG, "1"),
+            ("RTSP_SAMPLE_URL", DEFAULT_RTSP_SAMPLE_URL),
+        )
+    return ()
 
 
 def _nemoclaw_sample_files(meta: dict) -> tuple[str, ...]:
@@ -625,10 +634,11 @@ class BrevEnvironment(BaseEnvironment):
             # don't rely on extended thinking, so the cost is negligible.
             # Revisit if/when the proxy accepts the field.
             ("CLAUDE_CODE_DISABLE_THINKING", "1"),
-            # Dense-captioning evals require one URL that both the Brev host
-            # and its bridge-networked RT-VLM container can reach.
-            ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
+        # The pinned NemoClaw notebook supports runtime environment config for
+        # this one eval path. Keep the opt-in internal and pin the public relay
+        # even when an operator supplied a different host-side RTSP value.
+        forwarded.extend(_nemoclaw_ci_rtsp_environment(meta))
         for key in (
             "NGC_CLI_API_KEY", "NGC_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",

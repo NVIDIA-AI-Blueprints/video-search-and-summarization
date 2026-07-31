@@ -22,6 +22,10 @@ from typing import Any
 
 DEFAULT_ENV_OUT = Path("/tmp/skill-eval/nemoclaw/nemoclaw.env")
 DEFAULT_OUTPUT = Path("/tmp/skill-eval/nemoclaw/setup.executed.ipynb")
+DEFAULT_RTSP_SAMPLE_URL = (
+    "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+)
+NEMOCLAW_CI_RTSP_INJECTION_FLAG = "NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL"
 # Covers the supported start budget, the fixed Docker probe, and three
 # identity/image attestations without shortening their individual deadlines.
 DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS = 660
@@ -128,6 +132,12 @@ os.environ["OPENSHELL_DOCKER_NETWORK_NAME"] = OPENSHELL_DOCKER_NETWORK_NAME
 NEMOCLAW_RECREATE_SANDBOX = os.environ.get("NEMOCLAW_RECREATE_SANDBOX", "1").strip() or "1"
 os.environ["NEMOCLAW_RECREATE_SANDBOX"] = NEMOCLAW_RECREATE_SANDBOX
 RTSP_SAMPLE_URL = os.environ.get("RTSP_SAMPLE_URL", "").strip()
+_ci_rtsp_injection = os.environ.get("NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL", "").strip()
+if _ci_rtsp_injection not in ("", "1"):
+    raise ValueError("NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL must be empty or 1")
+if _ci_rtsp_injection == "1" and RTSP_SAMPLE_URL != "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03":
+    raise ValueError("NemoClaw CI RTSP injection requires the fixed public relay")
+NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL = _ci_rtsp_injection == "1"
 OPENCLAW_HOOKS_ENABLED = os.environ.get(
     "OPENCLAW_HOOKS_ENABLED",
     "0",
@@ -299,6 +309,22 @@ def _prepare_ci_nemoclaw_environment() -> None:
         os.environ[confirmation_key] = json.dumps([sandbox_name], separators=(",", ":"))
 
 
+def _validate_ci_rtsp_environment() -> bool:
+    """Validate the internal opt-in before composing or executing a notebook."""
+    enabled = os.environ.get(NEMOCLAW_CI_RTSP_INJECTION_FLAG, "").strip()
+    if enabled not in ("", "1"):
+        raise ValueError(
+            f"{NEMOCLAW_CI_RTSP_INJECTION_FLAG} must be empty or 1"
+        )
+    if enabled == "1" and os.environ.get("RTSP_SAMPLE_URL", "").strip() != (
+        DEFAULT_RTSP_SAMPLE_URL
+    ):
+        raise ValueError(
+            "NemoClaw CI RTSP injection requires the fixed public relay"
+        )
+    return enabled == "1"
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as fp:
         return json.load(fp)
@@ -444,12 +470,63 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
         return patched
     if cell_id == "s37-code":
         patched = deepcopy(cell)
+        header = (
+            "# Only the webhook keys need config set:\n"
+            "# - gateway.* is off-limits (auth tokens) — UI allowedOrigins come from\n"
+            "#   CHAT_UI_URL baked at onboard (section 3.1);\n"
+            "# - agents.defaults.workspace already defaults to ~/.openclaw/workspace,\n"
+            "#   which is /sandbox/.openclaw/workspace under the sandbox HOME.\n"
+            "# Write keys first, then restart separately. `config set --restart` can update\n"
+            "# the config and still exit non-zero with SUPERVISOR_UNAVAILABLE when the\n"
+            "# in-sandbox supervisor is gone; recover relaunches it.\n"
+        )
+        config_anchor = "config_sets = []\n"
+        if header not in source or config_anchor not in source:
+            raise ValueError(
+                "NemoClaw config cell is missing the expected config anchors"
+            )
+        patched_source = source.replace(
+            header,
+            (
+                "# Apply supported CI sandbox settings through NemoClaw's managed\n"
+                "# config path, then restart the gateway once after all writes.\n"
+            ),
+            1,
+        ).replace(
+            config_anchor,
+            (
+                "config_sets = []\n"
+                "if NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL:\n"
+                "    config_sets.append((\"env.vars.RTSP_SAMPLE_URL\", RTSP_SAMPLE_URL))\n"
+            ),
+            1,
+        )
+        status_replacements = (
+            (
+                "No sandbox config changes needed (webhooks disabled).",
+                "No sandbox config changes needed.",
+            ),
+            (
+                "Restarting gateway to apply webhook config...",
+                "Restarting gateway to apply sandbox config...",
+            ),
+            (
+                "sandbox recover failed after webhook config",
+                "sandbox recover failed after sandbox config",
+            ),
+        )
+        for old, new in status_replacements:
+            if old not in patched_source:
+                raise ValueError(
+                    "NemoClaw config cell is missing expected status text"
+                )
+            patched_source = patched_source.replace(old, new, 1)
         config_loop = "else:\n    for _key, _value in config_sets:\n"
-        if config_loop not in source:
+        if config_loop not in patched_source:
             raise ValueError(
                 "NemoClaw config cell is missing the expected config write loop"
             )
-        patched["source"] = source.replace(
+        patched["source"] = patched_source.replace(
             config_loop,
             "\n".join(
                 [
@@ -708,6 +785,7 @@ def main(argv: list[str] | None = None) -> int:
 
     os.environ.setdefault("VSS_REPO_DIR", str(root))
     os.environ["NEMOCLAW_CI_ENV_OUT"] = str(Path(args.env_out).resolve())
+    _validate_ci_rtsp_environment()
     _prepare_ci_nemoclaw_environment()
 
     if "notebooks" in manifest:
