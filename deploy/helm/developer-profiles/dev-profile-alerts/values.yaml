@@ -438,8 +438,16 @@ rtvi:
   vss-rtvi-cv:
     enabled: true
     profileMode: alerts
-    # Primary detector: env.MODEL_NAME_2D=GDINO (default) or RTDETR; NUM_SENSORS must match TensorRT batch.
-    # Configs/scripts come from this profile (ConfigMap); workload is the shared rtvi-cv subchart.
+    # Profile-specific ConfigMap data is staged by the shared chart-owned ds-start.sh.
+    env:
+      DS_MODEL_FAMILY: rtdetr-gdino
+      DS_CONFIG_FILE: run_config-api-rtdetr-protobuf.txt
+      DS_VISION_ENCODER: "false"
+      DS_TRACKER_REID: "false"
+      DS_SHOW_SENSOR_ID: "true"
+      MODEL_NAME_2D: GDINO
+      NUM_SENSORS: "1"
+      STREAM_TYPE: kafka
     downloadModelsFromNgc: true
     downloadModelsFromNgcWaitSeconds: 900
     waitForKafka:
@@ -449,9 +457,11 @@ rtvi:
     ngcOrg: nvidia
     ngcModelsToDownload:
       - model: nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
+        org: nvidia
         sourcePath: trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx
         destPath: rtdetr-its/model_epoch_035.fp16.onnx
       - model: nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
+        org: nvidia
         sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
         destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
     engineCache:
@@ -463,7 +473,7 @@ rtvi:
     kafkaBootstrapServers: ""
     redisHost: ""
 
-# Helm-managed Ingress (ingressClassName from vssIngress.ingressClassName). Install a cluster ingress controller separately (e.g. HAProxy Kubernetes Ingress). Annotations use haproxy.org/path-rewrite for video-analytics-api and alert-bridge strip prefixes.
+# Helm-managed Ingress (ingressClassName from vssIngress.ingressClassName). Install a cluster ingress controller separately (e.g. HAProxy Kubernetes Ingress). Annotations use haproxy.org/path-rewrite for video-analytics-api, alert-bridge, and va-mcp strip prefixes.
 vssIngress:
   enabled: true
   ingressClassName: haproxy
@@ -473,6 +483,8 @@ vssIngress:
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
   alertBridgePort: 9080
+  # Public VA-MCP path: ${VSS_PUBLIC_URL}/va-mcp/mcp → vss-va-mcp:/mcp
+  vaMcpPort: 9901
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)

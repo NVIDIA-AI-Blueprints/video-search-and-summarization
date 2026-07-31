@@ -27,14 +27,15 @@ services:
         condition: service_healthy
 
   nvstreamer-lvs:
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     profiles: ["nvstreamer-lvs"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
@@ -48,6 +49,7 @@ services:
           - vss-vios-nvstreamer
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/dev-profile-lvs:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data

@@ -98,5 +98,47 @@
       "Identifies that the request belongs to a video summarization or reporting workflow rather than alert management.",
       "Asks for missing video/time-range details only if needed by the appropriate non-alert skill."
     ]
+  },
+  {
+    "id": "alerts-verification-verdict-routing",
+    "question": "The alerts deployment is in CV verification mode. Was the ladder-safety alert on sample-warehouse-ladder confirmed?",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "The agent routes a 'was it confirmed / show verdicts' ask to Workflow B (Verification Results & Verdicts) on a CV verification deployment. It reads verdicts from the mdx-vlm-alerts-* Elasticsearch store via the interim :9200 probe (that store has no REST query endpoint yet), never from the active-rules list, the /incidents endpoint, or the mdx-vlm-incidents-* incident store. An empty hit list is a valid 'no verification results yet' answer.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts and recognizes a 'was it confirmed / show verdicts' ask as Workflow B verification, not a rules-list or historical-incident query.",
+      "Sources the verdict answer from Elasticsearch mdx-vlm-alerts-* (e.g. GET http://${HOST_IP}:9200/mdx-vlm-alerts-*/_search), the store CV verification writes to.",
+      "Does not answer the verdict question from Alert Bridge GET /api/v1/realtime (active rules), from GET /api/v1/realtime/incidents, or from the mdx-vlm-incidents-* incident store — those carry no verification verdicts.",
+      "Reports info.verdict and info.reasoning grounded in returned documents, accepting camelCase or snake_case on the verification response-code field.",
+      "Treats an empty result as a valid 'no verification results yet' answer and does not fabricate a verdict.",
+      "Does not route this request to the VSS Agent POST /generate."
+    ]
+  },
+  {
+    "id": "alerts-ondemand-verify-clip-routing",
+    "question": "The alerts deployment is in CV verification mode. Verify this specific clip for a ladder-safety violation right now: https://example.com/clips/ladder.mp4",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "The agent routes a one-shot 'verify this specific clip/URL' request to Workflow F (On-Demand Verification) on a CV deployment, not to Workflow D (continuous realtime rules). It resolves an existing verifier category, POSTs to Alert Bridge /api/v1/verification/ondemand, and reports the returned correlationId from the accepted async response without claiming a verdict at submit time.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts and treats a one-shot 'verify this clip/URL' ask as Workflow F on-demand verification, not a continuous Workflow D subscription.",
+      "Resolves the category first via GET http://${HOST_IP}:9080/api/v1/verification/config and reuses an existing alert_type rather than inventing one (an unknown category is a 400).",
+      "POSTs to http://${HOST_IP}:9080/api/v1/verification/ondemand with category plus info.media_urls and info.media_type.",
+      "Does not create a realtime rule via POST /api/v1/realtime, and does not use the VSS Agent POST /generate or a nonexistent /verification/verify route.",
+      "Reports the returned correlationId from the accepted async response and does not report a verdict or confirmation at submit time.",
+      "Notes the default minimal submission is incident-kind and surfaces via GET /api/v1/realtime/incidents by correlationId, not the mdx-vlm-alerts-* store."
+    ]
+  },
+  {
+    "id": "alerts-always-on-status-routing",
+    "question": "The alerts deployment is in VLM real-time mode. Is always-on alerting active?",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "The agent routes an always-on status question to Workflow G (Always-On Operation), operate-only. It checks the alert_agent.always_on config gate (default false) with a zero-side-effect probe, never invents an /always-on/health endpoint, and treats a 503 {\"reason\":\"ALWAYS_ON_DISABLED\"} response or a false config gate as 'not active'.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts and recognizes an always-on status ask as Workflow G, operate-only (never authoring or enabling the feature).",
+      "Checks the alert_agent.always_on config gate (default false) or uses a zero-side-effect probe of POST /api/v1/realtime/always-on rather than inventing an /always-on/health endpoint.",
+      "Interprets a 503 {\"reason\":\"ALWAYS_ON_DISABLED\"} response or a false/absent config gate as 'always-on is not active'.",
+      "For always-on incident results, queries via Workflow C (GET /api/v1/realtime/incidents), noting always-on rules live in an in-memory sidecar and may not appear in the Workflow D rules list.",
+      "Does not create or edit always-on rule configuration and does not enable the feature on the user's behalf.",
+      "Does not route this request to the VSS Agent POST /generate."
+    ]
   }
 ]

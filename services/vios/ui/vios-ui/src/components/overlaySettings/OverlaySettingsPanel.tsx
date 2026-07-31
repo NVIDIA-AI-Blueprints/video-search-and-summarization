@@ -42,6 +42,8 @@ interface OverlaySettingsPanelProps {
     streamType?: StreamType;
     /** When true, calls onSettingsChange on every state change rather than only on explicit save */
     autoApply?: boolean;
+    /** Portal target for dropdown menus rendered inside a fullscreen player. */
+    menuContainer?: Element | null;
 }
 
 const STORAGE_KEY = 'overlaySettings';
@@ -60,7 +62,7 @@ function initColorMaps(labels: string[], colorCode: Array<{ [key: string]: RGBAC
 }
 
 const OverlaySettingsPanel = forwardRef<OverlaySettingsPanelHandle, OverlaySettingsPanelProps>(
-    ({ onSettingsChange, sensors, streamType, autoApply = false }, ref) => {
+    ({ onSettingsChange, sensors, streamType, autoApply = false, menuContainer }, ref) => {
         const [overlayBbox, setOverlayBbox] = useState(true);
         const [framerateValue, setFramerateValue] = useState(15);
         const [includeFloorPlan, setIncludeFloorPlan] = useState(false);
@@ -377,6 +379,7 @@ const OverlaySettingsPanel = forwardRef<OverlaySettingsPanelHandle, OverlaySetti
                     objIdTextBGColor={objIdTextBGColor}
                     setObjIdTextBGColor={setObjIdTextBGColor}
                     availableClassLabels={configData?.overlayClassLabels}
+                    menuContainer={menuContainer}
                 />
 
                 <DisplaySettingsSection
@@ -396,6 +399,7 @@ const OverlaySettingsPanel = forwardRef<OverlaySettingsPanelHandle, OverlaySetti
                     proximityAnimation={proximityAnimation}
                     setProximityAnimation={setProximityAnimation}
                     availableClassLabels={configData?.overlayClassLabels}
+                    menuContainer={menuContainer}
                 />
 
                 {configData && (

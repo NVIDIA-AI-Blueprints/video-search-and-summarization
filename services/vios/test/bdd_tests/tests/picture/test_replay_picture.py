@@ -17,9 +17,10 @@ import asyncio
 import logging
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import aiohttp
 import pytest
@@ -44,6 +45,17 @@ from .picture_test_utils import (
     fetch_picture_async,
     validate_jpeg_with_jpeginfo
 )
+
+SENSOR_LIST_ENDPOINT = '/vst/api/v1/sensor/list'
+FILE_SENSOR_TYPE = 'sensor_file'
+# Offsets from a timeline boundary, in milliseconds, applied towards the middle of
+# the recording. Each one lands inside the display interval of the boundary frame,
+# which is the frame the picture has to come from.
+BOUNDARY_OFFSETS_MS = (0, 10)
+# Timelines can lag the sensor list right after a service restart
+TIMELINE_RETRIES = 5
+TIMELINE_RETRY_DELAY_S = 3
+
 
 # Test endpoints for replay pictures
 @pytest.fixture
@@ -162,6 +174,117 @@ def select_timestamps(context):
     
     assert len(context.test_data) > 0, "No valid test data found"
     logger.info("Selected %d timestamp(s) for testing", len(context.test_data))
+
+
+@when('file sensors with recorded timelines are selected')
+def select_file_sensor_timelines(context, api_config, test_endpoints, test_params):
+    """Collect the recorded interval of every uploaded file sensor."""
+    base_url = api_config['base_url']
+    verify_ssl = api_config.get('verify_ssl', False)
+    timeout = test_params['timeout']
+
+    response = requests.get(f"{base_url}{SENSOR_LIST_ENDPOINT}", timeout=timeout, verify=verify_ssl)
+    response.raise_for_status()
+    file_sensor_ids = [
+        sensor['sensorId']
+        for sensor in response.json()
+        if isinstance(sensor, dict)
+        and sensor.get('type') == FILE_SENSOR_TYPE
+        and sensor.get('sensorId')
+    ]
+    if not file_sensor_ids:
+        pytest.skip("No file sensors (type=%s) available" % FILE_SENSOR_TYPE)
+
+    # Timelines can lag the sensor list for a few seconds after a restart. Retry
+    # before skipping, so a warm-up window cannot turn this into a silent pass.
+    selected = []
+    for attempt in range(TIMELINE_RETRIES):
+        response = requests.get(
+            f"{base_url}{test_endpoints['timelines']}", timeout=timeout, verify=verify_ssl
+        )
+        response.raise_for_status()
+        timelines = response.json()
+
+        selected = []
+        for sensor_id in file_sensor_ids:
+            intervals = timelines.get(sensor_id)
+            if not isinstance(intervals, list) or not intervals:
+                continue
+            start_time_str = intervals[0].get('startTime')
+            end_time_str = intervals[-1].get('endTime')
+            if not start_time_str or not end_time_str:
+                continue
+            selected.append({
+                'stream_id': sensor_id,
+                'start': datetime.fromisoformat(start_time_str.replace('Z', '+00:00')),
+                'end': datetime.fromisoformat(end_time_str.replace('Z', '+00:00')),
+            })
+
+        if selected:
+            break
+        if attempt < TIMELINE_RETRIES - 1:
+            logger.info("No file sensor timeline data yet, retrying in %ss", TIMELINE_RETRY_DELAY_S)
+            time.sleep(TIMELINE_RETRY_DELAY_S)
+
+    if not selected:
+        pytest.skip("No file sensor has timeline data")
+
+    context.file_sensor_timelines = selected
+    logger.info("Selected %d file sensor timeline(s)", len(selected))
+
+
+def fetch_pictures_at_boundary(context, api_config, test_endpoints, test_params, boundary):
+    """Request a picture at one timeline boundary of each file sensor.
+
+    Offsets always move towards the middle of the recording, so every request
+    falls inside the first or last frame's display interval.
+    """
+    results = []
+    for item in context.file_sensor_timelines:
+        for offset_ms in BOUNDARY_OFFSETS_MS:
+            offset = timedelta(milliseconds=offset_ms)
+            anchor = item['start'] + offset if boundary == 'start' else item['end'] - offset
+            timestamp = anchor.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+            url = f"{api_config['base_url']}{test_endpoints['picture'].format(stream_id=item['stream_id'])}"
+            result = {
+                'index': len(results),
+                'stream_id': item['stream_id'],
+                'start_time': timestamp,
+                'content': None,
+                'status': None,
+                'success': False,
+                'error': None,
+            }
+            try:
+                response = requests.get(
+                    url,
+                    params={'startTime': timestamp},
+                    timeout=test_params['timeout'],
+                    verify=api_config.get('verify_ssl', False),
+                )
+                response.raise_for_status()
+                result.update(content=response.content, status=response.status_code, success=True)
+            except Exception as exc:
+                result['error'] = str(exc)
+                logger.warning("[%s] Picture at %s failed: %s",
+                               item['stream_id'], timestamp, exc)
+            results.append(result)
+
+    context.pictures = results
+    logger.info("Fetched %d/%d %s-of-timeline pictures",
+                sum(1 for r in results if r['success']), len(results), boundary)
+
+
+@when('pictures are requested at the start of each file sensor timeline')
+def fetch_pictures_at_timeline_start(context, api_config, test_endpoints, test_params):
+    """Request each start-of-timeline picture and record the outcome."""
+    fetch_pictures_at_boundary(context, api_config, test_endpoints, test_params, 'start')
+
+
+@when('pictures are requested at the end of each file sensor timeline')
+def fetch_pictures_at_timeline_end(context, api_config, test_endpoints, test_params):
+    """Request each end-of-timeline picture and record the outcome."""
+    fetch_pictures_at_boundary(context, api_config, test_endpoints, test_params, 'end')
 
 
 @then('pictures for each stream and timestamp are fetched in parallel')

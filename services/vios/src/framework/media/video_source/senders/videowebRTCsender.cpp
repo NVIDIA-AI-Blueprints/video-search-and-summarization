@@ -18,6 +18,8 @@
 #include "videowebRTCsender.h"
 #include "modules/video_coding/codecs/nvidia/NvVideoFrameBuffer.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rtc_base/time_utils.h"
+#include "api/make_ref_counted.h"
 using namespace std;
 
 void VideoWebRTCSender::unRefDataStructure(void *ptr)
@@ -76,7 +78,7 @@ int VideoWebRTCSender::createPassThroughMode(std::string& device_id)
     return 1;
 }
 
-void VideoWebRTCSender::appendWebrtcBroacaster(const std::string& peerid, rtc::VideoBroadcaster* broadcaster)
+void VideoWebRTCSender::appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster)
 {
     std::lock_guard<std::mutex> lock(m_videoSinkLock);
     std::map<std::string, std::shared_ptr<VideoSink>>::iterator it = m_videoSinkList.find(peerid);
@@ -235,7 +237,7 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
         }
         string unique_id = it->first + string("_out");
         m_fpsDisplay->displayFPS(getCurrentUnixTimestampInMs(), unique_id);
-        rtc::scoped_refptr<NvVideoFrameBuffer> nv_video_frame_buffer(new rtc::RefCountedObject<NvVideoFrameBuffer>((int)frame_params.m_width, (int)frame_params.m_height));
+        webrtc::scoped_refptr<NvVideoFrameBuffer> nv_video_frame_buffer(new webrtc::RefCountedObject<NvVideoFrameBuffer>((int)frame_params.m_width, (int)frame_params.m_height));
         NvVideoFrameBuffer* nv_video_frame_buffer_ptr = nv_video_frame_buffer.get();
 
         /* This is being freed in webRTC stack */
@@ -258,10 +260,13 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
             nv_video_frame_buffer->rtspToWebrtcStartTime.tv_sec = std::numeric_limits<time_t>::max();
         }
 
+        const WebrtcFrameTimestamp frame_timestamp = m_frameTimestamper.next();
+
         webrtc::VideoFrame decodedImage  = webrtc::VideoFrame::Builder()
                                         .set_video_frame_buffer(nv_video_frame_buffer)
                                         .set_rotation(webrtc::kVideoRotation_0)
-                                        .set_timestamp_rtp(0)
+                                        .set_timestamp_us(frame_timestamp.m_timestampUs)
+                                        .set_timestamp_rtp(frame_timestamp.m_rtpTimestamp)
                                         .build();
         
         // Validate broadcaster and state before calling OnFrame to prevent crashes
@@ -369,5 +374,3 @@ string VideoWebRTCSender::getPlaybackState(const std::string& peerid)
     }
     return state;
 }
-
-

@@ -31,7 +31,7 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 |---|---|---|
 | `l40s` | `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2` | `massedcompute_L40S` / `massedcompute_L40Sx2` |
 | `h100` | `vss-eval-h100` (when needed) | launchpad `dmz.h100x2.pcie` preferred |
-| `rtx` | `vss-eval-rtx-1g`, `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g` | AWS `g7e.4xlarge` / `g7e.12xlarge` (RTX PRO Server 6000) |
+| `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and capability-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or approved RTX 4090 |
 | `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
 Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-deploy-profile` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
@@ -48,6 +48,8 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
 | `HF_TOKEN` | Required by the Edge 4B vLLM on SPARK / Thor `shared` mode |
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
+| `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
+| `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
 
 ## Layout
 
@@ -208,17 +210,20 @@ python3 .github/skill-eval/run_leg.py \
     └── claude-code.txt   ← agent trace
 ```
 
-To view in the browser, **copy** (not move — the workflow's collector
-still tars the leg's results root after the agent) into the viewer dir,
-flattened with the leg slug:
+`run_leg.py` publishes each finished trial into the viewer dir itself
+(copying, not moving — the workflow's collector still tars the leg's
+results root afterwards) and appends the browsable URL to
+`<results-root>/trace-urls.tsv`:
 
-```bash
-VIEWER_JOB="/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>"
-mkdir -p "$VIEWER_JOB"
-cp -a "<leg-slug>/<run_id>/<date>/." "$VIEWER_JOB/"   # contents into a pre-made dir — idempotent
+```
+step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.brevlab.com/jobs/<job>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
-Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>`.
+Open the URL from that file rather than composing one: the trailing
+`<task>` is Harbor's fully-qualified `task_name`
+(`nvidia-vss/<dataset>-step-N`), not the `step-N` filter, and the
+viewer is an SPA that renders a wrong path as a **blank page**, never
+a 404.
 
 `harbor view` runs persistently on the CI runner host. If it's down:
 

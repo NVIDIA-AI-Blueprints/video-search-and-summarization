@@ -40,10 +40,7 @@ services:
       dockerfile: Dockerfiles/elastic-init.Dockerfile
     network_mode: "host"
     container_name: mdx-elasticsearch-init
-    command: bash -c "
-      /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh &&
-      /opt/mdx/init-scripts/elasticsearch-template-creation.sh
-      "
+    command: bash -c "bash /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh && bash /opt/mdx/init-scripts/elasticsearch-template-creation.sh"
     depends_on:
       - elasticsearch
 

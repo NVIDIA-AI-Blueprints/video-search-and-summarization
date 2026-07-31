@@ -77,6 +77,12 @@ if PROMETHEUS_ENABLED:
         VERDICT_RETENTION_DELETED,
         VERDICT_RETENTION_LAST_RUN,
         VERDICT_RETENTION_RUNS,
+        ONDEMAND_E2E_DURATION,
+        ONDEMAND_EVENTS_TOTAL,
+        ONDEMAND_PROCESSING_DURATION,
+        ONDEMAND_REQUESTS_TOTAL,
+        ONDEMAND_VERIFICATION_FAILURES,
+        ONDEMAND_VLM_DURATION,
         UPSTREAM_DURATION,
         UPSTREAM_DURATION_BY_SENSOR,
         VERDICT_ES_GET_DURATION,
@@ -93,6 +99,8 @@ if PROMETHEUS_ENABLED:
         WORKER_PROCESSING_DURATION_BY_SENSOR,
         WORKER_QUEUE_WAIT_DURATION,
         WORKER_QUEUE_WAIT_DURATION_BY_SENSOR,
+        WORKER_START_WAIT_DURATION,
+        WORKER_START_WAIT_DURATION_BY_SENSOR,
     )
 
 
@@ -100,8 +108,9 @@ if PROMETHEUS_ENABLED:
 # Opt-in, set at startup by ``AnomalyEnhancer.__init__`` based on the
 # ``alert_agent.metrics.per_sensor_labels`` config key. When off the
 # ``*_BY_SENSOR`` counters stay absent from the scrape (zero
-# cardinality cost); when on, every event-accounting counter above
-# also increments its per-sensor variant.
+# cardinality cost); when on, every Kafka event-accounting counter also
+# increments its per-sensor variant. The on-demand metric family is aggregate
+# only because its sensor ID comes from arbitrary HTTP input.
 _per_sensor_labels_enabled = False
 
 
@@ -131,8 +140,8 @@ def per_sensor_labels_enabled() -> bool:
 _SENSOR_ID_MAX_LEN = 128
 
 # Hard cap on the number of distinct sensorId label values this process
-# will ever mint. Each new distinct ID adds ~80 Prometheus series
-# (8 histograms × ~10 buckets each); at the default cap of 128 sensors
+# will ever mint. Each new distinct ID adds ~90 Prometheus series
+# (9 histograms × ~10 buckets each); at the default cap of 128 sensors
 # the per-sensor surface is ~10k series — right at the guideline budget.
 # Once the cap is reached every new unseen ID folds to "unknown_overflow"
 # so excess traffic remains visible without growing the registry further.
@@ -201,6 +210,22 @@ EVENTS_DROPPED_REASONS = ("end_time_delta", "dedup", "rate_limit")
 # here and route anything else into ``unknown`` (with a once-per-value
 # WARNING so drift stays discoverable in logs).
 EVENTS_VERDICTS = ("confirmed", "rejected", "verification-failed", "unknown")
+
+ONDEMAND_REQUEST_OUTCOMES = (
+    "accepted",
+    "unknown_category",
+    "invalid_request",
+    "unknown",
+)
+
+ONDEMAND_FAILURE_REASONS = (
+    "media_download",
+    "vlm_api",
+    "vlm_schema",
+    "pluggable_parser",
+    "background_exception",
+    "unknown",
+)
 
 # Tracks verdict values we've already warned about, so a badly-behaving
 # upstream producer cannot spam the log at every event. We intentionally
@@ -287,6 +312,16 @@ def observe_vlm_duration(duration: float, sensor_id: Any = None) -> None:
     )
 
 
+def observe_ondemand_vlm_duration(duration: float, sensor_id: Any = None) -> None:
+    """Record one VLM inference attempt initiated by the on-demand API.
+
+    ``sensor_id`` is accepted so this helper has the same callback signature
+    as ``observe_vlm_duration``. The aggregate API metric deliberately has no
+    sensor label, keeping arbitrary HTTP input out of Prometheus labels.
+    """
+    _observe(ONDEMAND_VLM_DURATION if PROMETHEUS_ENABLED else None, duration)
+
+
 def observe_video_length(clip_seconds: Optional[float], sensor_id: Any = None) -> None:
     """Record the effective video-clip length returned by VST.
 
@@ -299,6 +334,71 @@ def observe_video_length(clip_seconds: Optional[float], sensor_id: Any = None) -
         clip_seconds,
         sensor_id,
     )
+
+
+# ── On-demand API helpers ─────────────────────────────────────────────────
+
+
+def inc_ondemand_request(outcome: str) -> None:
+    """Count one HTTP request using a bounded synchronous outcome label."""
+    if not PROMETHEUS_ENABLED:
+        return
+    normalized = (
+        outcome if outcome in ONDEMAND_REQUEST_OUTCOMES else "unknown"
+    )
+    ONDEMAND_REQUESTS_TOTAL.labels(outcome=normalized).inc()
+
+
+def classify_ondemand_failure(message: Dict[str, Any]) -> Optional[str]:
+    """Return a stable failure reason for a completed on-demand event."""
+    info = message.get("info") or {}
+    response_code = info.get("verificationResponseCode")
+    verdict = info.get("verdict")
+    if response_code in (None, 200, "200") and verdict != "verification-failed":
+        return None
+
+    error_source = info.get("errorSource")
+    if error_source in ONDEMAND_FAILURE_REASONS:
+        return error_source
+    return "unknown"
+
+
+def record_ondemand_event_complete(
+    request_start_time: Optional[float],
+    processing_start_time: float,
+    message: Dict[str, Any],
+    failure_reason: Optional[str] = None,
+) -> None:
+    """Record an accepted API event once background processing finishes.
+
+    Start times are monotonic-clock values captured by the route and service.
+    A missing request start only suppresses the request-to-publish histogram;
+    completion counters and background processing duration still update.
+    """
+    if not PROMETHEUS_ENABLED:
+        return
+
+    completed_at = time.monotonic()
+    _observe(
+        ONDEMAND_PROCESSING_DURATION,
+        max(0.0, completed_at - processing_start_time),
+    )
+    if request_start_time is not None:
+        _observe(
+            ONDEMAND_E2E_DURATION,
+            max(0.0, completed_at - request_start_time),
+        )
+
+    verdict = _normalize_verdict((message.get("info") or {}).get("verdict"))
+    ONDEMAND_EVENTS_TOTAL.labels(verdict=verdict).inc()
+
+    normalized_failure = failure_reason or classify_ondemand_failure(message)
+    if normalized_failure:
+        if normalized_failure not in ONDEMAND_FAILURE_REASONS:
+            normalized_failure = "unknown"
+        ONDEMAND_VERIFICATION_FAILURES.labels(
+            reason=normalized_failure
+        ).inc()
 
 
 # ── Batch-level event-count helpers ───────────────────────────────────────
@@ -465,6 +565,22 @@ def record_event_complete(
     }
 
     observe_pipeline_latency(message, latency_for_obs)
+    worker_assigned_at = (
+        existing_timestamps.get("workerAssignedAt")
+        or existing_timestamps.get("worker_assigned_at")
+    )
+    worker_started_at = datetime.fromtimestamp(
+        worker_start_time, tz=timezone.utc
+    ).isoformat()
+    worker_start_wait_duration = iso_delta_seconds(
+        worker_assigned_at, worker_started_at
+    )
+    _observe(WORKER_START_WAIT_DURATION, worker_start_wait_duration)
+    _observe_by_sensor(
+        WORKER_START_WAIT_DURATION_BY_SENSOR,
+        worker_start_wait_duration,
+        message.get("sensorId"),
+    )
     worker_processing_duration = time.time() - worker_start_time
     _observe(WORKER_PROCESSING_DURATION, worker_processing_duration)
     _observe_by_sensor(
@@ -612,6 +728,10 @@ _WARMUP_DROP_REASONS = EVENTS_DROPPED_REASONS
 #   VLM taxonomy — the four ``raise e`` branches in
 #   ``_process_single_message`` plus the legacy url/parse/unknown values.
 #   ``no_prompt`` — alert type has no prompt configured (C10).
+#   ``malformed_message`` — a required field the pipeline dereferences
+#     (``sensorId`` / ``timestamp`` / ``end``) is missing; the message is
+#     dropped in ``_prepare_message_context`` before the VST stage so a
+#     validation-bypassing producer cannot crash the worker with a ``KeyError``.
 #   ``redis_unavailable`` — legacy label name (kept for metric-contract
 #     back-compat); a backend failure during the confirmed-verdict skip
 #     check (C25); covered by ``_classify_pre_processing_failure``.
@@ -624,6 +744,7 @@ _WARMUP_VERIFICATION_REASONS = (
     "vlm_parse_failure", "vlm_timeout", "vlm_connection_error",
     "vlm_server_error", "vlm_invalid_payload",
     "no_prompt",
+    "malformed_message",
     "redis_unavailable",
     "unknown",
 )
@@ -667,6 +788,15 @@ def warm_startup_labels() -> None:
     for store in DEDUP_CACHE_STORES:
         for mode in DEDUP_CACHE_EVICTION_MODES:
             DEDUP_CACHE_EVICTIONS.labels(store=store, mode=mode).inc(0)
+
+    for outcome in ONDEMAND_REQUEST_OUTCOMES:
+        ONDEMAND_REQUESTS_TOTAL.labels(outcome=outcome).inc(0)
+
+    for verdict in _WARMUP_VERDICTS:
+        ONDEMAND_EVENTS_TOTAL.labels(verdict=verdict).inc(0)
+
+    for reason in ONDEMAND_FAILURE_REASONS:
+        ONDEMAND_VERIFICATION_FAILURES.labels(reason=reason).inc(0)
 
 
 # ── In-process store + verdict-protection observability ────────────────────

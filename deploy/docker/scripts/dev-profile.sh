@@ -132,6 +132,8 @@ function get_vlm_slug() {
     nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
     nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
     nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
+    # No standalone NIM ships this checkpoint; RT-VLM serves it, so there is no slug to select.
+    nvidia/cosmos3-reasoner-fp8) echo "none" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
@@ -146,6 +148,7 @@ function get_rtvi_vlm_model_path() {
     nvidia/cosmos-reason1-7b) echo "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic" ;;
     nvidia/cosmos-reason2-8b) echo "ngc:nim/nvidia/cosmos-reason2-8b:hf-0303" ;;
     nvidia/cosmos3-reasoner) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" ;;
+    nvidia/cosmos3-reasoner-fp8) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" ;;
     *) echo "" ;;
   esac
@@ -157,6 +160,7 @@ function get_rtvi_vlm_model_to_use() {
     nvidia/cosmos-reason1-7b) echo "cosmos-reason1" ;;
     nvidia/cosmos-reason2-8b) echo "cosmos-reason2" ;;
     nvidia/cosmos3-reasoner) echo "cosmos-reason3" ;;
+    nvidia/cosmos3-reasoner-fp8) echo "cosmos-reason3" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "vllm-compatible" ;;
     *) echo "" ;;
   esac
@@ -510,6 +514,7 @@ function usage() {
   echo "                                     - nvidia/cosmos-reason2-8b"
   echo "                                     - nvidia/cosmos3-reasoner          (search: NIM_MODEL_SIZE=nano|super → nvidia/cosmos3-{size}-reasoner;"
   echo "                                                                         base/alerts/lvs: maps to RT-VLM MODEL_PATH + /v1/models basename)"
+  echo "                                     - nvidia/cosmos3-reasoner-fp8      (Cosmos3 Nano FP8 via RT-VLM; smaller footprint for a shared GPU)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -1051,20 +1056,21 @@ function process_args() {
         fi
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
-            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, Qwen/Qwen3-VL-8B-Instruct"
+            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, nvidia/cosmos3-reasoner-fp8, Qwen/Qwen3-VL-8B-Instruct"
             ((_all_good++))
           fi
         fi
       fi
 
-      # Search deploys a local RT-VLM (critic + video_understanding) that requires a
-      # dedicated GPU unless --use-remote-vlm is provided. On 2-GPU Brev launchables
-      # that GPU is unavailable, so fail fast instead of a broken deployment.
+      # Search deploys a local RT-VLM (critic + video_understanding) that shares GPU 0
+      # with RT-CV, while RT-Embed and the LLM share GPU 1, so two GPUs are the floor
+      # unless --use-remote-vlm is provided. A single-GPU Brev launchable cannot host
+      # that layout, so fail fast instead of a broken deployment.
       if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
         local _brev_gpu_count
         _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
-        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
-          echo "[ERROR] Search deploys a local RT-VLM that requires a dedicated GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
+        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -lt 2 ]]; then
+          echo "[ERROR] Search deploys a local RT-VLM and needs at least 2 GPUs, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
           ((_all_good++))
         fi
       fi
@@ -1551,7 +1557,7 @@ function state_up() {
   mkdir -p "${data_directory}/agent_eval/dataset/"
   mkdir -p "${data_directory}/agent_eval/results/"
 
-  # Create alerts-specific directories and download models
+  # Create alerts-specific directories
   if [[ "${profile}" == "alerts" ]]; then
     echo "[INFO] Creating alerts-specific directories..."
 
@@ -1569,63 +1575,7 @@ function state_up() {
       chmod -R 777 "${deployment_directory}/engines"
     fi
 
-    # Download alerts models from NGC
-    echo "[INFO] Downloading alerts models from NGC..."
-
-    if [[ "${dry_run}" == "true" ]]; then
-      echo "[DRY-RUN] rm -rf ${data_directory}/models"
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models/rtdetr-its"
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models/gdino"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
-      echo "[DRY-RUN] mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx ${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
-      echo "[DRY-RUN] rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
-      echo "[DRY-RUN] mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx ${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-      echo "[DRY-RUN] rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
-      echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
-    else
-      rm -rf "${data_directory}/models"
-
-      mkdir -p "${data_directory}/models/rtdetr-its"
-      mkdir -p "${data_directory}/models/gdino"
-
-      # Download and install trafficcamnet RT-DETR model
-      run_required_step "Failed to download trafficcamnet RT-DETR model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
-
-      require_downloaded_model_file \
-        "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx" \
-        "trafficcamnet RT-DETR ONNX artifact"
-      run_required_step "Failed to install trafficcamnet RT-DETR model" \
-        mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
-        "${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
-
-      rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
-
-      # Download and install grounding DINO model
-      run_required_step "Failed to download grounding DINO model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-
-      require_downloaded_model_file \
-        "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx" \
-        "grounding DINO ONNX artifact"
-      run_required_step "Failed to install grounding DINO model" \
-        mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
-        "${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-
-      rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-
-      chmod -R 777 "${data_directory}/models"
-      echo "[INFO] Alerts models downloaded and installed to ${data_directory}/models"
-    fi
+    echo "[INFO] Alerts model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   if [[ "${profile}" == "search" ]]; then
@@ -1637,37 +1587,7 @@ function state_up() {
       mkdir -p "${data_directory}/data_log/vss_video_analytics_api"
     fi
 
-    # Download RT-DETR model from NGC (host-staged, bind-mounted into container).
-    echo "[INFO] Downloading RT-DETR model from NGC..."
-
-    if [[ "${dry_run}" == "true" ]]; then
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvidia"
-      echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-      echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2"
-      echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
-    else
-      mkdir -p "${data_directory}/models"
-
-      run_required_step "Failed to download RT-DETR model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-        --org nvidia
-
-      require_downloaded_model_file \
-        "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx" \
-        "RT-DETR warehouse ONNX artifact"
-      run_required_step "Failed to install RT-DETR model" \
-        mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-
-      rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
-
-      chmod -R 777 "${data_directory}/models"
-      echo "[INFO] RT-DETR model downloaded and installed to ${data_directory}/models"
-    fi
+    echo "[INFO] Search model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   # Set permissions on data_log directory
@@ -1715,7 +1635,7 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --pull always --force-recreate --build"
   else
     if ! (
       cd "${deployment_directory}" && docker compose \
@@ -1724,6 +1644,7 @@ function state_up() {
         --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
         up \
         --detach \
+        --pull always \
         --force-recreate \
         --build
     ); then

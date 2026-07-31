@@ -14,7 +14,6 @@
 # limitations under the License.
 
 services:
-
   vss-behavior-analytics-alerts:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
@@ -33,14 +32,15 @@ services:
         condition: service_completed_successfully
 
   nvstreamer-alerts:
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     profiles: ["nvstreamer-alerts"]
-    entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst" ]
+    entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst" ]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
@@ -54,6 +54,7 @@ services:
           - vss-vios-nvstreamer
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
@@ -90,10 +91,10 @@ services:
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
       - $VSS_APPS_DIR/engines/:/opt/engines/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.json:/opt/config/models-download.json:ro
 
     environment:
-      MODEL_TYPE: ${MODEL_TYPE}
       STREAM_TYPE: ${STREAM_TYPE}
       MODEL_NAME_2D: ${MODEL_NAME_2D}
       NUM_SENSORS: ${NUM_SENSORS}
@@ -101,6 +102,8 @@ services:
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "true"
       DS_CONFIG_FILE: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/run_config-api-rtdetr-protobuf.txt
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
       kafka-topic-init-container:
         condition: service_completed_successfully

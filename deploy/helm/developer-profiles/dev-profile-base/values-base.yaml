@@ -69,5 +69,11 @@ vssIngress:
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
+  # Exposes RT-VLM at /v1 for external report clients. Defaults to the
+  # rtvi.vss-rtvi-vlm Service (vlmNameSlug=none does not deploy a VLM NIM).
+  vlm:
+    enabled: true
+    serviceName: "vss-rtvi-vlm"
+    servicePort: 8000
   phoenixHost: ""
   phoenixPort: 6006

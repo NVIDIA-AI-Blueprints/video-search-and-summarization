@@ -21,12 +21,14 @@ describe('replaceVideoUrlBase', () => {
     consoleWarnSpy.mockRestore();
   });
 
-  it('replaces base URL when both URLs contain /vst', () => {
+  it('rewrites vst-ingress host and preserves reverse-proxy path prefix', () => {
     const result = replaceVideoUrlBase(
-      'http://other-host:30888/vst/storage/xyz/segment.mp4?token=abc',
-      'http://vst.test/vst/api'
+      'http://vst-ingress:30888/vst/storage/temp_files/warehouse_20250101_000000_32ed1.mp4',
+      'https://7777-4say9l8xw.apps.run.brev.nvidia.com:443/some-prefix/vst/api'
     );
-    expect(result).toBe('http://vst.test/vst/storage/xyz/segment.mp4?token=abc');
+    expect(result).toBe(
+      'https://7777-4say9l8xw.apps.run.brev.nvidia.com/some-prefix/vst/storage/temp_files/warehouse_20250101_000000_32ed1.mp4'
+    );
   });
 
   it('handles relative videoUrl', () => {

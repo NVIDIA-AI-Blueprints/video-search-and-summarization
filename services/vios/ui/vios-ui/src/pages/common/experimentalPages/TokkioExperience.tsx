@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import { FC, useState, useRef, useCallback } from 'react';
 import {
     Grid2 as Grid,
@@ -33,6 +34,7 @@ import StreamManager, { ErrorType } from 'vst-streaming-lib';
 import React from 'react';
 import { StreamType } from 'vst-streaming-lib';
 import appConfig from '../../../config';
+import { toWebSocketUrl } from '../../../utils/runtimeConfig';
 
 // Updated styled components
 const VideoContainer = styled(Box)(({ theme }) => ({
@@ -75,13 +77,13 @@ const Webrtc: FC = () => {
     });
 
     const onErrorCallback = useCallback(async (error: ErrorType) => {
-        console.error('on Error: ', error);
+        LOG.error('on Error: ', error);
         await stopStreaming();
     }, []);
 
     const handleConfigChange = (key: keyof StreamConfig) => (event: React.ChangeEvent<HTMLInputElement>) => {
         setConfig(prev => ({ ...prev, [key]: event.target.checked }));
-        console.log(`${key}:`, event.target.checked);
+        LOG.info(`${key}:`, event.target.checked);
     };
 
     const startStreaming = async () => {
@@ -100,17 +102,7 @@ const Webrtc: FC = () => {
         streamManager.current = new StreamManager();
         if (streamManager.current) {
             const streambridgeEndpoint = appConfig.streambridgeEndpoint;
-            let wsEndpoint = streambridgeEndpoint.startsWith('https')
-                ? streambridgeEndpoint.replace('https', 'wss')
-                : streambridgeEndpoint.replace('http', 'ws');
-
-            let proxy = window.location.pathname;
-            if (proxy !== '/' && proxy.length > 0) {
-                if (proxy[proxy.length - 1] === '/') {
-                    proxy = proxy.slice(0, -1);
-                }
-                wsEndpoint = `${wsEndpoint}${wsEndpoint.endsWith('/') ? '' : '/'}${proxy}`;
-            }
+            const wsEndpoint = toWebSocketUrl(streambridgeEndpoint);
 
             streamManager.current.updateConfig({
                 inboundStreamVideoElementId: 'tokkio-avatar-stream',
@@ -123,7 +115,7 @@ const Webrtc: FC = () => {
                 errorCallback: onErrorCallback,
             });
 
-            console.log('streamManager.current', streamManager.current.getConfig());
+            LOG.info('streamManager.current', streamManager.current.getConfig());
 
             streamManager.current.startStreaming({
                 options: {
@@ -143,7 +135,7 @@ const Webrtc: FC = () => {
                 streamManager.current = null;
                 setIsStreaming(false);
             } catch (error) {
-                console.error('Error stopping stream:', error);
+                LOG.error('Error stopping stream:', error);
             }
         }
         setIsStreaming(false);

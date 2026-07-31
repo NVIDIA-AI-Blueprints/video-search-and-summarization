@@ -94,10 +94,6 @@
 			"value": "true"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
-		},
-		{
 			"name": "sourceType",
 			"value": "kafka"
 		},

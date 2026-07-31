@@ -40,7 +40,7 @@
 #include "logger.h"
 
 
-class DesktopCapturer : public rtc::VideoSourceInterface<webrtc::VideoFrame>, public webrtc::DesktopCapturer::Callback  {
+class DesktopCapturer : public webrtc::VideoSourceInterface<webrtc::VideoFrame>, public webrtc::DesktopCapturer::Callback  {
 	public:
 		DesktopCapturer(const std::map<std::string,std::string> & opts) : m_width(0), m_height(0) {
 			if (opts.find("width") != opts.end()) {
@@ -67,12 +67,12 @@ class DesktopCapturer : public rtc::VideoSourceInterface<webrtc::VideoFrame>, pu
 		// overide webrtc::DesktopCapturer::Callback
 		virtual void OnCaptureResult(webrtc::DesktopCapturer::Result result, std::unique_ptr<webrtc::DesktopFrame> frame);
 		
-		// overide rtc::VideoSourceInterface<webrtc::VideoFrame>
-		virtual void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const rtc::VideoSinkWants& wants) {
+		// overide webrtc::VideoSourceInterface<webrtc::VideoFrame>
+		virtual void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const webrtc::VideoSinkWants& wants) {
 			broadcaster_.AddOrUpdateSink(sink, wants);
 		}
 
-		virtual void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) {
+		virtual void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame>* sink) {
 			broadcaster_.RemoveSink(sink);
 		}
 	
@@ -82,7 +82,7 @@ class DesktopCapturer : public rtc::VideoSourceInterface<webrtc::VideoFrame>, pu
 		int                                      m_width;		
 		int                                      m_height;	
 		bool                                     m_isrunning;
-		rtc::VideoBroadcaster                    broadcaster_;
+		webrtc::VideoBroadcaster                    broadcaster_;
 };
 
 

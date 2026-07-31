@@ -103,9 +103,9 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Cap concurrent legs near the vss-eval-* box count so legs don't
-      # all grab a runner slot only to block on flock. Excess legs queue.
-      max-parallel: 4
+      # Match the PR workflow's eight-leg limit. Unavailable runner slots
+      # queue in Actions; per-instance flock still serializes each GPU box.
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling

@@ -323,11 +323,13 @@ The canonical harbor command is in § Harbor invocation.
       "choosing" the same lock-free-looking one and serialising
       (check-then-act TOCTOU — the failure mode that motivated this).
 
-      Ordering inside the wrapper preserves pool partitioning: exact
-      name-hinted `gpu_count` matches (`*-1g*` → 1, `*-2g*` → 2) sort
-      before over-provisioned boxes; `envs/brev_env.py` still validates
-      the final pick (`gpu_count >=` required) and `start()` wipes the
-      box before the trial, so an over-provisioned fallback stays safe.
+      Ordering inside the wrapper uses connected registered nodes first so
+      dedicated capacity is consumed before managed cloud instances. Within
+      each tier, exact name-hinted `gpu_count` matches (`*-1g*` → 1,
+      `*-2g*` → 2) sort before over-provisioned boxes;
+      `envs/brev_env.py` still validates the final pick (`gpu_count >=`
+      required) and `start()` wipes the box before the trial, so an
+      over-provisioned fallback stays safe.
       `gpu_count = 0` specs (remote-all / GPU-independent) accept any
       RUNNING pool box.
 
@@ -488,15 +490,32 @@ The canonical harbor command is in § Harbor invocation.
 |---|---|---|
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g-3`) | RTX PRO 6000 BW. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). |
+| `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
-Pool naming is operator-managed; the actual fleet is whatever
-`brev ls` reports matching the prefix. Don't hardcode a specific
-instance name — `run_leg.py`'s pool selection (§ 5a) picks the
-candidate. **Lifecycle is the operator's job**; the box lock and the
-trials both live inside `run_leg.py` — see Hard rules about
-`brev create / start / stop / delete / reset`.
+Pool naming is operator-managed; the actual fleet is the union of managed
+instances from `brev ls --json` and connected registered nodes from
+`brev ls nodes --json` that are explicitly named in the coordinator's
+comma/space-separated `BREV_REGISTERED_POOL` allowlist. Registered-node
+JSON omits GPU metadata, so `run_leg.py` accepts only documented hardware
+prefixes (`vss-eval-rtx*`, `vss-eval-geforce-rtx4090-vm*`,
+`vss-eval-l40s*`, `vss-eval-h100*`) and fails closed for unknown GPU
+families. Don't hardcode a specific instance name —
+`run_leg.py`'s pool selection (§ 5a) picks the candidate. **Lifecycle is
+the operator's job**; the box lock and the trials both live inside
+`run_leg.py` — see Hard rules about `brev create / start / stop / delete /
+reset`.
+
+`BREV_RTX4090_POOL` is a separate, capability-routed allowlist. Its nodes
+are selected only when the skill and spec stem match the resource-proven
+matrix in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS`. This includes
+the proven ask-video, report, base/LVS/Alerts profile, summarize, alerts,
+query analytics, 2D detection, embedding, calibration, VIOS, setup, and
+standalone dense-captioning tests. Search, Warehouse, dense-captioning
+Alerts, and every 3D detection/calibration test remain on full-capability
+workers. Missing skill/spec metadata fails closed. A registered single-GPU
+node is also filtered from any task requiring two GPUs before lock
+acquisition.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
@@ -537,10 +556,10 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
 - **gpu_count is `>=`, not exact.** `_check_instance_matches` accepts any
   box with **at least** the spec's `gpu_count` — a 1-GPU spec runs fine on
   a 2-GPU box (2nd GPU idles); only an *under*-provisioned box is rejected.
-  **Prefer** an exact match at selection time (`run_leg.py` orders
-  exact name-hinted counts first) so the pool stays partitioned, but an
-  over-provisioned box is a valid fallback when no exact match is
-  free/reachable. Because the `>=` check passes (rather
+  `run_leg.py` prefers registered capacity first, then exact name-hinted
+  counts within the registered/managed tier. An over-provisioned box is a
+  valid fallback when no exact match is free/reachable. Because the `>=`
+  check passes (rather
   than raising), `start()` runs `_reset_docker_runtime` on the fallback
   box, so it never inherits a prior trial's containers.
 
@@ -659,50 +678,63 @@ to pick up a trial, its directory must live under
 `/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>/` as a
 **real dir (not a symlink)**, flattened — no nested `<date>/` level.
 The `<leg-slug>` keeps concurrent legs from colliding on one viewer
-entry. **Copy** (don't move) from this leg's scoped results root:
+entry.
 
-```bash
-VIEWER_JOB="/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
-mkdir -p "$VIEWER_JOB"
-cp -a "$RES/<date>/." "$VIEWER_JOB/"
-```
+**`run_leg.py` does this publish for you** (`publish_trace`), after
+every trial including timed-out ones. It copies (never moves) the
+date dir's *contents* into a pre-made job dir — the workflow's
+"Collect results" step runs *after* this agent and tars `$RES` for
+the artifact, so a `mv` would upload an artifact with no
+`result.json`. Copying keeps `$RES` intact for the collector (which
+excludes `agent/` from the public tarball) while the `_viewer` copy
+keeps `agent/` for the live Harbor Trace tab. You do not run `cp`
+yourself.
 
-`cp -a`, **not `mv`** — the workflow's "Collect results" step runs
-*after* this agent and scans + tars `$RES` for the artifact. A `mv`
-would leave `$RES` empty and the uploaded artifact would have no
-`result.json` or traces. Copying keeps `$RES` intact for the collector
-(which excludes `agent/` from the public tarball) while the `_viewer`
-copy keeps `agent/` for the live Harbor Trace tab.
+### Trace URLs — read them, never build them
 
-**Use the `mkdir -p` + `cp -a "$RES/<date>/."` (trailing `/.`) form
-above, not `cp -a "$RES/<date>" "$VIEWER_JOB"`** — the latter is not
-idempotent: on the *second* trial of a multi-step spec, `$VIEWER_JOB`
-already exists, so `cp -a <date> <existing-dir>` nests the trial as
-`$VIEWER_JOB/<date>/...` and Harbor only sees the first (top-level)
-trial. Copying the directory *contents* into a pre-made `$VIEWER_JOB`
-keeps every trial at the job's top level.
-
-Do this between trials so each new trial's traces are reachable
-via the SPA URL:
+`run_leg.py` writes one row per finished trial to
+`<results-root>/trace-urls.tsv`:
 
 ```
-https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+<include-task-name>\t<trial-dir>\t<url>
 ```
 
-**CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
-env id** (the CI runner, set by Brev in `/etc/environment` — on the
-current coordinator it's `13xh5gpe7`). It is **NOT** a per-trial
-instance id you see in `brev ls --json` (the `id` field of
-`vss-eval-*` or `harbor-*` entries). The coordinator runs
-`harbor view`; per-trial boxes do not. Mixing these up produces a
-trace URL that resolves to the wrong brevlab subdomain and 404s.
-When generating the URL, read the value from the runner env
-(`echo "$BREV_ENV_ID"`) and paste it verbatim — never substitute
-from `brev ls` output.
+and echoes `[run-leg] trace: <step> -> <url>` to the job log. **Read
+the URL from there and paste it verbatim into the comment. Never
+assemble a Harbor URL by hand.** A step with no row errored before
+producing `result.json` — report it without a trace link rather than
+inventing one.
 
-Values for `<source>` / `<agent>` / `<model>` / `<task>` come from
-`GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`;
-slashes in `<model>` and `<task>` must be URL-encoded (`%2F`).
+The URL shape is:
+
+```
+https://harbor-<COORDINATOR_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+```
+
+Two things make hand-assembly unreliable, which is why it moved into
+the wrapper:
+
+- **`<task>` is Harbor's fully-qualified `task_name`**
+  (`nvidia-vss/<dataset>-step-N`), *not* the `--include-task-name`
+  filter (`step-N`) used to select the task. A bare `step-N` matches
+  no task, and because the viewer is a client-side SPA — every route
+  returns the same HTTP 200 shell — the page renders **blank** rather
+  than 404ing. That is indistinguishable from missing trace data.
+  (Observed on PR #1254, run 30284131217: all seven step links were
+  built with the filter and every one opened empty.)
+- **`BREV_ENV_ID` is the coordinator host's env id** (the CI runner,
+  set by Brev in `/etc/environment`). It is **NOT** a per-trial
+  instance id from `brev ls --json` (the `id` field of `vss-eval-*`
+  or `harbor-*` entries). The coordinator runs `harbor view`;
+  per-trial boxes do not. `run_leg.py` reads the runner env and falls
+  back to `/etc/environment` — never substitute from `brev ls`.
+
+Every segment `run_leg.py` emits comes from the trial's own
+`result.json` (`source`, `agent_info.name`,
+`agent_info.model_info.provider|name`, `task_name`), so the link
+cannot drift from what the viewer indexes, and it is produced even
+when `harbor-view.service` is down. To inspect the index by hand:
+`GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`.
 
 ### Per-trial trajectory isolation
 

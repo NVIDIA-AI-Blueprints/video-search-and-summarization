@@ -33,7 +33,6 @@
       "source_path": "services/agent",
       "context": "services",
       "dockerfile": "services/agent/docker/Dockerfile",
-      "lfs_include": "services/agent/3rdparty/ffmpeg/*",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-agent"],
       "tag_variables": ["VSS_AGENT_VERSION"]
@@ -56,6 +55,7 @@
       "source_path": "services/alert",
       "context": "services/alert",
       "dockerfile": "services/alert/Dockerfile",
+      "lfs_include": "services/alert/warmup/*",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-alert-ms", "vss-alert-verification"],
       "tag_variables": ["VSS_ALERT_TAG"],
@@ -64,24 +64,26 @@
     {
       "name": "vss-video-analytics-api",
       "strategy": "build",
-      "ghcr_build": false,
+      "ghcr_build": true,
       "source_path": "services/analytics/video-analytics-api",
+      "context": "services/analytics/video-analytics-api",
       "dockerfile": "services/analytics/video-analytics-api/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-video-analytics-api"],
       "tag_variables": ["VSS_VIDEO_ANALYTICS_API_TAG"],
-      "notes": "Multiarch build exists in ci-vss-oss MR !204; coordinate, do not duplicate."
+      "notes": "Built by GitHub with the managed first-party image set; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-behavior-analytics",
       "strategy": "build",
-      "ghcr_build": false,
+      "ghcr_build": true,
       "source_path": "services/analytics/behavior-analytics",
+      "context": "services/analytics/behavior-analytics",
       "dockerfile": "services/analytics/behavior-analytics/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-behavior-analytics"],
       "tag_variables": ["VSS_BEHAVIOR_ANALYTICS_TAG"],
-      "notes": "Multiarch build exists in ci-vss-oss MR !204; coordinate, do not duplicate."
+      "notes": "Built by GitHub with the managed first-party image set; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-video-summarization",

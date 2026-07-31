@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/kibana/kibana
-  tag: "9.3.3"
+  tag: "9.4.4"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -47,8 +47,8 @@ init:
   # Selects packaged NDJSON under configs/objects/{alerts,search,lvs,warehouse-2d,warehouse-3d,warehouse-mv3dt}.ndjson
   objectsBundle: ""
   image:
-    repository: alpine
-    tag: "3.23.4"
+    repository: docker.io/library/alpine
+    tag: "3.24.1"
     pullPolicy: IfNotPresent
   backoffLimit: 10
   ttlSecondsAfterFinished: null

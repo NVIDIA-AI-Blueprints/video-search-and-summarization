@@ -28,18 +28,31 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
+RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
+# RTX 4090 capability-routing is opt-in at the spec level via gpu_type.
+# These tables are intentionally empty: a test runs on RTX 4090 only when
+# its spec metadata declares gpu_type that matches GEFORCE RTX 4090.
+RTX4090_ALL_TESTS: frozenset[str] = frozenset()
+RTX4090_TESTS: dict[str, frozenset[str]] = {}
+# Shared root served by the coordinator's persistent `harbor-view.service`
+# (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
+# the host, not per leg, so every leg publishes its trials in here.
+VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -289,6 +302,135 @@ def _list_brev_instances() -> list[dict]:
     return []
 
 
+def _list_registered_nodes() -> list[dict]:
+    """Snapshot registered external nodes from ``brev ls nodes --json``.
+
+    The CLI intentionally keeps registered nodes out of ``brev ls --json``.
+    Treat a well-formed empty array (or ``null``) as authoritative, but retry
+    empty/malformed output because transient auth/RPC failures otherwise make
+    the external pool disappear for the whole lock wait.
+    """
+    for attempt in range(4):
+        try:
+            proc = subprocess.run(
+                ["brev", "ls", "nodes", "--json"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            print(
+                f"[run-leg] brev ls nodes failed (attempt {attempt + 1}): {exc}",
+                flush=True,
+            )
+            time.sleep(5)
+            continue
+        raw = (proc.stdout or "").strip()
+        if raw.startswith("null"):
+            return []
+        if raw and raw.rfind("]") >= 0:
+            return _parse_brev_json(raw)
+        print(
+            f"[run-leg] brev ls nodes returned empty stdout "
+            f"(attempt {attempt + 1})",
+            flush=True,
+        )
+        time.sleep(5)
+    return []
+
+
+def _registered_gpu_hint(name: str) -> str:
+    """Infer hardware only for operator-controlled ``vss-eval-*`` names.
+
+    ``brev ls nodes --json`` currently reports name/status but no GPU model.
+    The pool's documented prefixes are therefore the only available hardware
+    contract. Unknown prefixes return empty so GPU-requiring legs fail closed.
+    """
+    normalized = name.lower()
+    if normalized.startswith(RTX4090_PREFIX):
+        return "GEFORCE RTX 4090"
+    # Use a more specific prefix to avoid matching RTX 4090 nodes whose names
+    # begin with "vss-eval-rtx" (e.g. "vss-eval-rtx4090-*") as RTX PRO 6000.
+    if normalized.startswith("vss-eval-rtx-"):
+        return "RTX PRO 6000"
+    if normalized.startswith("vss-eval-l40s"):
+        return "L40S"
+    if normalized.startswith("vss-eval-h100"):
+        return "H100"
+    return ""
+
+
+def _parse_pool_names(raw: str) -> set[str]:
+    return {
+        name.lower()
+        for name in re.split(r"[\s,]+", raw.strip())
+        if name
+    }
+
+
+def _rtx4090_supports(skill: str | None, spec_stem: str | None) -> bool:
+    """Whether resource data supports this exact test on a 24 GB RTX 4090."""
+    if not skill or not spec_stem:
+        return False
+    return (
+        skill in RTX4090_ALL_TESTS
+        or spec_stem in RTX4090_TESTS.get(skill, ())
+    )
+
+
+def _registered_pool_allowlist(
+    skill: str | None = None,
+    spec_stem: str | None = None,
+) -> set[str]:
+    """Registered nodes approved for this test.
+
+    ``BREV_REGISTERED_POOL`` contains full-capability workers. The separate
+    RTX 4090 pool is intentionally capability-routed because those 24 GB
+    cards cannot safely satisfy every RTX PRO 6000 task.
+    """
+    names = _parse_pool_names(os.environ.get("BREV_REGISTERED_POOL", ""))
+    if _rtx4090_supports(skill, spec_stem):
+        names.update(_parse_pool_names(os.environ.get("BREV_RTX4090_POOL", "")))
+    return names
+
+
+def _list_pool_instances(
+    skill: str | None = None,
+    spec_stem: str | None = None,
+) -> list[dict]:
+    """Return managed instances plus connected registered pool nodes."""
+    instances = list(_list_brev_instances())
+    seen = {(inst.get("name") or "").lower() for inst in instances}
+    registered_allowlist = _registered_pool_allowlist(skill, spec_stem)
+    rtx4090_allowlist = _parse_pool_names(
+        os.environ.get("BREV_RTX4090_POOL", "")
+    )
+    if not registered_allowlist:
+        return instances
+    for node in _list_registered_nodes():
+        name = (node.get("name") or "").strip()
+        if (
+            not name
+            or name.lower() in seen
+            or name.lower() not in registered_allowlist
+        ):
+            continue
+        status = (node.get("status") or "").upper()
+        instances.append({
+            **node,
+            "name": name,
+            # Managed instances say RUNNING; registered nodes say Connected.
+            "status": "RUNNING" if status == "CONNECTED" else status,
+            "gpu": _registered_gpu_hint(name),
+            "instance_type": "registered-external-node",
+            "_registered": True,
+            "_rtx4090_capability_routed": (
+                name.lower() in rtx4090_allowlist
+                and name.lower().startswith(RTX4090_PREFIX)
+            ),
+        })
+        seen.add(name.lower())
+    return instances
+
+
 def _loose_gpu_match(want: str, have: str) -> bool:
     """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` — all tokens of `want` must
     appear in `have` (substring fallback for dashed variants). Mirrors
@@ -301,46 +443,71 @@ def _loose_gpu_match(want: str, have: str) -> bool:
 def _name_gpu_count_hint(name: str) -> int | None:
     """Fleet-naming gpu_count hint: `*-1g*` → 1, `*-2g*` → 2 (AGENTS.md
     pool convention). None when the name encodes nothing."""
+    if name.lower().startswith(RTX4090_PREFIX):
+        return 1
     match = re.search(r"-(\d)g(?:-|$)", name)
     return int(match.group(1)) if match else None
 
 
-def pool_candidates(metadata: dict) -> list[str]:
+def pool_candidates(
+    metadata: dict,
+    spec_stem: str | None = None,
+) -> list[str]:
     """Eligible `vss-eval-*` boxes for this leg, best-first.
 
     Hardware-hard, software-free (AGENTS.md § 5a): RUNNING + gpu_type
-    token match. Exact name-hinted gpu_count matches sort first so the
-    pool stays partitioned (don't tie up a 2-GPU box with 1-GPU work);
-    over-provisioned boxes remain as fallback — brev_env validates the
-    final pick with `gpu_count >=` and the box is reset either way.
+    token match. Dedicated registered nodes sort before managed cloud
+    instances; exact name-hinted gpu_count matches sort first within each
+    tier. Over-provisioned boxes remain valid — brev_env validates the final
+    pick with live nvidia-smi and the box is reset either way.
     gpu_count == 0 (remote-all / GPU-independent) accepts any RUNNING box.
     """
     required_type = (metadata.get("gpu_type") or "").upper()
     required_count = int(metadata.get("gpu_count", 1) or 0)
+    skill = metadata.get("skill") or os.environ.get("EVAL_SKILL") or None
+    spec_stem = (
+        spec_stem
+        or metadata.get("spec_stem")
+        or os.environ.get("EVAL_SPEC_STEM")
+        or None
+    )
 
-    names: list[str] = []
-    for inst in _list_brev_instances():
+    candidates: list[tuple[str, bool]] = []
+    for inst in _list_pool_instances(skill, spec_stem):
         name = inst.get("name") or ""
         if not name.startswith("vss-eval-"):
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
             continue
+        if inst.get("_registered") and required_count > 0:
+            count_hint = _name_gpu_count_hint(name)
+            if count_hint is not None and count_hint < required_count:
+                continue
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
             itype = (inst.get("instance_type") or "").upper()
+            capability_routed = (
+                bool(inst.get("_rtx4090_capability_routed"))
+                and _rtx4090_supports(skill, spec_stem)
+            )
             # Accept via instance_type when `gpu` is a transient "-"/"" flake
             # (brev catalog refresh) — same soft-fail brev_env applies.
             if not (_loose_gpu_match(required_type, gpu)
-                    or _loose_gpu_match(required_type, itype)):
+                    or _loose_gpu_match(required_type, itype)
+                    or capability_routed):
                 continue
-        names.append(name)
+        candidates.append((name, bool(inst.get("_registered"))))
 
-    def sort_key(name: str) -> tuple[int, str]:
+    def sort_key(candidate: tuple[str, bool]) -> tuple[int, int, str]:
+        name, registered = candidate
         hint = _name_gpu_count_hint(name)
         exact = 0 if (required_count > 0 and hint == required_count) else 1
-        return (exact, name)
+        # Use the dedicated registered pool before consuming managed cloud
+        # capacity. Within each pool tier, preserve exact-count partitioning.
+        # BrevEnvironment validates the chosen node with live nvidia-smi.
+        return (0 if registered else 1, exact, name.lower())
 
-    return sorted(names, key=sort_key)
+    return [name for name, _ in sorted(candidates, key=sort_key)]
 
 
 @contextlib.contextmanager
@@ -432,6 +599,106 @@ def latest_reward(
     return latest.read_text().strip()
 
 
+def _coordinator_env_id() -> str | None:
+    """Brev env id of the COORDINATOR host — the box running `harbor view`.
+
+    Never derive this from `brev ls`: that yields a per-trial instance id,
+    and the resulting URL points at a subdomain with no viewer behind it.
+    """
+    env_id = os.environ.get("BREV_ENV_ID", "").strip()
+    if env_id:
+        return env_id
+    try:
+        for line in Path("/etc/environment").read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "BREV_ENV_ID":
+                return value.strip().strip('"').strip("'") or None
+    except OSError:
+        pass
+    return None
+
+
+def trace_url(result_json: Path, job_name: str) -> str | None:
+    """Harbor viewer deep-link for one finished trial.
+
+    Every segment is read from the trial's own result.json, so the link
+    cannot drift from what the viewer indexes. `task_name` in particular is
+    Harbor's fully-qualified name (`nvidia-vss/<dataset>-step-N`), NOT the
+    `--include-task-name` filter (`step-N`) that selects the task here — the
+    viewer resolves its task route by the former. A bare `step-N` matches
+    nothing and renders a BLANK PAGE rather than a 404, because the viewer
+    is a client-side SPA where every route returns the same HTTP 200 shell.
+    That failure mode is indistinguishable from missing trace data, which is
+    why the URL is built here instead of being assembled by hand.
+    """
+    env_id = _coordinator_env_id()
+    if not env_id:
+        return None
+    try:
+        data = json.loads(result_json.read_text())
+    except (OSError, ValueError):
+        return None
+    agent_info = data.get("agent_info") or {}
+    model_info = agent_info.get("model_info") or {}
+    parts = [
+        data.get("source"),
+        agent_info.get("name"),
+        model_info.get("provider"),
+        model_info.get("name"),
+        data.get("task_name"),
+    ]
+    if not all(parts):
+        return None
+    # safe="" so the slashes inside <model> and <task> encode as %2F — the
+    # viewer expects them as single path segments, not extra path levels.
+    encoded = "/".join(urllib.parse.quote(str(part), safe="") for part in parts)
+    return f"https://harbor-{env_id}.brevlab.com/jobs/{job_name}/tasks/{encoded}"
+
+
+def publish_trace(
+    results_root: Path,
+    invocation: HarborInvocation,
+    started_at: float,
+    leg_slug: str,
+    run_id: str,
+) -> str | None:
+    """Copy a finished trial into the viewer root and record its trace URL.
+
+    Returns None when the trial produced no result.json (errored or timed
+    out before the verifier ran) — such a step has no trace to link.
+    """
+    matches = [
+        path.parent
+        for path in results_root.glob(
+            f"*/{invocation.include_task_name}__*/result.json"
+        )
+        if path.stat().st_mtime >= started_at
+    ]
+    if not matches:
+        return None
+    trial_dir = max(matches, key=lambda path: path.stat().st_mtime)
+    date_dir = trial_dir.parent
+    job_name = f"{leg_slug}__{run_id}__{date_dir.name}"
+    viewer_job = VIEWER_ROOT / job_name
+    viewer_job.mkdir(parents=True, exist_ok=True)
+    # Copy (never move) the date dir's *contents*: the workflow's "Collect
+    # results" step runs after this and tars results_root for the artifact,
+    # and copying the dir itself would nest a later trial under
+    # <job>/<date>/ where the viewer cannot see it.
+    shutil.copytree(date_dir, viewer_job, dirs_exist_ok=True)
+    url = trace_url(trial_dir / "result.json", job_name)
+    if url:
+        with (results_root / "trace-urls.tsv").open("a") as handle:
+            handle.write(
+                f"{invocation.include_task_name}\t{trial_dir.name}\t{url}\n"
+            )
+        print(
+            f"[run-leg] trace: {invocation.include_task_name} -> {url}",
+            flush=True,
+        )
+    return url
+
+
 def _reward_value(reward: str | None) -> float:
     if reward is None:
         return 0.0
@@ -506,6 +773,10 @@ def run_invocations(
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
+    # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
+    # the env vars are the authoritative source when the agent exports them.
+    leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
+    run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 
@@ -520,6 +791,14 @@ def run_invocations(
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
         rc = run_command(cmd, env, harbor_timeout_sec)
+        # Publish before the rc checks below: a timed-out (rc=124) trial
+        # returns early, and its partial trace is exactly what needs reading.
+        try:
+            publish_trace(results_root, invocation, started_at, leg_slug, run_id)
+        except Exception as exc:  # noqa: BLE001
+            # A trace link is reporting convenience; the verdict comes from
+            # reward.txt. Never let a viewer-publish error fail the leg.
+            print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
@@ -592,7 +871,9 @@ def main(argv: list[str] | None = None) -> int:
                   flush=True)
             candidates_fn = lambda: [pinned]  # noqa: E731
         else:
-            candidates_fn = lambda: pool_candidates(metadata)  # noqa: E731
+            candidates_fn = (  # noqa: E731
+                lambda: pool_candidates(metadata, args.spec_stem)
+            )
         with hold_pool_lock(
             candidates_fn, args.lock_dir, args.lock_timeout_sec
         ) as instance:

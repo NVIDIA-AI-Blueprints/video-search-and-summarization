@@ -6,6 +6,9 @@ global:
     - name: ngc-docker-reg-secret
   storageClass: ""
   useReleaseNamePrefix: false
+  # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
+  vios:
+    useSdrc: true
 
 bp-configurator:
   enabled: true
@@ -302,16 +305,21 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: "3.3.0-26.07.1"
+      tag: "3.3.0-26.07.2"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
     downloadNgcAppData: true
-    downloadModelsFromNgc: false
+    downloadModelsFromNgc: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcAppDataOrg: nvidia
     ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    ngcModelsToDownload:
+      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:

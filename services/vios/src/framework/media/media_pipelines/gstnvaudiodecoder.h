@@ -114,7 +114,10 @@ class GstNvAudioDecoder : public IMediaDataConsumer, public GstNvDecoder
         std::string             m_uri;
         GstElement*             m_pipeline = nullptr;
         GstElement*             m_source = nullptr;
+        GstElement*             m_parser = nullptr;
         GstElement*             m_decoder = nullptr;
+        GstElement*             m_audioconvert = nullptr;
+        GstElement*             m_capsfilter = nullptr;
         GstElement*             m_sink = nullptr;
         std::mutex              m_pipelineLock;
         std::atomic<bool>       m_error{false};

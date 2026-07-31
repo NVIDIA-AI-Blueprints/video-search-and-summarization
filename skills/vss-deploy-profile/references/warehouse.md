@@ -2,26 +2,26 @@
 
 Blueprint: VSS Warehouse — RT-DETR (2D) / Sparse4D (3D) / MV3DT (multi-view 3D tracking with BEV Fusion) perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using the warehouse `.env` plus `generated.env` env-file pair.
 
-The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data (videos and models) is the only artifact you may need to acquire; see [App Data](#app-data).
+The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data supplies videos, playback, and calibration assets; RT-CV models are downloaded from versioned NGC model packages during ds-start phase 0 at perception startup. See [App Data](#app-data).
 
 Work through **one path** under [Choose your path](#choose-your-path). Reference tables (variants, services, GPU layout, endpoints, artifacts) are in the top half; operational phases are in the bottom half.
 
 ---
 
-## Profile Variants
+## Deployment Variants
 
-| Profile Name | MODE | BP_PROFILE | SAMPLE_VIDEO_DATASET | NUM_STREAMS | LLM | RTVI VLM |
+| Variant | `MODE` | `BP_PROFILE` | `SAMPLE_VIDEO_DATASET` | `NUM_STREAMS` | LLM | RTVI VLM |
 |---|---|---|---|---|---|---|
-| 2D Vision AI Profile | `2d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-loading-dock-3cams-synthetic` | 3 | none | none |
-| 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `remote` / `none` | **always local** |
-| 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
-| MV3DT Vision AI Profile | `mv3dt` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
+| 2D Vision AI | `2d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-loading-dock-3cams-synthetic` | 3 | none | none |
+| 2D Vision AI with Agents | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `remote` / `none` | **always local** |
+| 3D Vision AI | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
+| MV3DT Vision AI | `mv3dt` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
 | Warehouse Auto-Calibration | `2d` / `3d` / `mv3dt` | `bp_wh_auto_calib` | (same as mode default) | (same as mode default) | none | none |
-| Standalone Auto-Calibration | any | `auto_calib` | n/a | n/a | none | none |
+| Standalone Auto-Calibration | any | n/a (standalone service list) | n/a | n/a | none | none |
 
-`COMPOSE_PROFILES` is computed automatically: `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}`. No `vlm_*` slice — `vss-rtvi-vlm` is always deployed for `bp_wh` and there is no VLM NIM.
+`COMPOSE_PROFILES` is an explicit list of service-scoped Docker Compose **profile names** for the active variant. Each service carries its own `profiles: ["<service-profile-name>"]`, and the checked-in `overrides.env` template defines one `COMPOSE_PROFILES_WH_*` list per variant. Copy `overrides.env` to `generated.env`, apply the deployment overrides there, and point `COMPOSE_PROFILES` at the list matching `BP_PROFILE`, `MODE`, and `MINIMAL_PROFILE`. Do not invoke `blueprint-deploy.sh` from this skill. The `bp_wh` service list includes `rtvi-vlm` directly; warehouse does not use a separate `vlm_*` NIM slice.
 
-## Minimal vs Extended Profile
+## Deployment Size (Kafka/Redis Variants Only)
 
 Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
@@ -30,7 +30,7 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 | Perception (RT-DETR 2D / Sparse4D 3D) | ✅ | ✅ |
 | Behavior Analytics | ✅ | ✅ |
 | VST / NvStreamer | ✅ | ✅ |
-| Auto-Calibration | ✅ | ✅ |
+| Auto-Calibration | ❌ (use the auto-calibration variant) | ❌ (use the auto-calibration variant) |
 | ELK (Elasticsearch/Logstash/Kibana) | ❌ | ✅ |
 | Video Analytics API (`vss-video-analytics-api`, `MDX_PORT` 8081) | ❌ | ✅ |
 | Monitoring | ❌ | ✅ |
@@ -38,9 +38,9 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
 ## Services Deployed
 
-The warehouse blueprint boots the **full VSS stack** (agent + UI + VST + RTVI behind HAProxy) on top of the warehouse CV pipeline. Service set varies by `BP_PROFILE` and `MODE`. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (e.g. `vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
+The selected warehouse variant boots the service set identified by `BP_PROFILE`, `MODE`, and deployment size. Only `BP_PROFILE=bp_wh` adds the agent, UI, and RTVI VLM to the warehouse CV pipeline. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (e.g. `vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
 
-### Warehouse CV core (2D and 3D profiles)
+### Warehouse CV core (2D and 3D variants)
 
 | Container | Purpose |
 |---|---|
@@ -54,7 +54,7 @@ The warehouse blueprint boots the **full VSS stack** (agent + UI + VST + RTVI be
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
 
-### MV3DT CV core (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`)
+### MV3DT CV core (when `MODE=mv3dt` and `BP_PROFILE=bp_wh_kafka` or `bp_wh_redis`)
 
 MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera DeepStream perception. All MV3DT containers carry a `-mv3dt` suffix.
 
@@ -70,9 +70,9 @@ MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
 
-### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
+### Warehouse Auto-Calibration (select with `BP_PROFILE=bp_wh_auto_calib`)
 
-Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check. These are the only warehouse profiles that start `vss-auto-calibration` and `vss-auto-calibration-ui`; regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` profiles do not.
+Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Set `BP_PROFILE=bp_wh_auto_calib`, choose `MODE=2d`, `3d`, or `mv3dt`, and select the matching `COMPOSE_PROFILES_WH_AUTO_CALIB_*` service list. This variant skips broker health check. It is the only warehouse variant that starts `vss-auto-calibration` and `vss-auto-calibration-ui`; regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
 
 | Container | Purpose |
 |---|---|
@@ -81,15 +81,20 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 | VST stack (subset) | Stream management for calibration |
 
-### Agent + UI + ingress (`bp_wh` only)
+### Agent + UI (only when `BP_PROFILE=bp_wh`)
 
 | Container | Port |
 |---|---|
-| `vss-haproxy-ingress` | `HAPROXY_HOST_PORT` (host, default `7777`) → `HAPROXY_PORT` (container, default `7777`) |
 | `vss-agent-ui` (Next.js) | 3000 |
 | `vss-agent` | `VSS_AGENT_PORT` (default `8000`) |
 | `vss-va-mcp` | `VSS_VA_MCP_PORT` (default `9901`) |
 | `phoenix` (telemetry) | 6006 |
+
+### HAProxy ingress (conditional)
+
+| Container | Port | Deployed when |
+|---|---|---|
+| `vss-haproxy-ingress` | `HAPROXY_HOST_PORT` (host, default `7777`) → `HAPROXY_PORT` (container, default `7777`) | `BP_PROFILE=bp_wh`; `BP_PROFILE=bp_wh_auto_calib`; or Kafka/Redis with `MINIMAL_PROFILE=""` |
 
 ### Storage / observability (conditional)
 
@@ -100,15 +105,15 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 > **3D / MV3DT `mdx-bev` index requires Elasticsearch — and ES is only deployed for kafka/redis in extended mode** (`MINIMAL_PROFILE=""`). In minimal mode, the BEV-sync check cannot run because the index is never persisted.
 
-### LLM + RTVI VLM (`bp_wh` only)
+### LLM + RTVI VLM (only when `BP_PROFILE=bp_wh`)
 
 | Container | Port | When |
 |---|---|---|
 | LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` |
-| `vss-rtvi-vlm` (real-time VLM) | `RTVI_VLM_PORT` (default `8018`) | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
+| `vss-rtvi-vlm` (real-time VLM) | `RTVI_VLM_PORT` (default `8018`) | Always deployed for `BP_PROFILE=bp_wh` — `rtvi-vlm` is included directly in `COMPOSE_PROFILES_WH_2D` |
 | `vss-alert-bridge` | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
-> **No VLM NIM container.** VSS has two VLM paths: a standalone **VLM NIM** (controlled by `VLM_MODE` / `VLM_NAME_SLUG`, used by base/alerts/lvs/search profiles) and an integrated **RTVI VLM** (`vss-rtvi-vlm`). The warehouse blueprint uses **RTVI VLM only** — `vss-rtvi-vlm` is always deployed via the hardcoded compose profile `bp_wh_2d`, and `vss-agent` connects to it directly. Because warehouse does not use the standalone VLM NIM path, `VLM_MODE=none` and `VLM_NAME_SLUG=none` in the warehouse `.env`. There is no `vlm_*` slice in `COMPOSE_PROFILES`, so VLM NIM containers (e.g. `cosmos-reason2-8b` on port 30082) are never deployed.
+> **No VLM NIM container.** VSS has two VLM paths: a standalone **VLM NIM** (controlled by `VLM_MODE` / `VLM_NAME_SLUG`, used by base/alerts/lvs/search profiles) and an integrated **RTVI VLM** (`vss-rtvi-vlm`). The `bp_wh` warehouse variant uses **RTVI VLM only** — its service list includes the self-named `rtvi-vlm` profile, and `vss-agent` connects to it directly. Kafka/Redis and auto-calibration warehouse variants do not deploy a VLM. Because warehouse does not use the standalone VLM NIM path, keep `VLM_MODE=none` and `VLM_NAME_SLUG=none` in the active `generated.env`. There is no `vlm_*` slice in `COMPOSE_PROFILES`, so VLM NIM containers (e.g. `cosmos-reason2-8b` on port 30082) are never deployed.
 
 ## Perception Model
 
@@ -122,51 +127,51 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 | Role | Device | Used by |
 |---|---|---|
-| RT-CV perception (DeepStream — RT-DETR for 2D, Sparse4D for 3D, MV3DT for mv3dt) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse profiles |
+| RT-CV perception (DeepStream — RT-DETR for 2D, Sparse4D for 3D, MV3DT for mv3dt) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse variants except `BP_PROFILE=bp_wh_auto_calib` |
 | RTVI VLM — always local | `RT_VLM_DEVICE_ID` (default: `1`) | `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local` |
 
 `LLM_MODE` accepts `local`, `remote`, or `none`:
 - `local` — LLM NIM on its own GPU (`LLM_DEVICE_ID`)
 - `remote` — point at an external LLM endpoint via `LLM_BASE_URL` (no LLM NIM deployed)
-- `none` — no LLM, for `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`
+- `none` — no LLM, when `BP_PROFILE` is `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`
 
-RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT_VLM_DEVICE_ID` for `bp_wh`. `VLM_MODE` in the warehouse `.env` is set to `none` because warehouse uses RTVI VLM instead of the standalone VLM NIM path.
+RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT_VLM_DEVICE_ID` for `BP_PROFILE=bp_wh`. Keep `VLM_MODE=none` in `generated.env` because warehouse uses RTVI VLM instead of the standalone VLM NIM path.
 
 ## Access Points
 
-**Prefer the HAProxy ingress (host port `7777`)** — it gives a single browser-reachable origin and rewrites paths to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
+**Prefer the HAProxy ingress (host port `7777`) when the selected service list includes it** — it gives a single browser-reachable origin and rewrites paths to internal services. `_MINIMAL` Kafka/Redis lists omit HAProxy, so use direct ports there. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
 
 ### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_HOST_PORT>` — default `<EXTERNAL_IP>:7777`)
 
-| Path | Backend | Profile |
+| Path | Backend | Available when |
 |---|---|---|
-| `/` | `vss-agent-ui` (Next.js) | `bp_wh` (returns 503 in `bp_wh_kafka`/`bp_wh_redis` — no UI backend) |
-| `/storage`, `/storage/...` | `vst-storage` (compat → `/vst/storage/...`) | All |
-| `/kibana`, `/kibana/...` | `kibana` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| `/video-analytics-api`, `.../...` | `vss-video-analytics-api` | `bp_wh`, or kafka/redis extended |
-| `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | All |
-| `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | All |
-| `/alert-bridge`, `.../...` | `vss-alert-bridge` | `bp_wh` only |
-| `/phoenix`, `.../...` | `phoenix` | `bp_wh` only |
-| `/va-mcp`, `.../...` | `vss-va-mcp` | `bp_wh` only |
-| `/api`, `/api/...` | `vss-agent` | `bp_wh` only |
-| `/api/chat`, `.../...` | `vss-agent-ui` | `bp_wh` only |
-| `/chat`, `/static`, `/websocket` | `vss-agent` | `bp_wh` only |
+| `/` | `vss-agent-ui` (Next.js) | `BP_PROFILE=bp_wh` only; other ingress-enabled variants have no UI backend |
+| `/storage`, `/storage/...` | `vst-storage` (compat → `/vst/storage/...`) | Any ingress-enabled warehouse variant |
+| `/kibana`, `/kibana/...` | `kibana` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
+| `/video-analytics-api`, `.../...` | `vss-video-analytics-api` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
+| `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
+| `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
+| `/alert-bridge`, `.../...` | `vss-alert-bridge` | `BP_PROFILE=bp_wh` only |
+| `/phoenix`, `.../...` | `phoenix` | `BP_PROFILE=bp_wh` only |
+| `/va-mcp`, `.../...` | `vss-va-mcp` | `BP_PROFILE=bp_wh` only |
+| `/api`, `/api/...` | `vss-agent` | `BP_PROFILE=bp_wh` only |
+| `/api/chat`, `.../...` | `vss-agent-ui` | `BP_PROFILE=bp_wh` only |
+| `/chat`, `/static`, `/websocket` | `vss-agent` | `BP_PROFILE=bp_wh` only |
 
 ### Direct ports (no HAProxy route — diagnostics only)
 
-| Service | URL | Profile |
+| Service | URL | Available when |
 |---|---|---|
-| NvStreamer UI | `http://<HOST_IP>:31000` | All |
-| Auto-Calibration UI | `http://<HOST_IP>:5000` | `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt` |
-| Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
-| VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
-| VST MCP (direct) | `http://<HOST_IP>:8001` | All |
-| Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
-| Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
-| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
-| VST UI | `http://<HOST_IP>:30888/vst/` | All — direct port, not proxied via HAProxy |
+| NvStreamer UI | `http://<HOST_IP>:31000` | All warehouse variants |
+| Auto-Calibration UI | `http://<HOST_IP>:5000` | Standalone `vss-auto-calibration,vss-auto-calibration-ui`, or `BP_PROFILE=bp_wh_auto_calib` with the mode-specific `COMPOSE_PROFILES_WH_AUTO_CALIB_*` list |
+| Elasticsearch API | `http://<HOST_IP>:9200` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
+| VSS Agent API (direct) | `http://<HOST_IP>:8000` | `BP_PROFILE=bp_wh` only (prefer `/api` via HAProxy) |
+| VST MCP (direct) | `http://<HOST_IP>:8001` | All warehouse variants |
+| Phoenix (direct) | `http://<HOST_IP>:6006` | `BP_PROFILE=bp_wh` only (prefer `/phoenix` via HAProxy) |
+| Kibana (direct) | `http://<HOST_IP>:5601` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/kibana` via HAProxy |
+| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/video-analytics-api` via HAProxy |
+| VST UI | `http://<HOST_IP>:30888/vst/` | All warehouse variants — direct port, not proxied via HAProxy |
 
 `EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. The HAProxy `h_main` ACL routes browser traffic through `${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`; for local defaults this is `${EXTERNAL_IP}:${HAPROXY_HOST_PORT}`. Wrong Host headers get a 404 from haproxy.
 
@@ -186,7 +191,7 @@ Deployed from `<repo>/deploy/docker/` (the repo's compose root) using:
 
 ## App Data
 
-App data (sample videos, perception models) is **not** bundled with the repo. Pick one source:
+App data (sample videos, playback, and calibration assets) is **not** bundled with the repo. Pick one source:
 
 | Source | When to use | `VSS_DATA_DIR` |
 |---|---|---|
@@ -194,24 +199,24 @@ App data (sample videos, perception models) is **not** bundled with the repo. Pi
 | Custom local path | Existing dataset on a non-repo path (e.g. `/mnt/warehouse-data`) | user-provided path |
 | NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` |
 
-Ask the user which source they want and whether they already have the assets on disk. Only run the NGC download (next subsection) when they explicitly choose the NGC source.
+Ask the user which source they want and whether they already have the assets on disk. Only run the NGC app-data download (next subsection) when they explicitly choose the NGC source. Perception models are independent of this choice and are downloaded by `ds-start.sh` phase 0 inside the perception container when a `models-download.json` manifest is mounted.
 
 ### NGC app-data download (optional)
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| App data (videos, models) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` | `vss-warehouse-app-data_v<version>/` |
+| App data (videos, playback, calibration) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` | `vss-warehouse-app-data_v<version>/` |
 
 > **Org:** use the canonical `nvidia/...` resource path for the published 3.2.0 bundle. If you get `403 Access Denied`, confirm the NGC key has access to the published VSS warehouse resource.
 
 ## Known Limitations
 
-- Bounding box overlays do not appear in VST in the minimal profile — Elasticsearch is required for overlay rendering. Metadata is available from the live Kafka/Redis stream only.
+- Bounding box overlays do not appear with a `_MINIMAL` service list — Elasticsearch is required for overlay rendering. Metadata is available from the live Kafka/Redis stream only.
 - Perception model for `warehouse-loading-dock-3cams-synthetic` is trained on synthetic data — accuracy may vary on custom real-world scenes.
 - `nv-warehouse-4cams` dataset is only valid with `BP_PROFILE=bp_wh` and `MODE=2d`.
 - `warehouse-4cams-20mx20m-synthetic` dataset is valid with `MODE=3d` or `MODE=mv3dt`.
-- MV3DT mode (`MODE=mv3dt`) does not support `bp_wh` (agents) — only `bp_wh_kafka`, `bp_wh_redis`, and `bp_wh_auto_calib`.
-- `bp_wh` profile in 2D mode is not supported on IGX-THOR or DGX-SPARK.
+- MV3DT mode (`MODE=mv3dt`) does not support `BP_PROFILE=bp_wh` (agents) — use `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`.
+- The `BP_PROFILE=bp_wh`, `MODE=2d` variant is not supported on IGX-THOR or DGX-SPARK.
 
 ---
 
@@ -220,7 +225,7 @@ Ask the user which source they want and whether they already have the assets on 
 | Goal | Where to start |
 |------|----------------|
 | **New machine / first install** | [Full deploy (Phases 1-9)](#full-deploy-phases-1-9). Run phases in order; each must pass before the next. |
-| **Redeploy** (`.env` change, clean restart, broken stack) | [Redeploy](#redeploy). Skips Phases 1–4 — host is already set up and artifacts exist. |
+| **Redeploy** (`generated.env` change, clean restart, broken stack) | [Redeploy](#redeploy). Skips Phases 1–4 — host is already set up and artifacts exist. |
 | **Tear down only** (stop and remove containers/volumes; keep files on disk) | [Lifecycle: Tear down](#lifecycle-tear-down). |
 
 **`<repo>`** — path to your `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. If `generated.env` does not exist yet, initialize it from `overrides.env` before editing. If you don't know the repo path, **ask explicitly** before running shell commands.
@@ -268,10 +273,15 @@ Pulls images and builds the perception container (~10–15 min first run). If `d
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
 
-# Brev only: export before docker compose so COMPOSE_PROFILES and BREV_ENV_ID
-# are available for variable substitution. Skip on non-Brev hosts.
+# Resolve COMPOSE_PROFILES from the active generated.env before Compose.
+# generated.env is the per-deployment copy of the checked-in overrides.env template.
+set -a
+. industry-profiles/warehouse-operations/.env
+. industry-profiles/warehouse-operations/generated.env
+set +a
+
+# Brev only: expose BREV_ENV_ID for variable substitution. Skip on non-Brev hosts.
 export BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment 2>/dev/null)
-export COMPOSE_PROFILES=<literal-value-from-generated-env>   # e.g. bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
 
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 
@@ -295,13 +305,13 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 **Stack is ready when these show `Up`** (same container names in 2D and 3D; MV3DT uses `-mv3dt` suffix):
 
-- 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
+- 2D / 3D Kafka/Redis variants: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
 - 3D extra: `vss-rtvi-cv-config-adaptor`
-- MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
+- MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
-- `bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration, and VST subset
+- `BP_PROFILE=bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration, and a VST subset
 
 Check FPS (same container for 2D/3D; use `vss-rtvi-cv-mv3dt` for MV3DT):
 
@@ -316,7 +326,7 @@ docker logs -f vss-rtvi-cv-mv3dt 2>&1 | grep -i fps | head -5
 
 ## Redeploy
 
-**When to use:** The machine already satisfies [Phase 2](#phase-2-system-prerequisites); the repo is checked out and `VSS_DATA_DIR` is populated. You edited the warehouse `.env`, need a clean restart, or are recovering a bad state.
+**When to use:** The machine already satisfies [Phase 2](#phase-2-system-prerequisites); the repo is checked out and `VSS_DATA_DIR` is populated. You edited the warehouse `generated.env`, need a clean restart, or are recovering a bad state.
 
 **Do not** re-run NGC CLI install, driver install, or NGC app-data download unless something is actually missing or broken.
 
@@ -659,7 +669,7 @@ echo "${HOST_IP} 30888-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
 
 ### Phase 3: Interactive Configuration
 
-**Ask these four questions before touching `.env`.**
+**Ask these four questions before creating or editing `generated.env`.**
 
 #### Q1 — Deployment Mode
 
@@ -668,15 +678,16 @@ echo "${HOST_IP} 30888-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
 > - **3d** — 3D perception with depth using **Sparse4D**, requires 4-camera dataset
 > - **mv3dt** — Multi-View 3D Tracking: per-camera DeepStream perception + **BEV Fusion** across cameras via MQTT, requires 4-camera dataset"
 
-#### Q2 — Blueprint Profile
+#### Q2 — Blueprint variant (`BP_PROFILE`)
 
-Refer to the [Profile Variants table](#profile-variants) above for the
-profile / mode / dataset matrix instead of restating it here. The question is
-just "which profile from that table?".
+Refer to the [Deployment Variants table](#deployment-variants) above for the
+`BP_PROFILE` / mode / dataset matrix instead of restating it here. The question
+is just "which deployment variant from that table?".
 
 #### Q3 — Stream Type
 
-Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis`:
+Skip when `BP_PROFILE` is `bp_wh` or `bp_wh_auto_calib`. For
+`BP_PROFILE=bp_wh_kafka` or `BP_PROFILE=bp_wh_redis`:
 
 > "Which broker — **kafka** or **redis**?"
 
@@ -698,11 +709,12 @@ and stream type:
 stream counts — they differ only at the perception layer (`Sparse4D` vs
 per-camera DeepStream + BEV Fusion).
 
-#### Q4 — Deployment Profile
+#### Q4 — Deployment size
 
-Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis` (any mode):
+Skip when `BP_PROFILE` is `bp_wh` or `bp_wh_auto_calib`. For
+`BP_PROFILE=bp_wh_kafka` or `BP_PROFILE=bp_wh_redis` (any mode):
 
-> "Which profile?
+> "Which deployment size?
 > - **minimal** — excludes ELK, Video Analytics API, monitoring. Recommended for IGX-THOR.
 > - **extended** — full deployment."
 
@@ -721,32 +733,32 @@ MINIMAL_PROFILE=""       # extended
 
 > "Do you already have a calibration JSON file, or do you need to generate one first?"
 
-- **Already have a calibration file** — proceed to Phase 4. You'll mount it in Phase 5 (`.env` config).
+- **Already have a calibration file** — proceed to Phase 4. You'll configure its deployment path in Phase 5 (`generated.env`).
 - **Need to generate a calibration file** — pick a calibration path based on your video source:
 
-  | You have… | Profile to deploy | What it does |
+  | You have… | Deployment selector | What it does |
   |---|---|---|
-  | **Video files on disk** | `auto_calib` | Standalone auto-calibration. Upload videos directly to the calibration UI — no nvstreamer, no VST stack needed. |
-  | **Live RTSP streams** (or want to use nvstreamer) | `bp_wh_auto_calib_2d` / `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
+  | **Video files on disk** | `COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui` | Standalone auto-calibration. Upload videos directly to the calibration UI — no nvstreamer, no VST stack needed. |
+  | **Live RTSP streams** (or want to use nvstreamer) | `BP_PROFILE=bp_wh_auto_calib`, plus `MODE` and the matching `COMPOSE_PROFILES_WH_AUTO_CALIB_*` list | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
 
-  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`).
+  Deploy the chosen calibration variant first, then generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`).
 
   > **Note:** Post-calibration cleanup depends on mode. In 2D, Auto-Calibration adds blank `group` and `region` fields to `calibration.json`; they are not required for 2D and should be removed. For 3D / MV3DT, calibration files require camera clustering to populate `sensors[].group` — see [Calibration Generation](#calibration-generation).
 
-  Once the calibration file is ready, redeploy with the full warehouse profile.
+  Once the calibration file is ready, redeploy with the selected non-calibration warehouse variant.
 
-#### Q6 — LLM Placement (`bp_wh` only)
+#### Q6 — LLM Placement (only when `BP_PROFILE=bp_wh`)
 
-Skip for `bp_wh_kafka`, `bp_wh_redis`, and `bp_wh_auto_calib` (set `LLM_MODE=none` for those).
+Skip when `BP_PROFILE` is `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib` (set `LLM_MODE=none` for those).
 
-For `bp_wh`, **always ask explicitly** — do not default to `local`:
+For `BP_PROFILE=bp_wh`, **always ask explicitly** — do not default to `local`:
 
 > "How should the LLM be deployed?
 > - **local** — LLM NIM on its own GPU (`LLM_DEVICE_ID`, default `2`). Requires a third GPU.
 > - **remote** — point at an external LLM endpoint via `LLM_BASE_URL` (e.g. `https://integrate.api.nvidia.com`). No LLM NIM deployed. Requires `NVIDIA_API_KEY` — log in to the [NVIDIA NIM API catalog](https://build.nvidia.com) and get a NIM Catalog API key.
 > - **none** — disable LLM entirely."
 
-`vst-rtvi-vlm` (RTVI VLM) is **always** deployed locally for `bp_wh_2d`.
+`vss-rtvi-vlm` (RTVI VLM) is **always** deployed locally for `BP_PROFILE=bp_wh`.
 
 ```bash
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
@@ -764,11 +776,11 @@ If the user chooses `remote`, also confirm `LLM_BASE_URL` and `NVIDIA_API_KEY` a
 
 ### Phase 4: Acquire App Data (first run only)
 
-Compose files ship in the repo — **nothing to download for compose**. Only app data may need to be acquired, and only for the source the user chose in [App Data](#app-data).
+Compose files ship in the repo. Only non-model app data may need to be acquired manually, and only for the source the user chose in [App Data](#app-data). RT-CV model packages are downloaded automatically when the selected perception profile starts.
 
 **Option A — `<repo>/data`:** ensure assets are present at `<repo>/data` and proceed to Phase 5 (`VSS_DATA_DIR=<repo>/data`).
 
-**Option B — custom local path:** confirm the path exists and has the expected `models/` and `videos/` subdirs, then set `VSS_DATA_DIR=<that path>` in Phase 5.
+**Option B — custom local path:** confirm the path exists and has the expected `videos/` and other app-data subdirs, then set `VSS_DATA_DIR=<that path>` in Phase 5.
 
 **Option C — NGC `vss-warehouse-app-data`:**
 
@@ -779,7 +791,8 @@ ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-d
 cd vss-warehouse-app-data_v<APP_DATA_VERSION>
 tar -xvf vss-warehouse-app-data.tar.gz
 
-sudo chmod -R 777 /path/to/vss-warehouse-app-data
+sudo mkdir -p /path/to/vss-warehouse-app-data/models /path/to/vss-warehouse-app-data/data_log
+sudo chmod 0777 /path/to/vss-warehouse-app-data/models /path/to/vss-warehouse-app-data/data_log
 ```
 
 See [App Data → NGC app-data download](#ngc-app-data-download-optional) for the current version pin.
@@ -788,7 +801,7 @@ See [App Data → NGC app-data download](#ngc-app-data-download-optional) for th
 
 ### Phase 5: Configure the warehouse env files
 
-Initialize `<repo>/deploy/docker/industry-profiles/warehouse-operations/generated.env` from `overrides.env`, then edit `generated.env` for deployment selectors, credentials, host paths, hardware choices, and host-published port conflicts. Stable service knobs such as `MINIMAL_PROFILE`, fixed default device IDs, and service container ports remain in `.env`.
+Initialize `<repo>/deploy/docker/industry-profiles/warehouse-operations/generated.env` from `overrides.env`, then edit `generated.env` for deployment selectors, deployment-size overrides, credentials, host paths, hardware choices, and host-published port conflicts. Keep the checked-in `.env` and `overrides.env` unchanged; `generated.env` is the active per-deployment layer.
 
 ```bash
 cd <repo>/deploy/docker
@@ -806,7 +819,7 @@ MODE=<2d|3d|mv3dt>
 BP_PROFILE=<bp_wh|bp_wh_kafka|bp_wh_redis|bp_wh_auto_calib>
 STREAM_TYPE=<kafka|redis>           # ignored by bp_wh and bp_wh_auto_calib; set for bp_wh_kafka / bp_wh_redis
 
-# --- Stable profile size: .env ---
+# --- Deployment size override: generated.env ---
 MINIMAL_PROFILE="true"              # or "" for extended (bp_wh_kafka / bp_wh_redis only)
 
 SAMPLE_VIDEO_DATASET="<dataset-name>"
@@ -829,7 +842,7 @@ LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 # LLM_BASE_URL — only when LLM_MODE=remote
 
 # --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
-# vss-rtvi-vlm is always deployed for bp_wh (hardcoded in compose profile bp_wh_2d).
+# vss-rtvi-vlm is always deployed for BP_PROFILE=bp_wh (rtvi-vlm is included in COMPOSE_PROFILES_WH_2D).
 VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
@@ -850,7 +863,7 @@ HAPROXY_HOST_PORT=7777               # host-published ingress for VSS UI
 HAPROXY_PORT=7777                    # HAProxy container listen port
 
 # --- Credentials ---
-NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for local NIMs + image pulls
+NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for RT-CV model downloads, local NIMs, and image pulls
 NVIDIA_API_KEY=''                              # required for build.nvidia.com remote endpoints
 OPENAI_API_KEY=''                              # required for OpenAI remote endpoints
 ```
@@ -933,31 +946,57 @@ Uses `EXTERNAL_IP:3002` directly (not `VSS_PUBLIC_*`). The map tab is **disabled
 
 > **Do not** use the old `http://7777-<BREV_ENV_ID>.brevlab.com:7777` form — the Brev reverse proxy does not expose the raw HAProxy port. Using `http` with `:7777` will fail with connection refused or mixed-content errors in the browser.
 
-##### `COMPOSE_PROFILES` — set as a literal string on Brev
+##### `COMPOSE_PROFILES` — select and resolve the service list
 
-The `COMPOSE_PROFILES` variable in warehouse `generated.env` is normally copied from the `overrides.env` shell-style template:
+Under the profile-inversion model, `COMPOSE_PROFILES` is an explicit list of service-scoped Docker Compose **profile names** for the active variant — not a `${BP_PROFILE}_${MODE}` token. The checked-in `overrides.env` template defines one list per variant (`COMPOSE_PROFILES_WH_2D`, `COMPOSE_PROFILES_WH_KAFKA_2D`, …). After copying that template to `generated.env`, set its `COMPOSE_PROFILES` selector to the list matching the chosen `BP_PROFILE`, `MODE`, and `MINIMAL_PROFILE`:
+
+| `BP_PROFILE` | `MODE` | Extended selector | Minimal selector |
+|---|---|---|---|
+| `bp_wh` | `2d` | `COMPOSE_PROFILES_WH_2D` | not supported |
+| `bp_wh_kafka` | `2d` | `COMPOSE_PROFILES_WH_KAFKA_2D` | `COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL` |
+| `bp_wh_redis` | `2d` | `COMPOSE_PROFILES_WH_REDIS_2D` | `COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL` |
+| `bp_wh_kafka` | `3d` | `COMPOSE_PROFILES_WH_KAFKA_3D` | `COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL` |
+| `bp_wh_redis` | `3d` | `COMPOSE_PROFILES_WH_REDIS_3D` | `COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL` |
+| `bp_wh_kafka` | `mv3dt` | `COMPOSE_PROFILES_WH_KAFKA_MV3DT` | `COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL` |
+| `bp_wh_redis` | `mv3dt` | `COMPOSE_PROFILES_WH_REDIS_MV3DT` | `COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL` |
+| `bp_wh_auto_calib` | `2d` / `3d` / `mv3dt` | `COMPOSE_PROFILES_WH_AUTO_CALIB_2D` / `COMPOSE_PROFILES_WH_AUTO_CALIB_3D` / `COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT` | not applicable; these lists are already minimal by composition |
 
 ```ini
-COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}
+# generated.env examples
+# BP_PROFILE=bp_wh, MODE=2d
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}
+
+# BP_PROFILE=bp_wh_kafka, MODE=mv3dt, MINIMAL_PROFILE="true"
+# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL}
+
+# BP_PROFILE=bp_wh_auto_calib, MODE=3d
+# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}
 ```
 
-Some Docker Compose versions do not expand variable references within `--env-file` values, leaving the literal `${BP_PROFILE}` string unexpanded. Always override it with the resolved value in `generated.env` for the chosen profile:
+Do not invoke `blueprint-deploy.sh` from this skill. `overrides.env` remains unchanged as the reusable template; `generated.env` is the active per-deployment file.
+
+Some Docker Compose versions do not expand `${...}` references within `--env-file` values, leaving `COMPOSE_PROFILES` as a literal `${COMPOSE_PROFILES_WH_*}` string that matches **no** services. Resolve and export it by sourcing the stable defaults followed by the active deployment overrides, then run Compose from the same shell:
 
 ```bash
-# Example for bp_wh + 2d + remote LLM (nemotron-nano-9b-v2)
-COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
-
-# Example for bp_wh + 2d + local LLM
-COMPOSE_PROFILES=bp_wh_2d,llm_local_nvidia-nemotron-nano-9b-v2
+cd <repo>/deploy/docker
+[ -f industry-profiles/warehouse-operations/generated.env ] \
+  || cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
+set -a
+. industry-profiles/warehouse-operations/.env
+. industry-profiles/warehouse-operations/generated.env
+set +a
+# COMPOSE_PROFILES now holds the resolved service list, e.g.:
+#   turnserver-init,turnserver,redis,...,vss-agent,rtvi-vlm,vss-ui,...,llm_remote_nvidia-nemotron-nano-9b-v2
+echo "$COMPOSE_PROFILES"
 ```
 
 ##### `vss-rtvi-vlm` bridge network access + socat proxy (Brev only)
 
 `vss-rtvi-vlm` runs on the Docker bridge network and needs to resolve Brev secure-link domains to fetch video clips for VLM verification. These steps are applied **after the stack is up** — see [After deploy — Brev](#after-deploy-brev).
 
-> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. The variable is defined as a template inside `overrides.env`/`generated.env` and is not expanded by `--env-file` in all Docker Compose versions. Set it as a literal value directly in `generated.env` (e.g. `COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2`) and also `export COMPOSE_PROFILES=bp_wh_2d,...` in the shell before running `docker compose up`.
+> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Source the warehouse `.env` + active `generated.env` as shown above; `set -a` exports the resolved value before `docker compose up`.
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.3.0-26.07.1"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.1"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.3.0-26.07.2"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.2"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
 
 ---
 
@@ -1057,20 +1096,20 @@ With both steps complete, `vss-rtvi-vlm` can resolve Brev secure-link domains to
 
 Two paths are available to generate calibration files depending on your video source:
 
-| Path | Profile | When to use |
+| Path | Deployment selector | When to use |
 |---|---|---|
-| **Standalone Auto-Calibration** (`auto_calib`) | `auto_calib` | You have video files on disk and want to upload them directly to the calibration UI. No nvstreamer or VST stack needed. |
-| **Warehouse Auto-Calibration** (`bp_wh_auto_calib`) | `bp_wh_auto_calib_2d` / `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` | You want to calibrate against live RTSP streams served by nvstreamer (using the warehouse dataset and VST stack). |
+| **Standalone Auto-Calibration** | `COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui` | You have video files on disk and want to upload them directly to the calibration UI. No nvstreamer or VST stack needed. |
+| **Warehouse Auto-Calibration** (`BP_PROFILE=bp_wh_auto_calib`) | Select `COMPOSE_PROFILES_WH_AUTO_CALIB_2D`, `_3D`, or `_MV3DT` to match `MODE` | You want to calibrate against live RTSP streams served by nvstreamer (using the warehouse dataset and VST stack). |
 
 Both paths deploy `vss-auto-calibration` + `vss-auto-calibration-ui` and produce calibration JSON files consumable by behavior-analytics.
 
 ### 2D calibration cleanup
 
-In 2D, Auto-Calibration adds blank `group` and `region` fields to the generated `calibration.json`. These fields are not required for 2D calibration and should be removed before redeploying the full warehouse profile.
+In 2D, Auto-Calibration adds blank `group` and `region` fields to the generated `calibration.json`. These fields are not required for 2D calibration and should be removed before deploying the selected non-calibration warehouse variant.
 
 ### Camera Clustering (3D / MV3DT only)
 
-After calibration is generated via Auto-Calibration, run camera clustering before redeploying the full warehouse profile. For 3D/MV3DT, the required field lives directly on each camera sensor as `sensors[].group`. The warehouse blueprint docker compose setup uses one BEV group, so run the clustering tool with `--n_clusters 1` and then verify the group field is present.
+After calibration is generated via Auto-Calibration, run camera clustering before deploying the selected non-calibration warehouse variant. For 3D/MV3DT, the required field lives directly on each camera sensor as `sensors[].group`. The warehouse blueprint docker compose setup uses one BEV group, so run the clustering tool with `--n_clusters 1` and then verify the group field is present.
 
 ```bash
 CALIBRATION_JSON=/path/to/calibration.json
@@ -1091,7 +1130,7 @@ Docs: 3D https://docs.nvidia.com/vss/3.2.0/warehouse-docs/3D-profile.html#camera
 
 ### MV3DT-specific configuration updates
 
-When adding new cameras to the MV3DT profile, run the MV3DT utility scripts under `tools/rtvi-cv-mv3dt-utils` after calibration and camera clustering are complete, and before redeploying the full warehouse profile. These scripts generate the MV3DT-specific files consumed by the per-camera tracker and MQTT communication layer:
+When adding new cameras to an MV3DT deployment, run the MV3DT utility scripts under `tools/rtvi-cv-mv3dt-utils` after calibration and camera clustering are complete, and before deploying the selected non-calibration warehouse variant. These scripts generate the MV3DT-specific files consumed by the per-camera tracker and MQTT communication layer:
 
 1. **Camera information files** (`camInfo/<sensor_id>.yml`) — each camera requires a `camInfo` file containing the 3x4 projection matrix and per-class object model dimensions, generated from `calibration.json`.
 2. **MQTT publish/subscribe configuration** (`pub_sub_info_config.yml`) — defines the inter-camera communication graph for MV3DT by generating a vision-neighbor graph from camera calibration data.
@@ -1111,9 +1150,8 @@ When adding new cameras to the MV3DT profile, run the MV3DT utility scripts unde
 | Perception not starting | `docker logs vss-rtvi-cv` (2D/3D) or `docker logs vss-rtvi-cv-mv3dt` (MV3DT) — verify models in `$VSS_DATA_DIR/models/` |
 | `vss-configurator` health check failing | Wait 60s and recheck (60s start period) |
 | Low FPS | GPU oversaturated — reduce `NUM_STREAMS` and redeploy |
-| Dataset/mode mismatch | `nv-warehouse-4cams` → `bp_wh` + `MODE=2d`; `warehouse-4cams-20mx20m-synthetic` → `MODE=3d` or `MODE=mv3dt` |
+| Dataset/mode mismatch | `nv-warehouse-4cams` → `BP_PROFILE=bp_wh`, `MODE=2d`; `warehouse-4cams-20mx20m-synthetic` → `MODE=3d` or `MODE=mv3dt` |
 | Brev: UI loads but API calls fail / mixed-content errors | `VSS_PUBLIC_*` overrides not applied — URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com`. Apply [Brev secure link overrides](#brev-secure-link-overrides) and redeploy |
 | Brev: HAProxy returns 404 | `Host:` header doesn't match `h_main` ACL — verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`) |
 | Brev: WebSocket connection refused | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not set to `443` |
 | Redeploy / reset without reinstall | [Redeploy](#redeploy) |
-

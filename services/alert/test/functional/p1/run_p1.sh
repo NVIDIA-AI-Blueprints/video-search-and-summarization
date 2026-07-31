@@ -141,7 +141,29 @@ phase_setup() {
             --replication-factor 1 \
             2>/dev/null || true
     done
-    print_status "ok" "Kafka topics ready"
+    # Multi-partition incident topic for test_multi_consumer_dedup: lets >1
+    # Alert MS instance in one consumer group co-consume disjoint partitions,
+    # exercising the in-process-dedup partition-key contract. Created here (once,
+    # before any consumer subscribes) so it never gets auto-created with 1
+    # partition. Other tests ignore it.
+    docker exec "$KAFKA_CONTAINER" kafka-topics --create \
+        --bootstrap-server localhost:9092 \
+        --topic mdx-incidents-mc \
+        --partitions 2 \
+        --replication-factor 1 \
+        --if-not-exists 2>/dev/null || true
+    # Verify the topic really has 2 partitions. A topic that pre-exists with 1
+    # partition (or a creation that silently failed above) would make
+    # test_multi_consumer_dedup run against the wrong topology and pass/fail for
+    # the wrong reasons — fail the setup early instead.
+    mc_parts=$(docker exec "$KAFKA_CONTAINER" kafka-topics --describe \
+        --bootstrap-server localhost:9092 --topic mdx-incidents-mc 2>/dev/null \
+        | grep -cE "Partition: [0-9]+" || true)
+    if [ "${mc_parts:-0}" != "2" ]; then
+        print_status "fail" "mdx-incidents-mc must have exactly 2 partitions, found ${mc_parts:-0}"
+        exit 1
+    fi
+    print_status "ok" "Kafka topics ready (mdx-incidents-mc: 2 partitions verified)"
 
     # --- Simulators ---
     print_status "wait" "Starting simulators..."

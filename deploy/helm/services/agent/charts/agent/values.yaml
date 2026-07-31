@@ -21,11 +21,9 @@ enabled: false
 global: {}
 serviceAccount:
   create: false
-# HELM_RELEASE_CHANNEL_POLICY: Helm stays on an immutable NGC staging pin;
-# Docker developer profiles may independently follow GHCR develop-latest.
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-agent
-  tag: "3.3.0-65576357eb80"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-agent
+  tag: develop-latest
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -119,7 +117,7 @@ videoIngestTimeouts:
 waitForDependencies:
   enabled: false
   image:
-    repository: busybox
+    repository: docker.io/library/busybox
     tag: "1.37.0"
     pullPolicy: IfNotPresent
   kafkaHost: ""

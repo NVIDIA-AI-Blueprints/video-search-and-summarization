@@ -52,15 +52,16 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
     profiles: ["nvstreamer-2d"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
@@ -76,6 +77,7 @@ services:
             - "${RT_CV_DEVICE_ID:-0}"
     volumes:    
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -179,6 +181,7 @@ services:
       AI_BRIDGE_ENDPOINT: ${AI_BRIDGE_ENDPOINT}
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false
+      SEND_CONFIG_TO_SDR: false
     env_file:
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
@@ -188,11 +191,6 @@ services:
       - |
         import os
         import sys
-
-        os.environ["SEND_CONFIG_TO_SDR"] = (
-            os.environ.get("SEND_CONFIG_TO_SDR")
-            or ("false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true")
-        )
         os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
@@ -223,7 +221,8 @@ services:
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
-      - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/models-download.json:/opt/config/models-download.json:ro
+      - $VSS_DATA_DIR/models/:/opt/storage/
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0
@@ -232,6 +231,8 @@ services:
       DS_MODE_FLAG: "1"
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "false"
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
       sdr-controller:
         condition: service_started

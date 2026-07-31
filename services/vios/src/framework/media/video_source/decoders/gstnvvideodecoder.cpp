@@ -2011,6 +2011,32 @@ void GstNvVideoDecoder::setOptions(const std::map<std::string, std::string, std:
                 throw std::invalid_argument( "no valid stream found for given timestamps, please check timelines using /api/v1/storage/timelines" );
             }
         }
+
+        /* A file's reported end time is the exclusive end of its last frame
+        ** (last frame PTS + one frame duration), so a picture requested inside that
+        ** final frame interval has no frame at or after it and the capture would
+        ** fail. Clamp such a request onto the last frame, which is the frame that is
+        ** on screen for that interval anyway. */
+        if (m_isImageCapture && !m_fileNameArray.empty())
+        {
+            const VideoFileInfo& last_file = m_fileNameArray.back();
+            /* m_duration == 1 marks a file that is still being written */
+            if (last_file.m_duration > 1)
+            {
+                const int64_t frame_duration_ms = static_cast<int64_t>(std::ceil(1000.0 / m_frameRate));
+                const int64_t file_end_time = static_cast<int64_t>(last_file.m_startTime) +
+                                              static_cast<int64_t>(last_file.m_duration);
+                const int64_t last_frame_time = file_end_time - frame_duration_ms;
+                if (m_epochStartTime > last_frame_time && m_epochStartTime <= file_end_time)
+                {
+                    LOG(info) << "Image capture: requested time " << m_epochStartTime
+                              << " lies within the last frame of " << last_file.m_filePath
+                              << " (file ends at " << file_end_time << "), clamping to "
+                              << last_frame_time << endl;
+                    m_epochStartTime = last_frame_time;
+                }
+            }
+        }
     }
     else if ((m_uri.find("rtsp://") == 0))
     {

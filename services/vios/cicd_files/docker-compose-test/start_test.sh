@@ -287,7 +287,7 @@ update_vst_config() {
         error "Failed to create backup of VST config"
     fi
 
-    local vst_jq_filter='.network.enable_grpc = true | .notifications.redis_server_env_var = "'$CURRENT_IP':6379"'
+    local vst_jq_filter='.network.enable_grpc = true'
 
     if ! jq "$vst_jq_filter" "$VST_CONFIG_JSON" >"$temp_vst_file"; then
         rm -f "$temp_vst_file"
@@ -306,6 +306,39 @@ update_vst_config() {
 
     info "Successfully updated $VST_CONFIG_JSON"
     info "Backup saved as ${VST_CONFIG_JSON}.bak"
+}
+
+# Function to update notification config
+update_notification_config() {
+    local temp_notification_file
+    temp_notification_file=$(mktemp) || error "Failed to create temporary file for notification config"
+
+    if ! cp "$NOTIFICATION_CONFIG_JSON" "${NOTIFICATION_CONFIG_JSON}.bak"; then
+        rm -f "$temp_notification_file"
+        error "Failed to create backup of notification config"
+    fi
+
+    local redis_address="${CURRENT_IP}:6379"
+
+    if ! jq --arg redis_address "$redis_address" \
+        '.message_broker.redis_server_env_var = $redis_address' \
+        "$NOTIFICATION_CONFIG_JSON" >"$temp_notification_file"; then
+        rm -f "$temp_notification_file"
+        error "Failed to update notification config file"
+    fi
+
+    if ! jq empty "$temp_notification_file" 2>/dev/null; then
+        rm -f "$temp_notification_file"
+        error "Generated invalid notification config JSON"
+    fi
+
+    if ! mv "$temp_notification_file" "$NOTIFICATION_CONFIG_JSON"; then
+        rm -f "$temp_notification_file"
+        error "Failed to save notification config changes"
+    fi
+
+    info "Successfully updated $NOTIFICATION_CONFIG_JSON"
+    info "Backup saved as ${NOTIFICATION_CONFIG_JSON}.bak"
 }
 
 # Function to update nginx configuration
@@ -351,8 +384,32 @@ update_compose_env() {
         -e "s|^VST_CONFIG_PATH=.*|VST_CONFIG_PATH=$VST_CONFIG_PATH|"
         -e "s|^VST_VOLUME=.*|VST_VOLUME=$VST_VOLUME|"
     )
-    [[ -n "$SENSOR_VERSION" ]]           && sed_args+=(-e "s|^\(VST_SENSOR_IMAGE=.*:\).*|\1${SENSOR_VERSION}|")
-    [[ -n "$STREAMPROCESSOR_VERSION" ]]  && sed_args+=(-e "s|^\(VST_STREAM_PROCESSOR_IMAGE=.*:\).*|\1${STREAMPROCESSOR_VERSION}|")
+    # Image references. When a private image registry is supplied via the
+    # IMAGE_REGISTRY env var (e.g. CI building ${IMAGE_REGISTRY}/vst-sensor and
+    # ${IMAGE_REGISTRY}/vst-streamprocessing), rewrite the FULL image reference
+    # (registry + name + tag) so the deploy uses the freshly-built images rather
+    # than the released images baked into compose.env. The registry/org is never
+    # hardcoded in this (public) script -- it comes from the environment.
+    # Without IMAGE_REGISTRY set, fall back to rewriting only the tag portion.
+    if [[ -n "${IMAGE_REGISTRY:-}" ]]; then
+        # Registry override: swap registry+name to the freshly-built images. Use the
+        # explicit version when provided; otherwise PRESERVE the tag already pinned in
+        # compose.env (backref \1) rather than forcing :latest, which could silently
+        # repin a pinned image when only IMAGE_REGISTRY is set (partial CI env).
+        if [[ -n "$SENSOR_VERSION" ]]; then
+            sed_args+=(-e "s|^VST_SENSOR_IMAGE=.*|VST_SENSOR_IMAGE=${IMAGE_REGISTRY}/vst-sensor:${SENSOR_VERSION}|")
+        else
+            sed_args+=(-e "s|^VST_SENSOR_IMAGE=.*:\([^:]*\)$|VST_SENSOR_IMAGE=${IMAGE_REGISTRY}/vst-sensor:\1|")
+        fi
+        if [[ -n "$STREAMPROCESSOR_VERSION" ]]; then
+            sed_args+=(-e "s|^VST_STREAM_PROCESSOR_IMAGE=.*|VST_STREAM_PROCESSOR_IMAGE=${IMAGE_REGISTRY}/vst-streamprocessing:${STREAMPROCESSOR_VERSION}|")
+        else
+            sed_args+=(-e "s|^VST_STREAM_PROCESSOR_IMAGE=.*:\([^:]*\)$|VST_STREAM_PROCESSOR_IMAGE=${IMAGE_REGISTRY}/vst-streamprocessing:\1|")
+        fi
+    else
+        [[ -n "$SENSOR_VERSION" ]]           && sed_args+=(-e "s|^\(VST_SENSOR_IMAGE=.*:\).*|\1${SENSOR_VERSION}|")
+        [[ -n "$STREAMPROCESSOR_VERSION" ]]  && sed_args+=(-e "s|^\(VST_STREAM_PROCESSOR_IMAGE=.*:\).*|\1${STREAMPROCESSOR_VERSION}|")
+    fi
 
     if ! sed "${sed_args[@]}" "$compose_env_file" > "$temp_compose_file"; then
         rm -f "$temp_compose_file"
@@ -431,6 +488,8 @@ services:
       vst-ingress:
         condition: service_healthy
       sensor-ms:
+        condition: service_healthy
+      streamprocessing-ms-1:
         condition: service_healthy
     environment:
       - DASHBOARD_API_ENDPOINT=${DASHBOARD_API_ENDPOINT:-http://localhost:8000}
@@ -624,8 +683,10 @@ update_nvstreamer_docker_compose() {
 
 # Function to update nvstreamer image tag in nvstreamer compose.env
 update_nvstreamer_image_tag() {
-    if [[ -z "$NVSTREAMER_VERSION" ]]; then
-        info "No nvstreamer version specified, preserving existing image tag"
+    # Nothing to do only when neither a private registry nor a version override
+    # is supplied -- then preserve the existing image reference as-is.
+    if [[ -z "${NVSTREAMER_IMAGE_REGISTRY:-}" && -z "$NVSTREAMER_VERSION" ]]; then
+        info "No nvstreamer registry/version specified, preserving existing image reference"
         return 0
     fi
 
@@ -639,18 +700,34 @@ update_nvstreamer_image_tag() {
     local temp_file
     temp_file=$(mktemp) || error "Failed to create temporary file for nvstreamer compose.env"
 
-    if ! sed -e "s|^\(NVSTREAMER_IMAGE=.*:\).*|\1${NVSTREAMER_VERSION}|" \
-            "$nvstreamer_compose_env" > "$temp_file"; then
+    # When a private registry is supplied via NVSTREAMER_IMAGE_REGISTRY, rewrite
+    # the FULL image reference (registry + tag) so the deploy uses the freshly-
+    # built nvstreamer image. The registry/org is never hardcoded here -- it comes
+    # from the environment. Otherwise, rewrite only the tag portion (original).
+    local ns_sed
+    if [[ -n "${NVSTREAMER_IMAGE_REGISTRY:-}" ]]; then
+        if [[ -n "$NVSTREAMER_VERSION" ]]; then
+            ns_sed="s|^NVSTREAMER_IMAGE=.*|NVSTREAMER_IMAGE=${NVSTREAMER_IMAGE_REGISTRY}:${NVSTREAMER_VERSION}|"
+        else
+            # Registry set, no explicit version: preserve the tag already pinned in
+            # compose.env (backref \1) instead of forcing :latest.
+            ns_sed="s|^NVSTREAMER_IMAGE=.*:\([^:]*\)$|NVSTREAMER_IMAGE=${NVSTREAMER_IMAGE_REGISTRY}:\1|"
+        fi
+    else
+        ns_sed="s|^\(NVSTREAMER_IMAGE=.*:\).*|\1${NVSTREAMER_VERSION}|"
+    fi
+
+    if ! sed -e "$ns_sed" "$nvstreamer_compose_env" > "$temp_file"; then
         rm -f "$temp_file"
-        error "Failed to update nvstreamer compose.env image tag"
+        error "Failed to update nvstreamer compose.env image reference"
     fi
 
     if ! mv "$temp_file" "$nvstreamer_compose_env"; then
         rm -f "$temp_file"
-        error "Failed to save nvstreamer compose.env image tag changes"
+        error "Failed to save nvstreamer compose.env image changes"
     fi
 
-    info "Successfully updated nvstreamer image tag to ${NVSTREAMER_VERSION} in compose.env"
+    info "Successfully updated nvstreamer image reference in compose.env"
 }
 
 # Function to run build commands
@@ -659,37 +736,121 @@ run_build_commands() {
     info "Running VST module build commands for architecture: ${ARCH}"
     info "TOP directory is: ${TOP}"
     cd "${TOP}" || error "Failed to change directory to TOP: ${TOP}"
-    
+
+    # Optional prebuilt base image tag, supplied by the caller (e.g. CI) via the
+    # VST_BASE_TAG env var. When set, forward it to build.sh as base-tag=<tag> so
+    # the app containers build FROM ${IMAGE_REGISTRY}/vst-base:<tag> (a prebuilt
+    # base) instead of rebuilding the base layer -- this optimizes build time.
+    # Only the tag is referenced here; the registry/org stays out of this script
+    # and is provided via the IMAGE_REGISTRY env var consumed by build.sh.
+    # Use an array so an empty value expands to nothing and a value containing
+    # whitespace/globs is passed as a single argument (no word-splitting).
+    local -a build_args=()
+    if [[ -n "${VST_BASE_TAG:-}" ]]; then
+        build_args+=("base-tag=${VST_BASE_TAG}")
+        info "Using prebuilt base image tag: ${VST_BASE_TAG}"
+    fi
+
+    # Optional per-arch image tag + push, supplied by CI for the MULTIARCH publish
+    # flow (e.g. VST_BUILD_TAG=2.1.0-amd64-26.05.5 on the amd64 node,
+    # 2.1.0-arm64-... on the arm64 node) so the built images are pushed and later
+    # merged into a multiarch manifest. Unset for a plain local build-and-test
+    # (images stay local at their default tag and are not pushed). Registry/org
+    # still comes from IMAGE_REGISTRY/NVSTREAMER_IMAGE_REGISTRY; only the tag is
+    # referenced. NOTE: this is VST_BUILD_TAG (not BUILD_TAG) -- Jenkins defines a
+    # built-in BUILD_TAG=jenkins-<job>-<num>, which would otherwise be picked up
+    # here and mis-tag the images.
+    if [[ -n "${VST_BUILD_TAG:-}" ]]; then
+        build_args+=("tag=${VST_BUILD_TAG}")
+        info "Building images with tag: ${VST_BUILD_TAG}"
+    fi
+    if [[ "${PUSH_IMAGES:-}" == "1" || "${PUSH_IMAGES:-}" == "true" ]]; then
+        build_args+=("push=1")
+        info "Images will be pushed after build"
+    fi
+
     # Build nvstreamer
     info "Building nvstreamer for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container nvstreamer || error "nvstreamer build failed"
+        ./build.sh container nvstreamer "${build_args[@]}" || error "nvstreamer build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container nvstreamer || error "nvstreamer build failed"
+        ./build.sh arch=${ARCH} container nvstreamer "${build_args[@]}" || error "nvstreamer build failed"
     fi
 
-    # Build sensor + stream-processor
+    # Build sensor + stream-processor in a single call. build.sh cleans each
+    # module before building it (MODULE=<m> make clean) for a multi-module build,
+    # so the between-module clean is preserved while the shared framework compiles
+    # once instead of being wiped and rebuilt per module. A single initial clean
+    # gives a fresh start after the nvstreamer build.
     info "Building sensor and stream-processor for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container module=sensor || error "sensor build failed"
-        ./build.sh clean || error "clean build failed"
-        ./build.sh container module=streamprocessing || error "stream-processor build failed"
+        ./build.sh container module=sensor,streamprocessing "${build_args[@]}" || error "sensor/stream-processor build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=sensor || error "sensor build failed"
-        ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=streamprocessing || error "stream-processor build failed"
+        ./build.sh arch=${ARCH} container module=sensor,streamprocessing "${build_args[@]}" || error "sensor/stream-processor build failed"
     fi
 }
 
 # Function to run docker compose
+# Ensure the BDD test-runner image referenced by docker-compose.test.yaml exists.
+# Order: use it if already local -> else try to pull (works when BDD_TEST_IMAGE
+# points at a registry image) -> else build it from the Dockerfile. The compose
+# `test` service uses ${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}, so export the same
+# value here to guarantee `docker compose up` resolves the identical reference.
+# The Jenkins node is pruned between runs, so this runs every test invocation.
+ensure_bdd_test_image() {
+    local image="${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}"
+    export BDD_TEST_IMAGE="$image"
+
+    # Always ask the registry for the latest published BDD test image. 'docker
+    # pull' is digest-aware: it's a no-op when the local copy already matches the
+    # registry digest, and pulls only changed layers when the tag was overwritten
+    # in place -- so an updated image is picked up while an unchanged tag costs just
+    # a manifest check. Fall back to a cached local copy only if the registry is
+    # unreachable, and build from the Dockerfile as a last resort.
+    info "Ensuring latest BDD test image: $image"
+    if docker pull "$image"; then
+        info "BDD test image up to date (pulled if changed): $image"
+        return 0
+    fi
+    if docker image inspect "$image" >/dev/null 2>&1; then
+        info "Pull failed (registry unreachable?); using cached local BDD test image: $image"
+        return 0
+    fi
+    info "BDD test image not available from registry; building it from ${BDD_TESTS_DIR}/Dockerfile"
+
+    if [[ ! -f "$BDD_TESTS_DIR/Dockerfile" ]]; then
+        error "BDD test Dockerfile not found: $BDD_TESTS_DIR/Dockerfile"
+    fi
+    if ! docker build -t "$image" -f "$BDD_TESTS_DIR/Dockerfile" "$BDD_TESTS_DIR"; then
+        error "Failed to build BDD test image: $image"
+    fi
+    info "Built BDD test image: $image"
+}
+
+# Return 0 if the host answers with ANY HTTP response on the given port (server
+# up), else 1. Mirrors oneclick_dc_deployment.py::_http_endpoint_responds (a
+# 4xx/5xx still means the HTTP server is alive and listening). Prefers curl;
+# falls back to a TCP-connect check when curl is unavailable.
+nvstreamer_http_ready() {
+    local port=$1
+    if command -v curl >/dev/null 2>&1; then
+        curl -s -o /dev/null -m 3 "http://${CURRENT_IP}:${port}"
+    else
+        timeout 3 bash -c "exec 3<>/dev/tcp/${CURRENT_IP}/${port}" 2>/dev/null
+    fi
+}
+
 run_docker_compose() {
     # Ensure BDD test reports directory exists before starting containers
     ensure_bdd_reports_dir || error "Failed to ensure BDD reports directory exists"
-    
+
+    # Ensure the BDD test-runner image is available (pull, else build) before compose up
+    ensure_bdd_test_image || error "Failed to ensure BDD test image is available"
+
     info "Docker version: $(docker --version 2>&1)"
     info "Docker Compose version: $(docker compose version 2>&1)"
 
@@ -707,16 +868,36 @@ run_docker_compose() {
     done
     docker compose --env-file ./compose.env up -d "${ns_services[@]}" || error "Failed to start nvstreamer containers"
 
-    # Wait for nvstreamer containers to initialize
-    info "Waiting for nvstreamer containers to initialize..."
-    info "Step 1: (300s remaining)"
-    sleep 100
-
-    info "Step 2: (200s remaining)"
-    sleep 100
-
-    info "Step 3: (100s remaining)"
-    sleep 100
+    # Wait until each active NVStreamer instance answers on its HTTP port instead
+    # of a fixed sleep. Any HTTP response (incl. 4xx/5xx) means the server is up.
+    # Modeled on oneclick_dc_deployment.py::_wait_for_nvstreamer_http_ready --
+    # returns as soon as all are reachable; caps at NVSTREAMER_READY_TIMEOUT
+    # (default 300s, same ceiling as the old 3x100s sleep).
+    local ns_ready_timeout="${NVSTREAMER_READY_TIMEOUT:-300}"
+    local ns_deadline=$(( $(date +%s) + ns_ready_timeout ))
+    local -a ns_pending=()
+    for ((i = 0; i < NVSTREAMER_COUNT; i++)); do
+        ns_pending+=("$((NVSTREAMER_PORT_BASE + i))")
+    done
+    info "Waiting for NVStreamer HTTP endpoints on ports ${ns_pending[*]} (timeout ${ns_ready_timeout}s)..."
+    while (( ${#ns_pending[@]} > 0 )); do
+        local -a ns_still=()
+        local ns_port
+        for ns_port in "${ns_pending[@]}"; do
+            if nvstreamer_http_ready "$ns_port"; then
+                info "NVStreamer reachable on http://${CURRENT_IP}:${ns_port}"
+            else
+                ns_still+=("$ns_port")
+            fi
+        done
+        ns_pending=( ${ns_still[@]+"${ns_still[@]}"} )
+        (( ${#ns_pending[@]} == 0 )) && break
+        if (( $(date +%s) >= ns_deadline )); then
+            info "WARNING: timed out after ${ns_ready_timeout}s waiting for NVStreamer HTTP; still pending ports: ${ns_pending[*]} -- proceeding anyway"
+            break
+        fi
+        sleep 3
+    done
 
     info "Nvstreamer container status after init wait:"
     docker ps -a --filter "name=nvstreamer" --format 'table {{.Names}}\t{{.Status}}' || true
@@ -1040,6 +1221,7 @@ main() {
     NVSTREAMER_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/stream-processing/docker-compose/nvstreamer" && pwd)"
     RTSP_STREAMS_JSON="$VST_BASE_PATH/configs/rtsp_streams.json"
     VST_CONFIG_JSON="$VST_BASE_PATH/configs/vst_config.json"
+    NOTIFICATION_CONFIG_JSON="$VST_BASE_PATH/configs/notification_config.json"
     
     # Set VST_CONFIG_PATH and VST_VOLUME
     VST_CONFIG_PATH="$VST_BASE_PATH/configs"
@@ -1080,6 +1262,7 @@ main() {
     fi
     validate_path "$RTSP_STREAMS_JSON" "RTSP_STREAMS_JSON"
     validate_path "$VST_CONFIG_JSON" "VST_CONFIG_JSON"
+    validate_path "$NOTIFICATION_CONFIG_JSON" "NOTIFICATION_CONFIG_JSON"
 
     # Check if JSON file exists and is valid
     [[ -f "$RTSP_STREAMS_JSON" ]] || error "JSON file not found: $RTSP_STREAMS_JSON"
@@ -1089,6 +1272,7 @@ main() {
     info "Starting configuration updates..."
     update_rtsp_streams_json || error "Failed to update RTSP streams JSON"
     update_vst_config || error "Failed to update VST config"
+    update_notification_config || error "Failed to update notification config"
     # update_nginx_config || error "Failed to update nginx config"
     update_compose_env || error "Failed to update compose.env"
     update_docker_compose || error "Failed to update docker-compose.yaml"

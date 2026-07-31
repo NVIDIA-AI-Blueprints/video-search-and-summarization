@@ -15,7 +15,7 @@
 
 name: CI
 
-on:
+"on":
   push:
     branches:
       - main
@@ -44,10 +44,62 @@ jobs:
     name: Prepare source artifact
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      build-behavior-analytics: ${{ steps.analytics-changes.outputs.behavior }}
+      build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
+      current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
+      current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Detect analytics image changes
+        id: analytics-changes
+        run: |
+          python3 .github/scripts/detect_changed_images.py \
+            --event-name "${{ github.event_name }}" \
+            --ref-name "${{ github.ref_name }}" \
+            --before "${{ github.event.before }}" \
+            --base-branch develop > analytics-detection.json
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          entries = json.load(open("analytics-detection.json"))["matrix"]["include"]
+          names = {entry["name"] for entry in entries}
+          print(f"behavior={str('vss-behavior-analytics' in names).lower()}")
+          print(f"video={str('vss-video-analytics-api' in names).lower()}")
+          PY
+
+      - name: Resolve current analytics images
+        id: current-images
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".github/scripts")
+          from check_container_tag_source import find_image_refs, resolve_compose_vars
+
+          def current(compose_path: str, image_name: str) -> str:
+              refs = find_image_refs(Path(compose_path), image_name)
+              if len(refs) != 1:
+                  raise RuntimeError(f"{image_name}: expected one Compose image, found {len(refs)}")
+              resolved, missing = resolve_compose_vars(refs[0], {})
+              if missing:
+                  raise RuntimeError(f"{image_name}: unresolved variables: {', '.join(missing)}")
+              return resolved
+
+          print("behavior=" + current(
+              "deploy/docker/services/analytics/behavior-analytics/compose.yml",
+              "vss-behavior-analytics",
+          ))
+          print("video=" + current(
+              "deploy/docker/services/analytics/video-analytics-api/compose.yml",
+              "vss-video-analytics-api",
+          ))
+          PY
 
       - name: Package tracked source
         run: |
@@ -203,10 +255,10 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: mypy
-        run: uv run mypy src/agent/
+        run: uv run mypy packages/vss_agents/src/vss_agents
 
   # ---------------------------------------------------------------------------
   # Job 3: Python tests (pytest + coverage)
@@ -250,13 +302,13 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: pytest
         timeout-minutes: 10
         run: |
           uv run pytest \
-            --cov=src/agent \
+            --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
@@ -269,6 +321,7 @@ jobs:
             .github/skill-eval/tests/test_lvs_deployment_config.py \
             .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
+            deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             -q
 
       - name: Upload coverage report
@@ -316,42 +369,56 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen --no-dev --group cli-dev
-          uv run --no-sync mypy src/lib/_foundation src/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst
-          uv run --no-sync pytest tests/unit_test/lib tests/unit_test/cli -W error::RuntimeWarning -W error::ResourceWarning \
-            --cov=src/lib --cov=src/cli --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv sync --frozen --no-dev --group cli-dev --extra cli
+          uv run --no-sync mypy \
+            packages/vss_core/src/vss_core/_foundation \
+            packages/vss_core/src/vss_core/critic \
+            packages/vss_core/src/vss_core/search_core \
+            packages/vss_core/src/vss_core/vlm \
+            packages/vss_core/src/vss_core/vst \
+            packages/vss_cli/src/vss_cli
+          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
           rm -rf dist
-          uv build
+          uv build --package nvidia-vss-core
+          uv build --package nvidia-vss-cli
 
       - name: Smoke-test built wheel in a clean environment
         run: |
           rm -rf .wheel-smoke
           uv venv --python 3.13 .wheel-smoke
-          set -- dist/nvidia_vss-*.whl
+          set -- dist/nvidia_vss_core-*.whl
           test "$#" -eq 1 && test -f "$1"
-          uv pip install --python .wheel-smoke/bin/python --no-cache "$1"
+          core_whl="$1"
+          set -- dist/nvidia_vss_cli-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          cli_whl="$1"
+          uv pip install --python .wheel-smoke/bin/python --no-cache "$core_whl" "$cli_whl"
           uv pip check --python .wheel-smoke/bin/python
           .wheel-smoke/bin/python - <<'PY'
           import importlib.util
           from importlib import metadata
 
-          import lib
-          import cli
-          import lib.critic
-          import lib.search_core
-          import lib.vlm
-          import lib.vst
+          import vss_core
+          import vss_cli
+          import vss_core.critic
+          import vss_core.search_core
+          import vss_core.vlm
+          import vss_core.vst
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
-          assert "nvidia-vss" in installed
+          assert "nvidia-vss-core" in installed
+          assert "nvidia-vss-cli" in installed
           assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
-          # agent and lib.knowledge ship in the wheel, but the base
-          # install must never pull their NAT/torch dependency stack.
-          assert installed.isdisjoint({"nvidia-nat", "nvidia-nat-core", "torch", "langchain-core"})
+          # The base (core + cli) install must never pull the NAT/torch stack
+          # nor the agent distribution.
+          assert installed.isdisjoint({"nvidia-nat", "nvidia-nat-core", "torch", "langchain-core", "nvidia-vss-agents"})
           assert importlib.util.find_spec("nat") is None
           assert importlib.util.find_spec("torch") is None
-          assert lib is not None and lib.critic is not None and lib.search_core is not None and lib.vlm is not None and lib.vst is not None
+          assert importlib.util.find_spec("vss_agents") is None
+          assert vss_core.critic is not None and vss_core.search_core is not None
+          assert vss_core.vlm is not None and vss_core.vst is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
 
@@ -363,7 +430,201 @@ jobs:
           path: services/agent/coverage-lib.xml
 
   # ---------------------------------------------------------------------------
-  # Job 5: Security scanning (detect-secrets)
+  # Job 5a: Behavior analytics unit tests
+  # ---------------------------------------------------------------------------
+  behavior-analytics-test:
+    name: Test (behavior analytics)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/analytics/behavior-analytics
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip pipenv
+          pipenv install --dev
+
+      - name: Run unit tests
+        run: |
+          mkdir -p test/coverage
+          pipenv run coverage run --source=src/mdx/analytics/core -m pytest tests/unit/ -v --junitxml=test/coverage/test-results.xml
+          pipenv run coverage xml -o coverage.xml
+          pipenv run coverage report
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: behavior-analytics-test-reports
+          path: |
+            services/analytics/behavior-analytics/test/coverage/
+            services/analytics/behavior-analytics/coverage.xml
+
+  # ---------------------------------------------------------------------------
+  # Job 5b: Video analytics API unit tests
+  # ---------------------------------------------------------------------------
+  video-analytics-api-test:
+    name: Test (video analytics API)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/analytics/video-analytics-api
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22.22.3"
+
+      - name: Install and link dependencies
+        run: |
+          cd src/web-api-core && npm install && cd ../..
+          cd src/app && npm install --save ../web-api-core && npm install && cd ../..
+          cd test && npm install --save ../src/web-api-core && npm install --save ../src/app && npm install
+
+      - name: Run unit tests
+        run: cd test && npm run ci
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: video-analytics-api-test-reports
+          path: services/analytics/video-analytics-api/test/coverage/
+
+  # ---------------------------------------------------------------------------
+  # Job 5c: Behavior analytics Docker Compose integration test
+  # ---------------------------------------------------------------------------
+  behavior-analytics-integration-test:
+    name: Integration (behavior analytics)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      COMPOSE_TIMEOUT: "1800"
+      BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-behavior-analytics }}
+      CURRENT_BEHAVIOR_ANALYTICS_IMAGE: ${{ needs.prepare-source.outputs.current-behavior-analytics-image }}
+    defaults:
+      run:
+        working-directory: services/analytics/behavior-analytics
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22.22.3"
+
+      - name: Log in to NGC for current image reuse
+        if: needs.prepare-source.outputs.build-behavior-analytics != 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets.NGC_CLI_API_KEY }}
+
+      - name: Run warehouse Kafka integration test
+        run: |
+          chmod +x tests/integration/test.sh tests/integration/cleanup.sh tests/integration/generate_env.sh
+          chmod -R 777 tests/integration/docker_compose/apps_data
+          cd tests/integration
+          ./test.sh warehouse_2d kafka prod
+
+  # ---------------------------------------------------------------------------
+  # Job 5d: Video analytics API Docker Compose integration test
+  # ---------------------------------------------------------------------------
+  video-analytics-api-integration-test:
+    name: Integration (video analytics API)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      COMPOSE_TIMEOUT: "300"
+      BUILD_TIMEOUT: "600"
+      BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-video-analytics-api }}
+      CURRENT_VIDEO_ANALYTICS_API_IMAGE: ${{ needs.prepare-source.outputs.current-video-analytics-api-image }}
+    defaults:
+      run:
+        working-directory: services/analytics/video-analytics-api
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22.22.3"
+
+      - name: Log in to NGC for current image reuse
+        if: needs.prepare-source.outputs.build-video-analytics-api != 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets.NGC_CLI_API_KEY }}
+
+      - name: Install integration-test dependencies
+        run: cd test && npm install
+
+      - name: Run integration test
+        run: |
+          chmod +x test/integration-test/test.sh test/integration-test/cleanup.sh test/integration-test/generate_env.sh
+          chmod +x test/integration-test/scripts/run_integration_tests.sh test/integration-test/scripts/setup_elasticsearch_ingest_pipeline.sh
+          ./test/integration-test/test.sh prod
+
+  # ---------------------------------------------------------------------------
+  # Job 6: Security scanning (detect-secrets)
   # ---------------------------------------------------------------------------
   security:
     name: Security Scan (detect-secrets)
@@ -796,17 +1057,23 @@ jobs:
 
       # Cheap, always-runs guard so the protection can't be silently removed
       # even if the published-image pull below is skipped (e.g. missing NGC key).
-      - name: Assert Dockerfile strips codecs and wires the build-time guard
+      - name: Assert Dockerfile strips codecs and excludes FFmpeg source
         run: |
           DF=services/agent/docker/Dockerfile
           fail() { echo "ERROR: $1 (see $DF)"; exit 1; }
+          if grep -qE '^[[:space:]]*COPY .*([3]rdparty/ffmpeg|third_party/ffmpeg|verify_ffmpeg_tarball)' "$DF"; then
+            fail "FFmpeg source or its verifier must not be copied into any image stage"
+          fi
+          if grep -qF 'verify_ffmpeg_tarball' "$DF"; then
+            fail "obsolete FFmpeg source verification step remains"
+          fi
           grep -qF 'opencv_python_headless.libs' "$DF" \
             || fail "OpenCV/FFmpeg removal step missing"
           grep -qF 'libav*.so*' "$DF" \
             || fail "FFmpeg shared-library removal glob missing"
           grep -qF 'patent-encumbered codec libraries present in image' "$DF" \
             || fail "build-time codec guard missing"
-          echo "OK: Dockerfile removes bundled codecs and enforces the build-time guard."
+          echo "OK: Dockerfile excludes FFmpeg source, removes codecs, and enforces the build-time guard."
 
       # The committed deploy coordinate may target GHCR or NGC.
       - name: Log in to GHCR
@@ -853,8 +1120,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Unit-test the golden resolver and SSOT-aware name matching
+      - name: Unit-test static CI and deployment guards
         run: |
+          python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_release_channel_policy.py
           python3 .github/scripts/test_diagnose_sonarqube_failure.py
@@ -875,6 +1143,7 @@ jobs:
           python3 .github/scripts/test_prepare_promotion_trigger.py
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
+          python3 .github/scripts/test_cleanup_pr_tags.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
@@ -899,6 +1168,8 @@ jobs:
     needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 140
+    outputs:
+      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
     permissions:
       actions: read
       contents: read
@@ -908,6 +1179,7 @@ jobs:
           persist-credentials: false
 
       - name: Wait for successful GHCR release set
+        id: release-set
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -947,6 +1219,9 @@ jobs:
       - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
+    if: >-
+      success() &&
+      needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
@@ -1005,7 +1280,7 @@ jobs:
           DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
           DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
           POLL_INTERVAL_SECONDS: "120"
-          MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
+          MAX_POLL_DURATION_SECONDS: "14400"  # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
       - name: Update PR with downstream-validated GHCR candidates

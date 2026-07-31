@@ -4,9 +4,12 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 
 ## What this brings up
 
-`MODE=mv3dt` + `BP_PROFILE=bp_wh_kafka` (or `_redis`) resolves the compose profile to `bp_wh_kafka_mv3dt` (or `bp_wh_redis_mv3dt`). `MINIMAL_PROFILE` then toggles the `_extended` services on top:
+`MODE=mv3dt` + `BP_PROFILE=bp_wh_kafka` (or `bp_wh_redis`) selects the
+`COMPOSE_PROFILES_WH_KAFKA_MV3DT` (or `COMPOSE_PROFILES_WH_REDIS_MV3DT`)
+service list. With `MINIMAL_PROFILE="true"`, select the corresponding
+`*_MV3DT_MINIMAL` list instead of the extended list:
 
-### Always deployed (under either profile)
+### Always deployed (under either MV3DT service list)
 
 | Container | Image | Role |
 |---|---|---|
@@ -18,14 +21,13 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 | `vss-vios-sensor` | VST sensor image | VST sensor microservice |
 | `vss-vios-ingress` | VST | VST ingress (healthy) |
 | `vss-vios-streamprocessing` | VST | Records streams; serves the VST video wall |
-| `vss-haproxy-ingress` | haproxy | Ingress — **present under MV3DT** (services are still reached on their direct ports) |
 | `vss-vios-postgres` (PostgreSQL) | postgres | Backing store for VST sensor-ms |
 | `sdr-controller` | (built locally) | SDR + Envoy consolidation (registers streamprocessing) |
 | `vss-configurator-mv3dt` (+ `*-init`) | `nvcr.io/nvidia/vss-core/vss-configurator` | Sensor registration, DeepStream config materialization |
 | `vss-vios-nvstreamer-mv3dt` | nvstreamer | RTSP server for sample/videos data |
-| **`vss-behavior-analytics-mv3dt`** | analytics | 3D spatial analytics — always under `bp_wh_*_mv3dt`, **not** gated by `MINIMAL_PROFILE` |
+| **`vss-behavior-analytics-mv3dt`** | analytics | 3D spatial analytics — present in every Kafka/Redis MV3DT service list, **not** gated by `MINIMAL_PROFILE` |
 
-> **Auto-calibration is not part of this deploy.** AMC (`vss-auto-calibration` / `-ui`) is **not** in the `bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt` final MV3DT profile. When calibration is missing, [`calibration-workflow.md`](calibration-workflow.md) delegates AMC setup and RTSP capture to the `vss-generate-video-calibration` skill, then tears AMC down before this deploy. If you see `vss-auto-calibration` running alongside MV3DT, it's from that separate calibration flow, not this one.
+> **Auto-calibration is not part of this deploy.** AMC (`vss-auto-calibration` / `-ui`) is **not** in the Kafka/Redis MV3DT service lists. When calibration is missing, [`calibration-workflow.md`](calibration-workflow.md) delegates AMC setup and RTSP capture to the `vss-generate-video-calibration` skill, then tears AMC down before this deploy. If you see `vss-auto-calibration` running alongside MV3DT, it's from that separate calibration flow, not this one.
 
 ### Extra under extended (`MINIMAL_PROFILE=""`) — needed for VST overlays
 
@@ -36,8 +38,12 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 | `kibana` + `vss-kibana-init-mv3dt` | Dashboards (also needed for overlay rendering) |
 | `vss-video-analytics-api-mv3dt` | Serves overlay data to VST |
 | `vss-import-calibration-output-mv3dt` | Imports the `calibration.json` into Elasticsearch |
+| `vss-haproxy-ingress` | Ingress for the extended stack |
 
-These services share a single `${MINIMAL_PROFILE:+_extended}` gate — they come up together as a unit, not individually selectable.
+These services are included in the extended `COMPOSE_PROFILES_WH_*_MV3DT`
+lists and omitted from the corresponding `*_MV3DT_MINIMAL` lists. Select the
+appropriate complete list; do not add or remove these service profiles
+individually.
 
 **Recommendation: default to extended** for any user who wants a complete e2e experience including overlays. Drop to minimal only when explicitly asked for the smallest footprint (edge / Thor / "just give me the topic data").
 
@@ -48,7 +54,10 @@ Don't trust `docker compose config` to catch missing bind-mount sources — it d
 ```bash
 ENV_STABLE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
 ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
-[ -f "${ENV_FILE}" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
+[ -f "${ENV_FILE}" ] || {
+  echo "ERROR: ${ENV_FILE} is missing. Copy overrides.env to generated.env and apply this deployment's settings first."
+  exit 1
+}
 
 # Re-source stable defaults first, then runtime/profile overrides, so we can check them
 set -a; . "${ENV_STABLE}"; . "${ENV_FILE}"; set +a
@@ -115,7 +124,7 @@ A prior deploy leaves two kinds of stale state that get silently reused and brea
 CUR="${VSS_DATA_DIR%/}"
 STALE_VOL=0
 if [ -z "${CUR}" ]; then
-  echo "VSS_DATA_DIR is not set — source the .env (Step 0) before running this check."
+  echo "VSS_DATA_DIR is not set — source .env followed by generated.env (Step 0) before running this check."
 else
   for v in $(docker volume ls -q | grep -E '^mdx_'); do
     dev=$(docker volume inspect "$v" --format '{{.Options.device}}' 2>/dev/null)
@@ -146,7 +155,7 @@ if docker ps --format '{{.Names}}' | grep -q '^vss-vios-sensor$'; then
   if [ -z "${EXPECTED}" ]; then
     # calibration.json wasn't readable — skip the comparison rather than flag a
     # false-positive that would recommend a destructive down -v. Fix CAL_DIR /
-    # SAMPLE_VIDEO_DATASET first (these come from the Step 0 .env sourcing).
+    # SAMPLE_VIDEO_DATASET first (these come from the Step 0 env-layer sourcing).
     echo "Could not read expected sensors from ${CAL_DIR}/calibration.json — skipping stale-sensor check."
   elif [ "${EXISTING}" != "${EXPECTED}" ]; then
     echo "STALE / MISMATCHED VST state — the registered sensors do not match this dataset."
@@ -217,7 +226,7 @@ When the compose source already uses `${SAMPLE_VIDEO_DATASET}`, this step is a n
 
 Initialize `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env` from `overrides.env`, then edit `generated.env` for MV3DT runtime/profile overrides. The stable `.env` remains the service-default layer. The shipped `overrides.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
 
-> **Also set `LLM_MODE=none`.** Some shipped `.env` variants default `LLM_MODE=local`, which adds `llm_local_<slug>` to `COMPOSE_PROFILES` and pulls up the local LLM NIM stack — unwanted for MV3DT-only and a heavy GPU/model download. MV3DT needs no LLM/VLM, so set both `LLM_MODE=none` and `VLM_MODE=none`.
+> **Also set `LLM_MODE=none` and `VLM_MODE=none`.** MV3DT does not use an LLM or VLM. The inverted MV3DT service lists intentionally contain no `llm_*` or `vlm_*` NIM slice; these values keep the remaining runtime configuration consistent with that deployment shape.
 
 ```bash
 cd "${VSS_APPS_DIR}"
@@ -261,11 +270,16 @@ MQTT_PORT=1883
 NGC_CLI_API_KEY='<your-ngc-key>'
 ```
 
-`COMPOSE_PROFILES` is computed automatically by the .env (search for `^COMPOSE_PROFILES=`): `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}` → for MV3DT this resolves to `bp_wh_kafka_mv3dt,llm_none_none`.
+The checked-in `overrides.env` template defines the explicit service lists.
+After copying it to the active per-deployment `generated.env`, set that file's
+`COMPOSE_PROFILES` selector to the list for the chosen variant. For MV3DT with
+`BP_PROFILE=bp_wh_kafka`, use
+`COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_MV3DT}` (or the `_MINIMAL`
+variant when requested). MV3DT lists do not include an LLM or VLM slice.
 
 ### RTSP input — Sensor Info File
 
-For Q1 = `rtsp`, create a Sensor Info File and point `.env` at it before `docker compose up`. If calibration just ran through [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md), reuse that ordered stream list; only translate `camera_name` to the normalized MV3DT sensor IDs:
+For Q1 = `rtsp`, create a Sensor Info File and set `SENSOR_INFO_SOURCE=file` plus `SENSOR_FILE_PATH` in the active `generated.env` before `docker compose up`. If calibration just ran through [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md), reuse that ordered stream list; only translate `camera_name` to the normalized MV3DT sensor IDs:
 
 ```json
 {
@@ -292,17 +306,19 @@ For `sample` or `videos`, leave `SENSOR_INFO_SOURCE` unset/default (`nvstreamer`
 
 ### `VSS_DATA_DIR` — what to point it at
 
-This is the directory containing the **extracted** `vss-warehouse-app-data` tarball — **separate from the repo**. Expected layout:
+This is the warehouse data directory — **separate from the repo**. The extracted `vss-warehouse-app-data` supplies videos/playback/calibration, while ds-start phase 0 downloads RT-CV models into the flattened `models/` tree on first perception startup. Expected active layout:
 
 ```
 <extracted-dir>/
 ├── videos/<dataset>/        Camera*.mp4 or cam_*.mp4
-├── models/mv3dt/BodyPose3DNet/   TRT/onnx weights
+├── models/
+│   ├── rtdetr_warehouse_v1.0.2.fp16.onnx
+│   └── BodyPose3DNet/bodypose3dnet_accuracy.onnx
 ├── data_log/                 broker / VST log dir (created at deploy)
 └── auto-calib/vggt/          optional VGGT model
 ```
 
-If you haven't extracted it yet, use the published warehouse app-data resource from the VSS 3.2.0 manifests:
+If you need the official sample videos/playback/calibration, use the published warehouse app-data resource from the VSS 3.2.0 manifests. Do not rely on its legacy `models/` subtree; ds-start phase 0 downloads RT-DETR and BodyPose3DNet separately on first perception startup:
 
 ```bash
 export NGC_CLI_API_KEY='<your-key>'
@@ -328,7 +344,7 @@ fi
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
 
-After extraction, run the `mkdir -p` + scoped-ACL `data_log` permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it.
+After extraction, run the `mkdir -p` + scoped-ACL `data_log` permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it. Also ensure `${VSS_DATA_DIR}/models` exists and is writable; ds-start phase 0 writes downloaded models there.
 
 > For `sample` / `videos`, always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's MV3DT cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying. For `rtsp`, validate `camera_info.json` instead of video count.
 
@@ -353,12 +369,12 @@ ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calib
 
 The only platform that needs an `-sbsa` image tag is **DGX-SPARK**, and only for the **Perception** image. Every other platform uses the shipped non-SBSA tags — including **AGX-THOR / IGX-THOR** (ARM64, but confirmed **not** to need SBSA), GB200, and all x86 GPUs. Do not infer SBSA from the platform being ARM64.
 
-On DGX-SPARK, switch `PERCEPTION_TAG` to its `-sbsa` variant — comment the default and uncomment the `-sbsa` line shipped beside it in `.env`:
+On DGX-SPARK, switch `PERCEPTION_TAG` to its `-sbsa` variant in the active `generated.env`; the checked-in alternatives are documented together in the `overrides.env` template:
 
 ```bash
 # PERCEPTION_TAG ships an SBSA variant for DGX-SPARK — comment the default, uncomment the -sbsa line:
-# PERCEPTION_TAG="3.2.1"
-PERCEPTION_TAG="3.3.0-sbsa-26.07.1"
+# PERCEPTION_TAG="3.3.0-26.07.2"
+PERCEPTION_TAG="3.3.0-sbsa-26.07.2"
 ```
 
 The `blueprint-configurator` enforces this: on `HARDWARE_PROFILE=DGX-SPARK` it validates that `PERCEPTION_TAG` contains `sbsa`.
@@ -382,18 +398,19 @@ docker compose -f compose.yml \
 > docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config 2>&1 >/dev/null \
 >   | grep -v 'variable is not set'
 > # Empty output = no real errors. Anything that still prints here is actionable —
-> # e.g. "couldn't find env file: ..." means a path in .env is wrong; fix before deploying.
+> # e.g. "couldn't find env file: ..." means a path in the combined env layers is wrong; fix generated.env before deploying.
 > ```
 
-**Extended** (`MINIMAL_PROFILE=""`) — expect ~18–22 `container_name:` entries. Confirm these are present in addition to the always-deployed core:
+**Extended** (`MINIMAL_PROFILE=""`) — confirm these are present in addition to the always-deployed core:
 
 - `elasticsearch` + `vss-elasticsearch-init`
 - `logstash`
 - `kibana` + `vss-kibana-init-mv3dt`
 - `vss-video-analytics-api-mv3dt`
 - `vss-import-calibration-output-mv3dt`
+- `vss-haproxy-ingress`
 
-**Minimal** (`MINIMAL_PROFILE="true"`) — expect ~12–15 entries; the above five are absent.
+**Minimal** (`MINIMAL_PROFILE="true"`) — the extended-only services above are absent. Validate service presence rather than relying on a fixed container count, which can change as the service lists evolve.
 
 In both modes, sanity check these MV3DT-core containers are present:
 
@@ -404,7 +421,7 @@ In both modes, sanity check these MV3DT-core containers are present:
 - `vss-vios-sensor`
 - `vss-configurator-mv3dt`
 - `vss-vios-nvstreamer-mv3dt`
-- `vss-behavior-analytics-mv3dt` (always under `bp_wh_*_mv3dt`)
+- `vss-behavior-analytics-mv3dt` (present in both Kafka/Redis MV3DT service lists)
 
 If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` + `BP_PROFILE` + `STREAM_TYPE`.
 
@@ -448,7 +465,7 @@ VSS_CORE_IMAGES=$(docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config --images \
   | grep -E 'nvcr\.io/.*/vss-core/' | sort -u)
 if [ -z "$VSS_CORE_IMAGES" ]; then
-  echo "No vss-core images in the resolved compose — confirm MODE=mv3dt and COMPOSE_PROFILES resolved to bp_wh_kafka_mv3dt before continuing."
+  echo "No vss-core images in the resolved compose — confirm MODE=mv3dt and COMPOSE_PROFILES resolved to the MV3DT service list before continuing."
   exit 1
 fi
 for img in $VSS_CORE_IMAGES; do
@@ -463,7 +480,7 @@ for img in $VSS_CORE_IMAGES; do
   fi
 done
 
-# Extended profile only: create the video-analytics API upload bind before compose
+# Extended service list only: create the video-analytics API upload bind before compose
 # starts so Docker does not auto-create it with root-only permissions. The import
 # one-shot posts calibration.json and Top.png through vss-video-analytics-api-mv3dt,
 # which writes them under /web-api-app/files. If this path is not writable, the
@@ -512,7 +529,7 @@ Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `dock
 - `unknown or invalid runtime name: nvidia` → install NVIDIA Container Toolkit (`vss-deploy-profile/references/prerequisites.md` §2.3).
 - `redis ... Can't open the log file: Permission denied`, `kafka ... /tmp/kafka-data/cluster_id: Permission denied`, or elasticsearch `AccessDeniedException` → `$VSS_DATA_DIR/data_log` isn't writable by the container UIDs. Run the `mkdir -p` + scoped-ACL permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 and redeploy. Don't recursive-chown.
 - `vss-configurator-mv3dt` exits 1 immediately → almost always `VSS_DATA_DIR` pointing at the repo instead of the extracted app-data directory. See Step 0 checks.
-- Containers in `Created` state forever → almost always the same `VSS_DATA_DIR` issue. Stop everything, fix `.env`, redeploy.
-- Profile mismatch (e.g. expected containers not in `docker compose config`) → confirm `MODE=mv3dt`, `BP_PROFILE` is one of `bp_wh_kafka` / `bp_wh_redis`. Other failure modes → [`troubleshooting.md`](troubleshooting.md).
+- Containers in `Created` state forever → almost always the same `VSS_DATA_DIR` issue. Stop everything, fix the active `generated.env`, and redeploy.
+- Service-list mismatch (e.g. expected containers not in `docker compose config`) → confirm `MODE=mv3dt`, `BP_PROFILE` is one of `bp_wh_kafka` / `bp_wh_redis`, and `COMPOSE_PROFILES` selects the corresponding MV3DT list. Other failure modes → [`troubleshooting.md`](troubleshooting.md).
 
 When you need to start clean: [`teardown.md`](teardown.md).
