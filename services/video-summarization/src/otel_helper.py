@@ -287,6 +287,50 @@ def is_tracing_enabled():
     return _otel_enabled
 
 
+def extract_context_from_headers(headers):
+    """Extract a W3C trace context from inbound HTTP request headers.
+
+    Lets a caller's `traceparent` become the parent of the spans this service
+    creates, so the whole request shows up under one trace ID in the backend.
+
+    Args:
+        headers: Mapping of HTTP header names to values (e.g. Starlette's
+                 `request.headers`). Header names are matched case-insensitively.
+
+    Returns:
+        An OTEL Context carrying the remote span, or None when tracing is
+        disabled or the headers carry no usable trace context. Returning None
+        keeps the caller on the default behaviour of starting a new root span.
+    """
+    if not _otel_enabled:
+        return None
+
+    try:
+        from opentelemetry import trace
+        from opentelemetry.propagate import extract
+
+        # The W3C propagator expects lower-case keys; Starlette headers are
+        # already case-insensitive but plain dicts from other callers are not.
+        carrier = {str(key).lower(): value for key, value in dict(headers).items()}
+        context = extract(carrier)
+
+        # extract() always returns a Context. Without a valid traceparent it
+        # holds INVALID_SPAN, which would silently produce a fresh trace ID.
+        span_context = trace.get_current_span(context).get_span_context()
+        if not span_context.is_valid:
+            return None
+
+        logger.debug(
+            "Extracted remote trace context: trace_id=%s span_id=%s",
+            format(span_context.trace_id, "032x"),
+            format(span_context.span_id, "016x"),
+        )
+        return context
+    except Exception as e:
+        logger.debug(f"Failed to extract trace context from headers: {e}")
+        return None
+
+
 def trace_function(func_name: str = None):
     """Decorator to trace function execution."""
 
