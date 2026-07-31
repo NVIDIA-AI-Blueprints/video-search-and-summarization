@@ -4451,10 +4451,42 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             REPO_ROOT / "deploy" / "docker" / "services" / "infra" / "compose.yml"
         ).read_text(encoding="utf-8")
         first_query = spec["expects"][0]["query"]
+        second_task = json.dumps(spec["expects"][1])
+        skill_text = (
+            REPO_ROOT / "skills" / "vss-deploy-dense-captioning" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        kafka_reference = (
+            REPO_ROOT
+            / "skills"
+            / "vss-deploy-dense-captioning"
+            / "references"
+            / "kafka-workflows.md"
+        ).read_text(encoding="utf-8")
+        rt_vlm_reference = (
+            REPO_ROOT
+            / "skills"
+            / "vss-deploy-dense-captioning"
+            / "references"
+            / "integrate-rt-vlm.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("container_name: kafka", infra_compose)
         self.assertIn("Kafka container `kafka` running", first_query)
         self.assertNotIn("`mdx-kafka` running", first_query)
+        self.assertIn("grep -qx kafka", second_task)
+        self.assertIn("`docker exec` against `kafka`", second_task)
+        self.assertNotIn("mdx-kafka", second_task)
+        self.assertIn("Kafka container\n  `kafka`", skill_text)
+        for documentation in (skill_text, kafka_reference, rt_vlm_reference):
+            self.assertNotIn("mdx-kafka", documentation)
+        self.assertIn(
+            "docker exec kafka kafka-console-consumer",
+            kafka_reference,
+        )
+        self.assertIn(
+            "docker exec kafka kafka-console-consumer",
+            rt_vlm_reference,
+        )
 
     def test_wait_for_alerts_profile_passes_with_shared_deadline(self):
         previous = {
