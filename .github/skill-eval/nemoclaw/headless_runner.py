@@ -2368,44 +2368,6 @@ def main(argv: list[str] | None = None) -> int:
                     wait_profile=args.wait_profile,
                     deadline=agent_deadline,
                 )
-                if expected_skill == "vss-deploy-profile":
-                    diagnostic_error: dict[str, Any] | None = None
-                    try:
-                        diagnostic = _run(
-                            [
-                                sys.executable,
-                                str(
-                                    Path(__file__).with_name(
-                                        "postgres_health_diagnostic.py"
-                                    )
-                                ),
-                                "--log-dir",
-                                str(log_dir),
-                            ],
-                            timeout=_deadline_timeout(
-                                deadline,
-                                30,
-                                "PostgreSQL health diagnostic",
-                            ),
-                        )
-                        if diagnostic.returncode != 0:
-                            diagnostic_error = {
-                                "completed": False,
-                                "exit_code": diagnostic.returncode,
-                            }
-                    except (OSError, subprocess.TimeoutExpired, TimeoutError) as exc:
-                        diagnostic_error = {
-                            "completed": False,
-                            "error_type": type(exc).__name__,
-                        }
-                    if diagnostic_error is not None:
-                        diagnostic_error["schema_version"] = 1
-                        (
-                            log_dir / "postgres-health-diagnostic-error.json"
-                        ).write_text(
-                            json.dumps(diagnostic_error, indent=2) + "\n",
-                            encoding="utf-8",
-                        )
                 if _response_ok(response):
                     wait_report = wait_for_profile(
                         args.wait_profile,

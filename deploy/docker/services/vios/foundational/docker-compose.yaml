@@ -35,7 +35,7 @@ services:
       - "-c"
       - "unix_socket_directories=/var/run/postgresql"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h /var/run/postgresql -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "/usr/local/bin/pg_isready -h /var/run/postgresql -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" >/dev/null 2>&1"]
       interval: 5s
       timeout: 3s
       retries: 60
