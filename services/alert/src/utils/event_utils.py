@@ -40,9 +40,14 @@ def normalize_alert_message(message: Dict[str, Any]) -> Dict[str, Any]:
     if not sensor and not am and not obj:
         return message
 
-    sensor_id = sensor.get('id')
-    category = am.get('id')
-    if not sensor_id and not category:
+    # Each block is optional: a payload may carry only ``analyticsModule``
+    # (with a flat ``sensorId`` already set) or only ``object``. Dereference
+    # each one behind its own guard so a partial payload is normalized instead
+    # of raising and taking the whole batch down with it.
+    sensor_id = sensor.get('id') if sensor else None
+    category = am.get('id') if am else None
+    object_id = obj.get('id') if obj else None
+    if not sensor_id and not category and not object_id:
         return message
 
     updated = dict(message)
@@ -54,11 +59,9 @@ def normalize_alert_message(message: Dict[str, Any]) -> Dict[str, Any]:
         updated['category'] = category
         added.append('category')
     # Populate objectIds from object.id when available and objectIds is missing
-    if obj and 'objectIds' not in updated:
-        obj_id = obj.get('id')
-        if obj_id is not None and obj_id != "":
-            updated['objectIds'] = [obj_id]
-            added.append('objectIds')
+    if object_id and 'objectIds' not in updated:
+        updated['objectIds'] = [object_id]
+        added.append('objectIds')
     if 'notification_type' not in updated:
         updated['notification_type'] = 'alert'
     if added:
