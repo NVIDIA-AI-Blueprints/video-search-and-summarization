@@ -29,7 +29,6 @@ from mdx.analytics.core.utils.schema_util import get_sensor_id_from_behavior_id,
 logger = logging.getLogger(__name__)
 
 
-
 @dataclass
 class BehaviorBatch:
     """
@@ -317,32 +316,6 @@ class StateMgmt:
             clustering_model = CRP().cluster(embeddings, self.config.cluster_threshold)
         state.model = clustering_model
     
-    def _get_object_state_and_message(
-        self, message_key: str, messages: list[Message]
-    ) -> tuple[ObjectState | None, Message | None]:
-        """
-        Get new state of an object and last message.
-
-        This method processes messages to create or update an object state, including:
-        - Filtering messages by time threshold
-        - Extracting coordinates and embeddings
-        - Computing object type scores
-        - Creating or updating clustering model
-        - Managing state transitions
-
-        :param str message_key: Key for the message (sensor ID + object ID).
-        :param list[Message] messages: List of messages to process.
-        :return tuple[ObjectState | None, Message | None]: Tuple containing the object state and last message, or (None, None) if invalid.
-
-        Examples::
-            >>> state_manager = StateMgmt(config)
-            >>> messages = [Message(sensor=Sensor(id="sensor1"), timestamp=datetime.now())]
-            >>> state, msg = state_manager._get_object_state_and_message("sensor1_obj1", messages)
-            >>> print(f"Created state with {len(state.points)} points")
-        """
-        state, _, last_message = self._get_object_trip_state_and_message(message_key, messages)
-        return state, last_message
-
     def _get_object_trip_state_and_message(
         self, message_key: str, messages: list[Message]
     ) -> tuple[ObjectState | None, ObjectState | None, Message | None]:
@@ -552,8 +525,10 @@ class StateMgmt:
         builds a behavior for each. Called only by :meth:`process_batch`, which owns the batch-wide
         steps -- expiry and the emission policy -- that are only sound once every key is done.
 
-        Subclasses override this when a coordinate system produces something different; geographic
-        coordinates, for instance, track no trips and return ``None`` for the trip behavior.
+        Shared by every coordinate system. What differs between them is which trajectory to build
+        (:meth:`_create_trajectory`), how to turn it into a behavior (:meth:`_get_behavior`), and
+        whether trips are tracked at all (:meth:`_build_trip_behavior`) -- so subclasses override
+        those rather than this.
 
         :param str message_key: Key for the message (sensor ID + object ID).
         :param list[Message] messages: Messages for this key in the current batch.
@@ -562,14 +537,30 @@ class StateMgmt:
         """
         self._update_sensor_latest_timestamp(messages)
         state, trip_state, last_message = self._get_object_trip_state_and_message(message_key, messages)
-        if not state or not trip_state or not last_message:
+        if not state or not last_message:
             return None, None
 
-        # Build trajectories
         behavior_traj = self._create_trajectory(state.id, state.start, state.end, state.points)
+
+        return (
+            self._get_behavior(state, behavior_traj, last_message),
+            self._build_trip_behavior(trip_state, last_message),
+        )
+
+    def _build_trip_behavior(self, trip_state: ObjectState | None, last_message: Message) -> Behavior | None:
+        """
+        Build the short-window trip behavior that tripwire and ROI detection consume.
+
+        Overridden to ``None`` by coordinate systems that do not track trips, which is cheaper than
+        duplicating :meth:`_process_key` just to skip these two objects.
+
+        :param ObjectState | None trip_state: Trip state for this batch, if one was produced.
+        :param Message last_message: Last message of the batch, for sensor and object context.
+        :return Behavior | None: The trip behavior, or ``None`` when there is no trip state.
+        """
+        if not trip_state:
+            return None
+
         trip_traj = self._create_trajectory(trip_state.id, trip_state.start, trip_state.end, trip_state.points)
 
-        behaviorMessage = self._get_behavior(state, behavior_traj, last_message)
-        tripMessage = self._get_behavior(trip_state, trip_traj, last_message)
-
-        return behaviorMessage, tripMessage
+        return self._get_behavior(trip_state, trip_traj, last_message)

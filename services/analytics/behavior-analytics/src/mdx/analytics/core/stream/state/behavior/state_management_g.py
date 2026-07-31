@@ -83,27 +83,18 @@ class StateMgmtG(StateMgmt):
             direction_based_cluster_mode=self.config.traj_direction_cluster_mode,
         )
 
-    def _process_key(self, message_key: str, messages: list[Message]) -> tuple[Behavior | None, None]:
+    def _build_trip_behavior(self, trip_state: ObjectState | None, last_message: Message) -> None:
         """
-        Advance one track, in geographic coordinates.
+        Geographic coordinates track no trips, so there is no trip behavior to build.
 
-        Differs from the base in two ways: the behavior is enriched with map-matched road edges and
-        speed over them, and no trip state is tracked, so the trip behavior is always ``None``.
+        Tripwire and ROI detection are not run against geographic tracks; the trip state is still
+        computed upstream, but nothing consumes it here.
 
-        :param str message_key: Key for the message (sensor ID + object ID).
-        :param list[Message] messages: Messages for this key in the current batch.
-        :return tuple[Behavior | None, None]: The track's behavior, or ``(None, None)`` when the
-            messages yielded no valid state.
+        :param ObjectState | None trip_state: Ignored.
+        :param Message last_message: Ignored.
+        :return None: Always.
         """
-        self._update_sensor_latest_timestamp(messages)
-        state, last_message = self._get_object_state_and_message(message_key, messages)
-
-        # When getting no new behavior
-        if not state or not last_message:
-            return None, None
-
-        behavior_traj = self._create_trajectory(state.id, state.start, state.end, state.points)
-        return self._get_behavior(state, behavior_traj, last_message), None
+        return None
 
     def _get_behavior(self, state: ObjectState, tr: TrajectoryG, message: Message) -> Behavior:
         """

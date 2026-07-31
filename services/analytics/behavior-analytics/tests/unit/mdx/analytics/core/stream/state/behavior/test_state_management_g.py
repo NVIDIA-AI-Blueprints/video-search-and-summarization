@@ -122,15 +122,27 @@ class TestStateMgmtG:
         assert result == points
 
     def test_process_key_no_messages(self, state_mgmt):
-        """_process_key with empty messages yields no behavior, and never a trip in geo coordinates."""
-        message_key = "sensor1_obj1"
-        messages = []
+        """_process_key with empty messages yields no behavior, exercising the real path."""
+        assert state_mgmt._process_key("sensor1_obj1", []) == (None, None)
 
-        with patch.object(state_mgmt, '_update_sensor_latest_timestamp'):
-            with patch.object(state_mgmt, '_get_object_state_and_message', return_value=(None, None)):
-                result = state_mgmt._process_key(message_key, messages)
+    def test_build_trip_behavior_is_always_none(self, state_mgmt):
+        """Geographic tracks have no trip behavior, even when a trip state exists upstream.
 
-        assert result == (None, None)
+        This is what lets StateMgmtG share _process_key with the base rather than duplicating it.
+        """
+        base = datetime(2025, 3, 1, 12, 0, 0)
+        trip_state = ObjectState(
+            id="s1 #-# obj1", start=base, end=base + timedelta(seconds=1),
+            points=[Coordinate(x=0.0, y=0.0), Coordinate(x=1.0, y=1.0)],
+        )
+        message = Message(
+            messageid="m1", timestamp=base,
+            sensor=Sensor(id="s1", type="camera"),
+            place=Place(id="p1", name="place"),
+            object=Object(id="obj1", type="vehicle", confidence=0.9, coordinate=Coordinate(x=1.0, y=1.0)),
+        )
+
+        assert state_mgmt._build_trip_behavior(trip_state, message) is None
 
 
 class TestStateMgmtGWithMessages:
