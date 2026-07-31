@@ -77,7 +77,7 @@ Image tags are baked in **at build time**, so configure the registry *before* yo
 | CLI flag (preferred) | Env var equivalent | Default (local-only) |
 | --- | --- | --- |
 | `image-registry=<ref>` | `IMAGE_REGISTRY` | `vios` → `vios/vst-sensor:latest` |
-| `nvstreamer-image=<ref>` | `NVSTREAMER_IMAGE` | `nvstreamer` → `nvstreamer:latest` |
+| `nvstreamer-image=<ref>` | `NVSTREAMER_IMAGE_REGISTRY` | `nvstreamer` → `nvstreamer:latest` |
 | `toolchain-image=<ref>` | `X86_BUILD_IMAGE` (x86) / `AARCH64_CC_IMAGE` (arm64) | `vios-build:x86-24.04-cuda13.0.0` |
 
 ```bash

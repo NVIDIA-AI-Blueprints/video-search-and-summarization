@@ -112,7 +112,7 @@ show_help() {
     echo "  image-registry=<ref>   Override registry/org prefix for module + base images"
     echo "                          (replaces IMAGE_REGISTRY env var; default 'vios')."
     echo "  nvstreamer-image=<ref> Override the full NVStreamer image repository"
-    echo "                          (replaces NVSTREAMER_IMAGE env var; default 'nvstreamer')."
+    echo "                          (replaces NVSTREAMER_IMAGE_REGISTRY env var; default 'nvstreamer')."
     echo "  vst-app            Build k8s based vst-app for all modules and scaling-app"
     echo "  streamprocessing-app Build k8s based streamprocessing-app (sensor, streamprocessing, postgres, ingress)"
     echo "  ingress            Build ingress container needed for scaling-app"
@@ -308,7 +308,7 @@ while [[ "$#" -gt 0 ]]; do
         multiarch) MULTIARCH=1;;
         no-auto-deps) NO_AUTO_DEPS=1;;
         # CLI-flag alternatives to the X86_BUILD_IMAGE / AARCH64_CC_IMAGE /
-        # IMAGE_REGISTRY / NVSTREAMER_IMAGE env vars. Applied AFTER the
+        # IMAGE_REGISTRY / NVSTREAMER_IMAGE_REGISTRY env vars. Applied AFTER the
         # whole arg list is parsed so `arch=arm64 toolchain-image=…` works
         # regardless of arg order. CLI > env > default.
         toolchain-image=*) TOOLCHAIN_IMAGE_OVERRIDE="${1#*=}";;
@@ -334,7 +334,7 @@ if [[ -n "${IMAGE_REGISTRY_OVERRIDE:-}" ]]; then
     IMAGE_REGISTRY="$IMAGE_REGISTRY_OVERRIDE"
 fi
 if [[ -n "${NVSTREAMER_IMAGE_OVERRIDE:-}" ]]; then
-    NVSTREAMER_IMAGE="$NVSTREAMER_IMAGE_OVERRIDE"
+    NVSTREAMER_IMAGE_REGISTRY="$NVSTREAMER_IMAGE_OVERRIDE"
 fi
 
 # Export the resolved toolchain images so the Makefile's `?=` picks them up
@@ -342,6 +342,11 @@ fi
 # this, an env / toolchain-image= override never reaches the containerised
 # `make cc=1` step.
 export AARCH64_CC_IMAGE X86_BUILD_IMAGE
+# The multiarch path re-invokes this script per architecture, so the resolved
+# registries must be in the environment as well; otherwise an `image-registry=`
+# / `nvstreamer-image=` flag would tag the sub-builds with the defaults while
+# the parent pushes the overridden repository.
+export IMAGE_REGISTRY NVSTREAMER_IMAGE_REGISTRY
 
 # Print all variables
 echo "ARCH=$ARCH"
@@ -366,6 +371,7 @@ echo "NO_CACHE=$NO_CACHE"
 echo "BASE_IMAGE=$BASE_IMAGE"
 echo "MODULES=${MODULES[@]}"
 echo "IMAGE_REGISTRY=$IMAGE_REGISTRY"
+echo "NVSTREAMER_IMAGE_REGISTRY=$NVSTREAMER_IMAGE_REGISTRY"
 
 # Default tags for each module
 declare -A DEFAULT_TAGS=(
@@ -382,7 +388,7 @@ declare -A DEFAULT_TAGS=(
     [mcp]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
-    [vst-base]="2.1.0-runtime-26.05.4"
+    [vst-base]="2.1.0-runtime-26.07.1"
 )
 
 # Function to build base image for faster container builds
@@ -1311,13 +1317,25 @@ build_multiarch() {
     fi
 
     # multiarch always pushes to a registry; the bare local default namespace
-    # (e.g. IMAGE_REGISTRY=vios) has no registry host and cannot be pushed.
-    local reg_host="${IMAGE_REGISTRY%%/*}"
-    if [[ "$reg_host" != *.* ]] && [[ "$reg_host" != *:* ]] && [[ "$reg_host" != "localhost" ]]; then
-        echo "[WARN] IMAGE_REGISTRY='$IMAGE_REGISTRY' has no registry host — the push/manifest will"
+    # (e.g. IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE_REGISTRY=nvstreamer) has no
+    # registry host and cannot be pushed.
+    _warn_unpushable() {
+        local var="$1" value="$2" example="$3" host="${2%%/*}"
+        if [[ "$host" == *.* ]] || [[ "$host" == *:* ]] || [[ "$host" == "localhost" ]]; then
+            return 0
+        fi
+        echo "[WARN] $var='$value' has no registry host — the push/manifest will"
         echo "       target Docker Hub or fail. Set a pushable registry and log in first, e.g.:"
-        echo "         export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
+        echo "         export $var=$example"
         echo "         docker login nvcr.io"
+    }
+    if [[ $BASE_IMAGE -eq 1 ]] || [[ ${#MODULES[@]} -gt 0 ]]; then
+        _warn_unpushable IMAGE_REGISTRY "$IMAGE_REGISTRY" \
+            "nvcr.io/rxczgrvsg8nx/vst-dev"
+    fi
+    if [[ $NVSTREAMER -eq 1 ]]; then
+        _warn_unpushable NVSTREAMER_IMAGE_REGISTRY "$NVSTREAMER_IMAGE_REGISTRY" \
+            "nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer"
     fi
 
     if [[ $BASE_IMAGE -eq 1 ]]; then
@@ -1383,7 +1401,7 @@ build_multiarch() {
     local -a repos=()
     local m
     for m in "${MODULES[@]}"; do repos+=("$IMAGE_REGISTRY/vst-${m}"); done
-    [[ $NVSTREAMER -eq 1 ]] && repos+=("$NVSTREAMER_IMAGE")
+    [[ $NVSTREAMER -eq 1 ]] && repos+=("$NVSTREAMER_IMAGE_REGISTRY")
 
     # Flags forwarded to each per-arch sub-build.
     local extra=""
@@ -1526,7 +1544,7 @@ if [[ $BUILD_ALL -eq 1 ]]; then
         _mt="${DEFAULT_TAGS[$_m]:-latest}"
         echo "  module    : $IMAGE_REGISTRY/vst-${_m}:${TAG:-$_mt}"
     done
-    echo "  nvstreamer: $NVSTREAMER_IMAGE:${DEFAULT_TAGS[nvstreamer]:-latest}"
+    echo "  nvstreamer: $NVSTREAMER_IMAGE_REGISTRY:${DEFAULT_TAGS[nvstreamer]:-latest}"
     echo ""
     echo "To publish to your registry, set the registry env vars BEFORE running"
     echo "the build (the tag is baked into the image at build time — see the"
@@ -1897,15 +1915,28 @@ else
             print_per_image_build_timing_line "$MODULE_BUILD_START_TIME"
 
             if [[ $PUSH -eq 1 ]]; then
-                # Push in the background so the next module's compile + docker build
-                # overlaps this image's upload. Output is captured per-image and
-                # printed when the push is waited on after the loop.
-                push_log=$(mktemp)
-                echo "Pushing Docker image (background): $imagename"
-                docker push "$imagename" > "$push_log" 2>&1 &
-                PUSH_PIDS+=("$!")
-                PUSH_IMAGES+=("$imagename")
-                PUSH_LOGS+=("$push_log")
+                if [[ $MODULE_COUNT -eq $((${#MODULES[@]} - 1)) ]]; then
+                    # Last image: no further module build is left to overlap with, so
+                    # push in the foreground and let docker report its own per-layer
+                    # progress instead of leaving the user with a silent upload.
+                    echo "Pushing Docker image: $imagename"
+                    if docker push "$imagename"; then
+                        echo -e "Docker push succeeded for image: $imagename"
+                    else
+                        echo -e "[ERROR] Docker push failed for image: $imagename"
+                        exit 1
+                    fi
+                else
+                    # Push in the background so the next module's compile + docker build
+                    # overlaps this image's upload. Output is captured per-image and
+                    # printed when the push is waited on after the loop.
+                    push_log=$(mktemp)
+                    echo "Pushing Docker image (background): $imagename"
+                    docker push "$imagename" > "$push_log" 2>&1 &
+                    PUSH_PIDS+=("$!")
+                    PUSH_IMAGES+=("$imagename")
+                    PUSH_LOGS+=("$push_log")
+                fi
             fi
 
             MODULE_COUNT=$((MODULE_COUNT + 1))
