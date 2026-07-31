@@ -501,6 +501,18 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   // identity. Cancelling the dialog therefore must not clear it.
   const acceptedDeletesRef = useRef<Set<string>>(new Set());
 
+  // An acknowledgement only describes the backend that issued it. Once the tab points at
+  // a different VST/agent, a sensor id reused over there has not been deleted, so keeping
+  // the entry would skip the new backend's delete call and poll until timeout instead.
+  // The counter lets a delete already in flight recognise that its result arrived too
+  // late to be recorded, which clearing alone cannot prevent.
+  const backendSessionRef = useRef(0);
+
+  useEffect(() => {
+    backendSessionRef.current += 1;
+    acceptedDeletesRef.current.clear();
+  }, [vstApiUrl, agentApiUrl]);
+
   // Once VST stops listing a sensor the delete is fully settled, so drop it here.
   // Without this, a stream later recreated under the same sensor id could never be
   // deleted — every attempt would skip the agent call and just poll forever.
@@ -545,6 +557,9 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       }
     }
 
+    const backendSession = backendSessionRef.current;
+    const isSameBackend = () => backendSessionRef.current === backendSession;
+
     const uniqueSensorIds = Array.from(sensorToStreams.keys());
     // Retry after a convergence timeout: the agent already took these, so only
     // the VST wait below needs repeating.
@@ -578,6 +593,11 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
       const results = await Promise.allSettled(deletePromises);
 
+      // These answers came from the backend we have since left. Recording them would let
+      // a same-id stream on the current one be treated as already accepted, so drop the
+      // whole outcome and leave the dialog open to retry against the backend in use.
+      if (!isSameBackend()) return;
+
       const deletedSensorIds: string[] = [...alreadyAcceptedSensorIds];
       const failedNames: string[] = [];
       const stillSelected = new Set<string>();
@@ -607,6 +627,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       // Agent accepted the delete — wait until VST's streams list agrees before
       // claiming success. Closing early is what left RTSP entries stale in the grid.
       const { remainingSensorIds } = await waitUntilStreamsRemoved(deletedSensorIds);
+      if (!isSameBackend()) return;
       void refetchTimelines();
 
       const unconfirmed = new Set(remainingSensorIds);

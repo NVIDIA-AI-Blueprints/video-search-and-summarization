@@ -491,6 +491,89 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     );
   });
 
+  // An acknowledgement belongs to the backend that gave it. A sensor id reused on a
+  // different VST/agent has not been deleted there, so the new backend must still get
+  // the request instead of the dialog polling it to a timeout.
+  it('re-sends the delete when the component is pointed at a different backend', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    const { rerender } = renderComponent();
+    await selectAllAndConfirmDelete();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+
+    await act(async () => {
+      rerender(
+        <VideoManagementComponent
+          videoManagementData={{
+            systemStatus: 'ok',
+            vstApiUrl: 'https://other-vst.example.com/vst',
+            agentApiUrl: 'https://other-agent.example.com',
+          }}
+        />,
+      );
+    });
+
+    mockDeleteRtspStream.mockClear();
+
+    await reopenDeleteDialogAndConfirm();
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith(
+      'https://other-agent.example.com',
+      rtspStream.name,
+    );
+  });
+
+  // Clearing on backend change is not enough on its own: a delete already awaiting its
+  // agent response would otherwise record that answer afterwards, leaving the new
+  // backend's identical sensor id looking accepted and its Retry stuck polling.
+  it('discards an acknowledgement that arrives after the backend changed', async () => {
+    let settleRtspDelete: (value: unknown) => void = () => {};
+    mockDeleteRtspStream.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        settleRtspDelete = resolve;
+      }),
+    );
+    mockWaitUntilStreamsRemoved.mockResolvedValue({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    const { rerender } = renderComponent();
+    await selectAllAndConfirmDelete();
+
+    // The tab is pointed elsewhere while the agent call is still outstanding
+    await act(async () => {
+      rerender(
+        <VideoManagementComponent
+          videoManagementData={{
+            systemStatus: 'ok',
+            vstApiUrl: 'https://other-vst.example.com/vst',
+            agentApiUrl: 'https://other-agent.example.com',
+          }}
+        />,
+      );
+    });
+
+    await act(async () => {
+      settleRtspDelete({ status: 'success' });
+    });
+
+    mockDeleteRtspStream.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith(
+      'https://other-agent.example.com',
+      rtspStream.name,
+    );
+  });
+
   // Forgetting a settled delete matters: a stream recreated under the same sensor
   // id must be deletable again rather than polled forever.
   it('re-sends the delete once VST has dropped the sensor and it reappears', async () => {
