@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1}
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.3.0-rc2}
     container_name: vss-lvs
 
     profiles: ["lvs-server"]
