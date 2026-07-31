@@ -358,6 +358,16 @@ class MediaInfoOffset(ViaBaseModel):
         json_schema_extra={"format": "int64"},
     )
 
+    @model_validator(mode="after")
+    def _validate_offsets(self):
+        if self.start_offset is not None and self.end_offset is not None:
+            if self.start_offset >= self.end_offset:
+                raise ValueError(
+                    f"start_offset ({self.start_offset}) must be less than "
+                    f"end_offset ({self.end_offset})"
+                )
+        return self
+
 
 class MediaInfoTimeStamp(ViaBaseModel):
     """Media information using offset for live-streams."""
@@ -911,6 +921,16 @@ class SummarizationQuery(ViaBaseModel):
         ),
         examples=[True, False],
     )
+
+    @model_validator(mode="after")
+    def _validate_token_constraints(self):
+        if self.min_tokens is not None and self.max_tokens is not None:
+            if self.min_tokens > self.max_tokens:
+                raise ValueError(
+                    f"min_tokens ({self.min_tokens}) must not exceed "
+                    f"max_tokens ({self.max_tokens})"
+                )
+        return self
 
 
 class CompletionFinishReason(str, Enum):
