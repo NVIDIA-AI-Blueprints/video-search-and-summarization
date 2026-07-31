@@ -14,6 +14,8 @@ import sys
 
 import click
 
+from .config import ConfigError
+from .exits import Exit
 from .registry import build_root
 
 
@@ -33,6 +35,12 @@ def main(argv: list[str] | None = None) -> int:
         result = root.main(args=args, prog_name="vss", standalone_mode=False)
     except click.exceptions.Exit as exit_signal:  # pragma: no cover - defensive
         return int(exit_signal.exit_code)
+    except ConfigError as error:
+        # A missing or stale deployment is exit 4 for every group, with the
+        # remedy in the message -- not a traceback. Handled here rather than
+        # per-group so no group can forget.
+        sys.stderr.write(f"vss: {error}\n")
+        return int(Exit.CONFIGURATION)
     except click.Abort:
         sys.stderr.write("vss: aborted\n")
         return 130
