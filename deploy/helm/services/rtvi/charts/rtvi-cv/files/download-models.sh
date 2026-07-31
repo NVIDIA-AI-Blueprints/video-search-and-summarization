@@ -127,12 +127,23 @@ download_package() {
   echo "$package_dir"
 }
 
-# Marker is derived from the full destination path (path separators flattened) so two
+# Marker path is derived from the full destination path (path separators flattened) so two
 # entries that share a basename but differ by directory never collide on one marker.
 tuple_marker() {
   local dest_rel="$1"
   local key="${dest_rel//\//__}"
   echo "${MODELS_DEST_ROOT}/.${key}.done"
+}
+
+# The marker body records the whole download tuple, not just the destination. Several
+# destPaths carry no version (e.g. rtdetr-its/model_epoch_035.fp16.onnx), so a presence-only
+# check would treat a model: version bump or a sourcePath move as already satisfied and serve
+# stale weights forever. Comparing the recorded tuple makes any upstream manifest change
+# re-download, and leaves an operator-readable record of what is on the volume.
+marker_payload() {
+  local model_ref="$1" source_rel="$2" dest_rel="$3" org="$4"
+  printf 'model=%s\nsourcePath=%s\ndestPath=%s\norg=%s' \
+    "$model_ref" "$source_rel" "$dest_rel" "$org"
 }
 
 # Apply the model-tree permission contract (Contract #4) to a single written artifact
@@ -184,13 +195,21 @@ main() {
     dest_rel="$(echo "$entry" | jq -r '.destPath')"
     org="$(echo "$entry" | jq -r '.org')"
 
-    local marker dest_abs
+    local marker dest_abs payload
     marker="$(tuple_marker "$dest_rel")"
     dest_abs="${MODELS_DEST_ROOT}/${dest_rel}"
+    payload="$(marker_payload "$model_ref" "$source_rel" "$dest_rel" "$org")"
 
     if [[ -f "$marker" && -e "$dest_abs" ]]; then
-      echo "Skipping ${model_ref} -> ${dest_rel}; marker present (${marker})."
-      continue
+      if [[ "$(cat "$marker")" == "$payload" ]]; then
+        echo "Skipping ${model_ref} -> ${dest_rel}; marker matches manifest (${marker})."
+        continue
+      fi
+      # Legacy markers written before tuple recording are empty and also land here, so the
+      # first run after an upgrade re-fetches once and then settles.
+      echo "Manifest changed for ${dest_rel}; re-downloading (marker ${marker})."
+      echo "  recorded: $(tr '\n' ' ' < "$marker")"
+      echo "  manifest: $(printf '%s' "$payload" | tr '\n' ' ')"
     fi
 
     local package_dir source_abs
@@ -207,8 +226,9 @@ main() {
 
     apply_artifact_perms "$dest_abs"
 
-    touch "$marker"
+    printf '%s\n' "$payload" > "$marker"
     chown "${STORAGE_UID}:${STORAGE_GID}" "$marker"
+    chmod 0644 "$marker"
   done
 
   echo "Model download init completed for ${downloads_count} manifest entries."

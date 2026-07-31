@@ -21,6 +21,18 @@ model tree only after the destination artifact has been copied and its ownership
 and modes have been applied. There is no separate model-download Job or
 `wait-for-models` initContainer.
 
+The marker body records the `model`, `sourcePath`, `destPath`, and `org` that
+produced the artifact, and an entry is skipped only when that record still matches
+the manifest. Because several `destPath` values carry no version, a `model`
+version bump or a `sourcePath` move would otherwise look already-satisfied and
+keep serving stale weights; comparing the recorded tuple re-downloads instead.
+Markers from before tuple recording are empty, so the first run after upgrading
+re-fetches each artifact once. To inspect what a volume holds:
+
+```bash
+grep . /opt/storage/.*.done
+```
+
 `standalone-mv3dt` keeps its dedicated `ds-start-mv3dt.sh` and calls the same
 download phase before MQTT generation.
 
