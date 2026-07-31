@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -52,6 +53,12 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 # retrying a transient stall on a fresh connection recovers it. Tunable.
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
+
+VSS_REPO_CWD = '"$HOME/video-search-and-summarization"'
+CLAUDE_PRINT_RE = re.compile(
+    r"(^|[|;&]\s*)claude(?:\s+[^|;&]*)?\s--print(?:\s|$)",
+    re.DOTALL,
+)
 
 # Public relay used by the RT-VLM test suite. Operators can override it for
 # isolated environments, but the eval remains runnable without extra CI
@@ -263,13 +270,11 @@ class BrevEnvironment(BaseEnvironment):
         # already (harbor's per-trial copy-back), so this archive is just
         # box-side history.
         #
-        # Why archive only, not also per-trial cwd: harbor's claude-code
-        # agent (vendor cache) invokes `claude --print` with no cwd
-        # override, so all trials share `cwd=/home/shadeform` and the
-        # project key is `-home-shadeform`. Forcing a per-trial cwd would
-        # require forking harbor — out of scope. Empty-on-start is
-        # sufficient for the harbor mapper's "exactly one session dir"
-        # heuristic to produce a clean per-trial trajectory.
+        # Harbor's claude-code agent does not pass a cwd. Our exec() wrapper
+        # starts the actual `claude --print` command from the synced repo root
+        # so repository CLAUDE.md/AGENTS.md guidance can load, but every trial
+        # still uses the same repo cwd/project key on a warm box. Empty-on-start
+        # keeps harbor's "exactly one session dir" trajectory mapper clean.
         archive_cmd = (
             "ts=$(date +%Y%m%d-%H%M%S); "
             "PROJ=/logs/agent/sessions/projects; "
@@ -1009,6 +1014,12 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 parts.append(f"export {shlex.quote(k)}={shlex.quote(v)};")
         if cwd:
             parts.append(f"cd {shlex.quote(cwd)};")
+        elif _is_claude_code_agent_command(command):
+            # Harbor's installed claude-code agent invokes `claude --print`
+            # without a cwd, which otherwise starts from $HOME and misses the
+            # checked-out repo's CLAUDE.md/AGENTS.md guidance. The repo is
+            # synced in start() before agent setup/execution reaches exec().
+            parts.append(f"cd {VSS_REPO_CWD};")
         parts.append(command)
 
         inner_cmd = " ".join(parts)
@@ -1018,7 +1029,6 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         # real install commands (not substrings like `command -v apk`)
         # and wrap them with sudo; everything else runs as the normal
         # user so that file ownership stays consistent with brev copy.
-        import re
         needs_root = (
             user == "root" or user == 0
             # Match package-manager INSTALL actions at word boundaries,
@@ -1046,6 +1056,11 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 def _which(cmd: str) -> bool:
     import shutil
     return shutil.which(cmd) is not None
+
+
+def _is_claude_code_agent_command(command: str) -> bool:
+    """Return True for Harbor's Claude Code agent rollout command."""
+    return bool(CLAUDE_PRINT_RE.search(command))
 
 
 def _stray_agent_reap_command() -> str:

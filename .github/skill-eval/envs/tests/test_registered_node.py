@@ -269,5 +269,46 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
         self.assertNotIn("rm -rf {} + 2>/dev/null", cmd)
 
 
+class ClaudeAgentWorkingDirectory(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.exec_calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            self.exec_calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        self.original_exec = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+
+    async def asyncTearDown(self):
+        brev_env._run_brev_exec = self.original_exec
+
+    async def test_claude_print_command_defaults_to_repo_root(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+
+        await env.exec(
+            'printf "%s" "$PROMPT" | claude --verbose '
+            "--output-format=stream-json --permission-mode=bypassPermissions "
+            "--print 2>&1 | tee /logs/agent/claude-code.txt"
+        )
+
+        self.assertIn(
+            'cd "$HOME/video-search-and-summarization";',
+            self.exec_calls[0][1],
+        )
+
+    async def test_non_claude_command_does_not_default_to_repo_root(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+
+        await env.exec("echo harbor-ready")
+
+        self.assertNotIn(
+            'cd "$HOME/video-search-and-summarization";',
+            self.exec_calls[0][1],
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
