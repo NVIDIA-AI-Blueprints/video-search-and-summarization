@@ -190,3 +190,16 @@ display-tracking-id=1
 
 [tests]
 file-loop=1
+
+#[frame-dump]
+#enable=1
+#fps=1
+#location=/tmp/frame_dumps
+#all-cameras=1
+#quality=80
+#hour-subfolder=0
+#unique-filenames=0
+#retention-days=0
+#kafka-enable=1
+#kafka-broker=kafka;29092
+#kafka-topic=frame-dumps
