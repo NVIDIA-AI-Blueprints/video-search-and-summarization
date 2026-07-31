@@ -27,7 +27,7 @@
       "Uses the repo sample calibration.json and Top.png, then generates transforms.yml for BEV_DATASET_PATH.",
       "Runs bundled resource preflight before config generation/staging and asserts the staged Kafka sink matches the selected KAFKA_BOOTSTRAP.",
       "Plans saved perception grid and saved fused BEV by default for the finite file run.",
-      "Uses a persistent BEV recorder launch and verifies the recorder survives until perception starts.",
+      "Uses a same-session BEV recorder launch for finite file runs and verifies the recorder survives until perception starts.",
       "Does not route to vss-deploy-profile or use warehouse compose commands."
     ]
   },

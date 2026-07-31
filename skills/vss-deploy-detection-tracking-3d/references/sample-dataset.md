@@ -161,7 +161,7 @@ For a generic sample request such as "deploy MV3DT on the sample dataset", do no
 - If no working display is found, state the probe result and use the saved fallback: stage `INPUT_MODE=file OSD=0 SAVE_VIDEO=1`, set `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`, and verify saved grid plus fused BEV artifacts.
 - If the user explicitly asked to save, stage with `SAVE_VIDEO=1` even when display is available; use `OSD=1 SAVE_VIDEO=1` only when the user asked for both live and saved output.
 
-For any sample file-input run that uses live or saved BEV, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the persistent fused BEV visualizer/recorder and wait for its Kafka consumer group assignment, verify the PID is still alive, then start `perception`.
+For any sample file-input run that uses live or saved BEV, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the fused BEV visualizer/recorder in the same long-lived shell/session, wait for its Kafka consumer group assignment, verify the PID is still alive, then start `perception` and keep that session alive through EOS/finalization.
 
 ## Verify Sample Run
 

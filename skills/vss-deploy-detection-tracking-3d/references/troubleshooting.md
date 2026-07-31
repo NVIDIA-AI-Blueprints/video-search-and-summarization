@@ -138,7 +138,7 @@ Symptom: first run appears idle for several minutes during model initialization,
 
 Fixes:
 
-- Expect cold engine builds to take 5-10 minutes, especially after TensorRT/runtime changes; keep the BEV recorder alive through EOS instead of treating the quiet period as a failure.
+- Expect cold engine builds to take 5-10 minutes, especially after TensorRT/runtime changes; keep the BEV recorder alive through EOS in the same long-lived shell/session instead of treating the quiet period as a failure.
 - Verify the model cache directories mounted into `/opt/storage` are writable by the perception container runtime UID/GID, commonly `1000:1000`.
 - With approval, apply a scoped ACL only to the needed model directories, for example `sudo setfacl -m u:1000:rwx -m d:u:1000:rwx "$MODELS_DIR/mv3dt/BodyPose3DNet"`. Do not use broad `chmod 777` or broad recursive `chown`.
 
@@ -274,6 +274,6 @@ Fixes:
 - Generate transforms only when the correct calibration map image is available.
 - Use `BEV_SOURCE=fused` by default for saved output.
 - Use `BEV_SAVE_VIDEO=1` for saved output/headless systems.
-- Start the BEV recorder with the persistent `nohup env ... ./scripts/bev-visualizer.sh` launch pattern, wait for Kafka consumer group assignment evidence, and verify its PID is still alive before file-mode perception or before RTSP stream registration.
+- Start the BEV recorder in the same long-lived shell/session that will run perception and verification. `nohup env ... ./scripts/bev-visualizer.sh &` is fine inside that long-running command, but do not run it as a standalone completed tool call in runners that reap background process groups. Wait for Kafka consumer group assignment evidence and verify its PID is still alive before file-mode perception or before RTSP stream registration.
 - Select the saved artifact from the current recorder log's `Video saved: ... (N frames)` line; do not glob old `fused_trajectory_video_*.mp4` files.
 - Verify the selected artifact is non-empty, newer than the run start, and parseable by `ffprobe`.

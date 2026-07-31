@@ -137,7 +137,7 @@ fi
 
 For `INPUT_MODE=stream`, 0 FPS before RTSP registration is normal. After streams are registered, the perception container should remain running until stopped; an unexpected exit is a failure.
 
-For `INPUT_MODE=file`, clips start immediately and the perception container exits when all files finish. Do not require `ds-ready: YES` in file mode; `Pipeline running` is useful startup evidence when present, but `Exited (0)` plus `App run successful`, Kafka offset deltas, and saved artifact checks determine success. Cold TensorRT compilation can keep the run active for 5-10 minutes before messages appear, so keep the BEV recorder process alive until EOS/finalization. Verify Kafka offsets and saved artifacts instead of restarting perception.
+For `INPUT_MODE=file`, clips start immediately and the perception container exits when all files finish. Do not require `ds-ready: YES` in file mode; `Pipeline running` is useful startup evidence when present, but `Exited (0)` plus `App run successful`, Kafka offset deltas, and saved artifact checks determine success. Cold TensorRT compilation can keep the run active for 5-10 minutes before messages appear, so keep the BEV recorder process alive until EOS/finalization in the same long-lived shell/session that launched it. Verify Kafka offsets and saved artifacts instead of restarting perception.
 
 ## Kafka Offsets
 

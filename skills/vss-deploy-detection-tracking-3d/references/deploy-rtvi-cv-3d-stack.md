@@ -494,12 +494,14 @@ fi
 
 ## Two-Phase Launch For BEV
 
-Use this whenever saved output is selected/defaulted, or whenever file input needs live or saved BEV visualization. Display mode starts the DeepStream OSD camera grid and a separate live fused BEV window by default. The BEV visualizer uses a fresh `latest` Kafka consumer group, so the workflow waits for the expected consumer group assignment before starting perception. The recorder/visualizer must survive long first-run TensorRT engine builds; launch it as a persistent process, not as a background child of a short-lived shell.
+Use this whenever saved output is selected/defaulted, or whenever file input needs live or saved BEV visualization. Display mode starts the DeepStream OSD camera grid and a separate live fused BEV window by default. The BEV visualizer uses a fresh `latest` Kafka consumer group, so the workflow waits for the expected consumer group assignment before starting perception. The recorder/visualizer must survive long first-run TensorRT engine builds. In agent tool runners that reap background children when a command finishes, run the BEV launch, perception launch, EOS wait, verification, BEV finalization, and cleanup in one long-lived shell/session; do not execute the BEV start as a standalone completed tool call.
 
 ```bash
 start_support_services || exit 1
 capture_file_kafka_baseline || exit 1
 ```
+
+For finite file input, keep the next BEV launch block and the later `start_perception`/verification steps in the same foreground-controlled command or persistent terminal session. `nohup ... &` protects against terminal hangup, but it does not protect against tool runners that kill the process group after a short command returns.
 
 
 Stop any previously tracked BEV recorder before launching a replacement; use `references/teardown.md` safe PID validation, never `pkill`.
@@ -596,14 +598,14 @@ wait_bev_assignment "${BEV_GROUP}" "${BEV_KAFKA_TOPIC}" || exit 1
 bev_recorder_alive || exit 1
 ```
 
-Start perception only after the BEV Kafka consumer group assignment is confirmed and the recorder PID is still alive:
+In that same long-lived shell/session, start perception only after the BEV Kafka consumer group assignment is confirmed and the recorder PID is still alive:
 
 ```bash
 bev_recorder_alive || exit 1
 start_perception || exit 1
 ```
 
-For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder/visualizer running through EOS and use `references/verify-and-view.md` to detect premature exit. For live display file runs, tell the user that `DeepStreamTest5App` is the camera grid and `Bird-Eye View of Multi-View 3D Tracking` is the separate BEV window; after EOS, have them press `q` in the BEV window or safely stop only the tracked current-run PID.
+For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately. A cold first run can spend several minutes compiling TensorRT engines before messages appear; keep the recorder/visualizer running through EOS in the same long-lived shell/session and use `references/verify-and-view.md` to detect premature exit. For live display file runs, tell the user that `DeepStreamTest5App` is the camera grid and `Bird-Eye View of Multi-View 3D Tracking` is the separate BEV window; after EOS, have them press `q` in the BEV window or safely stop only the tracked current-run PID.
 
 Do not use `deploy/docker/compose.yml`, `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, warehouse `overrides.env`, or warehouse app-data deployment profiles in this skill.
 
