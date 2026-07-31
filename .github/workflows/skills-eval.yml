@@ -35,7 +35,11 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-deploy-profile`)."
+        description: >-
+          Which skill to eval. `*` sweeps every spec with `claude-code`; with
+          `nemoclaw` it runs one bounded representative per skill family and
+          reports unsupported families explicitly as BLOCKED. Otherwise use a
+          bare skill-dir name (e.g. `vss-deploy-profile`).
         required: false
         default: "*"
         type: string
@@ -383,6 +387,8 @@ jobs:
             --print-matrix \
             --skills "${INPUT_SKILLS}")
           COUNT=$(python3 -c 'import json,sys; print(len(json.loads(sys.stdin.read()).get("include", [])))' <<< "$MATRIX")
+          EVAL_COUNT=$(python3 -c 'import json,sys; print(sum(row.get("kind", "eval") == "eval" for row in json.loads(sys.stdin.read()).get("include", [])))' <<< "$MATRIX")
+          BLOCKED_COUNT=$((COUNT - EVAL_COUNT))
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           if [ "$COUNT" -gt 0 ]; then
             echo "has_targets=true" >> "$GITHUB_OUTPUT"
@@ -393,8 +399,14 @@ jobs:
             echo "## NemoClaw eval matrix"
             echo ""
             echo "- Selected rows: \`$COUNT\`"
+            echo "- Runnable rows: \`$EVAL_COUNT\`"
+            echo "- Preflight-blocked rows: \`$BLOCKED_COUNT\`"
             echo "- Skills input: \`${INPUT_SKILLS}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::The NemoClaw skill selection produced no reportable rows."
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------
   # nemoclaw-eval — deterministic manual NemoClaw/OpenClaw matrix path.
@@ -410,22 +422,57 @@ jobs:
     runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
       fail-fast: false
-      # Keep NemoClaw sweeps serialized until the v2 runner pool is stable.
-      # The remote worker lock still enforces one active blueprint deployment
-      # per GPU instance, but serializing avoids consuming multiple runner
-      # slots while waiting on the same warm-worker fleet.
-      max-parallel: 1
+      # Two coordinators can use the two currently healthy large-disk workers
+      # concurrently. The remote lease still enforces one active blueprint
+      # deployment per worker; additional legs wait without colliding.
+      max-parallel: 2
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
     # The smoke runner owns a 150-minute shared deadline. Reserve another
     # 30 minutes for graceful Harbor termination, reporting, and artifacts.
     timeout-minutes: 180
     steps:
+      - name: Initialize current-attempt result sentinel
+        env:
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+          RUN_RESULTS: /tmp/skill-eval/results/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          # Self-hosted runners retain /tmp, and reruns reuse github.run_id.
+          # Clear both trees before checkout so even an early checkout failure
+          # overwrites any older stable artifact with an incomplete sentinel.
+          rm -rf "$RUN_SCRATCH" "$RUN_RESULTS"
+          mkdir -p "$RUN_SCRATCH" "$RUN_RESULTS"
+          printf '%s\n' \
+            '# Skills Eval Benchmark - NemoClaw' \
+            '' \
+            '- Status: `MISSING`' \
+            '- This workflow attempt has not completed the planned row.' \
+            > "$RUN_SCRATCH/benchmark.md"
+
+      - name: Publish current-attempt result sentinel
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-benchmark-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/benchmark.md
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 28
+
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Prepare NemoClaw result scope
+        env:
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          # Self-hosted coordinators retain /tmp. A blocker must never inherit
+          # an earlier run's benchmark or verdict.
+          rm -rf "$RUN_SCRATCH"
+          mkdir -p "$RUN_SCRATCH"
+
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        if: matrix.kind == 'eval'
         run: |
           set -a
           source /home/ubuntu/eval-coordinator/.env
@@ -435,7 +482,10 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
-        timeout-minutes: 180
+        if: matrix.kind == 'eval'
+        # Leave fifteen minutes inside the job cap for verdict generation and
+        # artifact publication even if the runner itself stops responding.
+        timeout-minutes: 165
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
@@ -469,6 +519,9 @@ jobs:
           # post-agent profile readiness (not one budget per phase).
           export NEMOCLAW_AGENT_TIMEOUT_SEC=3300
           export NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER=3.0
+          # Keep the runner's fail-fast default for dependent task chains. It
+          # records later tasks as SKIPPED when a prerequisite fails.
+          export NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE=1
           # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
           # is online, the smoke runner can place this 1-GPU profile there.
           export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"
@@ -499,7 +552,6 @@ jobs:
           export SKILLS_EVAL_RUNNER="nemoclaw"
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
-          rm -rf "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}"
           # NemoClaw is an opt-in CI path. Keep it deterministic: discover the
           # requested adapter-backed scenarios, lock a matching worker for each
           # scenario, run Harbor directly, and emit Harbor-style reports.
@@ -513,6 +565,32 @@ jobs:
             --dataset-root "/tmp/skill-eval/datasets/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}" \
             --results-root "/tmp/skill-eval/results/${{ matrix.slug }}" \
             --scratch-root "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}"
+
+      - name: Record preflight-blocked coverage result
+        id: nemoclaw-blocked
+        if: matrix.kind == 'blocked'
+        env:
+          ROW_JSON: ${{ toJSON(matrix) }}
+          BLOCKER_REASON: ${{ matrix.reason }}
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          python3 .github/skill-eval/nemoclaw/report_results.py blocked \
+            --row-json "$ROW_JSON" \
+            --reason "$BLOCKER_REASON" \
+            --benchmark-out "$RUN_SCRATCH/benchmark.md"
+
+      - name: Create NemoClaw verdict manifest
+        if: always()
+        env:
+          ROW_JSON: ${{ toJSON(matrix) }}
+          STEP_OUTCOME: ${{ matrix.kind == 'blocked' && steps.nemoclaw-blocked.outcome || steps.nemoclaw-agent.outcome }}
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          python3 .github/skill-eval/nemoclaw/report_results.py verdict \
+            --row-json "$ROW_JSON" \
+            --step-outcome "${STEP_OUTCOME:-skipped}" \
+            --benchmark "$RUN_SCRATCH/benchmark.md" \
+            --output "$RUN_SCRATCH/verdict.json"
 
       - name: Collect results for workflow artifact
         if: always()
@@ -557,13 +635,106 @@ jobs:
           name: skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
           path: /tmp/skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
-          retention-days: 7
+          overwrite: true
+          retention-days: 28
 
       - name: Upload benchmark report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: skills-eval-benchmark-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
-          path: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/benchmark.md
-          if-no-files-found: ignore
-          retention-days: 7
+          path: |
+            /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/benchmark.md
+            /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/verdict.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 28
+
+  # ---------------------------------------------------------------------
+  # nemoclaw-report — reconcile every planned row after the whole matrix.
+  # Evaluation FAIL/BLOCKED outcomes are valid reported results. Only a
+  # planned row with no trustworthy verdict makes this reporting job fail.
+  # ---------------------------------------------------------------------
+  nemoclaw-report:
+    name: NemoClaw results
+    needs: [nemoclaw_plan, nemoclaw-eval]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
+    runs-on: [self-hosted, nemoclaw-ci-runner]
+    timeout-minutes: 15
+    steps:
+      - name: Initialize current-attempt report scope
+        env:
+          REPORT_ROOT: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}
+        run: |
+          # Partial reruns reuse run_id on persistent self-hosted runners.
+          # Never reconcile or re-upload files left by an older attempt.
+          rm -rf "$REPORT_ROOT"
+          mkdir -p "$REPORT_ROOT/artifacts" "$REPORT_ROOT/aggregate"
+
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download per-row benchmark artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: skills-eval-benchmark-nemoclaw-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/artifacts
+
+      - name: Build consolidated NemoClaw report
+        id: aggregate
+        env:
+          PLAN_RESULT: ${{ needs.nemoclaw_plan.result }}
+          MATRIX_JSON: ${{ needs.nemoclaw_plan.outputs.matrix }}
+          ARTIFACTS_DIR: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/artifacts
+          REPORT_DIR: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/aggregate
+        run: |
+          if [ "${PLAN_RESULT:-missing}" != "success" ]; then
+            # Preserve the reporting contract even when matrix planning itself
+            # failed: the synthetic planned row reconciles to MISSING.
+            MATRIX_JSON='{"include":[{"kind":"planning","name":"NemoClaw matrix planning","skill":"workflow","spec_stem":"planner","spec_path":".github/workflows/skills-eval.yml","platform":"","slug":"nemoclaw-plan__missing","task_limit":"0","reason":"NemoClaw matrix planning did not complete successfully"}]}'
+          elif [ -z "${MATRIX_JSON:-}" ]; then
+            MATRIX_JSON='{"include":[]}'
+          fi
+          mkdir -p "$ARTIFACTS_DIR" "$REPORT_DIR"
+          set +e
+          python3 .github/skill-eval/nemoclaw/report_results.py aggregate \
+            --matrix-json "$MATRIX_JSON" \
+            --artifacts-root "$ARTIFACTS_DIR" \
+            --markdown-out "$REPORT_DIR/benchmark.md" \
+            --json-out "$REPORT_DIR/results.json"
+          REPORT_RC=$?
+          set -e
+          if [ -f "$REPORT_DIR/benchmark.md" ]; then
+            cat "$REPORT_DIR/benchmark.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "exit_code=$REPORT_RC" >> "$GITHUB_OUTPUT"
+
+      - name: Upload consolidated NemoClaw report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-benchmark-nemoclaw-all-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/aggregate/benchmark.md
+            ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/aggregate/results.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 28
+
+      - name: Enforce complete result publication
+        if: always()
+        env:
+          PLAN_RESULT: ${{ needs.nemoclaw_plan.result }}
+          REPORT_RC: ${{ steps.aggregate.outputs.exit_code }}
+        run: |
+          if [ "${PLAN_RESULT:-missing}" != "success" ]; then
+            echo "NemoClaw matrix planning did not complete successfully."
+            exit 1
+          fi
+          if [ "${REPORT_RC:-1}" -ne 0 ]; then
+            echo "One or more planned NemoClaw rows did not publish a trustworthy verdict."
+            exit 1
+          fi
