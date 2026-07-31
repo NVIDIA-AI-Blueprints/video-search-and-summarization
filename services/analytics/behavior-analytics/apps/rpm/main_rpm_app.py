@@ -19,7 +19,7 @@ from mdx.analytics.core.app.app_base import BaseApp
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
 from mdx.analytics.core.schema.models import Behavior
-from mdx.analytics.core.stream.state.behavior.state_management_i import StateMgmtI
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.utils.processing_stats import BatchStats
 from mdx.analytics.core.utils.schema_util import messages_to_map, nv_frame_to_messages
 from mdx.analytics.core.transform.detection.anomaly_action_detection import AnomalyActionDetection
@@ -46,7 +46,7 @@ class RPMApp(BaseApp):
     ) -> None:
         super().__init__(config, calibration_path)
 
-        self.state_mgmt = StateMgmtI(self.config, self.calibration)
+        self.state_mgmt = StateMgmt(self.config, self.calibration)
         self.anomaly_action_detector = AnomalyActionDetection(self.config)
         
         num_workers = int(self.config.get_app_config("numWorkersForBehaviorCreation", "1"))

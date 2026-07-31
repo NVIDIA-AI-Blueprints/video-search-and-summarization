@@ -18,7 +18,7 @@ import logging
 from mdx.analytics.core.app.app_base import BaseApp
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtE
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.stream.state.frame.frame_state_management import FrameStateMgmt
 from mdx.analytics.core.transform.event.roi_event import ROIEvent
 from mdx.analytics.core.transform.event.tripwire_event import TripwireEvent
@@ -34,7 +34,7 @@ class PublicSafetyApp(BaseApp):
     def __init__(self, config: AppConfig, calibration_path: str | None) -> None:
 
         super().__init__(config, calibration_path)
-        self.state_mgmt = StateMgmtE(self.config, self.calibration)
+        self.state_mgmt = StateMgmt(self.config, self.calibration)
         self.frame_state_mgmt = FrameStateMgmt(self.config)
         self.roi_event = ROIEvent(self.config, self.calibration)
         self.tripwire_event = TripwireEvent(self.config, self.calibration)
