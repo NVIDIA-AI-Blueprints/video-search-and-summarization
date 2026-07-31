@@ -191,6 +191,10 @@ def test_live_lvs_calls_use_runtime_openapi_contract() -> None:
     assert '"$VIDEO_SUMMARIZATION_URL/openapi.json"' in end_to_end_example
     assert '.paths["/v1/summarize"].post.requestBody' in end_to_end_example
     assert '"$BASE_URL/openapi.json"' in api_reference
+    assert (
+        'export BASE_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"'
+        in api_reference
+    )
     assert "same service instance that will receive the request" in normalized_reference
     assert "running service's `/openapi.json` is authoritative" in normalized_reference
     assert "stop before a mutating or inference request" in normalized_reference
