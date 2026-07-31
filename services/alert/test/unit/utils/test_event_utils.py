@@ -139,15 +139,28 @@ class TestNormalizeAlertMessage:
         )
         assert set(result["_normalized_added_fields"]) == {"earlier", "sensorId", "category"}
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Open defect: the guard admits an object-only payload, then "
-            "dereferences the absent 'sensor' and 'analyticsModule' blocks and "
-            "raises AttributeError. Fix: guard each .get('id') on its block. "
-            "When that lands this test XPASSes — drop the marker then."
-        ),
-    )
+    def test_analytics_module_without_sensor_is_normalized(self):
+        """nv.Incident shape: flat ``sensorId`` plus ``analyticsModule``, no ``sensor``."""
+        result = normalize_alert_message(
+            {
+                "sensorId": "HWY_20_AND_LOCUST__WBA",
+                "category": "collision",
+                "analyticsModule": {"id": "Collision Detection Module"},
+            }
+        )
+
+        assert result["sensorId"] == "HWY_20_AND_LOCUST__WBA"
+        assert result["category"] == "collision"
+        assert result["notification_type"] == "alert"
+
+    def test_sensor_without_analytics_module_is_normalized(self):
+        """The mirror case: ``sensor`` present, ``analyticsModule`` absent."""
+        result = normalize_alert_message({"sensor": {"id": "cam-1"}})
+
+        assert result["sensorId"] == "cam-1"
+        assert "category" not in result
+        assert result["notification_type"] == "alert"
+
     def test_object_only_message_is_normalized(self):
         """An ``object``-only payload should yield ``objectIds``, not raise."""
         result = normalize_alert_message({"object": {"id": "obj-1"}})
