@@ -433,7 +433,9 @@ usually Compose-internal (`http://rtvi-vlm:8000`), so host-side calls discover
 the actual published port from the running `vss-rtvi-vlm` container. Port
 `8018` is only the fallback when no custom binding is discoverable.
 
-Selection rule (Docker host discovery when `VLM_ENDPOINT` is still unset):
+Selection rule:
+
+Apply this Docker host-discovery branch only when `VLM_ENDPOINT` is still unset.
 
 ```bash
 if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then

@@ -149,7 +149,11 @@ def test_report_and_deploy_guidance_match_the_base_rt_vlm_runtime() -> None:
         'VLM_ENDPOINT="http://${HOST_IP:-localhost}:${RTVI_VLM_PORT:-8018}/v1"'
         in selection_rule
     )
-    assert 'if [ -z "${VLM_ENDPOINT:-}" ]; then' in selection_rule
+    assert (
+        'if [ -z "${VLM_ENDPOINT:-}" ] && '
+        '[ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then'
+        in selection_rule
+    )
     assert 'VLM_MODEL="${VLM_NAME:-}"' in selection_rule
     assert 'VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"' not in selection_rule
     assert '"${VLM_ENDPOINT}/models"' in selection_rule

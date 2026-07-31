@@ -11062,6 +11062,50 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
         self.assertNotIn('runner = "nemoclaw"', task_toml)
 
 
+class NemoClawResultScopeTest(unittest.TestCase):
+    def test_cleanup_recreates_current_run_without_touching_siblings(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            current = root / "current"
+            sibling = root / "sibling"
+            viewer = root / "_viewer"
+            for path in (current, sibling, viewer):
+                path.mkdir()
+                (path / "marker").write_text(path.name, encoding="utf-8")
+
+            smoke_runner._cleanup_results(root, "current")
+
+            self.assertTrue(current.is_dir())
+            self.assertEqual(list(current.iterdir()), [])
+            self.assertTrue((sibling / "marker").is_file())
+            self.assertTrue((viewer / "marker").is_file())
+
+    def test_controlled_completion_seals_row_and_accounts_for_skips(self):
+        with tempfile.TemporaryDirectory() as td:
+            previous = smoke_runner.SCRATCH_ROOT
+            smoke_runner.SCRATCH_ROOT = Path(td)
+            try:
+                smoke_runner._append_eval_row_completion(
+                    run_id="123",
+                    planned=3,
+                    executed=1,
+                    skipped=[("skill/spec/platform/step-2", "prior step failed")],
+                )
+                report = (Path(td) / "123" / "benchmark.md").read_text(
+                    encoding="utf-8"
+                )
+            finally:
+                smoke_runner.SCRATCH_ROOT = previous
+
+        self.assertIn("- Planned scenarios: `3`", report)
+        self.assertIn("- Executed scenarios: `1`", report)
+        self.assertIn("- Skipped scenarios: `2`", report)
+        self.assertIn("skill/spec/platform/step-2", report)
+        self.assertTrue(
+            report.rstrip().endswith(smoke_runner.EVAL_ROW_COMPLETION_MARKER)
+        )
+
+
 class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
     def test_skill_eval_actions_pin_public_rtsp_after_coordinator_env(self):
         expected = (
@@ -11082,12 +11126,15 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         source = (REPO_ROOT / ".github" / "workflows" / "skills-eval.yml").read_text(
             encoding="utf-8"
         )
-        nemoclaw_plan_source, nemoclaw_eval_source = source.split(
+        nemoclaw_plan_source, nemoclaw_eval_and_report_source = source.split(
             "\n  nemoclaw_plan:", 1
         )[1].split("\n  nemoclaw-eval:", 1)
+        nemoclaw_eval_source = nemoclaw_eval_and_report_source.split(
+            "\n  nemoclaw-report:", 1
+        )[0]
         nemoclaw_job_header = nemoclaw_eval_source.split("\n    steps:", 1)[0]
 
-        self.assertIn("max-parallel: 1", source)
+        self.assertIn("max-parallel: 2", source)
         self.assertIn("nemoclaw_instance:", source)
         self.assertIn(
             "runs-on: [self-hosted, nemoclaw-ci-runner]",
@@ -11133,6 +11180,8 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=1200", source)
         self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=3300", source)
+        self.assertNotIn("NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE=0", source)
+        self.assertIn("export NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE=1", source)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=19080", source)
         self.assertIn("unset NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR", source)
         self.assertIn(
@@ -11147,6 +11196,14 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             "RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}",
             source,
         )
+        self.assertIn("Initialize current-attempt result sentinel", source)
+        self.assertIn("Publish current-attempt result sentinel", source)
+        self.assertIn(
+            "RUN_RESULTS: /tmp/skill-eval/results/${{ matrix.slug }}/${{ github.run_id }}",
+            source,
+        )
+        self.assertIn('rm -rf "$RUN_SCRATCH" "$RUN_RESULTS"', source)
+        self.assertIn("The NemoClaw skill selection produced no reportable rows", source)
         self.assertIn('TAR_PATHS+=("nemoclaw/${{ matrix.slug }}/${{ github.run_id }}")', source)
         self.assertNotIn(
             'if [ ! -d "$RUN_RESULTS" ]; then\n'
@@ -11154,6 +11211,21 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             source,
         )
         self.assertNotIn("NEMOCLAW_REMOTE_LOCK_STALE_SEC", source)
+        self.assertIn("if: matrix.kind == 'eval'", source)
+        self.assertIn("report_results.py blocked", source)
+        self.assertIn("id: nemoclaw-blocked", source)
+        self.assertIn("steps.nemoclaw-blocked.outcome", source)
+        self.assertIn("report_results.py verdict", source)
+        self.assertIn("\n  nemoclaw-report:", source)
+        self.assertIn("needs: [nemoclaw_plan, nemoclaw-eval]", source)
+        self.assertIn("report_results.py aggregate", source)
+        self.assertIn("Initialize current-attempt report scope", source)
+        self.assertIn('rm -rf "$REPORT_ROOT"', source)
+        self.assertIn("Enforce complete result publication", source)
+        self.assertIn("overwrite: true", source)
+        self.assertNotIn("github.run_attempt", nemoclaw_eval_source)
+        self.assertIn("PLAN_RESULT: ${{ needs.nemoclaw_plan.result }}", source)
+        self.assertIn("nemoclaw-plan__missing", source)
 
 
 if __name__ == "__main__":

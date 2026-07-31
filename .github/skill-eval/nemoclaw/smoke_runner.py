@@ -55,6 +55,8 @@ DEFAULT_PROFILE = "base"
 DEFAULT_PLATFORM = "RTXPRO6000BW"
 SCRATCH_ROOT = Path("/tmp/skill-eval")
 KNOWN_VSS_PROFILES = {"base", "alerts", "search", "lvs"}
+AGGREGATE_EVAL_SPEC_NAME = "evals.json"
+EVAL_ROW_COMPLETION_MARKER = "<!-- nemoclaw-eval-row-complete -->"
 ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
 ATTEMPT_OWNER_FILE = "nemoclaw-attempt-owner"
 ATTEMPT_OWNER_PROBE_ATTEMPTS = 3
@@ -479,6 +481,47 @@ def _spec_priority(skill: str, spec_path: Path) -> tuple[int, str]:
         return (len(preferred), spec_path.stem)
 
 
+def _eval_spec_paths(
+    skill_dir: Path,
+    *,
+    include_aggregate: bool = True,
+) -> list[Path]:
+    """Return current and legacy JSON eval specs in deterministic order."""
+    specs = [
+        spec_path
+        for eval_dir_name in ("evals", "eval")
+        for spec_path in (skill_dir / eval_dir_name).glob("*.json")
+        if include_aggregate or spec_path.name != AGGREGATE_EVAL_SPEC_NAME
+    ]
+    skill = skill_dir.name
+    return sorted(
+        specs,
+        key=lambda path: (
+            *_spec_priority(skill, path),
+            0 if path.parent.name == "evals" else 1,
+            path.name,
+        ),
+    )
+
+
+def _canonical_matrix_skills(skills_filter: str) -> list[str]:
+    """Return every requested skill family that carries an eval dataset."""
+    all_skills, requested = _skill_filters(skills_filter)
+    if not all_skills and not requested:
+        requested = [DEFAULT_SKILL]
+    skill_dirs = (
+        sorted(path for path in SKILLS_ROOT.iterdir() if path.is_dir())
+        if all_skills
+        else [SKILLS_ROOT / skill for skill in requested]
+    )
+    return [
+        skill_dir.name
+        for skill_dir in skill_dirs
+        if skill_dir.is_dir()
+        and _eval_spec_paths(skill_dir)
+    ]
+
+
 def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[str]:
     spec = _spec_json(spec_path)
     platforms = spec.get("resources", {}).get("platforms", {})
@@ -514,16 +557,20 @@ def _selected_specs(
     blockers: list[str] = []
     for skill_dir in skill_dirs:
         skill = skill_dir.name
-        evals_dir = skill_dir / "evals"
-        if not evals_dir.exists():
+        specs = _eval_spec_paths(skill_dir)
+        if not specs:
             continue
         adapter = _adapter_path(skill)
         if not adapter.exists():
             blockers.append(f"{skill}: missing Harbor adapter at {adapter.relative_to(REPO_ROOT)}")
             continue
-        specs = sorted(evals_dir.glob("*.json"), key=lambda path: _spec_priority(skill, path))
         if skill == DEFAULT_SKILL and profile_filter and not all_skills:
-            specs = [evals_dir / f"{profile_filter}.json"]
+            profile_specs = [
+                spec_path
+                for spec_path in specs
+                if spec_path.stem == profile_filter
+            ]
+            specs = profile_specs or [skill_dir / "evals" / f"{profile_filter}.json"]
         if spec_filter:
             wanted = Path(spec_filter).stem
             specs = [
@@ -1096,6 +1143,7 @@ def _build_matrix(
     platform_filter: str | None,
     spec_filter: str | None,
     representative_per_skill: bool,
+    include_blocked_rows: bool = False,
 ) -> tuple[list[dict[str, str]], list[str]]:
     specs, blockers = _selected_specs(
         skills_filter=skills_filter,
@@ -1133,6 +1181,7 @@ def _build_matrix(
             )
             rows.append(
                 {
+                    "kind": "eval",
                     "name": f"{skill}/{spec_path.stem}/{platform}",
                     "skill": skill,
                     "spec_stem": spec_path.stem,
@@ -1142,6 +1191,49 @@ def _build_matrix(
                     "task_limit": str(representative_task_limit),
                 }
             )
+    if representative_per_skill and include_blocked_rows:
+        represented_skills = {row["skill"] for row in rows}
+        for skill in _canonical_matrix_skills(skills_filter):
+            if skill in represented_skills:
+                continue
+            reason = next(
+                (
+                    blocker
+                    for blocker in blockers
+                    if blocker.startswith(f"{skill}:")
+                    or blocker.startswith(f"{skill}/")
+                ),
+                None,
+            )
+            if reason is None:
+                reason = (
+                    f"{skill}: no bounded/runnable NemoClaw scenario is "
+                    "available to the MCP-only runner"
+                )
+                blockers.append(reason)
+            rows.append(
+                {
+                    "kind": "blocked",
+                    "name": f"{skill}/blocked",
+                    "skill": skill,
+                    "spec_stem": "blocked",
+                    "spec_path": "",
+                    "platform": "",
+                    "slug": f"{_safe_slug(skill)}__blocked",
+                    "task_limit": "0",
+                    "reason": reason,
+                }
+            )
+        # Publish unsupported coverage immediately before long GPU trials.
+        # This makes every requested skill visible within minutes while the
+        # bounded eval rows continue on the remote worker pool.
+        rows.sort(
+            key=lambda row: (
+                0 if row["kind"] == "blocked" else 1,
+                row["skill"],
+                row["name"],
+            )
+        )
     return rows, blockers
 
 
@@ -1173,16 +1265,14 @@ def _list_instances() -> list[dict[str, Any]]:
 
 
 def _cleanup_results(results_root: Path, run_id: str) -> None:
-    """Drop stale run results so workflow artifacts only include this run."""
+    """Recreate only this run's tree without touching concurrent runs."""
     results_root.mkdir(parents=True, exist_ok=True)
-    for child in results_root.iterdir():
-        if child.name in (run_id, "_viewer"):
-            continue
-        if child.is_dir():
-            shutil.rmtree(child, ignore_errors=True)
-        else:
-            child.unlink(missing_ok=True)
-    (results_root / run_id).mkdir(parents=True, exist_ok=True)
+    current_run = results_root / run_id
+    if current_run.is_dir():
+        shutil.rmtree(current_run)
+    else:
+        current_run.unlink(missing_ok=True)
+    current_run.mkdir(parents=True)
 
 
 def _reachability_failure_text(result: CommandResult) -> str:
@@ -2974,6 +3064,58 @@ def _write_benchmark_input(run_id: str, scenario_id: str, body: str) -> None:
     )
 
 
+def _scenario_label(scenario: NemoClawScenario) -> str:
+    return "/".join(
+        (
+            scenario.skill,
+            scenario.spec_name,
+            scenario.platform,
+            scenario.task_name,
+        )
+    )
+
+
+def _append_eval_row_completion(
+    *,
+    run_id: str,
+    planned: int,
+    executed: int,
+    skipped: list[tuple[str, str]],
+    unexecuted_reason: str = "row execution ended before the remaining scenarios ran",
+) -> None:
+    """Seal a controlled eval return so partial external timeouts fail closed."""
+
+    benchmark = SCRATCH_ROOT / run_id / "benchmark.md"
+    if benchmark.is_file() and EVAL_ROW_COMPLETION_MARKER in benchmark.read_text(
+        encoding="utf-8"
+    ):
+        return
+
+    accounted_skips = len(skipped)
+    unaccounted = max(0, planned - executed - accounted_skips)
+    skipped_total = accounted_skips + unaccounted
+    lines = [
+        "## NemoClaw row completion",
+        "",
+        f"- Planned scenarios: `{planned}`",
+        f"- Executed scenarios: `{executed}`",
+        f"- Skipped scenarios: `{skipped_total}`",
+    ]
+    if skipped or unaccounted:
+        lines.extend(("", "### Skipped scenarios", ""))
+        for label, reason in skipped:
+            safe_label = label.replace("`", "'")
+            safe_reason = " ".join(reason.replace("`", "'").split())
+            lines.append(f"- `{safe_label}` — {safe_reason}")
+        if unaccounted:
+            safe_reason = " ".join(unexecuted_reason.replace("`", "'").split())
+            lines.append(
+                f"- `{unaccounted} remaining scenario(s)` — {safe_reason}"
+            )
+    lines.extend(("", EVAL_ROW_COMPLETION_MARKER, ""))
+    _write_benchmark_input(run_id, "row-completion", "\n".join(lines))
+
+
 def _append_harbor_report(
     *,
     scenario: NemoClawScenario,
@@ -3202,9 +3344,10 @@ def main(argv: list[str] | None = None) -> int:
             platform_filter=platform_filter,
             spec_filter=spec_filter,
             representative_per_skill=representative_matrix,
+            include_blocked_rows=representative_matrix,
         )
         _print_matrix(rows, blockers)
-        return 0
+        return 0 if rows else 2
 
     run_timeout_s = max(
         1,
@@ -3220,6 +3363,21 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["PYTHONPATH"] = f"{SKILL_EVAL_ROOT}:{os.environ.get('PYTHONPATH', '')}"
     SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
     _cleanup_results(results_root, run_id)
+
+    scenarios: list[NemoClawScenario] = []
+    executed = 0
+    skipped_scenarios: list[tuple[str, str]] = []
+
+    def record_remaining_group_skips(
+        group: list[NemoClawScenario],
+        current_index: int,
+        reason: str,
+    ) -> int:
+        remaining = group[current_index + 1 :]
+        skipped_scenarios.extend(
+            (_scenario_label(item), reason) for item in remaining
+        )
+        return len(remaining)
 
     try:
         scenarios, blockers = _discover_scenarios(
@@ -3247,7 +3405,6 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         failures: list[str] = []
-        executed = 0
         scenario_index = 0
         configured_setup_failovers = os.environ.get(
             "NEMOCLAW_MAX_WORKER_FAILOVERS",
@@ -3482,6 +3639,11 @@ def main(argv: list[str] | None = None) -> int:
                                     executed += 1
                                     scenario_index += 1
                                     failures.append(reason)
+                                    scenario_index += record_remaining_group_skips(
+                                        group,
+                                        group_scenario_index,
+                                        "skipped because a prior dependent scenario was blocked",
+                                    )
                                     break
                                 print(
                                     "[nemoclaw-ci] discarded unverified "
@@ -3572,6 +3734,11 @@ def main(argv: list[str] | None = None) -> int:
                             executed += 1
                             scenario_index += 1
                             failures.append(reason)
+                            scenario_index += record_remaining_group_skips(
+                                group,
+                                group_scenario_index,
+                                "skipped because a prior dependent scenario was blocked",
+                            )
                             break
 
                         owner_status = _attempt_evidence_owner_status(
@@ -3673,6 +3840,11 @@ def main(argv: list[str] | None = None) -> int:
                             executed += 1
                             scenario_index += 1
                             failures.append(reason)
+                            scenario_index += record_remaining_group_skips(
+                                group,
+                                group_scenario_index,
+                                "skipped because a prior dependent scenario was blocked",
+                            )
                             break
 
                         if owner_status.status != "verified" and reward is not None:
@@ -3696,6 +3868,11 @@ def main(argv: list[str] | None = None) -> int:
                             executed += 1
                             scenario_index += 1
                             failures.append(reason)
+                            scenario_index += record_remaining_group_skips(
+                                group,
+                                group_scenario_index,
+                                "skipped because a prior dependent scenario was blocked",
+                            )
                             break
 
                         _append_harbor_report(
@@ -3730,6 +3907,11 @@ def main(argv: list[str] | None = None) -> int:
                                         f"{scenario.spec_name}/{scenario.platform}",
                                         flush=True,
                                     )
+                                    scenario_index += record_remaining_group_skips(
+                                        group,
+                                        group_scenario_index,
+                                        "skipped because a prior dependent scenario failed",
+                                    )
                                 break
                 finally:
                     _release_lock(instance, worker_lock)
@@ -3738,12 +3920,24 @@ def main(argv: list[str] | None = None) -> int:
                 break
 
         if failures:
+            _append_eval_row_completion(
+                run_id=run_id,
+                planned=len(scenarios),
+                executed=executed,
+                skipped=skipped_scenarios,
+            )
             print(
                 f"FAILED: {len(failures)}/{executed} NemoClaw scenario(s) failed: "
                 + "; ".join(failures[:10]),
                 flush=True,
             )
             return 1
+        _append_eval_row_completion(
+            run_id=run_id,
+            planned=len(scenarios),
+            executed=executed,
+            skipped=skipped_scenarios,
+        )
         print(
             f"DONE: {executed} NemoClaw scenario(s) passed"
             + (f"; {len(blockers)} blocked coverage item(s) reported" if blockers else ""),
@@ -3757,6 +3951,13 @@ def main(argv: list[str] | None = None) -> int:
             reason=reason,
             scenario=f"{args.skills} / {platform_filter or 'declared-platforms'}",
             scenario_id="infra-blocked",
+        )
+        _append_eval_row_completion(
+            run_id=run_id,
+            planned=len(scenarios),
+            executed=executed,
+            skipped=skipped_scenarios,
+            unexecuted_reason="row execution ended after an infrastructure blocker",
         )
         return 1
     except Exception as exc:  # noqa: BLE001
@@ -3773,6 +3974,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(body, flush=True)
         _write_benchmark_input(run_id, "setup-blocked", body)
+        _append_eval_row_completion(
+            run_id=run_id,
+            planned=len(scenarios),
+            executed=executed,
+            skipped=skipped_scenarios,
+            unexecuted_reason="row execution ended after a controlled setup failure",
+        )
         return 1
 
 
