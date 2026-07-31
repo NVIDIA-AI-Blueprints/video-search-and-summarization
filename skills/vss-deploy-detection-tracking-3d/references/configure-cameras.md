@@ -475,8 +475,7 @@ Validate exact stream count and camera IDs after registration:
 ```bash
 cd "${RTCV3D_APP}"
 mkdir -p generated/run-state
-EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f
-' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
+EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f\n' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
 ./scripts/add-streams.sh --list > generated/run-state/stream-info.txt
 EXPECTED_IDS="${EXPECTED_IDS}" python3 - <<'PY'
 import os, re
@@ -492,5 +491,105 @@ if ids != sorted(expected):
 print("registered stream set matches calibration")
 PY
 ```
+
+## Static RTSP Source-List Fallback
+
+Use this only when dynamic REST registration accepts the streams but the runtime does not process frames: `STREAM_ADD_SUCCESS` appears, `stream-count` matches, yet `Active sources : 0`, FPS remains zero, or `mdx-raw`/`mdx-bev` offsets do not grow after bounded verification.
+
+This fallback is generic for any calibrated RTSP dataset. Use the same user-provided `sensor_id=rtsp://...` mapping that matched `generated/camInfo/*.yml`; do not substitute sample calibration or sample camera names unless the user explicitly requested the sample dataset.
+
+Create or reuse a mapping file with one entry per expected camera:
+
+```text
+generated/run-state/rtsp-streams.txt
+Camera_A=rtsp://host/path-a
+Camera_B=rtsp://host/path-b
+```
+
+Then restage the generated DeepStream config as a static RTSP source list and restart only perception:
+
+```bash
+cd "${RTCV3D_APP}"
+mkdir -p generated/run-state
+RTSP_STREAMS_FILE="${RTSP_STREAMS_FILE:-generated/run-state/rtsp-streams.txt}"
+test -f "${RTSP_STREAMS_FILE}" || { echo "ERROR: missing RTSP mapping file: ${RTSP_STREAMS_FILE}" >&2; exit 1; }
+
+EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f\n' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
+EXPECTED_IDS="${EXPECTED_IDS}" RTSP_STREAMS_FILE="${RTSP_STREAMS_FILE}" python3 - <<'PY' > generated/run-state/rtsp-static.env
+import os, re, shlex
+expected = [x for x in os.environ['EXPECTED_IDS'].split(',') if x]
+entries = []
+with open(os.environ['RTSP_STREAMS_FILE'], encoding='utf-8') as f:
+    for raw in f:
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        if '=' not in line:
+            raise SystemExit(f'ERROR: RTSP mapping lacks sensor_id=url: {line!r}')
+        sid, url = line.split('=', 1)
+        sid, url = sid.strip(), url.strip()
+        if sid not in expected:
+            raise SystemExit(f'ERROR: RTSP sensor id {sid!r} not in generated camInfo ids {expected!r}')
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+', sid):
+            raise SystemExit(f'ERROR: unsafe sensor id for static RTSP source-list: {sid!r}')
+        if not url.startswith('rtsp://'):
+            raise SystemExit(f'ERROR: RTSP URL for {sid!r} must start with rtsp://')
+        entries.append((sid, url))
+ids = [sid for sid, _ in entries]
+if sorted(ids) != sorted(expected):
+    raise SystemExit(f'ERROR: RTSP mapping ids {sorted(ids)!r} != expected ids {sorted(expected)!r}')
+if len(ids) != len(set(ids)):
+    raise SystemExit(f'ERROR: duplicate RTSP sensor ids: {ids!r}')
+print(f'RTSP_STATIC_COUNT={len(entries)}')
+print('RTSP_STATIC_IDS=' + shlex.quote(';'.join(ids) + ';'))
+print('RTSP_STATIC_URIS=' + shlex.quote(';'.join(url for _, url in entries) + ';'))
+PY
+. generated/run-state/rtsp-static.env
+
+MAIN="generated/configs/ds-main-config-mv3dt.txt"
+test -f "${MAIN}" || { echo "ERROR: staged main config missing: ${MAIN}" >&2; exit 1; }
+set_ini() {
+  awk -v sec="[$1]" -v key="$2" -v val="$3" '
+    /^\[/ { in_sec = ($0 == sec) }
+    in_sec && index($0, key "=") == 1 { print key "=" val; next }
+    { print }
+  ' "${MAIN}" > "${MAIN}.tmp" && mv "${MAIN}.tmp" "${MAIN}"
+}
+
+set_ini source-list num-source-bins "${RTSP_STATIC_COUNT}"
+set_ini source-list list "${RTSP_STATIC_URIS}"
+set_ini source-list sensor-id-list "${RTSP_STATIC_IDS}"
+set_ini source-list sensor-name-list "${RTSP_STATIC_IDS}"
+set_ini source-list max-batch-size "${RTSP_STATIC_COUNT}"
+set_ini streammux batch-size "${RTSP_STATIC_COUNT}"
+set_ini streammux live-source 1
+set_ini streammux drop-pipeline-eos 0
+
+# Most ordinary RTSP sources do not carry DeepStream/NVDS SEI timing metadata.
+# Set RTSP_USE_SEI=1 only when the stream producer is known to provide it.
+if [ "${RTSP_USE_SEI:-0}" = 1 ]; then
+  set_ini source-list extract-sei-type5-data 1
+  set_ini streammux extract-sei-sim-time 1
+  set_ini streammux align-first-buffer 1
+  set_ini streammux sync-inputs-ntp 33333333
+  set_ini streammux drop-backward-sei 1
+else
+  set_ini source-list extract-sei-type5-data 0
+  set_ini streammux extract-sei-sim-time 0
+  set_ini streammux align-first-buffer 0
+  set_ini streammux sync-inputs-ntp 0
+  set_ini streammux drop-backward-sei 0
+fi
+
+# Optional: use TCP transport when host probing shows UDP is blocked or unreliable.
+# DeepStream uses set-rtp-protocol=4 for TCP.
+if [ -n "${RTSP_RTP_PROTOCOL:-}" ]; then
+  set_ini source-attr-all set-rtp-protocol "${RTSP_RTP_PROTOCOL}"
+fi
+
+(cd docker && docker compose up -d --no-deps --force-recreate perception)
+```
+
+After perception restarts, rerun `verify-and-view.md` RTSP checks. The fallback is successful only when active sources are non-zero, every expected camera has recent non-zero FPS, BEV Fusion is healthy, and both `mdx-raw` and `mdx-bev` offsets grow.
 
 Each `<sensor_id>` must exactly match a file in `generated/camInfo/<sensor_id>.yml` and an id in `calibration.json`.
