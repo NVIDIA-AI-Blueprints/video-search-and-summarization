@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from enum import StrEnum
@@ -138,6 +140,102 @@ def check_mcp_health(mcp_url: str, agent_dir: str | Path, timeout_s: int = 15) -
     if payload.get("status") == "error":
         return False, f"VSS Orchestrator MCP health check failed: {payload.get('error', payload)}"
     return True, "VSS Orchestrator MCP health check succeeded"
+
+
+def ensure_mcp_tls_certs(
+    certfile: str | Path,
+    keyfile: str | Path,
+    *,
+    san: str,
+    days: int = 365,
+    subject: str = "/CN=vss-orchestrator-mcp",
+) -> tuple[Path, Path]:
+    """Ensure MCP TLS cert/key exist; generate a self-signed pair only if both are missing.
+
+    An existing pair is reused as-is, but if the cert is already expired the call
+    raises so the failure is obvious at preflight rather than as a TLS handshake
+    error during the health check. Delete the pair and re-run to auto-generate, or
+    replace with a valid cert/key.
+
+    Args:
+        certfile: Destination PEM certificate path.
+        keyfile: Destination PEM private-key path.
+        san: OpenSSL ``subjectAltName`` value (e.g. ``DNS:localhost,IP:127.0.0.1``).
+        days: Certificate validity in days.
+        subject: OpenSSL ``-subj`` value.
+
+    Returns:
+        Resolved ``(cert_path, key_path)``.
+
+    Raises:
+        FileNotFoundError: if exactly one of cert/key exists (refuses to overwrite
+            a partial custom pair by auto-generating).
+        RuntimeError: if the existing cert is expired, or if ``openssl`` is not
+            available when generation is required.
+        ValueError: if ``san`` is empty when generation is required.
+        subprocess.CalledProcessError: if ``openssl`` fails.
+    """
+    cert_path = Path(certfile).expanduser().resolve()
+    key_path = Path(keyfile).expanduser().resolve()
+    cert_exists = cert_path.is_file()
+    key_exists = key_path.is_file()
+    if cert_exists and key_exists:
+        # -checkend 0 exits non-zero when the cert is already past its notAfter.
+        if shutil.which("openssl"):
+            expired = subprocess.run(
+                ["openssl", "x509", "-checkend", "0", "-noout", "-in", str(cert_path)],
+                capture_output=True,
+                text=True,
+            )
+            if expired.returncode != 0:
+                raise RuntimeError(
+                    f"MCP TLS cert {cert_path} is expired. "
+                    "Delete the cert/key pair and re-run to auto-generate, "
+                    "or replace them with a valid pair.",
+                )
+        return cert_path, key_path
+    if cert_exists != key_exists:
+        raise FileNotFoundError(
+            "MCP TLS cert/key must both exist or both be absent for auto-generation."
+        )
+
+    san_value = san.strip()
+    if not san_value:
+        raise ValueError("san is required to auto-generate MCP TLS cert/key.")
+    if not shutil.which("openssl"):
+        raise RuntimeError("openssl is required to auto-generate MCP TLS cert/key.")
+
+    cert_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    # openssl -nodes writes an unencrypted key and respects umask; tighten so the
+    # key is never left world-readable even briefly under a default umask 022.
+    previous_umask = os.umask(0o077)
+    try:
+        subprocess.run(
+            [
+                "openssl",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-days",
+                str(days),
+                "-keyout",
+                str(key_path),
+                "-out",
+                str(cert_path),
+                "-subj",
+                subject,
+                "-addext",
+                f"subjectAltName={san_value}",
+            ],
+            check=True,
+        )
+    finally:
+        os.umask(previous_umask)
+    key_path.chmod(0o600)
+    return cert_path, key_path
 
 
 def require_success(result: dict[str, Any], label: str) -> dict[str, Any]:
