@@ -16,12 +16,12 @@ Two behaviours differ from the original build-only alias mover:
 1. **Every GHCR entry is retagged, not just ``strategy == "build"``.** A tag set
    that skipped ``mirror`` / ``reuse-pinned`` entries would be incomplete at the
    commit, so a SHA-derived coordinate would 404 for those images. Entries are
-   selected on evidence — a ``ghcr.io/`` repository plus a resolved manifest
-   digest — rather than on strategy, so coverage tracks what is *actually*
-   published rather than a hardcoded list. That is 3 images today — vss-agent,
-   vss-agent-ui, vss-alert-ms, the managed set the shared ``VSS_CONTAINER_TAG``
-   governs — and grows on its own as ``ghcr_build`` is enabled for the staged
-   build entries. Non-GHCR pins (nvcr.io) cannot be retagged and are skipped;
+   selected on evidence — a ``ghcr.io/`` repository plus a resolvable source
+   reference — rather than on strategy, so coverage tracks what is *actually*
+   published rather than a hardcoded list. That is 5 images today (vss-agent,
+   vss-agent-ui, vss-alert-ms, vss-video-analytics-api, vss-behavior-analytics)
+   and grows on its own as ``ghcr_build`` is enabled for the staged build
+   entries. Non-GHCR pins (nvcr.io) cannot be retagged and are skipped;
    they are pinned in git at this commit and stay derivable from the repo.
 
 2. **Tree-SHA gate.** ``--verify-tree-sha`` refuses to retag an image whose
@@ -49,6 +49,10 @@ from typing import Callable
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+# Refs whose candidate set may be retagged. develop publishes develop-<sha12>;
+# a PR branch publishes pr-<N>-<sha12>, and both need every GHCR image present
+# or a consumer deriving a coordinate from the ref 404s on the untouched ones.
+RETAGGABLE_REF_RE = re.compile(r"^(?:develop|pull-request/\d+)$")
 TREE_RE = re.compile(r"^[0-9a-f]{40}$")
 Runner = Callable[[list[str]], str]
 
@@ -64,21 +68,29 @@ class AliasUpdate:
 def _retaggable(image: dict) -> bool:
     """True when the entry carries enough evidence to retag it in GHCR.
 
-    Selection is on evidence, not strategy: a ``ghcr.io/`` repository and a
-    resolved manifest digest. ``reuse-pinned`` entries may legitimately carry a
-    null digest until the mirror program resolves them — those are skipped
-    rather than treated as an error, because the pin is still derivable from git.
+    Selection is on evidence, not strategy: a ``ghcr.io/`` repository plus
+    *some* resolvable source reference. A digest is preferred, but a tag alone
+    is enough — ``imagetools create`` resolves either.
+
+    Entries with a null digest are the normal case on a no-change commit: every
+    image comes back ``reuse-pinned`` at ``develop-latest`` with no digest,
+    because nothing was built to produce one. Excluding those is what left the
+    tag set with a hole at exactly the commits where build avoidance worked.
     """
     repository = str(image.get("image") or "")
-    digest = str(image.get("digest") or "")
-    return repository.startswith("ghcr.io/") and bool(DIGEST_RE.fullmatch(digest))
+    return repository.startswith("ghcr.io/") and bool(image.get("tag"))
 
 
-def alias_plan(release_set: dict, alias: str) -> list[AliasUpdate]:
+def alias_plan(
+    release_set: dict, alias: str, tree_sources: dict[str, str] | None = None
+) -> list[AliasUpdate]:
     if not ALIAS_RE.fullmatch(alias):
         raise ValueError(f"invalid alias {alias!r}")
-    if release_set.get("source", {}).get("ref") != "develop":
-        raise ValueError("validated developer alias may advance only from develop")
+    ref = str(release_set.get("source", {}).get("ref") or "")
+    if not RETAGGABLE_REF_RE.fullmatch(ref):
+        raise ValueError(
+            f"refusing to retag from ref {ref!r}; expected develop or pull-request/<N>"
+        )
 
     updates: list[AliasUpdate] = []
     for image in release_set.get("images", []):
@@ -90,10 +102,30 @@ def alias_plan(release_set: dict, alias: str) -> list[AliasUpdate]:
         name = str(image.get("name") or "")
         if not tag:
             raise ValueError(f"{name}: incomplete immutable coordinate")
+        # tree-<sha> is the only source. It is content-addressed, so it is by
+        # definition the image built from this commit's source for this
+        # component -- immutable, branch-independent, and identical to what a
+        # fresh build would produce. Every build publishes it alongside the
+        # candidate tag (#1385), so a changed image always has one: the reuse
+        # path fails open to a rebuild, which republishes it.
+        #
+        # No fallback. develop-latest is a moving alias on one branch, right
+        # only by accident; the recorded digest is redundant with the content
+        # tag when both exist. A missing content tag means an unchanged image
+        # whose tree predates the content-tag mechanism -- rare, self-healing
+        # on its next source change, and better surfaced as a failed run than
+        # papered over with a reference that may not describe this commit.
+        content_tag = (tree_sources or {}).get(name)
+        if not content_tag:
+            raise ValueError(
+                f"{name}: no content tag for this commit's source tree; "
+                "cannot retag without an immutable source"
+            )
+        source = f"{repository}:{content_tag}"
         updates.append(
             AliasUpdate(
                 name=name,
-                source=f"{repository}:{tag}@{digest}",
+                source=source,
                 target=f"{repository}:{alias}",
                 digest=digest,
             )
@@ -114,6 +146,36 @@ def git_tree_sha(repo_root: Path, commit: str, source_path: str) -> str | None:
         return None
     value = result.stdout.strip()
     return value if TREE_RE.fullmatch(value) else None
+
+
+def tree_sources(
+    release_set: dict,
+    repo_root: Path,
+    commit: str,
+    tree_reader: Callable[[Path, str, str], str | None] = git_tree_sha,
+) -> dict[str, str]:
+    """``{image name: tree-<tree_sha>}`` for entries built from repo source.
+
+    The content tag is the *correct* source for an image that was not rebuilt at
+    this commit: it is content-addressed, so ``tree-<sha>`` is by definition the
+    image built from this commit's source for that component. Every build
+    publishes it alongside the candidate tag.
+
+    This is strictly better than falling back to ``develop-latest``, which is a
+    moving alias on a single branch -- right only by accident when nothing
+    changed, and wrong outright on a PR branch whose base has been overtaken.
+    """
+    sources: dict[str, str] = {}
+    for image in release_set.get("images", []):
+        if not _retaggable(image):
+            continue
+        source_path = image.get("source_path")
+        if not source_path:
+            continue  # mirror entries carry no repo source
+        tree_sha = tree_reader(repo_root, commit, str(source_path))
+        if tree_sha:
+            sources[str(image.get("name") or "")] = f"tree-{tree_sha}"
+    return sources
 
 
 def verify_tree_shas(
@@ -193,6 +255,12 @@ def advance(update: AliasUpdate, runner: Runner = command_runner) -> None:
         ]
     )
     digest = str(json.loads(observed).get("digest") or "")
+    if not update.digest:
+        # Reuse-pinned entries record no digest. The source was content
+        # addressed, so there is nothing to compare against -- report what the
+        # alias resolved to.
+        print(f"[ghcr-alias] {update.name}: {update.target} -> {digest}")
+        return
     if digest != update.digest:
         raise RuntimeError(
             f"{update.name}: alias digest {digest!r} != release-set {update.digest!r}"
@@ -225,8 +293,12 @@ def main() -> int:
         for line in verify_tree_shas(release_set, args.repo_root, args.commit):
             print(f"[ghcr-alias] gate {line}")
 
+    content = tree_sources(release_set, args.repo_root, args.commit)
+    for name, tag in sorted(content.items()):
+        print(f"[ghcr-alias] {name}: content source {tag}")
+
     for alias in aliases:
-        for update in alias_plan(release_set, alias):
+        for update in alias_plan(release_set, alias, content):
             print(f"[ghcr-alias] {update.source} -> {update.target}")
             if not args.dry_run:
                 advance(update)
