@@ -58,9 +58,9 @@ class SinkRedisStream(Sink):
         :raises ValueError: If the Redis stream with the specified dest_key cannot be found.
         """
 
-        stream = self._get_stream(dest_key)
+        stream = self.resolve_destination(dest_key, self._get_stream)
         if not stream:
-            raise ValueError(f"Could not find a redis stream with key: {dest_key}")
+            return
 
         producer = self._get_producer()
 
@@ -101,9 +101,9 @@ class SinkRedisStream(Sink):
         :raises ValueError: If the Redis stream with the specified dest_key cannot be found.
         """
 
-        stream = self._get_stream(dest_key)
+        stream = self.resolve_destination(dest_key, self._get_stream)
         if not stream:
-            raise ValueError(f"Could not find a redis stream with key: {dest_key}")
+            return
 
         producer = self._get_producer()
 

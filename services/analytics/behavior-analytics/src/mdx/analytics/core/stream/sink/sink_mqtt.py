@@ -65,9 +65,9 @@ class SinkMQTT(Sink):
         :raises ValueError: If no topic can be found for the given dest_key
         """
 
-        topic = self._get_topic(dest_key)
+        topic = self.resolve_destination(dest_key, self._get_topic)
         if not topic:
-            raise ValueError(f"Could not find a topic with key: {dest_key}")
+            return
 
         if not self._client:
             self._init_client()
@@ -109,9 +109,9 @@ class SinkMQTT(Sink):
         :raises ValueError: If no topic can be found for the given dest_key
         """
 
-        topic = self._get_topic(dest_key)
+        topic = self.resolve_destination(dest_key, self._get_topic)
         if not topic:
-            raise ValueError(f"Could not find a topic with key: {dest_key}")
+            return
 
         if not self._client:
             self._init_client()
