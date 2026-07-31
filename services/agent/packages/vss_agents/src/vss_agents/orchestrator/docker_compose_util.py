@@ -547,6 +547,14 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   5. per-call env_overrides
     merged = parse_env_file(config.source_env_file)
     merged.update(parse_env_file(config.profile_env_override_file))
+    llm_mode_override = config.env_overrides.get("LLM_MODE", "").strip()
+    vlm_mode_override = config.env_overrides.get("VLM_MODE", "").strip()
+    local_modes = {MODE_LOCAL, MODE_LOCAL_SHARED}
+    # Notebook/runtime endpoints are deployment defaults, not mandates. An
+    # explicit per-call local placement has the documented highest precedence
+    # and must suppress the corresponding remote endpoint default.
+    use_llm_endpoint = bool(config.llm_endpoint_url) and llm_mode_override not in local_modes
+    use_vlm_endpoint = bool(config.vlm_endpoint_url) and vlm_mode_override not in local_modes
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
     effective_hardware_profile = (
@@ -576,7 +584,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key:
         merged["NVIDIA_API_KEY"] = config.nvidia_api_key
-    if config.llm_endpoint_url:
+    if use_llm_endpoint:
         merged["LLM_BASE_URL"] = config.llm_endpoint_url
         merged["LLM_MODE"] = "remote"
     if config.llm_model_type:
@@ -588,7 +596,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if config.vlm_name:
         merged["VLM_NAME"] = config.vlm_name
     # Mirror dev-profile.sh `--use-remote-vlm`: VLM_ENDPOINT_URL → VLM_BASE_URL + VLM_MODE=remote.
-    if config.vlm_endpoint_url:
+    if use_vlm_endpoint:
         merged["VLM_BASE_URL"] = config.vlm_endpoint_url
         merged["VLM_MODE"] = "remote"
     if config.vlm_model_type:
@@ -602,8 +610,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
     merged.update(config.env_overrides)
 
-    llm_is_remote = bool(config.llm_endpoint_url) or merged.get("LLM_MODE") == MODE_REMOTE
-    vlm_is_remote = bool(config.vlm_endpoint_url) or merged.get("VLM_MODE") == MODE_REMOTE
+    llm_is_remote = use_llm_endpoint or merged.get("LLM_MODE") == MODE_REMOTE
+    vlm_is_remote = use_vlm_endpoint or merged.get("VLM_MODE") == MODE_REMOTE
     reserved = merged.get("RESERVED_DEVICE_IDS", "")
     fixed_shared = merged.get("FIXED_SHARED_DEVICE_IDS", "")
     llm_dev = merged.get("LLM_DEVICE_ID", "").strip()
