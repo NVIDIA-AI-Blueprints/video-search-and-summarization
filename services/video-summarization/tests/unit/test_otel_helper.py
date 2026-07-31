@@ -1332,3 +1332,179 @@ class TestTraceFunctionDecorator:
         assert result == 42
         call_args = mock_tracer.start_as_current_span.call_args[0]
         assert "traced_auto" in call_args[0]
+
+
+# =============================================================================
+# Inbound W3C traceparent propagation (NVBug 6537736)
+# =============================================================================
+
+# Fixed ids so assertions can compare against the exact values a client sent.
+REMOTE_TRACE_ID_HEX = "7947efe02129245f8b5033e0b3a82bb4"
+REMOTE_SPAN_ID_HEX = "bd41b2a934561ac9"
+REMOTE_TRACEPARENT = f"00-{REMOTE_TRACE_ID_HEX}-{REMOTE_SPAN_ID_HEX}-01"
+
+
+@pytest.fixture
+def in_memory_tracer():
+    """Enable tracing against a local provider whose spans land in memory.
+
+    init_otel() is deliberately not used: it calls trace.set_tracer_provider(),
+    which OTEL only honours once per process, so a second call would silently
+    no-op and make these tests depend on execution order.
+    """
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    otel_helper._otel_enabled = True
+    otel_helper._tracer = provider.get_tracer(__name__)
+    yield exporter
+    provider.shutdown()
+
+
+@pytest.mark.unit
+class TestExtractContextFromHeaders:
+    def test_returns_none_when_otel_disabled(self):
+        otel_helper._otel_enabled = False
+        assert otel_helper.extract_context_from_headers({"traceparent": REMOTE_TRACEPARENT}) is None
+
+    def test_extracts_trace_and_span_id(self, in_memory_tracer):
+        from opentelemetry import trace
+
+        context = otel_helper.extract_context_from_headers({"traceparent": REMOTE_TRACEPARENT})
+
+        assert context is not None
+        span_context = trace.get_current_span(context).get_span_context()
+        assert format(span_context.trace_id, "032x") == REMOTE_TRACE_ID_HEX
+        assert format(span_context.span_id, "016x") == REMOTE_SPAN_ID_HEX
+        assert span_context.is_remote is True
+
+    def test_header_name_is_case_insensitive(self, in_memory_tracer):
+        from opentelemetry import trace
+
+        context = otel_helper.extract_context_from_headers({"TraceParent": REMOTE_TRACEPARENT})
+
+        assert context is not None
+        span_context = trace.get_current_span(context).get_span_context()
+        assert format(span_context.trace_id, "032x") == REMOTE_TRACE_ID_HEX
+
+    def test_returns_none_without_traceparent(self, in_memory_tracer):
+        assert (
+            otel_helper.extract_context_from_headers({"content-type": "application/json"}) is None
+        )
+
+    def test_returns_none_for_empty_headers(self, in_memory_tracer):
+        assert otel_helper.extract_context_from_headers({}) is None
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "not-a-traceparent",
+            "00-tooshort-bd41b2a934561ac9-01",
+            # Version ff is forbidden by the W3C spec. Higher versions such as
+            # 99 are intentionally not listed: the spec requires parsers to
+            # accept them for forward compatibility.
+            "ff-7947efe02129245f8b5033e0b3a82bb4-bd41b2a934561ac9-01",
+            "00-zzz7efe02129245f8b5033e0b3a82bb4-bd41b2a934561ac9-01",
+            "00-7947efe02129245f8b5033e0b3a82bb4-bd41b2a934561ac9",
+            "00-7947efe02129245f8b5033e0b3a82bb4-0000000000000000-01",
+        ],
+    )
+    def test_returns_none_for_malformed_traceparent(self, in_memory_tracer, value):
+        assert otel_helper.extract_context_from_headers({"traceparent": value}) is None
+
+    def test_returns_none_for_all_zero_trace_id(self, in_memory_tracer):
+        # A zeroed trace id is syntactically valid but semantically invalid;
+        # accepting it would produce spans under a bogus parent.
+        zeroed = "00-00000000000000000000000000000000-bd41b2a934561ac9-01"
+        assert otel_helper.extract_context_from_headers({"traceparent": zeroed}) is None
+
+    def test_does_not_raise_on_unusable_headers(self, in_memory_tracer):
+        class Exploding:
+            def keys(self):
+                raise RuntimeError("boom")
+
+        assert otel_helper.extract_context_from_headers(Exploding()) is None
+        assert otel_helper.extract_context_from_headers(None) is None
+
+
+@pytest.mark.unit
+class TestRemoteParentSpanWiring:
+    """The E2E span must adopt the caller's traceparent (NVBug 6537736).
+
+    Mirrors how _trigger_query builds its span tree: an E2E root span, then
+    children created from that span's context.
+    """
+
+    def test_e2e_span_adopts_incoming_trace_id(self, in_memory_tracer):
+        context = otel_helper.extract_context_from_headers({"traceparent": REMOTE_TRACEPARENT})
+
+        otel_helper.get_tracer().start_span("Summarization E2E Latency", context=context).end()
+
+        (span,) = in_memory_tracer.get_finished_spans()
+        assert format(span.context.trace_id, "032x") == REMOTE_TRACE_ID_HEX
+        assert span.parent is not None
+        assert format(span.parent.span_id, "016x") == REMOTE_SPAN_ID_HEX
+
+    def test_e2e_span_is_root_without_traceparent(self, in_memory_tracer):
+        context = otel_helper.extract_context_from_headers({})
+
+        otel_helper.get_tracer().start_span("Summarization E2E Latency", context=context).end()
+
+        (span,) = in_memory_tracer.get_finished_spans()
+        assert span.parent is None
+        assert span.context.trace_id != 0
+        assert format(span.context.trace_id, "032x") != REMOTE_TRACE_ID_HEX
+
+    def test_trace_operation_child_shares_incoming_trace_id(self, in_memory_tracer):
+        from opentelemetry import trace
+
+        context = otel_helper.extract_context_from_headers({"traceparent": REMOTE_TRACEPARENT})
+        e2e_span = otel_helper.get_tracer().start_span("Summarization E2E Latency", context=context)
+        e2e_context = trace.set_span_in_context(e2e_span)
+
+        with otel_helper.trace_operation("CTX-RAG Call - Summarize", parent_context=e2e_context):
+            pass
+        e2e_span.end()
+
+        by_name = {s.name: s for s in in_memory_tracer.get_finished_spans()}
+        child = by_name["CTX-RAG Call - Summarize"]
+        assert format(child.context.trace_id, "032x") == REMOTE_TRACE_ID_HEX
+        assert child.parent.span_id == by_name["Summarization E2E Latency"].context.span_id
+
+    def test_historical_child_spans_share_incoming_trace_id(self, in_memory_tracer):
+        from opentelemetry import trace
+
+        context = otel_helper.extract_context_from_headers({"traceparent": REMOTE_TRACEPARENT})
+        e2e_span = otel_helper.get_tracer().start_span("Summarization E2E Latency", context=context)
+        e2e_context = trace.set_span_in_context(e2e_span)
+
+        chunk_context = otel_helper.create_historical_span(
+            "Chunk 0", 1000.0, 1002.0, {"chunk_idx": 0}, parent_context=e2e_context
+        )
+        otel_helper.create_historical_span(
+            "Decode - Chunk 0", 1000.0, 1001.0, {"chunk_idx": 0}, parent_context=chunk_context
+        )
+        e2e_span.end()
+
+        spans = in_memory_tracer.get_finished_spans()
+        assert {s.name for s in spans} == {
+            "Summarization E2E Latency",
+            "Chunk 0",
+            "Decode - Chunk 0",
+        }
+        assert {format(s.context.trace_id, "032x") for s in spans} == {REMOTE_TRACE_ID_HEX}
+
+        by_name = {s.name: s for s in spans}
+        assert (
+            by_name["Chunk 0"].parent.span_id
+            == by_name["Summarization E2E Latency"].context.span_id
+        )
+        assert by_name["Decode - Chunk 0"].parent.span_id == by_name["Chunk 0"].context.span_id
