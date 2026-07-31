@@ -26,7 +26,7 @@
         "The agent asserts staged msg-broker-conn-str matches the selected KAFKA_BOOTSTRAP and RAW_TOPIC after staging.",
         "The agent warns that first-run TensorRT engine builds can take 5-10 minutes and checks model-cache writeability/remediation with scoped ACL guidance.",
         "The agent starts bundled Mosquitto, Kafka, kafka-topic-init, and BEV Fusion before perception; kafka-topic-init exits 0 and BEV Fusion becomes healthy.",
-        "The agent captures mdx-raw and mdx-bev Kafka offset baselines before perception, starts the saved fused BEV recorder with the persistent nohup/env launch pattern, waits for Kafka consumer group assignment evidence, verifies the recorder PID is alive, then starts perception with --no-deps --force-recreate so brokers are not recreated.",
+        "The agent captures mdx-raw and mdx-bev Kafka offset baselines before perception, starts the saved fused BEV recorder in the same long-lived shell/session that continues through EOS, verification, and BEV finalization, waits for Kafka consumer group assignment evidence, verifies the recorder PID is alive, then starts perception with --no-deps --force-recreate so brokers are not recreated.",
         "For file input, the agent does not require ds-ready: YES; it waits for EOS and treats Exited (0) plus App run successful in current-run logs as success.",
         "The agent verifies mdx-raw and mdx-bev offsets exceed their pre-run baselines after EOS.",
         "The agent verifies current-run video-output/grid-view.mkv and current-run fused BEV video using run-start timestamp, nonzero size, ffprobe success, and BEV log Video saved with a positive frame count.",
