@@ -66,15 +66,13 @@ Source-backed topic sets:
 
 Always confirm the live container before validating Kafka, because these env vars
 are fixed at RT-VLM container start. In a full VSS alerts real-time profile, the
-Kafka container is `kafka`; use that exact container name in consumer commands
-and final proof snippets. Run this shared setup once before the topic checks and
-consumer snippets below:
+Kafka container is `kafka`; use that exact source-backed container name in
+consumer commands and final proof snippets. Run this shared setup once before
+the topic checks and consumer snippets below:
 ```bash
 if [ -z "${KAFKA_CONTAINER:-}" ]; then
   if docker ps --format '{{.Names}}' | grep -qx kafka; then
     KAFKA_CONTAINER=kafka
-  elif docker ps --format '{{.Names}}' | grep -qx mdx-kafka; then
-    KAFKA_CONTAINER=mdx-kafka
   elif docker ps --format '{{.Names}}' | grep -qx rtvi-vlm-kafka; then
     KAFKA_CONTAINER=rtvi-vlm-kafka
   else
