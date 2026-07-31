@@ -58,9 +58,9 @@ class SinkKafka(Sink):
         :raises ValueError: If no Kafka topic is found for the given dest_key.
         """
 
-        topic = self._get_topic(dest_key)
+        topic = self.resolve_destination(dest_key, self._get_topic)
         if not topic:
-            raise ValueError(f"Could not find a kafka topic with key: {dest_key}")
+            return
 
         producer = self._get_producer()
 
@@ -101,9 +101,9 @@ class SinkKafka(Sink):
         :raises ValueError: If no Kafka topic is found for the given dest_key.
         """
 
-        topic = self._get_topic(dest_key)
+        topic = self.resolve_destination(dest_key, self._get_topic)
         if not topic:
-            raise ValueError(f"Could not find a kafka topic with key: {dest_key}")
+            return
 
         producer = self._get_producer()
 
