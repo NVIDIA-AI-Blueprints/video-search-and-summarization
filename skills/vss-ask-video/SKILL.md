@@ -86,14 +86,44 @@ already serving. At runtime it needs:
 2. **A video** — either provided directly (local file → base64, or URL → `video_url`; Step 1
    Path A), or resolved from a VST/VIOS sensor *(optional)* (Step 1 Path B).
 
+### Endpoint resolution (Kubernetes vs Docker)
+
+Resolve public endpoints once when operating against a deployed VSS stack. Follow
+[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+`VSS_ENDPOINT` is accepted as a legacy alias for `VSS_PUBLIC_URL`.
+
+```bash
+# Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public Ingress origin.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+  # Step 2 probes the public /v1 route before adopting it as VLM_ENDPOINT.
+else
+  DEPLOYMENT_KIND="docker"
+  VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+fi
+```
+
+On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
+`docker inspect` / `docker ps` to find the VLM. When `VSS_PUBLIC_URL` is set,
+Step 2 probes the public `/v1` route before adopting it. On Docker, keep the
+host-port discovery below when `VLM_ENDPOINT` is still unset.
+
 Probe what's actually available — only the VLM endpoint is mandatory:
 
 ```bash
-# REQUIRED: VLM endpoint reachable? (caller-provided or auto-discovered VLM_ENDPOINT — see Step 2)
+# REQUIRED: VLM endpoint reachable? (caller-provided, public /v1, or auto-discovered — see Step 2)
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
 
 # OPTIONAL: VST/VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
-curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null && echo "VST OK"
+curl -sf --max-time 5 "${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}/sensor/version" >/dev/null && echo "VST OK"
 ```
 
 **If no VLM endpoint is reachable**, ask the user to provide one (host:port + model id), or — only
@@ -118,7 +148,7 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 
 1. List sensors:
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
+   curl -sf --max-time 5 "${VST_API_BASE}/sensor/list" | jq '.[].name'
    ```
 
 2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,
@@ -131,7 +161,7 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
    ```bash
    # filename: must not contain whitespace
    # timestamp: ISO 8601 UTC — default 2025-01-01T00:00:00.000Z if user did not specify
-   curl -s -X PUT "http://${HOST_IP}:30888/vst/api/v1/storage/file/<filename>?timestamp=<timestamp>" \
+   curl -s -X PUT "${VST_API_BASE}/storage/file/<filename>?timestamp=<timestamp>" \
      -H "Content-Type: application/octet-stream" \
      -H "Content-Length: <file_size_in_bytes>" \
      --upload-file /path/to/<filename> | jq .
@@ -179,7 +209,7 @@ When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage
    full recorded range when the user did not ask about a specific window):
 
    ```bash
-   curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
+   curl -s "${VST_API_BASE}/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
    Bind the result to `VIDEO_URL` (a direct `mp4` URL), set `VST_SOURCED=1` (marks this run as
@@ -207,34 +237,42 @@ reachable OpenAI-compatible `chat/completions` endpoint:
 ```
 
 Or, when only a **deployed VSS** is reachable (you have its **public URL**, not the VLM's own
-port), route through the VSS **ingress proxy** instead of hitting the VLM/RT-VLM port directly.
-The proxy exposes the active VLM (RT-VLM or NIM) under one stable path, so this works cross-host,
-without Docker access, and regardless of which backend the profile deployed:
+port), route through the public Ingress VLM path. Stock **base** Helm exposes RT-VLM under
+`${VSS_PUBLIC_URL}/v1` (OpenAI-compatible root ending in `/v1`). Do **not** use `/vlm/v1` —
+that path is not present on current base Ingress or Docker HAProxy:
 
 ```bash
-#   VSS_ENDPOINT  e.g. http://<vss-public-host>:<ingress-port>   (the deployed VSS public URL)
-if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  _proxy="${VSS_ENDPOINT%/}/vlm/v1"                 # ingress VLM route (haproxy /vlm backend)
-  if curl -sf --max-time 5 "${_proxy}/models" >/dev/null 2>&1; then
+# Prefer VSS_PUBLIC_URL; VSS_ENDPOINT is a legacy alias for the same origin.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  _proxy="${VSS_PUBLIC_URL%/}/v1"                   # base Ingress RT-VLM route
+  if _models=$(curl -sf --max-time 5 "${_proxy}/models") \
+    && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
+    && [ -n "${_model}" ]; then
     VLM_ENDPOINT="${_proxy}"
-    VLM_MODEL="${VLM_MODEL:-$(curl -sf --max-time 5 "${_proxy}/models" | jq -r '.data[0].id // empty')}"
+    VLM_MODEL="${VLM_MODEL:-${_model}}"
     # If the VLM is token-gated behind the proxy, add: -H "Authorization: Bearer <token>"
   fi
 fi
 ```
 
-Otherwise auto-discover the live endpoint from the running `vss-agent` container. The deploy may
+Otherwise, on **Docker only** (`DEPLOYMENT_KIND=docker` or `VSS_PUBLIC_URL` unset),
+auto-discover the live endpoint from the running `vss-agent` container. The deploy may
 serve the VLM through either of two OpenAI-compatible stacks — read the live values, do not guess.
+Skip this block on Kubernetes: there is no host-side Docker socket requirement, and private
+service ports must not be port-forwarded.
 
 Read the agent's env with `docker inspect`, **not** `docker exec`: the `vss-agent` image is
 distroless (no `sh`/`bash`/`printenv` on `PATH`), so `docker exec vss-agent sh -lc …` fails with
 `exec: "sh": executable file not found`. `docker inspect` reads the configured env without a shell:
 
 ```bash
-# Only when an agent is actually running; otherwise supply VLM_ENDPOINT/VLM_MODEL directly (above).
+# Docker only — when an agent is actually running; otherwise supply VLM_ENDPOINT/VLM_MODEL directly.
 # Assign into a fixed whitelist of vars WITHOUT eval, so a hostile or malformed env value
 # (e.g. VLM_NAME='x; rm -rf /') is always treated as data and never executed.
-if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ] && docker ps --format '{{.Names}}' | grep -qx vss-agent; then
   while IFS='=' read -r _k _v; do
     case "$_k" in
       HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL)
@@ -244,10 +282,10 @@ if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
 fi
 ```
 
-Selection rule (only when `VLM_ENDPOINT` is not already set):
+Selection rule (only when `VLM_ENDPOINT` is not already set — Docker host discovery):
 
 ```bash
-if [ -z "${VLM_ENDPOINT:-}" ]; then
+if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
   if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
     # RT-VLM (lvs / alerts). The API model id is VLM_NAME (e.g. nim_nvidia_cosmos-reason2-8b_hf-1208)
     # — it matches RT-VLM's /v1/models and is what the agent itself uses (config rtvi_vlm.model_name:
@@ -305,20 +343,23 @@ place — follow *No default VLM selection?* below instead of silently failing.
 ### No default VLM selection? Discover first, then prompt (VIA-E-114-04)
 
 Discovery above always runs **first** — an explicit `VLM_ENDPOINT`, then a deployed VSS via its
-public URL (`VSS_ENDPOINT` → ingress proxy `/vlm/v1`), then the running `vss-agent` env, then the
-default ports (`:30082` NIM / `:8018` RT-VLM), each confirmed live with `/v1/models`. When that
-yields a reachable endpoint, use it and continue to Step 3 — **do not prompt**.
+public URL (`VSS_PUBLIC_URL` / legacy `VSS_ENDPOINT` → Ingress `${origin}/v1`), then — on Docker
+only — the running `vss-agent` env and default ports (`:30082` NIM / `:8018` RT-VLM), each
+confirmed live with `/v1/models`. When that yields a reachable endpoint, use it and continue to
+Step 3 — **do not prompt**.
 
 Only when **no** endpoint resolves (no default selection is in place) prompt the user for how to
 supply a VLM (HITL-optional — see the non-interactive default below). Offer three choices:
 
 1. **Provide a VLM endpoint** — take `VLM_ENDPOINT` (+ optional `VLM_MODEL`), then re-probe
    `/v1/models` and continue.
-2. **Provide a deployed VSS public URL** — take `VSS_ENDPOINT`; resolve the VLM through the VSS
-   ingress proxy (`${VSS_ENDPOINT%/}/vlm/v1`), confirm with `/v1/models`, then continue. Use this
-   when the VLM/RT-VLM port isn't directly reachable but the VSS ingress is.
-3. **Pick a discovered suggestion** — list any endpoints that responded (the VSS proxy, the
-   `vss-agent` env, or the default `:30082` / `:8018` ports) and let the user choose one.
+2. **Provide a deployed VSS public URL** — take `VSS_PUBLIC_URL` (or legacy `VSS_ENDPOINT`);
+   resolve the VLM through `${VSS_PUBLIC_URL%/}/v1`, confirm with `/v1/models`, then continue.
+   Use this when the VLM/RT-VLM port isn't directly reachable but the VSS Ingress is. Do **not**
+   probe `/vlm/v1`.
+3. **Pick a discovered suggestion** — list any endpoints that responded (the public `/v1`
+   proxy, the `vss-agent` env on Docker, or the default `:30082` / `:8018` ports) and let the
+   user choose one.
 4. **Deploy a local RT-VLM** — hand off to
    [`/vss-deploy-dense-captioning`](../vss-deploy-dense-captioning/SKILL.md) (default model
    **cosmos-reason2-8b**, profile `bp_developer_alerts_2d_vlm`; this tracks the RT-VLM deploy
@@ -339,7 +380,8 @@ supply a VLM (HITL-optional — see the non-interactive default below). Offer th
 **Non-interactive / HITL-disabled (CI, headless agents):** do not block on a prompt. If a
 discovered endpoint already exists, use it; otherwise the default action is to **deploy a local
 RT-VLM** (option 4) and continue. Hard-fail only when a deploy is impossible (no GPU or no
-`NGC_CLI_API_KEY`), printing the options above so the caller can set `VLM_ENDPOINT` / `VSS_ENDPOINT`.
+`NGC_CLI_API_KEY`), printing the options above so the caller can set `VLM_ENDPOINT` /
+`VSS_PUBLIC_URL`.
 
 ---
 
