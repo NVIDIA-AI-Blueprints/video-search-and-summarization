@@ -33,6 +33,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mdx.protobuf import Behavior as nvSchemaBehavior, Incident as nvSchemaIncident
+from utils.schema_util import convert_incident_to_protobuf_incident
 from web.core.alert_service import AlertSubmissionService
 
 KAFKA_CONFIG = {
@@ -41,6 +42,20 @@ KAFKA_CONFIG = {
         "kafka_source": {"topics": {"alert": "mdx-alerts", "incident": "mdx-incidents"}},
     }
 }
+
+
+def valid_incident_bytes(**overrides):
+    """Serialized incident satisfying the required-field contract the protobuf
+    branch enforces (``sensorId``, ``timestamp``, ``end``, ``category``); a
+    payload missing any of them is rejected with 422 before the Kafka produce."""
+    payload = {
+        "sensorId": "cam-1",
+        "timestamp": "2026-05-12T00:00:00Z",
+        "end": "2026-05-12T00:00:30Z",
+        "category": "collision",
+    }
+    payload.update(overrides)
+    return convert_incident_to_protobuf_incident(payload).SerializeToString()
 
 
 def make_service(config=None):
@@ -277,7 +292,7 @@ class TestSubmitNvschemaIncident:
 class TestSubmitNvschemaIncidentProtobuf:
     @pytest.mark.asyncio
     async def test_accepts_and_republishes_the_original_bytes(self, service):
-        payload = nvSchemaIncident(sensorId="cam-1").SerializeToString()
+        payload = valid_incident_bytes()
         _body, status = await service.submit_nvschema_incident_protobuf(payload)
 
         assert status == 202
@@ -285,8 +300,7 @@ class TestSubmitNvschemaIncidentProtobuf:
 
     @pytest.mark.asyncio
     async def test_key_falls_back_to_sensor_id(self, service):
-        payload = nvSchemaIncident(sensorId="cam-1").SerializeToString()
-        await service.submit_nvschema_incident_protobuf(payload)
+        await service.submit_nvschema_incident_protobuf(valid_incident_bytes())
         assert service.kafka_producer.produce.call_args.kwargs["key"] == "cam-1"
 
     @pytest.mark.asyncio
@@ -299,16 +313,14 @@ class TestSubmitNvschemaIncidentProtobuf:
     @pytest.mark.asyncio
     async def test_unconfigured_kafka_returns_500(self):
         svc = make_service({})
-        _body, status = await svc.submit_nvschema_incident_protobuf(
-            nvSchemaIncident(sensorId="cam-1").SerializeToString()
-        )
+        _body, status = await svc.submit_nvschema_incident_protobuf(valid_incident_bytes())
         assert status == 500
 
     @pytest.mark.asyncio
     async def test_produce_failure_returns_500(self, service):
         service.kafka_producer.produce.side_effect = RuntimeError("broker down")
         _body, status = await service.submit_nvschema_incident_protobuf(
-            nvSchemaIncident(sensorId="cam-1").SerializeToString()
+            valid_incident_bytes()
         )
         assert status == 500
 

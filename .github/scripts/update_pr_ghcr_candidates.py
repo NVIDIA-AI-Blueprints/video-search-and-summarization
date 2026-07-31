@@ -179,17 +179,45 @@ class GitHubApi:
         return json.loads(body) if content_type == "application/json" else body
 
 
+#: Conclusions that mean the companion build will never produce a release set.
+#: Anything else (None while queued or in progress, or a value we do not
+#: recognise) is treated as "keep waiting", so an unfamiliar conclusion can only
+#: cost time, never a false failure.
+#: ``action_required`` is deliberately absent: approval can resume the same run.
+TERMINAL_FAILURE_CONCLUSIONS = frozenset(
+    {"failure", "cancelled", "timed_out", "startup_failure", "stale",
+     "neutral", "skipped"}
+)
+
+
 def select_release_set_run(
     runs: list[dict[str, Any]], sha: str, ref_name: str
 ) -> dict[str, Any] | None:
-    for run in runs:
-        if (
-            run.get("head_sha") == sha
-            and run.get("head_branch") == ref_name
-            and run.get("conclusion") == "success"
-        ):
-            return run
-    return None
+    """Newest Build Dev Images run for this exact commit and ref, any conclusion.
+
+    Deliberately not filtered to successes. The caller has to tell three states
+    apart: not created yet, still running, and finished unsuccessfully. Filtering
+    here collapsed the last two into "keep polling", so a failed companion build
+    was indistinguishable from one that had not started and the caller waited out
+    its whole budget against a run that would never appear.
+
+    Newest wins so that a rerun supersedes the attempt it replaced.
+    """
+    matches = [
+        run
+        for run in runs
+        if run.get("head_sha") == sha and run.get("head_branch") == ref_name
+    ]
+    if not matches:
+        return None
+    return max(
+        matches,
+        key=lambda run: (
+            str(run.get("created_at") or ""),
+            run.get("run_number") or 0,
+            run.get("id") or 0,
+        ),
+    )
 
 
 def download_release_set(
@@ -201,7 +229,7 @@ def download_release_set(
     interval_seconds: int,
 ) -> dict[str, Any]:
     query = urllib.parse.urlencode(
-        {"head_sha": sha, "status": "success", "per_page": 20}
+        {"head_sha": sha, "branch": ref_name, "per_page": 100}
     )
     run: dict[str, Any] | None = None
     for attempt in range(1, attempts + 1):
@@ -211,16 +239,39 @@ def download_release_set(
         )
         run = select_release_set_run(payload.get("workflow_runs", []), sha, ref_name)
         if run is not None:
-            break
+            status = run.get("status")
+            conclusion = run.get("conclusion")
+            if status != "completed":
+                # Queued, in progress, or a re-run in flight. A GitHub re-run
+                # reuses the run id and resets status, so an earlier failure
+                # must not abort the attempt that replaced it.
+                conclusion = None
+            if conclusion == "success":
+                break
+            if conclusion in TERMINAL_FAILURE_CONCLUSIONS:
+                # Fail now rather than polling out the budget. The companion run
+                # has finished and will never publish a release set.
+                raise RuntimeError(
+                    f"GHCR build run {run.get('id')} for {sha[:12]} on {ref_name} "
+                    f"concluded {conclusion!r}; it will not produce a release set. "
+                    f"See {run.get('html_url') or 'the Build Dev Images run'}."
+                )
+            # Present but not finished: keep waiting.
         if attempt < attempts:
+            state = "not ready" if run is None else f"{run.get('status')}"
             print(
-                f"GHCR build run for {sha[:12]} is not ready; "
+                f"GHCR build run for {sha[:12]} is {state}; "
                 f"retrying in {interval_seconds}s ({attempt}/{attempts})",
                 flush=True,
             )
             time.sleep(interval_seconds)
+        run = None
     if run is None:
-        raise RuntimeError(f"no successful GHCR build run found for {sha}")
+        raise RuntimeError(
+            f"no GHCR build run for {sha} on {ref_name} reached a successful "
+            f"conclusion after {attempts} polling attempts at "
+            f"{interval_seconds}s intervals"
+        )
 
     return download_release_set_artifact(api, repository, int(run["id"]))
 

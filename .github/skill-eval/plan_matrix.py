@@ -24,6 +24,14 @@ A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
 of an adapterless skill don't race to commit it N times.
 
+Each leg also carries `runs_on`: the runner label set implied by the
+spec's own `resources.platforms.<PLATFORM>` block (see runs_on_labels).
+This resolves the spec -> hardware mapping at PLAN time, where today
+run_leg.py re-derives it at LEG time from `brev ls` under a flock.
+Nothing consumes `runs_on` yet — it is emitted so the mapping can be
+reviewed against current placement before the GPU boxes are registered
+as runners in their own right.
+
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
     MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
@@ -66,6 +74,94 @@ SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 # routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
 # never becomes a matrix leg.
 EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
+
+# --- Runner labels -----------------------------------------------------
+# Every leg carries a `runs_on` label set derived from the spec's own
+# hardware declaration, so the eval job *can* be placed by Actions with
+# `runs-on: ${{ matrix.runs_on }}` once the GPU boxes are registered as
+# runners in their own right. NOTHING CONSUMES THIS YET — skills-eval.yml
+# still pins the coordinator pool and run_leg.py still does fleet
+# selection + flock. This computes and publishes the mapping so it can be
+# reviewed and diffed against today's placement before any runner moves.
+
+# Labels the GPU boxes themselves would carry. Deliberately NOT
+# `vss-skill-eval-runner`: that label is on the coordinator's runner
+# processes, which are not the machines the trials run on.
+BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
+
+# `resources.platforms` key -> GPU-type label. `ANY` is GPU-independent
+# and contributes no `gpu-*` label. Keys mirror the PLATFORMS tables in
+# .github/skill-eval/adapters/*/generate.py.
+PLATFORM_LABELS: dict[str, str | None] = {
+    "H100": "gpu-h100",
+    "L40S": "gpu-l40s",
+    "RTXPRO6000BW": "gpu-rtxpro6000bw",
+    "DGX-SPARK": "gpu-dgx-spark",
+    "IGX-THOR": "gpu-igx-thor",
+    "ANY": None,
+}
+
+# run_leg.pool_candidates reads `int(metadata.get("gpu_count", 1) or 0)`:
+# an ABSENT declaration means one GPU, while an explicit 0/null means
+# GPU-independent. Mirror both so a label set places a leg exactly where
+# the runtime selector would have. 15 of the 50 platform entries in
+# skills/*/evals/ omit gpu_count today and rely on this default.
+DEFAULT_GPU_COUNT = 1
+
+
+def _platform_label(platform: str) -> str | None:
+    """GPU-type label for a `resources.platforms` key."""
+    if platform in PLATFORM_LABELS:
+        return PLATFORM_LABELS[platform]
+    # Unknown key: still emit something deterministic, but say so — a
+    # typo'd platform would otherwise produce a label no box carries and
+    # the job would queue until GitHub cancels it at 24 h.
+    slug = re.sub(r"[^a-z0-9]+", "-", platform.lower()).strip("-")
+    print(
+        f"warning: unknown platform {platform!r} — no entry in "
+        f"PLATFORM_LABELS; emitting {'gpu-' + slug if slug else '(none)'}",
+        file=sys.stderr,
+    )
+    return f"gpu-{slug}" if slug else None
+
+
+def _gpu_count(config: dict) -> int:
+    """Declared GPU demand, matching run_leg's coercion exactly."""
+    raw = config.get("gpu_count", DEFAULT_GPU_COUNT)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        # Explicit null / "" / garbage -> 0, same as run_leg's `or 0`.
+        return 0
+
+
+def runs_on_labels(platform: str, config: dict | None) -> list[str]:
+    """Runner labels for one leg, from the spec's hardware declaration.
+
+    `gpus-N` is a *demand*: the job asks for exactly N. A box advertises
+    every count it can satisfy — a 2-GPU box carries both `gpus-1` and
+    `gpus-2` — which is how pool_candidates' "over-provisioned boxes
+    remain valid" rule survives a static label set.
+
+    `gpu_count: 0` means GPU-independent and drops BOTH the `gpus-*` and
+    the `gpu-*` label, so the leg can land on any box. That mirrors
+    pool_candidates exactly: its type filter is guarded by
+    `if required_count > 0 and required_type`, so a zero-GPU spec ignores
+    the declared platform and "accepts any RUNNING box". 7 of the 50
+    platform entries are zero-GPU today (the ANY specs, and
+    detection-tracking-3d/routing on RTXPRO6000BW) — under labels they
+    stop competing for GPU boxes at all.
+    """
+    labels = list(BASE_LABELS)
+    count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
+    if count <= 0:
+        return labels
+    if platform:
+        label = _platform_label(platform)
+        if label:
+            labels.append(label)
+    labels.append(f"gpus-{count}")
+    return labels
 
 
 def list_changed_files() -> list[str]:
@@ -155,21 +251,40 @@ def list_skill_file_paths(skills_dir: Path | None = None) -> list[str]:
     ]
 
 
+def spec_platform_config(spec_path: str) -> dict[str, dict]:
+    """A spec's `resources.platforms`, mapping key -> its config object.
+
+    Returns {} for anything malformed, platform-less, or unreadable — the
+    plan then emits a single platform-less leg so the agent surfaces the
+    `missing_platforms_declaration` blocker rather than the plan crashing.
+    A non-dict platform value (e.g. `"L40S": null`) yields {} for that key
+    so callers can read defaults off it uniformly.
+    """
+    try:
+        data = json.loads((REPO_ROOT / spec_path).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    resources = data.get("resources")
+    if not isinstance(resources, dict):
+        return {}
+    platforms = resources.get("platforms")
+    if not isinstance(platforms, dict):
+        return {}
+    return {
+        key: (value if isinstance(value, dict) else {})
+        for key, value in platforms.items()
+    }
+
+
 def spec_platforms(spec_path: str) -> list[str]:
     """Sorted platform keys from a spec's resources.platforms.
 
     One matrix leg is emitted per platform (the slug carries it), so a
-    two-platform spec fans into two legs. A malformed or platform-less
-    spec yields [] — the plan emits a single platform-less leg so the
-    agent surfaces the `missing_platforms_declaration` blocker rather
-    than the plan crashing.
+    two-platform spec fans into two legs.
     """
-    try:
-        data = json.loads((REPO_ROOT / spec_path).read_text())
-        platforms = data.get("resources", {}).get("platforms", {})
-        return sorted(platforms) if isinstance(platforms, dict) else []
-    except (OSError, ValueError):
-        return []
+    return sorted(spec_platform_config(spec_path))
 
 
 def build_matrix(changed: list[str]) -> list[dict]:
@@ -196,7 +311,6 @@ def build_matrix(changed: list[str]) -> list[dict]:
             # else: harness file or unrelated path -> contributes nothing.
 
     # Resolve to a de-duped (skill, spec_path) target set.
-    targets: dict[str, tuple[str, str]] = {}  # spec_path -> (skill, eval_dir, stem) flattened
     target_meta: dict[str, dict] = {}
 
     def add_spec(skill: str, spec_path: str, eval_dir: str, stem: str) -> None:
@@ -239,10 +353,13 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 # name. For a real trial it's skill__spec_stem__platform.
                 "slug": f"{skill}__missing-adapter",
                 "name": f"{skill} · missing-adapter",
+                # Commits an adapter; runs no trial and needs no GPU.
+                "runs_on": list(BASE_LABELS),
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
-            platforms = spec_platforms(meta["spec_path"]) or [""]
+            platform_config = spec_platform_config(meta["spec_path"])
+            platforms = sorted(platform_config) or [""]
             for platform in platforms:
                 plat_tag = platform or "no-platform"
                 include.append({
@@ -254,6 +371,9 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "kind": "eval",
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
+                    "runs_on": runs_on_labels(
+                        platform, platform_config.get(platform)
+                    ),
                 })
     return include
 
@@ -301,7 +421,11 @@ def emit(include: list[dict]) -> None:
     print(f"has_targets={has_targets}")
     print(f"legs={len(include)}")
     for leg in include:
-        print(f"  - {leg['name']}  [{leg['kind']}]")
+        # runs_on is trace only and nothing consumes it yet, so a leg built
+        # without it must not fail the plan — unlike slug, which is checked
+        # strictly above because downstream paths depend on it.
+        runs_on = " ".join(leg.get("runs_on") or []) or "-"
+        print(f"  - {leg['name']}  [{leg['kind']}]  runs_on={runs_on}")
     print(f"matrix={matrix}")
 
 
