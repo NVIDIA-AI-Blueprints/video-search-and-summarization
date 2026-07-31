@@ -3728,6 +3728,17 @@ This is very important and you must follow this strictly.
             if "params" not in ca_rag_config["functions"]["summarization"]:
                 ca_rag_config["functions"]["summarization"]["params"] = {}
 
+            # scenario and events are always forwarded so the CA-RAG aggregation
+            # LLM has context regardless of enable_vlm_structured_output.
+            if req_info.scenario:
+                ca_rag_config["functions"]["summarization"]["params"][
+                    "scenario"
+                ] = req_info.scenario
+            if req_info.events:
+                ca_rag_config["functions"]["summarization"]["params"][
+                    "events"
+                ] = req_info.events
+
             if not req_info.enable_vlm_structured_output:
                 if req_info.schema:
                     ca_rag_config["functions"]["summarization"]["params"][
@@ -3737,14 +3748,6 @@ This is very important and you must follow this strictly.
                     ca_rag_config["functions"]["summarization"]["params"][
                         "batch_response_method"
                     ] = req_info.batch_response_method
-                if req_info.scenario:
-                    ca_rag_config["functions"]["summarization"]["params"][
-                        "scenario"
-                    ] = req_info.scenario
-                if req_info.events:
-                    ca_rag_config["functions"]["summarization"]["params"][
-                        "events"
-                    ] = req_info.events
                 if req_info.auto_generate_prompt is not None:
                     ca_rag_config["functions"]["summarization"]["params"][
                         "auto_generate_prompt"
