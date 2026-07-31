@@ -15,7 +15,11 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import prepare_downstream_release_set as module  # noqa: E402
-from prepare_downstream_release_set import downstream_relevant, downstream_variables  # noqa: E402
+from prepare_downstream_release_set import (  # noqa: E402
+    candidate_container_tag,
+    downstream_relevant,
+    downstream_variables,
+)
 
 
 class GhcrBuildEntriesTest(unittest.TestCase):
@@ -59,15 +63,38 @@ class GhcrBuildEntriesTest(unittest.TestCase):
 
 
 class DownstreamVariablesTest(unittest.TestCase):
+    def test_derives_candidate_tag_from_release_set_source(self):
+        commit = "a" * 40
+        for ref, expected in (
+            ("develop", "develop-" + "a" * 12),
+            ("pull-request/1396", "pr-1396-" + "a" * 12),
+        ):
+            with self.subTest(ref=ref):
+                self.assertEqual(
+                    candidate_container_tag(
+                        {"source": {"commit": commit, "ref": ref}}
+                    ),
+                    expected,
+                )
+
+    def test_rejects_ref_without_shared_candidate_set(self):
+        with self.assertRaisesRegex(ValueError, "does not publish"):
+            candidate_container_tag(
+                {"source": {"commit": "a" * 40, "ref": "release/3.2"}}
+            )
+
     def test_encodes_exact_release_set_for_acceptance(self):
         release_set = {
             "schema_version": 1,
             "release_set_id": "sha256:" + "1" * 64,
-            "source": {"commit": "a" * 40},
+            "source": {"commit": "a" * 40, "ref": "pull-request/1396"},
             "images": [{"name": "vss-agent"}],
         }
         variables = downstream_variables(release_set)
         self.assertEqual(variables["BUILD_TYPE"], "ghcr-acceptance")
+        self.assertEqual(
+            variables["VSS_CONTAINER_TAG"], "pr-1396-" + "a" * 12
+        )
         self.assertEqual(
             variables["VSS_RELEASE_SET_ID"], release_set["release_set_id"]
         )
@@ -77,7 +104,7 @@ class DownstreamVariablesTest(unittest.TestCase):
     def test_main_with_release_set_file_performs_no_network(self):
         sha = "a" * 40
         release_set = {
-            "source": {"commit": sha},
+            "source": {"commit": sha, "ref": "pull-request/1396"},
             "release_set_id": "sha256:" + "1" * 64,
             "images": [],
         }
@@ -113,6 +140,10 @@ class DownstreamVariablesTest(unittest.TestCase):
                 self.assertEqual(module.main(), 0)
                 download.assert_not_called()
             self.assertIn("DOWNSTREAM_EXTRA_VARIABLES_JSON", env_path.read_text())
+            self.assertIn(
+                '"VSS_CONTAINER_TAG":"pr-1396-' + "a" * 12 + '"',
+                env_path.read_text(),
+            )
             self.assertEqual(
                 output_path.read_text(),
                 "has_ghcr_build_entries=false\nrun_downstream=false\n",
