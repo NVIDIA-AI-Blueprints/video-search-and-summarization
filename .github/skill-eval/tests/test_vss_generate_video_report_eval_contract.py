@@ -93,6 +93,15 @@ def test_base_report_eval_uses_integrated_local_rt_vlm() -> None:
     assert "port 8018 at `/v1/chat/completions`" in report_call
     assert "matching an id advertised by GET `/v1/models`" in report_call
     assert "A fallback to a non-CR3 model" in report_call
+    grounding_check = steps[3]["checks"][-1].lower()
+    for expected_detail in (
+        "warehouse",
+        "person",
+        "worker",
+        "ladder",
+        "shelving",
+    ):
+        assert expected_detail in grounding_check
 
 
 def test_report_eval_uses_the_caller_host_for_worker_services() -> None:

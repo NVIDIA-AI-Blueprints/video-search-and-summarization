@@ -344,7 +344,7 @@ def main() -> None:
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument(
         "--query-analytics-skill-dir", default=None,
-        help="Path to skills/vss-query-analytics (optional — spec steps 5-7 use /vss-query-analytics)",
+        help="Path to skills/vss-query-analytics (optional — spec steps 6-8 use /vss-query-analytics)",
     )
     parser.add_argument(
         "--spec", default=None,
