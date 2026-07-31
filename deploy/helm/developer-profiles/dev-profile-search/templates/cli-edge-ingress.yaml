@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{/*
+  cli-edge-ingress.yaml — edge routes the vss-cli search commands need to
+  resolve through a single origin. Mirrors the three backends the Docker
+  edge (deploy/docker/services/infra/haproxy/haproxy.cfg.template) exposes
+  on the same frontend for the same reason:
+
+      /elasticsearch/*  → elasticsearch:9200   (read-only query access)
+      /cosmos-embed/*   → rtvi-embed:8000      (named after the model family)
+      /rtvi-cv/*        → vss-rtvi-cv:9000
+
+  Rendered as a separate Ingress so its per-Ingress annotations (read-only
+  guarding for Elasticsearch, prefix strips) don't leak onto the main
+  vss-agent / vss-ui rules. Off by default (`ingress.cliEdge.enabled: false`)
+  because most deployments don't run vss-cli against the cluster from
+  outside; the CLI's in-cluster deployments talk to the ClusterIP services
+  directly.
+*/}}
+{{- $ce := (.Values.ingress | default dict).cliEdge | default dict }}
+{{- if $ce.enabled }}
+{{- $ipRaw := .Values.global.externalHost | default "127.0.0.1" | toString | trim }}
+{{- $ip := $ipRaw }}
+{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}
+{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}
+{{- end }}
+{{- $mainHost := .Values.ingress.hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
+{{- $embedSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-embed") }}
+{{- $cvSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-cv") }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $esSvc := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+{{- $cosmosPath := default "/cosmos-embed" $ce.cosmosEmbedPath }}
+{{- $rtviCvPath := default "/rtvi-cv" $ce.rtviCvPath }}
+{{- $esPath := default "/elasticsearch" $ce.elasticsearchPath }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "dev-profile-search.fullname" . }}-cli-edge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cli-edge-ingress
+  annotations:
+    # Strip the CLI-facing prefix before forwarding, so each upstream sees
+    # its normal API paths (e.g. /elasticsearch/_search → /_search).
+    haproxy.org/path-rewrite: |
+      {{ $esPath }}/(.*) /\1
+      {{ $esPath }} /
+      {{ $cosmosPath }}/(.*) /\1
+      {{ $cosmosPath }} /
+      {{ $rtviCvPath }}/(.*) /\1
+      {{ $rtviCvPath }} /
+    # Read-only guard for the Elasticsearch backend: allow GET/HEAD/POST/
+    # OPTIONS only, deny cluster-admin paths (_cluster, _nodes, _snapshot,
+    # _security, _settings, _shutdown, _license) and mutating operations
+    # (_delete_by_query, _update_by_query, _update, _bulk, _forcemerge,
+    # _close, _open). Matches the deny rules in the Docker haproxy.cfg.template
+    # frontend fe_http (deploy/docker/services/infra/haproxy/haproxy.cfg.template).
+    # NOTE: this snippet is applied to every backend of this Ingress by the
+    # HAProxy Ingress controller; the ACL match on `path` scopes the denies
+    # to the Elasticsearch route.
+    haproxy.org/backend-config-snippet: |
+      acl _es_path path_beg {{ $esPath }}/
+      acl _es_path path {{ $esPath }}
+      acl _es_read_method method GET HEAD POST OPTIONS
+      acl _es_admin_path path_reg ^{{ $esPath }}/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
+      acl _es_mutating_op path_reg ^{{ $esPath }}/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
+      http-request deny status 405 if _es_path !_es_read_method
+      http-request deny status 403 if _es_path _es_admin_path
+      http-request deny status 403 if _es_path _es_mutating_op
+    haproxy.org/timeout-server: "3600s"
+    haproxy.org/timeout-client: "3600s"
+    {{- with $ce.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- $className := $ce.className | default .Values.ingress.className }}
+  {{- if $className }}
+  ingressClassName: {{ $className }}
+  {{- end }}
+  {{- with $ce.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $ce.host | default $mainHost | quote }}
+      http:
+        paths:
+          - path: {{ $esPath }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $esSvc }}
+                port:
+                  number: {{ $ce.elasticsearchPort | default 9200 }}
+          - path: {{ $cosmosPath }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $embedSvc }}
+                port:
+                  number: {{ $ce.cosmosEmbedPort | default 8000 }}
+          - path: {{ $rtviCvPath }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $cvSvc }}
+                port:
+                  number: {{ $ce.rtviCvPort | default 9000 }}
+{{- end }}

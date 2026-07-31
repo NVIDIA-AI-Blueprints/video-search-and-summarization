@@ -85,6 +85,27 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+  # Edge routes that the vss-cli search commands need to resolve through a
+  # single origin. Mirrors the /elasticsearch, /cosmos-embed, /rtvi-cv
+  # backends exposed by the Docker edge in deploy/docker/services/infra/
+  # haproxy/haproxy.cfg.template. Rendered by templates/cli-edge-ingress.yaml
+  # as a separate Ingress so its per-Ingress annotations (Elasticsearch
+  # read-only guard, path-strip) don't leak onto the main vss-agent/vss-ui
+  # rules. Off by default because most deployments don't run vss-cli
+  # against the cluster from outside; in-cluster deployments talk to the
+  # ClusterIP services directly.
+  cliEdge:
+    enabled: false
+    className: ''      # defaults to ingress.className above (haproxy)
+    host: ''           # defaults to ingress.hosts.main
+    elasticsearchPath: /elasticsearch
+    elasticsearchPort: 9200
+    cosmosEmbedPath: /cosmos-embed
+    cosmosEmbedPort: 8000
+    rtviCvPath: /rtvi-cv
+    rtviCvPort: 9000
+    annotations: {}
+    tls: []
 
 sharedStorage:
   streamerVideos:
