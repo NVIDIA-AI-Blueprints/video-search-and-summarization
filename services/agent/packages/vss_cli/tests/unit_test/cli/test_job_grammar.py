@@ -145,12 +145,23 @@ def test_read_verbs_fail_honestly_without_a_memory_tier() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_config_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_is_purely_descriptive(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Config records what backends said about themselves -- no CLI policy."""
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
-    dep = config_mod.Deployment(base_url="http://h:7777", endpoints={"vst": "http://h:7777/vst"})
+    dep = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={
+            "vst": config_mod.Service(url="http://h:7777/vst"),
+            "rt_embed": config_mod.Service(url="http://h:7777/cosmos-embed", models=["cosmos-embed1-448p"]),
+        },
+    )
     path = config_mod.save(dep)
     assert path.stat().st_mode & 0o777 == 0o600  # no credentials, but still not world-readable
-    assert config_mod.load().endpoints["vst"] == "http://h:7777/vst"
+    loaded = config_mod.load()
+    assert loaded.endpoint("vst") == "http://h:7777/vst"
+    # the descriptive half survives the round trip: models belong to the
+    # service that reported them, not to a top-level knob
+    assert loaded.services["rt_embed"].models == ["cosmos-embed1-448p"]
 
 
 def test_missing_config_points_at_configure(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -168,7 +179,7 @@ def test_future_config_version_is_refused(tmp_path, monkeypatch: pytest.MonkeyPa
 
 
 def test_absent_route_names_what_is_available(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    dep = config_mod.Deployment(base_url="http://h:7777", endpoints={"vst": "http://h:7777/vst"})
+    dep = config_mod.Deployment(base_url="http://h:7777", services={"vst": config_mod.Service(url="http://h:7777/vst")})
     with pytest.raises(config_mod.ConfigError) as excinfo:
         dep.endpoint("elasticsearch")
     message = str(excinfo.value)

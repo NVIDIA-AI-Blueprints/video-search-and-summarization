@@ -53,6 +53,34 @@ def _probe(base_url: str, probe_path: str, timeout: float) -> tuple[bool, str]:
     return routed, f"HTTP {response.status_code}"
 
 
+def _describe(base_url: str, route: config_mod.ServiceRoute, timeout: float) -> list[str]:
+    """Ask a service what it holds. Empty when it offers no introspection.
+
+    The point of a descriptive config: model ids and index names are facts the
+    backend already knows, so they are read from it rather than typed by a
+    caller and allowed to drift.
+    """
+    import httpx
+
+    if not route.describe:
+        return []
+    try:
+        response = httpx.get(f"{base_url.rstrip('/')}{route.describe}", timeout=timeout)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return []
+
+    # OpenAI-style model list: {"data": [{"id": ...}]}
+    if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        return [str(item.get("id")) for item in payload["data"] if isinstance(item, dict) and item.get("id")]
+    # Elasticsearch _cat: [{"index": ...}]
+    if isinstance(payload, list):
+        names = [str(item.get("index")) for item in payload if isinstance(item, dict) and item.get("index")]
+        return sorted(n for n in names if not n.startswith("."))
+    return []
+
+
 @click.group(name="configure", invoke_without_command=True)
 @click.option("--base-url", help="Deployment origin, e.g. http://10.0.0.1:7777")
 @click.option(
@@ -62,38 +90,46 @@ def _probe(base_url: str, probe_path: str, timeout: float) -> tuple[bool, str]:
     show_default=True,
     help="Per-route probe timeout in seconds.",
 )
-@click.option("--embed-model", default="", help="Embedding model the deployment serves.")
 @click.pass_context
-def configure(ctx: click.Context, base_url: str | None, timeout: float, embed_model: str) -> None:
+def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     """Resolve a VSS deployment from one origin and record it."""
     if ctx.invoked_subcommand is not None:
         return
     if not base_url:
         raise click.UsageError("--base-url is required (or use `vss configure show`)")
 
-    endpoints: dict[str, str] = {}
+    services: dict[str, config_mod.Service] = {}
     click.echo(f"probing {base_url}", err=True)
-    for service, (mount, probe_path) in config_mod.INGRESS_ROUTES.items():
-        ok, detail = _probe(base_url, probe_path, timeout)
-        click.echo(f"  {service:<14} {mount:<16} {'routed' if ok else 'absent':<7} {detail}", err=True)
+    for name, route in config_mod.INGRESS_SERVICES.items():
+        ok, detail = _probe(base_url, route.probe, timeout)
+        described: list[str] = []
         if ok:
-            endpoints[service] = f"{base_url.rstrip('/')}{mount}"
+            described = _describe(base_url, route, timeout)
+            services[name] = config_mod.Service(
+                url=f"{base_url.rstrip('/')}{route.mount}",
+                models=described if route.describes == "models" else [],
+                indices=described if route.describes == "indices" else [],
+            )
+        note = f"{len(described)} {route.describes}" if described else ""
+        click.echo(
+            f"  {name:<14} {route.mount:<16} {'routed' if ok else 'absent':<7} {detail:<10} {note}",
+            err=True,
+        )
 
-    if not endpoints:
+    if not services:
         raise click.ClickException(
             f"{base_url} exposed none of the expected routes "
-            f"({', '.join(m for m, _ in config_mod.INGRESS_ROUTES.values())}). "
+            f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}). "
             f"Check the origin and that the ingress is up."
         )
 
     deployment = config_mod.Deployment(
         base_url=base_url.rstrip("/"),
-        endpoints=endpoints,
-        embed_model=embed_model,
+        services=services,
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     path = config_mod.save(deployment)
-    click.echo(f"wrote {path} ({len(endpoints)}/{len(config_mod.INGRESS_ROUTES)} routes)", err=True)
+    click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
 
 
 @configure.command("show")
@@ -121,12 +157,12 @@ def check() -> None:
 
     click.echo(f"configured {deployment.written_at or 'unknown'} against {deployment.base_url}", err=True)
     stale = False
-    for service, url in sorted(deployment.endpoints.items()):
-        route = config_mod.INGRESS_ROUTES.get(service)
+    for name, service in sorted(deployment.services.items()):
+        route = config_mod.INGRESS_SERVICES.get(name)
         if route is None:
             continue
-        ok, detail = _probe(deployment.base_url, route[1], _PROBE_TIMEOUT_SECONDS)
-        click.echo(f"  {service:<14} {'ok' if ok else 'UNREACHABLE':<12} {url}  {detail}")
+        ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
+        click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
         stale = stale or not ok
     if stale:
         raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
