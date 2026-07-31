@@ -16,10 +16,6 @@
 """
 Unit tests for RtviVlmClient.generate_captions_stream response cleanup.
 
-Regression tests for NVBug 6542496: streaming HTTP responses were not closed
-after generate_captions_stream completed, causing urllib3 socket objects to
-accumulate and VmSize to grow ~147 MB/hour during stress runs.
-
 Verifies that resp.close() is called on every exit path:
   - Normal termination ([DONE] received)
   - Stream ends without [DONE]
@@ -62,7 +58,7 @@ def _drain(gen):
 
 
 class TestGenerateCaptionsStreamResponseClose:
-    """resp.close() must be called on every exit path (NVBug 6542496)."""
+    """resp.close() must be called on every exit path."""
 
     def _run(self, client, resp):
         client._session.post.return_value = resp
@@ -102,7 +98,11 @@ class TestGenerateCaptionsStreamResponseClose:
     def test_close_called_on_iteration_exception(self):
         client = _make_client()
         resp = _make_resp()
-        resp.iter_lines.return_value = iter(["data: {bad json"])
-        # Drain fully — parse errors are logged, not raised; close must still fire
+
+        def failing_lines():
+            yield "data: {}"
+            raise RuntimeError("stream interrupted")
+
+        resp.iter_lines.return_value = failing_lines()
         self._run(client, resp)
         resp.close.assert_called_once()
