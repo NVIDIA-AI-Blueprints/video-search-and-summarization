@@ -240,6 +240,7 @@ def test_generated_report_dataset_preserves_rt_vlm_contract() -> None:
     assert "port 8018 at `/v1/chat/completions`" in generated_spec
     assert "Mode A uses the base profile's local integrated CR3 RT-VLM" in task_metadata
     assert "gpu_count = 1" in task_metadata
+    assert "min_root_disk_gb = 220" in task_metadata
     assert "FULL-REMOTE" not in task_metadata
     assert "Reference prerequisite smoke check" in solve_stub
     assert 'HOST_IP="${HOST_IP:-localhost}"' in solve_stub

@@ -60,6 +60,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "RTXPRO6000BW"
+DEFAULT_MIN_ROOT_DISK_GB = 220
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
 # fires.  Skills default to "ask the user" before /vss-deploy-profile; in CI there is no
@@ -260,6 +261,7 @@ def generate_task(
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f"gpu_count = {gpu_count}",
+            f"min_root_disk_gb = {DEFAULT_MIN_ROOT_DISK_GB}",
             "# Mode A uses the base profile's local integrated CR3 RT-VLM and VIOS.",
             "# Mode B may transition the same worker to alerts for VA-MCP analytics.",
             f"step_index = {idx}",

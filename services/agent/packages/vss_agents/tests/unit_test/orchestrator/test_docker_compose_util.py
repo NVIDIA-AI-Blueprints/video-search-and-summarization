@@ -1453,6 +1453,87 @@ class TestModeInferenceIntegration:
         assert resolved["LLM_MODE"] == dcu.MODE_REMOTE
         assert resolved["VLM_MODE"] == dcu.MODE_REMOTE
 
+    @pytest.mark.parametrize(
+        "requested_vlm_mode",
+        [dcu.MODE_LOCAL, dcu.MODE_LOCAL_SHARED],
+    )
+    def test_per_call_local_vlm_suppresses_runtime_remote_endpoint(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        requested_vlm_mode: str,
+    ):
+        """A task can request integrated RT-VLM despite a coordinator default."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "RTXPRO6000BW",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "VLM_BASE_URL=http://rtvi-vlm:8000",
+                    "RTVI_VLM_ENDPOINT=",
+                    "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final",
+                    "RTVI_VLM_MODEL_TO_USE=cosmos-reason3",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"RTXPRO6000BW"}),
+            edge_hardware_profiles=frozenset(),
+            llm_endpoint_url="http://remote-llm:8000",
+            vlm_endpoint_url="http://remote-vlm:8000",
+            vlm_name="remote-vlm",
+            env_overrides={
+                "VLM_MODE": requested_vlm_mode,
+                "VLM_MODEL_TYPE": "rtvi",
+                "VLM_NAME": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+                "VLM_NAME_SLUG": dcu.MODEL_SLUG_NONE,
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_REMOTE
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_BASE_URL"] == "http://rtvi-vlm:8000"
+        assert resolved["VLM_MODEL_TYPE"] == "rtvi"
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+        assert resolved["RTVI_VLM_ENDPOINT"] == ""
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason3"
+
+    def test_per_call_local_llm_suppresses_runtime_remote_endpoint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "H100",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "LLM_BASE_URL=http://local-llm:8000",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+            llm_endpoint_url="http://remote-llm:8000",
+            vlm_endpoint_url="http://remote-vlm:8000",
+            env_overrides={
+                "LLM_MODE": dcu.MODE_LOCAL,
+                "LLM_NAME": "local-llm",
+                "LLM_NAME_SLUG": "local-llm",
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_MODE"] == dcu.MODE_REMOTE
+        assert resolved["LLM_BASE_URL"] == "http://local-llm:8000"
+        assert resolved["LLM_NAME"] == "local-llm"
+
     def test_fixed_shared_device_ids_from_profile_env_force_shared(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
