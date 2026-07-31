@@ -162,16 +162,34 @@ class Deployment:
                 f"config at {config_path()} is version {version!r}, this vss expects {CONFIG_VERSION}. "
                 f"Re-run `vss configure` to rewrite it."
             )
+        # Right version number, wrong shape: a file this CLI did not write can
+        # match on `version` and still carry none of the fields, which used to
+        # yield a deployment with an empty origin and no services. That failed
+        # later as "the deployment at  does not expose ... it has: (none)",
+        # which reads like a broken backend rather than an unreadable file.
+        base_url = raw.get("base_url")
+        if not isinstance(base_url, str) or not base_url.strip():
+            raise ConfigError(
+                f"config at {config_path()} has no 'base_url' -- it was not written by "
+                f"`vss configure` (top-level keys: {', '.join(sorted(raw)) or 'none'}). "
+                f"Re-run `vss configure --base-url <origin>` to rewrite it."
+            )
+        raw_services = raw.get("services")
+        if not isinstance(raw_services, dict) or not raw_services:
+            raise ConfigError(
+                f"config at {config_path()} records no services. "
+                f"Re-run `vss configure --base-url {base_url}` to rediscover them."
+            )
         services = {
             name: Service(
                 url=body.get("url", ""),
                 models=list(body.get("models") or []),
                 indices=list(body.get("indices") or []),
             )
-            for name, body in (raw.get("services") or {}).items()
+            for name, body in raw_services.items()
         }
         return cls(
-            base_url=raw.get("base_url", ""),
+            base_url=base_url,
             services=services,
             written_at=raw.get("written_at", ""),
         )

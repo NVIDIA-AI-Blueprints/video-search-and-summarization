@@ -75,9 +75,9 @@ class Action:
 class Context:
     """What the framework hands a verb.
 
-    ``deployment`` is None only when nothing is configured and no
-    ``--base-url`` was supplied; a verb needing a backend should raise
-    :class:`vss_cli.config.ConfigError` rather than guess an endpoint.
+    ``deployment`` is None only when nothing has been configured; a verb
+    needing a backend should raise :class:`vss_cli.config.ConfigError` rather
+    than guess an endpoint.
     """
 
     deployment: config_mod.Deployment | None = None
@@ -87,6 +87,9 @@ class Context:
     #: Memory tier, once it exists. Until then ``status``/``get``/``list``
     #: have nothing to read and say so plainly (exit 4).
     memory: Any = None
+    #: Why the deployment failed to load, when it did. Carried so a verb can
+    #: report the specific cause instead of a generic "nothing configured".
+    config_error: str = ""
     #: Values from :attr:`CommandGroup.extra_params` -- flags a group declares
     #: outside its input model. Kept separate from the request so a group can
     #: route them wherever they belong (runtime config, transport, ...) rather
@@ -137,6 +140,8 @@ def _require_services(action: Action, ctx: Context) -> None:
     if not action.requires:
         return
     if ctx.deployment is None:
+        if ctx.config_error:
+            raise config_mod.ConfigError(f"`{action.name}` needs a deployment: {ctx.config_error}")
         raise config_mod.ConfigError(
             f"no deployment configured, and `{action.name}` needs "
             f"{', '.join(sorted(action.requires))}. Run `vss configure --base-url <origin>` first."
@@ -342,19 +347,22 @@ class CommandGroup(ABC):
 def _context_from(values: dict[str, Any]) -> Context:
     """Assemble a Context from the shared flags, resolving the deployment.
 
-    ``--base-url`` overrides the configured deployment for one call. Absent
-    both, ``deployment`` is None and a verb that needs a backend raises.
+    The recorded deployment is the only source of endpoints. When none is
+    recorded ``deployment`` is None, and :func:`_require_services` turns that
+    into exit 4 naming the command that fixes it.
     """
-    base_url = values.get("base_url")
     deployment: config_mod.Deployment | None
-    if base_url:
-        deployment = config_mod.Deployment(base_url=base_url)
-    else:
-        try:
-            deployment = config_mod.load()
-        except config_mod.ConfigError:
-            deployment = None
+    config_error = ""
+    try:
+        deployment = config_mod.load()
+    except config_mod.ConfigError as exc:
+        # Keep the reason. "Not configured", "written by something else" and
+        # "records no services" are different problems with different fixes,
+        # and collapsing them to a bare None loses the one that says which.
+        deployment = None
+        config_error = str(exc)
     return Context(
+        config_error=config_error,
         deployment=deployment,
         output=values.get("output") or "json",
         pretty=values.get("pretty"),

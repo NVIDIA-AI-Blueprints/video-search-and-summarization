@@ -105,6 +105,20 @@ def test_there_is_no_submit_verb() -> None:
     assert "submit" not in _Group().cli().commands
 
 
+def test_no_endpoint_configuration_leaks_onto_action_commands() -> None:
+    """Endpoints come from the recorded deployment, never from a per-call flag.
+
+    ``--base-url`` used to sit on every action. An origin alone is not a
+    deployment -- the services, indices and models come from probing it -- so
+    the flag built a deployment with no services and every action failed on the
+    first endpoint it needed. Discovering an origin is `vss configure`'s job.
+    """
+    run = _Group().cli().commands["run"]
+    names = {param.name for param in run.params}
+    assert "base_url" not in names
+    assert not names & {"es_endpoint", "cosmos_embed_endpoint", "rtvi_cv_endpoint", "vst_internal_url"}
+
+
 def test_run_parses_derived_flags_into_the_model() -> None:
     owner = _Group()
     result = CliRunner().invoke(
@@ -178,6 +192,37 @@ def test_future_config_version_is_refused(tmp_path, monkeypatch: pytest.MonkeyPa
     (tmp_path / "config.json").write_text(json.dumps({"version": 99, "base_url": "x"}), encoding="utf-8")
     with pytest.raises(config_mod.ConfigError):
         config_mod.load()
+
+
+def test_right_version_wrong_shape_is_refused(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file this CLI did not write must not load as an empty deployment.
+
+    Observed live: another tool wrote a multi-deployment config
+    (``{"version": 1, "current": ..., "deployments": {...}}``) to the same path.
+    It matched on ``version``, so it parsed to base_url="" with no services, and
+    the first search failed with "the deployment at  does not expose ... it has:
+    (none)" -- which reads like a broken backend, not an unreadable file.
+    """
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+    foreign = {"version": 1, "current": "default", "deployments": {"default": {"base_url": "http://x"}}}
+    (tmp_path / "config.json").write_text(json.dumps(foreign), encoding="utf-8")
+
+    with pytest.raises(config_mod.ConfigError) as excinfo:
+        config_mod.load()
+    message = str(excinfo.value)
+    assert "base_url" in message
+    # names the keys it did find, so the writer is identifiable
+    assert "deployments" in message
+
+
+def test_config_without_services_is_refused(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+    (tmp_path / "config.json").write_text(
+        json.dumps({"version": 1, "base_url": "http://h:7777", "services": {}}), encoding="utf-8"
+    )
+    with pytest.raises(config_mod.ConfigError) as excinfo:
+        config_mod.load()
+    assert "no services" in str(excinfo.value)
 
 
 def test_absent_route_names_what_is_available(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

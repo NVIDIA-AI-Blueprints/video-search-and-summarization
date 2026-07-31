@@ -159,11 +159,12 @@ def collect(model: type[BaseModel], values: dict[str, Any]) -> dict[str, Any]:
 
 def shared_options() -> Sequence[click.Option]:
     """Transport and output flags, identical in every group (SDD §8)."""
+    # No --base-url here on purpose. An origin alone is not a deployment: the
+    # services, indices and model ids come from probing it, which is what
+    # `vss configure` does. A per-call origin would skip that discovery and
+    # yield a deployment with no services, so every action would fail on the
+    # first endpoint it needed. Configuring is a separate step by design.
     return (
-        click.Option(
-            ["--base-url"],
-            help="Deployment origin. Overrides the configured deployment for this call.",
-        ),
         click.Option(
             ["--json", "json_payload"],
             help="Request as a JSON object matching the verb's input model.",
