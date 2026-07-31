@@ -12,7 +12,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **alerts** profile in `real-time` mode on `{{platform}}` via `/vss-deploy-profile -p alerts -m real-time`. Run autonomously.\n\n**Environment & prerequisites:** The first step deploys the VSS **alerts** profile in `real-time` mode; the remaining steps query analytics read-only over the VA-MCP server it brings up (Docker `http://localhost:9901`; probe liveness at `/health`, then JSON-RPC at `/mcp`, backed by Elasticsearch). After deploy, at least one sensor should be registered in VIOS (e.g. `warehouse_sample` onboarded through NVStreamer) and a few incidents written to Elasticsearch so analytics tools return non-empty results. `curl` + `jq` available on the caller. `/vss-query-analytics` itself is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
+      "query": "Deploy the VSS **alerts** profile in `real-time` mode on `{{platform}}` via `/vss-deploy-profile -p alerts -m real-time`. Run autonomously.\n\n**Environment & prerequisites:** The first step deploys the VSS **alerts** profile in `real-time` mode; the remaining steps query analytics read-only over the VA-MCP server it brings up. Resolve `${VA_MCP_URL}` per the skill (`${VSS_PUBLIC_URL}/va-mcp` on Kubernetes; `http://${HOST_IP:-localhost}:9901` on Docker, where NemoClaw provides `host.openshell.internal` as `HOST_IP`), probe liveness at `/health`, then use JSON-RPC at `/mcp` (backed by Elasticsearch). Do not seed sensors or incidents for this read-only scenario: a fresh deployment may legitimately return empty sensor or incident lists, which later steps must report plainly instead of fabricating data. `curl` + `jq` are available on the caller. `/vss-query-analytics` itself is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
@@ -23,24 +23,24 @@
     {
       "query": "Verify the VA-MCP analytics endpoint is reachable and ready to answer queries.",
       "checks": [
-        "The trajectory probed VA-MCP liveness with `curl -sf --max-time 5 http://localhost:9901/health` (or `${VA_MCP_URL}/health`) before issuing any `tools/call`. Do not require `GET /mcp` or the service root as the readiness probe.",
-        "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:9901/health` returns an HTTP code in the 2xx/3xx range (VA-MCP `/health` is up) — not connection refused.",
+        "The trajectory resolved `${VA_MCP_URL}` per the skill and probed VA-MCP liveness with `curl -sf --max-time 5 ${VA_MCP_URL}/health` before issuing any `tools/call`. Docker may resolve this to `http://${HOST_IP:-localhost}:9901/health` (with `host.openshell.internal` in NemoClaw); Kubernetes resolves it through `${VSS_PUBLIC_URL}/va-mcp/health`. Do not require `GET /mcp` or the service root as the readiness probe.",
+        "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' ${VA_MCP_URL}/health` returns an HTTP code in the 2xx/3xx range (VA-MCP `/health` is up) — not connection refused.",
         "The final assistant reply states that VA-MCP is reachable and ready (or, if it is not, names the failure mode — `connection refused` vs `timeout` vs non-2xx — per the skill's MCP connection guidance) rather than silently moving on."
       ]
     },
     {
       "query": "List the sensors currently known to the video analytics stack.",
       "checks": [
-        "The trajectory issued at least two POSTs to `http://localhost:9901/mcp` — one `method=initialize` to obtain `mcp-session-id` from the response **header**, then a `tools/call` invocation passing that header (the required two-step VA-MCP pattern; one-shot calls fail with `Bad Request: Missing session ID`).",
+        "The trajectory issued at least two POSTs to `${VA_MCP_URL}/mcp` — one `method=initialize` to obtain `mcp-session-id` from the response **header**, then a `tools/call` invocation passing that header (the required two-step VA-MCP pattern; one-shot calls fail with `Bad Request: Missing session ID`). `${VA_MCP_URL}` may resolve through `host.openshell.internal:9901` in NemoClaw or `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes.",
         "The `tools/call` payload invoked `video_analytics__get_sensor_ids` (or `vst_sensor_list`) with an empty/default `arguments` object — not a different analytics tool.",
         "The trajectory did NOT POST to `http://localhost:8000/generate` and did NOT call any VLM `/v1/chat/completions` endpoint — this is a read-only analytics question that must route through VA-MCP only.",
-        "The final assistant reply renders the sensor ids as readable text/markdown (e.g. a list naming each sensor) — not a raw JSON-RPC envelope and not an error trace."
+        "The final assistant reply renders the sensor ids as readable text/markdown (e.g. a list naming each sensor) or, if the tool returned `[]`, explicitly states that no sensors are currently registered — not a raw JSON-RPC envelope, an error trace, or fabricated sensor data."
       ]
     },
     {
       "query": "Show me the 10 most recent incidents across all sensors.",
       "checks": [
-        "The trajectory issued an `initialize` POST to `http://localhost:9901/mcp` and extracted `mcp-session-id` from the response header, then issued a `tools/call` POST with that header set.",
+        "The trajectory issued an `initialize` POST to `${VA_MCP_URL}/mcp` and extracted `mcp-session-id` from the response header, then issued a `tools/call` POST with that header set.",
         "The `tools/call` payload invoked `video_analytics__get_incidents` with `max_count` set to 10 (and did NOT pin `source`/`source_type` to a specific sensor since the user asked across all sensors).",
         "The trajectory did NOT POST to `http://localhost:8000/generate`, did NOT call any VLM chat/completions endpoint, and did NOT auto-invoke `vss-deploy-profile` (the skill must not deploy based on the query text).",
         "The final assistant reply summarizes the incidents returned by VA-MCP (timestamps, sensors, and either category/description or verdict) — or, if the tool returned `[]`, explicitly states the empty result instead of fabricating incidents."

@@ -5688,6 +5688,52 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 self.assertGreaterEqual(len(expects), limit)
                 self.assertIn(query_marker, expects[limit - 1]["query"])
 
+    def test_query_analytics_representative_prefix_accepts_clean_state(self):
+        spec = json.loads(
+            (
+                REPO_ROOT
+                / "skills"
+                / "vss-query-analytics"
+                / "evals"
+                / "query_analytics.json"
+            ).read_text(encoding="utf-8")
+        )
+        limit = smoke_runner.REPRESENTATIVE_TASK_LIMITS[
+            ("vss-query-analytics", "query_analytics")
+        ]
+        representative = spec["expects"][:limit]
+
+        self.assertEqual(limit, 3)
+        self.assertIn("Do not seed sensors or incidents", representative[0]["query"])
+        self.assertIn(
+            "fresh deployment may legitimately return empty sensor or incident lists",
+            representative[0]["query"],
+        )
+        self.assertNotIn("return non-empty results", representative[0]["query"])
+        self.assertTrue(
+            all("nemoclaw_sample_files" not in expect for expect in representative)
+        )
+
+        liveness_checks = representative[1]["checks"]
+        sensor_checks = representative[2]["checks"]
+        self.assertIn("${HOST_IP:-localhost}", liveness_checks[0])
+        self.assertIn("host.openshell.internal", liveness_checks[0])
+        self.assertIn("${HOST_IP:-localhost}", sensor_checks[0])
+        self.assertIn("host.openshell.internal", sensor_checks[0])
+        self.assertIn("if the tool returned `[]`", sensor_checks[-1])
+        self.assertIn("no sensors are currently registered", sensor_checks[-1])
+
+        # The live verifier runs on the worker host, where localhost is the
+        # correct route. Only trajectory checks need the sandbox host alias.
+        self.assertEqual(
+            liveness_checks[1],
+            "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' "
+            "http://localhost:9901/mcp` returns an HTTP code in the "
+            "2xx/3xx/405/406 range (the endpoint exists and speaks MCP; a "
+            "bare GET without `Accept: text/event-stream` legitimately gets "
+            "406 from a streamable-HTTP MCP server) — not connection refused.",
+        )
+
     def test_representative_matrix_blocks_unregistered_task_prefix(self):
         unknown_spec = (
             REPO_ROOT
