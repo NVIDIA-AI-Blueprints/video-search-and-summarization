@@ -594,7 +594,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
         "    git -c advice.detachedHead=false checkout --force FETCH_HEAD",
         "    git reset --hard FETCH_HEAD",
         "fi",
-        "git clean -fdx -e data/ -e /.env",
+        "git clean -fdx -e data/ -e /.env -e /.mdx_data/models/",
         "cd - > /dev/null",
         'mkdir -p "$REPO/data"',
         "",
