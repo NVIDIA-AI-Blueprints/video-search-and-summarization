@@ -57,7 +57,7 @@ class AnomalyActionDetection:
 
     Examples::
         >>> config = AppConfig()
-        >>> behavior_state_manager = StateMgmtIWithPose(config)
+        >>> behavior_state_manager = StateMgmt(config, calibration)
         >>> detector = AnomalyActionDetection(config)
         >>> behaviors = behavior_state_manager.process_batch(updated_messages_map).active_behaviors
         >>> anomalies = detector.detect_batch(behaviors)

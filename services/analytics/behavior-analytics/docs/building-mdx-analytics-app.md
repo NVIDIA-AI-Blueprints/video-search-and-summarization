@@ -51,7 +51,7 @@ from mdx.analytics.core.app.app_base import BaseApp
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import Behavior
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtE
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.stream.state.frame.frame_state_management import FrameStateMgmt
 from mdx.analytics.core.transform.event.roi_event import ROIEvent
 from mdx.analytics.core.transform.event.tripwire_event import TripwireEvent
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 - `AppConfig`: Configuration management for application settings
 - `schema_pb2`: Protocol buffer definitions for frame and message structures
 - `Behavior`: The internal behavior model — also what ROI/tripwire events are, before `write_events` converts them
-- `StateMgmtE`: Behavior state management in Euclidean coordinates; one `process_batch` call per batch
+- `StateMgmt`: Behavior state management for cartesian and image coordinates; one `process_batch` call per batch
 - `ROIEvent` and `TripwireEvent`: Event generators for spatial analytics
 - `schema_util`: Utilities for converting between different data formats
 - `BatchStats`: Performance tracking for processing batches
@@ -82,7 +82,7 @@ class Analytics2DApp(BaseApp):
         super().__init__(config, calibration_path)
         
         # Initialize state management with tripwire support
-        self.state_mgmt = StateMgmtE(self.config, self.calibration)
+        self.state_mgmt = StateMgmt(self.config, self.calibration)
         self.frame_state_mgmt = FrameStateMgmt(self.config)
         
         # Initialize event processors
@@ -103,7 +103,7 @@ class Analytics2DApp(BaseApp):
 ```
 
 **Key Components:**
-- **State Management**: `StateMgmtE` tracks object positions over time and returns the trip states that tripwire/ROI detection needs
+- **State Management**: `StateMgmt` tracks object positions over time and returns the trip states that tripwire/ROI detection needs
 - **Event Processors**: Handle ROI entry/exit and tripwire crossing events
 - **Worker Registration**: Uses `register_processor()` to set up parallel processing pipelines
 

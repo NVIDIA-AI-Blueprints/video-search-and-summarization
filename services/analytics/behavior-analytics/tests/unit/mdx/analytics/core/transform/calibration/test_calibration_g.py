@@ -22,22 +22,22 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from mdx.analytics.core.constants import SENSOR_TYPE_CAMERA
 from mdx.analytics.core.schema.models import Bbox, Coordinate, Location, SensorInfo
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
-from mdx.analytics.core.transform.calibration.calibration import Calibration
+from mdx.analytics.core.transform.calibration.calibration_g import CalibrationG
 from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.utils.io_utils import load_json_from_file
 
 
-class TestCalibration(unittest.TestCase):
+class TestCalibrationG(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.config = AppConfig(**load_json_from_file("tests/unit/resources/test_config.json"))
         calibration_path = "tests/unit/resources/calibration_building_k.json"
-        self.calibration = Calibration(self.config, calibration_path)
+        self.calibration = CalibrationG(self.config, calibration_path)
 
     def test_initialization(self):
-        """Test Calibration initialization."""
-        self.assertIsInstance(self.calibration, Calibration)
+        """Test CalibrationG initialization."""
+        self.assertIsInstance(self.calibration, CalibrationG)
         self.assertEqual(self.calibration.config, self.config)
 
     def test_transform_bbox_latlon_to_latlon(self):
@@ -126,7 +126,7 @@ class TestCalibration(unittest.TestCase):
                     mock_fov.assert_called_once()
 
     def test_initialization_with_custom_origin(self):
-        """Test Calibration initialization with custom origin enabled."""
+        """Test CalibrationG initialization with custom origin enabled."""
         # Create config with custom origin enabled
         config = AppConfig(**load_json_from_file("tests/unit/resources/test_config.json"))
         config.coordinateReferenceSystem.crsCartesianCustomOrigin.enable = True
@@ -134,9 +134,9 @@ class TestCalibration(unittest.TestCase):
         config.coordinateReferenceSystem.crsCartesianCustomOrigin.lon = -122.4194
         config.coordinateReferenceSystem.crsCartesianEnablePerSensorOrigin = False
         
-        with patch('mdx.analytics.core.transform.calibration.calibration.lonlat_to_xy') as mock_lonlat_to_xy:
+        with patch('mdx.analytics.core.transform.calibration.calibration_g.lonlat_to_xy') as mock_lonlat_to_xy:
             mock_lonlat_to_xy.return_value = (100.0, 200.0)
-            calibration = Calibration(config, "tests/unit/resources/calibration_building_k.json")
+            calibration = CalibrationG(config, "tests/unit/resources/calibration_building_k.json")
             
             # Verify custom origin was set
             self.assertIsNotNone(calibration.crs_cartesian_custom_origin_cartesian)
@@ -144,12 +144,12 @@ class TestCalibration(unittest.TestCase):
             mock_lonlat_to_xy.assert_called_once()
 
     def test_initialization_without_custom_origin(self):
-        """Test Calibration initialization without custom origin."""
+        """Test CalibrationG initialization without custom origin."""
         # Use default config where custom origin is disabled
         config = AppConfig(**load_json_from_file("tests/unit/resources/test_config.json"))
         config.coordinateReferenceSystem.crsCartesianCustomOrigin.enable = False
         
-        calibration = Calibration(config, "tests/unit/resources/calibration_building_k.json")
+        calibration = CalibrationG(config, "tests/unit/resources/calibration_building_k.json")
         self.assertIsNone(calibration.crs_cartesian_custom_origin_cartesian)
 
     def test_transform_bbox_latlon_to_cartesian_with_calibration_origin(self):
@@ -170,7 +170,7 @@ class TestCalibration(unittest.TestCase):
         self.config.set_app_config("trajGeoCoordEnable", "false")
 
         with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
-            with patch('mdx.analytics.core.transform.calibration.calibration.lonlat_to_xy') as mock_lonlat_to_xy:
+            with patch('mdx.analytics.core.transform.calibration.calibration_g.lonlat_to_xy') as mock_lonlat_to_xy:
                 # Mock coordinate transformations
                 mock_lonlat_to_xy.side_effect = [(500.0, 600.0), (100.0, 200.0)]  # global coords, then origin
                 
@@ -203,7 +203,7 @@ class TestCalibration(unittest.TestCase):
         self.config.set_app_config("trajGeoCoordEnable", "false")
 
         with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
-            with patch('mdx.analytics.core.transform.calibration.calibration.lonlat_to_xy') as mock_lonlat_to_xy:
+            with patch('mdx.analytics.core.transform.calibration.calibration_g.lonlat_to_xy') as mock_lonlat_to_xy:
                 mock_lonlat_to_xy.return_value = (500.0, 600.0)
                 
                 coordinate, location = self.calibration.transform_bbox(bbox, sensor_id)
@@ -232,8 +232,8 @@ class TestCalibration(unittest.TestCase):
         self.config.set_app_config("trajGeoCoordEnable", "true")
 
         with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
-            with patch('mdx.analytics.core.transform.calibration.calibration.lonlat_to_xy') as mock_lonlat_to_xy:
-                with patch('mdx.analytics.core.transform.calibration.calibration.xy_to_lonlat') as mock_xy_to_lonlat:
+            with patch('mdx.analytics.core.transform.calibration.calibration_g.lonlat_to_xy') as mock_lonlat_to_xy:
+                with patch('mdx.analytics.core.transform.calibration.calibration_g.xy_to_lonlat') as mock_xy_to_lonlat:
                     mock_lonlat_to_xy.return_value = (100.0, 200.0)  # origin in cartesian
                     mock_xy_to_lonlat.return_value = (-122.4194, 37.7749)  # final latlon
                     
@@ -264,7 +264,7 @@ class TestCalibration(unittest.TestCase):
         self.config.set_app_config("trajGeoCoordEnable", "true")
 
         with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
-            with patch('mdx.analytics.core.transform.calibration.calibration.xy_to_lonlat') as mock_xy_to_lonlat:
+            with patch('mdx.analytics.core.transform.calibration.calibration_g.xy_to_lonlat') as mock_xy_to_lonlat:
                 mock_xy_to_lonlat.return_value = (-122.4194, 37.7749)
                 
                 coordinate, location = self.calibration.transform_bbox(bbox, sensor_id)

@@ -23,7 +23,7 @@ from mdx.analytics.core.utils.schema_util import coordinate_to_nv_coordinate, lo
 from mdx.analytics.core.utils.util import extract_sensor_id
 
 
-class Calibration(CalibrationBase):
+class CalibrationG(CalibrationBase):
     """
     Calibration class that reads the calibration information from a JSON calibration file
     and instantiates the transform matrix, ROI, etc., per sensor.
@@ -44,7 +44,7 @@ class Calibration(CalibrationBase):
 
     Examples::
         >>> config = AppConfig()
-        >>> calibration = Calibration(config, "calibration.json")
+        >>> calibration = CalibrationG(config, "calibration.json")
     """
 
     def __init__(self, config: AppConfig, calibration_file_path: str) -> None:
@@ -57,7 +57,7 @@ class Calibration(CalibrationBase):
 
         Examples::
             >>> config = AppConfig()
-            >>> calibration = Calibration(config, "calibration.json")
+            >>> calibration = CalibrationG(config, "calibration.json")
         """
         super().__init__(config, calibration_file_path)
         self.crs_latlon = self.config.coordinateReferenceSystem.crsLatLon
@@ -87,7 +87,7 @@ class Calibration(CalibrationBase):
         :return tuple[Coordinate, Location]: Tuple containing the transformed coordinate and location
 
         Examples::
-            >>> calibration = Calibration(config, calibration_file_path)
+            >>> calibration = CalibrationG(config, calibration_file_path)
             >>> bbox = Bbox(leftX=100, rightX=200, topY=50, bottomY=150)
             >>> coord, loc = calibration.transform_bbox(bbox, "sensor1")
             >>> print(f"Transformed to: {coord.x}, {coord.y} at {loc.latitude}, {loc.longitude}")
@@ -177,7 +177,7 @@ class Calibration(CalibrationBase):
         :return nvSchema.Frame: Updated frame with transformed coordinates and enhanced information
 
         Examples::
-            >>> calibration = Calibration(config, calibration_file_path)
+            >>> calibration = CalibrationG(config, calibration_file_path)
             >>> frame = nvSchema.Frame(sensorId="sensor1", objects=[...])
             >>> transformed_frame = calibration.transform_frame(frame)
             >>> print(f"Transformed frame for sensor {transformed_frame.sensorId}")

@@ -34,7 +34,7 @@ from mdx.analytics.core.schema.models import (
     Place,
     Coordinate,
 )
-from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
+from mdx.analytics.core.schema.trajectory.trajectory_g import TrajectoryG
 from mdx.analytics.core.transform.calibration.calibration_dynamic import CalibrationType
 
 
@@ -686,7 +686,7 @@ class TestAnomalyDetector:
             Coordinate(x=1, y=1)
         ]
         
-        trajectory = Trajectory(
+        trajectory = TrajectoryG(
             id="test_traj",
             start=datetime.now(),
             end=datetime.now(),
@@ -711,7 +711,7 @@ class TestAnomalyDetector:
             Coordinate(x=2, y=0)
         ]
         
-        trajectory = Trajectory(
+        trajectory = TrajectoryG(
             id="test_traj",
             start=datetime.now(),
             end=datetime.now(),
@@ -738,7 +738,7 @@ class TestAnomalyDetector:
             Coordinate(x=3, y=1)
         ]
         
-        trajectory = Trajectory(
+        trajectory = TrajectoryG(
             id="test_traj",
             start=datetime.now(),
             end=datetime.now(),
@@ -762,7 +762,7 @@ class TestAnomalyDetector:
             Coordinate(x=1, y=0)
         ]
         
-        trajectory = Trajectory(
+        trajectory = TrajectoryG(
             id="test_traj",
             start=datetime.now(),
             end=datetime.now(),
@@ -785,7 +785,7 @@ class TestAnomalyDetector:
             Coordinate(x=3, y=0)
         ]
         
-        trajectory = Trajectory(
+        trajectory = TrajectoryG(
             id="test_traj",
             start=datetime.now(),
             end=datetime.now(),

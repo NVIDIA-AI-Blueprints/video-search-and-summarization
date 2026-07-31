@@ -18,7 +18,7 @@ import logging
 from mdx.analytics.core.app.app_base import BaseApp
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtE
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.stream.state.frame.frame_state_management import FrameStateMgmt
 from mdx.analytics.core.stream.state.video_embedding.video_embedding_state_mgmt import VideoEmbeddingStateMgmt
 from mdx.analytics.core.utils.schema_util import group_frames_by_sensor_id, group_video_embeddings_by_sensor_id, messages_to_map, nv_frame_to_messages
@@ -54,7 +54,7 @@ class SearchAndAlertsApp(BaseApp):
         - Plus standard incident toggles (proximityIncidentEnable, restrictedAreaIncidentEnable, etc.)
 
     :ivar FrameStateMgmt frame_state_mgmt: Per-sensor frame state manager for incident detection
-    :ivar StateMgmtE state_mgmt: Per-sensor behavior state manager
+    :ivar StateMgmt state_mgmt: Per-sensor behavior state manager
     :ivar VideoEmbeddingStateMgmt _vid_embed_state_mgmt: Per-sensor video embedding state manager
     """
 
@@ -68,7 +68,7 @@ class SearchAndAlertsApp(BaseApp):
         super().__init__(config, calibration_path)
 
         self.frame_state_mgmt = FrameStateMgmt(self.config)
-        self.state_mgmt = StateMgmtE(self.config, self.calibration)
+        self.state_mgmt = StateMgmt(self.config, self.calibration)
         self._vid_embed_state_mgmt = VideoEmbeddingStateMgmt(self.config.video_embedding)
 
         self.register_processor(
