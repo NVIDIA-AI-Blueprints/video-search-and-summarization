@@ -103,7 +103,7 @@ def get_incident_service() -> AlertSubmissionService:
                         "info": {
                             "location": "warehouse-loading-dock",
                             "primaryObjectId": "worker-04",
-                            "media_urls": ["http://media-store/incident-67890.mp4"],
+                            "media_urls": ["https://media-store/incident-67890.mp4"],
                         },
                         "event": {
                             "id": "incident-67890",
