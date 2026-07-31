@@ -110,11 +110,11 @@ class SmartCityApp(BaseApp):
 
             updated_messages_map = messages_to_map(updated_messages)
 
-            batch = self.state_mgmt.process_batch(updated_messages_map)
-            behaviors = batch.active_behaviors
+            behavior_batch = self.state_mgmt.process_batch(updated_messages_map)
+            behaviors = behavior_batch.active_behaviors
 
             logger.info(f"[Batch {stats.batch_id}] created a total of {len(behaviors)} behavior(s), "
-                        f"writing {len(batch.behaviors_to_write)}")
+                        f"writing {len(behavior_batch.behaviors_to_write)}")
 
             self.anomaly_detector.stop_detection.update_frames(transformed_frames)
             potential_collisions, anomalies = self.anomaly_detector.detect_batch(behaviors, self.crs)
@@ -134,7 +134,7 @@ class SmartCityApp(BaseApp):
 
             self.anomaly_detector.stop_detection.update_live_object(self.state_mgmt.live_object_ids())
 
-            self.write_behaviors(batch.behaviors_to_write)
+            self.write_behaviors(behavior_batch.behaviors_to_write)
             self.write_anomalies(anomalies)
             self.write_incidents([ incident for incident, _ in collision_incidents ])
 

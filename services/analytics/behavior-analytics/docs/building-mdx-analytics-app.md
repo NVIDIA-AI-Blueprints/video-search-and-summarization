@@ -168,18 +168,18 @@ def create_behaviors(self, frames: list[nvSchema.Frame], stats: BatchStats) -> N
 
     # One call per batch. State management owns the per-key loop, because deciding which tracks
     # have fallen silent is only sound once every message in the batch has been applied.
-    batch = self.state_mgmt.process_batch(updated_messages_map)
+    behavior_batch = self.state_mgmt.process_batch(updated_messages_map)
 
     # Events are Behavior objects on this path; write_events converts them to protobuf.
     events: list[Behavior] = []
-    for trip in batch.trip_behaviors:
+    for trip in behavior_batch.trip_behaviors:
         events.extend(self.tripwire_event.get_events(trip))
         events.extend(self.roi_event.get_events(trip))
 
-    logger.info("Batch %s - Created %d behavior(s)", stats.batch_id, len(batch.active_behaviors))
+    logger.info("Batch %s - Created %d behavior(s)", stats.batch_id, len(behavior_batch.active_behaviors))
     logger.info("Batch %s - Created %d event(s)", stats.batch_id, len(events))
 
-    self.write_behaviors(batch.behaviors_to_write)
+    self.write_behaviors(behavior_batch.behaviors_to_write)
     self.write_events(events)
 ```
 
@@ -188,7 +188,7 @@ def create_behaviors(self, frames: list[nvSchema.Frame], stats: BatchStats) -> N
 | Field | Contents |
 |---|---|
 | `active_behaviors` | One per track this batch updated. Feed these to detection, and **enrich them in place** — replacing the objects would not reach what gets written. |
-| `trip_behaviors` | Short-window states for tripwire / ROI detection. Always empty in geographic coordinates, which does not track trips. |
+| `trip_behaviors` | Short-window states for tripwire / ROI detection. Produced only for sensors whose calibration defines a tripwire or an ROI, since those are the only things a trip is tested against — an app started without a calibration file gets none. Always empty in geographic coordinates, which does not track trips. |
 | `behaviors_to_write` | What to write to the behavior stream. The emission policy is already resolved, so an app never needs to know whether `behaviorEmitOnce` is set. |
 
 With `behaviorEmitOnce` enabled, add a shutdown flush so tracks that were still live are

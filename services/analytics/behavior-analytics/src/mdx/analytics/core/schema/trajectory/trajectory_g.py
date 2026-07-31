@@ -19,6 +19,7 @@ from pydantic import computed_field
 
 from mdx.analytics.core.schema.models import Coordinate, Location
 from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
+from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
 from mdx.analytics.core.utils.distance_util import MPS_TO_MPH, bearing, haversine_distance_coords
 
 
@@ -34,7 +35,12 @@ class TrajectoryG(Trajectory):
     :ivar datetime start: Start time of the trajectory
     :ivar datetime end: End time of the trajectory
     :ivar list[Coordinate] points: List of coordinate points forming the trajectory
-    :ivar bool enable_geo: Enable geographic coordinate system (default: False)
+    :ivar bool enable_geo: Points are lat/lon (``trajGeoCoordEnable``), so distance is haversine and
+        directions are compass points. With it off a geographically calibrated deployment still emits
+        metres -- :meth:`CalibrationG.transform` projects to ``crsCartesian`` -- so this selects the
+        distance metric, not the units (default: False)
+    :ivar CalibrationType calibration_type: Calibration the points came from. Selects the units, which
+        is a separate question: only ``IMAGE`` is in pixels and left unconverted (default: ``GEO``)
     :ivar int direction_mode: Direction representation mode (default: 0)
         - 0: Basic cardinal directions (N, E, S, W)
         - 1: Intercardinal directions (N, NE, E, SE, S, SW, W, NW)
@@ -84,6 +90,7 @@ class TrajectoryG(Trajectory):
         print(f"Intercardinal direction: {trajectory_inter.direction}")
     """
 
+    calibration_type: CalibrationType = CalibrationType.GEO
     enable_geo: bool = False
     direction_mode: int = 0
     direction_based_cluster_mode: int = 1
@@ -290,10 +297,17 @@ class TrajectoryG(Trajectory):
     @cached_property
     def speed(self) -> float:
         """
-        Calculate the average speed of the trajectory
+        Calculate the average speed of the trajectory.
 
-        :return float: Average speed in mph
+        Geographic coordinates are metric and so are the projected metres this class sees when
+        ``trajGeoCoordEnable`` is off, so both convert to mph. Only image coordinates are pixels,
+        where the rate is pixels per second and there is nothing metric to convert.
+
+        :return float: Average speed, in mph for geographic/cartesian coordinates or pixels/second
+            for image
         """
+        if self.calibration_type == CalibrationType.IMAGE:
+            return self._raw_speed()
         return self._raw_speed() * MPS_TO_MPH
 
     @computed_field
@@ -302,8 +316,13 @@ class TrajectoryG(Trajectory):
         """
         Calculate the speed of the trajectory over time in segments.
 
-        :return list[float]: List of speeds for each segment
+        Uses the same units as :meth:`speed`: mph for geographic coordinates, pixels per second for
+        image coordinates.
+
+        :return list[float]: Speed for each segment
         """
+        if self.calibration_type == CalibrationType.IMAGE:
+            return self._raw_speed_over_time()
         return [MPS_TO_MPH * x for x in self._raw_speed_over_time()]
 
     def _calculate_distance(self, p1: Coordinate, p2: Coordinate) -> float:
@@ -324,7 +343,10 @@ class TrajectoryG(Trajectory):
 
         :return str: String representation of the trajectory
         """
+        image = self.calibration_type == CalibrationType.IMAGE
+        speed_unit, distance_unit = ("px/s", "pixels") if image else ("mph", "meters")
+
         return (
-            f"Moving angle {self.bearing}, dir {self.direction:>3}, speed at {self.speed:4.2f} mph, "
-            f"covered {self.distance:4.2f} meters in {self.time_interval:4.2f} seconds, id = {self.id}"
+            f"Moving angle {self.bearing}, dir {self.direction:>3}, speed at {self.speed:4.2f} {speed_unit}, "
+            f"covered {self.distance:4.2f} {distance_unit} in {self.time_interval:4.2f} seconds, id = {self.id}"
         )

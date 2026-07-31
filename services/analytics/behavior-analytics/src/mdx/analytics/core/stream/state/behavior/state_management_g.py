@@ -49,8 +49,8 @@ class StateMgmtG(StateMgmt):
 
     Examples::
         >>> state_manager = StateMgmtG(config, calibration, crs)
-        >>> batch = state_manager.process_batch(messages_map)
-        >>> print(f"Writing {len(batch.behaviors_to_write)} behavior(s)")
+        >>> behavior_batch = state_manager.process_batch(messages_map)
+        >>> print(f"Writing {len(behavior_batch.behaviors_to_write)} behavior(s)")
     """
 
     def __init__(
@@ -66,14 +66,26 @@ class StateMgmtG(StateMgmt):
         """No-op for geographic coordinates - model with embeddings updates not needed."""
         return
 
-    def _create_trajectory(self, id: str, start: datetime, end: datetime, 
+    def _create_trajectory(self, id: str, start: datetime, end: datetime,
                           points: list[Coordinate]) -> TrajectoryG:
-        """Returns IncrementalTrajectoryG with geographic/direction configuration."""
+        """
+        Returns a :class:`TrajectoryG` with geographic/direction configuration.
+
+        Two separate facts are passed, because they answer different questions. ``calibration_type``
+        gives the units: only image calibration is in pixels, and it is what stops a pixel rate being
+        scaled by a metric constant. ``trajGeoCoordEnable`` gives the distance metric -- with it off,
+        :meth:`CalibrationG.transform` projects to ``crsCartesian``, so the points are metres rather
+        than lat/lon and distance must be euclidean, not haversine. Metres either way, so the speed
+        conversion is unaffected by that flag.
+
+        Both are read per call, so a runtime update to either takes effect on the next batch.
+        """
         return TrajectoryG(
             id=id,
             start=start,
             end=end,
             points=points,
+            calibration_type=self.calibration.calibration_type,
             enable_geo=self.config.traj_geo_coord_enable,
             smooth_min_points=self.config.traj_smooth_min_points,
             smooth_window_size=self.config.traj_smooth_window_size,

@@ -55,7 +55,8 @@ class SinkKafka(Sink):
         :param Callable | None, optional key_serializer: Function to serialize message keys.
         :param Mapping[str, str | bytes] | None headers: Optional headers to include with messages.
         
-        :raises ValueError: If no Kafka topic is found for the given dest_key.
+        :return: None. Returns without writing when no Kafka topic is configured for ``dest_key``;
+            an undefined destination is a disabled output, logged once by :meth:`Sink.resolve_destination`.
         """
 
         topic = self.resolve_destination(dest_key, self._get_topic)
@@ -98,7 +99,8 @@ class SinkKafka(Sink):
         :param bytes | None key: Optional message key.
         :param Mapping[str, str | bytes] | None headers: Optional headers to include with the message.
         
-        :raises ValueError: If no Kafka topic is found for the given dest_key.
+        :return: None. Returns without writing when no Kafka topic is configured for ``dest_key``;
+            an undefined destination is a disabled output, logged once by :meth:`Sink.resolve_destination`.
         """
 
         topic = self.resolve_destination(dest_key, self._get_topic)

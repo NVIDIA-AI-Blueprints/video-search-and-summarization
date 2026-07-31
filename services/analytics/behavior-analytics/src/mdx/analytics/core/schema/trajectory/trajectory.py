@@ -22,8 +22,8 @@ import numpy as np
 from pydantic import BaseModel, computed_field
 
 from mdx.analytics.core.schema.models import Coordinate, GeoLocation, Point
-from mdx.analytics.core.utils.distance_util import MPS_TO_MPH, euclidean_distance
 from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+from mdx.analytics.core.utils.distance_util import MPS_TO_MPH, euclidean_distance
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ class Trajectory(BaseModel):
     smooth_window_size: int = 5
     distance_stride: int = 5
     speed_segment_size: int = 10
+    calibration_type: CalibrationType = CalibrationType.CARTESIAN
 
     @computed_field
     @cached_property
@@ -239,13 +240,18 @@ class Trajectory(BaseModel):
         """
         Calculate the speed of the trajectory over time in segments.
 
+        Returns the *unconverted* rate, in the same units as :meth:`_raw_speed`. The fallbacks below
+        must therefore call ``_raw_speed()`` and not the public :attr:`speed`, which is already
+        converted for the coordinate system -- callers convert what this returns, so reading the
+        public property here would apply the conversion twice.
+
         :return list[float]: List of speeds for each segment
         """
         if self.time_interval == 0:
-            return [self.speed]
+            return [self._raw_speed()]
 
         if len(self.smooth_trajectory) < self.smooth_min_points:
-            return [self.speed]
+            return [self._raw_speed()]
 
         segment_size = self.speed_segment_size
         slices = [
@@ -389,15 +395,21 @@ class Trajectory(BaseModel):
         """
         Get a string representation of the trajectory.
 
+        Units are named from :attr:`calibration_type`, since the same class reports metric values for
+        cartesian coordinates and pixel values for image coordinates. Printing one fixed unit would
+        mislabel half of them.
+
         :return str: String representation of the trajectory
         """
+        if self.calibration_type == CalibrationType.IMAGE:
+            speed_unit, distance_unit = "px/s", "pixels"
+        else:
+            speed_unit, distance_unit = "mph", "meters"
+
         return (
-            f"Moving angle {self.bearing}, dir {self.direction:>3}, speed at {self.speed:4.2f}, "
-            f"covered {self.distance:4.2f} in {self.time_interval:4.2f} seconds, id = {self.id}"
+            f"Moving angle {self.bearing}, dir {self.direction:>3}, speed at {self.speed:4.2f} {speed_unit}, "
+            f"covered {self.distance:4.2f} {distance_unit} in {self.time_interval:4.2f} seconds, id = {self.id}"
         )
-
-    calibration_type: CalibrationType = CalibrationType.CARTESIAN
-
 
     @computed_field
     @cached_property
@@ -501,17 +513,6 @@ class Trajectory(BaseModel):
             raise ValueError("Trajectory does not support geographic coordinates")
         # Pixels per second in image coordinates; see :meth:`speed`.
         return self._raw_speed_over_time()
-
-    def __str__(self) -> str:
-        """
-        Get a string representation of the trajectory.
-
-        :return str: String representation of the trajectory
-        """
-        return (
-            f"Moving angle {self.bearing}, dir {self.direction:>3}, speed at {self.speed:4.2f} mph, "
-            f"covered {self.distance:4.2f} meters in {self.time_interval:4.2f} seconds, id = {self.id}"
-        )
 
     @computed_field
     @cached_property

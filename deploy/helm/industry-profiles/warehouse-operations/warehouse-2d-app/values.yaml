@@ -275,8 +275,8 @@ analytics:
             }
           ],
           "app": [
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
-            {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "200"},
             {"name": "playbackLoop", "value": "10000"},
             {"name": "playbackFilterEmptyObjects", "value": "true"},
