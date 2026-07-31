@@ -17,6 +17,7 @@ describe('UploadProgressPopup', () => {
       />,
     );
 
+    expect(screen.getByTestId('upload-progress-panel')).toBeInTheDocument();
     expect(screen.getByText('Uploading Files...')).toBeInTheDocument();
     expect(screen.getByText('video-1.mp4')).toBeInTheDocument();
     expect(screen.getByText('video-2.mp4')).toBeInTheDocument();

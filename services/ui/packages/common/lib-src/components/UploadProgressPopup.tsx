@@ -60,7 +60,13 @@ export function UploadProgressPopup({
 }: Readonly<UploadProgressPopupProps>) {
   const hasActive = files.some(f => f.uploadStatus === 'pending' || f.uploadStatus === 'uploading');
   return (
-    <div className={POPUP_OVERLAY_CLASS}>
+    <div
+      data-testid="upload-progress-panel"
+      className={POPUP_OVERLAY_CLASS}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Upload progress"
+    >
       <div className={POPUP_CONTAINER_CLASS}>
         <h3 className="mb-4 text-center text-lg font-semibold text-gray-900 dark:text-white">
           Uploading Files...
