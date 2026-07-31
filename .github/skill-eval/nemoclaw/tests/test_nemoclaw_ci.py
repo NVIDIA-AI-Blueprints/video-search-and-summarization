@@ -23,6 +23,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -3271,6 +3272,656 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 (log_dir / "openclaw-agent.log").write_text(fixture, encoding="utf-8")
                 self.assertFalse(headless_runner._openclaw_log_completed(log_dir))
 
+    def test_openclaw_timeout_marker_is_narrow_and_terminal(self):
+        marker = (
+            "GatewayClientRequestError: FailoverError: "
+            "LLM request timed out"
+        )
+        self.assertTrue(
+            headless_runner._openclaw_transient_llm_timeout(
+                f"warning\n{marker}.\nTerminated\n"
+            )
+        )
+        self.assertTrue(
+            headless_runner._openclaw_transient_llm_timeout(
+                "\x1b[31mGatewayClientRequestError\x1b[0m: "
+                "\x1b[31mFailoverError\x1b[0m: "
+                "LLM request timed out\n"
+            )
+        )
+        for other_failure in (
+            "FailoverError: LLM request timed out",
+            "GatewayClientRequestError: LLM request timed out",
+            "GatewayClientRequestError: FailoverError: deployment timed out",
+            "VLM request timed out",
+            f"[agent/embedded] error={marker}",
+            f"{marker}\nTerminated\nanother failure",
+            f"{marker}\nunrelated terminal failure",
+        ):
+            with self.subTest(other_failure=other_failure):
+                self.assertFalse(
+                    headless_runner._openclaw_transient_llm_timeout(
+                        other_failure
+                    )
+                )
+        self.assertFalse(
+            headless_runner._openclaw_transient_llm_timeout(
+                f"{marker}\nTerminated\nTerminated\n"
+            )
+        )
+
+    def test_openclaw_timeout_retry_requires_exact_stopped_rc1_state(self):
+        marker = (
+            "GatewayClientRequestError: FailoverError: "
+            "LLM request timed out.\nTerminated\n"
+        )
+        self.assertTrue(
+            headless_runner._openclaw_retryable_llm_timeout(
+                state="stopped",
+                cli_returncode=1,
+                error_type="OpenClawStopped",
+                raw_log=marker,
+            )
+        )
+        for state, returncode, error_type in (
+            ("running", 1, "OpenClawStopped"),
+            ("missing", 1, "OpenClawMissingState"),
+            ("stopped", 0, "OpenClawMissingOutput"),
+            ("stopped", 7, "OpenClawStopped"),
+            ("stopped", 1, "OpenClawMissingExitStatus"),
+        ):
+            with self.subTest(
+                state=state,
+                returncode=returncode,
+                error_type=error_type,
+            ):
+                self.assertFalse(
+                    headless_runner._openclaw_retryable_llm_timeout(
+                        state=state,
+                        cli_returncode=returncode,
+                        error_type=error_type,
+                        raw_log=marker,
+                    )
+                )
+
+    def _run_openclaw_retry_fixture(
+        self,
+        second_returncode: int,
+        *,
+        deadline: float = 1000.0,
+        first_log: str | None = None,
+        first_returncode: int = 1,
+        first_state: str = "stopped",
+        wait_profile: str = "",
+        root_session_jsonl: str | BaseException | None = None,
+        second_start_ok: bool = True,
+    ) -> tuple[
+        dict[str, Any],
+        list[dict[str, Any]],
+        list[str],
+        Path,
+        tempfile.TemporaryDirectory[str],
+    ]:
+        root = tempfile.TemporaryDirectory()
+        log_dir = Path(root.name)
+        calls: list[dict[str, Any]] = []
+        root_reads: list[str] = []
+        timeout_marker = (
+            "GatewayClientRequestError: FailoverError: "
+            "LLM request timed out"
+        )
+        first_attempt_log = first_log or timeout_marker
+        valid_root_session = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session",
+                        "id": "run-root",
+                        "parentSession": None,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message",
+                        "id": "user-1",
+                        "message": {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Deploy base and verify its "
+                                        "endpoints."
+                                    ),
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ]
+        ) + "\n"
+
+        def fake_start(
+            sandbox,
+            prompt,
+            timeout,
+            logs,
+            attempt_deadline=None,
+            runtime_input=None,
+            session_id=None,
+        ):
+            root_session_id = session_id or "run-root"
+            root_session_file = str(
+                headless_runner.OPENCLAW_SESSION_DIR
+                / f"{root_session_id}.jsonl"
+            )
+            calls.append(
+                {
+                    "prompt": prompt,
+                    "timeout": timeout,
+                    "deadline": attempt_deadline,
+                    "runtime_input": runtime_input,
+                    "session_id": root_session_id,
+                }
+            )
+            if len(calls) == 2 and not second_start_ok:
+                return {
+                    "status": 500,
+                    "body": {"ok": False, "returncode": 70},
+                    "stdout_tail": "",
+                    "stderr_tail": "pre-launch cleanup failed",
+                    "error": "continuation did not launch",
+                    "error_type": "OpenClawLaunchError",
+                    "root_session_id": root_session_id,
+                    "root_session_file": root_session_file,
+                }
+            (
+                logs
+                / headless_runner.OPENCLAW_LAUNCH_SESSION_METADATA
+            ).write_text(
+                json.dumps(
+                    {
+                        "root_session_id": root_session_id,
+                        "root_session_file": root_session_file,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (logs / "openclaw-launch.log").write_text(
+                f"launch attempt {len(calls)}\n",
+                encoding="utf-8",
+            )
+            return {
+                "status": 200,
+                "body": {"ok": True},
+                "stdout_tail": "",
+                "stderr_tail": "",
+                "root_session_id": root_session_id,
+                "root_session_file": root_session_file,
+            }
+
+        def fake_snapshot(sandbox, logs, attempt_deadline=None):
+            if len(calls) == 1:
+                log = first_attempt_log
+                returncode = first_returncode
+                state = first_state
+            else:
+                log = (
+                    '{"result":{"payloads":[{"text":"done"}]}}'
+                    if second_returncode == 0
+                    else timeout_marker
+                )
+                returncode = second_returncode
+                state = "stopped"
+            (logs / "openclaw-agent.log").write_text(
+                log,
+                encoding="utf-8",
+            )
+            return state, returncode
+
+        def fake_read_root(
+            sandbox,
+            session_file,
+            max_bytes,
+            read_deadline,
+        ):
+            root_reads.append(session_file)
+            if isinstance(root_session_jsonl, BaseException):
+                raise root_session_jsonl
+            return root_session_jsonl or valid_root_session
+
+        patches = (
+            mock.patch.object(
+                headless_runner,
+                "_start_openclaw_cli_async",
+                side_effect=fake_start,
+            ),
+            mock.patch.object(
+                headless_runner,
+                "_openclaw_cli_snapshot",
+                side_effect=fake_snapshot,
+            ),
+            mock.patch.object(
+                headless_runner,
+                "_read_managed_openclaw_session",
+                side_effect=fake_read_root,
+            ),
+            mock.patch.object(
+                headless_runner.time,
+                "monotonic",
+                return_value=100.0,
+            ),
+        )
+        with patches[0], patches[1], patches[2], patches[3]:
+            response = headless_runner.run_openclaw_cli(
+                "demo",
+                "Deploy base and verify its endpoints.",
+                900,
+                log_dir,
+                wait_profile=wait_profile,
+                deadline=deadline,
+            )
+        return response, calls, root_reads, log_dir, root
+
+    def test_openclaw_timeout_retries_once_in_same_session_and_succeeds(self):
+        response, calls, root_reads, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                deadline=872.0,
+                wait_profile="base",
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 200)
+            self.assertEqual(response["attempts"], 2)
+            self.assertTrue(response["retry"]["attempted"])
+            self.assertTrue(response["attempt_2_launched"])
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(
+                root_reads,
+                [
+                    (
+                        "/sandbox/.openclaw/agents/main/sessions/"
+                        "run-root.jsonl"
+                    )
+                ],
+            )
+            self.assertEqual(
+                [call["session_id"] for call in calls],
+                ["run-root", "run-root"],
+            )
+            self.assertEqual(
+                calls[1]["prompt"],
+                headless_runner.OPENCLAW_LLM_TIMEOUT_CONTINUATION_PROMPT,
+            )
+            self.assertNotIn("Deploy base", calls[1]["prompt"])
+            self.assertIn("Do not repeat", calls[1]["prompt"])
+            self.assertEqual(
+                calls[1]["timeout"],
+                headless_runner.OPENCLAW_LLM_TIMEOUT_RETRY_MAX_SECONDS,
+            )
+            self.assertEqual(calls[1]["deadline"], 700.0)
+            self.assertEqual(
+                response["retry"]["readiness_reserve_s"],
+                headless_runner.OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS,
+            )
+            self.assertEqual(872.0 - calls[1]["deadline"], 172.0)
+            self.assertIn(
+                "LLM request timed out",
+                (
+                    log_dir / "openclaw-agent-attempt-1.log"
+                ).read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                '"text":"done"',
+                (
+                    log_dir / "openclaw-agent-attempt-2.log"
+                ).read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "launch attempt 1",
+                (
+                    log_dir / "openclaw-launch-attempt-1.log"
+                ).read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "launch attempt 2",
+                (
+                    log_dir / "openclaw-launch-attempt-2.log"
+                ).read_text(encoding="utf-8"),
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_timeout_retry_failure_is_not_retried_again(self):
+        response, calls, _, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(7)
+        )
+        try:
+            self.assertEqual(response["status"], 500)
+            self.assertEqual(response["body"]["returncode"], 7)
+            self.assertEqual(response["attempts"], 2)
+            self.assertEqual(len(calls), 2)
+            self.assertTrue(response["retry"]["attempted"])
+            self.assertIn(
+                "LLM request timed out",
+                (
+                    log_dir / "openclaw-agent-attempt-2.log"
+                ).read_text(encoding="utf-8"),
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_does_not_retry_other_failures(self):
+        response, calls, root_reads, _, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                first_log="docker compose dependency failed to start",
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 500)
+            self.assertEqual(response["attempts"], 1)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(root_reads, [])
+            self.assertNotIn("retry", response)
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_timeout_retry_requires_shared_deadline_budget(self):
+        response, calls, _, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                deadline=(
+                    100.0
+                    + headless_runner.OPENCLAW_LLM_TIMEOUT_RETRY_MIN_SECONDS
+                    - 1
+                ),
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 500)
+            self.assertEqual(len(calls), 1)
+            self.assertFalse(response["retry"]["attempted"])
+            self.assertEqual(
+                response["retry"]["skipped"],
+                "insufficient_shared_deadline",
+            )
+            self.assertFalse(
+                (log_dir / "openclaw-agent-attempt-2.log").exists()
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_timeout_retry_reserves_profile_readiness_budget(self):
+        response, calls, root_reads, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                deadline=(
+                    100.0
+                    + headless_runner.OPENCLAW_LLM_TIMEOUT_RETRY_MIN_SECONDS
+                    + headless_runner.OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS
+                    - 1
+                ),
+                wait_profile="alerts",
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 500)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(root_reads, [])
+            self.assertFalse(response["retry"]["attempted"])
+            self.assertEqual(
+                response["retry"]["skipped"],
+                "insufficient_shared_deadline",
+            )
+            self.assertEqual(
+                response["retry"]["readiness_reserve_s"],
+                headless_runner.OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS,
+            )
+            self.assertFalse(
+                (log_dir / "openclaw-agent-attempt-2.log").exists()
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_timeout_retry_deadline_preserves_profile_reserve(self):
+        response, calls, _, _, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                deadline=600.0,
+                wait_profile="lvs",
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 200)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[1]["timeout"], 380)
+            self.assertEqual(calls[1]["deadline"], 480.0)
+            self.assertEqual(
+                600.0 - calls[1]["deadline"],
+                headless_runner.OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS,
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_timeout_retry_requires_valid_persisted_root_prompt(self):
+        parent_session = (
+            "/sandbox/.openclaw/agents/main/sessions/run-parent.jsonl"
+        )
+        invalid_roots: tuple[
+            tuple[str, str | BaseException],
+            ...,
+        ] = (
+            ("missing", RuntimeError("root session unavailable")),
+            ("malformed", "{not-json}\n"),
+            (
+                "parented",
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "session",
+                                "id": "run-root",
+                                "parentSession": parent_session,
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "message": {
+                                    "role": "user",
+                                    "content": "original prompt",
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+            ),
+            (
+                "header-only",
+                json.dumps(
+                    {
+                        "type": "session",
+                        "id": "run-root",
+                        "parentSession": None,
+                    }
+                )
+                + "\n",
+            ),
+            (
+                "empty-user",
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "session",
+                                "id": "run-root",
+                                "parentSession": None,
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "message": {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": "  "}
+                                    ],
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+            ),
+            (
+                "different-user",
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "session",
+                                "id": "run-root",
+                                "parentSession": None,
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "message": {
+                                    "role": "user",
+                                    "content": (
+                                        "Deploy a different profile."
+                                    ),
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+            ),
+            (
+                "mismatched-session-id",
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "session",
+                                "id": "other-root",
+                                "parentSession": None,
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "message": {
+                                    "role": "user",
+                                    "content": (
+                                        "Deploy base and verify its "
+                                        "endpoints."
+                                    ),
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+            ),
+            (
+                "out-of-order-mismatched-session-id",
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "message": {
+                                    "role": "user",
+                                    "content": (
+                                        "Deploy base and verify its "
+                                        "endpoints."
+                                    ),
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "session",
+                                "id": "other-root",
+                                "parentSession": None,
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+            ),
+        )
+        for label, root_session_jsonl in invalid_roots:
+            with self.subTest(label=label):
+                response, calls, root_reads, log_dir, temporary = (
+                    self._run_openclaw_retry_fixture(
+                        0,
+                        root_session_jsonl=root_session_jsonl,
+                    )
+                )
+                try:
+                    self.assertEqual(response["status"], 500)
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(
+                        root_reads,
+                        [
+                            (
+                                "/sandbox/.openclaw/agents/main/sessions/"
+                                "run-root.jsonl"
+                            )
+                        ],
+                    )
+                    self.assertFalse(response["retry"]["attempted"])
+                    self.assertEqual(
+                        response["retry"]["skipped"],
+                        "invalid_retry_root_session",
+                    )
+                    self.assertFalse(
+                        (
+                            log_dir
+                            / "openclaw-agent-attempt-2.log"
+                        ).exists()
+                    )
+                    self.assertFalse(
+                        (
+                            log_dir
+                            / "openclaw.failure-session.jsonl"
+                        ).exists()
+                    )
+                finally:
+                    temporary.cleanup()
+
+    def test_openclaw_retry_prelaunch_failure_is_not_attempt_two(self):
+        response, calls, root_reads, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                second_start_ok=False,
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 500)
+            self.assertEqual(response["attempts"], 1)
+            self.assertFalse(response["attempt_2_launched"])
+            self.assertFalse(response["retry"]["attempted"])
+            self.assertFalse(response["retry"]["attempt_2_launched"])
+            self.assertTrue(response["retry"]["launch_failed"])
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(root_reads), 1)
+            self.assertTrue(
+                (log_dir / "openclaw-agent-attempt-1.log").exists()
+            )
+            self.assertFalse(
+                (log_dir / "openclaw-agent-attempt-2.log").exists()
+            )
+        finally:
+            temporary.cleanup()
+
     def test_snapshot_treats_rc_file_as_complete_before_sentinel_exit(self):
         scripts: list[str] = []
 
@@ -3688,6 +4339,132 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertIn(session_file, scripts[0])
         self.assertIn("readlink -f", scripts[0])
         self.assertIn(str(headless_runner.OPENCLAW_SESSION_MAX_BYTES), scripts[0])
+
+    def test_missing_result_envelope_publishes_only_fresh_root_failure_session(self):
+        rtsp_url = "rtsp://user:password@sample.example.test:8554/eval"
+        root_session = (
+            "/sandbox/.openclaw/agents/main/sessions/run-root.jsonl"
+        )
+        session_jsonl = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session",
+                        "id": "run-root",
+                        "parentSession": None,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message",
+                        "id": "user-1",
+                        "message": {
+                            "role": "user",
+                            "content": f"deploy from {rtsp_url}",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message",
+                        "id": "assistant-1",
+                        "message": {
+                            "role": "assistant",
+                            "errorMessage": (
+                                "GatewayClientRequestError: FailoverError: "
+                                "LLM request timed out"
+                            ),
+                            "content": [],
+                        },
+                    }
+                ),
+            ]
+        ) + "\n"
+        scripts: list[str] = []
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            scripts.append(script)
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout=session_jsonl,
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            artifact_dir = root / "artifacts"
+            agent_dir = root / "agent"
+            artifact_dir.mkdir()
+            (
+                artifact_dir
+                / headless_runner.OPENCLAW_LAUNCH_SESSION_METADATA
+            ).write_text(
+                json.dumps(
+                    {
+                        "root_session_id": "run-root",
+                        "root_session_file": root_session,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (artifact_dir / "openclaw-agent.log").write_text(
+                (
+                    "GatewayClientRequestError: FailoverError: "
+                    "LLM request timed out\n"
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(
+                    headless_runner,
+                    "_sandbox_exec",
+                    side_effect=fake_sandbox_exec,
+                ),
+                mock.patch.dict(
+                    os.environ,
+                    {"RTSP_SAMPLE_URL": rtsp_url},
+                    clear=False,
+                ),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "failure session was published",
+                ),
+            ):
+                headless_runner.collect_and_publish_openclaw_trajectory(
+                    "demo",
+                    artifact_dir,
+                    agent_dir,
+                    "current prompt",
+                )
+
+            artifact_failure = (
+                artifact_dir / "openclaw.failure-session.jsonl"
+            ).read_text(encoding="utf-8")
+            agent_failure_exists = (
+                agent_dir / "openclaw.failure-session.jsonl"
+            ).exists()
+            report = json.loads(
+                (
+                    artifact_dir / "openclaw_failure_session.json"
+                ).read_text(encoding="utf-8")
+            )
+            trajectory_exists = (
+                artifact_dir / "trajectory.json"
+            ).exists()
+
+        self.assertFalse(agent_failure_exists)
+        self.assertNotIn(rtsp_url, artifact_failure)
+        self.assertIn(headless_runner.RTSP_EXACT_REDACTION, artifact_failure)
+        self.assertEqual(report["root_session_file"], root_session)
+        self.assertEqual(
+            report["reason"],
+            "missing_openclaw_result_envelope",
+        )
+        self.assertFalse(trajectory_exists)
+        self.assertEqual(len(scripts), 1)
+        self.assertIn(root_session, scripts[0])
+        self.assertNotIn("find ", scripts[0])
 
     def test_publish_openclaw_trajectory_merges_compaction_lineage(self):
         root_session = (
@@ -4765,6 +5542,92 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             report["response"]["error_type"],
             "TimeoutExpired",
         )
+
+    def test_cli_prelaunch_retry_failure_does_not_relabel_attempt_one(self):
+        preserve = mock.Mock()
+
+        def fake_collect(sandbox, logs, deadline=None):
+            (logs / "openclaw-agent.log").write_text(
+                "attempt one remote log\n",
+                encoding="utf-8",
+            )
+
+        failed_retry_launch = {
+            "status": 500,
+            "body": {
+                "ok": False,
+                "mode": "cli",
+                "returncode": 70,
+            },
+            "stdout_tail": "",
+            "stderr_tail": "pre-launch cleanup failed",
+            "error": "continuation did not launch",
+            "error_type": "OpenClawLaunchError",
+            "attempts": 1,
+            "attempt_2_launched": False,
+            "retry": {
+                "attempted": False,
+                "attempt_2_launched": False,
+                "launch_failed": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text("Deploy base", encoding="utf-8")
+            log_dir = root / "artifacts"
+            agent_dir = root / "agent"
+            with (
+                mock.patch.object(
+                    headless_runner,
+                    "run_openclaw_cli",
+                    return_value=failed_retry_launch,
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "stop_openclaw_cli",
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "collect_openclaw_cli_log",
+                    side_effect=fake_collect,
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "collect_and_publish_openclaw_trajectory",
+                ),
+                mock.patch.object(
+                    headless_runner,
+                    "_preserve_openclaw_attempt_logs",
+                    preserve,
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                rc = headless_runner.main(
+                    [
+                        "--prompt-file",
+                        str(prompt),
+                        "--log-dir",
+                        str(log_dir),
+                        "--agent-log-dir",
+                        str(agent_dir),
+                        "--launch-mode",
+                        "cli",
+                    ]
+                )
+
+            canonical_log = (
+                log_dir / "openclaw-agent.log"
+            ).read_text(encoding="utf-8")
+            attempt_two_exists = (
+                log_dir / "openclaw-agent-attempt-2.log"
+            ).exists()
+
+        self.assertEqual(rc, 1)
+        preserve.assert_not_called()
+        self.assertEqual(canonical_log, "attempt one remote log\n")
+        self.assertFalse(attempt_two_exists)
 
     def test_cli_launch_collects_evidence_after_cleanup_validation_error(self):
         calls: list[str] = []

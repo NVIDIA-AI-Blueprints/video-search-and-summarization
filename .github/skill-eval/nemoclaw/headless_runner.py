@@ -35,6 +35,24 @@ OPENCLAW_SESSION_DIR = PurePosixPath(
 OPENCLAW_SESSION_MAX_BYTES = 50 * 1024 * 1024
 OPENCLAW_SESSION_MAX_DEPTH = 8
 OPENCLAW_LAUNCH_SESSION_METADATA = "openclaw-launch-session.json"
+OPENCLAW_LLM_TIMEOUT_RETRY_MIN_SECONDS = 120
+OPENCLAW_LLM_TIMEOUT_RETRY_MAX_SECONDS = 600
+OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS = 120
+OPENCLAW_LLM_TIMEOUT_TEXT = (
+    "GatewayClientRequestError: FailoverError: LLM request timed out"
+)
+OPENCLAW_LLM_TIMEOUT_MARKER = re.compile(
+    rf"^{re.escape(OPENCLAW_LLM_TIMEOUT_TEXT)}\.?$"
+)
+ANSI_COLOR_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+OPENCLAW_LLM_TIMEOUT_CONTINUATION_PROMPT = (
+    "Resume the original evaluation task in this same session after the "
+    "transient LLM request timeout. Do not repeat setup or work that the "
+    "session already completed. Finish only the incomplete work, then perform "
+    "all terminal deployment, endpoint, profile-readiness, and task-result "
+    "verification required by the original task. Report the final result only "
+    "after those original success criteria are satisfied."
+)
 RUNTIME_REDACTION_KEYS = (
     "RTSP_SAMPLE_URL",
     "NGC_CLI_API_KEY",
@@ -1128,6 +1146,99 @@ def _read_managed_openclaw_session(
     return session_jsonl
 
 
+def _publish_openclaw_failure_root_session(
+    sandbox_name: str,
+    log_dir: Path,
+    root_session_file: str,
+    deadline: float | None,
+) -> dict[str, Any]:
+    """Publish only this launch's exact root JSONL as failure evidence."""
+    raw_session_jsonl = _read_managed_openclaw_session(
+        sandbox_name,
+        root_session_file,
+        OPENCLAW_SESSION_MAX_BYTES,
+        deadline,
+    )
+    if _openclaw_parent_session_file(raw_session_jsonl) is not None:
+        raise RuntimeError(
+            "Fresh OpenClaw failure root session unexpectedly has a parent"
+    )
+    session_jsonl = _redact_runtime_text(raw_session_jsonl)
+    artifact_name = "openclaw.failure-session.jsonl"
+    _atomic_write_text(log_dir / artifact_name, session_jsonl)
+
+    report = {
+        "root_session_file": root_session_file,
+        "source_session_bytes": len(raw_session_jsonl.encode("utf-8")),
+        "session_bytes": len(session_jsonl.encode("utf-8")),
+        "artifact": str(log_dir / artifact_name),
+        "reason": "missing_openclaw_result_envelope",
+    }
+    _atomic_write_text(
+        log_dir / "openclaw_failure_session.json",
+        json.dumps(report, indent=2) + "\n",
+    )
+    return report
+
+
+def _validate_openclaw_retry_root_session(
+    session_jsonl: str,
+    *,
+    expected_session_id: str,
+    expected_prompt: str,
+) -> None:
+    """Bind a parentless retry root to this launch and its exact prompt."""
+    if _openclaw_parent_session_file(session_jsonl) is not None:
+        raise RuntimeError(
+            "Fresh OpenClaw retry root session unexpectedly has a parent"
+        )
+    if not expected_prompt.strip():
+        raise RuntimeError("OpenClaw retry original prompt was empty")
+
+    exact_prompt_seen = False
+    for raw_line in session_jsonl.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # `_openclaw_parent_session_file` already validated every nonempty row.
+        record = json.loads(line)
+        if (
+            record.get("type") == "session"
+            and record.get("id") != expected_session_id
+        ):
+            raise RuntimeError(
+                "Fresh OpenClaw retry root session id did not match its "
+                "launch binding"
+            )
+        message = record.get("message")
+        if (
+            record.get("type") == "message"
+            and isinstance(message, dict)
+            and message.get("role") == "user"
+        ):
+            content = message.get("content")
+            if isinstance(content, str):
+                persisted_prompt = content
+            elif isinstance(content, list):
+                persisted_prompt = "".join(
+                    part["text"]
+                    for part in content
+                    if isinstance(part, dict)
+                    and part.get("type") == "text"
+                    and isinstance(part.get("text"), str)
+                )
+            else:
+                continue
+            if persisted_prompt == expected_prompt:
+                exact_prompt_seen = True
+    if exact_prompt_seen:
+        return
+    raise RuntimeError(
+        "Fresh OpenClaw retry root session did not contain the exact "
+        "original user prompt"
+    )
+
+
 def collect_and_publish_openclaw_trajectory(
     sandbox_name: str,
     log_dir: Path,
@@ -1140,12 +1251,35 @@ def collect_and_publish_openclaw_trajectory(
         encoding="utf-8",
         errors="replace",
     )
-    envelope, leaf_session_file = _openclaw_session_file(raw_log)
     root_session_file = _launch_root_session_file(log_dir)
     _atomic_write_text(
         log_dir / "openclaw-agent.log",
         _redact_runtime_text(raw_log),
     )
+    if _openclaw_result_envelope(raw_log) is None:
+        try:
+            _publish_openclaw_failure_root_session(
+                sandbox_name,
+                log_dir,
+                root_session_file,
+                deadline,
+            )
+        except (
+            OSError,
+            RuntimeError,
+            subprocess.SubprocessError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "OpenClaw output did not end with a JSON result envelope; "
+                "the exact fresh root failure session could not be published: "
+                f"{_redact_runtime_text(str(exc))}"
+            ) from exc
+        raise RuntimeError(
+            "OpenClaw output did not end with a JSON result envelope; "
+            "the exact fresh root failure session was published"
+        )
+    envelope, leaf_session_file = _openclaw_session_file(raw_log)
 
     lineage_leaf_first: list[tuple[str, str]] = []
     seen_files: set[str] = set()
@@ -1284,6 +1418,72 @@ def _openclaw_log_completed(log_dir: Path) -> bool:
     except OSError:
         return False
     return bool(_openclaw_visible_text(text))
+
+
+def _openclaw_transient_llm_timeout(raw: str) -> bool:
+    """Match only a terminal provider timeout plus its observed sentinel."""
+    nonempty_lines: list[str] = []
+    for raw_line in raw.splitlines():
+        line = ANSI_COLOR_ESCAPE_PATTERN.sub("", raw_line).strip()
+        if line:
+            nonempty_lines.append(line)
+    if nonempty_lines and nonempty_lines[-1] == "Terminated":
+        nonempty_lines.pop()
+    return bool(
+        nonempty_lines
+        and OPENCLAW_LLM_TIMEOUT_MARKER.fullmatch(nonempty_lines[-1])
+    )
+
+
+def _openclaw_retryable_llm_timeout(
+    *,
+    state: str,
+    cli_returncode: int | None,
+    error_type: str,
+    raw_log: str,
+) -> bool:
+    """Require the exact stopped/rc=1 failure observed from OpenClaw."""
+    return (
+        state == "stopped"
+        and cli_returncode == 1
+        and error_type == "OpenClawStopped"
+        and _openclaw_transient_llm_timeout(raw_log)
+    )
+
+
+def _preserve_openclaw_attempt_logs(log_dir: Path, attempt: int) -> None:
+    """Preserve redacted per-attempt evidence before the next launch rotates it."""
+    agent_log = log_dir / "openclaw-agent.log"
+    try:
+        raw_agent_log = agent_log.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"could not preserve OpenClaw attempt {attempt} log"
+        ) from exc
+    _atomic_write_text(
+        log_dir / f"openclaw-agent-attempt-{attempt}.log",
+        _redact_runtime_text(raw_agent_log),
+    )
+
+    launch_log = log_dir / "openclaw-launch.log"
+    try:
+        raw_launch_log = launch_log.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RuntimeError(
+            f"could not preserve OpenClaw attempt {attempt} launch log"
+        ) from exc
+    _atomic_write_text(
+        log_dir / f"openclaw-launch-attempt-{attempt}.log",
+        _redact_runtime_text(raw_launch_log),
+    )
 
 
 def _openclaw_cli_snapshot(
@@ -1462,6 +1662,7 @@ def _start_openclaw_cli_async(
     log_dir: Path,
     deadline: float | None = None,
     runtime_input: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     ensure_openclaw_gateway(sandbox_name, log_dir, deadline)
     openclaw_timeout_s = _deadline_timeout(
@@ -1469,7 +1670,15 @@ def _start_openclaw_cli_async(
         timeout_s,
         "OpenClaw agent launch",
     )
-    root_session_id = _fresh_openclaw_session_id()
+    root_session_id = session_id or _fresh_openclaw_session_id()
+    if (
+        not root_session_id
+        or any(
+            char in root_session_id
+            for char in ("/", "\0", "\r", "\n")
+        )
+    ):
+        raise RuntimeError("OpenClaw root session id is invalid")
     root_session_file = str(
         OPENCLAW_SESSION_DIR / f"{root_session_id}.jsonl"
     )
@@ -1484,6 +1693,10 @@ def _start_openclaw_cli_async(
         )
         + "\n",
     )
+    # A retry has already preserved attempt 1 under its attempt-specific
+    # filename. Never let its local snapshot masquerade as attempt 2 if the
+    # continuation reaches its deadline before a stopped-state snapshot.
+    (log_dir / "openclaw-agent.log").unlink(missing_ok=True)
     if runtime_input is None:
         inner = _openclaw_cli_command(
             prompt,
@@ -1582,6 +1795,7 @@ def _start_openclaw_cli_async(
         "stderr_tail": safe_stderr[-4000:],
         "error": "",
         "error_type": "",
+        "root_session_id": root_session_id,
         "root_session_file": root_session_file,
     }
 
@@ -1605,89 +1819,310 @@ def run_openclaw_cli(
         if runtime_input is not None
         else {}
     )
-    start = _start_openclaw_cli_async(
-        sandbox_name,
-        prompt,
-        timeout_s,
-        log_dir,
-        deadline,
-        **runtime_kwargs,
-    )
-    if not _response_ok(start):
-        start["body"]["mode"] = "cli"
-        return start
-
     poll_sec = max(5, int(os.environ.get("NEMOCLAW_OPENCLAW_POLL_SEC", "15")))
-    returncode = 124
-    stdout = start.get("stdout_tail", "")
-    stderr = start.get("stderr_tail", "")
-    error = "OpenClaw final output was not emitted before timeout"
-    error_type = "Timeout"
-    completed = False
-    state = "unknown"
+    attempt_prompt = prompt
+    retry_session_id: str | None = None
+    retry_report: dict[str, Any] | None = None
+    retry_deadline_cap: float | None = None
+    readiness_reserve_s = (
+        OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS
+        if wait_profile
+        else 0
+    )
+    attempt_2_launched = False
+    response: dict[str, Any] | None = None
 
-    while time.monotonic() < deadline:
-        try:
-            state, cli_returncode = _openclaw_cli_snapshot(
-                sandbox_name,
-                log_dir,
-                deadline,
+    for attempt in (1, 2):
+        if attempt == 1:
+            attempt_deadline = deadline
+            attempt_timeout_s = timeout_s
+        else:
+            if (
+                retry_deadline_cap is None
+                or retry_report is None
+                or response is None
+            ):
+                raise AssertionError(
+                    "OpenClaw retry state was not initialized"
+                )
+            retry_now = time.monotonic()
+            remaining_retry_s = retry_deadline_cap - retry_now
+            if (
+                remaining_retry_s
+                < OPENCLAW_LLM_TIMEOUT_RETRY_MIN_SECONDS
+            ):
+                retry_report["attempted"] = False
+                retry_report["skipped"] = (
+                    "insufficient_shared_deadline"
+                )
+                retry_report["remaining_shared_deadline_s"] = max(
+                    0,
+                    round(deadline - retry_now, 3),
+                )
+                response["retry"] = retry_report
+                return response
+            attempt_timeout_s = min(
+                OPENCLAW_LLM_TIMEOUT_RETRY_MAX_SECONDS,
+                max(1, int(remaining_retry_s)),
             )
-        except TimeoutError:
-            break
-        except subprocess.TimeoutExpired:
+            attempt_deadline = min(
+                retry_deadline_cap,
+                retry_now + attempt_timeout_s,
+            )
+
+        start_kwargs = dict(runtime_kwargs)
+        if retry_session_id is not None:
+            start_kwargs["session_id"] = retry_session_id
+        start = _start_openclaw_cli_async(
+            sandbox_name,
+            attempt_prompt,
+            attempt_timeout_s,
+            log_dir,
+            attempt_deadline,
+            **start_kwargs,
+        )
+        if not _response_ok(start):
+            body = start.get("body")
+            if isinstance(body, dict):
+                body["mode"] = "cli"
+            start["attempts"] = 1 if attempt == 2 else attempt
+            if retry_report is not None:
+                if attempt == 2:
+                    retry_report["attempted"] = False
+                    retry_report["attempt_2_launched"] = False
+                    retry_report["launch_failed"] = True
+                start["retry"] = retry_report
+            start["attempt_2_launched"] = False
+            return start
+        if attempt == 2:
+            attempt_2_launched = True
+            assert retry_report is not None
+            retry_report["attempted"] = True
+            retry_report["attempt_2_launched"] = True
+
+        returncode = 124
+        stdout = start.get("stdout_tail", "")
+        stderr = start.get("stderr_tail", "")
+        error = "OpenClaw final output was not emitted before timeout"
+        error_type = "Timeout"
+        completed = False
+        state = "unknown"
+        cli_returncode: int | None = None
+
+        while time.monotonic() < attempt_deadline:
             try:
-                _sleep_before_deadline(deadline, poll_sec)
+                state, cli_returncode = _openclaw_cli_snapshot(
+                    sandbox_name,
+                    log_dir,
+                    attempt_deadline,
+                )
             except TimeoutError:
                 break
-            continue
-        if state == "stopped":
-            if cli_returncode == 0 and _openclaw_log_completed(log_dir):
-                returncode = 0
-                error = ""
-                error_type = ""
-                completed = True
-            elif cli_returncode == 0:
+            except subprocess.TimeoutExpired:
+                try:
+                    _sleep_before_deadline(attempt_deadline, poll_sec)
+                except TimeoutError:
+                    break
+                continue
+            if state == "stopped":
+                if cli_returncode == 0 and _openclaw_log_completed(log_dir):
+                    returncode = 0
+                    error = ""
+                    error_type = ""
+                    completed = True
+                elif cli_returncode == 0:
+                    returncode = 1
+                    error = (
+                        "OpenClaw process exited successfully without "
+                        "assistant payload text"
+                    )
+                    error_type = "OpenClawMissingOutput"
+                elif cli_returncode is None:
+                    returncode = 1
+                    error = (
+                        "OpenClaw process stopped without recording its "
+                        "exit status"
+                    )
+                    error_type = "OpenClawMissingExitStatus"
+                else:
+                    returncode = cli_returncode
+                    error = (
+                        "OpenClaw process exited with status "
+                        f"{cli_returncode}"
+                    )
+                    error_type = "OpenClawStopped"
+                break
+            if state == "missing":
                 returncode = 1
-                error = "OpenClaw process exited successfully without assistant payload text"
-                error_type = "OpenClawMissingOutput"
-            elif cli_returncode is None:
-                returncode = 1
-                error = "OpenClaw process stopped without recording its exit status"
-                error_type = "OpenClawMissingExitStatus"
-            else:
-                returncode = cli_returncode
-                error = f"OpenClaw process exited with status {cli_returncode}"
-                error_type = "OpenClawStopped"
-            break
-        if state == "missing":
-            returncode = 1
-            error = "OpenClaw process state files are missing"
-            error_type = "OpenClawMissingState"
-            break
-        try:
-            _sleep_before_deadline(deadline, poll_sec)
-        except TimeoutError:
-            break
+                error = "OpenClaw process state files are missing"
+                error_type = "OpenClawMissingState"
+                break
+            try:
+                _sleep_before_deadline(attempt_deadline, poll_sec)
+            except TimeoutError:
+                break
 
-    with (log_dir / "openclaw-launch.log").open("a", encoding="utf-8") as handle:
-        handle.write(
-            f"mode=blocking-poll\nreturncode={returncode}\ncompleted={str(completed).lower()}\n"
-            f"last_state={state}\nerror_type={error_type}\nerror={error}\n"
+        with (log_dir / "openclaw-launch.log").open(
+            "a",
+            encoding="utf-8",
+        ) as handle:
+            handle.write(
+                f"mode=blocking-poll\nattempt={attempt}\n"
+                f"returncode={returncode}\n"
+                f"completed={str(completed).lower()}\n"
+                f"last_state={state}\nerror_type={error_type}\n"
+                f"error={error}\n"
+            )
+        response = {
+            "status": 200 if returncode == 0 else 500,
+            "body": {
+                "ok": returncode == 0,
+                "mode": "cli",
+                "returncode": returncode,
+            },
+            "stdout_tail": stdout[-4000:],
+            "stderr_tail": stderr[-4000:],
+            "error": error,
+            "error_type": error_type,
+            "attempts": attempt,
+            "attempt_2_launched": attempt_2_launched,
+            "root_session_file": start.get("root_session_file", ""),
+        }
+        if retry_report is not None:
+            response["retry"] = retry_report
+
+        if attempt == 2:
+            try:
+                _preserve_openclaw_attempt_logs(log_dir, attempt)
+            except RuntimeError as exc:
+                if _response_ok(response):
+                    return {
+                        "status": 500,
+                        "body": {
+                            "ok": False,
+                            "mode": "cli",
+                            "returncode": 1,
+                        },
+                        "stdout_tail": response["stdout_tail"],
+                        "stderr_tail": response["stderr_tail"],
+                        "error": _redact_runtime_text(str(exc)),
+                        "error_type": "OpenClawRetryArtifactError",
+                        "attempts": attempt,
+                        "retry": retry_report,
+                        "attempt_2_launched": attempt_2_launched,
+                        "root_session_file": response[
+                            "root_session_file"
+                        ],
+                    }
+            return response
+
+        if returncode == 0:
+            return response
+        try:
+            raw_attempt_log = (
+                log_dir / "openclaw-agent.log"
+            ).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return response
+        if not _openclaw_retryable_llm_timeout(
+            state=state,
+            cli_returncode=cli_returncode,
+            error_type=error_type,
+            raw_log=raw_attempt_log,
+        ):
+            return response
+
+        retry_deadline_cap = deadline - readiness_reserve_s
+        retry_now = time.monotonic()
+        remaining_s = deadline - retry_now
+        remaining_retry_s = retry_deadline_cap - retry_now
+        retry_report = {
+            "attempted": False,
+            "attempt_2_launched": False,
+            "reason": "transient_llm_request_timeout",
+            "readiness_reserve_s": readiness_reserve_s,
+            "remaining_shared_deadline_s": max(
+                0,
+                round(remaining_s, 3),
+            ),
+        }
+        if (
+            remaining_retry_s
+            < OPENCLAW_LLM_TIMEOUT_RETRY_MIN_SECONDS
+        ):
+            retry_report["skipped"] = "insufficient_shared_deadline"
+            response["retry"] = retry_report
+            return response
+
+        candidate_session_id = start.get("root_session_id")
+        candidate_session_file = start.get("root_session_file")
+        if (
+            not isinstance(candidate_session_id, str)
+            or not candidate_session_id
+            or any(
+                char in candidate_session_id
+                for char in ("/", "\0", "\r", "\n")
+            )
+        ):
+            retry_report["skipped"] = "missing_trusted_root_session_id"
+            response["retry"] = retry_report
+            return response
+        expected_session_file = str(
+            OPENCLAW_SESSION_DIR / f"{candidate_session_id}.jsonl"
         )
-    return {
-        "status": 200 if returncode == 0 else 500,
-        "body": {
-            "ok": returncode == 0,
-            "mode": "cli",
-            "returncode": returncode,
-        },
-        "stdout_tail": stdout[-4000:],
-        "stderr_tail": stderr[-4000:],
-        "error": error,
-        "error_type": error_type,
-        "root_session_file": start.get("root_session_file", ""),
-    }
+        try:
+            recorded_session_file = _launch_root_session_file(log_dir)
+        except (OSError, RuntimeError, ValueError):
+            retry_report["skipped"] = "untrusted_root_session_binding"
+            response["retry"] = retry_report
+            return response
+        if (
+            candidate_session_file != expected_session_file
+            or recorded_session_file != expected_session_file
+        ):
+            retry_report["skipped"] = "untrusted_root_session_binding"
+            response["retry"] = retry_report
+            return response
+
+        try:
+            root_session_jsonl = _read_managed_openclaw_session(
+                sandbox_name,
+                expected_session_file,
+                OPENCLAW_SESSION_MAX_BYTES,
+                retry_deadline_cap,
+            )
+            _validate_openclaw_retry_root_session(
+                root_session_jsonl,
+                expected_session_id=candidate_session_id,
+                expected_prompt=prompt,
+            )
+        except (
+            OSError,
+            RuntimeError,
+            subprocess.SubprocessError,
+            ValueError,
+        ):
+            retry_report["skipped"] = "invalid_retry_root_session"
+            response["retry"] = retry_report
+            return response
+
+        try:
+            _preserve_openclaw_attempt_logs(log_dir, attempt)
+        except RuntimeError as exc:
+            response["error"] = (
+                f"{error}; retry not started because attempt evidence "
+                f"could not be preserved: "
+                f"{_redact_runtime_text(str(exc))}"
+            )
+            response["error_type"] = "OpenClawRetryArtifactError"
+            retry_report["skipped"] = "attempt_log_preservation_failed"
+            response["retry"] = retry_report
+            return response
+
+        retry_session_id = candidate_session_id
+        attempt_prompt = OPENCLAW_LLM_TIMEOUT_CONTINUATION_PROMPT
+
+    raise AssertionError("OpenClaw retry loop exceeded its fixed attempt count")
 
 
 def _response_ok(response: dict[str, Any]) -> bool:
@@ -1914,6 +2349,7 @@ def main(argv: list[str] | None = None) -> int:
                 cleanup_errors: list[str] = []
                 stop_error = ""
                 trajectory_error = ""
+                cli_log_collected = False
                 try:
                     stop_openclaw_cli(sandbox_name, deadline)
                 except Exception as exc:
@@ -1923,12 +2359,25 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 try:
                     collect_openclaw_cli_log(sandbox_name, log_dir, deadline)
+                    cli_log_collected = True
                 except Exception as exc:
                     cleanup_errors.append(
                         "collect: "
                         f"{type(exc).__name__}: "
                         f"{_redact_runtime_text(str(exc))}"
                     )
+                if (
+                    cli_log_collected
+                    and response.get("attempt_2_launched") is True
+                ):
+                    try:
+                        _preserve_openclaw_attempt_logs(log_dir, 2)
+                    except RuntimeError as exc:
+                        cleanup_errors.append(
+                            "attempt-2-log: "
+                            f"{type(exc).__name__}: "
+                            f"{_redact_runtime_text(str(exc))}"
+                        )
                 try:
                     collect_and_publish_openclaw_trajectory(
                         sandbox_name,
