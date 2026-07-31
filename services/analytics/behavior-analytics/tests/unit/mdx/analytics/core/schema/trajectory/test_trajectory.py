@@ -262,3 +262,42 @@ class TestCalibrationTypeUnits:
         for attribute in ("speed", "speed_over_time", "bearing"):
             with pytest.raises(ValueError, match="does not support geographic"):
                 getattr(geo, attribute)
+
+    def test_short_cartesian_track_is_not_converted_twice(self):
+        """A track too short to segment must report the same speed in both members.
+
+        ``_raw_speed_over_time`` falls back to a single whole-track value when there are fewer than
+        ``smooth_min_points`` points -- the common case for short tracks. Reading the public ``speed``
+        for that fallback returns an already-converted value, which ``speed_over_time`` then converts
+        again, reporting an m/s-to-mph factor more than the truth.
+        """
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        from mdx.analytics.core.utils.distance_util import MPS_TO_MPH
+
+        cartesian = self._trajectory(CalibrationType.CARTESIAN)
+
+        # Two points, well under smooth_min_points, so the fallback branch is the one under test.
+        assert len(cartesian.smooth_trajectory) < cartesian.smooth_min_points
+        assert cartesian.speed_over_time == pytest.approx([50.0 * MPS_TO_MPH])
+        assert cartesian.speed_over_time == pytest.approx([cartesian.speed])
+
+    def test_zero_interval_cartesian_is_not_converted_twice(self):
+        """The zero-duration fallback goes through the same path and must also stay single-converted."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+
+        start = datetime(2025, 3, 1, 12, 0, 0)
+        instant = Trajectory(
+            id="t", start=start, end=start, calibration_type=CalibrationType.CARTESIAN,
+            points=[Coordinate(x=0.0, y=0.0, z=0.0), Coordinate(x=1.0, y=0.0, z=0.0)],
+        )
+
+        assert instant.time_interval == 0
+        assert instant.speed_over_time == pytest.approx([instant.speed])
+
+    def test_str_names_the_unit_of_the_coordinate_system(self):
+        """The units in __str__ follow calibration_type, since one class now serves both."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+
+        assert "mph" in str(self._trajectory(CalibrationType.CARTESIAN))
+        assert "px/s" in str(self._trajectory(CalibrationType.IMAGE))
+        assert "mph" not in str(self._trajectory(CalibrationType.IMAGE))

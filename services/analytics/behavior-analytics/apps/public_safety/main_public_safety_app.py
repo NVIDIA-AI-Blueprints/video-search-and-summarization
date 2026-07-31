@@ -73,18 +73,18 @@ class PublicSafetyApp(BaseApp):
 
             updated_messages_map = messages_to_map(updated_messages)
 
-            batch = self.state_mgmt.process_batch(updated_messages_map)
+            behavior_batch = self.state_mgmt.process_batch(updated_messages_map)
 
             events = []
-            for trip in batch.trip_behaviors:
+            for trip in behavior_batch.trip_behaviors:
                 events.extend(self.tripwire_event.get_events(trip))
                 events.extend(self.roi_event.get_events(trip))
 
-            logger.info(f"Batch {stats.batch_id} - Created a total of {len(batch.active_behaviors)} behavior(s), "
-                        f"writing {len(batch.behaviors_to_write)}")
+            logger.info(f"Batch {stats.batch_id} - Created a total of {len(behavior_batch.active_behaviors)} behavior(s), "
+                        f"writing {len(behavior_batch.behaviors_to_write)}")
             logger.info(f"Batch {stats.batch_id} - Created a total of {len(events)} event(s)")
 
-            self.write_behaviors(batch.behaviors_to_write)
+            self.write_behaviors(behavior_batch.behaviors_to_write)
             self.write_events(events)
 
     def close(self) -> None:

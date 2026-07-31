@@ -30,6 +30,7 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
 - `sourceType` / `sinkType`: typically "kafka" (also supports `redisStream`, `mqtt`)
 - `spaceAnalyticsIntervalSec`: "5.0"
 - Playback: `playbackLoop`, `playbackSensors`, `playbackInSimulationMode`, etc.
+- `trajGeoCoordEnable`: "true" (geo calibration only; "false" projects coordinates to `crsCartesian` metres, so distance becomes euclidean — units stay metric either way)
 - Trajectory/space: `traj*`, `spaceAnalytics*`, see `config.py` for full list.
 
 ## Common sensor keys (examples)
@@ -68,6 +69,15 @@ its last message — so that key sets the latency — and tracks still live when
 Events, anomalies and incidents are built from per-batch behaviors either way, so they are unaffected.
 
 The key is runtime-updatable; switching it off hands over anything still being held back.
+
+### When a track ends
+A track ends — releasing its state, and under `behaviorEmitOnce` writing its behavior — when
+`behaviorStateValidInterval` seconds pass with no new message, or when the object ID reappears after
+such a gap. Both are measured on the sensor's own event clock, never the wall clock, so a lagging or
+replayed pipeline is not mistaken for a quiet camera.
+
+A sensor that stops streaming freezes its clock, so its tracks are held until shutdown, where the
+flush releases them.
 
 ## Incidents & frame state
 - All incident types (proximity, restricted area, confined area, FOV count) default to disabled (`...IncidentEnable = "false"`). Set the corresponding `...IncidentEnable = "true"` to turn them on.

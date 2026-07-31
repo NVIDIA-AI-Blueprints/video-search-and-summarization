@@ -49,8 +49,8 @@ class BehaviorBatch:
         on: it is either the active behaviors or the tracks that just ended.
 
     Examples::
-        >>> batch = state_manager.process_batch(messages_map)
-        >>> app.write_behaviors(batch.behaviors_to_write)
+        >>> behavior_batch = state_manager.process_batch(messages_map)
+        >>> app.write_behaviors(behavior_batch.behaviors_to_write)
     """
 
     active_behaviors: list[Behavior] = field(default_factory=list)
@@ -77,8 +77,8 @@ class StateMgmt:
 
     Examples::
         >>> state_manager = StateMgmt(config, calibration)
-        >>> batch = state_manager.process_batch(messages_map)
-        >>> print(f"Written {len(batch.behaviors_to_write)} behavior(s)")
+        >>> behavior_batch = state_manager.process_batch(messages_map)
+        >>> print(f"Written {len(behavior_batch.behaviors_to_write)} behavior(s)")
     """
 
     def __init__(self, config: AppConfig, calibration: CalibrationBase) -> None:
@@ -103,8 +103,8 @@ class StateMgmt:
         :return BehaviorBatch: Behaviors updated by this batch, their trip states, and what to write.
 
         Examples::
-            >>> batch = state_manager.process_batch(messages_to_map(messages))
-            >>> app.write_behaviors(batch.behaviors_to_write)
+            >>> behavior_batch = state_manager.process_batch(messages_to_map(messages))
+            >>> app.write_behaviors(behavior_batch.behaviors_to_write)
         """
         batch = BehaviorBatch()
 
@@ -551,16 +551,37 @@ class StateMgmt:
         """
         Build the short-window trip behavior that tripwire and ROI detection consume.
 
+        Skipped when the sensor has no tripwires and no ROIs, because the only two consumers --
+        :class:`TripwireEvent` and :class:`ROIEvent` -- both return no events for such a sensor. The
+        object is not cheap: it smooths a second trajectory and derives distance, speed and
+        speed-over-time from it, per track, per batch. Doing that for a sensor with no geometry to
+        cross is pure waste, and an app that defines no calibration has every sensor in that state.
+
         Overridden to ``None`` by coordinate systems that do not track trips, which is cheaper than
         duplicating :meth:`_process_key` just to skip these two objects.
 
         :param ObjectState | None trip_state: Trip state for this batch, if one was produced.
         :param Message last_message: Last message of the batch, for sensor and object context.
-        :return Behavior | None: The trip behavior, or ``None`` when there is no trip state.
+        :return Behavior | None: The trip behavior, or ``None`` when there is no trip state or the
+            sensor has nothing for a trip to cross.
         """
-        if not trip_state:
+        if not trip_state or not self._sensor_has_trip_geometry(last_message.sensor.id):
             return None
 
         trip_traj = self._create_trajectory(trip_state.id, trip_state.start, trip_state.end, trip_state.points)
 
         return self._get_behavior(trip_state, trip_traj, last_message)
+
+    def _sensor_has_trip_geometry(self, sensor_id: str) -> bool:
+        """
+        Whether the sensor defines any tripwire or ROI for a trip behavior to be tested against.
+
+        Read from the calibration on every call rather than cached, so a calibration pushed at runtime
+        starts producing trips on the next batch.
+
+        :param str sensor_id: Sensor to check.
+        :return bool: True when the sensor has at least one tripwire or ROI.
+        """
+        sensor = self.calibration.sensor_map.get(sensor_id)
+
+        return bool(sensor and (sensor.tripwires or sensor.rois))

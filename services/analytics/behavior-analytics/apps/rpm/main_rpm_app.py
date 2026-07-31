@@ -90,19 +90,19 @@ class RPMApp(BaseApp):
         else:
             logger.info(f"[Batch {stats.batch_id}] Transformed {len(frames)} frame(s) to {len(batch_messages)} message(s)")
 
-            batch = self.state_mgmt.process_batch(updated_messages_map)
+            behavior_batch = self.state_mgmt.process_batch(updated_messages_map)
 
-            logger.info(f"[Batch {stats.batch_id}] created a total of {len(batch.active_behaviors)} behavior(s), "
-                        f"writing {len(batch.behaviors_to_write)}")
+            logger.info(f"[Batch {stats.batch_id}] created a total of {len(behavior_batch.active_behaviors)} behavior(s), "
+                        f"writing {len(behavior_batch.behaviors_to_write)}")
 
             # Both detectors enrich the behaviors in place, so the edits reach whatever is written.
-            incidents, _ = self.anomaly_action_detector.detect_batch(batch.active_behaviors, frames)
-            self.compact_behaviors(batch.active_behaviors)
+            incidents, _ = self.anomaly_action_detector.detect_batch(behavior_batch.active_behaviors, frames)
+            self.compact_behaviors(behavior_batch.active_behaviors)
             for incident in incidents:
                 logger.info(f"[Batch {stats.batch_id}] - Incident: {incident.objectIds}, {incident.analyticsModule.id}")
 
             self.anomaly_action_detector.update_live_object(self.state_mgmt.live_object_ids())
-            self.write_behaviors(batch.behaviors_to_write)
+            self.write_behaviors(behavior_batch.behaviors_to_write)
             self.write_incidents(incidents)
 
     def close(self) -> None:

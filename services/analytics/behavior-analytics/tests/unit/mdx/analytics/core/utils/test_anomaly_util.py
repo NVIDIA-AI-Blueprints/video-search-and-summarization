@@ -691,7 +691,7 @@ class TestAnomalyDetector:
             start=datetime.now(),
             end=datetime.now(),
             points=points,
-            enable_geo=False
+            calibration_type=CalibrationType.IMAGE
         )
         
         # Mock consecutiveBearingDiff to return significant change
@@ -716,7 +716,7 @@ class TestAnomalyDetector:
             start=datetime.now(),
             end=datetime.now(),
             points=points,
-            enable_geo=False
+            calibration_type=CalibrationType.IMAGE
         )
         
         # Mock consecutiveBearingDiff to return small change
@@ -743,7 +743,7 @@ class TestAnomalyDetector:
             start=datetime.now(),
             end=datetime.now(),
             points=points,
-            enable_geo=False
+            calibration_type=CalibrationType.IMAGE
         )
         
         # Mock bearing calculations
@@ -767,7 +767,7 @@ class TestAnomalyDetector:
             start=datetime.now(),
             end=datetime.now(),
             points=points,
-            enable_geo=False
+            calibration_type=CalibrationType.IMAGE
         )
         
         max_diff, diff_list = anomaly_detector.consecutiveBearingDiff(trajectory)
@@ -790,7 +790,7 @@ class TestAnomalyDetector:
             start=datetime.now(),
             end=datetime.now(),
             points=points,
-            enable_geo=False
+            calibration_type=CalibrationType.IMAGE
         )
         
         # Mock bearing calculations to test wrap-around (e.g., 350° to 10°)
