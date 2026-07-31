@@ -141,6 +141,16 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 
 - For **status, logs, or container inspection**: use `vss_orchestrator__docker_list`, `vss_orchestrator__docker_logs`, or `vss_orchestrator__docker_read`. Do not run `docker ps` directly.
 
+- For **dense-captioning RTSP validation** when `RTSP_SAMPLE_URL` is provided:
+  1. Check only that the variable is non-empty; never print, echo, or include its
+     value in the final response.
+  2. Call `vss_orchestrator__rtsp_sample_probe` with no URL argument. The host
+     tool can probe only its configured `RTSP_SAMPLE_URL`; never pass or expand
+     the value through MCP. Require `status: success`, `has_video: true`, and
+     `video_stream_count >= 1` before registering the stream.
+  3. A timeout, probe error, or `no_video_stream` is terminal for that stream;
+     report the sanitized error and do not register a substitute URL.
+
 - For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` using the cadence the server returns in `recommended_poll_interval_s` (currently 10s for `down`). Print the same 1-line chat update after every poll. **When `status` becomes terminal, in the same turn**, send a clear final message: `success` → `"✅ Teardown complete (elapsed Ms)."` | `error` → `"❌ Teardown failed (exit_code=X)"` plus a log snippet | `cancelled` → `"⚠️ Teardown was cancelled."` Do not end the turn before this message is sent.
 
 - When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:

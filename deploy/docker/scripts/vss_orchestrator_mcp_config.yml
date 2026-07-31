@@ -15,9 +15,10 @@
 
 # VSS Orchestrator MCP Server
 #
-# Exposes nine tools:
+# Exposes ten tools:
 #   vss_orchestrator__profiles - list all supported deployment profiles
 #   vss_orchestrator__prereqs - run Docker/GPU prerequisite checks
+#   vss_orchestrator__rtsp_sample_probe - verify the configured RTSP sample carries video
 #   vss_orchestrator__docker_generate - resolve env + compose YAML artifacts
 #   vss_orchestrator__docker_read - fetch generated env/yaml by docker_compose_id
 #   vss_orchestrator__docker_list - list docker container names
@@ -154,6 +155,7 @@ function_groups:
     include:
     - profiles
     - prereqs
+    - rtsp_sample_probe
     - docker_generate
     - docker_read
     - docker_list

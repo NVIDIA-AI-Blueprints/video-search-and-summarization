@@ -152,11 +152,26 @@ clarifying question.
 |---|---|---|
 | "generate artifacts for `<profile>`" | `docker_generate` → return `docker_compose_id` | `docker_up`, polling |
 | "read artifacts for `<id>`" | `docker_read` | — |
+| "probe/check the configured RTSP sample" | `rtsp_sample_probe` with no arguments → require a video stream | pass/echo/log the URL, register a fallback stream |
 | "deploy `<profile>`" / "bring up" / "start" | `docker_generate` → `docker_up` → poll `docker_status` | — |
 | "up `<id>`" (id already exists) | `docker_up` → poll `docker_status` | re-run `docker_generate` |
 | "stop `<profile>`" / "tear down" | `docker_down` → poll `docker_status` | — |
 | "check status" (in-flight ops_id known) | `docker_status` (`tail_lines: 5`) | — |
 | "what's running" / "is everything healthy" | `docker_list` (+ `docker_logs` per container) | `docker_status` |
+
+### Secret-safe RTSP probe fallback
+
+`vss_orchestrator__rtsp_sample_probe` is the host-side validation tool for
+`/vss-deploy-dense-captioning`. Call it with no URL argument. It can probe only
+the orchestrator server's configured `RTSP_SAMPLE_URL`, so the value never
+passes through the model, MCP arguments, or tool-call transcript. Never print
+or echo the URL.
+
+Proceed with stream registration only when the response has
+`status: "success"`, `has_video: true`, and `video_stream_count` of at least
+one. Treat `probe_timeout`, `probe_failed`, and `no_video_stream` as terminal
+for that URL. Surface only the tool's generic error code/message, and never
+derive or register a replacement stream.
 
 ## Long-running deploys
 

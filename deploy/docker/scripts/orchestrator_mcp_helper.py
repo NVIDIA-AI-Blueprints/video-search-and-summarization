@@ -22,6 +22,7 @@ from typing import Any
 class OrchestratorTool(StrEnum):
     PROFILES = "vss_orchestrator__profiles"
     PREREQS = "vss_orchestrator__prereqs"
+    RTSP_SAMPLE_PROBE = "vss_orchestrator__rtsp_sample_probe"
     DOCKER_GENERATE = "vss_orchestrator__docker_generate"
     DOCKER_READ = "vss_orchestrator__docker_read"
     DOCKER_LIST = "vss_orchestrator__docker_list"

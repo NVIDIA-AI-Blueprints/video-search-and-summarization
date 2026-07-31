@@ -870,6 +870,19 @@ def _generic_nemoclaw_prompt(
         if deployment_profile
         else ""
     )
+    rtsp_probe_guidance = (
+        "Before registering the exact `RTSP_SAMPLE_URL`, verify only that the "
+        "variable is set without printing its value. Then call "
+        "`vss_orchestrator__rtsp_sample_probe` with no URL argument and require "
+        "`status=success`, `has_video=true`, and `video_stream_count>=1`. "
+        "The tool probes only the orchestrator host's configured runtime sample; "
+        "never pass the URL through MCP. The URL is secret-bearing: never echo "
+        "it or include it in the final "
+        "response. A timeout, probe failure, or no-video result is terminal; "
+        "do not register a substitute stream.\n\n"
+        if skill == "vss-deploy-dense-captioning"
+        else ""
+    )
     return (
         "You are running inside automated GitHub VSS skill evaluation with "
         "NemoClaw/OpenClaw.\n\n"
@@ -878,6 +891,7 @@ def _generic_nemoclaw_prompt(
         "deployment or live profile checks. For standalone microservice tasks, "
         "follow the skill's documented standalone workflow.\n\n"
         f"{profile_guidance}"
+        f"{rtsp_probe_guidance}"
         "Run autonomously without asking for confirmation. If prerequisites are "
         "needed, prepare them through the available skill instructions and tools "
         "before executing the user task.\n\n"
@@ -984,12 +998,19 @@ def _wrap_task_for_nemoclaw(
         "requires_mcp": True,
         "expected_skill": skill,
     }
+    required_mcp_tools: list[str] = []
     if deployment_profile:
         metadata_updates["deployment_profile"] = deployment_profile
-        metadata_updates["required_mcp_tools"] = [
-            "vss_orchestrator__profiles",
-            "vss_orchestrator__docker_status",
-        ]
+        required_mcp_tools.extend(
+            [
+                "vss_orchestrator__profiles",
+                "vss_orchestrator__docker_status",
+            ]
+        )
+    if skill == "vss-deploy-dense-captioning":
+        required_mcp_tools.append("vss_orchestrator__rtsp_sample_probe")
+    if required_mcp_tools:
+        metadata_updates["required_mcp_tools"] = required_mcp_tools
     _upsert_metadata(task_dir, metadata_updates)
 
     return NemoClawScenario(
