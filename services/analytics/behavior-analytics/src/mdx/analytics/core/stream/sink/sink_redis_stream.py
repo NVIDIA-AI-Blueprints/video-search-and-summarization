@@ -55,7 +55,8 @@ class SinkRedisStream(Sink):
         :param Callable | None key_extractor: Function to extract keys from messages. Defaults to None.
         :param Callable | None key_serializer: Function to serialize extracted keys. Defaults to None.
         :param Mapping[str, str | bytes] | None headers: Optional headers to include with messages.
-        :raises ValueError: If the Redis stream with the specified dest_key cannot be found.
+        :return: None. Returns without writing when no Redis stream is configured for ``dest_key``;
+            an undefined destination is a disabled output, logged once by :meth:`Sink.resolve_destination`.
         """
 
         stream = self.resolve_destination(dest_key, self._get_stream)
@@ -98,7 +99,8 @@ class SinkRedisStream(Sink):
         :param bytes message: The pre-serialized message to write.
         :param bytes | None key: Optional key associated with the message.
         :param Mapping[str, str | bytes] | None headers: Optional headers to include with the message.
-        :raises ValueError: If the Redis stream with the specified dest_key cannot be found.
+        :return: None. Returns without writing when no Redis stream is configured for ``dest_key``;
+            an undefined destination is a disabled output, logged once by :meth:`Sink.resolve_destination`.
         """
 
         stream = self.resolve_destination(dest_key, self._get_stream)

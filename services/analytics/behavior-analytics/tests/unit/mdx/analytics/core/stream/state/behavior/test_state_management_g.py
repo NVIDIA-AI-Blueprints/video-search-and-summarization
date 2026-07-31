@@ -59,8 +59,15 @@ class TestStateMgmtG:
 
     @pytest.fixture
     def mock_calibration(self):
-        """Create mock Calibration."""
+        """Create mock Calibration.
+
+        Typed geographic, since StateMgmtG is only selected for geographic calibration -- and since
+        ``_create_trajectory`` now carries the type through to the trajectory rather than letting it
+        fall back to Trajectory's cartesian default.
+        """
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
         calibration = Mock()
+        calibration.calibration_type = CalibrationType.GEO
         return calibration
 
     @pytest.fixture
@@ -157,8 +164,15 @@ class TestStateMgmtGWithMessages:
 
     @pytest.fixture
     def mock_calibration(self):
-        """Create mock Calibration."""
+        """Create mock Calibration.
+
+        Typed geographic, since StateMgmtG is only selected for geographic calibration -- and since
+        ``_create_trajectory`` now carries the type through to the trajectory rather than letting it
+        fall back to Trajectory's cartesian default.
+        """
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
         calibration = Mock()
+        calibration.calibration_type = CalibrationType.GEO
         return calibration
 
     @pytest.fixture

@@ -54,7 +54,7 @@ Purpose: Pydantic v2 data shapes. Configs (runtime), models (domain), protobuf
 | `schema/proto/schema_pb2.py` | Generated protobuf — **off-limits** to edit |
 | `schema/proto/ext_pb2.py` | Generated protobuf extensions — **off-limits** |
 | `schema/trajectory/trajectory.py` | `Trajectory` — cartesian and image, gated on calibration type |
-| `schema/trajectory/trajectory_g.py` | `TrajectoryG` — geographic, adds haversine distance and map-matched bearing |
+| `schema/trajectory/trajectory_g.py` | `TrajectoryG` — geographic and image; `enable_geo` picks the distance metric, calibration type picks the units. Adds haversine distance and map-matched bearing |
 | `schema/action/action_state.py` | `ActionState` — per-object action tracking |
 | `schema/collision/collision_state.py` | `CollisionState` — collision event state |
 

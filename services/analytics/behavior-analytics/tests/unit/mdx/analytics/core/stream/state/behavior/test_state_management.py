@@ -31,6 +31,16 @@ from mdx.analytics.core.schema.models import (
 )
 
 
+def _sensor_map_with_tripwires(*sensor_ids: str) -> dict:
+    """Calibration sensor map whose sensors each define one tripwire.
+
+    ``StateMgmt._build_trip_behavior`` skips sensors with no tripwires and no ROIs, so trip behaviors
+    are only produced for sensors present here. Spelling that out beats leaving it to ``Mock``
+    auto-attribute truthiness, which would satisfy the check by accident.
+    """
+    return {sid: Mock(tripwires={"wire1": Mock()}, rois=[]) for sid in sensor_ids}
+
+
 class TestStateMgmtLogic:
     """
     Tests for StateMgmt logic (sensor timestamp, expiry, valid state, get_behavior, _process_key).
@@ -63,6 +73,7 @@ class TestStateMgmtLogic:
         from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
         cal = Mock()
         cal.calibration_type = CalibrationType.CARTESIAN
+        cal.sensor_map = _sensor_map_with_tripwires("sensor1", "sensor2")
         return cal
 
     @pytest.fixture
@@ -570,6 +581,7 @@ class TestStateMgmtEmitOnce:
         from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
         cal = Mock()
         cal.calibration_type = CalibrationType.CARTESIAN
+        cal.sensor_map = _sensor_map_with_tripwires("sensor1", "sensor2")
         return cal
 
     @pytest.fixture
@@ -741,10 +753,11 @@ class TestStateMgmtEmitOnce:
 
     def test_ingestion_lag_does_not_end_live_tracks(self, state_mgmt, emit_once_config):
         """In live mode the sweep uses event time, so a lagging pipeline is not mistaken for silence."""
-        emit_once_config.in_simulation_mode = False  # expiry would otherwise fall back to wall clock
+        emit_once_config.in_simulation_mode = False
         key = "sensor1 #-# obj1"
-        # Messages arrive 30s behind the wall clock — far past the 6s valid interval, well inside
-        # the 300s memory TTL, so the state survives and only the emission rule is under test.
+        # Messages arrive 30s behind the wall clock — far past the 6s valid interval. Silence is judged
+        # on the sensor's own event clock, which has advanced by only 1s, so the lag is not mistaken
+        # for silence and only the emission rule is under test.
         base = datetime.now(timezone.utc) - timedelta(seconds=30)
 
         assert self._feed(state_mgmt, key, "obj1", base, 0.0) == []
@@ -1031,6 +1044,7 @@ class TestStateMgmtBatchApi:
         from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
         calibration = Mock()
         calibration.calibration_type = CalibrationType.CARTESIAN
+        calibration.sensor_map = _sensor_map_with_tripwires("sensor1", "sensor2")
         return calibration
 
     @pytest.fixture
@@ -1080,6 +1094,64 @@ class TestStateMgmtBatchApi:
         assert [b.id for b in batch.trip_behaviors] == ["sensor1 #-# obj1"]
         # Per-batch mode writes exactly what the batch produced.
         assert batch.behaviors_to_write == batch.active_behaviors
+
+    def test_no_trip_behavior_without_tripwires_or_rois(self, state_mgmt, mock_calibration):
+        """A sensor with no geometry gets no trip behavior; building one would be discarded work.
+
+        Both consumers -- TripwireEvent and ROIEvent -- return no events for such a sensor, so the
+        smoothing, distance and speed a trip behavior costs would buy nothing. An app started without
+        a calibration file has every sensor in this state.
+        """
+        mock_calibration.sensor_map = {}
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+        messages_map = {
+            "sensor1 #-# obj1": [
+                Message(
+                    messageid=f"m{i}",
+                    timestamp=base + timedelta(seconds=i),
+                    sensor=Sensor(id="sensor1", type="camera"),
+                    object=Object(
+                        id="obj1", type="vehicle", confidence=0.9,
+                        coordinate=Coordinate(x=float(i), y=0.0),
+                    ),
+                    place=Place(id="place1", name="test_place"),
+                )
+                for i in range(3)
+            ]
+        }
+
+        batch = state_mgmt.process_batch(messages_map)
+
+        # The behavior itself is unaffected -- only the trip companion is skipped.
+        assert [b.id for b in batch.active_behaviors] == ["sensor1 #-# obj1"]
+        assert batch.trip_behaviors == []
+
+    def test_trip_behavior_returns_when_calibration_gains_geometry(self, state_mgmt, mock_calibration):
+        """Geometry is read per call, so a calibration pushed at runtime takes effect next batch."""
+        mock_calibration.sensor_map = {}
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        def _batch(offset: float):
+            return {
+                "sensor1 #-# obj1": [
+                    Message(
+                        messageid=f"m{offset}",
+                        timestamp=base + timedelta(seconds=offset),
+                        sensor=Sensor(id="sensor1", type="camera"),
+                        object=Object(
+                            id="obj1", type="vehicle", confidence=0.9,
+                            coordinate=Coordinate(x=offset, y=0.0),
+                        ),
+                        place=Place(id="place1", name="test_place"),
+                    )
+                ]
+            }
+
+        assert state_mgmt.process_batch(_batch(0.0)).trip_behaviors == []
+
+        mock_calibration.sensor_map = _sensor_map_with_tripwires("sensor1")
+
+        assert [b.id for b in state_mgmt.process_batch(_batch(1.0)).trip_behaviors] == ["sensor1 #-# obj1"]
 
     def test_process_batch_empty_map(self, state_mgmt):
         """An empty batch produces an empty result rather than raising."""
