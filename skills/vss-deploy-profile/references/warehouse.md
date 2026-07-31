@@ -995,7 +995,7 @@ echo "$COMPOSE_PROFILES"
 
 > **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Source the warehouse `.env` + active `generated.env` as shown above; `set -a` exports the resolved value before `docker compose up`.
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.3.0-26.07.1"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.1"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.3.0-26.07.2"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.2"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
 
 ---
 

@@ -114,7 +114,7 @@ function_groups:
             LLM_NAME: nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
             LLM_NAME_SLUG: nvidia-nemotron-nano-9b-v2-fp8
             RTVI_VLM_IMAGE_TAG: "3.2.1-sbsa"
-            PERCEPTION_TAG: "3.3.0-sbsa-26.07.1"
+            PERCEPTION_TAG: "3.3.0-sbsa-26.07.2"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             # Unified alerts value, matching dev-profile.sh
