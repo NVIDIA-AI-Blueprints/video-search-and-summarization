@@ -15,6 +15,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EVAL_SPEC = REPO_ROOT / "skills/vss-summarize-video/evals/lvs_profile_summarize.json"
+API_OPS_SPEC = REPO_ROOT / "skills/vss-summarize-video/evals/lvs_api_ops.json"
 ADAPTER = REPO_ROOT / ".github/skill-eval/adapters/vss-summarize-video/generate.py"
 SUMMARIZE_SKILL = REPO_ROOT / "skills/vss-summarize-video/SKILL.md"
 SUMMARIZE_REFERENCES = (
@@ -48,6 +49,43 @@ def test_preamble_enforces_single_terminal_summarization_request() -> None:
     assert "/v1/chat/completions" in preamble
     assert "/v1/generate_captions" in preamble
     assert "retry only" not in preamble
+
+
+def test_api_ops_adapter_renders_platform_for_agent_and_verifier(
+    tmp_path: Path,
+) -> None:
+    adapter = _load_adapter()
+    raw_spec = json.loads(API_OPS_SPEC.read_text(encoding="utf-8"))
+    raw_spec["_source_path"] = str(API_OPS_SPEC)
+
+    adapter.generate_task(
+        "RTXPRO6000BW",
+        "lvs",
+        raw_spec,
+        tmp_path,
+        REPO_ROOT / "skills/vss-summarize-video",
+        REPO_ROOT / "skills/vss-deploy-profile",
+        None,
+    )
+
+    step_dirs = sorted(
+        (tmp_path / "lvs/rtxpro6000bw").glob("step-*"),
+        key=lambda path: int(path.name.removeprefix("step-")),
+    )
+    assert len(step_dirs) == len(raw_spec["expects"])
+    for step_dir in step_dirs:
+        instruction = (step_dir / "instruction.md").read_text(
+            encoding="utf-8"
+        )
+        verifier_spec = (
+            step_dir / "tests/lvs_api_ops.json"
+        ).read_text(encoding="utf-8")
+        assert "{{platform}}" not in instruction
+        assert "{{platform}}" not in verifier_spec
+
+    assert "RTXPRO6000BW" in (
+        step_dirs[0] / "instruction.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_summarization_steps_enforce_the_same_request_contract() -> None:
