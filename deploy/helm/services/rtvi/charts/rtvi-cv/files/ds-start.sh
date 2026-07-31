@@ -205,9 +205,13 @@ start_rtdetr_gdino()
         fi
         cp "$GDINO_TRT_PLAN" /opt/nvidia/deepstream/deepstream/sources/TritonGdino/triton_model_repo/gdino_trt/1/model.plan
 
-        sed -i '/^\[primary-gie\]/,/^\[/{s|config-file=.*|config-file= /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_triton_nvinferserver_gdino.txt|;}' "$config_file"
-        sed -i '\#config-file= /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_triton_nvinferserver_gdino.txt#a plugin-type=1' "$config_file"
-        sed -i "s/max_batch_size: [0-9]\+/max_batch_size: ${NUM_SENSORS}/" "${DS_CONFIG_DIR}/config_triton_nvinferserver_gdino.txt"
+        # The path handed to the app and the file patched below must stay the same file,
+        # so both derive from DS_CONFIG_DIR; splitting them silently drops the batch-size
+        # patch whenever DS_APP_DIR is overridden.
+        local gdino_triton_config="${DS_CONFIG_DIR}/config_triton_nvinferserver_gdino.txt"
+        sed -i "/^\[primary-gie\]/,/^\[/{s|config-file=.*|config-file= ${gdino_triton_config}|;}" "$config_file"
+        sed -i "\#config-file= ${gdino_triton_config}#a plugin-type=1" "$config_file"
+        sed -i "s/max_batch_size: [0-9]\+/max_batch_size: ${NUM_SENSORS}/" "$gdino_triton_config"
 
         for cfg in \
             /opt/nvidia/deepstream/deepstream/sources/TritonGdino/triton_model_repo/{ensemble_python_gdino,gdino_trt,gdino_postprocess,gdino_preprocess}/config.pbtxt; do
