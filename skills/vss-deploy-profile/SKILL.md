@@ -283,6 +283,18 @@ docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d
 > use targeted `--force-recreate --no-deps <service...>` only when a profile
 > reference documents it as the recovery path.
 
+> **Warm automated eval workers:** their reset deliberately preserves Docker
+> images while first-party `develop-latest` tags move. In a GitHub skill-eval /
+> NemoClaw run, call `vss_orchestrator__docker_up` with `pull_always=true` and
+> `force_recreate=true`. Poll `vss_orchestrator__docker_status` until it
+> reports terminal `success` with `running=false`; a `running` operation is
+> never success. A name returned by `docker_list(all_containers=true)` may be
+> `Created`, stopped, or unhealthy, so use its structured state plus the
+> documented functional endpoint probes. If compose reports a dependency
+> start failure, inspect the affected container state and combined
+> stdout/stderr logs, remediate, and retry `docker_up` instead of declaring
+> success.
+
 `docker compose up -d` only creates containers; it does not wait for internal services to finish warming. Never declare deploy success until the readiness gates pass.
 
 ### Step 5b — Wait until the stack is actually healthy

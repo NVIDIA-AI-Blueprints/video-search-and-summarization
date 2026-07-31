@@ -822,6 +822,34 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(preserved.exists())
             self.assertIn("images preserved", ordinary_reset.stdout)
 
+    async def test_host_data_purge_covers_orchestrator_repo_root(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="host data purge OK\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        original_exec = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._purge_host_data_dirs()
+        finally:
+            brev_env._run_brev_exec = original_exec
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn(
+            'repo_mdx="$HOME/video-search-and-summarization/.mdx_data"',
+            command,
+        )
+        self.assertIn('sudo find "$repo_mdx" -mindepth 1 -delete', command)
+
     async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
         calls = []
         lifecycle_events = []
