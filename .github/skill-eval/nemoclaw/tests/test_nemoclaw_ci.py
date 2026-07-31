@@ -57,14 +57,6 @@ headless_runner = load_module(
     "nemoclaw_headless_runner",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "headless_runner.py",
 )
-postgres_health_diagnostic = load_module(
-    "nemoclaw_postgres_health_diagnostic",
-    REPO_ROOT
-    / ".github"
-    / "skill-eval"
-    / "nemoclaw"
-    / "postgres_health_diagnostic.py",
-)
 readiness = load_module(
     "nemoclaw_readiness",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
@@ -93,122 +85,6 @@ skills_eval_agent = load_module(
     "skills_eval_agent",
     REPO_ROOT / ".github" / "skill-eval" / "skills_eval_agent.py",
 )
-
-
-class PostgresHealthDiagnosticTest(unittest.TestCase):
-    def test_probe_parser_accepts_only_fixed_bounded_keys(self):
-        parsed = postgres_health_diagnostic._parse_probe_lines(
-            "\n".join(
-                (
-                    "exact_socket_probe=0",
-                    "minimal_socket_probe=2",
-                    "unexpected_numeric_secret=123",
-                    "tcp_probe=999999999",
-                    "socket_present=not-a-number",
-                )
-            )
-        )
-        self.assertEqual(
-            parsed,
-            {
-                "exact_socket_probe": 0,
-                "minimal_socket_probe": 2,
-            },
-        )
-
-    def test_collector_projects_inspect_data_without_raw_values(self):
-        raw_secret = "raw-secret-must-not-enter-artifact"
-        inspect_payload = [
-            {
-                "Config": {
-                    "User": raw_secret,
-                    "Env": [
-                        f"POSTGRES_USER={raw_secret}",
-                        f"POSTGRES_DB={raw_secret}",
-                    ],
-                    "Healthcheck": {
-                        "Test": ["CMD-SHELL", f"echo {raw_secret}"],
-                    },
-                },
-                "State": {
-                    "Status": raw_secret,
-                    "Running": True,
-                    "Restarting": False,
-                    "Health": {
-                        "Status": raw_secret,
-                        "FailingStreak": 4,
-                        "Log": [
-                            {
-                                "ExitCode": 1,
-                                "Output": raw_secret,
-                            }
-                        ],
-                    },
-                },
-                "Image": raw_secret,
-                "Mounts": [
-                    {
-                        "Destination": "/var/run/postgresql",
-                        "Type": raw_secret,
-                        "Source": raw_secret,
-                        "RW": True,
-                    }
-                ],
-            }
-        ]
-        results = iter(
-            (
-                subprocess.CompletedProcess(
-                    ["docker", "inspect"],
-                    0,
-                    stdout=json.dumps(inspect_payload),
-                    stderr="",
-                ),
-                subprocess.CompletedProcess(
-                    ["docker", "exec"],
-                    0,
-                    stdout=(
-                        "exact_socket_probe=2\n"
-                        "unexpected_numeric_secret=123\n"
-                    ),
-                    stderr="",
-                ),
-                subprocess.CompletedProcess(
-                    ["docker", "exec"],
-                    2,
-                    stdout="",
-                    stderr="",
-                ),
-            )
-        )
-
-        def fake_run(_command, *, capture_output=True):
-            del capture_output
-            return next(results)
-
-        with tempfile.TemporaryDirectory() as td, mock.patch.object(
-            postgres_health_diagnostic,
-            "_run",
-            side_effect=fake_run,
-        ):
-            report = postgres_health_diagnostic.collect_postgres_health_diagnostic(
-                Path(td)
-            )
-            artifact = (
-                Path(td)
-                / postgres_health_diagnostic.OUTPUT_NAME
-            ).read_text(encoding="utf-8")
-
-        self.assertNotIn(raw_secret, artifact)
-        self.assertEqual(report["inspect"]["state"], "other")
-        self.assertEqual(report["inspect"]["health"]["status"], "other")
-        self.assertFalse(report["inspect"]["configured_user_is_root"])
-        self.assertFalse(report["inspect"]["matches_reference_image_id"])
-        self.assertFalse(report["inspect"]["socket_mount"]["is_bind"])
-        self.assertEqual(
-            report["fixed_probes"]["exit_codes"],
-            {"exact_socket_probe": 2},
-        )
 
 
 class SetupFailureDiagnosticTest(unittest.TestCase):
@@ -3117,6 +2993,15 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 self._rtsp_tool_trajectory()["steps"]
             )
             invalid_cases["valid-probe-after-first-exec"] = late_valid
+            env_bootstrap_first = self._rtsp_tool_trajectory(
+                command="cat /sandbox/.openclaw/workspace/ENV.md"
+            )
+            env_bootstrap_first["steps"].extend(
+                self._rtsp_tool_trajectory()["steps"]
+            )
+            invalid_cases["valid-probe-after-env-bootstrap"] = (
+                env_bootstrap_first
+            )
             direct_exec_first = self._rtsp_tool_trajectory()
             direct_exec_first["steps"].insert(
                 0,
@@ -3143,6 +3028,27 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                         "first exec tool call|actual exec tool shell",
                     ):
                         headless_runner._assert_rtsp_tool_shell_visibility(path)
+
+            tool_search_then_probe = self._rtsp_tool_trajectory()
+            tool_search_then_probe["steps"].insert(
+                0,
+                {
+                    "source": "agent",
+                    "tool_calls": [
+                        {
+                            "tool_call_id": "tool-search-1",
+                            "function_name": "tool_search",
+                            "arguments": {"query": "OpenClaw exec tool"},
+                        }
+                    ],
+                    "observation": {"results": []},
+                },
+            )
+            path.write_text(
+                json.dumps(tool_search_then_probe),
+                encoding="utf-8",
+            )
+            headless_runner._assert_rtsp_tool_shell_visibility(path)
 
     def test_dense_cli_main_requires_attestation_without_runtime_argument(self):
         captured: dict[str, object] = {}
@@ -7094,6 +7000,11 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 / "reward.txt"
             )
             reward_path.parent.mkdir(parents=True)
+            result_path = reward_path.parent.parent / "result.json"
+            result_path.write_text(
+                json.dumps({"exception_info": None}),
+                encoding="utf-8",
+            )
 
             reward_path.write_text("0.75\n", encoding="utf-8")
             self.assertEqual(
@@ -7117,6 +7028,25 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                         ),
                         (None, reward_path),
                     )
+
+            reward_path.write_text("1.0\n", encoding="utf-8")
+            result_path.write_text(
+                json.dumps(
+                    {
+                        "exception_info": {
+                            "exception_type": "NonZeroAgentExitCodeError",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                smoke_runner._latest_reward(
+                    results_root,
+                    "30324411561",
+                ),
+                (None, reward_path),
+            )
 
     def test_attempt_owner_status_verifies_exact_collected_marker(self):
         token = "a" * 32
@@ -10260,6 +10190,34 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn(f"exactly `{canonical}`", first["checks"][0])
         self.assertEqual(len(first["checks"]), 5)
 
+    def test_nemoclaw_workspace_runs_dense_rtsp_probe_before_env_bootstrap(self):
+        workspace_instructions = (
+            REPO_ROOT
+            / ".openclaw"
+            / "workspace"
+            / "_nemoclaw"
+            / "AGENTS.md"
+        ).read_text(encoding="utf-8")
+        canonical = headless_runner.RTSP_TOOL_ENV_PROBE_COMMAND
+
+        self.assertIn(f"`{canonical}`", workspace_instructions)
+        self.assertLess(
+            workspace_instructions.index(canonical),
+            workspace_instructions.index("Run every `export` in `ENV.md`"),
+        )
+        self.assertIn(
+            "automated `/vss-deploy-dense-captioning` evaluation",
+            workspace_instructions,
+        )
+        self.assertIn(
+            "Do not prepend `cat ENV.md`,\ncombine the probe with another command",
+            workspace_instructions,
+        )
+        self.assertIn(
+            "no other request may reorder\nthe session bootstrap",
+            workspace_instructions,
+        )
+
     def test_nemoclaw_wrapper_rejects_conflicting_gpu_boundary(self):
         with self.assertRaisesRegex(RuntimeError, "disagrees with task gpu_count=1"):
             smoke_runner._with_gpu_resource_guidance(
@@ -10955,86 +10913,118 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
         self.assertIn("valid device IDs are 0 through 1", prompt)
         self.assertIn("Never request an out-of-range device", prompt)
 
-    def test_nemoclaw_deploy_profile_checks_include_openclaw_log_fallbacks(self):
+    def test_nemoclaw_deploy_profile_checks_remain_live_only(self):
+        source_checks = [
+            "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0",
+            "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0",
+            "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+            "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+        ]
         rendered = deploy_adapter._render_nemoclaw_eval_spec(
             {
                 "expects": [
                     {
-                        "checks": [
-                            "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0",
-                            "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0",
-                            "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-                            "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
-                        ]
+                        "checks": source_checks,
                     }
                 ]
             }
         )
 
         checks = rendered["expects"][0]["checks"]
-        self.assertTrue(all("/logs/artifacts/nemoclaw/openclaw-agent.log" in check for check in checks))
-        self.assertIn("vss-agent` health check", checks[0])
-        self.assertIn("Brev secure-link URL", checks[1])
-        self.assertIn("`vss-agent` as running", checks[2])
-        self.assertIn("`vss-haproxy-ingress`", checks[3])
+        self.assertEqual(checks, source_checks)
+        self.assertIsNot(checks, source_checks)
+        self.assertNotIn("final assistant text", "\n".join(checks))
 
-    def test_nemoclaw_deploy_profile_verifier_uses_openclaw_fallback(self):
-        raw_log = "finalAssistantVisibleText: vss-agent health checks passing: 200 OK; https://7777-x.brevlab.com/; vss-haproxy-ingress running"
-        final = raw_log
-
-        api = nemoclaw_deploy_profile_verifier._fallback_pass(
-            "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0",
-            final,
-            raw_log,
-        )
-        ui = nemoclaw_deploy_profile_verifier._fallback_pass(
-            "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0",
-            final,
-            raw_log,
-        )
-        phoenix = nemoclaw_deploy_profile_verifier._fallback_pass(
-            "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
-            final,
-            raw_log,
-        )
-
-        self.assertTrue(api[0])
-        self.assertTrue(ui[0])
-        self.assertTrue(phoenix[0])
-
-    def test_nemoclaw_deploy_profile_verifier_reads_v0080_payload_text(self):
-        previous = nemoclaw_deploy_profile_verifier.LOG_PATH
+    def test_nemoclaw_deploy_profile_execution_gate_is_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
-            log_path = Path(td) / "openclaw-agent.log"
-            log_path.write_text(
-                "openclaw info\n"
-                + json.dumps(
-                    {
-                        "status": "ok",
-                        "result": {
-                            "payloads": [
-                                {
-                                    "text": (
-                                        "vss-agent health checks passing: 200 OK; "
-                                        "https://7777-x.brevlab.com/; "
-                                        "vss-haproxy-ingress running"
-                                    )
-                                }
-                            ]
-                        },
-                    }
-                ),
+            report_path = Path(td) / "nemoclaw_hooks_response.json"
+            valid = {
+                "response": {
+                    "status": 200,
+                    "body": {"ok": True, "returncode": 0},
+                },
+                "wait": {"waited": True, "ok": True},
+            }
+            report_path.write_text(
+                json.dumps(valid),
                 encoding="utf-8",
             )
-            nemoclaw_deploy_profile_verifier.LOG_PATH = log_path
-            try:
-                raw, final = nemoclaw_deploy_profile_verifier._openclaw_text()
-            finally:
-                nemoclaw_deploy_profile_verifier.LOG_PATH = previous
+            with mock.patch.object(
+                nemoclaw_deploy_profile_verifier,
+                "HOOKS_REPORT_PATH",
+                report_path,
+            ):
+                self.assertEqual(
+                    nemoclaw_deploy_profile_verifier._execution_gate(),
+                    (
+                        True,
+                        "agent response and deployment readiness wait passed",
+                    ),
+                )
+                valid["wait"]["ok"] = False
+                report_path.write_text(json.dumps(valid), encoding="utf-8")
+                ok, reason = (
+                    nemoclaw_deploy_profile_verifier._execution_gate()
+                )
+                self.assertFalse(ok)
+                self.assertIn("readiness wait failed", reason)
 
-        self.assertIn("openclaw info", raw)
-        self.assertIn("vss-agent health checks passing: 200 OK", final)
-        self.assertIn("vss-haproxy-ingress running", final)
+                report_path.write_text("not-json", encoding="utf-8")
+                ok, reason = (
+                    nemoclaw_deploy_profile_verifier._execution_gate()
+                )
+                self.assertFalse(ok)
+                self.assertIn("malformed", reason)
+
+                report_path.unlink()
+                ok, reason = (
+                    nemoclaw_deploy_profile_verifier._execution_gate()
+                )
+                self.assertFalse(ok)
+                self.assertIn("missing", reason)
+
+    def test_nemoclaw_deploy_profile_verifier_checks_container_health(self):
+        states = (
+            ({"Running": True, "Health": {"Status": "healthy"}}, True),
+            ({"Running": True, "Health": {"Status": "unhealthy"}}, False),
+            ({"Running": True}, True),
+            ({"Running": False}, False),
+        )
+        for state, expected in states:
+            with (
+                self.subTest(state=state),
+                mock.patch.object(
+                    nemoclaw_deploy_profile_verifier.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        ["docker", "inspect"],
+                        0,
+                        stdout=json.dumps(state),
+                        stderr="",
+                    ),
+                ),
+            ):
+                ok, _reason = (
+                    nemoclaw_deploy_profile_verifier._service_state(
+                        "vss-vios-postgres"
+                    )
+                )
+            self.assertEqual(ok, expected)
+
+    def test_nemoclaw_deploy_profile_failed_probe_has_no_text_fallback(self):
+        check = (
+            "`curl -sf --max-time 15 http://localhost:8000/health` "
+            "returns exit 0 OR final assistant text says 200 OK"
+        )
+        with mock.patch.object(
+            nemoclaw_deploy_profile_verifier,
+            "_run_shell",
+            return_value=(False, "exit=7"),
+        ):
+            result = nemoclaw_deploy_profile_verifier._evaluate_check(check)
+
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["matched"], "exit=7")
 
     def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:

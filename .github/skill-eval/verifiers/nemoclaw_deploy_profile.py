@@ -1,95 +1,56 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Deterministic verifier for NemoClaw deploy-profile Harbor tasks."""
+"""Fail-closed deterministic verifier for NemoClaw deploy-profile tasks."""
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
 LOG_PATH = Path("/logs/artifacts/nemoclaw/openclaw-agent.log")
+HOOKS_REPORT_PATH = Path(
+    "/logs/artifacts/nemoclaw/nemoclaw_hooks_response.json"
+)
 OUT_DIR = Path("/logs/verifier")
 
 
-def _iter_json_objects(text: str):
-    decoder = json.JSONDecoder()
-    index = 0
-    while index < len(text):
-        start = text.find("{", index)
-        if start < 0:
-            break
-        try:
-            parsed, offset = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            index = start + 1
-            continue
-        if isinstance(parsed, dict):
-            yield parsed
-        index = start + max(offset, 1)
-
-
-def _find_value(obj: Any, key: str) -> str:
-    if isinstance(obj, dict):
-        value = obj.get(key)
-        if isinstance(value, str) and value:
-            return value
-        for child in obj.values():
-            found = _find_value(child, key)
-            if found:
-                return found
-    elif isinstance(obj, list):
-        for child in obj:
-            found = _find_value(child, key)
-            if found:
-                return found
-    return ""
-
-
-def _payload_text(event: dict[str, Any]) -> str:
-    status = event.get("status")
-    if isinstance(status, str) and status.lower() in {"error", "failed", "failure"}:
-        return ""
-    if event.get("error"):
-        return ""
-    payloads = event.get("payloads")
-    result = event.get("result")
-    if payloads is None and isinstance(result, dict):
-        result_status = result.get("status")
-        if (
-            isinstance(result_status, str)
-            and result_status.lower() in {"error", "failed", "failure"}
-        ):
-            return ""
-        if result.get("error"):
-            return ""
-        payloads = result.get("payloads")
-    if not isinstance(payloads, list):
-        return ""
-    return "\n".join(
-        text.strip()
-        for payload in payloads
-        if isinstance(payload, dict)
-        and payload.get("isError") is not True
-        and not payload.get("error")
-        and isinstance((text := payload.get("text")), str)
-        and text.strip()
-    )
-
-
-def _openclaw_text() -> tuple[str, str]:
+def _execution_gate() -> tuple[bool, str]:
+    """Attest that the agent and post-agent readiness wait both succeeded."""
     try:
-        raw = LOG_PATH.read_text(encoding="utf-8", errors="replace")
+        report = json.loads(HOOKS_REPORT_PATH.read_text(encoding="utf-8"))
     except OSError:
-        return "", ""
-    final = ""
-    for event in _iter_json_objects(raw):
-        final = _find_value(event, "finalAssistantVisibleText") or _payload_text(event) or final
-    return raw, final
+        return False, "NemoClaw execution report is missing"
+    except json.JSONDecodeError:
+        return False, "NemoClaw execution report is malformed"
+    if not isinstance(report, dict):
+        return False, "NemoClaw execution report is not an object"
+
+    response = report.get("response")
+    if not isinstance(response, dict):
+        return False, "NemoClaw response record is missing"
+    try:
+        status = int(response.get("status", 0))
+    except (TypeError, ValueError):
+        status = 0
+    if not 200 <= status < 300:
+        return False, "NemoClaw response status is not successful"
+
+    body = response.get("body")
+    if not isinstance(body, dict) or body.get("ok") is not True:
+        return False, "NemoClaw agent response did not report success"
+    if body.get("returncode") != 0:
+        return False, "NemoClaw agent process returned nonzero"
+
+    wait = report.get("wait")
+    if not isinstance(wait, dict) or wait.get("waited") is not True:
+        return False, "NemoClaw deployment readiness wait did not run"
+    if wait.get("ok") is not True:
+        return False, "NemoClaw deployment readiness wait failed"
+    return True, "agent response and deployment readiness wait passed"
 
 
 def _run_shell(command: str) -> tuple[bool, str]:
@@ -100,7 +61,13 @@ def _run_shell(command: str) -> tuple[bool, str]:
         timeout=30,
     )
     evidence = "\n".join(
-        part for part in (f"exit={result.returncode}", result.stdout, result.stderr) if part
+        part
+        for part in (
+            f"exit={result.returncode}",
+            result.stdout,
+            result.stderr,
+        )
+        if part
     )
     return result.returncode == 0, evidence[-1000:]
 
@@ -117,49 +84,56 @@ def _service_from_check(check: str) -> str | None:
     return match.group(1).strip("'\"")
 
 
-def _service_aliases(service: str) -> list[str]:
-    aliases = [service]
-    if service == "phoenix":
-        aliases.extend(["vss-haproxy-ingress", "brevlab.com", "secure link"])
-    return aliases
+def _service_state(service: str) -> tuple[bool, str]:
+    """Require a service to be running and healthy when it has a healthcheck."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{json .State}}", service],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"docker inspect failed: {type(exc).__name__}"
+    if result.returncode != 0:
+        return False, f"docker inspect exit={result.returncode}"
+    try:
+        state = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False, "docker inspect returned malformed state"
+    if not isinstance(state, dict) or state.get("Running") is not True:
+        return False, "container is not running"
+    health = state.get("Health")
+    if isinstance(health, dict) and health.get("Status") != "healthy":
+        return False, f"container health is {health.get('Status', 'unknown')}"
+    return True, "container is running and its healthcheck passed"
 
 
-def _log_has_service(service: str, final_text: str, raw_log: str) -> bool:
-    haystacks = [final_text.lower(), raw_log.lower()]
-    return any(alias.lower() in haystack for alias in _service_aliases(service) for haystack in haystacks)
-
-
-def _fallback_pass(check: str, final_text: str, raw_log: str) -> tuple[bool, str]:
-    lowered_final = final_text.lower()
-    if "localhost:8000/health" in check:
-        ok = "vss-agent" in lowered_final and ("200 ok" in lowered_final or "health" in lowered_final)
-        return ok, "OpenClaw final text reports vss-agent health" if ok else "no API health evidence"
-    if "localhost:3000/" in check:
-        ok = "vss-agent-ui" in lowered_final or "brevlab.com" in lowered_final
-        return ok, "OpenClaw final text reports UI or secure-link access" if ok else "no UI evidence"
-    service = _service_from_check(check)
-    if service:
-        negated = check.lstrip().startswith("`! ")
-        present = _log_has_service(service, final_text, raw_log)
-        if negated:
-            return not present, f"OpenClaw final text service-present={present}"
-        return present, f"OpenClaw final text/log contains service alias for {service}: {present}"
-    return False, "unsupported check shape for deterministic NemoClaw verifier"
-
-
-def _evaluate_check(check: str, final_text: str, raw_log: str) -> dict[str, Any]:
+def _evaluate_check(check: str) -> dict[str, Any]:
     command = _command_from_check(check)
-    if command:
-        ok, evidence = _run_shell(command)
-        if ok:
-            return {"pass": True, "matched": evidence, "rationale": "live probe passed", "check": check}
-    else:
-        evidence = "no live command"
-    fallback_ok, fallback_evidence = _fallback_pass(check, final_text, raw_log)
+    if not command:
+        return {
+            "pass": False,
+            "matched": "no live command",
+            "rationale": "unsupported check shape for deterministic verifier",
+            "check": check,
+        }
+
+    ok, evidence = _run_shell(command)
+    rationale = "live probe passed" if ok else "live probe failed"
+    service = _service_from_check(check)
+    if ok and service and not command.lstrip().startswith("!"):
+        ok, state_evidence = _service_state(service)
+        evidence = f"{evidence}\n{state_evidence}"[-1000:]
+        rationale = (
+            "live probe and container state passed"
+            if ok
+            else "container state failed"
+        )
     return {
-        "pass": fallback_ok,
-        "matched": fallback_evidence if fallback_ok else evidence,
-        "rationale": fallback_evidence,
+        "pass": ok,
+        "matched": evidence,
+        "rationale": rationale,
         "check": check,
     }
 
@@ -173,9 +147,20 @@ def main() -> int:
     spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
     step = spec["expects"][args.step - 1]
     checks = [str(check) for check in step.get("checks", [])]
-    raw_log, final_text = _openclaw_text()
+    gate_ok, gate_evidence = _execution_gate()
 
-    results = [_evaluate_check(check, final_text, raw_log) for check in checks]
+    if gate_ok:
+        results = [_evaluate_check(check) for check in checks]
+    else:
+        results = [
+            {
+                "pass": False,
+                "matched": gate_evidence,
+                "rationale": "NemoClaw execution gate failed",
+                "check": check,
+            }
+            for check in checks
+        ]
     passed = sum(1 for item in results if item["pass"])
     total = len(results)
     reward = (passed / total) if total else 0.0
@@ -191,8 +176,13 @@ def main() -> int:
                 "total": total,
                 "passed": passed,
                 "reward": reward,
+                "execution_gate": {
+                    "pass": gate_ok,
+                    "rationale": gate_evidence,
+                    "report_path": str(HOOKS_REPORT_PATH),
+                },
                 "trajectory_path": str(LOG_PATH),
-                "trajectory_found": bool(raw_log),
+                "trajectory_found": LOG_PATH.is_file(),
                 "checks": results,
             },
             indent=2,
@@ -202,7 +192,10 @@ def main() -> int:
     for item in results:
         status = "PASS" if item["pass"] else "FAIL"
         print(f"{status}: {item['check']}\n  {item['rationale']}")
-    print(f"\n=== Results: {passed} passed, {total - passed} failed (of {total}) ===")
+    print(
+        f"\n=== Results: {passed} passed, "
+        f"{total - passed} failed (of {total}) ==="
+    )
     return 0
 
 

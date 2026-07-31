@@ -8,7 +8,19 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 
 ## Every Session
 
-Before doing anything else:
+One narrowly scoped prerequisite may come before the normal session bootstrap.
+Only in the automated `/vss-deploy-dense-captioning` evaluation, when the
+active task explicitly requires the first shell action to be exactly
+`test -n "${RTSP_SAMPLE_URL:-}" && printf 'RTSP_SAMPLE_URL is set\n'`, run that
+exact command once through the OpenClaw `exec` tool before reading or exporting
+`ENV.md`. Require exit code 0 and the sole output `RTSP_SAMPLE_URL is set`; if
+it fails, stop with a missing-prerequisite error. Do not prepend `cat ENV.md`,
+combine the probe with another command, expand the URL through another tool,
+or print the variable's value. This exception does not apply to another skill,
+an interactive request, or a different command; no other request may reorder
+the session bootstrap.
+
+After that prerequisite (or immediately when it does not apply):
 
 1. Run every `export` in `ENV.md` to set the sandbox environment. The sandbox's `/sandbox/.bashrc` is root-owned read-only, so these can't be persisted to a shell init file — re-run every session. `ENV.md` is the single source of truth for these values; do not hardcode them anywhere else.
 2. Read `SOUL.md` — this is who you are

@@ -2034,6 +2034,14 @@ def _latest_reward(results_root: Path, run_id: str, *, since: float = 0.0) -> tu
     if not rewards:
         return None, None
     path = rewards[-1]
+    trial_result_path = path.parent.parent / "result.json"
+    trial_result = _read_json(trial_result_path)
+    if (
+        not trial_result
+        or "exception_info" not in trial_result
+        or trial_result.get("exception_info") is not None
+    ):
+        return None, path
     try:
         reward = float(path.read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
