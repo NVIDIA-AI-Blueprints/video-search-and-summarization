@@ -357,7 +357,9 @@ class TestPrepareMessageContextAsync:
         with patch.object(
             pipeline, "_set_message_id_and_should_skip_async", AsyncMock(return_value=True)
         ):
-            assert await pipeline._prepare_message_context_async({}, "cam-1", {}, 0.0) is None
+            assert await pipeline._prepare_message_context_async(
+                dict(MESSAGE), "cam-1", {}, 0.0
+            ) is None
 
     @pytest.mark.asyncio
     async def test_a_skip_check_failure_completes_the_event(self, pipeline):
@@ -366,7 +368,9 @@ class TestPrepareMessageContextAsync:
             "_set_message_id_and_should_skip_async",
             AsyncMock(side_effect=RuntimeError("boom")),
         ), patch("handlers.event_loop_pipeline_mixin.record_event_complete") as record:
-            assert await pipeline._prepare_message_context_async({}, "cam-1", {}, 0.0) is None
+            assert await pipeline._prepare_message_context_async(
+                dict(MESSAGE), "cam-1", {}, 0.0
+            ) is None
 
         assert record.call_args.kwargs["failure_reason"] == "pre_processing_error"
 
@@ -375,7 +379,9 @@ class TestPrepareMessageContextAsync:
         pipeline.prompt_manager.get_prompts_for_message.return_value = (None, None)
 
         with patch("handlers.event_loop_pipeline_mixin.record_event_complete") as record:
-            assert await pipeline._prepare_message_context_async({}, "cam-1", {}, 0.0) is None
+            assert await pipeline._prepare_message_context_async(
+                dict(MESSAGE), "cam-1", {}, 0.0
+            ) is None
 
         assert record.call_args.kwargs["failure_reason"] == "no_prompt"
 
@@ -383,10 +389,9 @@ class TestPrepareMessageContextAsync:
     async def test_a_system_prompt_alone_is_enough_to_continue(self, pipeline):
         pipeline.prompt_manager.get_prompts_for_message.return_value = (None, "system")
 
-        assert await pipeline._prepare_message_context_async({}, "cam-1", {}, 0.0) == (
-            None,
-            "system",
-        )
+        assert await pipeline._prepare_message_context_async(
+            dict(MESSAGE), "cam-1", {}, 0.0
+        ) == (None, "system")
 
 
 class TestResolveVideoUrlAsync:
