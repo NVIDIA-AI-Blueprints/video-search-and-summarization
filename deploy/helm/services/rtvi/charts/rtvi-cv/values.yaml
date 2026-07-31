@@ -63,7 +63,6 @@ streamAffinity:
   hashHeader: x-stream-id
 
 streamType: "kafka"
-modelType: "cnn"
 otelSdkDisabled: "true"
 otelServiceName: "rtvi-cv"
 deepstreamEnableSensorIdExtraction: "1"
@@ -72,10 +71,19 @@ hfHubOffline: "0"
 transformersOffline: "0"
 
 env:
+  DS_MODEL_FAMILY: "rtdetr-gdino"
+  DS_CONFIG_FILE: ""
+  DS_VISION_ENCODER: "false"
+  DS_TRACKER_REID: "false"
+  DS_SHOW_SENSOR_ID: "false"
+  DS_MODE_FLAG: "1"
+  DS_MESSAGE_RATE: "1"
+  VISION_ENCODER_MODEL: ""
+  VISION_ENCODER_VERSION: ""
   MODEL_NAME_2D: "GDINO"
-  MODEL_TYPE: "cnn"
   NUM_SENSORS: "1"
   STREAM_TYPE: "kafka"
+  HARDWARE_PROFILE: ""
 
 kafka:
   bootstrapServers: ""
@@ -85,15 +93,21 @@ kafkaBrokerConnStr: ""
 forceModelsStorageFromValues: false
 
 modelsVolume: {}
+# When true, ds-start phase 0 downloads ngcModelsToDownload into the models PVC.
+# When false, set DS_MODEL_DOWNLOAD=never on the main container.
 downloadModelsFromNgc: true
+# Retained for operators; wait-for-models init was removed. Prefer startupProbe budgets.
 downloadModelsFromNgcWaitSeconds: 900
 downloadModelsJob:
   ttlSecondsAfterFinished: null
-# Opaque secret for NGC CLI (download Jobs). Not the docker-registry pull secret.
+# Opaque secret for NGC CLI (ds-start download phase + app-data Job). Not the docker-registry pull secret.
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"
 ngcDownload:
+  storageUid: 1001
+  storageGid: 1001
+  # Unused for model download after Job removal; kept for compatibility / app-data tooling.
   image:
     repository: docker.io/library/ubuntu
     tag: "22.04"
@@ -101,7 +115,8 @@ ngcDownload:
 ngcModelsToDownload:
   []
 
-# NGC *resource* bundle (videos + warehouse models) for warehouse standalone profile modes.
+# NGC *resource* bundle used for warehouse videos, playback, and calibration data.
+# RT-CV models are downloaded separately through ngcModelsToDownload.
 # Download Job unpacks the .tar.gz onto the shared -models PVC under vss-warehouse-app-data/.
 downloadNgcAppData: false
 ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
@@ -126,11 +141,6 @@ standaloneWarehouse:
   networkWidth: "960"
   networkHeight: "540"
   hardwareProfile: ""
-  # Sparse4D weights inside PVC (paths relative to PVC root; default matches NGC vss-warehouse-app-data layout).
-  sparse4dOnnxFile: sparse4d_warehouse_v2.2.onnx
-  sparse4dNpyFile: _ov_kmeans900_v2.2.npy
-  pvcOnnxSubPath: vss-warehouse-app-data/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx
-  pvcNpySubPath: vss-warehouse-app-data/models/sparse4d/ov/_ov_kmeans900_v2.2.npy
   mv3dt:
     instanceId: "0"
     batchSize: "4"
@@ -141,9 +151,6 @@ standaloneWarehouse:
     redisHost: ""
     redisPort: "6379"
     deepstreamEnableSensorIdExtraction: "0"
-    rtdetrOnnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
-    rtdetrPvcSubPath: vss-warehouse-app-data/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx
-    bodyPosePvcSubPath: vss-warehouse-app-data/models/mv3dt/BodyPose3DNet
     fusion:
       enabled: true
       image:

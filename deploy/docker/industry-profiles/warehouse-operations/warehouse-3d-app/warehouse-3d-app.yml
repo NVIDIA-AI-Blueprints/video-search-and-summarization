@@ -278,17 +278,16 @@ services:
     container_name: vss-rtvi-cv
     volumes:
       # General mountings
-     - perception-3d:/opt/storage
+     - $VSS_DATA_DIR/models/:/opt/storage/
+     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json:/opt/config/models-download.json:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
-     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
+     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt:ro
+     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml:/opt/data/ds-configurator/config.yaml
 
       # Config mountings
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
 
-     # Model related mountings
-     - $VSS_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.2.onnx
-     - $VSS_DATA_DIR/models/sparse4d/ov/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy
     environment:
       DS_MODEL_FAMILY: sparse4d-warehouse
       DS_MODE_FLAG: "5"
@@ -297,7 +296,7 @@ services:
       DS_SHOW_SENSOR_ID: "false"
       SPARSE4D_DEBUG_TS: "1"
       SPARSE4D_CONFIG_PATH: "/opt/data/ds-configurator/"
-      SPARSE4D_ENGINE_PATH: "/opt/storage/"
+      SPARSE4D_ENGINE_PATH: "/opt/storage/sparse4d/"
       CUDA_MPS_PIPE_DIRECTORY: "/tmp/nvidia-mps-via/"
       CUSTOM_LIB_PATH: "/usr/local/lib/python3.10/dist-packages/torch/lib:/opt/nvidia/deepstream/deepstream/sources/sparse4d/"
       CUSTOM_PRELOAD_LIB: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so"
@@ -305,6 +304,8 @@ services:
       NETWORK_WIDTH: 960
       NETWORK_HEIGHT: 540
       HARDWARE_PROFILE: $HARDWARE_PROFILE
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
       sdr-controller:
         condition: service_started
@@ -361,4 +362,3 @@ volumes:
   vss-behavior-analytics-3d:
   mdx-nvstreamer-data:        
   mdx-nvstreamer-videos: 
-  perception-3d:

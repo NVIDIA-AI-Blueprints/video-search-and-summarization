@@ -22,8 +22,8 @@
 #   MODEL_REF      : NGC ref OR local absolute path
 #   VIDEOS_SOURCE  : ngc | local            (default: ngc)
 #   VIDEOS_REF     : NGC ref OR local absolute path
-#   LABELS_REF     : (warehouse-3d) NGC ref override; default: DEFAULT_LABELS_NGC_REF
-#   ANCHOR_REF     : (warehouse-3d) NGC ref override; default: DEFAULT_ANCHOR_NGC_REF
+#   LABELS_REF     : (warehouse-3d) NGC ref override when labels use an NGC source
+#   ANCHOR_REF     : (warehouse-3d) NGC ref override when anchor uses an NGC source
 #   RESOURCES_DIR  : default $HOME/rtvicv-storage/resources
 #   REMOVE_TARBALLS: 1 to delete *.tar.gz after extract (default: 1)
 #
@@ -65,6 +65,7 @@ esac
 [[ -z "$USECASE" ]] && { echo "ERROR: usage: $0 <usecase>   (run with --help for full doc)" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # 0. Pull YAML defaults via load_defaults.sh — reuse the same single source
 #    of truth for image picks, NGC refs, paths, kinds, extract_dirs.
@@ -249,11 +250,21 @@ else
 fi
 
 # Optional warehouse-3d roles (load_defaults.sh only emits these for warehouse-3d).
+# Labels and anchor are repository-owned companions in the current warehouse
+# layout; retain NGC handling for user-supplied/older defaults.
 if [[ -n "${DEFAULT_LABELS_NGC_REF:-}" ]]; then
-    LABELS_REF="${LABELS_REF:-$DEFAULT_LABELS_NGC_REF}"
-    resolve_ngc_role LABELS "$LABELS_REF" "$DEFAULT_LABELS_EXTRACT_DIR" "$DEFAULT_LABELS_PATH"
+    if [[ "${DEFAULT_LABELS_KIND:-resource}" == "repo" ]]; then
+        resolve_local_role LABELS "${REPO_ROOT}/${DEFAULT_LABELS_PATH}"
+    else
+        LABELS_REF="${LABELS_REF:-$DEFAULT_LABELS_NGC_REF}"
+        resolve_ngc_role LABELS "$LABELS_REF" "$DEFAULT_LABELS_EXTRACT_DIR" "$DEFAULT_LABELS_PATH"
+    fi
 fi
 if [[ -n "${DEFAULT_ANCHOR_NGC_REF:-}" ]]; then
-    ANCHOR_REF="${ANCHOR_REF:-$DEFAULT_ANCHOR_NGC_REF}"
-    resolve_ngc_role ANCHOR "$ANCHOR_REF" "$DEFAULT_ANCHOR_EXTRACT_DIR" "$DEFAULT_ANCHOR_PATH"
+    if [[ "${DEFAULT_ANCHOR_KIND:-resource}" == "repo" ]]; then
+        resolve_local_role ANCHOR "${REPO_ROOT}/${DEFAULT_ANCHOR_PATH}"
+    else
+        ANCHOR_REF="${ANCHOR_REF:-$DEFAULT_ANCHOR_NGC_REF}"
+        resolve_ngc_role ANCHOR "$ANCHOR_REF" "$DEFAULT_ANCHOR_EXTRACT_DIR" "$DEFAULT_ANCHOR_PATH"
+    fi
 fi
