@@ -1557,7 +1557,7 @@ function state_up() {
   mkdir -p "${data_directory}/agent_eval/dataset/"
   mkdir -p "${data_directory}/agent_eval/results/"
 
-  # Create alerts-specific directories and download models
+  # Create alerts-specific directories
   if [[ "${profile}" == "alerts" ]]; then
     echo "[INFO] Creating alerts-specific directories..."
 
@@ -1575,63 +1575,7 @@ function state_up() {
       chmod -R 777 "${deployment_directory}/engines"
     fi
 
-    # Download alerts models from NGC
-    echo "[INFO] Downloading alerts models from NGC..."
-
-    if [[ "${dry_run}" == "true" ]]; then
-      echo "[DRY-RUN] rm -rf ${data_directory}/models"
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models/rtdetr-its"
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models/gdino"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
-      echo "[DRY-RUN] mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx ${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
-      echo "[DRY-RUN] rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
-      echo "[DRY-RUN] mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx ${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-      echo "[DRY-RUN] rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
-      echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
-    else
-      rm -rf "${data_directory}/models"
-
-      mkdir -p "${data_directory}/models/rtdetr-its"
-      mkdir -p "${data_directory}/models/gdino"
-
-      # Download and install trafficcamnet RT-DETR model
-      run_required_step "Failed to download trafficcamnet RT-DETR model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
-
-      require_downloaded_model_file \
-        "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx" \
-        "trafficcamnet RT-DETR ONNX artifact"
-      run_required_step "Failed to install trafficcamnet RT-DETR model" \
-        mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
-        "${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
-
-      rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
-
-      # Download and install grounding DINO model
-      run_required_step "Failed to download grounding DINO model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-
-      require_downloaded_model_file \
-        "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx" \
-        "grounding DINO ONNX artifact"
-      run_required_step "Failed to install grounding DINO model" \
-        mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
-        "${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-
-      rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-
-      chmod -R 777 "${data_directory}/models"
-      echo "[INFO] Alerts models downloaded and installed to ${data_directory}/models"
-    fi
+    echo "[INFO] Alerts model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   if [[ "${profile}" == "search" ]]; then
@@ -1643,37 +1587,7 @@ function state_up() {
       mkdir -p "${data_directory}/data_log/vss_video_analytics_api"
     fi
 
-    # Download RT-DETR model from NGC (host-staged, bind-mounted into container).
-    echo "[INFO] Downloading RT-DETR model from NGC..."
-
-    if [[ "${dry_run}" == "true" ]]; then
-      echo "[DRY-RUN] mkdir -p ${data_directory}/models"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvidia"
-      echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-      echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2"
-      echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
-    else
-      mkdir -p "${data_directory}/models"
-
-      run_required_step "Failed to download RT-DETR model from NGC" \
-        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-        --org nvidia
-
-      require_downloaded_model_file \
-        "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx" \
-        "RT-DETR warehouse ONNX artifact"
-      run_required_step "Failed to install RT-DETR model" \
-        mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-
-      rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
-
-      chmod -R 777 "${data_directory}/models"
-      echo "[INFO] RT-DETR model downloaded and installed to ${data_directory}/models"
-    fi
+    echo "[INFO] Search model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   # Set permissions on data_log directory

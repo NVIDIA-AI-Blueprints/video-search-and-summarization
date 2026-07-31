@@ -799,7 +799,7 @@ PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_a
   "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
 
-# --- Setup paths: data directory and selective downloads (assert dry-run output) ---
+# --- Setup paths: data directory and profile-specific setup messaging (assert dry-run output) ---
 _out_setup="$(mktemp)"
 cd "${REPO_ROOT}"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_setup}" 2>&1
@@ -843,29 +843,190 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alerts profile: dry-run must include NGC model download steps (rtdetr-its, trafficcamnet, gdino/mask_grounding_dino)
+# Alerts profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_alerts="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m verification -d > "${_out_alerts}" 2>&1
-if grep -q "models/rtdetr-its" "${_out_alerts}" && grep -q "trafficcamnet" "${_out_alerts}" && grep -q "models/gdino" "${_out_alerts}" && grep -q "mask_grounding_dino" "${_out_alerts}" && grep -q "mgdino_mask_head_pruned_dynamic_batch.onnx" "${_out_alerts}" && grep -q "ngc registry model" "${_out_alerts}"; then
-  echo "PASS: alerts dry-run output includes NGC model download steps"
+if grep -q "Alerts model download runs in ds-start.sh phase 0 (perception)." "${_out_alerts}" && ! grep -q "ngc registry model download-version" "${_out_alerts}"; then
+  echo "PASS: alerts dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts dry-run output missing NGC model download steps (models/rtdetr-its, trafficcamnet, models/gdino, mask_grounding_dino, mgdino_mask_head_pruned_dynamic_batch.onnx, ngc registry model)"
+  echo "FAIL: alerts dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_alerts}"
 
-# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvidia TAO).
+# Search profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvidia/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvidia" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
-  echo "PASS: search dry-run output includes NGC model download steps"
+if grep -q "Search model download runs in ds-start.sh phase 0 (perception)." "${_out_search}" && ! grep -q "ngc registry model download-version" "${_out_search}"; then
+  echo "PASS: search dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvidia/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvidia, ngc registry model)"
+  echo "FAIL: search dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
+
+# --- Warehouse RT-CV model acquisition: manifests and flattened paths ---
+_warehouse_model_config_failed=0
+_warehouse_root="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations"
+_warehouse_2d_manifest="${_warehouse_root}/warehouse-2d-app/models-download.json"
+_warehouse_3d_manifest="${_warehouse_root}/warehouse-3d-app/models-download.json"
+_warehouse_mv3dt_manifest="${_warehouse_root}/warehouse-mv3dt-app/models-download.json"
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2",
+    "org": "nvidia",
+    "sourcePath": "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx",
+    "destPath": "rtdetr_warehouse_v1.0.2.fp16.onnx"
+  }]
+' "${_warehouse_2d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 2D manifest should download RT-DETR to the flattened model root"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/sparse4d_rn50:deployable_v2.2",
+    "org": "nvidia",
+    "sourcePath": "sparse4d_warehouse_v2.2_r50.onnx",
+    "destPath": "sparse4d/sparse4d_warehouse_v2.2.onnx"
+  }]
+' "${_warehouse_3d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 3D manifest should download only Sparse4D to its flattened path"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  (.downloads | length) == 2
+  and any(.downloads[]; .model == "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2" and .destPath == "rtdetr_warehouse_v1.0.2.fp16.onnx")
+  and any(.downloads[]; .model == "nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0" and .sourcePath == "bodypose3dnet_accuracy.onnx" and .destPath == "BodyPose3DNet/bodypose3dnet_accuracy.onnx")
+' "${_warehouse_mv3dt_manifest}" >/dev/null; then
+  echo "FAIL: warehouse MV3DT manifest should download flattened RT-DETR and BodyPose3DNet artifacts"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ! -s "${_warehouse_root}/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy" ]]; then
+  echo "FAIL: warehouse 3D repository anchor asset is missing or empty"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! grep -q '^onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml" \
+  || ! grep -q '^engine_file: /opt/storage/sparse4d/model.engine$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml"; then
+  echo "FAIL: warehouse 3D config should use namespaced flattened model and engine paths"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if grep -E 'models/mtmc|models/sparse4d/ov|models-download-warehouse-' \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml" >/dev/null; then
+  echo "FAIL: warehouse Compose should not use legacy app-data model mounts or download init services"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+for _wh_yml in \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"; do
+  if ! grep -q 'models-download.json:/opt/config/models-download.json:ro' "${_wh_yml}"; then
+    echo "FAIL: ${_wh_yml} should mount models-download.json for ds-start phase 0"
+    ((_warehouse_model_config_failed++)) || true
+  fi
+done
+
+_rtvi_compose="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/compose.yaml"
+if grep -q '^  download-models:' "${_rtvi_compose}" \
+  || ! grep -q 'download-models.sh' "${_rtvi_compose}" \
+  || ! grep -q 'user: "0:0"' "${_rtvi_compose}"; then
+  echo "FAIL: base rtvi-cv compose should drop download-models service and run perception as root with download script mounted"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_helm_job="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/job-download-models.yaml"
+_helm_ss="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset.yaml"
+if [[ -e "${_helm_job}" ]] \
+  || grep -q 'wait-for-models' "${_helm_ss}" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-2d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-3d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml" \
+  || ! grep -q 'ensure_models_from_manifest' \
+    "${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/ds-start.sh" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/ds-start.sh"; then
+  echo "FAIL: no-init download contract missing (Job/wait removed; ensure_models present)"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_standalone_skill_defaults="${REPO_ROOT}/skills/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
+if grep -E 'vss-warehouse-app-data/models/(mtmc|sparse4d/ov)' "${_standalone_skill_defaults}" >/dev/null \
+  || ! grep -q 'ref: *nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'ref: *nvidia/tao/sparse4d_rn50:deployable_v2.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'kind: *repo' "${_standalone_skill_defaults}"; then
+  echo "FAIL: standalone detection skill should use NGC model packages and repository Sparse4D companions"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ${_warehouse_model_config_failed} -eq 0 ]]; then
+  echo "PASS: warehouse RT-CV model manifests and flattened paths are aligned"
+  ((TESTS_PASSED++)) || true
+else
+  ((TESTS_FAILED++)) || true
+fi
+
+_helm_mv3dt_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml"
+_helm_mv3dt_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
+_helm_mv3dt_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
+if grep -q 'downloadModelsFromNgc: true' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_mv3dt_values}" \
+  && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_mv3dt_values}" \
+  && grep -q 'DS_MODEL_DOWNLOAD' "${_helm_mv3dt_statefulset}" \
+  && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_mv3dt_statefulset}" \
+  && ! grep -q 'wait-for-models' "${_helm_mv3dt_statefulset}" \
+  && ! grep -Eq 'prepare-mv3dt-models|runtime-storage|rtdetrPvcSubPath|bodyPosePvcSubPath' \
+    "${_helm_mv3dt_statefulset}" "${_helm_mv3dt_defaults}"; then
+  echo "PASS: warehouse Helm MV3DT uses per-file models via ds-start phase 0 and direct PVC storage"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse Helm MV3DT should use flattened model downloads without wait-for-models or legacy copies"
+  ((TESTS_FAILED++)) || true
+fi
+
+BLUEPRINT_DEPLOY="${REPO_ROOT}/deploy/docker/scripts/blueprint-deploy.sh"
+if grep -Fq 'Warehouse RT-CV model download runs in ds-start phase 0' "${BLUEPRINT_DEPLOY}" \
+  && grep -q 'mkdir -p "${data_directory}/models"' "${BLUEPRINT_DEPLOY}" \
+  && ! grep -q 'models/mv3dt/BodyPose3DNet' "${BLUEPRINT_DEPLOY}"; then
+  echo "PASS: blueprint-deploy.sh prepares flattened warehouse models dir and delegates RT-CV download to ds-start"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: blueprint-deploy.sh should create flattened models/ and log ds-start warehouse model download"
+  ((TESTS_FAILED++)) || true
+fi
+
+_warehouse_3d_skill="${REPO_ROOT}/skills/vss-deploy-detection-tracking-3d"
+if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
+  "${_warehouse_3d_skill}/SKILL.md" \
+  "${_warehouse_3d_skill}/references" \
+  "${_warehouse_3d_skill}/evals" >/dev/null; then
+  echo "PASS: warehouse MV3DT skill uses flattened per-file model paths"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT skill should not reference legacy app-data model paths"
+  ((TESTS_FAILED++)) || true
+fi
+
+_compose_mv3dt_root="${_warehouse_root}/warehouse-mv3dt-app"
+_helm_mv3dt_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
+if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_mv3dt_start}" \
+  && grep -q 'PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml" \
+  && grep -q 'PERCEPTION_TAG:-3.3.0-26.07.2' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
+  echo "PASS: warehouse MV3DT startup script and perception fallback are aligned across Compose and Helm"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT Compose and Helm startup semantics or perception fallback diverged"
+  ((TESTS_FAILED++)) || true
+fi
 
 # NGC download failures must stop before kernel setup, docker login, or compose.
 run_ngc_download_fail_fast_test() {
@@ -1015,22 +1176,6 @@ EOF
     ((TESTS_PASSED++)) || true
   fi
 }
-
-run_ngc_download_fail_fast_test \
-  "NGC search RT-DETR download failure fails fast" \
-  "search" \
-  "\\[ERROR\\] Failed to download RT-DETR model from NGC (exit 42)" \
-  -p search -i 127.0.0.1 -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts trafficcamnet download failure fails fast" \
-  "alerts-first" \
-  "\\[ERROR\\] Failed to download trafficcamnet RT-DETR model from NGC (exit 42)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts grounding DINO download failure fails fast" \
-  "alerts-second" \
-  "\\[ERROR\\] Failed to download grounding DINO model from NGC (exit 43)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
 
 # --- Profile env split: stable .env plus script-modifiable overrides.env ---
 _common_overrides_env_keys=(

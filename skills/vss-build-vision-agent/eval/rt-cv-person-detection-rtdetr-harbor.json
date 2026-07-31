@@ -20,8 +20,8 @@
       "query": "Use `/vss-build-vision-agent` to build an RT-CV person detection and tracking deployment under `_builds/rt-cv-person-detection-rtdetr-harbor/`. Streamed and uploaded video must remain retrievable through VIOS; RT-DETR metadata must include boxes, labels, confidence, timestamps, sensor IDs, and track IDs and flow through Kafka to Elasticsearch. Target `{{platform}}`, exclude embeddings, search, agent/UI, tracing, RT-VLM, and LLM inference, validate, and do not deploy.",
       "checks": [
         "`_builds/rt-cv-person-detection-rtdetr-harbor/override.env` exists with `FOUNDATION=search` and the full effective `COMPOSE_PROFILES`.",
-        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-search,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.",
-        "`perception-2d-init` and `perception-2d-fusion` are used; `perception-2d`, `perception-alerts`, and invented replacements are absent.",
+        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-search,nvstreamer-2d-fusion,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.",
+        "`perception-2d-fusion` is used; `perception-2d`, `perception-alerts`, and invented replacements are absent.",
         "`ENABLE_CRITIC=false` is effective because VLM critique was excluded.",
         "The build label does not appear in `COMPOSE_PROFILES` or any Compose `profiles` entry.",
         "`compose.yml` includes `../../deploy/docker/compose.yml`, and `patches/` is absent because the deployment changes no service definition.",

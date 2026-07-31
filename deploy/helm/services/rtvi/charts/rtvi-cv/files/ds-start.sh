@@ -3,20 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Unified DeepStream perception entrypoint.
-# Dispatches based on DS_MODEL_FAMILY env var:
-#   - rtdetr-warehouse
-#   - rtdetr-gdino
-#   - sparse4d-warehouse
 
 set -euo pipefail
 
-# RHEL hosts (Docker via nvidia-container-toolkit) and OpenShift/RHCOS (GPU Operator)
-# inject the real driver libraries (e.g. libnvidia-ml.so.1) into /usr/lib64, while
-# this Ubuntu-based DeepStream image looks under /usr/lib/x86_64-linux-gnu where it
-# only finds a 0-byte stub -> "libnvidia-ml.so.1: file too short" and the GStreamer
-# pipeline fails to create src_nvmultiurisrcbin. Prepend /usr/lib64 so the loader
-# resolves the real libs first; the image's path is preserved, so vanilla Ubuntu
-# Docker behavior is unchanged.
 export LD_LIBRARY_PATH=/usr/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 
 DS_MODEL_FAMILY="${DS_MODEL_FAMILY:?DS_MODEL_FAMILY must be set (rtdetr-warehouse, rtdetr-gdino, sparse4d-warehouse)}"
@@ -31,13 +20,10 @@ DS_APP_DIR="${DS_APP_DIR:-/opt/nvidia/deepstream/deepstream/sources/apps/sample_
 DS_CONFIG_DIR="${DS_APP_DIR}/configs"
 DS_MOUNTED_CONFIGS_DIR="${DS_APP_DIR}/mounted-configs"
 
-# Prepend core DeepStream plugin dirs so GStreamer can find nvvideoconvert and
-# other elements required by metropolis_perception_app (e.g. alerts rtdetr-gdino).
 _ARCH="$(uname -m)"
 export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
 unset _ARCH
 
-# Shared: build extra flags from env vars
 build_extra_flags() {
     local flags=""
     [[ "$DS_TRACKER_REID" == "true" ]] && flags="$flags --tracker-reid"
@@ -149,14 +135,11 @@ patch_vision_encoder_configs_if_enabled() {
 
     local vision_encoder_model="${VISION_ENCODER_MODEL:?VISION_ENCODER_MODEL must be set when DS_VISION_ENCODER=true}"
     local vision_encoder_version="${VISION_ENCODER_VERSION:?VISION_ENCODER_VERSION must be set when DS_VISION_ENCODER=true}"
-    # Shared model tree root; matches download-models.sh MODELS_DEST_ROOT. Default unchanged at runtime.
     local vision_encoder_storage="/opt/storage"
     local vision_encoder_onnx_file="${vision_encoder_model}_${vision_encoder_version}.onnx"
     local vision_encoder_tokenizer_dir="${vision_encoder_model}_${vision_encoder_version}_tokenizer"
     local onnx_path="${vision_encoder_storage}/${vision_encoder_onnx_file}"
 
-    # Ordering/readiness is guaranteed by ensure_models_from_manifest (phase 0);
-    # validating the real artifact here is the meaningful runtime check.
     require_file "$onnx_path" "Expected ONNX artifact for DS_VISION_ENCODER=true; ensure_models_from_manifest may not have completed."
 
     for cfg in "${DS_CONFIG_DIR}/ds-main-config.txt" "${DS_CONFIG_DIR}/ds-main-redis-config.txt"; do
@@ -169,9 +152,6 @@ patch_vision_encoder_configs_if_enabled() {
     done
 }
 
-# ---------------------------------------------------------------------------
-# CNN family (warehouse-2d, search)
-# ---------------------------------------------------------------------------
 start_rtdetr_warehouse()
 {
     echo "##### RT-DETR Warehouse models will be used. #####"
@@ -192,9 +172,6 @@ start_rtdetr_warehouse()
         ${extra_flags:-}
 }
 
-# ---------------------------------------------------------------------------
-# RTDetr + GDINO family (alerts, smartcities)
-# ---------------------------------------------------------------------------
 start_rtdetr_gdino()
 {
     echo "##### RT-DETR GDINO models will be used. #####"
@@ -245,7 +222,6 @@ start_rtdetr_gdino()
     else
         DS_MODE_FLAG=7
         echo "##### RT-DETR model being used... #####"
-        # RT-DETR nvinfer config: engine filename uses b<NUM_SENSORS> (e.g. b4, b8, b30)
         RTDETR_INFER_CONFIG="${DS_CONFIG_DIR}/rtdetr-960x544.txt"
         if [[ -f "$RTDETR_INFER_CONFIG" ]]; then
             sed -i "/^\[property\]/,/^\[/{s|^model-engine-file=.*|model-engine-file=${ENGINES_DIR}/rtdetr-its/model_epoch_035.fp16.onnx_b${NUM_SENSORS}_gpu0_fp16.engine|;}" "$RTDETR_INFER_CONFIG"
@@ -263,47 +239,31 @@ start_rtdetr_gdino()
     sed -i "/^\[primary-gie\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
 
     if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
-        # Replace or add msg-conv-msg2p-lib property in sink1 group
         echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv.so for sink1 group... #####"
-        # First, remove any existing msg-conv-msg2p-lib line within [sink1] section
         sed -i '/^\[sink1\]/,/^\[/{/^msg-conv-msg2p-lib=/d;}' "$config_file"
-        # Then add the new property after [sink1]
         sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so' "$config_file"
-        # Set [primary-gie] interval=1 in $config_file
         sed -i '/^\[primary-gie\]/,/^\[/{s/^interval=.*/interval=1/;}' "$config_file"
     else
-        # Replace or add msg-conv-msg2p-lib property in sink1 group
         echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv_mega2d.so for sink1 group... #####"
-        # First, remove any existing msg-conv-msg2p-lib line within [sink1] section
         sed -i '/^\[sink1\]/,/^\[/{/^msg-conv-msg2p-lib=/d;}' "$config_file"
-        # Then add the new property after [sink1]
         sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so' "$config_file"
     fi
 
+    TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
+
     if [[ "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
-        # Set compute-hw=2 under tracker section in config_file
         echo "##### Setting compute-hw=2 in tracker section of $config_file... #####"
         sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' "$config_file"
         sed -i '/^\[tracker\]/a compute-hw=2' "$config_file"
-        # Replace or add low-latency-mode property in source-list section
         echo "##### Setting low-latency-mode to 0 for source-list section... #####"
-        # Remove any existing low-latency-mode line within [source-list] section
         sed -i '/^\[source-list\]/,/^\[/{/^low-latency-mode=/d;}' "$config_file"
-        # Then add the new property after [source-list]
         sed -i '/^\[source-list\]/a low-latency-mode=0' "$config_file"
-        # Update VisualTracker section in config_tracker_NvDCF_accuracy.yml
-        TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
         echo "##### Updating VisualTracker section in $TRACKER_CONFIG... #####"
-        # Add or update visualTrackerType and vpiBackend4DcfTracker under VisualTracker section
         if [[ -f "$TRACKER_CONFIG" ]]; then
-            # Remove existing visualTrackerType if present
             sed -i '/^VisualTracker:/,/^[A-Z][a-zA-Z]*:/ {/^[[:space:]]*visualTrackerType:/d;}' "$TRACKER_CONFIG"
-            # Remove existing vpiBackend4DcfTracker if present
             sed -i '/^VisualTracker:/,/^[A-Z][a-zA-Z]*:/ {/^[[:space:]]*vpiBackend4DcfTracker:/d;}' "$TRACKER_CONFIG"
-            # Add the properties after VisualTracker line with proper YAML indentation (2 spaces)
             sed -i '/^VisualTracker:/a \  visualTrackerType: 2' "$TRACKER_CONFIG"
             sed -i '/^[[:space:]]*visualTrackerType: 2/a \  vpiBackend4DcfTracker: 2' "$TRACKER_CONFIG"
-            # Update maxTargetsPerStream to 50 in TargetManagement section
             sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*maxTargetsPerStream:.*/  maxTargetsPerStream: 50/;}' "$TRACKER_CONFIG"
             echo "##### Updated maxTargetsPerStream to 50 in TargetManagement section... #####"
             echo "##### Contents of $TRACKER_CONFIG: #####"
@@ -311,11 +271,10 @@ start_rtdetr_gdino()
         fi
     fi
 
-    TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
     echo "##### Updating minTrackerConfidence in $TRACKER_CONFIG... #####"
     if [[ -f "$TRACKER_CONFIG" ]]; then
         sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*minTrackerConfidence:.*/  minTrackerConfidence: 0.2513/;}' "$TRACKER_CONFIG"
-        echo "##### Updated minTrackerConfidence to 0.2513 in TargetManagement section... #####"
+        echo "##### Updated minTrackerConfidence in $TRACKER_CONFIG... #####"
     else
         echo "Warning: Tracker config $TRACKER_CONFIG not found, skipping minTrackerConfidence update..."
     fi
@@ -333,9 +292,6 @@ start_rtdetr_gdino()
         --show-sensor-id
 }
 
-# ---------------------------------------------------------------------------
-# Sparse4D family (warehouse-3d)
-# ---------------------------------------------------------------------------
 start_sparse4d_warehouse()
 {
     echo "##### Sparse4D Warehouse models will be used. #####"
@@ -348,7 +304,6 @@ start_sparse4d_warehouse()
     export LD_PRELOAD="${LD_PRELOAD:-}:$CUSTOM_PRELOAD_LIB"
 
     bash sparse4d_setup.sh
-
     cd "$DS_APP_DIR"
 
     local config_file
@@ -356,7 +311,7 @@ start_sparse4d_warehouse()
     require_file "$config_file" "Set DS_CONFIG_FILE or ensure Sparse4D config exists."
 
     cat "$config_file"
-    echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5"
+    echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -l 5"
     exec_as_runtime_user ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5
 }
 
@@ -372,5 +327,5 @@ case "$DS_MODEL_FAMILY" in
     rtdetr-warehouse)       start_rtdetr_warehouse ;;
     rtdetr-gdino)           start_rtdetr_gdino ;;
     sparse4d-warehouse)     start_sparse4d_warehouse ;;
-    *)        echo "Unknown DS_MODEL_FAMILY: $DS_MODEL_FAMILY"; exit 1 ;;
+    *) echo "Unknown DS_MODEL_FAMILY: $DS_MODEL_FAMILY"; exit 1 ;;
 esac

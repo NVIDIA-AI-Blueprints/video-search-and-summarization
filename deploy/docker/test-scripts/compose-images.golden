@@ -3,7 +3,6 @@
 # A diff in this file means a registry, image name, or default tag changed.
 deploy/docker/developer-profiles/dev-profile-alerts/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/developer-profiles/dev-profile-lvs/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml debian:12-slim
 deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
