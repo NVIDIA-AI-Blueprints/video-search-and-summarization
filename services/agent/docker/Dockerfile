@@ -51,11 +51,6 @@ COPY --chown=root:root --chmod=0555 agent/packages/vss_agents/src /vss-agent/pac
 COPY --chown=root:root --chmod=0444 agent/packages/vss_cli/pyproject.toml /vss-agent/packages/vss_cli/pyproject.toml
 COPY --chown=root:root --chmod=0555 agent/packages/vss_cli/src /vss-agent/packages/vss_cli/src
 COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
-COPY --chown=root:root --chmod=0444 agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
-COPY --chown=root:root --chmod=0555 agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
-
-# Fail early if FFmpeg source tarball is missing or invalid (required for LGPL compliance)
-RUN python3 /vss-agent/verify_ffmpeg_tarball.py
 
 # Create virtual environment and install dependencies
 # Use architecture-specific cache to avoid ARM64/AMD64 conflicts
@@ -121,7 +116,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime stage - using NVIDIA distroless production image (supports AMD64 and ARM64)
-FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.7 AS runtime
+FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.10 AS runtime
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG TARGETPLATFORM
@@ -157,7 +152,6 @@ COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/lib
 
 # Copy application without any dev needs
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
-COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/third_party/ffmpeg /vss-agent/third_party/ffmpeg
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 

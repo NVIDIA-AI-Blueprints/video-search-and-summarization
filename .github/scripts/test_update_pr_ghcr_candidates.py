@@ -24,27 +24,49 @@ class CandidateCommentTest(unittest.TestCase):
         self.assertIsNone(module.pr_number("develop"))
         self.assertIsNone(module.pr_number("pull-request/not-a-number"))
 
-    def test_select_release_set_run_requires_exact_ref_sha_and_success(self):
+    def test_select_release_set_run_requires_exact_ref_and_sha(self):
+        """Exact match only; conclusion is the caller's business, not the selector's."""
         runs = [
-            {
-                "id": 1,
-                "head_sha": "a" * 40,
-                "head_branch": "pull-request/1190",
-                "conclusion": "failure",
-            },
-            {
-                "id": 2,
-                "head_sha": "a" * 40,
-                "head_branch": "pull-request/1190",
-                "conclusion": "success",
-            },
+            {"id": 1, "head_sha": "b" * 40, "head_branch": "pull-request/1190",
+             "conclusion": "success", "created_at": "2026-07-01T00:00:00Z"},
+            {"id": 2, "head_sha": "a" * 40, "head_branch": "develop",
+             "conclusion": "success", "created_at": "2026-07-01T00:00:00Z"},
+        ]
+        self.assertIsNone(
+            module.select_release_set_run(runs, "a" * 40, "pull-request/1190")
+        )
+
+    def test_select_release_set_run_returns_a_failed_run(self):
+        """The whole point: a failed companion run must be visible to the caller.
+
+        Filtering it out here is what made "finished unsuccessfully" look
+        identical to "not created yet", so the poller waited out its budget.
+        """
+        runs = [
+            {"id": 1, "head_sha": "a" * 40, "head_branch": "pull-request/1190",
+             "conclusion": "failure", "created_at": "2026-07-01T00:00:00Z"},
+        ]
+        selected = module.select_release_set_run(runs, "a" * 40, "pull-request/1190")
+        self.assertEqual(selected["id"], 1)
+        self.assertEqual(selected["conclusion"], "failure")
+
+    def test_select_release_set_run_prefers_the_newest_execution(self):
+        """A newer workflow execution supersedes an older one, so a stale
+        failure must not abort a build that is currently running.
+
+        Note this is a distinct execution (new id), not a GitHub re-run.
+        A re-run reuses the id; that case is covered in BuildWaitTest."""
+        runs = [
+            {"id": 1, "head_sha": "a" * 40, "head_branch": "pull-request/1190",
+             "conclusion": "failure", "created_at": "2026-07-01T00:00:00Z"},
+            {"id": 2, "head_sha": "a" * 40, "head_branch": "pull-request/1190",
+             "conclusion": None, "status": "in_progress",
+             "created_at": "2026-07-02T00:00:00Z"},
         ]
         self.assertEqual(
-            module.select_release_set_run(
-                runs, "a" * 40, "pull-request/1190"
-            )["id"],
-            2,
+            module.select_release_set_run(runs, "a" * 40, "pull-request/1190")["id"], 2
         )
+
 
     def test_comment_lists_only_immutable_ghcr_builds(self):
         release_set = {
@@ -292,6 +314,148 @@ class CandidateCommentTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "repeated a page"):
             module.upsert_comment(FakeApi(), "org/repo", 1190, "updated")
 
+
+class BuildWaitTest(unittest.TestCase):
+    """The defect: a failed companion build was invisible, so the poller
+    retried 520 times over ~130 minutes for a run that would never appear."""
+
+    SHA = "f" * 40
+    REF = "pull-request/1190"
+
+    def _api(self, *pages):
+        api = mock.Mock()
+        api.request.side_effect = [{"workflow_runs": p} for p in pages]
+        return api
+
+    def _run(self, **kw):
+        base = {"id": 7, "run_number": 7, "run_attempt": 1,
+                "head_sha": self.SHA, "head_branch": self.REF,
+                "created_at": "2026-07-01T00:00:00Z", "html_url": "https://x/7"}
+        base.update(kw)
+        return base
+
+    def test_query_does_not_filter_on_success(self):
+        """Guards the fix itself. Asking GitHub only for successful runs is
+        what made a failed companion build indistinguishable from an absent
+        one, so the query must stay unfiltered by status."""
+        api = self._api([self._run(status="completed", conclusion="success")])
+        with mock.patch.object(module, "download_release_set_artifact",
+                               return_value={"ok": True}):
+            module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
+        url = api.request.call_args[0][1]
+        self.assertIn("head_sha=", url)
+        self.assertNotIn("status=", url)
+        self.assertIn("branch=", url)
+
+    def test_failed_companion_run_raises_immediately_without_sleeping(self):
+        api = self._api([self._run(status="completed", conclusion="failure")])
+        with mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaises(RuntimeError) as ctx:
+                module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
+        slept.assert_not_called()
+        self.assertIn("failure", str(ctx.exception))
+        self.assertIn("7", str(ctx.exception))
+        self.assertEqual(api.request.call_count, 1)
+
+    def test_every_terminal_non_success_conclusion_fails_immediately(self):
+        for conclusion in ("cancelled", "timed_out", "startup_failure",
+                           "stale", "neutral", "skipped"):
+            with self.subTest(conclusion=conclusion):
+                api = self._api([self._run(status="completed",
+                                           conclusion=conclusion)])
+                with mock.patch.object(module.time, "sleep") as slept:
+                    with self.assertRaises(RuntimeError) as ctx:
+                        module.download_release_set(
+                            api, "o/r", self.SHA, self.REF, 520, 15)
+                slept.assert_not_called()
+                self.assertIn(conclusion, str(ctx.exception))
+
+    def test_action_required_keeps_polling(self):
+        """Approval can resume the same run, so this is not terminal."""
+        api = self._api(
+            [self._run(status="completed", conclusion="action_required")],
+            [self._run(status="completed", conclusion="success")],
+        )
+        with mock.patch.object(module.time, "sleep"), mock.patch.object(
+            module, "download_release_set_artifact", return_value={"ok": True}
+        ):
+            self.assertEqual(
+                module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15),
+                {"ok": True},
+            )
+
+    def test_in_flight_github_rerun_is_not_aborted(self):
+        """A GitHub re-run reuses the run id and resets status to in_progress
+        while `conclusion` may still read stale. Interpreting a conclusion on a
+        non-completed run would abort somebody's retry."""
+        api = self._api(
+            [self._run(run_attempt=2, status="in_progress", conclusion="failure")],
+            [self._run(run_attempt=2, status="completed", conclusion="success")],
+        )
+        with mock.patch.object(module.time, "sleep") as slept, mock.patch.object(
+            module, "download_release_set_artifact", return_value={"ok": True}
+        ):
+            out = module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(slept.call_count, 1)
+
+    def test_in_progress_keeps_waiting_then_succeeds(self):
+        api = self._api(
+            [self._run(status="in_progress", conclusion=None)],
+            [self._run(status="completed", conclusion="success")],
+        )
+        with mock.patch.object(module.time, "sleep") as slept, mock.patch.object(
+            module, "download_release_set_artifact", return_value={"ok": True}
+        ) as dl:
+            out = module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(slept.call_count, 1)
+        dl.assert_called_once()
+
+    def test_still_in_progress_at_the_final_attempt_times_out(self):
+        """Guards the reset at the end of the loop: a non-terminal run on the
+        last attempt must not be mistaken for a usable one."""
+        api = mock.Mock()
+        api.request.return_value = {
+            "workflow_runs": [self._run(status="in_progress", conclusion=None)]
+        }
+        with mock.patch.object(module.time, "sleep") as slept, mock.patch.object(
+            module, "download_release_set_artifact"
+        ) as dl:
+            with self.assertRaises(RuntimeError) as ctx:
+                module.download_release_set(api, "o/r", self.SHA, self.REF, 3, 15)
+        self.assertEqual(api.request.call_count, 3)
+        self.assertEqual(slept.call_count, 2)
+        dl.assert_not_called()
+        self.assertIn("3 polling attempts", str(ctx.exception))
+
+    def test_absent_run_still_exhausts_its_budget(self):
+        """Waiting is correct while the run does not exist yet. Note CI also
+        triggers on `main`, where Build Dev Images never runs at all, so an
+        absent run is not always transient."""
+        api = mock.Mock()
+        api.request.return_value = {"workflow_runs": []}
+        with mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaises(RuntimeError):
+                module.download_release_set(api, "o/r", self.SHA, self.REF, 3, 15)
+        self.assertEqual(api.request.call_count, 3)
+        self.assertEqual(slept.call_count, 2)
+
+    def test_older_failure_does_not_abort_a_newer_running_execution(self):
+        api = self._api([
+            self._run(id=1, run_number=1, status="completed", conclusion="failure",
+                      created_at="2026-07-01T00:00:00Z"),
+            self._run(id=2, run_number=2, status="in_progress", conclusion=None,
+                      created_at="2026-07-02T00:00:00Z"),
+        ], [
+            self._run(id=2, run_number=2, status="completed", conclusion="success",
+                      created_at="2026-07-02T00:00:00Z"),
+        ])
+        with mock.patch.object(module.time, "sleep"), mock.patch.object(
+            module, "download_release_set_artifact", return_value={"ok": True}
+        ):
+            out = module.download_release_set(api, "o/r", self.SHA, self.REF, 520, 15)
+        self.assertEqual(out, {"ok": True})
 
 if __name__ == "__main__":
     module.enforce_memory_ceiling()
