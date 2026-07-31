@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-video-summarization
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-video-summarization
+  tag: "3.3.0-rc2"
   pullPolicy: IfNotPresent
 replicas: 1
 # Backend (API), MCP ports — match Compose
