@@ -294,7 +294,11 @@ docker compose -f compose.yml \
 4. **Stop the stack**
 
 ```bash
-docker compose -p mdx down -v --remove-orphans
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/overrides.env \
+  down -v --remove-orphans
 ```
 
 5. **Data / backup cleanup**
