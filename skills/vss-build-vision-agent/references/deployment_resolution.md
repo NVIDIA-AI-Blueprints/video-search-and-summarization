@@ -1,9 +1,9 @@
 # Deployment endpoint resolution
 
 `vss-build-vision-agent` owns publication of the public endpoints that operate
-skills consume. Archive search and VIOS operations do not discover Helm
-releases, Services, or hostnames; the completed deployment supplies the public
-origin as `VSS_PUBLIC_URL`.
+skills consume. Operate skills do not discover Helm releases, Services, or
+hostnames; the completed deployment supplies the public origin as
+`VSS_PUBLIC_URL`.
 
 For the catalog-level overview, see `skills/README.md`. This file is the
 canonical contract for mapping deployment settings to operator-facing public
@@ -15,13 +15,18 @@ A Kubernetes deployment must publish one public Ingress origin, including the
 scheme and any non-default port:
 
 ```bash
+# base profile example
+VSS_PUBLIC_URL=https://vss.example.com
+# search profile example
 VSS_PUBLIC_URL=https://vss-search.example.com
 ```
 
 The deployment workflow must surface this value to the operator. Operate skills
-trim trailing slashes before building derived URLs.
+trim trailing slashes before building derived URLs. The variable name does not
+encode the profile; the deployment publishes one origin and each skill uses the
+routes that profile exposes.
 
-### Helm / runtime name mapping (search profile)
+### Shared Helm / runtime name mapping
 
 Operate skills take **one** public origin: `VSS_PUBLIC_URL`. Helm and agent pods
 may label that same host differently; treat those names as deploy-side aliases,
@@ -29,16 +34,18 @@ not additional operate inputs:
 
 | Operate-skill name | Helm / runtime equivalents |
 |---|---|
-| `VSS_PUBLIC_URL` | `global.externalHost`, main Ingress host (`vss-search.<ip>.nip.io`), `AGENT_BASE_URL`, `VSS_AGENT_EXTERNAL_URL`, and deploy-minted `VST_EXTERNAL_URL` when it equals that origin |
+| `VSS_PUBLIC_URL` | `global.externalHost`, main Ingress host, `AGENT_BASE_URL`, `VSS_AGENT_EXTERNAL_URL`, and deploy-minted `VST_EXTERNAL_URL` when it equals that origin |
 | `VSS_VIOS_URL` | `${VSS_PUBLIC_URL}/vst` |
 | `VST_API_BASE` | `${VSS_VIOS_URL}/api/v1` — all VIOS `curl` targets |
 | `AGENT_URL` | `${VSS_PUBLIC_URL}` for Kubernetes operate skills |
-| `VSS_STREAMER_URL` | Separate streamer Ingress host (`streamer.<ip>.nip.io`); **not** under `/vst` |
+| `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` when the Ingress exposes RT-VLM (base Helm `vssIngress.vlm.enabled`) — OpenAI-compatible root ending in `/v1` |
+| `VSS_STREAMER_URL` | Separate streamer Ingress host (`streamer.<ip>.nip.io`); **not** under `/vst`; search (and other NvStreamer-bearing) profiles only |
 
 Do not make operate skills invent a Brev or nip.io hostname. The deployment
 workflow publishes the public origin; operate skills consume it as
 `VSS_PUBLIC_URL` only. Do not require a second operate variable named
-`VST_EXTERNAL_URL`.
+`VST_EXTERNAL_URL`. `VSS_ENDPOINT` is a legacy alias for `VSS_PUBLIC_URL` in
+`vss-ask-video`; prefer `VSS_PUBLIC_URL`.
 
 ### Consumer-derived public endpoints
 
@@ -51,7 +58,56 @@ VSS_VIOS_URL="${VSS_VIOS_URL:-${VSS_PUBLIC_URL}/vst}"
 VST_API_BASE="${VST_API_BASE:-${VSS_VIOS_URL}/api/v1}"
 ```
 
-Public route contract (search profile):
+A public VSS origin alone does not prove that `/v1` routes to an RT-VLM: the
+search Ingress, for example, sends that path to its UI catch-all. When a skill
+needs direct VLM access, probe before adopting the candidate endpoint:
+
+```bash
+if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  _candidate="${VSS_PUBLIC_URL%/}/v1"
+  if _models=$(curl -sf --max-time 5 "${_candidate}/models") \
+    && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
+    && [ -n "${_model}" ]; then
+    VLM_ENDPOINT="${_candidate}"
+    VLM_MODEL="${VLM_MODEL:-${_model}}"
+  fi
+fi
+```
+
+Shareable media URLs from `/url` endpoints may embed an internal host at mint
+time. On Kubernetes, compare and validate against `VSS_PUBLIC_URL`; do not
+substitute localhost or reconstructed URLs for returned screenshot or clip
+links.
+
+### Base profile public routes
+
+Main host pattern: `vss.<ip>.nip.io` (Helm `dev-profile-base`). Base does **not**
+require a streamer or Kibana host. Default Ingress exposes Agent, UI, VIOS, and
+RT-VLM:
+
+| Capability | Public endpoint |
+|---|---|
+| Agent readiness (K8s) | `GET ${AGENT_URL}/openapi.json` — prefer this over `/health` on Ingress |
+| Agent API / chat | `${AGENT_URL}/api/...`, `/websocket`, `/chat` |
+| VIOS list/inspect/clips | `GET ${VST_API_BASE}/sensor/list`, storage `/url`, replay `/picture` |
+| Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/v1` → `GET …/models`, `POST …/chat/completions` |
+| Phoenix (optional) | `${VSS_PUBLIC_URL}/phoenix` |
+
+Base operate skills for the quickstart walkthrough:
+
+- `vss-manage-video-io-storage` — VIOS via `${VST_API_BASE}`
+- `vss-ask-video` — VIOS clip URL + direct VLM at `${VLM_ENDPOINT}` (**not** Agent `/generate`)
+- `vss-generate-video-report` Mode A — same VIOS + VLM path (**not** Agent `/generate`)
+
+Do **not** use `${VSS_PUBLIC_URL}/vlm/v1`. Stock base Helm exposes RT-VLM under
+**`/v1`**; neither base Helm nor Docker HAProxy serves `/vlm`. On Docker Compose,
+the VLM is not published on the public origin — use the host port (`:30082` for
+NIM or `:8018` for RT-VLM).
+
+### Search profile public routes
+
+Main host pattern: `vss-search.<ip>.nip.io` (Helm `dev-profile-search`). Search
+adds archive search and a separate NvStreamer host:
 
 | Capability | Public endpoint |
 |---|---|
@@ -60,11 +116,6 @@ Public route contract (search profile):
 | Agent readiness (K8s) | `GET ${AGENT_URL}/openapi.json` — `/health` is not on search Ingress |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list` |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate host, no `/vst` prefix |
-
-Shareable media URLs from `/url` endpoints may embed an internal host at mint
-time. On Kubernetes, compare and validate against `VSS_PUBLIC_URL`; do not
-substitute localhost or reconstructed URLs for returned screenshot or clip
-links.
 
 ## Docker Compose
 
@@ -113,20 +164,23 @@ Operate skills require `VSS_PUBLIC_URL` and use the consumer-derived variables
 above:
 
 ```bash
-: "${VSS_PUBLIC_URL:?Provide the public VSS search Ingress origin}"
+: "${VSS_PUBLIC_URL:?Provide the public VSS Ingress origin}"
 AGENT_URL="${VSS_PUBLIC_URL%/}"
 VSS_VIOS_URL="${AGENT_URL}/vst"
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+# Resolve VLM_ENDPOINT only with the probe-before-adopt flow above.
 ```
 
-The public Agent and VIOS routes are the supported operate interfaces. Operate
-skills do not read Deployments, ConfigMaps, Services, Secrets, or Helm values,
-and do not use Service DNS, NodePorts, guessed release names, or
-`kubectl port-forward`.
+The public Agent, VIOS (`/vst`), and — when the chart enables it — RT-VLM (`/v1`)
+routes are the supported operate interfaces. Operate skills do not read
+Deployments, ConfigMaps, Services, Secrets, or Helm values, and do not use
+Service DNS, NodePorts, guessed release names, or `kubectl port-forward`.
 
-Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, RT-VLM) remain agent-side
-dependencies. Do not expose or forward them merely to satisfy host-side operate
-checks.
+Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, and RT-VLM when it is
+**not** published under `/v1`) remain agent-side dependencies. Do not expose or
+forward them merely to satisfy host-side operate checks. On the base profile,
+RT-VLM at `${VSS_PUBLIC_URL}/v1` is a supported public operate path for
+`vss-ask-video` and `vss-generate-video-report` Mode A.
 
 ## Authentication boundary
 
