@@ -150,9 +150,22 @@ AGENT_HOOKS_ENABLED = OPENCLAW_HOOKS_ENABLED
 AGENT_HOOKS_PATH = OPENCLAW_HOOKS_PATH
 OPENCLAW_DISABLE_STREAMING_TOOL_CALLS = os.environ.get("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS", "1").strip() or "1"
 os.environ["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"] = OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
+ORCHESTRATOR_ENABLE_HTTPS = (
+    os.environ.get(
+        "ORCHESTRATOR_ENABLE_HTTPS",
+        str(_notebook_default("ORCHESTRATOR_ENABLE_HTTPS", False)),
+    ).strip().lower()
+    == "true"
+)
+MCP_SCHEME = "https" if ORCHESTRATOR_ENABLE_HTTPS else "http"
+_orchestrator_mcp_port = os.environ.get("VSS_ORCHESTRATOR_MCP_PORT", "9988")
+_orchestrator_host_alias = os.environ.get(
+    "HOST_INTERNAL_ALIAS",
+    str(_notebook_default("HOST_INTERNAL_ALIAS", "host.openshell.internal")),
+).strip() or "host.openshell.internal"
 VSS_ORCHESTRATOR_MCP_URL = os.environ.get(
     "VSS_ORCHESTRATOR_MCP_URL",
-    "http://host.openshell.internal:9988/mcp",
+    f"{MCP_SCHEME}://{_orchestrator_host_alias}:{_orchestrator_mcp_port}/mcp",
 ).strip()
 VSS_ORCHESTRATOR_MCP_TYPE = (
     os.environ.get("VSS_ORCHESTRATOR_MCP_TYPE", "streamable-http").strip()
@@ -160,7 +173,10 @@ VSS_ORCHESTRATOR_MCP_TYPE = (
 )
 MCP_URL = _notebook_default(
     "MCP_URL",
-    f"http://127.0.0.1:{os.environ.get('VSS_ORCHESTRATOR_MCP_PORT', '9988')}/mcp",
+    f"{MCP_SCHEME}://127.0.0.1:{_orchestrator_mcp_port}/mcp",
+)
+os.environ["ORCHESTRATOR_ENABLE_HTTPS"] = (
+    "true" if ORCHESTRATOR_ENABLE_HTTPS else "false"
 )
 os.environ["VSS_ORCHESTRATOR_MCP_URL"] = VSS_ORCHESTRATOR_MCP_URL
 os.environ["VSS_ORCHESTRATOR_MCP_TYPE"] = VSS_ORCHESTRATOR_MCP_TYPE
@@ -237,6 +253,7 @@ _keys = [
     "OPENSHELL_DOCKER_NETWORK_NAME",
     "OPENCLAW_HOOKS_PATH",
     "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
+    "ORCHESTRATOR_ENABLE_HTTPS",
     "MCP_URL",
     "MCP_PORT",
     "MCP_SSE_URL",
