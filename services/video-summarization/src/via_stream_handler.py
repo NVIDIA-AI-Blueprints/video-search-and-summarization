@@ -1444,10 +1444,14 @@ class ViaStreamHandler:
                 req_info.chunk_count = len(req_info_deserialized.processed_chunk_list)
                 for vlm_response in req_info_deserialized.processed_chunk_list:
                     self._on_vlm_chunk_response(vlm_response, req_info)
-                # This path returns before the SSE loop, which is where the
-                # pipeline span is normally closed. _process_output ends the
-                # E2E span.
+                if req_info.chunk_count:
+                    # The final replayed chunk ends the pipeline span and queues
+                    # _process_output, which ends the E2E span.
+                    return
+                # An empty cache replays nothing, so neither span would other-
+                # wise be closed and the trace would never be exported.
                 self._end_vlm_pipeline_span(req_info)
+                self._end_e2e_span(req_info)
                 return
 
         if req_info._ctx_mgr:
