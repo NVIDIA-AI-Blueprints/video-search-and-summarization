@@ -34,18 +34,21 @@ from typing import Any
 from typing import ClassVar
 from typing import Literal
 
-import click
 from pydantic import BaseModel
 from pydantic import Field
 
 from . import config as config_mod
+from . import params as params_mod
 from .exits import Exit
+from .group import Action
 from .group import CommandGroup
 from .group import Context
 from .group import Result
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    import click
 
 #: Index families the deployment reports, mapped to the runtime field that
 #: consumes them. Discovered rather than declared -- `vss configure` reads
@@ -57,46 +60,74 @@ _INDEX_PREFIXES = {
 }
 
 
-class SearchRunInput(BaseModel):
-    """What a caller is asking for. Nothing about where the backend lives.
+class _Common(BaseModel):
+    """Fields every retrieval path accepts."""
 
-    This is also SDD §5.2's ``job.request`` and the MCP tool's input schema --
-    one declaration, three surfaces.
-    """
-
-    # -- the query ---------------------------------------------------------
-    query: str = Field("", description="Decomposed visual query to embed and search for.")
-    search_mode: Literal["embed", "attribute", "fusion", "object"] | None = Field(
-        None, description="Explicit execution path. Default: embed."
-    )
-    decomposed_json: str | None = Field(
-        None, description="JSON object produced by the host agent's query decomposition."
-    )
     source_type: Literal["video_file", "rtsp"] | None = Field(None, description="Media source type.")
     video_sources: list[str] = Field(
         default_factory=list,
         description="Registered source name to search; repeatable.",
         json_schema_extra={"cli_flag": "--video-source"},
     )
-    description: str | None = Field(None, description="Free-text description accompanying the query.")
     timestamp_start: str | None = Field(None, description="Absolute ISO-8601 window start.")
     timestamp_end: str | None = Field(None, description="Absolute ISO-8601 window end.")
     top_k: int | None = Field(None, ge=1, le=1000, description="Maximum results to return.")
+
+
+class EmbedInput(_Common):
+    """`vss search run embed` -- embedding similarity only."""
+
+    query: str = Field(..., description="Text to embed and match against video embeddings.")
+    description: str | None = Field(None, description="Free-text description accompanying the query.")
     min_cosine_similarity: float | None = Field(
         None, ge=-1.0, le=1.0, description="Minimum cosine similarity threshold."
     )
+
+
+class AttributeInput(_Common):
+    """`vss search run attribute` -- attribute filtering only."""
+
     attributes: list[str] = Field(
-        default_factory=list,
-        description="Appearance/metadata attribute for attribute or fusion search; repeatable.",
+        ...,
+        description="Appearance/metadata attribute, e.g. 'white jacket'; repeatable.",
         json_schema_extra={"cli_flag": "--attribute"},
     )
-    object_ids: list[str] = Field(
-        default_factory=list,
-        description="Restrict to these object ids; repeatable.",
+
+
+class FusionInput(_Common):
+    """`vss search run fusion` -- both legs, fused."""
+
+    query: str = Field(..., description="Visual query for the embedding leg.")
+    description: str | None = Field(None, description="Free-text description accompanying the query.")
+    attributes: list[str] = Field(
+        ...,
+        description="Attribute for the attribute leg; repeatable.",
+        json_schema_extra={"cli_flag": "--attribute"},
+    )
+    min_cosine_similarity: float | None = Field(
+        None, ge=-1.0, le=1.0, description="Minimum cosine similarity threshold."
+    )
+
+
+class ObjectInput(_Common):
+    """`vss search run object` -- retrieval by tracked object id."""
+
+    object_ids: list[int] = Field(
+        ...,
+        description="Tracked object id; repeatable.",
         json_schema_extra={"cli_flag": "--object-id"},
     )
 
-    # -- fusion tuning -----------------------------------------------------
+
+class SearchTuning(BaseModel):
+    """Retrieval tuning. Configures the *runtime*, not the request.
+
+    ``SearchInput`` is ``extra=forbid``, so passing any of these as part of
+    the request is a hard validation error -- they construct
+    ``SearchRuntime`` instead. Unset means "use the deployment's value", so
+    an omitted flag never silently overrides configuration.
+    """
+
     fusion_method: Literal["weighted_linear", "rrf", "rrf_with_attribute_rank"] | None = Field(
         None, description="How embed and attribute legs are combined."
     )
@@ -106,11 +137,16 @@ class SearchRunInput(BaseModel):
     rrf_w: float | None = Field(None, ge=0.0, le=1.0, description="Reciprocal-rank-fusion weight.")
     top_percent_filter: float | None = Field(None, ge=0.0, le=1.0, description="Keep only the top fraction of hits.")
     embed_confidence_threshold: float | None = Field(
-        None, ge=0.0, le=1.0, description="Confidence floor for the embedding leg."
+        None, ge=0.0, le=1.0, description="Score floor below which fusion falls back to attribute-only."
     )
 
 
-def _runtime_from(deployment: config_mod.Deployment) -> Any:
+def _deployment_or_raise() -> config_mod.Deployment:
+    """The recorded deployment, or a ConfigError the root maps to exit 4."""
+    return config_mod.load()
+
+
+def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | None = None) -> Any:
     """Build a SearchRuntime from the recorded deployment.
 
     Every endpoint and index here was reported by a backend, not typed by a
@@ -148,35 +184,8 @@ def _runtime_from(deployment: config_mod.Deployment) -> Any:
             kwargs[field_name] = matches[0]
             kwargs[f"{field_name}_wildcard"] = f"{prefix}*"
 
+    kwargs.update(tuning or {})
     return SearchRuntime(**kwargs)
-
-
-def _primitive(name: str, summary: str) -> click.Command:
-    """A non-job primitive: no job id, no persistence, argv forwarded.
-
-    §2 keeps these as the developer surface beneath ``run``. They keep the
-    argparse parser that owns their option documentation rather than being
-    restated here, so the two cannot drift.
-    """
-
-    @click.command(
-        name=name,
-        short_help=summary,
-        add_help_option=False,
-        context_settings={"ignore_unknown_options": True, "help_option_names": []},
-    )
-    @click.argument("argv", nargs=-1, type=click.UNPROCESSED)
-    @click.pass_context
-    def _command(ctx: click.Context, argv: tuple[str, ...]) -> None:
-        from .search import run as run_search
-
-        try:
-            code = run_search(name, list(argv))
-        except SystemExit as error:
-            code = error.code if isinstance(error.code, int) else 1
-        ctx.exit(code)
-
-    return _command
 
 
 class SearchGroup(CommandGroup):
@@ -184,22 +193,33 @@ class SearchGroup(CommandGroup):
 
     name: ClassVar[str] = "search"
     summary: ClassVar[str] = "Search indexed video"
-    Input: ClassVar[type[BaseModel]] = SearchRunInput
 
-    primitives: ClassVar[Sequence[click.Command]] = (
-        _primitive("embed", "Embedding-similarity primitive (developer surface)."),
-        _primitive("attribute", "Attribute-filter primitive (developer surface)."),
+    #: The four retrieval paths, each with only the fields it accepts. This
+    #: replaces `--search-mode`: the old flag put every path's fields on one
+    #: command, so `SearchInput` needed runtime rules to reject the nonsense
+    #: combinations ("search_mode='embed' does not accept attributes",
+    #: "search_mode='object' requires at least one object_id"). Those states
+    #: are now unrepresentable -- `run embed` has no --attribute to pass.
+    actions: ClassVar[Sequence[Action]] = (
+        Action("embed", "Embedding similarity only.", EmbedInput),
+        Action("attribute", "Attribute filtering only.", AttributeInput),
+        Action("fusion", "Both legs, fused.", FusionInput),
+        Action("object", "Retrieval by tracked object id.", ObjectInput),
     )
+    extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SearchTuning))
 
-    def run(self, inputs: BaseModel, ctx: Context) -> Result:
+    def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:
         import asyncio
 
-        if ctx.deployment is None:
-            raise config_mod.ConfigError("no deployment configured. Run `vss configure --base-url <origin>` first.")
         from vss_core.search_core.host import VSSSearch
 
+        deployment = ctx.deployment or _deployment_or_raise()
         payload = inputs.model_dump(exclude_none=True, exclude_defaults=True)
-        runtime = _runtime_from(ctx.deployment)
+        tuning = {k: payload.pop(k) for k in list(payload) if k in SearchTuning.model_fields}
+        # The library still selects a path by `search_mode`; the CLI just no
+        # longer asks the caller to name it. The sub-action is the mode.
+        payload["search_mode"] = action
+        runtime = _runtime_from(deployment, tuning)
 
         async def _go() -> Any:
             async with VSSSearch.from_runtime(runtime) as vss:
@@ -212,4 +232,4 @@ class SearchGroup(CommandGroup):
 
 SEARCH = SearchGroup()
 
-__all__ = ["SEARCH", "SearchGroup", "SearchRunInput"]
+__all__ = ["SEARCH", "AttributeInput", "EmbedInput", "FusionInput", "ObjectInput", "SearchGroup"]

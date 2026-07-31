@@ -53,6 +53,15 @@ if TYPE_CHECKING:
 API_VERSION = 1
 
 
+@dataclass(frozen=True)
+class Action:
+    """One execution path under ``run``, with its own input model."""
+
+    name: str
+    summary: str
+    Input: type[BaseModel]
+
+
 @dataclass
 class Context:
     """What the framework hands a verb.
@@ -113,7 +122,20 @@ class CommandGroup(ABC):
 
     #: Pydantic model for ``run``. Its fields become the flags, its schema
     #: becomes the MCP tool input, and an instance becomes ``job.request``.
-    Input: ClassVar[type[BaseModel]]
+    #: Ignored when :attr:`actions` is non-empty.
+    Input: ClassVar[type[BaseModel] | None] = None
+
+    #: Sub-actions of ``run``. When set, ``run`` becomes a group and each
+    #: action contributes one command with its own input model.
+    #:
+    #: This exists so a group with genuinely different execution paths does
+    #: not collapse them into one command behind a mode flag. A mode flag
+    #: forces every path's fields onto one surface, which then needs runtime
+    #: validation to reject the combinations that make no sense
+    #: ("search_mode='embed' does not accept attributes"). Separate actions
+    #: make those states unrepresentable instead: the grammar refuses what
+    #: validation used to catch.
+    actions: ClassVar[Sequence[Action]] = ()
 
     #: Shapes the deriver cannot express -- mutually exclusive flags, help
     #: sections. Appended verbatim rather than smuggled through the model.
@@ -127,8 +149,12 @@ class CommandGroup(ABC):
     # -- the one verb a group implements -------------------------------
 
     @abstractmethod
-    def run(self, inputs: BaseModel, ctx: Context) -> Result:
-        """Do the work. Persistence and markers are the framework's job."""
+    def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:
+        """Do the work. Persistence and markers are the framework's job.
+
+        ``action`` is the sub-action name, or ``""`` for a group that
+        declares no :attr:`actions`.
+        """
 
     # -- framework-provided reads (§6.2) --------------------------------
 
@@ -162,22 +188,35 @@ class CommandGroup(ABC):
         return group
 
     def _run_command(self) -> click.Command:
-        derived = params_mod.options_from_model(self.Input)
-        shared = list(params_mod.shared_options())
+        if self.actions:
+            group = click.Group(name="run", short_help=f"Run a {self.name} job.")
+            for action in self.actions:
+                group.add_command(self._action_command(action))
+            return group
+        if self.Input is None:
+            raise TypeError(f"{type(self).__name__} must declare Input or actions")
+        return self._action_command(Action(name="run", summary=f"Run a {self.name} job.", Input=self.Input))
+
+    def _action_command(self, action: Action) -> click.Command:
         owner = self
+        model = action.Input
 
         def callback(**values: Any) -> None:
             ctx = _context_from(values)
-            supplied = params_mod.collect(owner.Input, values)
+            supplied = params_mod.collect(model, values)
             payload = _merge_json_payload(values.get("json_payload"), supplied)
-            inputs = owner.Input(**payload)
-            _emit(owner.run(inputs, ctx), ctx)
+            inputs = model(**payload)
+            _emit(owner.run(action.name if owner.actions else "", inputs, ctx), ctx)
 
         return click.Command(
-            name="run",
-            params=[*derived, *owner.extra_params, *shared],
+            name=action.name,
+            params=[
+                *params_mod.options_from_model(model),
+                *owner.extra_params,
+                *params_mod.shared_options(),
+            ],
             callback=callback,
-            short_help=f"Run a {self.name} job.",
+            short_help=action.summary,
         )
 
     def _handle_command(self, verb: str, fn: Any) -> click.Command:

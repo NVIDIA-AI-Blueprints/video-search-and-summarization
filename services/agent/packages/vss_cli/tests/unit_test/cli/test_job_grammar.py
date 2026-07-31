@@ -42,8 +42,10 @@ class _Group(CommandGroup):
 
     def __init__(self) -> None:
         self.seen: _Input | None = None
+        self.action: str = "?"
 
-    def run(self, inputs: _Input, ctx: Context) -> Result:  # type: ignore[override]
+    def run(self, action: str, inputs: _Input, ctx: Context) -> Result:  # type: ignore[override]
+        self.action = action
         self.seen = inputs
         return Result(body={"query": inputs.query, "attributes": inputs.attributes})
 
