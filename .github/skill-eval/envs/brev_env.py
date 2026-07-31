@@ -1287,14 +1287,37 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
 
 
 def _parse_brev_json(raw: str | None) -> list[dict]:
-    """Strip trailing walkthrough text and parse JSON array from brev CLI."""
+    """Strip trailing walkthrough text and parse JSON from brev CLI.
+
+    Handles both the legacy flat-array format (``[{...}, ...]``) and the
+    newer wrapped-object format (``{"workspaces": [{...}, ...]}``) that
+    brev CLI v0.6.330+ emits.
+    """
     if not raw:
         return []
+    stripped = raw.strip()
+    # Try full JSON parse first (handles wrapped-object format).
+    try:
+        data = json.loads(stripped)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            # brev ls --json returns {"workspaces": [...]}
+            if "workspaces" in data and isinstance(data["workspaces"], list):
+                return data["workspaces"]
+            # Unknown dict shape — return empty
+            return []
+    except json.JSONDecodeError:
+        pass
+    # Fallback: legacy heuristic — find last ']' and parse up to it.
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
     try:
-        return json.loads(raw[: bracket + 1])
+        result = json.loads(raw[: bracket + 1])
+        if isinstance(result, list):
+            return result
+        return []
     except json.JSONDecodeError:
         return []
 
