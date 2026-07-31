@@ -20,11 +20,12 @@ from unittest.mock import patch
 
 
 from mdx.analytics.core.schema.models import Coordinate, GeoLocation, Point
-from mdx.analytics.core.schema.trajectory.trajectory_base import TrajectoryBase
+from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
+from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
 
 
-class TestTrajectoryBase:
-    """Test suite for TrajectoryBase functionality."""
+class TestTrajectory:
+    """Test suite for Trajectory functionality."""
 
     @pytest.fixture
     def simple_trajectory(self):
@@ -36,7 +37,8 @@ class TestTrajectoryBase:
         ]
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)  # 10 seconds
-        return TrajectoryBase(
+        return Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="test_trajectory",
             start=start,
             end=end,
@@ -49,7 +51,8 @@ class TestTrajectoryBase:
         points = [Coordinate(x=5, y=5, z=0)]
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 5)
-        return TrajectoryBase(
+        return Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="single_point",
             start=start,
             end=end,
@@ -67,7 +70,8 @@ class TestTrajectoryBase:
         
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 50)  # 50 seconds
-        return TrajectoryBase(
+        return Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="large_trajectory",
             start=start,
             end=end,
@@ -83,7 +87,8 @@ class TestTrajectoryBase:
         ]
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = start  # Same time
-        return TrajectoryBase(
+        return Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="zero_time",
             start=start,
             end=end,
@@ -137,7 +142,8 @@ class TestTrajectoryBase:
         end = datetime(2024, 1, 1, 12, 0, 25)
         
         # Test with window size 1
-        traj_ws1 = TrajectoryBase(
+        traj_ws1 = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="ws1",
             start=start,
             end=end,
@@ -153,7 +159,8 @@ class TestTrajectoryBase:
             assert smooth_pt.y == points[i + 1].y
         
         # Test with larger window size
-        traj_ws10 = TrajectoryBase(
+        traj_ws10 = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="ws10",
             start=start,
             end=end,
@@ -177,7 +184,8 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="two_points",
             start=start,
             end=end,
@@ -215,7 +223,8 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="one_point",
             start=start,
             end=end,
@@ -232,7 +241,7 @@ class TestTrajectoryBase:
 
     def test_speed_zero_time_interval(self, zero_time_trajectory):
         """Test speed calculation with zero time interval."""
-        with patch('mdx.analytics.core.schema.trajectory.trajectory_base.logger') as mock_logger:
+        with patch('mdx.analytics.core.schema.trajectory.trajectory.logger') as mock_logger:
             speed = zero_time_trajectory.speed
             assert speed == 0
             # Should log warning for multiple points with zero time
@@ -244,14 +253,15 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = start
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="zero_time_single",
             start=start,
             end=end,
             points=points
         )
         
-        with patch('mdx.analytics.core.schema.trajectory.trajectory_base.logger') as mock_logger:
+        with patch('mdx.analytics.core.schema.trajectory.trajectory.logger') as mock_logger:
             speed = trajectory.speed
             assert speed == 0
             # Should not log warning for single point
@@ -277,7 +287,7 @@ class TestTrajectoryBase:
     def test_bearing_calculation(self):
         """Test bearing calculation for different directions.
         
-        TrajectoryBase uses image coordinate convention where y increases downward.
+        Trajectory uses image coordinate convention where y increases downward.
         - East (x+) = 0°
         - Down (y+) = 270° (in image, y+ is down)
         - West (x-) = 180°
@@ -288,27 +298,27 @@ class TestTrajectoryBase:
         
         # Test East (0 degrees) - Right
         points_east = [Coordinate(x=0, y=0, z=0), Coordinate(x=1, y=0, z=0)]
-        traj_east = TrajectoryBase(id="east", start=start, end=end, points=points_east)
+        traj_east = Trajectory(calibration_type=CalibrationType.IMAGE, id="east", start=start, end=end, points=points_east)
         assert abs(traj_east.bearing - 0.0) < 1e-10
         
         # Test Down (270 degrees) - y+ in image coordinates
         points_down = [Coordinate(x=0, y=0, z=0), Coordinate(x=0, y=1, z=0)]
-        traj_down = TrajectoryBase(id="down", start=start, end=end, points=points_down)
+        traj_down = Trajectory(calibration_type=CalibrationType.IMAGE, id="down", start=start, end=end, points=points_down)
         assert abs(traj_down.bearing - 270.0) < 1e-10
         
         # Test West (180 degrees) - Left
         points_west = [Coordinate(x=0, y=0, z=0), Coordinate(x=-1, y=0, z=0)]
-        traj_west = TrajectoryBase(id="west", start=start, end=end, points=points_west)
+        traj_west = Trajectory(calibration_type=CalibrationType.IMAGE, id="west", start=start, end=end, points=points_west)
         assert abs(traj_west.bearing - 180.0) < 1e-10
         
         # Test Up (90 degrees) - y- in image coordinates
         points_up = [Coordinate(x=0, y=0, z=0), Coordinate(x=0, y=-1, z=0)]
-        traj_up = TrajectoryBase(id="up", start=start, end=end, points=points_up)
+        traj_up = Trajectory(calibration_type=CalibrationType.IMAGE, id="up", start=start, end=end, points=points_up)
         assert abs(traj_up.bearing - 90.0) < 1e-10
         
         # Test Down-Right (315 degrees) - x+, y+
         points_dr = [Coordinate(x=0, y=0, z=0), Coordinate(x=1, y=1, z=0)]
-        traj_dr = TrajectoryBase(id="dr", start=start, end=end, points=points_dr)
+        traj_dr = Trajectory(calibration_type=CalibrationType.IMAGE, id="dr", start=start, end=end, points=points_dr)
         assert abs(traj_dr.bearing - 315.0) < 1e-10
 
     def test_direction_calculation(self):
@@ -321,22 +331,22 @@ class TestTrajectoryBase:
         
         # Test Right (x+)
         points_right = [Coordinate(x=0, y=0, z=0), Coordinate(x=1, y=0, z=0)]
-        traj_right = TrajectoryBase(id="right", start=start, end=end, points=points_right)
+        traj_right = Trajectory(calibration_type=CalibrationType.IMAGE, id="right", start=start, end=end, points=points_right)
         assert traj_right.direction == "Right"
         
         # Test Down (y+ in image coordinates)
         points_down = [Coordinate(x=0, y=0, z=0), Coordinate(x=0, y=1, z=0)]
-        traj_down = TrajectoryBase(id="down", start=start, end=end, points=points_down)
+        traj_down = Trajectory(calibration_type=CalibrationType.IMAGE, id="down", start=start, end=end, points=points_down)
         assert traj_down.direction == "Down"
         
         # Test Left (x-)
         points_left = [Coordinate(x=0, y=0, z=0), Coordinate(x=-1, y=0, z=0)]
-        traj_left = TrajectoryBase(id="left", start=start, end=end, points=points_left)
+        traj_left = Trajectory(calibration_type=CalibrationType.IMAGE, id="left", start=start, end=end, points=points_left)
         assert traj_left.direction == "Left"
         
         # Test Up (y- in image coordinates)
         points_up = [Coordinate(x=0, y=0, z=0), Coordinate(x=0, y=-1, z=0)]
-        traj_up = TrajectoryBase(id="up", start=start, end=end, points=points_up)
+        traj_up = Trajectory(calibration_type=CalibrationType.IMAGE, id="up", start=start, end=end, points=points_up)
         assert traj_up.direction == "Up"
 
     def test_direction_index(self):
@@ -357,7 +367,7 @@ class TestTrajectoryBase:
         ]
         
         for points, expected_index in test_cases:
-            traj = TrajectoryBase(id="test", start=start, end=end, points=points)
+            traj = Trajectory(calibration_type=CalibrationType.IMAGE, id="test", start=start, end=end, points=points)
             assert traj.direction_index == expected_index
 
     def test_time_interval(self, simple_trajectory):
@@ -398,7 +408,7 @@ class TestTrajectoryBase:
             assert isinstance(point, Point)
             assert point.point == [smooth_point.x, smooth_point.y, smooth_point.z]
 
-    @patch('mdx.analytics.core.schema.trajectory.trajectory_base.euclidean_distance')
+    @patch('mdx.analytics.core.schema.trajectory.trajectory.euclidean_distance')
     def test_calculate_distance(self, mock_euclidean_distance, simple_trajectory):
         """Test _calculate_distance method."""
         mock_euclidean_distance.return_value = 5.0
@@ -429,7 +439,8 @@ class TestTrajectoryBase:
         end = datetime(2024, 1, 1, 12, 0, 10)
         
         # This should raise an IndexError when accessing head/last
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="empty",
             start=start,
             end=end,
@@ -449,7 +460,7 @@ class TestTrajectoryBase:
         
         # Test with same points (zero vector)
         points_same = [Coordinate(x=1, y=1, z=0), Coordinate(x=1, y=1, z=0)]
-        traj_same = TrajectoryBase(id="same", start=start, end=end, points=points_same)
+        traj_same = Trajectory(calibration_type=CalibrationType.IMAGE, id="same", start=start, end=end, points=points_same)
         bearing = traj_same.bearing
         assert 0 <= bearing <= 360
 
@@ -459,7 +470,8 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 25)
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="custom",
             start=start,
             end=end,
@@ -474,7 +486,8 @@ class TestTrajectoryBase:
         assert trajectory.smooth_trajectory == points
         
         # Test with different parameters
-        trajectory2 = TrajectoryBase(
+        trajectory2 = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="custom2",
             start=start,
             end=end,
@@ -498,7 +511,8 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="short",
             start=start,
             end=end,
@@ -518,7 +532,8 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="single_smooth",
             start=start,
             end=end,
@@ -539,7 +554,8 @@ class TestTrajectoryBase:
         end = datetime(2024, 1, 1, 12, 0, 10)
         
         # Use small trajectory (< smooth_min_points) with large stride
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="stride_single",
             start=start,
             end=end,
@@ -567,7 +583,7 @@ class TestTrajectoryBase:
         # Test up-left direction (-1, -1) in image coords (135 degrees)
         # x- and y- means left and up in image
         points_ul = [Coordinate(x=0, y=0, z=0), Coordinate(x=-1, y=-1, z=0)]
-        traj_ul = TrajectoryBase(id="ul", start=start, end=end, points=points_ul)
+        traj_ul = Trajectory(calibration_type=CalibrationType.IMAGE, id="ul", start=start, end=end, points=points_ul)
         bearing = traj_ul.bearing
         assert 0 <= bearing <= 360
         assert abs(bearing - 135.0) < 1e-10
@@ -582,7 +598,8 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 30)
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="segments",
             start=start,
             end=end,
@@ -609,7 +626,8 @@ class TestTrajectoryBase:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, min_points)
         
-        trajectory = TrajectoryBase(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id=f"window_{window_size}",
             start=start,
             end=end,

@@ -21,7 +21,7 @@ from mdx.analytics.core.transform.calibration.calibration_dynamic import Calibra
 from mdx.analytics.core.schema.models import Behavior
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
 from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
-from mdx.analytics.core.stream.state.behavior.state_management_i import StateMgmtI
+from mdx.analytics.core.stream.state.behavior.state_management_g import StateMgmtG
 from mdx.analytics.core.transform.detection.collision_detection import CollisionDetection
 from mdx.analytics.core.utils.anomaly_util import AnomalyDetector
 from mdx.analytics.core.utils.crs import CoordinateReferenceSystem
@@ -79,9 +79,9 @@ class SmartCityApp(BaseApp):
         calibration_type = self.calibration_type
         self.crs = CoordinateReferenceSystem(config.coordinateReferenceSystem)
         if calibration_type == CalibrationType.IMAGE:
-            self.state_mgmt = StateMgmtI(self.config, self.calibration)  # type: ignore
+            self.state_mgmt = StateMgmt(self.config, self.calibration)  # type: ignore
         elif calibration_type == CalibrationType.GEO:
-            self.state_mgmt = StateMgmt(self.config, self.calibration, self.crs)  # type: ignore
+            self.state_mgmt = StateMgmtG(self.config, self.calibration, self.crs)  # type: ignore
         else:
             raise NotImplementedError("CARTESIAN not supported in this build")
 
