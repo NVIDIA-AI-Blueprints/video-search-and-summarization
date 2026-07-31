@@ -71,6 +71,7 @@ The default configurations live under [`configs/`](./configs/) (one JSON per pro
 | `mqtt` | host / port / clientId | Required when source/sink is `mqtt` |
 | `app[].sourceType` / `app[].sinkType` | `kafka` \| `redisStream` \| `mqtt` | Stream broker selection |
 | `app[].behaviorMaxPoints` | int | Trajectory point cap per behavior. Default: `200` |
+| `app[].behaviorEmitOnce` | `"true"` \| `"false"` | Write each behavior once, one `behaviorStateValidInterval` after its track goes quiet, instead of on every batch. Default: `"false"`. See [`docs/configuration.md`](./docs/configuration.md) |
 | `app[].spaceAnalyticsIntervalSec` | float | Space-analytics emission interval (seconds). Default: `5.0` |
 | `sensors[].id` | string | Sensor identifier; `default` matches all sensors |
 | `app[].*IncidentEnable` | `"true"` \| `"false"` | Incident toggles (proximity, restricted area, confined area, FOV count). Default: `"false"` |

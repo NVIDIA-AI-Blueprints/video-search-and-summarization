@@ -18,7 +18,7 @@ import logging
 from mdx.analytics.core.app.app_base import BaseApp
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtEWithTripwire
+from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtE
 from mdx.analytics.core.stream.state.frame.frame_state_management import FrameStateMgmt
 from mdx.analytics.core.transform.event.roi_event import ROIEvent
 from mdx.analytics.core.transform.event.tripwire_event import TripwireEvent
@@ -34,7 +34,7 @@ class PublicSafetyApp(BaseApp):
     def __init__(self, config: AppConfig, calibration_path: str | None) -> None:
 
         super().__init__(config, calibration_path)
-        self.state_mgmt = StateMgmtEWithTripwire(self.config, self.calibration)
+        self.state_mgmt = StateMgmtE(self.config, self.calibration)
         self.frame_state_mgmt = FrameStateMgmt(self.config)
         self.roi_event = ROIEvent(self.config, self.calibration)
         self.tripwire_event = TripwireEvent(self.config, self.calibration)
@@ -73,25 +73,30 @@ class PublicSafetyApp(BaseApp):
 
             updated_messages_map = messages_to_map(updated_messages)
 
-            behaviors = []
+            batch = self.state_mgmt.process_batch(updated_messages_map)
+
             events = []
+            for trip in batch.trip_behaviors:
+                events.extend(self.tripwire_event.get_events(trip))
+                events.extend(self.roi_event.get_events(trip))
 
-            for sensor_id, msgs in updated_messages_map.items():
-
-                behavior, trip = self.state_mgmt.update_behavior(message_key=sensor_id, messages=msgs)
-
-                if behavior:
-                    behaviors.append(behavior)
-
-                if trip:
-                    events.extend(self.tripwire_event.get_events(trip))
-                    events.extend(self.roi_event.get_events(trip))
-
-            logger.info(f"Batch {stats.batch_id} - Created a total of {len(behaviors)} behavior(s)")
+            logger.info(f"Batch {stats.batch_id} - Created a total of {len(batch.active_behaviors)} behavior(s), "
+                        f"writing {len(batch.behaviors_to_write)}")
             logger.info(f"Batch {stats.batch_id} - Created a total of {len(events)} event(s)")
 
-            self.write_behaviors(behaviors)
+            self.write_behaviors(batch.behaviors_to_write)
             self.write_events(events)
+
+    def close(self) -> None:
+        """Write behaviors still held back by emit-once mode, then release resources."""
+
+        pending = self.state_mgmt.flush_behaviors()
+
+        if pending:
+            logger.info(f"Flushing {len(pending)} pending behavior(s) before shutdown.")
+            self.write_behaviors(pending)
+
+        super().close()
 
 
 if __name__ == '__main__':
