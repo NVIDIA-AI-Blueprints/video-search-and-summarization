@@ -1,6 +1,6 @@
-# Standalone warehouse: `standalone-2d` and `standalone-3d`
+# Standalone warehouse: `standalone-2d`, `standalone-3d`, and `standalone-mv3dt`
 
-This document describes a **from-scratch** install of the **`vss-rtvi-cv`** subchart under the **`rtvi`** umbrella using **`profileMode`** **`standalone-2d`** or **`standalone-3d`**: DeepStream perception with **file** sources from the NGC **`vss-warehouse-app-data`** bundle on a shared PVC. **Kafka and Redis are not used** in these profiles (FakeSink / `STREAM_TYPE=none`).
+This document describes a **from-scratch** install of the **`vss-rtvi-cv`** subchart under the **`rtvi`** umbrella using **`profileMode`** **`standalone-2d`**, **`standalone-3d`**, or **`standalone-mv3dt`**. Warehouse videos, playback, and calibration data come from the NGC **`vss-warehouse-app-data`** bundle, while RT-CV models are downloaded separately from versioned NGC model packages onto the same PVC. The 2D/3D standalone profiles use FakeSink / `STREAM_TYPE=none`; MV3DT is normally installed through its warehouse profile chart with Kafka or Redis, Mosquitto, and the BEV-fusion companion.
 
 For chart internals (templates, ConfigMaps, jobs), see `charts/rtvi-cv/`.
 
@@ -45,7 +45,7 @@ Create **two** secrets with the same NGC API key. Defaults in `charts/rtvi-cv/va
 | NGC CLI (download Jobs) | `ngc-api` | Opaque | `NGC_CLI_API_KEY` |
 | Image pull (`nvcr.io`) | `ngc-docker-reg-secret` | docker-registry | `.dockerconfigjson` |
 
-**1. Opaque secret** (NGC CLI for `job-download-ngc-app-data` / `job-download-models`):
+**1. Opaque secret** (NGC CLI for `job-download-ngc-app-data` and RT-CV `ds-start` model download):
 
 ```bash
 kubectl create secret generic ngc-api \
@@ -84,9 +84,9 @@ helm dependency update
 
 ---
 
-## 4. Install (`standalone-2d` or `standalone-3d`)
+## 4. Install (`standalone-2d`, `standalone-3d`, or `standalone-mv3dt`)
 
-Minimal install: enable **`vss-rtvi-cv`**, set **`profileMode`**, turn on **NGC app data download**, and size the models PVC. Adjust **`persistence.storageClass`** and **`persistence.models.size`** for your cluster.
+Minimal install: enable **`vss-rtvi-cv`**, set **`profileMode`**, turn on both NGC download paths, and size the models PVC. Populate `ngcModelsToDownload` with the profile-specific entries used by the warehouse 2D/3D/MV3DT umbrella chart values. Adjust **`persistence.storageClass`** and **`persistence.models.size`** for your cluster.
 
 ```bash
 cd deploy/helm/services/rtvi
@@ -97,7 +97,7 @@ helm upgrade --install "${RELEASE}" . \
   --set vss-rtvi-cv.enabled=true \
   --set vss-rtvi-cv.profileMode="${PROFILE}" \
   --set vss-rtvi-cv.downloadNgcAppData=true \
-  --set vss-rtvi-cv.downloadModelsFromNgc=false \
+  --set vss-rtvi-cv.downloadModelsFromNgc=true \
   --set vss-rtvi-cv.persistence.models.size=80Gi \
   --set vss-rtvi-cv.persistence.storageClass='' \
   --set-string vss-rtvi-cv.ngcAppDataOrg=nvidia \
@@ -106,8 +106,8 @@ helm upgrade --install "${RELEASE}" . \
 
 Notes:
 
-- **`downloadNgcAppData=true`** creates Job **`vss-rtvi-cv-download-ngc-app-data`**, which downloads and extracts the bundle onto PVC mount path **`vss-warehouse-app-data/`** and writes marker **`vss-warehouse-app-data/.ngc-extracted`**.
-- **`downloadModelsFromNgc=false`** skips the separate NGC model download Job; standalone 2D/3D warehouse assets are expected from the app-data bundle. Set to **`true`** and populate **`ngcModelsToDownload`** only if you intentionally add extra models.
+- **`downloadNgcAppData=true`** creates Job **`vss-rtvi-cv-download-ngc-app-data`**, which downloads and extracts the bundle onto PVC mount path **`vss-warehouse-app-data/`** and writes marker **`vss-warehouse-app-data/.ngc-extracted`**. RT-CV does not consume models from this subtree.
+- **`downloadModelsFromNgc=true`** enables ds-start phase-0 model download inside the perception container on first start. It writes profile models at flattened paths under `/opt/storage` and creates one completion marker per artifact.
 - Override **`vss-rtvi-cv.ngcAppDataResourceVersion`** / **`ngcAppDataOrg`** when NVIDIA publishes a newer bundle.
 - **`standaloneWarehouse.*`** (Sparse4D paths, `streamType`, DeepStream flags) can be overridden with `--set` or a small values file.
 
@@ -115,7 +115,7 @@ Notes:
 
 ## 5. Wait for NGC Job and StatefulSet
 
-Wait for the download Job to complete (it may take many minutes on first run). With **default** subchart naming the Job is:
+Wait for the app-data download Job to complete (it may take many minutes on first run). With **default** subchart naming the Job is:
 
 `vss-rtvi-cv-download-ngc-app-data`
 
@@ -124,6 +124,8 @@ kubectl wait --for=condition=complete "job/vss-rtvi-cv-download-ngc-app-data" \
   --namespace "${NAMESPACE}" \
   --timeout=3600s
 ```
+
+RT-CV model download runs inside the perception container on first start (ds-start phase 0). No separate model download Job is created.
 
 Confirm names if you use `fullnameOverride` / `useReleaseNamePrefix`:
 
@@ -151,8 +153,9 @@ HTTP probe (if enabled): **`httpPort`** defaults to **9000** inside the pod.
 
 | `profileMode`    | Workload | `DS_MODEL_FAMILY` (env)   | Notes |
 |-----------------|----------|---------------------------|--------|
-| `standalone-2d` | RT-DETR warehouse + file cams | `rtdetr-warehouse` | 3 synthetic cameras from bundle. |
-| `standalone-3d` | Sparse4D warehouse + file cams | `sparse4d-warehouse` | 4 cams; ONNX/NPY from PVC paths in `standaloneWarehouse`. |
+| `standalone-2d` | RT-DETR warehouse + file cams | `rtdetr-warehouse` | Videos from app-data; RT-DETR from the model Job. |
+| `standalone-3d` | Sparse4D warehouse + file cams | `sparse4d-warehouse` | Videos from app-data; ONNX from the model Job; anchor and labels from chart assets. |
+| `standalone-mv3dt` | RT-DETR + MV3DT tracker | Dedicated `ds-start-mv3dt.sh` | App-data remains independent; RT-DETR and BodyPose3DNet come from the model Job; MQTT generation and BEV fusion remain MV3DT-specific. |
 
 Do **not** set `profileMode` to `alerts` or `search` in the same release if you intend this document’s flow; those modes use different StatefulSet templates (Kafka wait, different configs).
 
@@ -206,7 +209,8 @@ kubectl delete job -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE}" 
 
 - **Pod `Init:0/1` waiting on NGC**: Job not complete or marker missing — check Job logs:  
   `kubectl logs job/vss-rtvi-cv-download-ngc-app-data -n "${NAMESPACE}"` (adjust name if prefixed).
-- **Permission errors writing TensorRT engines**: chart uses writable **`/opt/storage/trt-cache`** on the PVC; ensure the init container **`ensure-trt-cache`** ran.
+- **Pod waiting for RT-CV models**: models are downloaded during ds-start phase 0 inside the perception container. Check perception container logs for download progress or errors; the startup requires both each artifact and its `.done` marker.
+- **Permission errors writing TensorRT engines**: 2D/3D use writable **`/opt/storage/trt-cache`**; MV3DT writes beside RT-DETR and under **`/opt/storage/BodyPose3DNet`**. Ensure the applicable engine-directory init container ran.
 - **Wrong profile rendered**: `helm get values "${RELEASE}" -n "${NAMESPACE}"` and confirm **`vss-rtvi-cv.profileMode`**.
 
 ---

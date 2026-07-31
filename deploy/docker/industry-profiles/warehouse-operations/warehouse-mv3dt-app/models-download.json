@@ -1,0 +1,16 @@
+{
+  "downloads": [
+    {
+      "model": "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2",
+      "org": "nvidia",
+      "sourcePath": "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx",
+      "destPath": "rtdetr_warehouse_v1.0.2.fp16.onnx"
+    },
+    {
+      "model": "nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0",
+      "org": "nvidia",
+      "sourcePath": "bodypose3dnet_accuracy.onnx",
+      "destPath": "BodyPose3DNet/bodypose3dnet_accuracy.onnx"
+    }
+  ]
+}
