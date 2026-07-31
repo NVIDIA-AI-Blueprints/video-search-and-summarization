@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
 import functools
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -92,6 +93,7 @@ _COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
 _COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
 _MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 _DEEP_CLEAN_RM_TIMEOUT_S: Final[int] = 300
+_RUNTIME_SOURCE_SHA256: Final[str] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 _RTSP_PROBE_TIMEOUT_S: Final[float] = 20.0
 _MAX_RTSP_URL_CHARS: Final[int] = 4096
 
@@ -1209,6 +1211,15 @@ async def vss_orchestrator(
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "profiles": sorted(SUPPORTED_PROFILES),
+                "runtime_instance_id": os.environ.get(
+                    "VSS_ORCHESTRATOR_MCP_INSTANCE_ID",
+                    "",
+                ),
+                "runtime_source_sha256": _RUNTIME_SOURCE_SHA256,
+                "runtime_git_sha": os.environ.get(
+                    "VSS_ORCHESTRATOR_MCP_GIT_SHA",
+                    "",
+                ),
             }
 
         group.add_function(name="profiles", fn=_profiles, description=_profiles.__doc__)

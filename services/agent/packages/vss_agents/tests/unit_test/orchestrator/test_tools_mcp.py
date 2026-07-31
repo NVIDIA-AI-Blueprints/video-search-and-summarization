@@ -237,11 +237,16 @@ def _register_compose_operation(
 
 
 @pytest.mark.asyncio
-async def test_profiles_lists_supported_profiles(tmp_path: Path):
+async def test_profiles_lists_supported_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("VSS_ORCHESTRATOR_MCP_INSTANCE_ID", "instance-123")
+    monkeypatch.setenv("VSS_ORCHESTRATOR_MCP_GIT_SHA", "a" * 40)
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         result = await _call(group, "profiles", DockerProfilesInput())
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["profiles"] == ["alerts", "base", "lvs", "search"]
+    assert result["runtime_instance_id"] == "instance-123"
+    assert len(result["runtime_source_sha256"]) == 64
+    assert result["runtime_git_sha"] == "a" * 40
 
 
 def test_default_config_exposes_rtsp_sample_probe() -> None:
