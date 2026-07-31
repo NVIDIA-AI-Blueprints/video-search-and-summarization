@@ -45,6 +45,7 @@ from prometheus_client import (
 from sse_starlette.sse import EventSourceResponse
 
 from chunk_info import RequestSource
+from otel_helper import extract_context_from_headers
 from rtvi_vlm_client import RtviError
 from via_exception import ViaException
 from via_logger import LOG_PERF_LEVEL, TimeMeasure, logger, patch_logger_handlers
@@ -1103,6 +1104,7 @@ class ViaServer:
         )
         async def stream_summarize(
             request_body: StreamSummarizeRequest,
+            request: Request,
         ) -> CompletionResponse:
             if not self._stream_handler._kafka_enabled:
                 raise ViaException(
@@ -1133,11 +1135,14 @@ class ViaServer:
                 request_body.end_time,
             )
 
+            trace_context = extract_context_from_headers(request.headers)
+
             loop = asyncio.get_event_loop()
             request_id = await loop.run_in_executor(
                 self._async_executor,
                 self._stream_handler.summarize_stream,
                 request_body,
+                trace_context,
             )
 
             logger.info(
@@ -1429,12 +1434,18 @@ class ViaServer:
             loop = asyncio.get_event_loop()
             videoId = source.source_id
 
+            # Capture the caller's trace context here, on the event loop thread.
+            # run_in_executor hands work to a ThreadPoolExecutor and contextvars
+            # do not cross that boundary, so the context must travel explicitly.
+            trace_context = extract_context_from_headers(request.headers)
+
             # File-based summarization
             request_id = await loop.run_in_executor(
                 self._async_executor,
                 self._stream_handler.summarize,
                 source,
                 query,
+                trace_context,
             )
             logger.info("Created video file query %s for source %s", request_id, videoId)
 
