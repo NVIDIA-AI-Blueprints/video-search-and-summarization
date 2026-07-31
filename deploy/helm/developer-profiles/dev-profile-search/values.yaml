@@ -447,7 +447,9 @@ rtvi:
       - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
         value: "10"
       - name: VLLM_GPU_MEMORY_UTILIZATION
-        value: ""
+        # Fraction leaves room for RT-CV on the shared GPU 0 (H100 local_shared
+        # default; mirrors docker overrides.env RTVI_VLLM_GPU_MEMORY_UTILIZATION).
+        value: "0.4"
       - name: VLM_BATCH_SIZE
         value: ""
       - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
