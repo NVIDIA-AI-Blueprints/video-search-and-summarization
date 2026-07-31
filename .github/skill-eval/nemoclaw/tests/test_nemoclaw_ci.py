@@ -1310,6 +1310,10 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(len(setup_cells), 1)
         source = "".join(setup_cells[0].get("source", ""))
 
+        self.assertIn(
+            'REQUIRED_MCP_APT_PACKAGES = ("ffmpeg", "libcairo2-dev", "pkg-config", "python3-dev")',
+            source,
+        )
         self.assertIn("run_uv_sync", source)
         self.assertIn('"uv", "sync", "--no-dev", "--extra", "agent"', source)
         self.assertIn("ensure_agent_venv", source)
@@ -1438,6 +1442,52 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             ):
                 ensure_agent_venv()
             self.assertEqual(len(commands), 4)
+
+    def test_rtsp_sample_probe_is_wired_without_mcp_secret_argument(self):
+        config = (
+            REPO_ROOT / "deploy" / "docker" / "scripts" / "vss_orchestrator_mcp_config.yml"
+        ).read_text(encoding="utf-8")
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_vss_orchestrator.ipynb"
+            ).read_text(encoding="utf-8")
+        )
+        notebook_markdown = "\n".join(
+            "".join(cell.get("source", ""))
+            for cell in notebook["cells"]
+            if cell.get("cell_type") == "markdown"
+        )
+        notebook_code = "\n".join(
+            "".join(cell.get("source", ""))
+            for cell in notebook["cells"]
+            if cell.get("cell_type") == "code"
+        )
+        skill = (
+            REPO_ROOT / "skills" / "vss-deploy-dense-captioning" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        nemoclaw_agents = (
+            REPO_ROOT / ".openclaw" / "workspace" / "_nemoclaw" / "AGENTS.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("\n    - rtsp_sample_probe\n", config)
+        self.assertIn("exposes ten tools", notebook_markdown)
+        self.assertIn("| `rtsp_sample_probe` |", notebook_markdown)
+        self.assertIn(
+            'env["RTSP_SAMPLE_URL"] = configured_rtsp_sample_url',
+            notebook_code,
+        )
+        self.assertIn(
+            "`vss_orchestrator__rtsp_sample_probe` MCP tool with no URL argument",
+            skill,
+        )
+        self.assertIn(
+            "Call `vss_orchestrator__rtsp_sample_probe` with no URL argument",
+            nemoclaw_agents,
+        )
 
     def test_ci_parameters_drive_nemoclaw_provider_derivation(self):
         notebook = json.loads(
@@ -9100,6 +9150,63 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("--wait-profile alerts", instruction)
         self.assertNotIn("rtsp://", instruction)
 
+    def test_dense_captioning_wrapper_requires_no_argument_host_sample_probe(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "alerts_profile_api" / "rtxpro6000bw" / "step-2"
+            task_dir.mkdir(parents=True)
+            (task_dir / "instruction.md").write_text(
+                "Use /vss-deploy-dense-captioning with the configured RTSP sample.",
+                encoding="utf-8",
+            )
+            (task_dir / "task.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [task]
+                    name = "nvidia-vss/vss-deploy-dense-captioning-alerts-step-2"
+
+                    [metadata]
+                    skill = "vss-deploy-dense-captioning"
+                    deployment_profile = "alerts"
+                    platform = "RTXPRO6000BW"
+                    gpu_count = 1
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            smoke_runner._wrap_task_for_nemoclaw(
+                task_dir=task_dir,
+                skill="vss-deploy-dense-captioning",
+                spec_path=(
+                    REPO_ROOT
+                    / "skills"
+                    / "vss-deploy-dense-captioning"
+                    / "evals"
+                    / "alerts_profile_api.json"
+                ),
+                platform="RTXPRO6000BW",
+            )
+
+            prompt = (task_dir / "tests" / "nemoclaw_prompt.md").read_text(
+                encoding="utf-8"
+            )
+            task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+
+        self.assertIn("`vss_orchestrator__rtsp_sample_probe`", prompt)
+        self.assertIn("with no URL argument", prompt)
+        self.assertIn("never pass the URL through MCP", prompt)
+        self.assertIn("never echo it or include it in the final response", prompt)
+        self.assertIn("timeout, probe failure, or no-video result is terminal", prompt)
+        self.assertNotIn("rtsp://", prompt)
+        self.assertIn(
+            'required_mcp_tools = ["vss_orchestrator__profiles", '
+            '"vss_orchestrator__docker_status", '
+            '"vss_orchestrator__rtsp_sample_probe"]',
+            task_toml,
+        )
+
     def test_nemoclaw_wrapper_rejects_conflicting_gpu_boundary(self):
         with self.assertRaisesRegex(RuntimeError, "disagrees with task gpu_count=1"):
             smoke_runner._with_gpu_resource_guidance(
@@ -9684,10 +9791,41 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 class OrchestratorMcpHelperCompatTest(unittest.TestCase):
     def test_orchestrator_tool_is_string_enum_on_eval_workers(self):
         self.assertIsInstance(orchestrator_mcp_helper.OrchestratorTool.PROFILES, str)
+        self.assertEqual(
+            orchestrator_mcp_helper.OrchestratorTool.RTSP_SAMPLE_PROBE,
+            "vss_orchestrator__rtsp_sample_probe",
+        )
         source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "orchestrator_mcp_helper.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("except ImportError", source)
+
+    def test_rtsp_sample_probe_client_takes_no_url_argument(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout='{"status":"success","has_video":true}',
+            stderr="",
+        )
+        output = io.StringIO()
+
+        with (
+            mock.patch.object(
+                orchestrator_mcp_helper.subprocess,
+                "run",
+                return_value=completed,
+            ) as run,
+            contextlib.redirect_stdout(output),
+        ):
+            result = orchestrator_mcp_helper.tool_call(
+                orchestrator_mcp_helper.OrchestratorTool.RTSP_SAMPLE_PROBE,
+                mcp_url="http://127.0.0.1:9988/mcp",
+                agent_dir=REPO_ROOT / "services" / "agent",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertNotIn("RTSP_SAMPLE_URL", output.getvalue())
+        self.assertNotIn("--json-args", run.call_args.args[0])
 
 
 class DeployProfileNemoClawAdapterTest(unittest.TestCase):

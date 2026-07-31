@@ -10,3 +10,10 @@ This directory contains the GitHub CI integration for opt-in NemoClaw/OpenClaw s
 Harbor remains the CI entrypoint and result owner. The default runner is unchanged unless a spec declares `runner: "nemoclaw"` / `requires_nemoclaw: true`, or a manual workflow dispatch selects `runner=nemoclaw`.
 
 When manual dispatch uses `runner=nemoclaw`, `skills=vss-deploy-profile` keeps the lightweight base-profile smoke behavior. `skills=*` discovers adapter-backed `skills/*/evals/*.json` specs, wraps their generated Harbor tasks as NemoClaw/OpenClaw launcher tasks, and reports unsupported eval specs as blocked coverage gaps.
+
+Dense-captioning scenarios additionally require
+`vss_orchestrator__rtsp_sample_probe`. The orchestrator notebook installs host
+`ffmpeg`, and the no-argument tool probes only the orchestrator server's
+configured runtime sample. The exact `RTSP_SAMPLE_URL` is never passed through
+the model or MCP arguments and is not persisted in the composed notebook
+environment.

@@ -15,9 +15,10 @@
 
 """VSS Orchestrator MCP function group.
 
-Exposes nine tools that wrap the orchestrator utilities:
+Exposes ten tools that wrap the orchestrator utilities:
   - profiles: list all supported deployment profiles
   - prereqs: run Docker/GPU prerequisite checks
+  - rtsp_sample_probe: verify that the configured RTSP sample carries video
   - docker_generate : resolve env + compose YAML artifacts
   - docker_read: fetch generated env/yaml by docker_compose_id
   - docker_list: list docker container names and runtime states
@@ -39,6 +40,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
 import functools
+import json
 import os
 from pathlib import Path
 import shutil
@@ -50,6 +52,8 @@ from typing import Final
 from typing import Generic
 from typing import Literal
 from typing import TypeVar
+import unicodedata
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from nat.builder.builder import Builder
@@ -88,6 +92,8 @@ _COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
 _COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
 _MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 _DEEP_CLEAN_RM_TIMEOUT_S: Final[int] = 300
+_RTSP_PROBE_TIMEOUT_S: Final[float] = 20.0
+_MAX_RTSP_URL_CHARS: Final[int] = 4096
 
 
 def _is_terminal_compose_dependency_failure(action: str, line: str) -> bool:
@@ -289,6 +295,30 @@ def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
     return prefix + suffix
 
 
+def _rtsp_url_validation_error(rtsp_url: str) -> str | None:
+    """Return a secret-safe validation error for the configured sample URL."""
+
+    if not rtsp_url:
+        return "RTSP_SAMPLE_URL is not configured on the orchestrator host."
+    if len(rtsp_url) > _MAX_RTSP_URL_CHARS:
+        return f"RTSP_SAMPLE_URL must not exceed {_MAX_RTSP_URL_CHARS} characters."
+    if any(character.isspace() or unicodedata.category(character) in {"Cc", "Cf"} for character in rtsp_url):
+        return "RTSP_SAMPLE_URL must not contain whitespace or control characters."
+    try:
+        parsed = urlsplit(rtsp_url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return "RTSP_SAMPLE_URL must be a valid RTSP URL."
+    if parsed.scheme.lower() not in {"rtsp", "rtsps"}:
+        return "RTSP_SAMPLE_URL scheme must be rtsp or rtsps."
+    if not parsed.netloc or not hostname:
+        return "RTSP_SAMPLE_URL must include a hostname."
+    if port is not None and not 1 <= port <= 65535:
+        return "RTSP_SAMPLE_URL contains an invalid port."
+    return None
+
+
 class GenerateInput(BaseModel):
     """Input for the docker_generate tool."""
 
@@ -434,6 +464,12 @@ class DockerPrereqsInput(BaseModel):
     pass
 
 
+class RtspSampleProbeInput(BaseModel):
+    """Input for the configured host-side RTSP sample probe."""
+
+    pass
+
+
 class ModelArtifactEntry(BaseModel):
     """One artifact extracted from a downloaded NGC package."""
 
@@ -541,6 +577,7 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         default=[
             "profiles",
             "prereqs",
+            "rtsp_sample_probe",
             "docker_generate",
             "docker_read",
             "docker_list",
@@ -1199,6 +1236,143 @@ async def vss_orchestrator(
             }
 
         group.add_function(name="prereqs", fn=_prereqs, description=_prereqs.__doc__)
+
+    # ---------------------------------------------------------------------------
+    # Tool: rtsp_sample_probe
+    # ---------------------------------------------------------------------------
+
+    if "rtsp_sample_probe" in _config.include:
+
+        async def _rtsp_sample_probe(input: RtspSampleProbeInput) -> dict:
+            """Probe the host-configured RTSP sample and require a video stream.
+
+            The URL comes only from the orchestrator server's RTSP_SAMPLE_URL
+            environment. Callers cannot supply or override it, and it is never
+            included in results or diagnostics. The probe uses host ffprobe over
+            TCP and is forcibly bounded to 20 seconds.
+            """
+
+            del input
+            rtsp_url = os.environ.get("RTSP_SAMPLE_URL", "")
+            validation_error = _rtsp_url_validation_error(rtsp_url)
+            if validation_error is not None:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": ("sample_url_unconfigured" if not rtsp_url else "invalid_sample_url"),
+                    "error": validation_error,
+                }
+            command = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-rtsp_transport",
+                "tcp",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=index,codec_type,codec_name",
+                "-of",
+                "json",
+                rtsp_url,
+            ]
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    command,
+                    cwd=str(deployments_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    stdin=subprocess.DEVNULL,
+                    check=False,
+                    shell=False,
+                    timeout=_RTSP_PROBE_TIMEOUT_S,
+                )
+            except FileNotFoundError:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "ffprobe_unavailable",
+                    "error": (
+                        "Host ffprobe is unavailable. Re-run the orchestrator notebook "
+                        "prerequisite cell to install ffmpeg."
+                    ),
+                }
+            except subprocess.TimeoutExpired:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "probe_timeout",
+                    "error": f"RTSP probe timed out after {_RTSP_PROBE_TIMEOUT_S:g} seconds.",
+                    "timeout_s": _RTSP_PROBE_TIMEOUT_S,
+                }
+            except OSError:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "ffprobe_start_failed",
+                    "error": "Host ffprobe could not start.",
+                }
+            except Exception:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "probe_internal_error",
+                    "error": "RTSP probe failed with an unexpected host-side error.",
+                }
+
+            if result.returncode != 0:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "probe_failed",
+                    "error": "The configured RTSP sample probe failed before a video stream was discovered.",
+                    "exit_code": result.returncode,
+                }
+
+            try:
+                payload = json.loads(result.stdout or "{}")
+            except json.JSONDecodeError:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "invalid_probe_output",
+                    "error": "ffprobe returned invalid JSON.",
+                }
+
+            raw_streams = payload.get("streams") if isinstance(payload, dict) else None
+            streams = raw_streams if isinstance(raw_streams, list) else []
+            video_streams: list[dict[str, object]] = []
+            for stream in streams:
+                if not isinstance(stream, dict) or stream.get("codec_type") != "video":
+                    continue
+                index = stream.get("index")
+                codec_name = stream.get("codec_name")
+                video_streams.append(
+                    {
+                        "index": index if isinstance(index, int) else None,
+                        "codec_name": codec_name if isinstance(codec_name, str) else "unknown",
+                    }
+                )
+
+            if not video_streams:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "no_video_stream",
+                    "error": "RTSP endpoint was reachable but ffprobe discovered no video stream.",
+                    "video_stream_count": 0,
+                }
+
+            return {
+                "status": ComposeStatus.SUCCESS.value,
+                "reachable": True,
+                "has_video": True,
+                "video_stream_count": len(video_streams),
+                "video_streams": video_streams,
+                "transport": "tcp",
+                "timeout_s": _RTSP_PROBE_TIMEOUT_S,
+                "message": "RTSP endpoint is reachable and carries a video stream.",
+            }
+
+        group.add_function(
+            name="rtsp_sample_probe",
+            fn=_rtsp_sample_probe,
+            description=_rtsp_sample_probe.__doc__,
+        )
 
     # ---------------------------------------------------------------------------
     # Tool: docker_generate

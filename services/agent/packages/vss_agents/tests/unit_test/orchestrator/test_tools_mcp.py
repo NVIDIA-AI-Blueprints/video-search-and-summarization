@@ -18,6 +18,7 @@ from collections import deque
 from collections.abc import AsyncIterator
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 import subprocess
 from unittest.mock import MagicMock
@@ -42,6 +43,7 @@ from vss_agents.orchestrator.tools import ModelArtifactEntry
 from vss_agents.orchestrator.tools import ModelPackageConfig
 from vss_agents.orchestrator.tools import ModelResolutionConfig
 from vss_agents.orchestrator.tools import OrchestratorToolConfig
+from vss_agents.orchestrator.tools import RtspSampleProbeInput
 from vss_agents.orchestrator.tools import vss_orchestrator
 
 
@@ -103,6 +105,7 @@ def _make_orchestrator_config(
         include = [
             "profiles",
             "prereqs",
+            "rtsp_sample_probe",
             "docker_generate",
             "docker_read",
             "docker_list",
@@ -241,6 +244,12 @@ async def test_profiles_lists_supported_profiles(tmp_path: Path):
     assert result["profiles"] == ["alerts", "base", "lvs", "search"]
 
 
+def test_default_config_exposes_rtsp_sample_probe() -> None:
+    default_include = OrchestratorToolConfig.model_fields["include"].default
+    assert isinstance(default_include, list)
+    assert "rtsp_sample_probe" in default_include
+
+
 @pytest.mark.asyncio
 async def test_prereqs_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
@@ -260,6 +269,275 @@ async def test_prereqs_runtime_error(tmp_path: Path):
             result = await _call(group, "prereqs", DockerPrereqsInput())
     assert result["status"] == ComposeStatus.ERROR.value
     assert "docker missing" in result["error"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.test/video",
+        "rtsp://example.test/live\ninjected",
+        "rtsps://example.test/live\x7f",
+        "rtsp://example.test/live\x85",
+        "rtsp://example.test/live\u202e",
+        "rtsp://example.test/live\u2066",
+        "rtsp://example.test/live\u200d",
+        "rtsp://example.test/live path",
+        "rtsp:///missing-host",
+        "rtsp://example.test:70000/live",
+    ],
+)
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_rejects_invalid_config_without_disclosure(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    url: str,
+) -> None:
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+            ) as to_thread:
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "invalid_sample_url"
+    assert url not in output
+    assert url not in repr(result)
+    to_thread.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_requires_configured_url(
+    tmp_path: Path,
+) -> None:
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("RTSP_SAMPLE_URL", None)
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+            ) as to_thread:
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "sample_url_unconfigured"
+    to_thread.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_uses_only_server_config_and_requires_video(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsps://alice:s3cr3t@example.test:7441/live/camera?token=top-secret"
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout='{"streams":[{"index":0,"codec_type":"video","codec_name":"h264"}]}',
+        stderr="",
+    )
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ) as to_thread:
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result == {
+        "status": ComposeStatus.SUCCESS.value,
+        "reachable": True,
+        "has_video": True,
+        "video_stream_count": 1,
+        "video_streams": [{"index": 0, "codec_name": "h264"}],
+        "transport": "tcp",
+        "timeout_s": tools_mod._RTSP_PROBE_TIMEOUT_S,
+        "message": "RTSP endpoint is reachable and carries a video stream.",
+    }
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+
+    run_fn, command = to_thread.call_args.args[:2]
+    assert run_fn is subprocess.run
+    assert command[-1] == rtsp_url
+    assert command[:5] == ["ffprobe", "-v", "error", "-rtsp_transport", "tcp"]
+    assert command[5:7] == ["-select_streams", "v:0"]
+    assert to_thread.call_args.kwargs["timeout"] == tools_mod._RTSP_PROBE_TIMEOUT_S
+    assert to_thread.call_args.kwargs["stdin"] is subprocess.DEVNULL
+    assert to_thread.call_args.kwargs["stdout"] is subprocess.PIPE
+    assert to_thread.call_args.kwargs["stderr"] is subprocess.DEVNULL
+    assert to_thread.call_args.kwargs["check"] is False
+    assert to_thread.call_args.kwargs["shell"] is False
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_omits_failure_diagnostics(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsp://alice:s3cr3t@example.test/live?token=top-secret"
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=1,
+        stdout="",
+        stderr=(f"Unable to open {rtsp_url}\nRedirect from rtsp://mirror.example.test/other failed."),
+    )
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "probe_failed"
+    assert "diagnostic" not in result
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+    assert "mirror.example.test" not in output
+    assert "mirror.example.test" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_timeout_is_bounded_and_secret_safe(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsp://alice:s3cr3t@example.test/live"
+    timeout = subprocess.TimeoutExpired(
+        cmd=["ffprobe", rtsp_url],
+        timeout=tools_mod._RTSP_PROBE_TIMEOUT_S,
+    )
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                side_effect=timeout,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "probe_timeout"
+    assert result["timeout_s"] == tools_mod._RTSP_PROBE_TIMEOUT_S
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_unexpected_error_does_not_disclose_secret(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsp://user:password@example.test/live"
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                side_effect=RuntimeError(f"unexpected failure while probing {rtsp_url}"),
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "probe_internal_error"
+    assert "diagnostic" not in result
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_rejects_successful_non_video_probe(
+    tmp_path: Path,
+) -> None:
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout='{"streams":[]}',
+        stderr="",
+    )
+
+    with patch.dict(
+        os.environ,
+        {"RTSP_SAMPLE_URL": "rtsp://example.test/audio-only"},
+        clear=False,
+    ):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "no_video_stream"
+    assert result["video_stream_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_rejects_invalid_ffprobe_json(
+    tmp_path: Path,
+) -> None:
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="not-json",
+        stderr="",
+    )
+    with patch.dict(
+        os.environ,
+        {"RTSP_SAMPLE_URL": "rtsp://example.test/video"},
+        clear=False,
+    ):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "invalid_probe_output"
+    assert "diagnostic" not in result
 
 
 @pytest.mark.asyncio

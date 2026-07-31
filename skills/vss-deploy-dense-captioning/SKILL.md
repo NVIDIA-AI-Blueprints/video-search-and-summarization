@@ -160,24 +160,42 @@ variable as a required input. Verify it is set and non-empty before probing or
 registering any stream; if it is missing, stop with a clear failure message. Do
 not derive a substitute from NvStreamer, VIOS, sample-data bundles, or any other
 fallback, because that validates a different stream than the caller requested.
+Treat the URL as secret-bearing: never echo it, include it in diagnostic prose,
+or copy it into the final response.
 
+In NemoClaw/OpenClaw, call the host-side
+`vss_orchestrator__rtsp_sample_probe` MCP tool with no URL argument. The tool
+can probe only the sample configured in the orchestrator server's
+`RTSP_SAMPLE_URL`; do not pass or expand the value through MCP. Continue only
+when the tool returns `status: success`, `has_video: true`, and
+`video_stream_count >= 1`. Treat a timeout, probe error, or
+`no_video_stream` response as terminal; do not register a substitute stream.
+
+Outside NemoClaw, use the following bounded local `ffprobe` check. It suppresses
+probe diagnostics because they can contain the URL, and it inspects only
+ffprobe's selected `codec_type` output rather than grepping generic tool output.
 ```bash
 : "${RTSP_SAMPLE_URL:?Set RTSP_SAMPLE_URL to a reachable RTSP sample stream before RTSP validation}"
 case "$RTSP_SAMPLE_URL" in
-  rtsp://*) ;;
-  *) echo "RTSP_SAMPLE_URL must be an rtsp:// URL, got: $RTSP_SAMPLE_URL" >&2; exit 1 ;;
+  rtsp://*|rtsps://*) ;;
+  *) echo "RTSP_SAMPLE_URL must use the rtsp:// or rtsps:// scheme." >&2; exit 1 ;;
 esac
-
-if command -v ffprobe >/dev/null 2>&1; then
-  ffprobe -v error -rtsp_transport tcp \
-    -select_streams v:0 -show_entries stream=codec_type \
-    -of csv=p=0 "$RTSP_SAMPLE_URL" | grep -qx video
-elif command -v gst-discoverer-1.0 >/dev/null 2>&1; then
-  gst-discoverer-1.0 "$RTSP_SAMPLE_URL" | grep -qi 'video'
-else
-  echo "Install ffprobe or gst-discoverer-1.0 before RTSP validation." >&2
+command -v ffprobe >/dev/null 2>&1 || {
+  echo "Install ffprobe before local RTSP validation." >&2
   exit 1
-fi
+}
+probe_codec_types="$(
+  timeout 25s ffprobe -v error -rtsp_transport tcp \
+    -select_streams v:0 -show_entries stream=codec_type \
+    -of csv=p=0 "$RTSP_SAMPLE_URL" 2>/dev/null
+)" || {
+  echo "The configured RTSP sample probe failed or timed out." >&2
+  exit 1
+}
+printf '%s\n' "$probe_codec_types" | grep -Fxq video || {
+  echo "The configured RTSP sample did not expose a video stream." >&2
+  exit 1
+}
 ```
 
 ## Quick Start — dense captions from a local video

@@ -1,6 +1,8 @@
 # VSS Orchestrator MCP (`tools.py`)
 
-This module exposes a NAT MCP function group named `vss_orchestrator` for generating Docker Compose artifacts, running deployments, and inspecting runtime state.
+This module exposes a NAT MCP function group named `vss_orchestrator` for
+generating Docker Compose artifacts, running deployments, inspecting runtime
+state, and performing a bounded probe of the configured host-side RTSP sample.
 
 ### Required environment-specific configuration
 
@@ -61,6 +63,10 @@ uv run nat mcp client tool call \
 
 - `profiles`: List all supported deployment profiles.
 - `prereqs`: Run Docker/GPU prerequisite checks.
+- `rtsp_sample_probe`: Probe the orchestrator server's configured
+  `RTSP_SAMPLE_URL` from the host and require a video stream. The call takes no
+  URL argument, and the secret-bearing value is never returned or written to
+  MCP call logs.
 - `docker_generate`: Generate resolved Docker Compose YAML and `.env` artifacts.
 - `docker_read`: Fetch generated env and resolved compose YAML content by `docker_compose_id`.
 - `docker_list`: List Docker container names.
@@ -112,6 +118,25 @@ uv run nat mcp client tool call \
         "disk_free_gib": 295.3,
         "disk_total_gib": 484.4
       }
+    }
+    ```
+- `rtsp_sample_probe`: run host `ffprobe` over TCP with a fixed 20-second
+  process timeout and require at least one video stream.
+  - Payload: `{}`. Callers cannot supply or override the sample URL.
+  - Configure `RTSP_SAMPLE_URL` in the orchestrator server environment. Do not
+    print, echo, or persist the URL. Responses contain only status and
+    non-secret stream metadata; probe diagnostics are not returned.
+  - Example response:
+    ```json
+    {
+      "status": "success",
+      "reachable": true,
+      "has_video": true,
+      "video_stream_count": 1,
+      "video_streams": [{"index": 0, "codec_name": "h264"}],
+      "transport": "tcp",
+      "timeout_s": 20.0,
+      "message": "RTSP endpoint is reachable and carries a video stream."
     }
     ```
 - `docker_generate`: validate profile/env and generate resolved env + compose artifacts.
@@ -254,5 +279,3 @@ uv run nat mcp client tool call \
       "pid": -1
     }
     ```
-
-
