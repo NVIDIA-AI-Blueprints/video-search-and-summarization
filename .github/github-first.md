@@ -41,38 +41,60 @@ gets built. Set `ghcr_build: true` and make sure `source_path`, `platforms` and
   "source_path": "services/video-summarization",
   "dockerfile": "services/video-summarization/docker/Dockerfile",
   "platforms": ["linux/amd64", "linux/arm64"],
-  "compose_image_names": ["vss-video-summarization"],
-  "tag_variables": ["CONTAINER_IMAGE"]
+  "compose_image_names": ["vss-video-summarization"]
 }
 ```
+
+`tag_variables` is descriptive metadata — nothing in this repo or in
+`ci-vss-oss` reads it. Keep it accurate if an entry already has one, but a new
+entry does not need it and nothing depends on it.
 
 `source_path` is load-bearing beyond the build: it is what
 `git rev-parse <commit>:<source_path>` hashes to produce the `tree-<sha>` content
 tag, and what the change detector diffs to decide whether to build.
 
-### 2. Split image and tag variables
+### 2. Declare a namespaced image/tag pair in `containers.env`
 
-Some modules bundle both into one variable:
-
-```bash
-# before — image and tag in a single value
-CONTAINER_IMAGE="${CONTAINER_IMAGE:-${VSS_CONTAINER_RELEASE_REGISTRY}/vss-video-summarization:3.2.1}"
-```
-
-The shared coordinate needs them separate, because registry and tag move
-independently. Split first:
+`deploy/docker/containers.env` is where every first-party coordinate is
+declared. A module joining the shared set needs exactly two variables:
 
 ```bash
 VSS_VIDEO_SUMMARIZATION_IMAGE="${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-${VSS_CONTAINER_RELEASE_REGISTRY}}/vss-video-summarization}"
 VSS_VIDEO_SUMMARIZATION_TAG="${VSS_VIDEO_SUMMARIZATION_TAG:-${VSS_CONTAINER_TAG:-3.2.1}}"
 ```
 
-**Precedence matters and is easy to get backwards.** The per-image variable must
-come *first*, folding the shared tag in as its fallback. Inverting it makes the
-per-image override dead — `VSS_CONTAINER_TAG` is always defined in
-`containers.env`, so it would always win and nobody could pin one image.
+These replace whatever the module used before. LVS currently has:
 
-Update `tag_variables` in the inventory to match the new names.
+```bash
+# remove — bundles image and tag, and is not namespaced
+CONTAINER_IMAGE="${CONTAINER_IMAGE:-${VSS_CONTAINER_RELEASE_REGISTRY}/vss-video-summarization:3.2.1}"
+```
+
+Two reasons it cannot stay:
+
+- **It welds the tag onto the image.** The shared coordinate needs them
+  separate, because `VSS_CONTAINER_REGISTRY` and `VSS_CONTAINER_TAG` move
+  independently. A shared tag cannot be folded into a value that already ends
+  `:3.2.1`.
+- **It is unnamespaced.** Every other first-party variable is `VSS_*`. A bare
+  `CONTAINER_IMAGE` set in the environment for any unrelated reason silently
+  redirects the image.
+
+**Precedence is easy to get backwards.** The per-image variable comes *first*,
+with the shared one folded in as its fallback. Inverting it makes the per-image
+override dead — `VSS_CONTAINER_TAG` is always defined here, so it would always
+win and nobody could pin a single image.
+
+**Then remove the old variable everywhere, not just here:**
+
+```bash
+git grep -n CONTAINER_IMAGE -- deploy/
+```
+
+For LVS that is five files — `containers.env`, `container-inventory.json`, the
+service `compose.yml`, `lvs.env`, and the service README. `lvs.env` is the easy
+miss: the profile keeps setting a variable nothing reads, so the override
+silently stops working.
 
 ### 3. Point the compose line at the shared coordinate
 
@@ -89,9 +111,9 @@ Two rules:
 - The **inline literal is `develop-latest`**, not an NGC release tag. A clean
   clone with no env-file must resolve to a coordinate that actually exists in
   GHCR. The NGC tag stays in `containers.env` as the inner fallback.
-- The compose line reads **only the per-image tag variable**. `containers.env`
-  already folds `VSS_CONTAINER_TAG` into it; naming both here double-handles the
-  chain and inverts the precedence.
+- The compose line reads **only the variables declared in step 2**, by the same
+  names. `containers.env` already folds `VSS_CONTAINER_TAG` into the per-image
+  tag; naming both here double-handles the chain and inverts the precedence.
 
 Registry and tag must move **together**. `3.2.1` does not exist in GHCR and
 `develop-latest` does not exist in `nvcr.io`, so changing one alone resolves to
