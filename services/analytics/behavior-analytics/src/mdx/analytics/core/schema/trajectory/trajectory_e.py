@@ -25,11 +25,12 @@ from mdx.analytics.core.transform.calibration.calibration_base import Calibratio
 
 class TrajectoryE(TrajectoryBase):
     """
-    Euclidean trajectory representation with speed in miles per hour (mph).
+    Euclidean trajectory representation, in cartesian or image coordinates.
 
-    This class extends TrajectoryBase to provide trajectory analysis in Euclidean space
-    with speed measurements converted to miles per hour. It uses standard Cartesian
-    coordinates (y increasing upward) and overrides speed-related calculations to use mph units.
+    Every override is gated on ``calibration_type``, because the coordinates mean different things:
+    cartesian points are metric, so bearing uses y-increasing-upward convention and speeds convert to
+    mph; image points are pixels, so bearing and speeds fall through to the base class and stay in
+    pixels per second. Geographic coordinates are not supported -- use ``Trajectory`` for those.
 
     :ivar str id: Unique identifier for the trajectory
     :ivar datetime start: Start time of the trajectory
@@ -91,9 +92,13 @@ class TrajectoryE(TrajectoryBase):
     @cached_property
     def speed(self) -> float:
         """
-        Calculate the average speed of the trajectory in miles per hour.
+        Calculate the average speed of the trajectory.
 
-        :return float: Average speed in mph
+        Cartesian coordinates are metric, so the base speed is converted to mph. Image coordinates
+        are pixels, so the rate is returned unconverted as pixels per second.
+
+        :return float: Average speed, in mph for cartesian coordinates or pixels/second for image
+        :raises ValueError: If the trajectory is in geographic coordinates
 
         Example::
 
@@ -117,15 +122,25 @@ class TrajectoryE(TrajectoryBase):
             # Speed will be converted from m/s to mph
             avg_speed = trajectory.speed  # Returns approximately 11.18 mph
         """
-        return super().speed * MPS_TO_MPH
+        if self.calibration_type == CalibrationType.CARTESIAN:
+            return super().speed * MPS_TO_MPH
+        if self.calibration_type == CalibrationType.GEO:
+            raise ValueError("TrajectoryE does not support geographic coordinates")
+        # Image coordinates are pixels, so the rate is pixels per second and there is nothing
+        # metric to convert -- scaling it by a m/s factor would produce a meaningless number.
+        return super().speed
 
     @computed_field
     @cached_property
     def speed_over_time(self) -> list[float]:
         """
-        Calculate the speed of the trajectory over time in segments, in miles per hour.
+        Calculate the speed of the trajectory over time in segments.
 
-        :return list[float]: List of speeds for each segment in mph
+        Uses the same units as :meth:`speed`: mph for cartesian coordinates, pixels per second for
+        image coordinates.
+
+        :return list[float]: Speed for each segment
+        :raises ValueError: If the trajectory is in geographic coordinates
 
         Example::
 
@@ -152,7 +167,12 @@ class TrajectoryE(TrajectoryBase):
             speeds = trajectory.speed_over_time
             # Returns list of speeds in mph for each segment
         """
-        return [MPS_TO_MPH * x for x in super().speed_over_time]
+        if self.calibration_type == CalibrationType.CARTESIAN:
+            return [MPS_TO_MPH * x for x in super().speed_over_time]
+        if self.calibration_type == CalibrationType.GEO:
+            raise ValueError("TrajectoryE does not support geographic coordinates")
+        # Pixels per second in image coordinates; see :meth:`speed`.
+        return super().speed_over_time
 
     def __str__(self) -> str:
         """
