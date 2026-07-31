@@ -25,7 +25,7 @@
       ]
     },
     {
-      "query": "Deploy multi-cam tracking on my calibrated MP4s and save output because this server is headless. Do not run anything.",
+      "query": "Deploy multi-cam tracking on my calibrated MP4s and save output because I think this server is headless. Do not run anything. Still include the required real display probe before staging, then use saved output with saved fused BEV if no working display is found.",
       "checks": [
         "The agent loads vss-deploy-detection-tracking-3d.",
         "The plan uses INPUT_MODE=file and validates that MP4 basenames match filtered camera sensor ids from calibration.json.",
