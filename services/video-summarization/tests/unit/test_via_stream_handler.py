@@ -2939,3 +2939,74 @@ class TestHandleEsDependencyError:
             ri, Exception("max_shards_per_node exceeded")
         )
         assert http_status == 503
+
+
+# ---------------------------------------------------------------------------
+# Dense caption cache span lifecycle (NVBug 6537736)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDenseCaptionCacheSpanLifecycle:
+    """_trigger_query must not leak spans when it returns via the cache path.
+
+    A span only reaches the exporter once end() is called, so an unclosed E2E
+    span means the whole cache-hit trace is missing from the backend.
+    """
+
+    @staticmethod
+    def _memory_tracer():
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+            InMemorySpanExporter,
+        )
+
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return provider.get_tracer(__name__), exporter
+
+    def _trigger_with_cached_chunks(self, tmp_path, monkeypatch, cached_chunks):
+        import via_stream_handler as vsh
+        from via_stream_handler import RequestInfo, ViaStreamHandler
+
+        tracer, exporter = self._memory_tracer()
+        monkeypatch.setattr(vsh, "is_tracing_enabled", lambda: True)
+        monkeypatch.setattr(vsh, "get_tracer", lambda: tracer)
+        monkeypatch.setenv("ENABLE_DENSE_CAPTION", "true")
+        monkeypatch.setenv("VIA_LOG_DIR", str(tmp_path))
+
+        req_info = RequestInfo()
+        req_info.source_id = "cache-src"
+        (tmp_path / f"dc_{req_info.source_id}.json").write_text("{}")
+
+        deserialized = MagicMock()
+        deserialized.processed_chunk_list = cached_chunks
+        monkeypatch.setattr(vsh.DCSerializer, "from_json", lambda _path: deserialized)
+
+        handler = ViaStreamHandler.__new__(ViaStreamHandler)
+        handler._on_vlm_chunk_response = MagicMock()
+        handler._trigger_query(req_info)
+        return handler, exporter
+
+    def test_empty_cache_closes_both_spans(self, tmp_path, monkeypatch):
+        handler, exporter = self._trigger_with_cached_chunks(tmp_path, monkeypatch, [])
+
+        handler._on_vlm_chunk_response.assert_not_called()
+        assert {span.name for span in exporter.get_finished_spans()} == {
+            "Summarization E2E Latency",
+            "VLM Pipeline Latency",
+        }
+
+    def test_populated_cache_leaves_spans_to_the_chunk_handler(self, tmp_path, monkeypatch):
+        handler, exporter = self._trigger_with_cached_chunks(
+            tmp_path, monkeypatch, ["chunk-a", "chunk-b"]
+        )
+
+        assert handler._on_vlm_chunk_response.call_count == 2
+        # The real _on_vlm_chunk_response ends the pipeline span and queues
+        # _process_output for the E2E span on the final chunk. It is mocked
+        # here, so nothing should have closed them: _trigger_query closing
+        # them itself would truncate the trace.
+        assert len(exporter.get_finished_spans()) == 0
