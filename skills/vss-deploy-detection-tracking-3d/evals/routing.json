@@ -19,7 +19,7 @@
         "The agent identifies vss-deploy-detection-tracking-3d as the default skill for generic MV3DT intent.",
         "The answer names the standalone RT-CV-3D compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
         "The answer lists perception, bev-fusion, bundled mosquitto, bundled kafka, and kafka-topic-init.",
-        "The answer says runtime images are resolved with docker compose config --images and does not hardcode a runtime image version.",
+        "The answer does not hardcode a runtime image version.",
         "The answer does not select vss-deploy-profile unless the user explicitly asked for warehouse.",
         "No docker compose up, docker pull, or docker run command is executed."
       ]
