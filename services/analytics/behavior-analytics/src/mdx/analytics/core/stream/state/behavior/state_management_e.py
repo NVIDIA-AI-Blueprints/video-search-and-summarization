@@ -16,30 +16,30 @@
 import logging
 from datetime import datetime
 
-from mdx.analytics.core.schema.models import Behavior, Coordinate, Message
+from mdx.analytics.core.schema.models import Coordinate
 from mdx.analytics.core.schema.trajectory.trajectory_e import TrajectoryE
 from mdx.analytics.core.stream.state.behavior.state_management_base import StateMgmtBase
 
 logger = logging.getLogger(__name__)
 
 
-class StateMgmtEWithTripwire(StateMgmtBase):
+class StateMgmtE(StateMgmtBase):
     """
-    Euclidean coordinate state management with trip wire detection.
-    
-    Extends StateMgmtBase to add trip wire event detection and return both 
-    behavior and trip messages. Uses IncrementalTrajectoryE for trajectory creation.
+    Behavior state management in Euclidean coordinates.
+
+    Differs from the base only in the trajectory type; batching, emission and trip handling are
+    inherited unchanged. Trip behaviors are always produced -- callers that do not run tripwire or
+    ROI detection simply ignore ``BehaviorBatch.trip_behaviors``.
 
     Examples:
-        >>> state_manager = StateMgmtEWithTripwire(config, calibration)
-        >>> messages = [Message(sensor=Sensor(id="sensor1"))]
-        >>> behavior, trip_behavior = state_manager.update_behavior("sensor1_obj1", messages)
-        >>> print(f"Behavior: {behavior}")
+        >>> state_manager = StateMgmtE(config, calibration)
+        >>> batch = state_manager.process_batch(messages_map)
+        >>> print(f"Writing {len(batch.behaviors_to_write)} behavior(s)")
     """
 
-    def _create_trajectory(self, id: str, start: datetime, end: datetime, 
+    def _create_trajectory(self, id: str, start: datetime, end: datetime,
                           points: list[Coordinate]) -> TrajectoryE:
-        """Returns IncrementalTrajectoryE for Euclidean coordinates."""
+        """Returns TrajectoryE for Euclidean coordinates."""
         return TrajectoryE(
             id=id,
             start=start,
@@ -51,15 +51,3 @@ class StateMgmtEWithTripwire(StateMgmtBase):
             speed_segment_size=self.config.traj_speed_segment_size,
             calibration_type=self.calibration.calibration_type
         )
-
-
-class StateMgmtE(StateMgmtEWithTripwire):
-    """
-    Euclidean state management without trip wire.
-    
-    Return only the behavior message, discarding the trip wire behavior for simpler API.
-    """
-
-    def update_behavior(self, message_key: str, messages: list[Message], **kwargs) -> Behavior | None:
-        """Returns only the behavior message, discarding trip wire behavior."""
-        return super().update_behavior(message_key, messages, **kwargs)[0]

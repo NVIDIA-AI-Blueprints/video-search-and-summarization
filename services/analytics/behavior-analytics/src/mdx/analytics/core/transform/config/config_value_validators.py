@@ -222,9 +222,9 @@ def _non_empty_str() -> ValueValidator:
 
 APP_VALUE_VALIDATORS: dict[str, ValueValidator] = {
     # Behavior / object processing
+    "behaviorEmitOnce": _bool(),
     "behaviorMaxPoints": _int(min=1),
     "behaviorStateEndToleranceSec": _float(min=0.0),
-    "behaviorStateTimeout": _int(min=0),
     "behaviorStateValidInterval": _int(min=0),
     "behaviorTimeThreshold": _datetime_iso8601_z(),
     "behaviorWatermarkSec": _int(min=0),

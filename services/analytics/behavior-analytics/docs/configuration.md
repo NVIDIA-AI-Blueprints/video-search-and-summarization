@@ -26,6 +26,7 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
 - `imageLocationMode`: "center" | "bottom_center" (for image coordinate system, determines which point from bbox is used to calculate location; default: "bottom_center")
 - `roiEventDetectionMode`: "coordinate" | "bbox" (ROI ENTRY/EXIT detection; "coordinate" [default] checks whether the object's coordinate is inside the ROI polygon, "bbox" checks whether the object's bounding box overlaps the ROI polygon). "bbox" is supported only for **image** calibration, where `object.bbox` and the ROI polygon share image-pixel coordinates. For **cartesian** and **geo** calibration it falls back to the coordinate-inside check with a one-time warning, since `object.bbox` is in image pixels while the ROI/trajectory are in world units.
 - `behaviorMaxPoints`: "200"
+- `behaviorEmitOnce`: "false" (see [Behavior emission](#behavior-emission))
 - `sourceType` / `sinkType`: typically "kafka" (also supports `redisStream`, `mqtt`)
 - `spaceAnalyticsIntervalSec`: "5.0"
 - Playback: `playbackLoop`, `playbackSensors`, `playbackInSimulationMode`, etc.
@@ -58,6 +59,15 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
   ]
 }
 ```
+
+## Behavior emission
+`behaviorEmitOnce` (default `"false"`) switches the behavior stream from one message per batch to one
+per track. With it on, a track's behavior is written once, `behaviorStateValidInterval` seconds after
+its last message — so that key sets the latency — and tracks still live when the app stops are flushed.
+
+Events, anomalies and incidents are built from per-batch behaviors either way, so they are unaffected.
+
+The key is runtime-updatable; switching it off hands over anything still being held back.
 
 ## Incidents & frame state
 - All incident types (proximity, restricted area, confined area, FOV count) default to disabled (`...IncidentEnable = "false"`). Set the corresponding `...IncidentEnable = "true"` to turn them on.

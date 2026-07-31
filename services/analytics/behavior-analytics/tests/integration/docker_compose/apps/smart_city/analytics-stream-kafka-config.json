@@ -187,10 +187,6 @@
 			"value": "60"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "30"
-		},
-		{
 			"name": "behaviorStateValidInterval",
 			"value": "20"
 		},
