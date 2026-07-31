@@ -105,6 +105,10 @@ class DownstreamVariablesTest(unittest.TestCase):
                 clear=True,
             ), mock.patch.object(
                 module, "validate_release_set", return_value=[]
+            ), mock.patch.object(
+                # Pin the gate: its real inputs depend on git state, which
+                # differs between a local worktree and a CI checkout.
+                module, "downstream_relevant", return_value=(False, "pinned")
             ), mock.patch.object(module, "download_release_set") as download:
                 self.assertEqual(module.main(), 0)
                 download.assert_not_called()
