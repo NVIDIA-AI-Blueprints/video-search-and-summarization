@@ -15,7 +15,6 @@
 * limitations under the License.
 */
 
-
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE
 #include <stdio.h>
@@ -63,10 +62,8 @@ static gboolean extract_ms_from_utc(gchar *utc, guint32 *ms) {
     return FALSE;
   }
 
-  // Skip the leading underscore
-  if (utc[i_ms] != '_') {
-    return FALSE;
-  }
+  // The loop only stops at i_ms < 0 (handled above) or utc[i_ms] == '_', so
+  // utc[i_ms] is guaranteed to be the leading underscore here; skip past it.
   i_ms++; // Move past the underscore
 
   // Check if we have digits followed by underscore
