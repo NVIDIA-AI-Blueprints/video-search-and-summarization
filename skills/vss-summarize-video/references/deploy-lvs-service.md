@@ -2,7 +2,7 @@
 
 ## Container Image
 
-- **Image name:** `nvcr.io/nvidia/vss-core/vss-video-summarization`
+- **Image name:** `nvcr.io/nvstaging/vss-core/vss-video-summarization`
 - **Tag pattern:** `3.2.0` for x86 developer deployments. Use the matching
   VSS release tag for branch-specific testing.
 - **Registry:** `nvcr.io`

@@ -27,7 +27,7 @@
 
 services:
   perception:
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.1}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.2}
     entrypoint: []
     runtime: nvidia
     container_name: vss-rtvi-cv

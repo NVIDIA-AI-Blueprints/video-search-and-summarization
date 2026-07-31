@@ -334,7 +334,7 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: "3.3.0-26.07.1"
+      tag: "3.3.0-26.07.2"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka

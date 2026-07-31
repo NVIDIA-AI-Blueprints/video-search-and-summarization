@@ -569,26 +569,45 @@ jobs:
           retention-days: 90
 
       - name: Set up Buildx for post-merge alias publication
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
       - name: Log in to GHCR for post-merge publication
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Advance develop-latest after complete post-merge build
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
+      # Publishes BOTH aliases for every GHCR image in the set:
+      #   develop-latest      — moving developer convenience alias
+      #   develop-<sha12>     — immutable per-commit tag
+      # The per-commit tag is the point: with it published for every image at
+      # every develop push tip, a consumer derives the whole coordinate set from
+      # the commit SHA alone and never needs the release-set manifest. The
+      # tree-SHA gate makes that derivation trustworthy — it refuses to publish
+      # a tag for an image that was not built from this commit's source.
+      #
+      # Only the pushed tip is tagged, which is sufficient: the repo allows only
+      # squash and rebase merges (no merge commits), so develop is linear, and
+      # every consumer resolves from the tip, never from an interior commit.
+      # develop publishes develop-latest + develop-<sha12>; a PR branch publishes
+      # pr-<N>-latest + pr-<N>-<sha12>. Both sets must cover EVERY GHCR image,
+      # not just the ones rebuilt on this ref: a consumer that derives a
+      # coordinate from the ref would otherwise 404 on the untouched images,
+      # which is why PR acceptance still needs a per-image manifest today.
+      # pr-<N>-* tags are reaped by cleanup-pr-tags.yml when the PR closes.
+      - name: Retag the candidate set for this ref
         run: |
+          short="$(printf '%s' "${GITHUB_SHA}" | cut -c1-12)"
+          case "${GITHUB_REF_NAME}" in
+            develop)            prefix="develop" ;;
+            pull-request/[0-9]*) prefix="pr-${GITHUB_REF_NAME#pull-request/}" ;;
+            *) echo "::notice::no candidate set retagged for ${GITHUB_REF_NAME}"; exit 0 ;;
+          esac
           python3 .github/scripts/advance_ghcr_alias.py \
             --release-set release-set.json \
-            --alias develop-latest
+            --alias "${prefix}-latest" \
+            --alias "${prefix}-${short}" \
+            --verify-tree-sha \
+            --repo-root . \
+            --commit "${GITHUB_SHA}"

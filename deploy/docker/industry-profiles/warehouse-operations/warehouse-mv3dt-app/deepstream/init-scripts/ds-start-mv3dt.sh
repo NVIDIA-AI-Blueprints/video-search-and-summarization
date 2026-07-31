@@ -10,7 +10,13 @@
 
 echo "##### RT-DETR + MV3DT pipeline #####"
 
-MQTT_HOST=
+ARCH="$(uname -m)"
+# libgomp/libGLdispatch must load first to reserve static TLS; keep any
+# preloads supplied by the image or operator after them.
+MV3DT_PRELOAD="/usr/lib/${ARCH}-linux-gnu/libgomp.so.1:/usr/lib/${ARCH}-linux-gnu/libGLdispatch.so.0"
+export LD_PRELOAD="${MV3DT_PRELOAD}${LD_PRELOAD:+:${LD_PRELOAD}}"
+
+MQTT_HOST=${MQTT_HOST:-mosquitto}
 MQTT_PORT=${MQTT_PORT:-1883}
 MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
 cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
@@ -58,15 +64,7 @@ cat "${CONFIG_DIR}/ds-pgie-config.yml"
 echo -e "\nTracker config:"
 cat "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
 
-if [ "${STREAM_TYPE}" = "redis" ]; then
-  echo -e "\nRunning metropolis_perception_app with redis (RT-DETR + MV3DT)..."
-  echo -e "\nMain config:"
-  cat "${CONFIG_DIR}/ds-main-redis-config-mv3dt.txt"
-  ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-redis-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
-else
-  [ "${STREAM_TYPE}" = "kafka" ] || echo "STREAM_TYPE not set or invalid. Defaulting to kafka..."
-  echo -e "\nRunning metropolis_perception_app with kafka (RT-DETR + MV3DT)..."
-  echo -e "\nMain config:"
-  cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
-  ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
-fi
+echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
+echo -e "\nMain config:"
+cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
+./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1

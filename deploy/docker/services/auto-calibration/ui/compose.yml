@@ -26,7 +26,7 @@ services:
     ipc: host
 
     environment:
-      - API_URL=${VSS_AUTO_CALIBRATION_MS_API_URL:-http://vss-auto-calibration:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1}
+      - API_URL=${VSS_AUTO_CALIBRATION_MS_API_URL:-http://${EXTERNAL_IP:-${HOST_IP}}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1}
 
     restart: unless-stopped
 

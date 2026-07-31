@@ -156,7 +156,6 @@ static gboolean playback_utc = FALSE;
 static gboolean print_version = FALSE;
 static gboolean show_bbox_text = FALSE;
 static gboolean force_tcp = TRUE;
-static gboolean print_dependencies_version = FALSE;
 static gboolean quit = FALSE;
 static gboolean use_tracker_reid = FALSE;
 static gboolean show_sensor_id = FALSE;
@@ -201,11 +200,9 @@ static gint target_class = 0;
 /** @} imported from deepstream-app as is */
 GOptionEntry entries[] = {
     {"version", 'v', 0, G_OPTION_ARG_NONE, &print_version,
-     "Print DeepStreamSDK version", NULL},
+     "Print metropolis_perception_app version", NULL},
     {"tiledtext", 0, 0, G_OPTION_ARG_NONE, &show_bbox_text,
      "Display Bounding box labels in tiled mode", NULL},
-    {"version-all", 0, 0, G_OPTION_ARG_NONE, &print_dependencies_version,
-     "Print DeepStreamSDK and dependencies version", NULL},
     {"cfg-file", 'c', 0, G_OPTION_ARG_FILENAME_ARRAY, &cfg_files,
      "Set the config file", NULL},
     {"override-cfg-file", 'o', 0, G_OPTION_ARG_FILENAME_ARRAY,
@@ -2087,14 +2084,13 @@ int main(int argc, char *argv[]) {
   }
 
   if (print_version) {
-    g_print("deepstream-test5-app version %d.%d.%d\n", NVDS_APP_VERSION_MAJOR,
-            NVDS_APP_VERSION_MINOR, NVDS_APP_VERSION_MICRO);
-    return 0;
-  }
-
-  if (print_dependencies_version) {
-    g_print("deepstream-test5-app version %d.%d.%d\n", NVDS_APP_VERSION_MAJOR,
-            NVDS_APP_VERSION_MINOR, NVDS_APP_VERSION_MICRO);
+    /* Print only the semantic version (e.g. "3.3.0") from the image tag,
+     * stripping any build/date suffix (e.g. "3.3.0-26.07.1" -> "3.3.0").
+     * g_strsplit always yields a non-NULL first element for a non-NULL
+     * input, so parts[0] holds the segment before the first '-'. */
+    gchar **parts = g_strsplit(image_tag, "-", 2);
+    g_print("metropolis_perception_app version %s\n", parts[0]);
+    g_strfreev(parts);
     return 0;
   }
 

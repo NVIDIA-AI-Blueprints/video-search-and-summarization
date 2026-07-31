@@ -18,9 +18,9 @@ Create a `.env.lvs-server-standalone` file with your configuration:
 ```bash
 # Container Configuration
 # For x86 and Jetson Thor platforms, use the plain tag:
-CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1
+CONTAINER_IMAGE=nvcr.io/nvstaging/vss-core/vss-video-summarization:3.3.0-rc2
 # On SBSA / DGX Spark / Grace (server-class ARM64) hosts, use the -sbsa tag:
-# CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1-sbsa
+# CONTAINER_IMAGE=nvcr.io/nvstaging/vss-core/vss-video-summarization:3.3.0-rc2-sbsa
 GPU_DEVICES=2,3
 
 # Port Configuration
@@ -139,4 +139,3 @@ You can also use the legacy shell script instead of Docker Compose:
 ```
 
 This script provides the same functionality but uses `docker run` directly.
-
