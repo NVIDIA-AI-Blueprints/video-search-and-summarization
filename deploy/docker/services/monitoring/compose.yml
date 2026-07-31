@@ -15,7 +15,7 @@
 
 services:
   dcgm-exporter:
-    image: nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
+    image: docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
     container_name: dcgm-exporter
     profiles: ["dcgm-exporter"]
     runtime: nvidia
@@ -26,7 +26,7 @@ services:
     restart: always
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.11.3
+    image: quay.io/prometheus/prometheus:v3.13.1
     container_name: prometheus
     profiles: ["prometheus"]
     volumes:
@@ -36,7 +36,7 @@ services:
     restart: always
 
   grafana:
-    image: grafana/grafana:13.0.1-ubuntu
+    image: docker.io/grafana/grafana:13.1.1-ubuntu
     container_name: grafana
     profiles: ["grafana"]
     ports:
@@ -52,7 +52,7 @@ services:
     restart: always
 
   node-exporter:
-    image: quay.io/prometheus/node-exporter:v1.11.1
+    image: quay.io/prometheus/node-exporter:v1.12.1
     profiles: ["node-exporter"]
     ports:
       - "${NODE_EXPORTER_HOST_PORT:-19100}:9100"
@@ -67,7 +67,7 @@ services:
       - '--path.rootfs=/rootfs'
 
   cadvisor:
-    image: ghcr.io/google/cadvisor:0.56.2
+    image: ghcr.io/google/cadvisor:0.60.5
     profiles: ["cadvisor"]
     ports:
       - "${CADVISOR_HOST_PORT:-18080}:8080"
