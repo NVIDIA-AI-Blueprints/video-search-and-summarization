@@ -101,10 +101,6 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "20"
-		},
-		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},

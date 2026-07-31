@@ -90,23 +90,35 @@ class RPMApp(BaseApp):
         else:
             logger.info(f"[Batch {stats.batch_id}] Transformed {len(frames)} frame(s) to {len(batch_messages)} message(s)")
 
-            behaviors = [
-                b for k, v in updated_messages_map.items()
-                if (b := self.state_mgmt.update_behavior(k, v)) is not None
-            ]
+            batch = self.state_mgmt.process_batch(updated_messages_map)
 
-            logger.info(f"[Batch {stats.batch_id}] created a total of {len(behaviors)} behavior(s)")
+            logger.info(f"[Batch {stats.batch_id}] created a total of {len(batch.active_behaviors)} behavior(s), "
+                        f"writing {len(batch.behaviors_to_write)}")
 
-            incidents, behaviors = self.anomaly_action_detector.detect_batch(behaviors, frames)
-            behaviors = self.compact_behaviors(behaviors)
+            # Both detectors enrich the behaviors in place, so the edits reach whatever is written.
+            incidents, _ = self.anomaly_action_detector.detect_batch(batch.active_behaviors, frames)
+            self.compact_behaviors(batch.active_behaviors)
             for incident in incidents:
                 logger.info(f"[Batch {stats.batch_id}] - Incident: {incident.objectIds}, {incident.analyticsModule.id}")
 
-            live_objects = list(self.state_mgmt.state.keys())
-            
-            self.anomaly_action_detector.update_live_object(live_objects)
-            self.write_behaviors(behaviors)
+            self.anomaly_action_detector.update_live_object(self.state_mgmt.live_object_ids())
+            self.write_behaviors(batch.behaviors_to_write)
             self.write_incidents(incidents)
+
+    def close(self) -> None:
+        """
+        Write behaviors still held back by emit-once mode, then release resources.
+
+        :return: None
+        """
+        pending = self.state_mgmt.flush_behaviors()
+
+        if pending:
+            logger.info(f"Flushing {len(pending)} pending behavior(s) before shutdown.")
+            self.write_behaviors(pending)
+
+        super().close()
+
 
 if __name__ == '__main__':
 

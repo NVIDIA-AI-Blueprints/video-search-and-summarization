@@ -41,19 +41,23 @@ class StateMgmt(StateMgmtBase):
     - Trajectory smoothing and subsampling
     - Behavior state updates with map context
 
-    :ivar bool input_data_in_cartesian: Whether input data is in cartesian coordinates.
-    :ivar Dict anomaly_config: Configuration for anomaly detection.
+    :ivar CoordinateReferenceSystem | None crs: Reference system used for map matching, required by
+        ``mapMatchingClasses`` object types. Fixed for the lifetime of the app, so it is a constructor
+        dependency rather than a per-call argument.
     :ivar int mapmatching_success_cnt: Counter for successful map matching operations.
     :ivar int mapmatching_total_cnt: Total counter for map matching operations.
 
     Examples::
-        >>> config = AppConfig()
-        >>> state_manager = StateMgmt(config)
-        >>> print(f"Initialized state management with map matching capabilities")
+        >>> state_manager = StateMgmt(config, calibration, crs)
+        >>> batch = state_manager.process_batch(messages_map)
+        >>> print(f"Writing {len(batch.behaviors_to_write)} behavior(s)")
     """
 
-    def __init__(self, config: AppConfig, calibration: Calibration) -> None:
+    def __init__(
+        self, config: AppConfig, calibration: Calibration, crs: CoordinateReferenceSystem | None
+    ) -> None:
         super().__init__(config=config, calibration=calibration)
+        self.crs = crs
         # for debug
         self.mapmatching_success_cnt = 0
         self.mapmatching_total_cnt = 0
@@ -79,48 +83,29 @@ class StateMgmt(StateMgmtBase):
             direction_based_cluster_mode=self.config.traj_direction_cluster_mode,
         )
 
-    def update_behavior(
-        self, message_key: str, messages: list[Message], **kwargs
-    ) -> Behavior | None:
+    def _process_key(self, message_key: str, messages: list[Message]) -> tuple[Behavior | None, None]:
         """
-        Update behavior state in geographic coordinate system.
+        Advance one track, in geographic coordinates.
 
-        This method:
-        1. Updates sensor timestamps
-        2. Gets object state and last message
-        3. Deletes expired object states
-        4. Creates trajectory with smoothing and subsampling
-        5. Generates behavior with map matching context
+        Differs from the base in two ways: the behavior is enriched with map-matched road edges and
+        speed over them, and no trip state is tracked, so the trip behavior is always ``None``.
 
         :param str message_key: Key for the message (sensor ID + object ID).
-        :param list[Message] messages: List of messages to process.
-        :param kwargs: Additional keyword arguments. Currently supported:
-            - CoordinateReferenceSystem crs: Coordinate reference system for map matching.
-        :return Behavior | None: Updated behavior object or None if no valid state/message.
-
-        Examples::
-            >>> state_manager = StateMgmt(config)
-            >>> messages = [Message(sensor=Sensor(id="sensor1"), timestamp=datetime.now())]
-            >>> behavior = state_manager.update_behavior("sensor1_obj1", messages)
-            >>> if behavior:
-            ...     print(f"Updated behavior with {len(behavior.locations)} locations")
+        :param list[Message] messages: Messages for this key in the current batch.
+        :return tuple[Behavior | None, None]: The track's behavior, or ``(None, None)`` when the
+            messages yielded no valid state.
         """
-        crs = kwargs.get("crs")
         self._update_sensor_latest_timestamp(messages)
         state, last_message = self._get_object_state_and_message(message_key, messages)
-        self._delete_expired_object_state()
 
         # When getting no new behavior
         if not state or not last_message:
-            return None
+            return None, None
 
         behavior_traj = self._create_trajectory(state.id, state.start, state.end, state.points)
-        behaviorMessage = self._get_behavior(state, behavior_traj, last_message, crs)
-        return behaviorMessage
-        
-    def _get_behavior(
-        self, state: ObjectState, tr: Trajectory, message: Message, crs: CoordinateReferenceSystem | None = None
-    ) -> Behavior:
+        return self._get_behavior(state, behavior_traj, last_message), None
+
+    def _get_behavior(self, state: ObjectState, tr: Trajectory, message: Message) -> Behavior:
         """
         Get behavior from object state, trajectory and message.
 
@@ -133,7 +118,6 @@ class StateMgmt(StateMgmtBase):
         :param ObjectState state: Updated object state containing points and metadata.
         :param Trajectory tr: Processed trajectory with smoothing and subsampling.
         :param Message message: Last message containing sensor and object information.
-        :param CoordinateReferenceSystem crs: Optional coordinate reference system for map matching.
         :return Behavior: Behavior object containing all processed information.
 
         Examples::
@@ -149,7 +133,7 @@ class StateMgmt(StateMgmtBase):
         if obj_type in self.config.map_matching_classes:
             trajectory = self._subsample_for_mapmatching(tr.smooth_trajectory, self.config.map_matching_max_points)
             trajectory = [Location(lat=coord.y, lon=coord.x) for coord in trajectory]
-            _, _, matched_lattice = crs.road_network.map_matching_for_edge(trajectory)
+            _, _, matched_lattice = self.crs.road_network.map_matching_for_edge(trajectory)
             edges, _ = self._speed_over_edge(tr, matched_lattice)
             # speed_over_time = speed_over_edge  # choose between speed_over_edge or speed_over_time since for now there is no extra field for speed over edge
             # snapped trajectory (not used in behavior output atm)

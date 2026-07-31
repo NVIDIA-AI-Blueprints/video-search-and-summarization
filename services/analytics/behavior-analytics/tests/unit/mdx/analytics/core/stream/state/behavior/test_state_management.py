@@ -22,6 +22,7 @@ from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import (
     Coordinate, 
     Message, 
+    ObjectState,
     Sensor, 
     Object, 
     Place,
@@ -65,7 +66,7 @@ class TestStateMgmt:
     @pytest.fixture
     def state_mgmt(self, mock_config, mock_calibration):
         """Create StateMgmt instance for testing."""
-        return StateMgmt(mock_config, mock_calibration)
+        return StateMgmt(mock_config, mock_calibration, crs=None)
 
     def test_initialization(self, state_mgmt, mock_config):
         """Test StateMgmt initialization."""
@@ -120,17 +121,16 @@ class TestStateMgmt:
         result = state_mgmt._subsample_for_mapmatching(points, 0)
         assert result == points
 
-    def test_update_behavior_no_messages(self, state_mgmt):
-        """Test update_behavior with empty messages returns None."""
+    def test_process_key_no_messages(self, state_mgmt):
+        """_process_key with empty messages yields no behavior, and never a trip in geo coordinates."""
         message_key = "sensor1_obj1"
         messages = []
-        
+
         with patch.object(state_mgmt, '_update_sensor_latest_timestamp'):
             with patch.object(state_mgmt, '_get_object_state_and_message', return_value=(None, None)):
-                with patch.object(state_mgmt, '_delete_expired_object_state'):
-                    result = state_mgmt.update_behavior(message_key, messages)
-        
-        assert result is None
+                result = state_mgmt._process_key(message_key, messages)
+
+        assert result == (None, None)
 
 
 class TestStateMgmtWithMessages:
@@ -165,7 +165,7 @@ class TestStateMgmtWithMessages:
         config = AppConfig()
         config.set_app_config("trajGeoCoordEnable", "true")
         calibration = Mock()
-        state_mgmt = StateMgmt(config, calibration)
+        state_mgmt = StateMgmt(config, calibration, crs=None)
         
         tr = Mock()
         tr.smooth_trajectory = [
