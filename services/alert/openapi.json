@@ -1434,7 +1434,7 @@
                                     "location": "warehouse-loading-dock",
                                     "primaryObjectId": "worker-04",
                                     "media_urls": [
-                                        "http://media-store/incident-67890.mp4"
+                                        "https://media-store/incident-67890.mp4"
                                     ]
                                 },
                                 "event": {
