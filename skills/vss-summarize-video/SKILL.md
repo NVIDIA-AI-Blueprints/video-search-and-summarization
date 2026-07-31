@@ -106,14 +106,14 @@ fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
   # Origin only — skill appends /v1/ready and /v1/summarize. Never …/v1 here.
-  LVS_BACKEND_URL="${LVS_BACKEND_URL:-${VSS_PUBLIC_URL}}"
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
   VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
-  # LVS Exact /v1/models and /v1/chat/completions → RT-VLM (not Prefix /v1).
-  VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-${VSS_PUBLIC_URL}}}"
-  VLM="${VLM%/v1}"
+  # Exact /v1/models and /v1/chat/completions → RT-VLM (not Prefix /v1).
+  VLM="${VSS_PUBLIC_URL}"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
@@ -126,9 +126,10 @@ fi
 ```
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts,
-`docker exec`, or `docker inspect`. Do not set `LVS_BACKEND_URL` to
-`${VSS_PUBLIC_URL}/v1`. Do not treat public `/openapi.json` as the LVS schema
-(that path is Agent on stock Ingress).
+`docker exec`, or `docker inspect`. Do not append `/v1` to `LVS_BACKEND_URL`.
+Ignore Docker-derived `LVS_BACKEND_URL` / `VLM_BASE_URL` / `RTVI_VLM_BASE_URL`
+when `VSS_PUBLIC_URL` is set. Do not treat public `/openapi.json` as the LVS
+schema (that path is Agent on stock Ingress).
 
 ## Routing
 

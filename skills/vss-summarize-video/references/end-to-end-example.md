@@ -24,11 +24,11 @@ fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  LVS_BACKEND_URL="${LVS_BACKEND_URL:-${VSS_PUBLIC_URL}}"
+  # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
   VST_API_BASE="${VSS_PUBLIC_URL}/vst/api/v1"
-  VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-${VSS_PUBLIC_URL}}}"
-  VLM="${VLM%/v1}"
+  VLM="${VSS_PUBLIC_URL}"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
