@@ -211,3 +211,32 @@ def test_explicit_fixture_steps_name_the_exact_staged_source(
             assert staged_path in source_query
             assert staged_path in instruction
         assert "substitut" in instruction.lower()
+
+
+def test_manage_alerts_vlm_packages_video_io_onboarding_skill(
+    tmp_path: Path,
+) -> None:
+    """The live-camera task must include the delegated NVStreamer/VIOS skill."""
+    case = next(item for item in CASES if item.skill == "vss-manage-alerts")
+    spec_path = REPO_ROOT / "skills" / case.skill / "evals" / case.spec_name
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    assert "vss-manage-video-io-storage" in spec["skills"]
+
+    spec["_source_path"] = str(spec_path)
+    adapter = _load_adapter(case.skill)
+    skill_dirs = _stub_skill_dirs(tmp_path / "skills", spec["skills"])
+    generated_root = _generate_dataset(
+        case,
+        adapter,
+        spec,
+        skill_dirs,
+        tmp_path / "datasets",
+    )
+
+    for step_dir in generated_root.glob("step-*"):
+        assert (
+            step_dir
+            / "skills"
+            / "vss-manage-video-io-storage"
+            / "SKILL.md"
+        ).is_file()
