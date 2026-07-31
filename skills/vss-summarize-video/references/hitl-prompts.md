@@ -63,9 +63,15 @@ canonical defaults rather than guessing.
 
 **Request:**
 
+On Docker, discover the live schema and model from the LVS host port. On
+Kubernetes, skip LVS `/openapi.json` / `/models` (not on Ingress) and use the
+model / request construction from
+[`end-to-end-example.md`](end-to-end-example.md) instead.
+
 ```bash
 LVS_REQUEST=/tmp/vss-summarize-video-request.json
 LVS_RESPONSE=/tmp/vss-summarize-video-response.json
+# Docker default; on Kubernetes set LVS_BACKEND_URL=${VSS_PUBLIC_URL%/} (origin only).
 LVS_BASE=${LVS_BACKEND_URL:-http://localhost:38111}
 LVS_OPENAPI=/tmp/vss-lvs-openapi.json
 curl -fsS "$LVS_BASE/openapi.json" > "$LVS_OPENAPI"
