@@ -25,7 +25,7 @@ from mdx.analytics.core.schema.config import (
 )
 from mdx.analytics.core.transform.calibration.calibration_dynamic import CalibrationType
 from mdx.analytics.core.schema.models import AnalyticsModule, Behavior, Coordinate, Location
-from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
+from mdx.analytics.core.schema.trajectory.trajectory_g import TrajectoryG
 from mdx.analytics.core.utils.crs import CoordinateReferenceSystem
 from mdx.analytics.core.utils.distance_util import bearing, euclidean_distance, haversine_distance
 from mdx.analytics.core.transform.detection.stop_detection import StopDetection
@@ -389,7 +389,7 @@ class AnomalyDetector:
         crs: CoordinateReferenceSystem | None = None,
         step: int = 5,
         distanceThreshold: float = 10.0
-    ) -> tuple[float, float, Trajectory]:
+    ) -> tuple[float, float, TrajectoryG]:
         """
         Calculate the deviation of a trajectory from its expected path.
 
@@ -402,7 +402,7 @@ class AnomalyDetector:
         :param CoordinateReferenceSystem crs: Optional coordinate reference system for map matching
         :param int step: Step size for sampling trajectory points
         :param float distanceThreshold: Minimum distance threshold for point selection
-        :return tuple[float, float, Trajectory]: Tuple containing:
+        :return tuple[float, float, TrajectoryG]: Tuple containing:
             - Deviation value
             - Reverse deviation value
             - Actual trajectory object
@@ -440,7 +440,7 @@ class AnomalyDetector:
 
         # Construct forward and reverse trajectory.
         candidatePoints = [Coordinate(x=point[0], y=point[1]) for point in candidatePoints]
-        actualT = Trajectory(
+        actualT = TrajectoryG(
             id=behavior.id,
             start=behavior.timestamp,
             end=behavior.end,
@@ -450,7 +450,7 @@ class AnomalyDetector:
             enable_geo=self.app_config.traj_geo_coord_enable,
         )
         candidatePointsR = candidatePoints[::-1]
-        reverseT = Trajectory(
+        reverseT = TrajectoryG(
             id=behavior.id,
             start=behavior.timestamp,
             end=behavior.end,
@@ -465,9 +465,9 @@ class AnomalyDetector:
 
         if crs and self.app_config.traj_geo_coord_enable:
             actualT_trajectory = [(coord.y, coord.x) for coord in actualT.smooth_trajectory]
-            actualT_snappedTrajectory = crs.map_matching_latlon(actualT_trajectory, exclude_non_emitting_state=False)
+            actualT_snappedTrajectoryG = crs.map_matching_latlon(actualT_trajectory, exclude_non_emitting_state=False)
             reverseT_trajectory = [(coord.y, coord.x) for coord in reverseT.smooth_trajectory]
-            reverseT_snappedTrajectory = crs.map_matching_latlon(reverseT_trajectory, exclude_non_emitting_state=False)
+            reverseT_snappedTrajectoryG = crs.map_matching_latlon(reverseT_trajectory, exclude_non_emitting_state=False)
             try:
                 deviation = (
                     sum(
@@ -517,18 +517,18 @@ class AnomalyDetector:
 
         return deviation, rDeviation, actualT
 
-    def changeInDirection(self, tr: Trajectory, changeInDirectionDegree: float) -> tuple[bool, float]:
+    def changeInDirection(self, tr: TrajectoryG, changeInDirectionDegree: float) -> tuple[bool, float]:
         """
         Detect significant changes in direction along a trajectory.
 
-        :param Trajectory tr: The trajectory to analyze
+        :param TrajectoryG tr: The trajectory to analyze
         :param float changeInDirectionDegree: Threshold for significant direction change
         :return tuple[bool, float]: Tuple containing:
             - Boolean indicating if significant direction change was detected
             - Maximum direction change in degrees
 
         Examples::
-            >>> trajectory = Trajectory(id="tr1", points=[Point2D(x=0, y=0), Point2D(x=1, y=1)])
+            >>> trajectory = TrajectoryG(id="tr1", points=[Point2D(x=0, y=0), Point2D(x=1, y=1)])
             >>> changed, max_change = detector.changeInDirection(trajectory, changeInDirectionDegree=45)
             >>> print(f"Direction changed: {changed}")
             >>> print(f"Maximum change: {max_change} degrees")
@@ -540,17 +540,17 @@ class AnomalyDetector:
             chInDir = True
         return chInDir, diff
 
-    def consecutiveBearingDiff(self, tr: Trajectory) -> tuple[float, list[float]]:
+    def consecutiveBearingDiff(self, tr: TrajectoryG) -> tuple[float, list[float]]:
         """
         Calculate bearing differences between consecutive points in a trajectory.
 
-        :param Trajectory tr: The trajectory to analyze
+        :param TrajectoryG tr: The trajectory to analyze
         :return tuple[float, list[float]]: Tuple containing:
             - Maximum bearing difference in degrees
             - List of all bearing differences
 
         Examples::
-            >>> trajectory = Trajectory(id="tr1", points=[Point2D(x=0, y=0), Point2D(x=1, y=1)])
+            >>> trajectory = TrajectoryG(id="tr1", points=[Point2D(x=0, y=0), Point2D(x=1, y=1)])
             >>> max_diff, diffs = detector.consecutiveBearingDiff(trajectory)
             >>> print(f"Maximum bearing difference: {max_diff} degrees")
             >>> print(f"All differences: {diffs}")

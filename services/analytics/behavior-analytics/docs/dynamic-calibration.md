@@ -73,7 +73,7 @@ src/mdx/analytics/core/transform/calibration/
 ├── calibration_validator.py   # Per-action JSON Schema gate
 ├── calibration_base.py        # CalibrationBase + watchdog (on_moved -> reload_data
 │                              # -> _read_config -> validate -> update_calibration_info)
-├── calibration.py             # Geo (lat/lng) calibration
+├── calibration_g.py           # Geo (lat/lng) calibration
 ├── calibration_e.py           # Cartesian calibration
 ├── calibration_i.py           # Image-plane calibration
 ├── calibration_dynamic.py     # Wrapper that one-time-switches from

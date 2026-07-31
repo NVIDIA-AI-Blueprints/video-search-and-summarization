@@ -117,8 +117,8 @@ class TestDynamicCalibration:
     def test_initialization_with_geo_file(self, mock_config, calibration_file_geo):
         """Test initialization with geo calibration file."""
         try:
-            with patch('mdx.analytics.core.transform.calibration.calibration_dynamic.Calibration') as MockCalibration:
-                MockCalibration.return_value = Mock()
+            with patch('mdx.analytics.core.transform.calibration.calibration_dynamic.CalibrationG') as MockCalibrationG:
+                MockCalibrationG.return_value = Mock()
                 
                 calibration = DynamicCalibration(mock_config, calibration_file_geo)
                 
@@ -291,10 +291,10 @@ class TestDynamicCalibration:
     def test_calibration_type_geo(self, mock_config, calibration_file_geo):
         """Test calibration_type returns GEO for geo calibration."""
         try:
-            with patch('mdx.analytics.core.transform.calibration.calibration_dynamic.Calibration') as MockCalibration:
+            with patch('mdx.analytics.core.transform.calibration.calibration_dynamic.CalibrationG') as MockCalibrationG:
                 mock_calibrator = Mock()
                 mock_calibrator.calibration_type = CalibrationType.GEO
-                MockCalibration.return_value = mock_calibrator
+                MockCalibrationG.return_value = mock_calibrator
                 
                 calibration = DynamicCalibration(mock_config, calibration_file_geo)
                 
