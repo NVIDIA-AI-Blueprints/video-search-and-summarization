@@ -554,3 +554,70 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     expect(mockDeleteVideo).not.toHaveBeenCalled();
   });
 });
+
+// The RTSP and delete dialogs overlay the pane but not the toolbar above it, so their
+// trigger buttons stay clickable while a dialog is open. A second dialog opened that way
+// could end up stacked behind the first and be unreachable until the top one was closed.
+describe('VideoManagementComponent — only one dialog at a time', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    lastUploadDialogProps = null;
+  });
+
+  const uploadButton = () => screen.getByRole('button', { name: '+ Upload Video' });
+  const addRtspButton = () => screen.getByRole('button', { name: '+ Add RTSP' });
+
+  it('blocks the upload dialog while the Add RTSP dialog is open', async () => {
+    renderComponent();
+
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+
+    expect(uploadButton()).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(uploadButton());
+    });
+
+    expect(lastUploadDialogProps.open).toBe(false);
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+  });
+
+  it('blocks the Add RTSP dialog while the upload dialog is open', async () => {
+    renderComponent();
+
+    await act(async () => {
+      fireEvent.click(uploadButton());
+    });
+    expect(lastUploadDialogProps.open).toBe(true);
+
+    expect(addRtspButton()).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+    expect(lastUploadDialogProps.open).toBe(true);
+  });
+
+  it('re-enables the toolbar once the open dialog is closed', async () => {
+    renderComponent();
+
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    });
+
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+    expect(uploadButton()).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(uploadButton());
+    });
+    expect(lastUploadDialogProps.open).toBe(true);
+  });
+});

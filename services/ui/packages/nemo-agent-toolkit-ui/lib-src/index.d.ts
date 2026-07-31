@@ -141,6 +141,7 @@ export interface UploadFilesDialogProps {
   validateFile?: (file: File) => boolean;
   metadata?: UploadFilesDialogMetadataConfig;
   options?: UploadFilesDialogOptions;
+  overlay?: 'viewport' | 'contained';
 }
 export const UploadFilesDialog: React.ForwardRefExoticComponent<
   UploadFilesDialogProps & React.RefAttributes<UploadFilesDialogHandle>

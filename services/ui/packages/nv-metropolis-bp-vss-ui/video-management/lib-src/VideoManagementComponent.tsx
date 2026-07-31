@@ -77,6 +77,17 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const [isUploading, setIsUploading] = useState(false);
   const [loadingStreamId, setLoadingStreamId] = useState<string | null>(null);
 
+  // Only one dialog may be open at a time. The RTSP and delete dialogs use a
+  // `contained` overlay that covers the pane but not the toolbar above it, so their
+  // trigger buttons stay live and a second dialog could otherwise be opened and end
+  // up stacked behind the first, unreachable until the top one is closed.
+  const isDialogOpen = showUploadDialog || isRtspModalOpen || showDeleteConfirm;
+  const isDialogOpenRef = useRef(isDialogOpen);
+
+  useEffect(() => {
+    isDialogOpenRef.current = isDialogOpen;
+  }, [isDialogOpen]);
+
   const resolveFilename = useCallback(
     (file: File, uploadFilename?: string) => uploadFilename?.trim() || file.name,
     [],
@@ -255,12 +266,13 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   }, [vstApiUrl, agentApiUrl, resolveFilename]);
 
   const handleFilesSelected = useCallback((files: File[]) => {
-    if (files.length === 0) return;
+    if (files.length === 0 || isDialogOpenRef.current) return;
     setPendingInitialFiles(Array.from(files));
     setShowUploadDialog(true);
   }, []);
 
   const handleUploadClick = useCallback(() => {
+    if (isDialogOpenRef.current) return;
     setPendingInitialFiles(null);
     setShowUploadDialog(true);
   }, []);
@@ -410,6 +422,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   }, [uploadProgress, hasActiveUploads, showUploadSuccessPopup]);
 
   const handleAddRtspClick = () => {
+    if (isDialogOpenRef.current) return;
     setIsRtspModalOpen(true);
   };
 
@@ -502,7 +515,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   // Step 1 of delete: just open the confirmation dialog. The Toolbar's "Delete
   // Selected" button is wired to this so a single click never destroys data.
   const handleDeleteSelected = useCallback(() => {
-    if (selectedStreams.size === 0 || isDeleting) return;
+    if (selectedStreams.size === 0 || isDeleting || isDialogOpenRef.current) return;
     setDeleteError(null);
     setShowDeleteConfirm(true);
   }, [selectedStreams.size, isDeleting]);
@@ -707,6 +720,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         enableVideoUpload={enableVideoUpload}
         hasVideoStreams={hasVideoStreams}
         hasRtspStreams={hasRtspStreams}
+        isDialogOpen={isDialogOpen}
       />
 
       {/* Main pane: scrollable grid + upload/progress overlays confined to this tab (not full viewport) */}
@@ -714,6 +728,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         <div className="flex flex-1 min-h-0 flex-col overflow-auto">{renderMainContent()}</div>
 
         <UploadFilesDialog
+          overlay="contained"
           open={showUploadDialog}
           configTemplate={configTemplate}
           onClose={handleUploadDialogClose}
