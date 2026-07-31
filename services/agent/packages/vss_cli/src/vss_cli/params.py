@@ -158,7 +158,12 @@ def collect(model: type[BaseModel], values: dict[str, Any]) -> dict[str, Any]:
 
 
 def shared_options() -> Sequence[click.Option]:
-    """Transport and output flags, identical in every group (SDD §8)."""
+    """Transport and formatting flags, identical in every group (SDD §8).
+
+    No --output: the payload is always JSON (SearchOutput.data is the contract
+    a harness parses). The jsonl and table choices were accepted and silently
+    ignored, so a caller could ask for a table and get JSON. --pretty/--raw is
+    the real formatting control."""
     # No --base-url here on purpose. An origin alone is not a deployment: the
     # services, indices and model ids come from probing it, which is what
     # `vss configure` does. A per-call origin would skip that discovery and
@@ -168,13 +173,6 @@ def shared_options() -> Sequence[click.Option]:
         click.Option(
             ["--json", "json_payload"],
             help="Request as a JSON object matching the verb's input model.",
-        ),
-        click.Option(
-            ["--output"],
-            type=click.Choice(["json", "jsonl", "table"]),
-            default="json",
-            show_default=True,
-            help="Output format.",
         ),
         click.Option(["--pretty/--raw"], "pretty", default=None, help="Pretty-print or emit compact output."),
         click.Option(

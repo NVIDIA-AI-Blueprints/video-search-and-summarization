@@ -231,3 +231,28 @@ def test_absent_route_names_what_is_available(tmp_path, monkeypatch: pytest.Monk
         dep.endpoint("elasticsearch")
     message = str(excinfo.value)
     assert "elasticsearch" in message and "vst" in message and "vss configure" in message
+
+
+def test_library_errors_map_to_exit_codes() -> None:
+    """A typed library failure is a diagnosis, not a crash.
+
+    A missing index is the ordinary "nothing ingested yet" case; without the
+    mapping it exits 1 with an Elasticsearch traceback, which no harness can
+    branch on.
+    """
+    from vss_cli.group import _exit_for
+
+    class LibraryError(Exception): ...
+
+    class BackendUnreachableError(LibraryError): ...
+
+    class IndexNotFoundError(BackendUnreachableError): ...
+
+    class ConfigurationError(LibraryError): ...
+
+    # most-derived wins: IndexNotFoundError subclasses BackendUnreachableError
+    assert _exit_for(IndexNotFoundError("gone")) == Exit.NOT_FOUND
+    assert _exit_for(BackendUnreachableError("down")) == Exit.BACKEND_UNREACHABLE
+    assert _exit_for(ConfigurationError("bad")) == Exit.CONFIGURATION
+    # anything unrecognised propagates rather than being flattened to one code
+    assert _exit_for(RuntimeError("?")) is None

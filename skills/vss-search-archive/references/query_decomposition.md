@@ -1,19 +1,17 @@
 # Query decomposition and control preservation
 
-For Docker, use this reference before every `vss search run` call that is more
-complex than a plain object/action query. The CLI and `lib.search_core` do not
-run NAT query decomposition; the host agent must produce the structured fields
-explicitly.
+Use this reference before every `vss search run` call that is more complex than
+a plain object/action query. The CLI does not decompose queries; the host agent
+must produce the structured fields explicitly and choose the path.
 
-For Kubernetes, the VSS Agent performs decomposition behind the public
-`${VSS_PUBLIC_URL}/generate` route. Preserve the same fields as explicit prose
-in `SEARCH_PROMPT`—especially the resolved source, mode, attributes, time
-bounds, and result limit—rather than using the Kubernetes CLI selector or
-private backend access.
+To have the deployment's LLM decompose instead, POST the request to
+`${VSS_ORIGIN}/api/v1/search` with `agent_mode: true`. It returns conversational
+text, not `SearchOutput`.
 
 ## Output Contract
 
-Prefer passing one JSON object through `--decomposed-json`:
+The path is the sub-action; the remaining fields are flags. `--json` accepts
+the same fields as one object, which explicit flags then override:
 
 ```json
 {
@@ -26,11 +24,12 @@ Prefer passing one JSON object through `--decomposed-json`:
   "timestamp_end": null,
   "top_k": 5,
   "min_cosine_similarity": 0.0,
-  "search_mode": "fusion",
-  "attributes": ["white jacket"],
-  "object_ids": null
+  "attributes": ["white jacket"]
 }
 ```
+
+...passed as `vss search run fusion --json '<object>'`, or as flags:
+`run fusion --query "..." --attribute "white jacket" --video-source warehouse-ladder --top-k 5`.
 
 Required:
 - `query`: concrete visual search text. Preserve the action/object noun; do not over-summarize.
@@ -39,15 +38,18 @@ Required:
 Optional:
 - `video_sources`: resolved source names or sensor IDs from `vss-manage-video-io-storage`.
 - `attributes`: person/appearance attributes such as `white jacket`, `red hard hat`, `dark pants`.
-- `search_mode`: explicit route: `embed`, `attribute`, `fusion`, or `object`. Do not infer routing inside the library.
-- `object_ids`: integer tracked-object IDs when the user asks for similar objects.
+- `object_ids`: integer tracked-object IDs when the user asks for similar objects (`run object`, `--object-id`).
+
+There is no `search_mode` field. The sub-action is the route, and each path
+accepts only its own fields — passing `--attribute` to `run embed`, or `--query`
+to `run attribute`/`run object`, exits 2.
 
 ## Routing
 
-- **Embed-only**: no useful `attributes` and no `object_ids`. Example: `{"query":"forklift near the loading bay","source_type":"video_file"}`.
-- **Attribute-only**: use `search_mode="attribute"` with `attributes`. Example: `person wearing a white jacket`.
-- **Fusion**: use `search_mode="fusion"` with both a complete `query` and `attributes`. Example: `person in a white jacket climbing a ladder`.
-- **Object re-search**: user names tracked IDs or asks for similar objects. Use `search_mode="object"` with `object_ids`; this searches behavior embeddings directly and skips query embedding. Example: `{"query":"find objects similar to tracked object 42","search_mode":"object","object_ids":[42]}`.
+- **`run embed`**: no useful attributes and no object ids. Example: `run embed --query "forklift near the loading bay" --source-type video_file`.
+- **`run attribute`**: attributes only, no query. Example: `run attribute --attribute "white jacket"`.
+- **`run fusion`**: a complete query *and* attributes. Example: `run fusion --query "person in a white jacket climbing a ladder" --attribute "white jacket"`.
+- **`run object`**: user names tracked IDs or asks for similar objects. Searches behavior embeddings directly and skips query embedding. Example: `run object --object-id 42`.
 
 ## Attribute Rules
 
@@ -56,7 +58,7 @@ Keep attributes specific and visually detectable.
 - Good: `white jacket`, `red hard hat`, `dark pants`, `blue shirt`, `carrying a backpack`.
 - Bad: `person`, `forklift`, `ladder`, `running`. Single-word generic nouns and actions are not attribute filters.
 - If the user asks for “red forklift,” keep it in `query`; do not put `red` alone in `attributes`.
-- If the user asks for “person in a red jacket running,” use `query="person in a red jacket running"`, `search_mode="fusion"`, and `attributes=["red jacket"]`.
+- If the user asks for “person in a red jacket running,” use `run fusion --query "person in a red jacket running" --attribute "red jacket"`.
 
 ## Mock Outcome
 

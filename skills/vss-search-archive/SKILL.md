@@ -4,7 +4,7 @@ description: Use this skill when a user wants to search archived VSS video or in
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.4.0"
+  version: "4.0.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -12,27 +12,24 @@ metadata:
 ## Purpose
 
 Operate archive search from the caller's host without entering VSS containers
-or pods. Docker Compose uses the checked-out `vss search run` CLI. Kubernetes
-uses the public VSS Agent Ingress for search, ingestion, deletion, and VIOS
-access; it never starts a `kubectl port-forward`. Both paths retain the
-agent-backed source ingestion and deletion lifecycle.
+or pods. Compose and Kubernetes use the same commands: point `vss configure` at
+the deployment origin once, then run searches. Source ingestion and deletion
+stay agent-backed.
 
 ## Prerequisites
 
-- A running VSS search deployment.
-- For Kubernetes, its public Ingress origin in `VSS_PUBLIC_URL`.
-- For Docker Compose, a checkout containing `services/agent`, host `uv`, and
-  Docker access.
+- A running VSS search deployment, and its origin — the one host:port (Compose)
+  or Ingress origin (Kubernetes) that fronts the profile.
+- A checkout containing `services/agent` and host `uv`, to run the CLI.
 - The `vss-manage-video-io-storage` skill for source listing and inspection.
 - `curl` and `jq`. Ordinary search needs no API key.
 
 Do not execute `vss` inside a distroless VSS container or a pod. Do not
 wrap it with `docker exec`, `kubectl exec`, or `sh -lc`.
 
-For a Docker deployment, `vss` does not need to be installed globally and
-`which vss` is not an availability check. Resolve the checkout once, allowing
-the operator to override Harbor's default, and validate it before the first
-Docker search:
+`vss` does not need to be installed globally and `which vss` is not an
+availability check. Resolve the checkout once, allowing the operator to
+override Harbor's default, and validate it before the first search:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
@@ -47,10 +44,7 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
 
 `$HOME/video-search-and-summarization` is only the Harbor/default workspace;
 set `VSS_REPO_ROOT` for a checkout elsewhere. If validation or the command
-fails, report the error and stop. Do not manually call Docker search backends.
-
-For Kubernetes, do not require a repository checkout, `uv`, Docker, or
-`kubectl`. The public Agent endpoint is the supported search interface.
+fails, report the error and stop. Do not manually call search backends.
 
 ## Deployment prerequisite
 
@@ -62,38 +56,37 @@ for the deployment-owned
 `VST_API_BASE`):
 
 ```bash
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  DEPLOYMENT_KIND="kubernetes"
-  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  AGENT_URL="${VSS_PUBLIC_URL}"
-  VST_URL="${VSS_PUBLIC_URL}"
-  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
-else
-  DEPLOYMENT_KIND="docker"
-  : "${VSS_REPO_ROOT:=${HOME}/video-search-and-summarization}"
-  PROFILE="${PROFILE:-search}"
-  DOCKER_ENDPOINTS=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-    python -c 'import json,sys; from vss_cli.deployment import discover_docker_host_endpoints; print(json.dumps(discover_docker_host_endpoints(sys.argv[1])))' \
-    "${PROFILE}") || exit 1
-  AGENT_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.agent_url') || exit 1
-  VST_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.vst_url') || exit 1
-  VSS_VIOS_URL="${VST_URL%/}/vst"
-  ES_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.es_url') || exit 1
-  RTVI_VLM_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.rtvi_vlm_url') || exit 1
-fi
+: "${VSS_ORIGIN:?Provide the deployment origin, e.g. http://localhost:7777 or https://vss-search.example.com}"
+VSS_ORIGIN="${VSS_ORIGIN%/}"
+AGENT_URL="${VSS_ORIGIN}"
+VST_URL="${VSS_ORIGIN}"
+VSS_VIOS_URL="${VSS_ORIGIN}/vst"
+
+# Probes every route once and records it in ~/.vss/config.json,
+# including index names and model ids read off the backends.
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+  vss configure --base-url "${VSS_ORIGIN}" || exit 1
 ```
 
-For Kubernetes, `VSS_PUBLIC_URL` must be an operator-provided public Ingress
-origin. Never run `kubectl port-forward`, use an in-cluster Service name,
-guess a NodePort, or derive a Helm release name. Elasticsearch and RTVI remain
-private implementation details and are not host-side Kubernetes prerequisites.
-Authentication, if configured, must use the operator's approved mechanism and
-must not be copied into prompts or logs.
+Prints one line per route (`routed` / `absent`); exits non-zero if none
+answered. Re-run after any deployment change.
+
+- `vss configure check` — re-probe a recorded config; exits 3 if a service went away.
+- `vss configure show` — print the recorded deployment. Authoritative for index
+  names; do not read `ELASTIC_SEARCH_INDEX` or parse `.env`.
+
+On Kubernetes, `VSS_ORIGIN` is the operator-provided public Ingress origin
+(`VSS_PUBLIC_URL`). Never run `kubectl port-forward`, use an in-cluster Service
+name, guess a NodePort, or derive a Helm release name. Routes the Ingress does
+not expose are absent from the recorded config; a path needing one exits 4
+naming it. Authentication, if configured, must use the operator's approved
+mechanism and must not be copied into prompts or logs.
 
 The deployment is not ready for archive search until its public VIOS route is
-reachable from the host that will consume search results. For Kubernetes this
-is `${VSS_VIOS_URL}`. For Docker, use the fully expanded
-`VST_EXTERNAL_URL`. For a Brev deployment, follow `vss-deploy-profile`'s secure-link setup (including
+reachable from the host that will consume search results — `${VSS_VIOS_URL}`.
+Media URLs in results are minted from the configured origin, so there is no
+separate internal/external URL to reconcile.
+For a Brev deployment, follow `vss-deploy-profile`'s secure-link setup (including
 making `BREV_ENV_ID` from `/etc/environment` and any platform-provided
 `BREV_LINK_DOMAIN` available to the deployment command) and require an HTTPS
 public origin, not localhost or an internal IP. Domain selection belongs to the
@@ -107,21 +100,10 @@ Before an agent-backed source mutation:
 
 1. Probe the stack:
    ```bash
-   if [ "${DEPLOYMENT_KIND}" = "kubernetes" ]; then
-     curl -sfS --max-time 5 "${AGENT_URL}/openapi.json" >/dev/null \
-       && curl -sfS --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null
-   else
-     curl -sfS --max-time 5 "${AGENT_URL}/health" >/dev/null \
-       && curl -sfS --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null \
-       && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null \
-       && curl -sfS --max-time 5 "${RTVI_VLM_URL}/v1/models" >/dev/null
-   fi
+   uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss configure check
    ```
-   Elasticsearch is unique to the search profile. RT-VLM is also required: it
-   serves the critic and `video_understanding`, including when the underlying
-   VLM model is remote and RT-VLM remains as a local media proxy. These direct
-   probes are Docker-only because on Kubernetes the public Agent owns those
-   private dependencies; do not expose or forward them merely to satisfy a
+   Exits 3 if a recorded route went away. Missing Elasticsearch means the wrong
+   profile is deployed. Do not expose or forward a private service to satisfy a
    host-side readiness check.
 
 2. **If the probe fails**, ask the user:
@@ -228,38 +210,30 @@ behavior identifier, and raw identifier are textually identical. RTVI-CV
 registration is asynchronous, so `/complete` alone does not prove those two
 indexes are ready.
 
-For a deployed Docker profile, resolve the endpoints and all three indexes in
-one operation from the same sources used by `vss`. This recipe is Docker-only;
-never call Kubernetes discovery from this skill. Do not reuse
-`ELASTIC_SEARCH_INDEX` for behavior or raw-data checks: that variable names only
-the video embedding index.
+Read the endpoints and all three indexes from the recorded deployment. Never
+reuse `ELASTIC_SEARCH_INDEX` for behavior or raw-data checks: it names only the
+video embedding index.
 
 ```bash
-PROFILE="${PROFILE:-search}"
-RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python -c 'import json,sys; from cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"rtvi_vlm_url":h["rtvi_vlm_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
-  "${PROFILE}") || exit 1
+CONFIG_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+  vss configure show) || exit 1
 
-printf '%s' "${RUNTIME_JSON}" | jq -e '
-  (.agent_url | type == "string" and length > 0) and
-  (.es_url | type == "string" and length > 0) and
-  (.vst_url | type == "string" and length > 0) and
-  (.rtvi_vlm_url | type == "string" and length > 0) and
-  (.video_embed_index | type == "string" and length > 0) and
-  (.behavior_index | type == "string" and length > 0) and
-  (.raw_index | type == "string" and length > 0) and
-  (.video_embed_index != .behavior_index) and
-  (.video_embed_index != .raw_index) and
-  (.behavior_index != .raw_index)
-' >/dev/null || { echo "Invalid or aliased search runtime indexes: ${RUNTIME_JSON}" >&2; exit 1; }
+ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') || exit 1
+# `first` matches what the CLI resolves internally. Uploaded video files share
+# the 2025-01-01 base timeline; live streams create later dated indexes, so
+# `last` would point the readiness check at stream data the search never reads.
+pick_index() {
+  printf '%s' "${CONFIG_JSON}" \
+    | jq -er --arg p "$1" '[.services.elasticsearch.indices[] | select(startswith($p))] | sort | first'
+}
+EMBED_INDEX=$(pick_index "mdx-embed-") || exit 1
+BEHAVIOR_INDEX=$(pick_index "mdx-behavior-") || exit 1
+RAW_INDEX=$(pick_index "mdx-raw-") || exit 1
 
-AGENT_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.agent_url') || exit 1
-ES_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.es_url') || exit 1
-VST_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.vst_url') || exit 1
-RTVI_VLM_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.rtvi_vlm_url') || exit 1
-EMBED_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.video_embed_index') || exit 1
-BEHAVIOR_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.behavior_index') || exit 1
-RAW_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.raw_index') || exit 1
+# The three must be distinct; an aliased or missing index means ingestion is incomplete.
+[ "${EMBED_INDEX}" != "${BEHAVIOR_INDEX}" ] && [ "${EMBED_INDEX}" != "${RAW_INDEX}" ] \
+  && [ "${BEHAVIOR_INDEX}" != "${RAW_INDEX}" ] \
+  || { echo "Aliased search indexes: ${EMBED_INDEX} ${BEHAVIOR_INDEX} ${RAW_INDEX}" >&2; exit 1; }
 
 index_count() {
   INDEX=$1 FIELD=$2 VALUE=$3
@@ -282,11 +256,10 @@ index or field does not satisfy readiness.
 
 For Kubernetes, do not query Elasticsearch directly. After `/complete`
 succeeds, poll `${VSS_VIOS_URL}/api/v1/sensor/list` until the canonical source
-is present, then run the requested search through `${AGENT_URL}/generate` with
-bounded retries while ingestion finishes. A valid Agent response proves the
-public workflow is operational, but do not claim direct index-level validation
-because Elasticsearch remains private. Never create a port-forward to restore
-the Docker-only index checks.
+is present, then run the requested search with bounded retries while ingestion
+finishes. Where the origin does not route Elasticsearch, `vss configure` records
+it as absent; report the search result without claiming index-level validation,
+and never port-forward to restore the index checks.
 
 > Compatibility note: `PUT /api/v1/videos-for-search/{filename}` remains wired
 > only for pre-existing external legacy callers. Do not select or invoke it for
@@ -340,10 +313,10 @@ bounded timeout until the source is absent from the VST sensor list. For
 Docker, additionally require the selected embedding index to contain zero
 documents for the resolved video UUID under `sensor.id.keyword`, and the
 behavior and raw indexes to contain zero documents for the exact identifiers
-recorded during readiness validation. Reuse the Docker-only `RUNTIME_JSON`
-resolver and the exact three index/field tuples above; do not derive
-behavior/raw indexes from `ELASTIC_SEARCH_INDEX`. For Kubernetes, report the
-Agent status and VIOS absence without claiming direct Elasticsearch cleanup
+recorded during readiness validation. Reuse the `vss configure show` resolver
+and the exact three index/field tuples above; do not derive behavior/raw
+indexes from `ELASTIC_SEARCH_INDEX`. Where Elasticsearch is not routed, report
+the agent status and VIOS absence without claiming index-level cleanup
 verification. Never port-forward Elasticsearch for this check.
 
 ---
@@ -366,35 +339,26 @@ verification. Never port-forward Elasticsearch for this check.
      is the final action for that request.
 
 3. Preserve the requested object/action, source, time bounds, result limit, and
-   attributes. For Docker, decompose these into explicit CLI fields using
-   [Query decomposition](references/query_decomposition.md). For Kubernetes,
-   include the same constraints explicitly in `SEARCH_PROMPT`; the VSS Agent
-   performs its own query decomposition.
-4. Run the interface selected by `DEPLOYMENT_KIND`.
-
-   **Docker Compose:** use the host CLI. It validates named sources again
-   against that deployment's VST listing before querying ES. Use
-   `--output json --raw` when parsing the result. See
-   [CLI usage](references/cli_usage.md) for the full flag reference. Put the
-   complete invocation in a `SEARCH_COMMAND` array, then capture and validate
-   its exact stdout:
+   attributes, and decompose them into explicit CLI fields using
+   [Query decomposition](references/query_decomposition.md). Pick the path:
+   `--query` only → `run embed`; `--attribute` only → `run attribute`; both →
+   `run fusion`; explicit object ids → `run object`.
+4. Run the search. The CLI validates named sources against the deployment's VST
+   listing before querying ES. See [CLI usage](references/cli_usage.md) for the
+   full flag reference. Put the complete invocation in a `SEARCH_COMMAND` array,
+   then capture and validate its exact stdout:
 
    ```bash
-   : "${QUERY:?set the decomposed visual query}"
-   : "${SEARCH_MODE:?set the explicit search mode}"
+   : "${SEARCH_PATH:?set embed|attribute|fusion|object}"
    : "${VIDEO_SOURCE:?set the resolved source name or stream ID}"
-   PROFILE="${PROFILE:-search}"
    TOP_K="${TOP_K:-3}"
    SEARCH_COMMAND=(
      uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev
-     vss search run
-     --deployment docker --profile "${PROFILE}"
-     --query "${QUERY}" --search-mode "${SEARCH_MODE}"
-     --video-source "${VIDEO_SOURCE}" --top-k "${TOP_K}"
-     --output json --raw
+     vss search run "${SEARCH_PATH}"
+     --video-source "${VIDEO_SOURCE}" --top-k "${TOP_K}" --raw
    )
-   # Add any required attributes, time bounds, or decomposition flags to the
-   # array before executing it.
+   # Append --query for embed/fusion, --attribute (repeatable) for
+   # attribute/fusion, --object-id for object, plus any time bounds.
    if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
      echo "Search command failed" >&2
      exit 1
@@ -410,21 +374,19 @@ verification. Never port-forward Elasticsearch for this check.
    shell string. Media validation must consume each hit's returned
    `screenshot_url` from `SEARCH_JSON`.
 
-   **Kubernetes / Helm:** use only the public Agent Ingress. Do not invoke the
-   host CLI's Kubernetes deployment selector, cluster discovery, `kubectl`, or
-   any backend endpoint. Build `SEARCH_PROMPT` from the user's request and
-   the source resolved in step 2, explicitly retaining search mode, attributes,
-   time bounds, and top-k when requested:
+   **Natural-language requests:** when the user's phrasing should be decomposed
+   by the deployment's LLM rather than by this skill, POST it to the agent
+   instead. The response is conversational text, not `SearchOutput`:
 
    ```bash
    : "${SEARCH_PROMPT:?set the complete search request with resolved source and controls}"
-   SEARCH_REQUEST=$(jq -cn --arg input_message "${SEARCH_PROMPT}" \
-     '{input_message:$input_message}')
+   SEARCH_REQUEST=$(jq -cn --arg query "${SEARCH_PROMPT}" \
+     '{query:$query, source_type:"video_file", agent_mode:true}')
    if ! SEARCH_JSON=$(curl -sfS --connect-timeout 10 --max-time 3600 \
-     -X POST "${AGENT_URL}/generate" \
+     -X POST "${VSS_ORIGIN}/api/v1/search" \
      -H "Content-Type: application/json" \
      -d "${SEARCH_REQUEST}"); then
-     echo "Kubernetes search through ${AGENT_URL}/generate failed" >&2
+     echo "Agent search through ${VSS_ORIGIN}/api/v1/search failed" >&2
      exit 1
    fi
    SEARCH_TEXT=$(printf '%s' "${SEARCH_JSON}" | jq -r '
@@ -433,7 +395,7 @@ verification. Never port-forward Elasticsearch for this check.
      else empty
      end' 2>/dev/null)
    if [ -z "$(printf '%s' "${SEARCH_TEXT}" | tr -d '[:space:]')" ]; then
-     echo "Kubernetes search returned an empty or malformed response" >&2
+     echo "Agent search returned an empty or malformed response" >&2
      exit 1
    fi
    ```
@@ -447,12 +409,11 @@ verification. Never port-forward Elasticsearch for this check.
    request with private service access or a port-forward.
    If the command cannot start or returns a configuration error, report the
    error and stop; never replace it with another search interface.
-5. Handle results by `DEPLOYMENT_KIND`. Do **not** run the Docker CLI
-   `SearchOutput` pipeline (`.data[]`, `screenshot_url`, `HIT_COUNT`) against a
-   Kubernetes `/generate` response — that response is conversational agent text,
-   not CLI JSON.
+5. Handle results. Do **not** run the `SearchOutput` pipeline (`.data[]`,
+   `screenshot_url`, `HIT_COUNT`) against an `/api/v1/search` agent response —
+   that response is conversational agent text, not CLI JSON.
 
-   **Docker Compose only:** validate each returned media URL with a bounded GET
+   Validate each returned media URL with a bounded GET
    of the exact URL. The stream identifier is already encoded in the VST replay
    path; do not add a `streamId` routing header because that can route an
    otherwise valid public replay URL to an unhealthy upstream. For
@@ -462,14 +423,12 @@ verification. Never port-forward Elasticsearch for this check.
    normalized origins (scheme, hostname, and effective port), then issue the GET
    against the **same, unmodified** `SCREENSHOT_URL`:
 
-   First resolve the expected origin. Do not assume `VST_EXTERNAL_URL`
-   is exported in the operation shell (`PROFILE` must match `--profile`):
+   First resolve the expected origin. Media URLs are minted from the configured
+   origin, so that is what results must match:
 
    ```bash
-   PROFILE="${PROFILE:-search}"
    EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python -c 'import sys; from cli.deployment import discover_docker; print(discover_docker(sys.argv[1]).env["VST_EXTERNAL_URL"])' \
-     "${PROFILE}")
+     vss configure show | jq -er '.base_url')
    ```
 
    Then validate the exact returned URLs. A media-bearing external VST origin
@@ -563,11 +522,10 @@ verification. Never port-forward Elasticsearch for this check.
    may optionally GET those exact URLs (no `streamId` header, no URL rewrite)
    against `${VSS_PUBLIC_URL}` origins; never invent structured hit fields from
    prose.
-6. Format the final reply by `DEPLOYMENT_KIND`. Never paste raw JSON wrappers
-   into the reply.
+6. Format the final reply. Never paste raw JSON wrappers into the reply.
 
-   **Docker Compose:** parse the compact CLI JSON internally. Use this exact
-   response structure for nonempty results:
+   Parse the compact CLI JSON internally. Use this exact response structure for
+   nonempty results:
 
    ```text
    ## Video Search Results
@@ -614,41 +572,39 @@ Always invoke the checked-out `services/agent` project with `uv run`:
 
 ```bash
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  vss search run [deployment options] [query options]
+  vss search run <path> [query options]
 ```
 
 The `uv run --project` prefix creates the project-local console entry point;
 do not require or search for a global `vss` executable.
 
-Direct low-level invocation remains environment-free. Use explicit runtime
-flags or `--config` with explicit `--config-env KEY=VALUE` values only when a
-deployment selector is not appropriate. The CLI never reads endpoint variables
-from the host process.
+The command takes no endpoints — backend URLs, index names and model ids all
+come from the recorded deployment. The CLI never reads endpoint variables from
+the host process.
 
-### Docker
+### The four retrieval paths
 
-Docker requires the checkout's shared VST/RTVI service defaults plus the
-deployed profile's checked-in `.env` and runtime `generated.env`. The command
-applies the shared defaults first, then reads the profile files in Docker
-Compose order—`.env` followed by `generated.env` as the authoritative
-overlay—expands the effective values, and uses that environment with the
-profile's checked-out agent config. It translates Compose-only service DNS to
-the loopback ports published for Elasticsearch, RTVI-Embed, RTVI-CV, and VST.
-The embedding index is resolved from the profile layers; behavior and raw index
-names are resolved from the interpolated agent config.
+`run` takes the retrieval path as a sub-action. Each accepts only the fields
+that path uses, so an unusable combination cannot be expressed:
+
+| path | matches on | needs |
+|---|---|---|
+| `run embed` | `--query` embedded and compared against video-chunk embeddings (`mdx-embed-*`) | Elasticsearch, RT-Embed |
+| `run attribute` | `--attribute` (repeatable) against detected-object attributes (`mdx-behavior-*`) | Elasticsearch, RT-CV |
+| `run fusion` | embedding retrieval re-ranked by attribute evidence: `--query` **and** `--attribute` | Elasticsearch, RT-Embed, RT-CV |
+| `run object` | `--object-id` (repeatable), identity lookup on a tracked object | Elasticsearch, RT-CV |
+
+An embedding search works on a deployment without RT-CV; attribute, fusion and
+object do not.
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment docker --profile search \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run embed \
   --query "find all instances of forklifts" \
-  --search-mode embed --source-type video_file --top-k 10 \
-  --output json --raw
+  --source-type video_file --top-k 10 --raw
 ```
 
-Before running this, start the profile with `dev-profile.sh` so `generated.env`
-exists. The checked-in `.env` supplies stable profile values but is not, by
-itself, proof of a running initialized deployment. Private service ports are
-loopback-only; do not expose them to a LAN simply to run a search.
+Start the profile, then run `vss configure --base-url "${VSS_ORIGIN}"` once.
+Individual service ports need not be reachable; the origin fronts them.
 
 ### Kubernetes / Helm
 
@@ -656,64 +612,70 @@ Kubernetes operations use one operator-provided public Ingress origin. No
 cluster discovery or Kubernetes credentials are required:
 
 ```bash
-: "${VSS_PUBLIC_URL:?Provide the public VSS search Ingress origin}"
-AGENT_URL="${VSS_PUBLIC_URL%/}"
-VSS_VIOS_URL="${AGENT_URL}/vst"
-curl -sfS --max-time 5 "${AGENT_URL}/openapi.json" >/dev/null
-curl -sfS --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null
+: "${VSS_ORIGIN:?Provide the public VSS search Ingress origin}"
+VSS_ORIGIN="${VSS_ORIGIN%/}"
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+  vss configure --base-url "${VSS_ORIGIN}"
 
-SEARCH_PROMPT='Find up to 10 instances of a person wearing a white jacket in warehouse-camera-3. Use attribute search with the attribute "white jacket".'
-curl -sfS --max-time 3600 -X POST "${AGENT_URL}/generate" \
-  -H "Content-Type: application/json" \
-  -d "$(jq -cn --arg input_message "${SEARCH_PROMPT}" '{input_message:$input_message}')"
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run attribute \
+  --attribute "white jacket" --video-source warehouse-camera-3 --top-k 10 --raw
 ```
 
-Do not inspect Deployments, ConfigMaps, Services, Secrets, or Helm values. Do
-not invoke the Kubernetes deployment selector in the host CLI: it uses private
-backend access and is outside this no-port-forward skill contract.
+Same commands as Compose; only the origin differs.
+
+Do not inspect Deployments, ConfigMaps, Services, Secrets, or Helm values.
+
+For LLM query decomposition (natural language → query + attributes + mode),
+`POST ${VSS_ORIGIN}/api/v1/search` with
+`{"query": ..., "source_type": "video_file", "agent_mode": true}`. The CLI does
+not decompose.
 
 ## Search behavior and safeguards
 
-- For Docker CLI search, `ELASTIC_SEARCH_INDEX` wins whenever the deployment provides it. The only
-  fallback is `mdx-embed-filtered-2025-01-01`, never `video_embeddings`.
-  Missing indexes fail with nearby MDX index diagnostics; ingest video before
-  retrying.
-- For Docker CLI search, the configured Cosmos/RTVI Embed model is verified through `/v1/models`.
-  The CLI never guesses a replacement model ID. Choose one explicitly from the
-  reported deployed IDs if the configured model is unavailable.
-- Docker attribute/fusion search performs a short RTVI-CV text-embedding capability
-  preflight. It fails by default rather than hanging or silently changing the
-  search. `--allow-embed-only-fallback` is the only opt-in way to remove
-  attributes and continue as embed-only search.
+- Index names and the embedding model id come from `vss configure`. Never pass
+  or infer an index, and never read `ELASTIC_SEARCH_INDEX`. A missing index
+  means video has not been ingested.
+- A path whose services are absent exits 4 naming them, before any request.
+  There is no silent downgrade — to search without RT-CV, ask for `run embed`.
+- **Gotcha:** merging is on by default. Contiguous same-sensor windows collapse
+  into one result whose score is the *mean* of the merged windows, so scores
+  and window boundaries will not match a per-window reference.
+  `--no-merge-adjacent` reports raw windows.
+- **Gotcha:** `run attribute` and `run object` reject `--query`; `run embed`
+  rejects `--attribute`. Unknown flags exit 2.
 - Result object IDs that are missing or `unknown` are not merged together.
 - Search retrieval is distinct from visual verification. Visual verification is the
   explicit screenshot-inspection step described above; it is not a CLI flag.
-- For Docker, `vss search embed` and `vss search attribute` expose the lower-level
-  primitives for callers that explicitly need one primitive or for focused
-  troubleshooting. Normal archive-search requests should use `search run` with
-  an explicit mode so they retain unified source validation, routing, and the
-  `SearchOutput.data` contract.
+- Output is always JSON on stdout (`SearchOutput.data`); `--raw` compact,
+  `--pretty` indented. Exits: 0 ok, 2 invalid input, 3 backend unreachable,
+  4 configuration.
 
 ## Query examples
 
 ```bash
-# Embed-only search across all ingested files
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment docker --profile search \
-  --query "red forklift near a loading bay" --search-mode embed \
-  --source-type video_file --output json --raw
+VSS="uv run --project ${VSS_REPO_ROOT}/services/agent --no-dev vss"
 
-# Kubernetes attribute search; source must have been resolved first
-SEARCH_PROMPT='Find a person wearing a white jacket in warehouse-camera-3. Use attribute search with the attribute "white jacket".'
-curl -sfS --max-time 3600 -X POST "${VSS_PUBLIC_URL%/}/generate" \
-  -H "Content-Type: application/json" \
-  -d "$(jq -cn --arg input_message "${SEARCH_PROMPT}" '{input_message:$input_message}')"
+# One-time, after any deployment change
+${VSS} configure --base-url "${VSS_ORIGIN}"
 
-# Deliberate fallback when a deployment has no RTVI-CV text endpoint
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment docker --profile search \
-  --query "forklift near a loading bay" --attribute "yellow forklift" \
-  --search-mode fusion --allow-embed-only-fallback --output json --raw
+# Embed: text vs video-chunk embeddings, across all ingested files
+${VSS} search run embed \
+  --query "red forklift near a loading bay" --source-type video_file --raw
+
+# Attribute: detected-object attributes only. No --query on this path.
+${VSS} search run attribute \
+  --attribute "white jacket" --video-source warehouse-camera-3 --top-k 3 --raw
+
+# Fusion: embedding retrieval re-ranked by attribute evidence
+${VSS} search run fusion \
+  --query "person climbing a ladder" --attribute "white jacket" \
+  --video-source warehouse-ladder --top-k 3 --raw
+
+# Object: identity lookup by tracked id
+${VSS} search run object --object-id 42 --top-k 3 --raw
+
+# Raw retrieval windows, unmerged — for comparing against a per-window reference
+${VSS} search run embed --query "red forklift" --no-merge-adjacent --raw
 ```
 
 ## Troubleshooting
@@ -723,26 +685,29 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   --help`, verify `VSS_REPO_ROOT` and host `uv`, and stop. Do not switch search
   interfaces.
 
-- **Docker profile environment missing**: both `.env` and runtime
-  `generated.env` are required. Start the selected profile with
-  `deploy/docker/scripts/dev-profile.sh` when `generated.env` is absent; do not
-  treat `.env` alone as initialized runtime state.
-- **Kubernetes public endpoint unavailable**: verify `VSS_PUBLIC_URL`, DNS,
-  TLS, Ingress status, and the `/openapi.json` and `/vst/api/v1/sensor/version`
-  routes. Do not fall back to `kubectl`, Service DNS, a NodePort, or a pod
-  shell.
+- **Exit 4, "no deployment configured"**: run
+  `vss configure --base-url "${VSS_ORIGIN}"`.
+- **Exit 4, "config … has no 'base_url'"**: `~/.vss/config.json` was written by
+  something other than `vss configure`. Re-run configure to rewrite it.
+- **Exit 4, "`<path>` needs <service>"**: the origin does not route that
+  service. Check the `routed`/`absent` lines from `vss configure`; use
+  `run embed` if only RT-Embed and Elasticsearch are available.
+- **Exit 3 from `vss configure check`**: a previously recorded route stopped
+  answering. Repair the deployment, then re-run configure.
+- **Exit 2, "No such option"**: the path does not accept that flag — `--query`
+  is embed/fusion only, `--attribute` is attribute/fusion only.
+- **Endpoint unavailable**: verify the origin, DNS, TLS, and Ingress status. Do
+  not fall back to `kubectl`, Service DNS, a NodePort, or a pod shell.
 - **Source unavailable or ambiguous**: stop and clarify; do not substitute.
 - **Zero results**: report the empty outcome, retain the selected source, and
   offer an explicit query or similarity-threshold refinement. Run a broader
   search only after the user accepts it.
-- **Missing index (Docker CLI)**: verify ingestion completion and the
-  `ELASTIC_SEARCH_INDEX` value resolved from `.env` plus the `generated.env`
-  overlay.
-- **Model preflight failure (Docker CLI)**: pass an explicit deployed model ID after
-  reviewing the reported list.
-- **RTVI-CV preflight failure (Docker CLI)**: repair the service or use the explicit
-  `--allow-embed-only-fallback` option only when an embed-only result is
-  acceptable.
+- **Exit 5, "Search index '…' does not exist"**: nothing ingested yet, or the
+  index was deleted. Ingest, then re-run `vss configure` so the recorded index
+  list matches. Read index names from `vss configure show`, never from
+  `ELASTIC_SEARCH_INDEX`.
+- **Gotcha:** `vss configure check` probes *routes*, not indexes. A deployment
+  can pass `check` while the indexes it recorded have since been deleted.
 - **Visual verification needs an authenticated media route**: stop and use the
   operator-managed route. Never copy API keys into CLI flags, generated files,
   logs, or skill output.

@@ -1,15 +1,14 @@
 # Examples of discovery modes
 
-For Docker Compose, run host-side
-`uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run`
-with `--deployment docker --profile search`. Resolve and validate
-`VSS_REPO_ROOT` first. Do not invoke it in a container or pod.
+Run host-side
+`uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run <path>`
+after `vss configure --base-url "${VSS_ORIGIN}"`. Resolve and validate
+`VSS_REPO_ROOT` first. Do not invoke it in a container or pod. Compose and
+Kubernetes use the same commands; only the origin differs. Never start a
+port-forward.
 
-For Kubernetes, translate the same controls into explicit natural-language
-constraints in `SEARCH_PROMPT` and send that prompt to
-`${VSS_PUBLIC_URL%/}/generate`. Do not invoke the Kubernetes CLI selector or
-start a port-forward. The snippets below show the controls that must be
-preserved on either path.
+To have the deployment's LLM decompose a natural-language request instead, POST
+it to `${VSS_ORIGIN}/api/v1/search` with `agent_mode: true`.
 
 The search command is retrieval-only. Inspect returned screenshots separately
 when the user requests or pre-authorizes visual verification.
@@ -28,7 +27,7 @@ For exploratory searches when recall matters more than precision. Start broad wi
 Typical follow-ups:
 - Take the most promising results and re-run with high-precision mode.
 - Scope to cameras/time — if certain cameras or time windows surfaced interesting results, re-run narrowed to those specific video sources and time ranges.
-- Search based on attributes — if a person of interest appeared in the results, follow up with `--search-mode attribute` or `--search-mode fusion` and `--attribute`.
+- Search based on attributes — if a person of interest appeared in the results, follow up with `run attribute` or `run fusion` and `--attribute`.
 
 ## Narrow to specific cameras and/or time — scope to a known incident
 
@@ -59,22 +58,23 @@ When false positives are costly, use a lower result count and higher similarity 
 
 ## Attribute and fusion search — make decomposition explicit
 
-`vss search run` does not call NAT query decomposition. If the user request has appearance attributes and actions, pass them explicitly.
+`vss search run` does not decompose queries. If the user request has appearance attributes and actions, pass them explicitly.
 
 ```bash
---query "person in a red jacket running" \
+run fusion \
+  --query "person in a red jacket running" \
   --source-type video_file \
-  --search-mode fusion \
   --attribute "red jacket" \
   --top-k 10
 ```
 
 For attribute-only searches:
 
+`run attribute` takes no `--query`; the attributes are the query.
+
 ```bash
---query "person wearing a red jacket" \
+run attribute \
   --source-type video_file \
-  --search-mode attribute \
   --attribute "red jacket" \
   --top-k 10
 ```
@@ -84,7 +84,8 @@ For attribute-only searches:
 Only useful when cameras are tagged with location or category metadata. First check whether cameras have metadata or tags using the `vss-manage-video-io-storage` skill. If no tags exist, offer to add metadata tags before relying on this filter.
 
 ```bash
---query "person running" \
+run embed \
+  --query "person running" \
   --source-type video_file \
   --description "parking lot" \
   --top-k 10

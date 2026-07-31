@@ -81,7 +81,6 @@ class Context:
     """
 
     deployment: config_mod.Deployment | None = None
-    output: str = "json"
     pretty: bool | None = None
     log_level: str = "WARNING"
     #: Memory tier, once it exists. Until then ``status``/``get``/``list``
@@ -119,6 +118,28 @@ class InvalidInput(click.ClickException):
 
     def format_message(self) -> str:
         return f"[vss] invalid input: {self.message}"
+
+
+def _exit_for(exc: Exception) -> Exit | None:
+    """Map a library error to an exit code, or None to let it propagate.
+
+    Kept as a name-based table so the CLI does not import ``vss_core`` at
+    module scope purely to catch its exceptions -- the whole group is loaded
+    lazily, and importing the search library to define an ``except`` clause
+    would undo that.
+    """
+    by_name = {
+        "InvalidInputError": Exit.INVALID_INPUT,
+        "IndexNotFoundError": Exit.NOT_FOUND,
+        "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,
+        "ConfigurationError": Exit.CONFIGURATION,
+        "NoFinalResultError": Exit.PARTIAL,
+    }
+    for klass in type(exc).__mro__:
+        code = by_name.get(klass.__name__)
+        if code is not None:
+            return code
+    return None
 
 
 def _format_validation(exc: ValidationError) -> str:
@@ -289,6 +310,16 @@ class CommandGroup(ABC):
                 # passed here (a timestamp typed as a string, say). That is
                 # equally the caller's error and gets the same exit 2.
                 raise InvalidInput(_format_validation(exc)) from exc
+            except Exception as exc:
+                # A typed library failure is a diagnosis, not a crash. Without
+                # this a missing index -- the ordinary "nothing ingested yet"
+                # case -- exits 1 with an Elasticsearch traceback, which no
+                # harness can branch on.
+                code = _exit_for(exc)
+                if code is None:
+                    raise
+                click.echo(f"vss: {exc}", err=True)
+                raise SystemExit(int(code)) from exc
             _emit(result, ctx)
 
         return click.Command(
@@ -364,7 +395,6 @@ def _context_from(values: dict[str, Any]) -> Context:
     return Context(
         config_error=config_error,
         deployment=deployment,
-        output=values.get("output") or "json",
         pretty=values.get("pretty"),
         log_level=values.get("log_level") or "WARNING",
     )
