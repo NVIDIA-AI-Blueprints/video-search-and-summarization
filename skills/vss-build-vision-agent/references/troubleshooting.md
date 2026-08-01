@@ -120,7 +120,7 @@ fi
 logs. The VLM `/v1/models` probe passes — the NIM is healthy; it just can't
 **download the clip** from VST.
 
-**Cause.** The VLM/LLM NIMs run on the `mdx_default` bridge while VST runs in
+**Cause.** The VLM/LLM NIMs run on the Compose bridge (`<project>_default`, default `vss_default`) while VST runs in
 `network_mode: host`; an active `ufw` blocks the bridge subnet from reaching the
 host's VST port, so the fetch times out. This is the **firewall prerequisite** —
 if you skipped it, you hit this.
