@@ -240,7 +240,7 @@ class TestArangoGraphArango:
         assert fake_arango.graph_cls.call_args_list[1].args == (fake_arango.db,)
         fake_arango.chain_cls.from_llm.assert_called_once()
         chain_kwargs = fake_arango.chain_cls.from_llm.call_args.kwargs
-        assert chain_kwargs["allow_dangerous_requests"] is True
+        assert chain_kwargs["allow_dangerous_requests"] is False
         assert "node_a vertices connect to node_b vertices." in chain_kwargs["aql_examples"]
         assert "Allowed vertex collections: ['node_a', 'node_b']" in chain_kwargs["aql_examples"]
         assert "Allowed edge collections: ['related_to']" in chain_kwargs["aql_examples"]

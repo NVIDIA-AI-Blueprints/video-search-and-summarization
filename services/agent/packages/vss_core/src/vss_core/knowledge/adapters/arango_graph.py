@@ -65,7 +65,8 @@ class ArangoGraphConfig(BaseModel):
         description="ArangoDB database name.",
     )
     arango_username: str = Field(
-        default_factory=lambda: os.environ.get("ARANGO_USER", os.environ.get("ARANGO_DB_USERNAME", "root")),
+        default_factory=lambda: os.environ.get("ARANGO_USER", os.environ.get("ARANGO_DB_USERNAME", "vss_graph_reader")),
+        description="ArangoDB username. Use a read-only graph user in production.",
     )
     arango_password: str | None = Field(
         default_factory=lambda: os.environ.get("ARANGO_PASSWORD", os.environ.get("ARANGO_DB_PASSWORD")),
@@ -77,10 +78,10 @@ class ArangoGraphConfig(BaseModel):
 
     # Query safety and output shape.
     allow_dangerous_requests: bool = Field(
-        default=True,
+        default=False,
         description=(
-            "Required by LangChain graph QA before generated AQL can run. "
-            "Use a read-only DB user and restricted schema/collections in production."
+            "Required LangChain opt-in before generated AQL can run. "
+            "This is not a security boundary; enforce read-only access with ArangoDB credentials."
         ),
     )
     return_intermediate_steps: bool = Field(
@@ -329,5 +330,5 @@ def _failure(query: str, backend: str, message: str) -> RetrievalResult:
 def _missing_dependency_message() -> str:
     return (
         "arango_graph requires `python-arango`, `langchain-community`, and `langchain-classic`. Install via:\n"
-        "  pip install 'vss-agents[arango_graph]'"
+        "  pip install 'nvidia-vss[arango_graph]'"
     )
