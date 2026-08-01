@@ -118,7 +118,7 @@ If `NUM_STREAMS` is above the supported MV3DT stream count for the hardware, the
 
 A prior deploy leaves two kinds of stale state that get silently reused and break the next `up`. On a fresh host both checks are no-ops. On a redeploy, run them **before** `up`.
 
-**(i) Stale `<project>_*` named volumes.** MV3DT's `kafka` / `elastic` / `postgres` data live in Docker **named volumes** (`vss_mdx-kafka`, `vss_vios_pg_data`, … by default) that bind to a host path baked in **at volume-creation time**. If `VSS_DATA_DIR` has changed since the last deploy, the next `up` fails with `failed to mount local volume: … no such file or directory`. This is detectable with nothing running:
+**(i) Stale `<project>_*` named volumes.** MV3DT's `kafka` / `elastic` / `postgres` data live in Docker **named volumes** (`vss_kafka-data`, `vss_vios_pg_data`, … by default) that bind to a host path baked in **at volume-creation time**. If `VSS_DATA_DIR` has changed since the last deploy, the next `up` fails with `failed to mount local volume: … no such file or directory`. This is detectable with nothing running:
 
 ```bash
 CUR="${VSS_DATA_DIR%/}"
@@ -138,7 +138,7 @@ else
 fi
 ```
 
-> **A passing path-check does *not* mean the volumes are state-free.** This check only flags volumes whose baked path points *outside* the current `VSS_DATA_DIR`. On a same-host redeploy with the **same** `VSS_DATA_DIR`, the `<project>_*` volumes pass silently yet still carry the prior deploy's VST Postgres sensor records (`vss_vios_pg_data` by default) and Kafka offsets (`vss_mdx-kafka` by default) — which is a common cause of `Active sources : 0` after an otherwise clean-looking redeploy. So treat this check as "will the volume mount," not "is it empty." For any **clean-redeploy intent** (new dataset, changed camera set/names, or any "stuck at 0 sources" reset), reset the volumes with `down -v` regardless of the path result — see (ii) below and the clean-redeploy callout before Step 3.
+> **A passing path-check does *not* mean the volumes are state-free.** This check only flags volumes whose baked path points *outside* the current `VSS_DATA_DIR`. On a same-host redeploy with the **same** `VSS_DATA_DIR`, the `<project>_*` volumes pass silently yet still carry the prior deploy's VST Postgres sensor records (`vss_vios_pg_data` by default) and Kafka offsets (`vss_kafka-data` by default) — which is a common cause of `Active sources : 0` after an otherwise clean-looking redeploy. So treat this check as "will the volume mount," not "is it empty." For any **clean-redeploy intent** (new dataset, changed camera set/names, or any "stuck at 0 sources" reset), reset the volumes with `down -v` regardless of the path result — see (ii) below and the clean-redeploy callout before Step 3.
 
 **(ii) Stale VST sensor records.** A prior deploy's VST Postgres DB and configurator state survive a plain `docker compose down`, so old sensor records (a different dataset, a removed camera, or empty/offline entries) get reused and perception stalls at `Active sources : 0` while containers still look healthy. Only checkable when VST is already up:
 
