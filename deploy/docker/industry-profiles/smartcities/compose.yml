@@ -129,7 +129,7 @@ services:
     profiles: ["calibration-toolkit-smartcities"]
     network_mode: "host"
     volumes:
-      - mdx-calibration-toolkit-alerts:/calibration/server/data:rw
+      - calibration-toolkit-alerts:/calibration/server/data:rw
     container_name: mdx-calibration-toolkit
     command: "deploy.sh 8003"
 
@@ -153,9 +153,7 @@ services:
       - sensor-ms
 
 volumes:
-  mdx-nvstreamer-data:
-  mdx-nvstreamer-videos:
-  mdx-calibration-toolkit-alerts:
+  calibration-toolkit-alerts:
     driver: local
     driver_opts:
       type: none

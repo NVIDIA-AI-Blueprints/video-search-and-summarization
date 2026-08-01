@@ -974,6 +974,16 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+_mdx_volume_decl_matches="$(grep -R -n -E --include='*.yml' --include='*.yaml' '(^[[:space:]]+- mdx-(elastic|kafka|logstash|nvstreamer|calibration-toolkit)[A-Za-z0-9_-]*:|^[[:space:]]+mdx-(elastic|kafka|logstash|nvstreamer|calibration-toolkit)[A-Za-z0-9_-]*:)' "${REPO_ROOT}/deploy/docker" || true)"
+if [[ -n "${_mdx_volume_decl_matches}" ]]; then
+  echo "FAIL: Compose volume declarations should not use mdx-* names"
+  echo "${_mdx_volume_decl_matches}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: Compose volume declarations use non-mdx names"
+  ((TESTS_PASSED++)) || true
+fi
+
 _helm_mv3dt_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml"
 _helm_mv3dt_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
 _helm_mv3dt_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
