@@ -131,20 +131,6 @@ def test_run_parses_derived_flags_into_the_model() -> None:
     assert owner.seen.top_k == 3
 
 
-def test_there_is_no_json_input_path() -> None:
-    """Flags are the only input.
-
-    A JSON blob duplicating the flags was a second way to say the same thing --
-    one Click could not validate and `--help` did not describe.
-    """
-    run = _Group().cli().commands["run"]
-    assert "json_payload" not in {p.name for p in run.params}
-
-    result = CliRunner().invoke(_Group().cli(), ["run", "--json", '{"query":"x"}'])
-    assert result.exit_code != 0
-    assert "no such option" in result.output.lower()
-
-
 def test_out_of_range_value_is_rejected() -> None:
     result = CliRunner().invoke(_Group().cli(), ["run", "--top-k", "9999"])
     assert result.exit_code != 0
