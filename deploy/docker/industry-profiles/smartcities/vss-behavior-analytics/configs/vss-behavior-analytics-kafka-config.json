@@ -173,6 +173,10 @@
 			"value": "[\"Car\",\"Truck\",\"Bus\",\"Motorcycle\",\"Bicycle\",\"Scooter\",\"Emergency Vehicle\",\"Vehicle\",\"Person\"]"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
+		},
+		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},

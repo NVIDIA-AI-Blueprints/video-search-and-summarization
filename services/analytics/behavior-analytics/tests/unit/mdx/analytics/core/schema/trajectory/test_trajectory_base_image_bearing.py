@@ -19,11 +19,12 @@ from datetime import datetime
 from unittest.mock import patch
 
 from mdx.analytics.core.schema.models import Coordinate
-from mdx.analytics.core.schema.trajectory.trajectory_i import TrajectoryI
+from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
+from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
 
 
-class TestTrajectoryI:
-    """Test suite for TrajectoryI functionality, focusing on bearing calculation with inverted y-axis."""
+class TestTrajectory:
+    """Test suite for Trajectory functionality, focusing on bearing calculation with inverted y-axis."""
 
     @pytest.fixture
     def sample_trajectory(self):
@@ -34,7 +35,8 @@ class TestTrajectoryI:
         ]
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
-        return TrajectoryI(
+        return Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="sample_trajectory",
             start=start,
             end=end,
@@ -48,22 +50,22 @@ class TestTrajectoryI:
         
         # Test East (0 degrees) - moving right
         points_east = [Coordinate(x=100, y=100, z=0), Coordinate(x=200, y=100, z=0)]
-        traj_east = TrajectoryI(id="east", start=start, end=end, points=points_east)
+        traj_east = Trajectory(calibration_type=CalibrationType.IMAGE, id="east", start=start, end=end, points=points_east)
         assert abs(traj_east.bearing - 0.0) < 1e-10
         
         # Test North (90 degrees) - moving up in image coords means decreasing y
         points_north = [Coordinate(x=100, y=200, z=0), Coordinate(x=100, y=100, z=0)]
-        traj_north = TrajectoryI(id="north", start=start, end=end, points=points_north)
+        traj_north = Trajectory(calibration_type=CalibrationType.IMAGE, id="north", start=start, end=end, points=points_north)
         assert abs(traj_north.bearing - 90.0) < 1e-10
         
         # Test West (180 degrees) - moving left
         points_west = [Coordinate(x=200, y=100, z=0), Coordinate(x=100, y=100, z=0)]
-        traj_west = TrajectoryI(id="west", start=start, end=end, points=points_west)
+        traj_west = Trajectory(calibration_type=CalibrationType.IMAGE, id="west", start=start, end=end, points=points_west)
         assert abs(traj_west.bearing - 180.0) < 1e-10
         
         # Test South (270 degrees) - moving down in image coords means increasing y
         points_south = [Coordinate(x=100, y=100, z=0), Coordinate(x=100, y=200, z=0)]
-        traj_south = TrajectoryI(id="south", start=start, end=end, points=points_south)
+        traj_south = Trajectory(calibration_type=CalibrationType.IMAGE, id="south", start=start, end=end, points=points_south)
         assert abs(traj_south.bearing - 270.0) < 1e-10
 
     def test_bearing_diagonal_directions(self):
@@ -73,22 +75,22 @@ class TestTrajectoryI:
         
         # Test Northeast (45 degrees) - right and up (decreasing y)
         points_ne = [Coordinate(x=100, y=200, z=0), Coordinate(x=200, y=100, z=0)]
-        traj_ne = TrajectoryI(id="ne", start=start, end=end, points=points_ne)
+        traj_ne = Trajectory(calibration_type=CalibrationType.IMAGE, id="ne", start=start, end=end, points=points_ne)
         assert abs(traj_ne.bearing - 45.0) < 1e-10
         
         # Test Northwest (135 degrees) - left and up (decreasing y)
         points_nw = [Coordinate(x=200, y=200, z=0), Coordinate(x=100, y=100, z=0)]
-        traj_nw = TrajectoryI(id="nw", start=start, end=end, points=points_nw)
+        traj_nw = Trajectory(calibration_type=CalibrationType.IMAGE, id="nw", start=start, end=end, points=points_nw)
         assert abs(traj_nw.bearing - 135.0) < 1e-10
         
         # Test Southwest (225 degrees) - left and down (increasing y)
         points_sw = [Coordinate(x=200, y=100, z=0), Coordinate(x=100, y=200, z=0)]
-        traj_sw = TrajectoryI(id="sw", start=start, end=end, points=points_sw)
+        traj_sw = Trajectory(calibration_type=CalibrationType.IMAGE, id="sw", start=start, end=end, points=points_sw)
         assert abs(traj_sw.bearing - 225.0) < 1e-10
         
         # Test Southeast (315 degrees) - right and down (increasing y)
         points_se = [Coordinate(x=100, y=100, z=0), Coordinate(x=200, y=200, z=0)]
-        traj_se = TrajectoryI(id="se", start=start, end=end, points=points_se)
+        traj_se = Trajectory(calibration_type=CalibrationType.IMAGE, id="se", start=start, end=end, points=points_se)
         assert abs(traj_se.bearing - 315.0) < 1e-10
 
     def test_bearing_same_points_zero_vector(self):
@@ -98,7 +100,7 @@ class TestTrajectoryI:
         
         # Same points should result in atan2(0, 0) which returns 0
         points_same = [Coordinate(x=100, y=100, z=0), Coordinate(x=100, y=100, z=0)]
-        traj_same = TrajectoryI(id="same", start=start, end=end, points=points_same)
+        traj_same = Trajectory(calibration_type=CalibrationType.IMAGE, id="same", start=start, end=end, points=points_same)
         bearing = traj_same.bearing
         
         # atan2(0, 0) returns 0, so bearing should be 0
@@ -112,7 +114,7 @@ class TestTrajectoryI:
         # Test cases that produce negative atan2 results
         # Southwest movement: atan2 would give negative result, should normalize to positive
         points_sw = [Coordinate(x=100, y=100, z=0), Coordinate(x=50, y=150, z=0)]
-        traj_sw = TrajectoryI(id="sw_norm", start=start, end=end, points=points_sw)
+        traj_sw = Trajectory(calibration_type=CalibrationType.IMAGE, id="sw_norm", start=start, end=end, points=points_sw)
         bearing_sw = traj_sw.bearing
         assert 0 <= bearing_sw <= 360
         assert 180 < bearing_sw < 270  # Should be in third quadrant
@@ -127,7 +129,7 @@ class TestTrajectoryI:
             Coordinate(x=100.0, y=100.0, z=0), 
             Coordinate(x=100.001, y=99.999, z=0)  # Tiny northeast movement
         ]
-        traj_small = TrajectoryI(id="small", start=start, end=end, points=points_small)
+        traj_small = Trajectory(calibration_type=CalibrationType.IMAGE, id="small", start=start, end=end, points=points_small)
         bearing = traj_small.bearing
         assert 0 <= bearing <= 360
         assert 0 < bearing < 90  # Should be in first quadrant
@@ -142,7 +144,7 @@ class TestTrajectoryI:
             Coordinate(x=0, y=0, z=0), 
             Coordinate(x=1000000, y=-1000000, z=0)  # Large southeast movement
         ]
-        traj_large = TrajectoryI(id="large", start=start, end=end, points=points_large)
+        traj_large = Trajectory(calibration_type=CalibrationType.IMAGE, id="large", start=start, end=end, points=points_large)
         bearing = traj_large.bearing
         assert 0 <= bearing <= 360
         assert 0 < bearing < 90  # Should be in first quadrant (due to inverted y)
@@ -158,14 +160,14 @@ class TestTrajectoryI:
         dx = math.sqrt(3)  # This creates a 30° angle
         dy_inverted = 1    # Upward movement in image coordinates (subtract from y)
         points_30 = [Coordinate(x=0, y=100, z=0), Coordinate(x=dx, y=100 - dy_inverted, z=0)]
-        traj_30 = TrajectoryI(id="30deg", start=start, end=end, points=points_30)
+        traj_30 = Trajectory(calibration_type=CalibrationType.IMAGE, id="30deg", start=start, end=end, points=points_30)
         assert abs(traj_30.bearing - 30.0) < 1e-10
         
         # Test 60 degrees - dx = cos(60°) = 1/2, dy_inverted = sin(60°) = sqrt(3)/2
         dx = 1
         dy_inverted = math.sqrt(3)  # Upward movement in image coordinates
         points_60 = [Coordinate(x=0, y=100, z=0), Coordinate(x=dx, y=100 - dy_inverted, z=0)]
-        traj_60 = TrajectoryI(id="60deg", start=start, end=end, points=points_60)
+        traj_60 = Trajectory(calibration_type=CalibrationType.IMAGE, id="60deg", start=start, end=end, points=points_60)
         assert abs(traj_60.bearing - 60.0) < 1e-10
 
     def test_bearing_edge_case_near_360(self):
@@ -178,19 +180,19 @@ class TestTrajectoryI:
             Coordinate(x=0, y=100, z=0), 
             Coordinate(x=100, y=99.9, z=0)  # Slightly upward movement
         ]
-        traj_near_360 = TrajectoryI(id="near_360", start=start, end=end, points=points_near_360)
+        traj_near_360 = Trajectory(calibration_type=CalibrationType.IMAGE, id="near_360", start=start, end=end, points=points_near_360)
         bearing = traj_near_360.bearing
         assert 0 <= bearing <= 360
         assert bearing > 350 or bearing < 10  # Should be near 360/0 boundary
 
-    def test_bearing_inheritance_from_trajectory_base(self):
-        """Test that TrajectoryI properly overrides the base bearing method."""
+    def test_bearing_uses_image_convention_by_default(self):
+        """Test that Trajectory properly overrides the base bearing method."""
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
         # Create trajectory moving upward in image coordinates (y decreasing)
         points = [Coordinate(x=100, y=200, z=0), Coordinate(x=100, y=100, z=0)]
-        traj_i = TrajectoryI(id="image_traj", start=start, end=end, points=points)
+        traj_i = Trajectory(calibration_type=CalibrationType.IMAGE, id="image_traj", start=start, end=end, points=points)
         
         # In image coordinates, this should be 90 degrees (North)
         # because we're moving upward (decreasing y)
@@ -205,8 +207,8 @@ class TestTrajectoryI:
         points_z1 = [Coordinate(x=0, y=100, z=0), Coordinate(x=100, y=100, z=0)]
         points_z2 = [Coordinate(x=0, y=100, z=50), Coordinate(x=100, y=100, z=100)]
         
-        traj_z1 = TrajectoryI(id="z1", start=start, end=end, points=points_z1)
-        traj_z2 = TrajectoryI(id="z2", start=start, end=end, points=points_z2)
+        traj_z1 = Trajectory(calibration_type=CalibrationType.IMAGE, id="z1", start=start, end=end, points=points_z1)
+        traj_z2 = Trajectory(calibration_type=CalibrationType.IMAGE, id="z2", start=start, end=end, points=points_z2)
         
         # Both should have same bearing (East = 0 degrees)
         assert abs(traj_z1.bearing - traj_z2.bearing) < 1e-10
@@ -217,7 +219,8 @@ class TestTrajectoryI:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
-        trajectory = TrajectoryI(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="empty",
             start=start,
             end=end,
@@ -233,7 +236,8 @@ class TestTrajectoryI:
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
-        trajectory = TrajectoryI(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id="single",
             start=start,
             end=end,
@@ -265,7 +269,8 @@ class TestTrajectoryI:
             Coordinate(x=100, y=100, z=0),
             Coordinate(x=100 + dx, y=100 + dy, z=0)
         ]
-        trajectory = TrajectoryI(
+        trajectory = Trajectory(
+            calibration_type=CalibrationType.IMAGE,
             id=f"param_{dx}_{dy}",
             start=start,
             end=end,
@@ -282,7 +287,7 @@ class TestTrajectoryI:
         end = datetime(2024, 1, 1, 12, 0, 10)
         points = [Coordinate(x=0, y=100, z=0), Coordinate(x=100, y=0, z=0)]
         
-        trajectory = TrajectoryI(id="cache_test", start=start, end=end, points=points)
+        trajectory = Trajectory(calibration_type=CalibrationType.IMAGE, id="cache_test", start=start, end=end, points=points)
         
         # Mock math.atan2 to ensure it's called only once
         with patch('math.atan2', wraps=math.atan2) as mock_atan2:
@@ -297,7 +302,7 @@ class TestTrajectoryI:
             assert mock_atan2.call_count == 1
 
     def test_bearing_formula_correctness(self):
-        """Test the specific formula used in TrajectoryI bearing calculation."""
+        """Test the specific formula used in Trajectory bearing calculation."""
         start = datetime(2024, 1, 1, 12, 0, 0)
         end = datetime(2024, 1, 1, 12, 0, 10)
         
@@ -306,7 +311,7 @@ class TestTrajectoryI:
         last_point = Coordinate(x=30, y=15, z=0)
         points = [head_point, last_point]
         
-        trajectory = TrajectoryI(id="formula_test", start=start, end=end, points=points)
+        trajectory = Trajectory(calibration_type=CalibrationType.IMAGE, id="formula_test", start=start, end=end, points=points)
         
         # Calculate expected bearing using the formula:
         # brng = math.atan2(-self.last.y + self.head.y, self.last.x - self.head.x) * 180 / math.pi

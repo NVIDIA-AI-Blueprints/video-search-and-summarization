@@ -32,12 +32,13 @@ from pydantic import ConfigDict
 from pydantic import Field
 
 from vss_agents.tools.lvs_media_state import configured_media
+from vss_core.knowledge import BackendAdapter
 from vss_core.knowledge import RetrievalResult
 from vss_core.knowledge import get_retriever
 
 logger = logging.getLogger(__name__)
 
-BackendType = Literal["frag_api", "es_caption", "frag_lib", "llama_index", "langchain"]
+BackendType = Literal["frag_api", "es_caption", "frag_lib", "llama_index", "langchain", "arango_graph"]
 
 SUMMARIZE_SYSTEM_PROMPT = (
     "You are an analyst summarising retrieved knowledge-base excerpts. "
@@ -69,6 +70,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "(requires the `nvidia-vss[agent,llama_index]` extras); "
             "'langchain' = in-process LangChain over a Chroma-backed vector store "
             "(requires the `nvidia-vss[agent,langchain]` extras); "
+            "'arango_graph' = in-process LangChain graph QA over ArangoDB "
+            "(requires the `nvidia-vss[arango_graph]` extra); "
             "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
         ),
     )
@@ -83,6 +86,14 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         description=(
             "Backend-specific config dict, validated against the chosen backend's "
             "pydantic model at boot. Shape depends on `backend`."
+        ),
+    )
+    llm_name: LLMRef | None = Field(
+        default=None,
+        description=(
+            "Optional LLM reference used by backends that generate structured "
+            "queries, such as `arango_graph`. This must point to an entry under "
+            "`llms:` so the workflow builder can resolve the dependency."
         ),
     )
 
@@ -126,14 +137,34 @@ class KnowledgeRetrievalInput(BaseModel):
 
 
 def _setup_backend(config: KnowledgeRetrievalConfig, _builder: Builder) -> tuple[str, dict[str, Any]]:
-    return config.backend, config.backend_config or {}
+    return config.backend, dict(config.backend_config or {})
+
+
+async def _setup_retriever(
+    config: KnowledgeRetrievalConfig,
+    backend: str,
+    backend_config: dict[str, Any],
+    builder: Builder,
+) -> BackendAdapter:
+    if backend != "arango_graph":
+        return await get_retriever(backend, backend_config)
+
+    if not config.llm_name:
+        raise ValueError("arango_graph requires top-level `llm_name`, e.g. llm_name: nim_llm.")
+
+    from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
+    from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+
+    llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    logger.info("knowledge_retrieval arango_graph LLM resolved: %s", config.llm_name)
+    return ArangoGraphAdapter(ArangoGraphConfig(**backend_config), llm=llm)
 
 
 @register_function(config_type=KnowledgeRetrievalConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def knowledge_retrieval(config: KnowledgeRetrievalConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
     """Retrieve excerpts with citations from indexed knowledge sources."""
     backend, backend_config = _setup_backend(config, builder)
-    retriever = await get_retriever(backend, backend_config)
+    retriever = await _setup_retriever(config, backend, backend_config, builder)
 
     summary_llm: Any | None = None
     if config.generate_summary and config.summary_model:

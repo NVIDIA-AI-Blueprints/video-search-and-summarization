@@ -24,6 +24,15 @@
 | `RTVI_EMBED_HF_CACHE`, `NGC_MODEL_CACHE`, `HF_TOKEN`, `NGC_API_KEY` | Configure model caches and credentials. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
 
+## Kafka output contract
+
+When a generated profile requires embedding events to flow through Kafka, set
+both `RTVI_EMBED_KAFKA_ENABLED=true` and
+`RTVI_EMBED_KAFKA_TOPIC=mdx-embed` in the build `override.env`. The root
+Compose include path does not load `services/rtvi/rtvi-embed/.env`, and the
+service compose fallback topic is `vision-embed-messages`, which does not feed
+the Search analytics `mdx-embed` -> `mdx-embed-filtered` indexing path.
+
 ## Sources
 
 - `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`

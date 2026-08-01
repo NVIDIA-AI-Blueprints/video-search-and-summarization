@@ -81,15 +81,15 @@ def run(app_cls: type[BaseApp]) -> None:
     parser.add_argument(
         "--log",
         type=validate_file_path,
-        default="configs/logging_config.json",
-        help="The input logging config file"
+        default=None,
+        help="Optional logging config file; uses the built-in logging config when omitted"
     )
 
     args = parser.parse_args()
 
-    # Resolve to absolute so spawn-mode workers (which inherit CWD but may run
-    # from a different effective root) can re-apply logging consistently.
-    args.log = os.path.abspath(args.log)
+    # Resolve a supplied config to absolute so spawn-mode workers (which inherit
+    # CWD but may run from a different effective root) can re-apply it consistently.
+    args.log = os.path.abspath(args.log) if args.log else None
 
     setup_logging(args.log)
     logger.info(f"App config file path: {args.config}")
