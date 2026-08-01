@@ -17,6 +17,7 @@ The image ships several apps under `apps/`; the compose `command:` selects one. 
   - **behavior creation** (`numWorkersForBehaviorCreation`) → behaviors,
   - **video-embedding downsampling** (`numWorkersForEmbedFiltering`) → filtered embeddings.
   Set the unwanted paths to `0`: incident-only reproduces the alerts profile, behaviors + embed reproduces the search profile.
+- `apps/composite/main_composite_app.py` (`CompositeApp`) — heavyweight config-driven superset with independent workers for behavior/events/detections, frame enhancement/incidents, space estimation, embedding filtering, and behavior clustering. All workers default to `0`; destination mappings independently select which produced outputs are retained. Use it only when no profile-specific app provides the required capability set, and run exactly one behavior producer for a sensor set.
 
 Source-of-truth definitions: `deploy/docker/services/analytics/behavior-analytics/compose.yml` (the `vss-behavior-analytics-base` service — image, host-network, config mount, default command; extend, never `include`), and the per-profile config JSONs under `deploy/docker/developer-profiles/*/vss-behavior-analytics/configs/` (and `.../vss-search-analytics/configs/` for the search profile).
 
@@ -25,7 +26,7 @@ Source-of-truth definitions: `deploy/docker/services/analytics/behavior-analytic
 **Core data path (required):**
 
 - **Message broker (Kafka / Redis Streams / MQTT)** — required. The `sourceType` / `sinkType` app-config keys pick which backend is live (Kafka is the default; brokers are configured **inside the config JSON**, not via env — e.g. `kafka.brokers: kafka:29092` (a Docker DNS service name on the compose bridge network; for a standalone deploy against an external broker, set this to a reachable `host:port` — see Network Requirements § Standalone caveat). Behavior Analytics consumes candidate frame metadata and produces behaviors/events/incidents. Owned by ELK/infra.
-- **kafka-topic-init-container** — required (Kafka backend). **Every topic a registered processor reads or writes must exist and be mapped in `kafka.topics`, or the sink raises `Could not find a kafka topic with key: <name>` at the first batch** (topic resolution is eager, even for empty writes). Map exactly the topics the enabled processors touch (see Outputs). Owned by ELK/infra.
+- **kafka-topic-init-container** — required (Kafka backend). Every configured Kafka topic must exist before the app uses it. A missing destination mapping disables that output and logs one warning instead of crashing; map and pre-create every output the deployment intends to retain (see Outputs). Owned by ELK/infra.
 - **Calibration source** — required for spatial transforms (`transform_frame`, ROIs, tripwires, homography). Supplied as a mounted calibration JSON (`--calibration <path>`) or delivered at runtime via a dynamic-calibration notification (see Inputs). **Optional at startup**: with no file the app uses `CalibrationI` (image-plane, no perspective) and can switch once a calibration arrives. See `dynamic-calibration.md`.
 - **Upstream detector (for the incident / behavior paths)** — an RTVI CV / perception producer (Grounding DINO / RT-DETR, DeepStream) writing frame metadata to the raw topic. Without it the incident/behavior processors have no input. Owned by RT-CV (`skills/vss-deploy-detection-tracking-2d/`). In the alerts profile the config-bearing key `perception-alerts` is contributed by the `cv-verification` variant in `vss-build-vision-agent/references/patch-alerts.md`.
 
@@ -61,7 +62,7 @@ Source-of-truth definitions: `deploy/docker/services/analytics/behavior-analytic
 
 ### Outputs
 
-Emitted only by the processors that are enabled (worker count > 0). Each must have its topic mapped in `kafka.topics`.
+Produced only by processors that are enabled (worker count > 0), and emitted only when the destination is mapped. Each output the deployment intends to retain must appear in the active sink's destination list (`kafka.topics`, `redisStream.streams`, or `mqtt.topics`); configured Kafka topics must also be pre-created.
 
 - **`behavior` → `mdx-behavior`** — per-sensor behaviors (`nv.Behavior`). Behavior processor.
 - **`incidents` → `mdx-incidents`** — violation incidents (`nv.Incident`) with a `category` (proximity / restricted-area / confined-area / FOV-count …). Incident processor.
@@ -110,12 +111,12 @@ The base compose is deliberately thin — broker endpoints, topics, and all tuni
 ## Known Integration Constraints
 
 - **`extends`, never `include`.** The base `vss-behavior-analytics-base` block is designed to be composed via compose `extends:` (a profile service overrides `command`, `profiles`, `container_name`, and the config volume at the same container path). A standalone/patched deploy must **copy the base compose into the patched tree** so `extends:` resolves (see `patch-alerts.md` Patch 3).
-- **Topic mapping is mandatory per enabled processor.** A processor whose worker count > 0 writes to its sink topic every batch; if that topic isn't in `kafka.topics` the sink raises `Could not find a kafka topic with key: <name>` at boot/first batch. Conversely, disabling a processor (`numWorkersFor*=0`) means you need not map its topics — this is why the alerts config omits `behavior`/`embed*` topics and the search config omits `incidents`/`frames`.
-- **Mode is chosen by worker counts, not app swap.** `SearchAndAlertsApp` runs incident, behavior, and embed processors; deployments pick a mode by zeroing the others. Omitting a `numWorkersFor*` key defaults to `0` for that app (opt-in), so the config must explicitly enable the paths it wants **and** map their topics.
+- **Destination mapping selects outputs.** A processor whose worker count > 0 may produce several outputs. If a destination key is absent from the active sink's `topics` or `streams` list, the sink drops that output and logs `No destination configured for '<key>'; output for it is disabled` once; it does not crash. Define every desired destination carefully, because a typo now disables that stream. Disabling a processor (`numWorkersFor*=0`) also means its destinations need not be mapped — this is why the alerts config omits `behavior`/`embed*` destinations and the search config omits `incidents`/`frames`.
+- **Mode is chosen by worker counts, not app swap.** `SearchAndAlertsApp` runs incident, behavior, and embed processors; deployments pick a mode by zeroing the others. Omitting a `numWorkersFor*` key defaults to `0` for that app (opt-in), so the config must explicitly enable the paths it wants and map every output it wants to retain.
 - **Calibration determines sensor coverage.** With a typed calibration (`cartesian`/`geo`), frames from sensors not in the calibration are handled by the active calibration class; with `CalibrationI` (no file) all frames pass through with image-plane coordinates. Choose the calibration that matches the deployed sensors, or supply one at runtime via `mdx-notification`.
 - **`category` must match `alert_type_config.json` (alerts path).** When Behavior Analytics feeds the Alert Microservice, an incident whose `category` has no `alert_type` entry is never VLM-verified (no prompt). Keep the emitted categories and the verifier config in sync.
 - **Object-type casing.** Incident object-type knobs (e.g. `fovCountViolationIncidentObjectType`) are compared with exact `==` against the detector's emitted type. Match the detector label file casing (lowercase `person` for RT-DETR/GDINO), even where the code default or `stateManagementFilter` uses a different case.
-- **Topics must be pre-created.** Behavior Analytics does not create topics; the ELK `kafka-topic-init-container` must run first.
+- **Configured topics must be pre-created.** Behavior Analytics does not create Kafka topics; the ELK `kafka-topic-init-container` must create every mapped topic first.
 - **Single config mount.** The command reads exactly one `--config` path; the bind target must be present at boot.
 
 ## Example Compose Snippet
@@ -162,4 +163,4 @@ The frame/behavior/incident protobufs (`nv.Frame` on `mdx-raw`/`mdx-frames`, `nv
   ```
 - **Producing enhanced frames:** `mdx-frames-*` ES index is populated (Logstash indexes the `mdx-frames` topic).
 - **Producing filtered embeddings (search path):** logs show `Video embeddings: received=<a>, final=<b>` and `mdx-embed-filtered` is produced.
-- **No topic-resolution crash:** a clean start with no repeated `Could not find a kafka topic` errors confirms every enabled processor's topics are mapped.
+- **No accidentally disabled output:** inspect startup/batch logs for `No destination configured for '<key>'; output for it is disabled`. The warning is emitted once per missing key; no warning should name an output the deployment intends to retain.

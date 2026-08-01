@@ -123,7 +123,7 @@ it locally to drop the notification, the watcher relies on the outer
 
 ## DynamicCalibration: the one-time switch
 
-`DynamicCalibration` is a thin wrapper used when the app starts with **no** `--calibration` argument. It begins as a `CalibrationI` (image-plane) placeholder and, on the first calibration event, switches to the typed subclass (`Calibration` / `CalibrationE` / `CalibrationI`) inferred from the payload's `calibrationType` field.
+`DynamicCalibration` is a thin wrapper used when the app starts with **no** `--calibration` argument. It begins as a `CalibrationI` (image-plane) placeholder and, on the first calibration event, switches to the typed subclass (`CalibrationG` / `CalibrationE` / `CalibrationI`) inferred from the payload's `calibrationType` field.
 
 ```
 DynamicCalibration(config, calibration_path=None)
@@ -158,4 +158,3 @@ See `video-search-and-summarization/services/analytics/behavior-analytics/src/md
 5. **No ACK back to video analytics api.** The dynamic-config flow publishes `ack` after applying; the calibration flow does not. A worker-side validation failure is observable only via container logs (`calibration schema violation (...)`).
 
 ---
-
