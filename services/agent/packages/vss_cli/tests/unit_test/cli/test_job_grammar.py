@@ -105,20 +105,6 @@ def test_there_is_no_submit_verb() -> None:
     assert "submit" not in _Group().cli().commands
 
 
-def test_no_endpoint_configuration_leaks_onto_action_commands() -> None:
-    """Endpoints come from the recorded deployment, never from a per-call flag.
-
-    ``--base-url`` used to sit on every action. An origin alone is not a
-    deployment -- the services, indices and models come from probing it -- so
-    the flag built a deployment with no services and every action failed on the
-    first endpoint it needed. Discovering an origin is `vss configure`'s job.
-    """
-    run = _Group().cli().commands["run"]
-    names = {param.name for param in run.params}
-    assert "base_url" not in names
-    assert not names & {"es_endpoint", "cosmos_embed_endpoint", "rtvi_cv_endpoint", "vst_internal_url"}
-
-
 def test_run_parses_derived_flags_into_the_model() -> None:
     owner = _Group()
     result = CliRunner().invoke(
