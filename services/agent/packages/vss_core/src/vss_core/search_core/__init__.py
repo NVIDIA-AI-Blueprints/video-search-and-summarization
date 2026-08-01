@@ -46,7 +46,6 @@ __all__ = [
     "InvalidInputError",
     "NoFinalResultError",
     "PartialResultEvent",
-    "RuntimeSnapshot",
     "Search",
     "SearchError",
     "SearchEvent",
@@ -67,7 +66,6 @@ _LAZY_EXPORTS = {
     "InvalidInputError": ".errors",
     "NoFinalResultError": ".errors",
     "PartialResultEvent": ".events",
-    "RuntimeSnapshot": ".runtime",
     "Search": ".primitives.search",
     "SearchError": ".errors",
     "SearchEvent": ".events",
@@ -94,7 +92,6 @@ if TYPE_CHECKING:
     from .primitives.attribute_search import AttributeSearch
     from .primitives.embed_search import EmbedSearch
     from .primitives.search import Search
-    from .runtime import RuntimeSnapshot
     from .runtime import SearchRuntime
 
 

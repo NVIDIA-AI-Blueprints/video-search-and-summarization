@@ -458,13 +458,29 @@ def test_search_archive_cli_unconfigured_deployment_exits_4(tmp_path: Path, agen
 @pytest.mark.asyncio
 async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
     mock_services: _MockSearchServices,
-    search_config: Path,
 ) -> None:
+    from vss_core.search_core import SearchRuntime
     from vss_core.search_core.clients.elastic import ElasticClient
     from vss_core.search_core.host import VSSSearch
 
+    # Values passed in directly: config-file loading was removed, so a caller
+    # supplies what it already knows (the CLI reads `vss configure`'s record,
+    # the NAT adapter reads its own config).
+    runtime = SearchRuntime.from_kwargs(
+        es_endpoint=mock_services.base_url,
+        behavior_es_endpoint=mock_services.base_url,
+        cosmos_embed_endpoint=mock_services.base_url,
+        rtvi_cv_endpoint=mock_services.base_url,
+        vst_internal_url=mock_services.base_url,
+        vst_external_url=mock_services.external_vst_url,
+        video_embed_index="mdx-embed-filtered-2025-01-01",
+        behavior_index="mdx-behavior-2025-01-01",
+        embed_confidence_threshold=0.1,
+        default_max_results=5,
+    )
+
     try:
-        async with VSSSearch.from_config_file(search_config, env={}) as vss:
+        async with VSSSearch.from_runtime(runtime) as vss:
             out = await vss.search(
                 query="red forklift",
                 original_query="red forklift",
