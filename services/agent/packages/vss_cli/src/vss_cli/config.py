@@ -239,12 +239,16 @@ INGRESS_SERVICES.update(
             describe="/elasticsearch/_cat/indices?h=index&format=json",
             describes="indices",
         ),
-        # RT-Embed. Mounted at /cosmos-embed because that is the model family
-        # it serves today; the service is not the model.
+        # RT-Embed, mounted at the service name rather than the model family
+        # it happens to serve: the sibling is /rtvi-cv and the Helm chart
+        # already calls it rtvi-embed, so /cosmos-embed was the odd one out.
+        # The suffix is whatever the service itself serves -- /v1 here because
+        # RT-Embed is OpenAI-shaped, /api/v1 for RT-CV -- which is the same
+        # convention /vst/api and /alert-bridge/api/v1 already follow.
         "rt_embed": ServiceRoute(
-            mount="/cosmos-embed",
-            probe="/cosmos-embed/v1/models",
-            describe="/cosmos-embed/v1/models",
+            mount="/rtvi-embed",
+            probe="/rtvi-embed/v1/models",
+            describe="/rtvi-embed/v1/models",
             describes="models",
         ),
         # RT-CV exposes no introspection endpoint -- only POST /stream/add

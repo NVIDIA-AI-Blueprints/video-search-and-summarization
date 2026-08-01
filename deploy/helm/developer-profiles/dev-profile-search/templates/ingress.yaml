@@ -40,6 +40,31 @@
 {{- $agent := index .Values "agent" | default dict }}
 {{- $vssAgent := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
 {{- $agentEnabled := index $agent "enabled" | default true }}
+{{/*
+  CLI edge routes. Mirrors the three backends the Docker edge exposes in
+  deploy/docker/services/infra/haproxy/haproxy.cfg.template so `vss configure`
+  resolves the same paths on both. Each mount carries whatever that service
+  itself serves -- /elasticsearch/_cat/..., /rtvi-embed/v1/..., and
+  /rtvi-cv/api/v1/... -- the same convention /vst/api already follows.
+
+  Off by default: unlike the Docker edge, an Ingress annotation cannot express
+  the per-path read-only guard that keeps Elasticsearch query-only, so enabling
+  this publishes a writable ES. Turn it on only where that is acceptable.
+
+  The rtvi paths are skipped when rtviInternalIngress is enabled, because that
+  Ingress already publishes /rtvi-cv and /rtvi-embed and renders no host when
+  its own `host` is empty -- two Ingress objects claiming one path on one host
+  is ambiguous.
+*/}}
+{{- $rii := (.Values.global | default dict).rtviInternalIngress | default dict }}
+{{- $cli := (.Values.ingress | default dict).cliRoutes | default dict }}
+{{- $cliOn := default false $cli.enabled }}
+{{- $cliRtvi := and $cliOn (not (default false $rii.enabled)) }}
+{{- $embedSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-embed") }}
+{{- $cvSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-cv") }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $esSvc := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
 {{- $analytics := index .Values "analytics" | default dict }}
 {{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
 {{- $videoAnalyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
@@ -57,6 +82,16 @@ metadata:
 {{- end }}
       /phoenix/(.*) /\1
       /phoenix /
+{{- if $cliOn }}
+      /elasticsearch/(.*) /\1
+      /elasticsearch /
+{{- end }}
+{{- if $cliRtvi }}
+      /rtvi-embed/(.*) /\1
+      /rtvi-embed /
+      /rtvi-cv/(.*) /\1
+      /rtvi-cv /
+{{- end }}
     haproxy.org/timeout-server: "3600s"
     haproxy.org/timeout-client: "3600s"
     haproxy.org/timeout-tunnel: "3600s"
@@ -173,6 +208,31 @@ spec:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }}
                 port:
                   number: {{ $ing.videoAnalyticsApiPort | default 8081 }}
+          {{- end }}
+          {{- if $cliOn }}
+          - path: /elasticsearch
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $esSvc }}
+                port:
+                  number: {{ $cli.elasticsearchPort | default 9200 }}
+          {{- end }}
+          {{- if $cliRtvi }}
+          - path: /rtvi-embed
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $embedSvc }}
+                port:
+                  number: {{ $cli.rtviEmbedPort | default 8000 }}
+          - path: /rtvi-cv
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $cvSvc }}
+                port:
+                  number: {{ $cli.rtviCvPort | default 9000 }}
           {{- end }}
           {{- if (index .Values "vss-agent-ui").enabled }}
           - path: /

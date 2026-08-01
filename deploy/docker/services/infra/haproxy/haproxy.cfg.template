@@ -88,9 +88,9 @@ backend bk_elasticsearch_strip
     http-request replace-path ^/elasticsearch$ /
     server s1 "${ELASTICSEARCH_SERVICE_HOST}:${ELASTICSEARCH_SERVICE_PORT}" check resolvers docker init-addr none
 
-backend bk_cosmos_embed_strip
-    http-request replace-path ^/cosmos-embed/(.*) /\1
-    http-request replace-path ^/cosmos-embed$ /
+backend bk_rtvi_embed_strip
+    http-request replace-path ^/rtvi-embed/(.*) /\1
+    http-request replace-path ^/rtvi-embed$ /
     server s1 "${RTVI_EMBED_SERVICE_HOST}:${RTVI_EMBED_SERVICE_PORT}" check resolvers docker init-addr none
 
 backend bk_rtvi_cv_strip
@@ -171,10 +171,11 @@ frontend fe_http
     http-request deny status 403 if h_main p_elasticsearch es_mutating_op
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
 
-    # RT-Embed, mounted at /cosmos-embed after the model family it serves.
-    acl p_cosmos_embed path /cosmos-embed
-    acl p_cosmos_embed path_beg /cosmos-embed/
-    use_backend bk_cosmos_embed_strip if h_main p_cosmos_embed
+    # RT-Embed, mounted at the service name so it matches its sibling
+    # /rtvi-cv and the Helm chart, which already calls it rtvi-embed.
+    acl p_rtvi_embed path /rtvi-embed
+    acl p_rtvi_embed path_beg /rtvi-embed/
+    use_backend bk_rtvi_embed_strip if h_main p_rtvi_embed
 
     acl p_rtvi_cv path /rtvi-cv
     acl p_rtvi_cv path_beg /rtvi-cv/

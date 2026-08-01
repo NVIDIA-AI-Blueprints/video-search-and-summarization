@@ -85,6 +85,24 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+  # Edge routes `vss configure` probes, mirroring the three the Docker edge
+  # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
+  # same paths resolve on Compose and Kubernetes. Each mount carries whatever
+  # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
+  # /rtvi-cv/api/v1/... .
+  #
+  # Off by default. The Docker edge keeps Elasticsearch query-only with
+  # per-path deny rules; an Ingress annotation cannot express that, so enabling
+  # this publishes a writable Elasticsearch. Enable only where that is
+  # acceptable, or front it with your own guard.
+  #
+  # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
+  # enabled -- that Ingress already publishes both paths.
+  cliRoutes:
+    enabled: false
+    elasticsearchPort: 9200
+    rtviEmbedPort: 8000
+    rtviCvPort: 9000
 
 sharedStorage:
   streamerVideos:
