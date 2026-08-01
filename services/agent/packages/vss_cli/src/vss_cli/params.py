@@ -163,17 +163,17 @@ def shared_options() -> Sequence[click.Option]:
     No --output: the payload is always JSON (SearchOutput.data is the contract
     a harness parses). The jsonl and table choices were accepted and silently
     ignored, so a caller could ask for a table and get JSON. --pretty/--raw is
-    the real formatting control."""
+    the real formatting control.
+
+    No --json either: flags are the input. A JSON blob duplicating the flags
+    was a second way to say the same thing, one that Click could not validate
+    and that `--help` did not describe."""
     # No --base-url here on purpose. An origin alone is not a deployment: the
     # services, indices and model ids come from probing it, which is what
     # `vss configure` does. A per-call origin would skip that discovery and
     # yield a deployment with no services, so every action would fail on the
     # first endpoint it needed. Configuring is a separate step by design.
     return (
-        click.Option(
-            ["--json", "json_payload"],
-            help="Request as a JSON object matching the verb's input model.",
-        ),
         click.Option(["--pretty/--raw"], "pretty", default=None, help="Pretty-print or emit compact output."),
         click.Option(
             ["--log-level"],

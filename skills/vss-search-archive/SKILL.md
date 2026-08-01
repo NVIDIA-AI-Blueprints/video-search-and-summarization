@@ -664,42 +664,25 @@ VSS="uv run --project ${VSS_REPO_ROOT}/services/agent --no-dev vss"
 # One-time, after any deployment change
 ${VSS} configure --base-url "${VSS_ORIGIN}"
 
-# Embed: text vs video-chunk embeddings, across all ingested files
+# Embed: text matched against video-chunk embeddings
 ${VSS} search run embed \
-  --query "red forklift near a loading bay" --source-type video_file --raw
+  --query "red forklift near a loading bay" --video-source warehouse_sample --top-k 3 --raw
 
-# Attribute: detected-object attributes only. No --query on this path.
-${VSS} search run attribute \
-  --attribute "white jacket" --video-source warehouse-camera-3 --top-k 3 --raw
-
-# Fusion: embedding retrieval re-ranked by attribute evidence
+# Fusion: the same retrieval, re-ranked by attribute evidence
 ${VSS} search run fusion \
   --query "person climbing a ladder" --attribute "white jacket" \
   --video-source warehouse-ladder --top-k 3 --raw
-
-# Object: identity lookup by tracked id
-${VSS} search run object --object-id 42 --top-k 3 --raw
-
-# Raw retrieval windows, unmerged — for comparing against a per-window reference
-${VSS} search run embed --query "red forklift" --no-merge-adjacent --raw
 ```
 
-Strategies, all on the same four paths:
+`run attribute` and `run object` take `--attribute` / `--object-id` in place of
+`--query`. Every remaining flag — time bounds, `--min-cosine-similarity`,
+`--no-merge-adjacent`, the fusion weights — is listed with its type and range by:
 
 ```bash
-# Wide net — recall over precision, then refine from what surfaces
-${VSS} search run embed --query "unusual activity" --top-k 100 --min-cosine-similarity -1 --raw
-
-# Narrow to a known incident — scope by source and time
-${VSS} search run embed --query "person at entrance" --video-source entrance-camera \
-  --timestamp-start 2025-01-01T14:00:00 --timestamp-end 2025-01-01T15:00:00 --raw
-
-# High precision — raise the bar
-${VSS} search run embed --query "red forklift" --min-cosine-similarity 0.3 --top-k 5 --raw
-
-# Filter by camera metadata (only when cameras carry location/category tags)
-${VSS} search run embed --query "person running" --description "parking lot" --raw
+${VSS} search run <path> --help
 ```
+
+Read that rather than guessing; unknown flags exit 2.
 
 ## Troubleshooting
 

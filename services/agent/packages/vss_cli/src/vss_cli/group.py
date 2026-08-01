@@ -292,8 +292,7 @@ class CommandGroup(ABC):
         def callback(**values: Any) -> None:
             ctx = _context_from(values)
             ctx.extra = {k: v for k, v in values.items() if k in extra_names and v is not None and v != ()}
-            supplied = params_mod.collect(model, values)
-            payload = _merge_json_payload(values.get("json_payload"), supplied)
+            payload = params_mod.collect(model, values)
             try:
                 inputs = model(**payload)
             except ValidationError as exc:
@@ -398,22 +397,6 @@ def _context_from(values: dict[str, Any]) -> Context:
         pretty=values.get("pretty"),
         log_level=values.get("log_level") or "WARNING",
     )
-
-
-def _merge_json_payload(raw: str | None, supplied: dict[str, Any]) -> dict[str, Any]:
-    """``--json`` supplies the base; explicit flags override it."""
-    if not raw:
-        return supplied
-    import json
-
-    try:
-        base = json.loads(raw)
-    except ValueError as exc:
-        raise click.BadParameter(f"--json is not valid JSON: {exc}") from exc
-    if not isinstance(base, dict):
-        raise click.BadParameter("--json must be a JSON object")
-    base.update(supplied)
-    return base
 
 
 def _emit(result: Result, ctx: Context) -> None:

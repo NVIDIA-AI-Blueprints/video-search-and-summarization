@@ -64,12 +64,10 @@ _INDEX_PREFIXES = {
 class _Common(BaseModel):
     """Fields every retrieval path accepts."""
 
-    # Unknown keys are an error, not something to drop. Flags cannot produce
-    # one -- Click rejects those itself -- but `--json` can, and pydantic's
-    # default is to ignore silently, so `{"tpo_k": 5}` would take the default
-    # and report nothing. Each path also rejects the other paths' fields this
-    # way, so `run embed --json '{"attributes": [...]}'` fails rather than
-    # quietly running a plain embedding search.
+    # Unknown keys are an error, not something to drop. Click rejects unknown
+    # flags itself, so this guards the programmatic callers -- a plugin, or the
+    # MCP tool surface these models will back -- where pydantic would otherwise
+    # ignore a misspelled key and silently use the default.
     model_config = ConfigDict(extra="forbid")
 
     source_type: Literal["video_file", "rtsp"] | None = Field(None, description="Media source type.")
