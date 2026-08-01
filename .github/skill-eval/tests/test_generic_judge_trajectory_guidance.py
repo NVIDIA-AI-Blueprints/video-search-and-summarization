@@ -68,6 +68,17 @@ def test_judge_understands_rtsp_exact_match_redaction_marker() -> None:
     assert "secret itself must not be recovered or printed" in prompt
 
 
+def test_judge_follows_active_config_argument_to_exact_mount() -> None:
+    """Avoid judging an inherited but unused config or sibling container."""
+    prompt = _load_generic_judge()._JUDGE_SYSTEM_PROMPT
+
+    assert "Active container config" in prompt
+    assert "`--config <destination>`" in prompt
+    assert "whose `Destination` exactly equals that argument" in prompt
+    assert "Never substitute another mounted config" in prompt
+    assert "inspect that exact container name" in prompt
+
+
 def test_normalized_recipe_ignores_duplicated_raw_arguments(tmp_path: Path) -> None:
     """Verify the normalized jq recipe deduplicates repeated raw arguments."""
     command = 'curl -X POST "http://localhost:38111/v1/summarize"'
