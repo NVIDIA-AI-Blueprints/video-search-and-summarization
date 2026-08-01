@@ -205,6 +205,8 @@ Read the check carefully and pick the cheapest evidence that actually answers it
 
 - **Multi-step check (combine).** Some checks need two probes: e.g. "the agent's reply cites a screenshot URL that returns HTTP 200". Extract the URL via jq, then `curl -sfI` it via Bash to verify the live response.
 
+- **Active container config (follow Cmd/Entrypoint to its exact mount).** A container may inherit several config mounts for different app entrypoints. When `.Config.Cmd` or `.Config.Entrypoint` passes `--config <destination>`, inspect only the `.Mounts[]` entry whose `Destination` exactly equals that argument, then read that mount's `Source` (or the exact destination inside the container). Never substitute another mounted config based on a similar filename. When the check names a container, inspect that exact container name rather than the first substring match from `docker ps --filter name=...`; sibling service names can share the substring.
+
 Watch for:
 - **Backticks as examples vs. directives.** "`curl http://x` returns 200" → directive (run it). "such as `docker compose down`, `docker stop`, `docker rm`" → enumeration of examples (don't run any of them; verify absence in trajectory).
 - **CWD assumptions.** When a check says "`docker compose ...`" it usually presumes the deploy's compose dir; don't run it from `/tests/` and conclude "no compose file" — find the right CWD first, or treat the check as a trajectory assertion if no compose dir exists.

@@ -6600,6 +6600,16 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 / "search_and_alerts_config.json"
             ).read_text(encoding="utf-8")
         )
+        eval_spec = json.loads(
+            (
+                REPO_ROOT
+                / "skills"
+                / "vss-setup-behavior-analytics"
+                / "evals"
+                / "deploy_search_and_alerts.json"
+            ).read_text(encoding="utf-8")
+        )
+        checks = eval_spec["expects"][0]["checks"]
         workers = {
             item["name"]: int(item["value"])
             for item in config["app"]
@@ -6646,6 +6656,16 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 "numWorkersForEmbedFiltering": 1,
             },
         )
+        self.assertIn("grep -qx vss-behavior-analytics", checks[0])
+        self.assertIn("docker inspect vss-behavior-analytics", checks[1])
+        self.assertIn("/resources/vss-search-analytics-config.json", checks[1])
+        self.assertIn("config_dest=$(docker inspect vss-behavior-analytics", checks[2])
+        self.assertIn("index(\"--config\")", checks[2])
+        self.assertIn("--arg dest \"$config_dest\"", checks[2])
+        self.assertIn("select(.Destination == $dest)", checks[2])
+        self.assertIn("test -f \"$config_src\"", checks[2])
+        self.assertIn("do not evaluate any other mounted config", checks[2])
+        self.assertNotIn("/resources/*config.json", checks[2])
 
     def test_manual_single_skill_matrix_uses_representative_row_by_default(self):
         previous_env = {
