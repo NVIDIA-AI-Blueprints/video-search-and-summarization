@@ -1,0 +1,60 @@
+{
+  "title": "Search: forklift near the loading dock",
+  "subtitle": "12 matches across 3 sensors · 2026-07-31 09:00–17:00",
+  "slug": "vss-search",
+  "theme": "dark",
+  "source_note": "search profile @ 10.86.16.194",
+  "blocks": [
+    {
+      "type": "summary",
+      "items": [
+        { "label": "Matches", "value": 12 },
+        { "label": "Sensors", "value": 3 },
+        { "label": "Top score", "value": "0.871" }
+      ]
+    },
+    {
+      "type": "media_grid",
+      "title": "Results",
+      "max_items": 24,
+      "empty_text": "No matches for this query.",
+      "fields": {
+        "title": "title",
+        "time": "timestamp",
+        "sensor": "sensor_id",
+        "score": "score",
+        "snippet": "description",
+        "thumbnail": "thumbnail",
+        "clip": "clip"
+      },
+      "sensor_names": {
+        "cc06804c-7f11-4865-bb00-6b2db072086f": "Dock A"
+      },
+      "source": {
+        "mode": "inline",
+        "items": [
+          {
+            "id": "seg-0412",
+            "title": "Forklift reversing toward bay 3",
+            "timestamp": "2026-07-31T14:02:11Z",
+            "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
+            "score": 0.871,
+            "description": "A forklift reverses across the marked pedestrian lane while a worker stands near the bay door.",
+            "thumbnail": "http://10.86.16.194:7777/storage/frames/seg-0412.jpg",
+            "clip": "http://10.86.16.194:7777/storage/clips/seg-0412.mp4"
+          },
+          {
+            "id": "seg-0389",
+            "title": "Pallet transfer at bay 1",
+            "timestamp": "2026-07-31T13:47:52Z",
+            "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
+            "score": 0.804,
+            "description": "Forklift lifts a stacked pallet and carries it out of frame to the left.",
+            "thumbnail": "http://10.86.16.194:7777/storage/frames/seg-0389.jpg",
+            "clip": "http://10.86.16.194:7777/storage/clips/seg-0389.mp4"
+          }
+        ]
+      }
+    }
+  ]
+}

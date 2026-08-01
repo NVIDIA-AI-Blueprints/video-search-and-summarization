@@ -64,6 +64,43 @@ resolve and probe `http://${HOST_IP}:${RTVI_CV_HOST_PORT:-9010}/v1/health`.
 For `2d_vlm`, require those two services to be absent and probe
 `http://${HOST_IP}:8018/v1/health/ready`.
 
+## Operator-facing views
+
+After readiness passes, tell the operator how to *look* at this profile. Two
+paths, both view-only — neither is a place to create or delete alert rules
+(that stays in `vss-manage-alerts` Workflow D).
+
+**1. VSS-UI, deployed with this profile.** `vss-ui` is in both mode service
+sets and `vss-haproxy-ingress` fronts it, so the tabs and the alert/VIOS APIs
+share one origin. Tabs are chosen at deploy time by
+`deploy/docker/services/ui/compose.yml` env, resolved from the profile's `.env`
+/ `overrides.env`:
+
+| Knob | Default | For this profile |
+|---|---|---|
+| `NEXT_PUBLIC_ENABLE_ALERTS_TAB` | `true` | keep on |
+| `NEXT_PUBLIC_ENABLE_DASHBOARD_TAB` | `true` | Kibana embed; on when `kibana` is up |
+| `NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB` | `true` | sensor onboarding |
+| `NEXT_PUBLIC_ENABLE_SEARCH_TAB` | `false` | leave off — no embedding index here |
+| `NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS` | `1000` | incident poll cadence |
+
+Deep-link a tab with the `#vss-mt-<tabId>` hash — `Home.tsx` resolves it on
+first load and on `hashchange`, and tab ids are `chat`, `search`, `alerts`,
+`dashboard`, `map`, `video-management`:
+
+```text
+http://${HOST_IP}:${VSS_PUBLIC_PORT:-7777}/#vss-mt-alerts
+```
+
+Report the ingress origin, not `:3000` — `:3000` is the UI container's own port
+and bypasses the shared-origin routing the tabs' API calls rely on.
+
+**2. Generated view artifacts — no UI needed.** `tools/vss-view` renders a
+self-contained HTML file (live-polling or static) from a JSON spec the operate
+skills emit. Point the operator at it when the Agent/UI layer is dropped in a
+delta, when a shareable artifact is wanted, or when the viewer cannot reach the
+deployment's UI port. See `skills/vss-manage-alerts/references/view-artifacts.md`.
+
 ## Sources
 
 - `deploy/docker/developer-profiles/dev-profile-alerts/.env`

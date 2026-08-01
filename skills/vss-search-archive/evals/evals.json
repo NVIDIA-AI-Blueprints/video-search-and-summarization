@@ -9,5 +9,19 @@
       "Does not route to Q&A or live-captioning skills.",
       "Does not print plaintext API tokens or other secrets."
     ]
+  },
+  {
+    "id": "search-render-results-grid",
+    "question": "Search the archive for forklifts near the loading dock and show me the results.",
+    "expected_skill": "vss-search-archive",
+    "ground_truth": "The agent runs the normal archive search first, reports the matches, and additionally renders a static media_grid view artifact per references/view-artifacts.md using tools/vss-view/render_view.py. Search results are always source.mode 'inline' — there is no live mode for search.",
+    "expected_behavior": [
+      "Runs the search through the skill's mandatory workflow and reports the matches in the reply; the rendered file supplements the answer.",
+      "Loads references/view-artifacts.md and builds a media_grid spec with source.mode 'inline' — never 'poll' for search results.",
+      "Copies returned thumbnail and clip URLs verbatim into the spec; does not rewrite, reconstruct, or substitute media URLs.",
+      "Uses the user's query verbatim as the spec title, and keeps scores exactly as returned.",
+      "Runs tools/vss-view/render_view.py, typically with --inline-media, and reports the absolute output path.",
+      "On zero results, reports the empty outcome per the skill's zero-results rule and renders nothing."
+    ]
   }
 ]

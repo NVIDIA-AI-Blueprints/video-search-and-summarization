@@ -140,5 +140,33 @@
       "Does not create or edit always-on rule configuration and does not enable the feature on the user's behalf.",
       "Does not route this request to the VSS Agent POST /generate."
     ]
+  },
+  {
+    "id": "alerts-render-live-view",
+    "question": "Show me the incidents on a page I can keep open and watch.",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "The agent routes to Workflow C, queries GET ${AB}/api/v1/realtime/incidents, reports the incidents in its reply, and additionally renders a live view artifact per references/view-artifacts.md using tools/vss-view/render_view.py. The 'keep open and watch' phrasing selects source.mode 'poll'.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts and runs the Workflow C incident query first; never answers from memory.",
+      "Reports the incidents in the reply itself — the rendered file supplements the answer, it does not replace it.",
+      "Loads references/view-artifacts.md and builds a view spec with source.mode 'poll' because the user asked to watch/keep it open.",
+      "Uses the same url, params, and items_path 'incidents' for every block so they share one poll loop, and sets interval_ms >= 5000.",
+      "Runs tools/vss-view/render_view.py and reports the absolute output path.",
+      "Populates sensor_names from VIOS GET /vst/api/v1/sensor/list rather than guessing sensor names, and copies incident rows verbatim without inventing any.",
+      "Tells the user the page is view-only, that it needs the deployment reachable from their browser, and that Save snapshot produces a standalone copy.",
+      "Does not present the page as a way to create, edit, or delete alert rules."
+    ]
+  },
+  {
+    "id": "alerts-no-view-for-oneliner",
+    "question": "Any alerts so far today?",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "The agent routes to Workflow C, runs the incident query, and answers in one line. It does NOT render a view artifact: this is a factual one-liner, and an empty result is itself a valid answer.",
+    "expected_behavior": [
+      "Routes the casual phrasing to Workflow C (incidents), never to Workflow D (rules).",
+      "Runs GET ${AB}/api/v1/realtime/incidents and answers from the response.",
+      "Does NOT invoke tools/vss-view or produce an HTML file for a one-line factual answer.",
+      "If incidents is empty, reports 'none found / count 0' and stops — no empty grid, no fallback to listing rules."
+    ]
   }
 ]

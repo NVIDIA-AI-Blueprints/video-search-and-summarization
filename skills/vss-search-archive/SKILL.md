@@ -686,6 +686,12 @@ backend access and is outside this no-port-forward skill contract.
   search. `--allow-embed-only-fallback` is the only opt-in way to remove
   attributes and continue as embed-only search.
 - Result object IDs that are missing or `unknown` are not merged together.
+- Optionally render results as a browsable HTML grid with `tools/vss-view` —
+  see `references/view-artifacts.md`. Do this when the user asks to see/browse
+  results, when matches carry thumbnails or clips, or when there are enough
+  matches (≳6) that a grid beats a prose list. It **never replaces the answer**,
+  and it is skipped on zero results (report the empty outcome instead). Media
+  URLs are copied into the spec verbatim, never rewritten.
 - Search retrieval is distinct from visual verification. Visual verification is the
   explicit screenshot-inspection step described above; it is not a CLI flag.
 - For Docker, `vss search embed` and `vss search attribute` expose the lower-level

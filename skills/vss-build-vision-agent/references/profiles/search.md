@@ -55,6 +55,41 @@ curl -sf "http://${HOST_IP}:3000/"
 Because critique is enabled by default, also probe RT-VLM's `/v1/models`
 endpoint. Skip this check only when `ENABLE_CRITIC=false`.
 
+## Operator-facing views
+
+After readiness passes, tell the operator how to *look* at this profile. Both
+paths are view-only.
+
+**1. VSS-UI, deployed with this profile.** `vss-ui` is in the service set and
+`vss-haproxy-ingress` fronts it. Tabs come from
+`deploy/docker/services/ui/compose.yml` env, resolved from the profile's `.env`
+/ `overrides.env` — note the search tab is **off by default** and this is the
+profile that should turn it on:
+
+| Knob | Default | For this profile |
+|---|---|---|
+| `NEXT_PUBLIC_ENABLE_SEARCH_TAB` | `false` | **set `true`** |
+| `NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB` | `true` | source ingestion |
+| `NEXT_PUBLIC_ENABLE_ALERTS_TAB` | `true` | leave off — no Alert Bridge here |
+| `NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX` | — | bbox overlay on result media |
+
+Deep-link a tab with the `#vss-mt-<tabId>` hash (`Home.tsx` resolves it on first
+load and on `hashchange`; ids are `chat`, `search`, `alerts`, `dashboard`,
+`map`, `video-management`):
+
+```text
+http://${HOST_IP}:${VSS_PUBLIC_PORT:-7777}/#vss-mt-search
+```
+
+Report the ingress origin, not `:3000` — that is the UI container's own port and
+bypasses the shared-origin routing the tab's API calls rely on.
+
+**2. Generated view artifacts — no UI needed.** `tools/vss-view` renders search
+results into a self-contained HTML grid from a JSON spec, with thumbnails
+embeddable so the file outlives the deployment. Use it when the Agent/UI layer
+is dropped in a delta or a shareable artifact is wanted. See
+`skills/vss-search-archive/references/view-artifacts.md`.
+
 ## Sources
 
 - `deploy/docker/developer-profiles/dev-profile-search/.env`

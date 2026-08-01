@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tools/vss-view/view_spec.schema.json",
+  "title": "VSS view spec",
+  "description": "Declarative description of a read-only VSS view. An agent emits this document; tools/vss-view/render_view.py turns it into a self-contained HTML file. The agent never writes markup.",
+  "type": "object",
+  "required": ["title", "blocks"],
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "description": "Page heading." },
+    "subtitle": { "type": "string", "description": "One line of context under the title." },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Filename stem for the rendered file and its snapshots."
+    },
+    "theme": { "enum": ["dark", "light"], "default": "dark" },
+    "generated_at": { "type": "string", "description": "ISO-8601 timestamp; stamped by the renderer when omitted." },
+    "source_note": { "type": "string", "description": "Footer note naming the deployment the data came from." },
+    "frozen": {
+      "type": "boolean",
+      "default": false,
+      "description": "True in a saved snapshot: every source is treated as inline and no polling starts."
+    },
+    "blocks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/block" } }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "description": "Where a block's rows come from. `inline` bakes them in at generation time (portable, static). `poll` re-fetches a VSS endpoint in the browser (live, only while the deployment is reachable).",
+      "required": ["mode"],
+      "oneOf": [
+        {
+          "properties": {
+            "mode": { "const": "inline" },
+            "items": { "type": "array", "items": { "type": "object" } },
+            "raw": { "type": ["object", "null"], "description": "Optional full response object, for summary value_path lookups." },
+            "id_path": { "type": "string", "default": "id" }
+          },
+          "required": ["mode", "items"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "mode": { "const": "poll" },
+            "url": {
+              "type": "string",
+              "pattern": "^https?://",
+              "description": "Absolute endpoint URL, e.g. http://<host>:7777/alert-bridge/api/v1/realtime/incidents"
+            },
+            "params": {
+              "type": "object",
+              "description": "Query parameters; empty/null values are dropped.",
+              "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+            },
+            "items_path": {
+              "type": "string",
+              "description": "Dot-path to the array inside the response. `incidents` for IncidentListResponse. Omit if the response is itself an array."
+            },
+            "id_path": { "type": "string", "default": "id", "description": "Dot-path to a stable per-item id; drives new-row detection." },
+            "time_path": { "type": "string", "default": "timestamp" },
+            "interval_ms": { "type": "integer", "minimum": 1000, "default": 5000 }
+          },
+          "required": ["mode", "url"],
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "block": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["summary", "incident_list", "media_grid", "timeline"] },
+        "title": { "type": "string" },
+        "source": { "$ref": "#/$defs/source" },
+        "empty_text": { "type": "string", "description": "Shown when the source yields no rows. An empty result is a valid answer." },
+        "fields": {
+          "type": "object",
+          "description": "Dot-path mapping from this block's logical fields onto the actual document shape. Incident documents are free-form nvschema, so paths are never assumed.",
+          "additionalProperties": { "type": "string" }
+        },
+        "sensor_names": {
+          "type": "object",
+          "description": "sensor_id (UUID) -> human name, reverse-resolved from VIOS by the agent. Ids with no entry render as the raw UUID.",
+          "additionalProperties": { "type": "string" }
+        },
+        "items": {
+          "type": "array",
+          "description": "summary only: the stat tiles.",
+          "items": {
+            "type": "object",
+            "required": ["label"],
+            "properties": {
+              "label": { "type": "string" },
+              "value": { "type": ["string", "number"], "description": "Literal value." },
+              "value_path": { "type": "string", "description": "Dot-path into the raw response, e.g. `total`." },
+              "count_of": { "const": "items", "description": "Use the number of rows the source returned." },
+              "sub": { "type": "string", "description": "Small caption under the value." }
+            },
+            "additionalProperties": false
+          }
+        },
+        "columns": {
+          "type": "array",
+          "description": "incident_list only: column order.",
+          "items": { "enum": ["time", "sensor", "category", "description", "verdict", "media"] }
+        },
+        "newest_first": { "type": "boolean", "default": true },
+        "max_rows": { "type": "integer", "minimum": 1 },
+        "max_items": { "type": "integer", "minimum": 1, "description": "media_grid only." },
+        "bucket_minutes": { "type": "number", "exclusiveMinimum": 0, "default": 5, "description": "timeline only." },
+        "max_buckets": { "type": "integer", "minimum": 1, "default": 48, "description": "timeline only." }
+      },
+      "additionalProperties": false
+    }
+  }
+}

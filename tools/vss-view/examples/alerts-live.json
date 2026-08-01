@@ -1,0 +1,70 @@
+{
+  "title": "Real-time alerts",
+  "subtitle": "Alert Bridge realtime incident store — Dock A, last 60 minutes",
+  "slug": "vss-alerts",
+  "theme": "dark",
+  "source_note": "alerts profile @ 10.86.16.194",
+  "blocks": [
+    {
+      "type": "summary",
+      "source": {
+        "mode": "poll",
+        "url": "http://10.86.16.194:7777/alert-bridge/api/v1/realtime/incidents",
+        "params": { "limit": 200 },
+        "items_path": "incidents",
+        "id_path": "id",
+        "interval_ms": 5000
+      },
+      "items": [
+        { "label": "Total matches", "value_path": "total" },
+        { "label": "On this page", "count_of": "items" },
+        { "label": "Window", "value": "60 min", "sub": "rolling" }
+      ]
+    },
+    {
+      "type": "timeline",
+      "title": "Incidents per 5 minutes",
+      "bucket_minutes": 5,
+      "max_buckets": 12,
+      "fields": { "time": "timestamp" },
+      "source": {
+        "mode": "poll",
+        "url": "http://10.86.16.194:7777/alert-bridge/api/v1/realtime/incidents",
+        "params": { "limit": 200 },
+        "items_path": "incidents",
+        "id_path": "id",
+        "interval_ms": 5000
+      }
+    },
+    {
+      "type": "incident_list",
+      "title": "Incidents",
+      "columns": ["time", "sensor", "category", "description", "verdict", "media"],
+      "newest_first": true,
+      "max_rows": 50,
+      "empty_text": "No incidents in this window.",
+      "fields": {
+        "time": "timestamp",
+        "sensor": "sensor_id",
+        "category": "category",
+        "description": "description",
+        "reasoning": "info.reasoning",
+        "verdict": "info.verdict",
+        "thumbnail": "info.imagePath",
+        "clip": "info.videoPath"
+      },
+      "sensor_names": {
+        "cc06804c-7f11-4865-bb00-6b2db072086f": "Dock A",
+        "3f1a9d22-55e0-4b71-9a03-7c4f2e8b1d90": "Dock B"
+      },
+      "source": {
+        "mode": "poll",
+        "url": "http://10.86.16.194:7777/alert-bridge/api/v1/realtime/incidents",
+        "params": { "limit": 200 },
+        "items_path": "incidents",
+        "id_path": "id",
+        "interval_ms": 5000
+      }
+    }
+  ]
+}

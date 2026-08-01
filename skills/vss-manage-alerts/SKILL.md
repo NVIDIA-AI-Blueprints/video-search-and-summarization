@@ -318,6 +318,12 @@ Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count",
 
 CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in their `info` block; VLM real-time incidents have no separate verdict (the trigger is itself a Yes/No answer). Verdict table, result inspection, and verifier-prompt rules → **Workflow B** / `references/verification.md`.
 
+### Optional — render a browsable view
+
+When the user asks to **see / show / watch / monitor** incidents, or the result set is big enough that a table beats prose (≳10 incidents), also render a read-only HTML view with `tools/vss-view` → **`references/view-artifacts.md`**. "Watch / monitor / real-time" phrasings get a live page that re-polls this same endpoint; "what happened" and shareable asks get a static one.
+
+This **never replaces the answer** — report the incidents in the reply as usual, then give the file path. Skip it entirely when `incidents` came back empty (report "none found" and stop) or when the ask is a one-line factual question. The page is view-only; rule create/stop stays in Workflow D.
+
 ---
 
 ## Cross-Skill Links
@@ -329,6 +335,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 | Time-range incident / occupancy / PPE metrics from Elasticsearch | **`vss-query-analytics`** (VA-MCP :9901) |
 | Detailed incident report from an alert | **`vss-generate-video-report`** |
 | Subscriptions / Slack sub-workflows | `references/alert-subscriptions.md`, `references/alert-notify.md` (code in `scripts/alert-notify/`) |
+| Browsable / live incident view | `references/view-artifacts.md` (renderer in `tools/vss-view/`) |
 
 ---
 
