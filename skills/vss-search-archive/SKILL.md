@@ -339,10 +339,16 @@ verification. Never port-forward Elasticsearch for this check.
      is the final action for that request.
 
 3. Preserve the requested object/action, source, time bounds, result limit, and
-   attributes, and decompose them into explicit CLI fields using
-   [Query decomposition](references/query_decomposition.md). Pick the path:
-   `--query` only → `run embed`; `--attribute` only → `run attribute`; both →
-   `run fusion`; explicit object ids → `run object`.
+   attributes as explicit CLI fields. Pick the path: `--query` only →
+   `run embed`; `--attribute` only → `run attribute`; both → `run fusion`;
+   explicit object ids → `run object`.
+
+   `--attribute` takes specific, visually detectable properties — `white
+   jacket`, `red hard hat`, `carrying a backpack`. Generic nouns and actions
+   (`person`, `forklift`, `running`) are not attribute filters; leave those in
+   `--query`. For "red forklift" keep the whole phrase as the query rather than
+   splitting `red` into an attribute. For "person in a red jacket running", use
+   `run fusion --query "person in a red jacket running" --attribute "red jacket"`.
 4. Run the search. The CLI validates named sources against the deployment's VST
    listing before querying ES. See [CLI usage](references/cli_usage.md) for the
    full flag reference. Put the complete invocation in a `SEARCH_COMMAND` array,
