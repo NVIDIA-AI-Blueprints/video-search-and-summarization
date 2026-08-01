@@ -231,3 +231,24 @@ def test_library_errors_map_to_exit_codes() -> None:
     assert _exit_for(ConfigurationError("bad")) == Exit.CONFIGURATION
     # anything unrecognised propagates rather than being flattened to one code
     assert _exit_for(RuntimeError("?")) is None
+
+
+def test_configure_warns_when_elasticsearch_holds_no_search_indices(tmp_path, monkeypatch) -> None:
+    """Indices come from ingestion, not deployment.
+
+    Configuring a freshly deployed stack records zero indices and the record
+    stays empty until someone re-runs, while search still appears to work
+    because the runtime falls back to built-in index names. An eval spent 90
+    minutes before a readiness check read no indexes out of a config that
+    looked fine.
+    """
+    from vss_cli import configure as configure_mod
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+    monkeypatch.setattr(configure_mod, "_probe", lambda *_a, **_k: (True, "HTTP 200"))
+    monkeypatch.setattr(configure_mod, "_describe", lambda *_a, **_k: [])
+
+    result = CliRunner().invoke(configure_mod.configure, ["--base-url", "http://h:7777"])
+    assert result.exit_code == 0, result.output
+    assert "no mdx-* search indices yet" in result.output
+    assert "re-run this command after ingesting" in result.output

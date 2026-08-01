@@ -131,6 +131,22 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     path = config_mod.save(deployment)
     click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
 
+    # What this file records about Elasticsearch is a snapshot, and indices are
+    # created by ingestion rather than by deployment. Configuring a freshly
+    # deployed stack therefore records zero indices, and the record stays empty
+    # until someone re-runs this -- while search still appears to work, because
+    # the runtime falls back to its built-in index names. Say so, rather than
+    # leaving a caller to discover it when a readiness check reads no indices
+    # out of a config that looks fine.
+    es = services.get("elasticsearch")
+    if es is not None and not [i for i in es.indices if i.startswith("mdx-")]:
+        click.echo(
+            "note: elasticsearch is routed but holds no mdx-* search indices yet. "
+            "They are created by ingestion, so re-run this command after ingesting "
+            "video and before searching, or the recorded index list stays empty.",
+            err=True,
+        )
+
 
 @configure.command("show")
 def show() -> None:

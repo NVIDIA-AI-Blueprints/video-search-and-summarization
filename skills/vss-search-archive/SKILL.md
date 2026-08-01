@@ -69,7 +69,15 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
 ```
 
 Prints one line per route (`routed` / `absent`); exits non-zero if none
-answered. Re-run after any deployment change.
+answered.
+
+**Re-run it after ingestion, before any readiness check or search.** The
+recorded index list is a snapshot, and `mdx-*` indices are created by ingestion,
+not by deployment — so configuring a fresh stack records none, and the record
+stays empty until you re-run. Search still appears to work (the runtime falls
+back to built-in index names) while `vss configure show` reports no indexes and
+frame-level lookups are silently disabled. `vss configure` warns when it records
+an Elasticsearch with no `mdx-*` indices; treat that as "ingest, then re-run".
 
 - `vss configure check` — re-probe a recorded config; exits 3 if a service went away.
 - `vss configure show` — print the recorded deployment. Authoritative for index
@@ -210,9 +218,10 @@ behavior identifier, and raw identifier are textually identical. RTVI-CV
 registration is asynchronous, so `/complete` alone does not prove those two
 indexes are ready.
 
-Read the endpoints and all three indexes from the recorded deployment. Never
-reuse `ELASTIC_SEARCH_INDEX` for behavior or raw-data checks: it names only the
-video embedding index.
+Read the endpoints and all three indexes from the recorded deployment. Re-run
+`vss configure` first if anything has been ingested since it last ran, or this
+resolver reads an empty index list. Never reuse `ELASTIC_SEARCH_INDEX` for
+behavior or raw-data checks: it names only the video embedding index.
 
 ```bash
 CONFIG_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
