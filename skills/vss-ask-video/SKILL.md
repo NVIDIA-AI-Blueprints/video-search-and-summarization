@@ -191,31 +191,51 @@ Then go straight to Step 2 — **skip the Sensor check**.
 
 ### Path B — resolve from VST/VIOS (optional)
 
-> **Hard rule — on Path B the clip URL MUST come from VST.** When the source is a VST
-> sensor/`streamId`, obtain the clip via the `/url` GET below and bind its `videoUrl` to
-> `VIDEO_URL`. Do **not** skip this by inlining a local copy as base64 — that bypasses VST.
+> **Hard rule — a question that names a sensor is Path B, and the clip URL MUST come from VST.**
+> When the question references a VST sensor/`streamId` (e.g. `warehouse_safety_0001`), obtain the
+> clip via the `/url` GET below and bind its `videoUrl` to `VIDEO_URL` — **even if a local copy of
+> the same video exists**. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
 > Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `videoUrl`.
 > Applies even to temporal questions ("at what timestamp…").
 
-When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage` to:
+When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage`: confirm the
+named `<sensor-id>` exists (the *Sensor check* above — required on this path), then run the block
+below **verbatim**. It reads the recorded range from `/timelines` and passes it to `/url` in one
+go, so the two required parameters cannot be dropped or invented: a bare `/url` returns an **empty
+body**, and a window that is not in the recording returns `VMSNoDataError`.
 
-1. Confirm the named `<sensor-id>` exists (handled by the *Sensor check* above — required on
-   this path).
-2. **Always fetch `/storage/<streamId>/timelines` first** to obtain a valid recorded range —
-   you need concrete `startTime`/`endTime` values for the next call. Do this even when the user
-   did not name a specific segment (use the full returned range in that case).
-3. Request a clip URL. **`startTime` and `endTime` are required** — the `/url` endpoint returns
-   an **empty body** when they are omitted, so always pass the range from step 2 (default to the
-   full recorded range when the user did not ask about a specific window):
-
-   ```bash
-   curl -s "${VST_API_BASE}/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
-   ```
-
-   Bind the result to `VIDEO_URL` (a direct `mp4` URL), set `VST_SOURCED=1` (marks this run as
-   Path B), and capture `CLIP_SECONDS` (endTime − startTime; default `15`). **If the `/url` call
-   returns empty, re-fetch timelines and pass `startTime`/`endTime`; do not fall back to a local
-   file or base64 on this path.**
+```bash
+SENSOR_NAME='<the sensor id / filename stem the question named>'
+_VST="${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}"
+# Resolve the streamId every time — a later question is a fresh run with no STREAM_ID in hand, and
+# sensor/list carries sensorId + name but NOT streamId, so read it from the sensor's streams.
+if [ -z "${STREAM_ID:-}" ]; then
+  _SID="$(curl -sf "${_VST}/sensor/list" | jq -r --arg n "$SENSOR_NAME" 'map(select(.name==$n))[0].sensorId // empty' 2>/dev/null)"
+  [ -n "$_SID" ] || { echo "no sensor named '${SENSOR_NAME}' — upload it first (Sensor check), do NOT answer from a local copy"; exit 1; }
+  STREAM_ID="$(curl -sf "${_VST}/sensor/${_SID}/streams" | jq -r '(if type=="array" then (map(select(.isMain)) + .)[0].streamId else .streamId end) // empty' 2>/dev/null)"
+  [ -n "$STREAM_ID" ] || { echo "sensor '${SENSOR_NAME}' has no stream, do NOT answer from a local copy"; exit 1; }
+fi
+for _ in $(seq 1 15); do          # timelines populate asynchronously after an upload
+  TL="$(curl -sf "${_VST}/storage/${STREAM_ID}/timelines" || echo '')"
+  [ "$(printf '%s' "${TL:-[]}" | jq -r 'if type=="array" then length else 0 end' 2>/dev/null)" -gt 0 ] && break
+  sleep 2
+done
+# Take BOTH ends from one segment: /url rejects a window that spans a gap (VMSInternalError).
+START="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].startTime // empty' 2>/dev/null)"
+END="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].endTime // empty' 2>/dev/null)"
+[ -n "$START" ] && [ -n "$END" ] || { echo "no VST timeline for ${STREAM_ID} — do NOT guess a window and do NOT answer from a local copy"; exit 1; }
+VIDEO_URL="$(curl -sf "${_VST}/storage/file/${STREAM_ID}/url?startTime=${START}&endTime=${END}&container=mp4&disableAudio=true" | jq -r '.videoUrl // empty')"
+[ -n "$VIDEO_URL" ] || { echo "empty videoUrl — do NOT fall back to base64/local file on Path B"; exit 1; }
+# VIOS /url may hand back a doubled scheme, a bare /storage path, or a localhost host that does not
+# reach VST from inside the VLM's container. Reduce to a path and restore the VIOS route — the same
+# compat mapping /vss-generate-video-report applies, so this holds on Kubernetes and Docker alike.
+CLIP_PATH="${VIDEO_URL#*://}"; CLIP_PATH="${CLIP_PATH#*://}"
+case "$CLIP_PATH" in /*) ;; *) CLIP_PATH="/${CLIP_PATH#*/}" ;; esac
+VIDEO_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}${CLIP_PATH#/vst}"
+for _ in 1 2 3; do curl -sf -o /dev/null --max-time 60 "$VIDEO_URL" && break || sleep 3; done  # warm the lazy render (GET; HEAD 404s)
+VST_SOURCED=1                     # marks this run as Path B
+CLIP_SECONDS="${CLIP_SECONDS:-15}"   # endTime − startTime; default 15
+```
 
 Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
 target VLM — **Step 3 picks the right upload format**. A **local / in-cluster** VLM can usually
@@ -419,6 +439,23 @@ NIM under-samples the inline MP4 and can return a confident but wrong descriptio
 `cosmos-reason2-8b`). Read the live `video_understanding` settings if the `vss-agent` container is
 up, else use the documented defaults.
 
+> **Which backend is this?** Any model id containing `cosmos` reached as a **direct/base NIM**
+> endpoint is NIM Cosmos and needs these fields. An `nim_nvidia_…_bf16` / `_hf`-style id (e.g.
+> `nim_nvidia_cosmos3-nano-reasoner_bf16-final`) does **not** make it RT-VLM: RT-VLM is decided by
+> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM genuinely
+> does not need them — it preprocesses server-side.
+>
+> **Run the `curl` below verbatim rather than hand-writing your own**, and answer a second or
+> follow-up question by re-running the same block with a new `USER_QUESTION` / `UPLOAD_FORMAT`.
+> Hand-built requests keep omitting these fields on the `video_url` path. If you must construct one
+> yourself, pick the shape matching the model and always include the `num_frames` entry:
+>
+> ```json
+> "mm_processor_kwargs": {"size": {"shortest_edge": 3136, "longest_edge": 8388608}}      // cosmos-reason2
+> "mm_processor_kwargs": {"videos_kwargs": {"min_pixels": 3136, "max_pixels": 8388608}}  // other cosmos (reason1, reason3/cosmos3)
+> "media_io_kwargs": {"video": {"num_frames": <NUM_FRAMES>}}                             // both shapes
+> ```
+
 ```bash
 USER_QUESTION='<the user's question, verbatim>'
 
@@ -512,8 +549,14 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] |
     *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
     *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
   esac
+  # Cosmos needs these; other NIMs (e.g. Qwen) do not — so enforce only for cosmos ids, and fail loud.
+  case "$VLM_MODEL" in
+    *cosmos*) [ -n "$MM_KWARGS" ] || { echo "cosmos model '${VLM_MODEL}' needs mm_processor_kwargs/media_io_kwargs but none were built — refusing to send an under-sampling request"; exit 1; } ;;
+  esac
 fi
 
+# Send THIS body for both formats. Do not write a separate minimal video_url curl — hand-built
+# video_url requests keep dropping ${MM_KWARGS}, which under-samples the clip on NIM Cosmos.
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
