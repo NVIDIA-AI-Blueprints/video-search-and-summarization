@@ -6,10 +6,10 @@
 - [Cache-preserving teardown](#cache-preserving-teardown--explicit-opt-in)
 - [Bind-mounted data cleanup](#bind-mounted-data-cleanup)
 
-Always tear down **by project name** — every profile's `.env` sets
-`COMPOSE_PROJECT_NAME=mdx`, so the whole stack is labeled `mdx`. A plain
+Always tear down **by project name**. Profiles default `COMPOSE_PROJECT_NAME`
+to `vss`, and users may change it to run multiple stacks on one host. A plain
 `docker compose down` leaves named volumes and the project network behind, so
-target the `mdx` project and pass `-v --remove-orphans`.
+target the selected project and pass `-v --remove-orphans`.
 
 The default removes all project volumes, including model caches. Use the
 cache-preserving path only when the user explicitly asks to keep model caches.
@@ -22,16 +22,17 @@ multi-GB NIM/RTVI model caches).
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
-docker compose -p mdx -f "$BUILD_DIR/resolved.yml" \
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+docker compose -p "${COMPOSE_PROJECT_NAME}" -f "$BUILD_DIR/resolved.yml" \
   down -v --remove-orphans
 
 # Remove same-project volumes left by an older resolved model.
 docker volume ls -q \
-  --filter label=com.docker.compose.project=mdx \
+  --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
   | xargs -r docker volume rm
 ```
 
-- **`-p mdx`** targets the shared VSS project. `--remove-orphans` also removes
+- **`-p "${COMPOSE_PROJECT_NAME}"`** targets the selected VSS project. `--remove-orphans` also removes
   same-project containers omitted from the current `resolved.yml`.
 - **`-f "$BUILD_DIR/resolved.yml"`** supplies the exact deployed Compose model;
   project name alone is not a Compose configuration.
@@ -39,7 +40,7 @@ docker volume ls -q \
   **and** NIM/RTVI model caches all survive.
 - **`--remove-orphans`** frees the project network from leftover or host-networked
   containers so the network is deleted too.
-- The label-filtered sweep removes only volumes owned by the `mdx` Compose
+- The label-filtered sweep removes only volumes owned by the selected Compose
   project; never sweep every dangling volume on the host.
 
 `-v` drops NIM/RTVI model caches (multi-GB re-download next deploy). To keep them
@@ -68,14 +69,15 @@ verification → alerts real-time). Compose profile flags only start selected
 services; they do not stop services from a previous deployment.
 
 ```bash
-# Tear down by the shared mdx project name. This catches every
-# mdx-labeled container/network
-# regardless of which resolved.yml is on disk. NO -v here — the cache-preserving
+# Tear down by the selected project name. This catches every
+# same-project container/network regardless of which resolved.yml is on disk.
+# NO -v here — the cache-preserving
 # path keeps NIM/RTVI model caches; stale DATA volumes are removed explicitly
 # below. --remove-orphans frees + deletes the project network.
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
-docker compose -p mdx -f "$BUILD_DIR/resolved.yml" \
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+docker compose -p "${COMPOSE_PROJECT_NAME}" -f "$BUILD_DIR/resolved.yml" \
   down --remove-orphans
 
 # Catch-all: remove every VSS-stack container the dev-profile compose
@@ -93,17 +95,17 @@ docker ps -a --format '{{.Names}}' \
   | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-|sensor-ms-|vst-ingress-|vst-mcp-|vst-file-proxy|centralizedb-|storage-ms-|streamprocessing-ms-|sdr-(http|streamprocessing)-|envoy-(http|streamprocessing)-|rtspserver-ms-|recorder-ms-|replaystream-ms-|livestream-ms-|metropolis-vss-ui|phoenix)' \
   | xargs -r docker rm -f
 
-# `down --remove-orphans` already deletes the project network (mdx_default).
-# Remove it explicitly only as a belt-and-suspenders, by EXACT name — `-f name=mdx`
-# is a substring match and would also catch unrelated *mdx* networks.
-docker network rm mdx_default 2>/dev/null || true
+# `down --remove-orphans` already deletes the project network (${COMPOSE_PROJECT_NAME}_default).
+# Remove it explicitly only as a belt-and-suspenders, by EXACT name — `-f name=...`
+# is a substring match and could catch unrelated networks.
+docker network rm "${COMPOSE_PROJECT_NAME}_default" 2>/dev/null || true
 
 # `down` (no -v) also leaves every named volume. Remove the stale DATA volumes
 # that poison a fresh deploy — ES indices, Kafka offsets, Postgres, logstash
 # libs, nvstreamer recordings — while KEEPING model caches (rtvi-*, *_cache).
 # Names are <project>_<vol>; match on the volume-name suffix.
 docker volume ls -q \
-  --filter label=com.docker.compose.project=mdx \
+  --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
   | grep -E '(mdx-elastic-(data|logs)|mdx-kafka|mdx-logstash-libs|phoenix-data|vios_pg_data|mdx-nvstreamer-(data|videos))$' \
   | xargs -r docker volume rm
 ```

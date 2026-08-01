@@ -638,7 +638,7 @@ These steps are required on any Brev-provisioned instance and are not covered by
 
 **UFW — allow Docker bridge networks to reach host services**
 
-`vss-rtvi-vlm` runs on the Docker bridge network (`mdx_default`, subnet `172.18.0.0/16`) and needs to reach host-network services (HAProxy, VST). UFW blocks this by default:
+`vss-rtvi-vlm` runs on the Compose Docker bridge (`<project>_default`, default `vss_default`; commonly subnet `172.18.0.0/16`) and needs to reach host-network services (HAProxy, VST). UFW blocks this by default:
 
 ```bash
 sudo ufw allow from 172.17.0.0/16
