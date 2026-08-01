@@ -678,6 +678,23 @@ ${VSS} search run object --object-id 42 --top-k 3 --raw
 ${VSS} search run embed --query "red forklift" --no-merge-adjacent --raw
 ```
 
+Strategies, all on the same four paths:
+
+```bash
+# Wide net — recall over precision, then refine from what surfaces
+${VSS} search run embed --query "unusual activity" --top-k 100 --min-cosine-similarity -1 --raw
+
+# Narrow to a known incident — scope by source and time
+${VSS} search run embed --query "person at entrance" --video-source entrance-camera \
+  --timestamp-start 2025-01-01T14:00:00 --timestamp-end 2025-01-01T15:00:00 --raw
+
+# High precision — raise the bar
+${VSS} search run embed --query "red forklift" --min-cosine-similarity 0.3 --top-k 5 --raw
+
+# Filter by camera metadata (only when cameras carry location/category tags)
+${VSS} search run embed --query "person running" --description "parking lot" --raw
+```
+
 ## Troubleshooting
 
 - **Host CLI preflight fails**: preserve the output from
@@ -708,6 +725,9 @@ ${VSS} search run embed --query "red forklift" --no-merge-adjacent --raw
   `ELASTIC_SEARCH_INDEX`.
 - **Gotcha:** `vss configure check` probes *routes*, not indexes. A deployment
   can pass `check` while the indexes it recorded have since been deleted.
+- **Embed model unavailable**: re-run `vss configure`; the model id is read from
+  RT-Embed's own list, never guessed. If it is still missing, the service is
+  down — that is a deployment problem, not a search one.
 - **Visual verification needs an authenticated media route**: stop and use the
   operator-managed route. Never copy API keys into CLI flags, generated files,
   logs, or skill output.
