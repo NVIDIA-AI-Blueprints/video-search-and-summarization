@@ -6590,6 +6590,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             / "references"
             / "deploy-behavior-analytics-service.md"
         ).read_text(encoding="utf-8")
+        integration_reference = (
+            REPO_ROOT
+            / "skills"
+            / "vss-setup-behavior-analytics"
+            / "references"
+            / "integrate-behavior-analytics-service.md"
+        ).read_text(encoding="utf-8")
         config = json.loads(
             (
                 REPO_ROOT
@@ -6610,6 +6617,35 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         checks = eval_spec["expects"][0]["checks"]
+        roi_eval_spec = json.loads(
+            (
+                REPO_ROOT
+                / "skills"
+                / "vss-setup-behavior-analytics"
+                / "evals"
+                / "roi_bbox_overlap.json"
+            ).read_text(encoding="utf-8")
+        )
+        roi_checks = roi_eval_spec["expects"][0]["checks"]
+        roi_entrypoint_check = roi_checks[1]
+        fov_checks = json.loads(
+            (
+                REPO_ROOT
+                / "skills"
+                / "vss-setup-behavior-analytics"
+                / "evals"
+                / "fov_count_alert.json"
+            ).read_text(encoding="utf-8")
+        )["expects"][0]["checks"]
+        proximity_checks = json.loads(
+            (
+                REPO_ROOT
+                / "skills"
+                / "vss-setup-behavior-analytics"
+                / "evals"
+                / "proximity_alert.json"
+            ).read_text(encoding="utf-8")
+        )["expects"][0]["checks"]
         workers = {
             item["name"]: int(item["value"])
             for item in config["app"]
@@ -6666,6 +6702,45 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("test -f \"$config_src\"", checks[2])
         self.assertIn("do not evaluate any other mounted config", checks[2])
         self.assertNotIn("/resources/*config.json", checks[2])
+        self.assertNotIn("without ROI / tripwire events", reference)
+        self.assertIn("including ROI / tripwire events", reference)
+        self.assertIn("main_search_and_alerts_app.py", roi_entrypoint_check)
+        self.assertIn("main_composite_app.py", roi_entrypoint_check)
+        self.assertNotIn("must NOT be main_search_and_alerts_app.py", roi_entrypoint_check)
+        self.assertIn("grep -qx vss-behavior-analytics", roi_checks[0])
+        self.assertIn("docker inspect vss-behavior-analytics", roi_entrypoint_check)
+        self.assertIn("select(.Destination == $dest)", roi_checks[2])
+        self.assertIn("roiEventDetectionMode", roi_checks[2])
+        self.assertIn("numWorkersForBehaviorCreation", roi_checks[2])
+        self.assertIn("last // 0) > 0", roi_checks[2])
+        self.assertIn('select(.name == "sinkType")', roi_checks[2])
+        self.assertIn(".redisStream.streams", roi_checks[2])
+        self.assertIn('any($destinations[]?; .name == "events"', roi_checks[2])
+        self.assertNotIn("Could not find a kafka topic with key", integration_reference)
+        self.assertIn(
+            "No destination configured for '<key>'; output for it is disabled",
+            integration_reference,
+        )
+        self.assertIn("Configured topics must be pre-created", integration_reference)
+        self.assertIn('`"geo"` | `CalibrationG`', reference)
+        self.assertNotIn('`"geo"` | `Calibration` |', reference)
+        self.assertIn("apps/composite/main_composite_app.py", reference)
+        self.assertIn("configs/composite_config.json", reference)
+        self.assertIn("apps/composite/main_composite_app.py", integration_reference)
+        for scenario_checks in (fov_checks, proximity_checks):
+            self.assertIn("grep -qx vss-behavior-analytics", scenario_checks[0])
+            self.assertTrue(any("main_composite_app.py" in check for check in scenario_checks))
+            self.assertTrue(
+                any("docker inspect vss-behavior-analytics" in check for check in scenario_checks)
+            )
+            self.assertTrue(any("select(.Destination == $dest)" in check for check in scenario_checks))
+            self.assertTrue(any("numWorkersForFrameEnhancement" in check for check in scenario_checks))
+            self.assertTrue(any("--arg app \"$app\"" in check for check in scenario_checks))
+            self.assertTrue(
+                any('if $app == "main_search_and_alerts_app.py"' in check for check in scenario_checks)
+            )
+            self.assertTrue(any('.name == "incidents"' in check for check in scenario_checks))
+            self.assertFalse(any("/resources/*config.json" in check for check in scenario_checks))
 
     def test_manual_single_skill_matrix_uses_representative_row_by_default(self):
         previous_env = {

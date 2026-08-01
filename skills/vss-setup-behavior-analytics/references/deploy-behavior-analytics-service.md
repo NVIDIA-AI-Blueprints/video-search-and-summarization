@@ -160,14 +160,14 @@ The type is encoded in the calibration JSON itself, on the top-level `calibratio
 | `calibrationType` | Class | What it does |
 |---|---|---|
 | `"cartesian"` | `CalibrationE` | **Typical for warehouse / smart-city.** Maps image-plane coordinates (pixels) to real-world Cartesian metres via the per-sensor homography (`imageCoordinates[]` ↔ `globalCoordinates[]`). All downstream behavior creation, ROI / tripwire / proximity / space-analytics math is in metres. **Recommended starting point.** |
-| `"geo"` | `Calibration` | Maps image coordinates to geographic lat/lng. Use when sensors are placed against a real map (OSM, GIS) and you want behaviors / events anchored to GPS. |
+| `"geo"` | `CalibrationG` | Maps image coordinates to geographic lat/lng. Use when sensors are placed against a real map (OSM, GIS) and you want behaviors / events anchored to GPS. |
 | `"image"` | `CalibrationI` | No real-world mapping — keeps coordinates in raw pixel space. The downstream pipeline still runs, but distance / speed / area numbers are in pixels, not metres, and most metric-based incident thresholds become meaningless. |
 
 ### What happens if you skip calibration
 
 Don't add a `--calibration` flag and don't mount one. The app starts with a `DynamicCalibration` wrapper that initially behaves as `CalibrationI` (image-plane). It then:
 
-1. **Watches `mdx-notification`** for the first `calibrationType` notification. When one arrives, the wrapper switches itself to the typed subclass (`CalibrationE` / `Calibration` / `CalibrationI`) inferred from the payload's `calibrationType`. After the switch, all subsequent updates go through the typed instance via the same Kafka flow.
+1. **Watches `mdx-notification`** for the first `calibrationType` notification. When one arrives, the wrapper switches itself to the typed subclass (`CalibrationE` / `CalibrationG` / `CalibrationI`) inferred from the payload's `calibrationType`. After the switch, all subsequent updates go through the typed instance via the same Kafka flow.
 2. **Until that first notification arrives**, frames are processed with image-plane coordinates — effectively a no-op for analytics (no real-world distances, no ROI/tripwire firings against a map). If you don't intend to wire a producer for dynamic calibration, supply a static calibration file instead.
 
 ### Pick a calibration source
