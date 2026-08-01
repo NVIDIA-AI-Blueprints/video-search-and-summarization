@@ -1996,6 +1996,107 @@ else
 fi
 rm -f "${out_file}" "${err_file}"
 
+# --- Positive: dry-run down honors COMPOSE_PROJECT_NAME from persisted env state ---
+_custom_project_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/overrides.env"
+if [[ -f "${_custom_project_overrides}" ]]; then
+  _custom_project_backup="$(mktemp)"
+  cp "${_custom_project_overrides}" "${_custom_project_backup}"
+  CLEANUP_RESTORES+=("${_custom_project_backup}|${_custom_project_overrides}")
+  sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-custom-test/' "${_custom_project_overrides}"
+  _custom_project_generated_backups=()
+  for _custom_project_profile in base lvs search alerts; do
+    _custom_project_generated="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_custom_project_profile}/generated.env"
+    if [[ -f "${_custom_project_generated}" ]]; then
+      _custom_project_generated_backup="$(mktemp)"
+      cp "${_custom_project_generated}" "${_custom_project_generated_backup}"
+      CLEANUP_RESTORES+=("${_custom_project_generated_backup}|${_custom_project_generated}")
+      _custom_project_generated_backups+=("${_custom_project_generated_backup}|${_custom_project_generated}")
+      if grep -q '^COMPOSE_PROJECT_NAME=' "${_custom_project_generated}"; then
+        sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-custom-test/' "${_custom_project_generated}"
+      else
+        printf '\nCOMPOSE_PROJECT_NAME=vss-custom-test\n' >> "${_custom_project_generated}"
+      fi
+    fi
+  done
+
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" down --dry-run > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  mv "${_custom_project_backup}" "${_custom_project_overrides}"
+  for _custom_project_restore in "${_custom_project_generated_backups[@]}"; do
+    IFS='|' read -r _custom_project_generated_backup _custom_project_generated <<< "${_custom_project_restore}"
+    [[ -f "${_custom_project_generated_backup}" ]] && mv "${_custom_project_generated_backup}" "${_custom_project_generated}"
+  done
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (timed out after ${TEST_TIMEOUT}s)"
+    ((TESTS_FAILED++)) || true
+  elif [[ ${exit_code} -ne 0 ]]; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (expected exit 0, got ${exit_code})"
+    cat "${out_file}" "${err_file}" | sed 's/^/    /'
+    ((TESTS_FAILED++)) || true
+  elif ! grep -Fq "[DRY-RUN] docker compose -p vss-custom-test down -v --remove-orphans" "${out_file}"; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (stdout missing custom project down command)"
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: down dry-run honors custom COMPOSE_PROJECT_NAME"
+    ((TESTS_PASSED++)) || true
+  fi
+  rm -f "${out_file}" "${err_file}"
+else
+  echo "SKIP: down dry-run honors custom COMPOSE_PROJECT_NAME (base overrides.env not found)"
+fi
+
+# --- Positive: warehouse down dry-run honors COMPOSE_PROJECT_NAME from env files ---
+_warehouse_project_overrides="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
+_warehouse_project_generated="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+if [[ -f "${_warehouse_project_overrides}" ]]; then
+  _warehouse_project_backup="$(mktemp)"
+  cp "${_warehouse_project_overrides}" "${_warehouse_project_backup}"
+  CLEANUP_RESTORES+=("${_warehouse_project_backup}|${_warehouse_project_overrides}")
+  sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-warehouse-custom-test/' "${_warehouse_project_overrides}"
+
+  _warehouse_generated_backup=""
+  if [[ -f "${_warehouse_project_generated}" ]]; then
+    _warehouse_generated_backup="$(mktemp)"
+    cp "${_warehouse_project_generated}" "${_warehouse_generated_backup}"
+    CLEANUP_RESTORES+=("${_warehouse_generated_backup}|${_warehouse_project_generated}")
+    sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-warehouse-custom-test/' "${_warehouse_project_generated}"
+  fi
+
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  timeout "${TEST_TIMEOUT}" "$BLUEPRINT_DEPLOY" down -D "${REPO_ROOT}/deploy/docker/data-dir" --dry-run > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  mv "${_warehouse_project_backup}" "${_warehouse_project_overrides}"
+  if [[ -n "${_warehouse_generated_backup}" && -f "${_warehouse_generated_backup}" ]]; then
+    mv "${_warehouse_generated_backup}" "${_warehouse_project_generated}"
+  fi
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (timed out after ${TEST_TIMEOUT}s)"
+    ((TESTS_FAILED++)) || true
+  elif [[ ${exit_code} -ne 0 ]]; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (expected exit 0, got ${exit_code})"
+    cat "${out_file}" "${err_file}" | sed 's/^/    /'
+    ((TESTS_FAILED++)) || true
+  elif ! grep -Fq "[DRY-RUN] docker compose -p vss-warehouse-custom-test down -v --remove-orphans" "${out_file}"; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (stdout missing custom project down command)"
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME"
+    ((TESTS_PASSED++)) || true
+  fi
+  rm -f "${out_file}" "${err_file}"
+else
+  echo "SKIP: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME (warehouse overrides.env not found)"
+fi
+
 # --- Summary ---
 echo ""
 echo "=========================================="
