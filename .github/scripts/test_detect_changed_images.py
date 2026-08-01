@@ -338,5 +338,67 @@ class SelectImagesTest(unittest.TestCase):
             dci.split_build_matrices(entries)
 
 
+
+BUILDABLE = [
+    {"name": "vss-agent", "source_path": "services/agent",
+     "strategy": "build", "ghcr_build": True},
+    {"name": "vss-agent-ui", "source_path": "services/ui",
+     "strategy": "build", "ghcr_build": True},
+]
+
+
+def _content_repo() -> Path:
+    root = Path(tempfile.mkdtemp())
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for path in ("services/agent", "services/ui"):
+        d = root / path
+        d.mkdir(parents=True)
+        (d / "f").write_text("x")
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "init"], check=True)
+    return root
+
+
+class ContentTagGapTest(unittest.TestCase):
+    """A path diff says the source did not change; it cannot say the content
+    tag was ever published. The post-merge retag sources from tree-<sha>, so a
+    missing one must pull the image back into the matrix."""
+
+    def test_missing_content_tag_is_added_to_the_matrix(self):
+        selected, added = dci.add_missing_content_tags(
+            BUILDABLE, [], _content_repo(), "HEAD",
+            lambda ref: "vss-agent:" not in ref, "Org")
+        self.assertEqual(added, ["vss-agent"])
+
+    def test_present_content_tag_is_not_added(self):
+        selected, added = dci.add_missing_content_tags(
+            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: True, "Org")
+        self.assertEqual(added, [])
+        self.assertEqual(selected, [])
+
+    def test_probe_failure_fails_open_to_building(self):
+        """Unknown must never look like 'already published'."""
+        _, added = dci.add_missing_content_tags(
+            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: None, "Org")
+        self.assertEqual(added, ["vss-agent", "vss-agent-ui"])
+
+    def test_already_selected_images_are_not_reprobed(self):
+        selected, added = dci.add_missing_content_tags(
+            BUILDABLE, [BUILDABLE[0]], _content_repo(), "HEAD",
+            lambda _ref: None, "Org")
+        self.assertEqual(added, ["vss-agent-ui"])
+        self.assertEqual(len(selected), 2)
+
+    def test_probe_reference_is_the_content_tag(self):
+        seen: list[str] = []
+        dci.add_missing_content_tags(
+            BUILDABLE[:1], [], _content_repo(), "HEAD",
+            lambda ref: seen.append(ref) or True, "Org")
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
