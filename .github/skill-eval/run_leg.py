@@ -1381,6 +1381,10 @@ def run_invocations(
                     spec_stem=spec_stem,
                     platform=platform,
                     step=invocation.step_index or 1,
+                    # Two chains of one leg can share a step index, and without
+                    # this they wrote the same trace file and the second
+                    # silently replaced the first.
+                    chain=str(invocation.chain_key or invocation.include_task_name or ""),
                     declared_gpu_count=declared_gpu_count,
                     skill=os.environ.get("EVAL_SKILL", ""),
                     harbor_timeout_sec=harbor_timeout_sec,

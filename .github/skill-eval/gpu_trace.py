@@ -99,6 +99,9 @@ ROW_RE = re.compile(
 # The recorded PID is remote-supplied text that gets interpolated into a shell
 # command. Anything but a bare positive integer is refused outright.
 PID_RE = re.compile(r"^[1-9][0-9]*$")
+# The remote directory comes back from `mktemp -d` and is then interpolated
+# into a shell command, so it is pinned to exactly the shape mktemp produces.
+DIR_RE = re.compile(r"^/tmp/vss-gputrace\.[A-Za-z0-9]{8}$")
 
 # Cap what a single fetch may return. Without a bound, a replaced or endless
 # source could exhaust the runner's memory before any exception handler helps.
@@ -116,6 +119,49 @@ EXEC_TIMEOUT_SEC = _int_env("EVAL_GPU_TRACE_EXEC_TIMEOUT", 120)
 # Slack over the harbor timeout before the remote `timeout` fires. The sampler
 # must outlive a normal leg but must not outlive a SIGKILLed one for long.
 HARD_STOP_SLACK_SEC = 600
+
+
+def _read_capped(proc: subprocess.Popen, deadline_sec: float) -> str:
+    """Read at most MAX_FETCH_BYTES, enforcing the bound WHILE reading.
+
+    `communicate()` buffers the whole stream and only then can it be sliced,
+    so the cap did nothing: a replaced or endless remote source grew the
+    runner's RSS without limit. Measured on a 32 MiB emit, maxrss grew 125 MB
+    against an 8 MiB "cap". An OOM-killed runner fails the leg, which is
+    exactly what this module promises never to do.
+    """
+    import select
+
+    chunks: list[str] = []
+    total = 0
+    end = time.monotonic() + deadline_sec
+    assert proc.stdout is not None
+    while True:
+        left = end - time.monotonic()
+        if left <= 0:
+            raise subprocess.TimeoutExpired(proc.args, deadline_sec)
+        # select(), not a bare read(). `read()` blocks, so a deadline checked
+        # at the top of the loop never fires on a hung remote and the "total
+        # deadline" is not a deadline at all.
+        ready, _, _ = select.select([proc.stdout], [], [], min(left, 1.0))
+        if not ready:
+            continue
+        chunk = proc.stdout.read1(65536) if hasattr(proc.stdout, "read1") \
+            else os.read(proc.stdout.fileno(), 65536).decode("utf-8", "replace")
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_FETCH_BYTES:
+            chunks.append(chunk[: MAX_FETCH_BYTES - (total - len(chunk))])
+            print(f"[gpu-trace] remote output exceeded {MAX_FETCH_BYTES} bytes; truncated",
+                  flush=True)
+            with contextlib.suppress(ProcessLookupError, OSError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            break
+        chunks.append(chunk)
+    with contextlib.suppress(Exception):
+        proc.wait(timeout=max(1.0, end - time.monotonic()))
+    return "".join(chunks)
 
 
 def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC) -> str | None:
@@ -153,7 +199,7 @@ def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC) -> str
         except OSError:
             continue
         try:
-            out, _ = proc.communicate(timeout=remaining)
+            out = _read_capped(proc, remaining)
         except subprocess.TimeoutExpired:
             with contextlib.suppress(ProcessLookupError, OSError):
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -167,11 +213,12 @@ def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC) -> str
             # command output; drop it so callers get only the payload.
             lines = [ln for ln in (out or "").splitlines()
                      if ln.strip() != instance]
-            return "\n".join(lines)[:MAX_FETCH_BYTES]
+            return "\n".join(lines)
     return None
 
 
-def _token(run_id: str, spec_stem: str, platform: str, step: int) -> str:
+def _token(run_id: str, spec_stem: str, platform: str, step: int,
+           chain: str = "") -> str:
     """Filename-safe, collision-free per-invocation marker.
 
     Includes the step index because a multi-step spec makes several harbor
@@ -184,7 +231,11 @@ def _token(run_id: str, spec_stem: str, platform: str, step: int) -> str:
     # The step suffix is appended AFTER truncation, never before. Truncating the
     # joined string lets a long spec name push `-stepN` off the end, so step 1
     # and step 2 collide and the second silently overwrites the first.
-    head = clean(f"{run_id}-{spec_stem}-{platform}")[:100]
+    # `chain` is load-bearing: discover_invocations() supports several chains
+    # per leg, and two chains sharing a step index produced the same token, so
+    # the second silently overwrote the first. Verified: four remote calls, one
+    # surviving file.
+    head = clean(f"{run_id}-{spec_stem}-{platform}-{chain}")[:100]
     return f"{head}-step{clean(step)}"
 
 
@@ -196,6 +247,7 @@ def trace(
     spec_stem: str = "",
     platform: str = "",
     step: int = 1,
+    chain: str = "",
     declared_gpu_count: int | None = None,
     skill: str = "",
     harbor_timeout_sec: int = 7800,
@@ -212,11 +264,11 @@ def trace(
         return
 
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    token = _token(run_id, spec_stem, platform, step)
-    remote_csv = f"/tmp/vss-gputrace/{token}.csv"
+    token = _token(run_id, spec_stem, platform, step, chain)
     started_at = time.time()
     pid: str | None = None
-    gpu_name = ""
+    remote_dir: str | None = None
+    remote_csv: str | None = None
 
     # The remote `timeout` is the load-bearing guarantee: if this process dies
     # without running the finally block, the sampler still exits on its own.
@@ -235,28 +287,46 @@ def trace(
     # and its stdout AND stderr are redirected so no descriptor keeps the pipe
     # open. `$!` is then genuinely `timeout`'s pid, and `timeout` forwards
     # SIGTERM to nvidia-smi.
+    #
+    # The output directory is created with `mktemp -d`, NOT at a path derived
+    # from the job identity. A predictable name under a world-writable /tmp is
+    # a file-clobbering primitive: shell `>` follows symlinks, so a pre-placed
+    # `<token>.csv -> ~/.ssh/authorized_keys` gets truncated. Verified in real
+    # bash: a victim file holding "KEEP-ME" was overwritten through exactly that
+    # redirect. `mktemp -d` also makes each invocation's directory unique, which
+    # removes the separate bug where two chains of one leg sharing a step index
+    # overwrote each other's trace.
+    #
+    # `set -C` (noclobber) is belt-and-braces inside that fresh directory: it
+    # refuses to write through an existing name at all.
     start_cmd = (
-        f"mkdir -p /tmp/vss-gputrace; "
+        f"set -C; d=$(mktemp -d /tmp/vss-gputrace.XXXXXXXX) || exit 0; "
+        f"echo DIR=$d; "
         f"nohup timeout -k 10 {hard_stop} nvidia-smi "
         f"--query-gpu={QUERY_FIELDS} --format=csv,noheader,nounits "
-        f"-l {INTERVAL_SEC} >{remote_csv} 2>/dev/null </dev/null & "
-        f"echo PID=$!; "
-        f"nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1"
+        f"-l {INTERVAL_SEC} >\"$d/trace.csv\" 2>/dev/null </dev/null & "
+        f"echo PID=$!"
     )
     try:
         out = _remote(instance, start_cmd)
+        # Only two prefixes are read, and both are validated. There is
+        # deliberately no free-form field: an earlier revision assigned every
+        # other line to `gpu_name` and published it in the sidecar, so anything
+        # the remote emitted in that position went straight into an uploaded
+        # artifact. ROW_RE guarded the CSV and nothing guarded the sidecar.
         if out:
             for line in out.splitlines():
                 if line.startswith("PID="):
-                    # Remote-supplied text that is about to be interpolated
-                    # into a shell command. A bare positive integer or nothing:
-                    # `PID=1; rm -rf ...` must not become a cleanup command,
-                    # and a stale/reused pid must not become a kill target.
+                    # About to be interpolated into a shell command, so a bare
+                    # positive integer or nothing: `PID=1; rm -rf ...` must not
+                    # become a cleanup command.
                     candidate = line.split("=", 1)[1].strip()
                     pid = candidate if PID_RE.match(candidate) else None
-                elif line.strip():
-                    gpu_name = line.strip()[:120]
-        if pid:
+                elif line.startswith("DIR="):
+                    candidate = line.split("=", 1)[1].strip()
+                    remote_dir = candidate if DIR_RE.match(candidate) else None
+        if pid and remote_dir:
+            remote_csv = f"{remote_dir}/trace.csv"
             print(f"[gpu-trace] sampling {instance} every {INTERVAL_SEC}s "
                   f"(pid {pid}, hard stop {hard_stop}s)", flush=True)
         else:
@@ -271,16 +341,17 @@ def trace(
         # Runs on success, failure, harbor timeout and KeyboardInterrupt. A
         # SIGKILL skips it, which is what the remote `timeout` covers.
         with contextlib.suppress(Exception):
-            _finish(instance, remote_csv, pid, results_root, token,
+            _finish(instance, remote_csv, remote_dir, pid, results_root, token,
                     run_id=run_id, skill=skill, spec_stem=spec_stem,
-                    platform=platform, step=step, gpu_name=gpu_name,
+                    platform=platform, step=step, chain=chain,
                     declared_gpu_count=declared_gpu_count,
                     started_at=started_at)
 
 
 def _finish(
     instance: str,
-    remote_csv: str,
+    remote_csv: str | None,
+    remote_dir: str | None,
     pid: str | None,
     results_root: Path,
     token: str,
@@ -290,9 +361,21 @@ def _finish(
     # `timeout` forwards SIGTERM to nvidia-smi, so killing its pid is enough.
     # The `rm` matters: `_reset_docker_runtime` does not clear /tmp, and an
     # unbounded pile of traces on a box that has been up six weeks is litter.
-    # `pid` is PID_RE-validated at capture, so it cannot carry shell syntax.
-    kill = f"kill {pid} 2>/dev/null; " if pid else ""
-    out = _remote(instance, f"{kill}sleep 1; cat {remote_csv} 2>/dev/null; rm -f {remote_csv}")
+    if not remote_dir or not remote_csv:
+        print(f"[gpu-trace] no remote trace directory for {instance}", flush=True)
+        return
+    # `pid` is PID_RE-validated at capture so it cannot carry shell syntax, but
+    # syntax is not identity: a sampler that exited early frees its pid, the OS
+    # reuses it, and `kill <number>` then hits an unrelated process on a shared
+    # box. Verified: handing back the pid of an unrelated `sleep 60` terminated
+    # it. So the pid must still LOOK like our sampler before it is signalled.
+    kill = (f"ps -o args= -p {pid} 2>/dev/null | grep -q nvidia-smi "
+            f"&& kill {pid} 2>/dev/null; ") if pid else ""
+    # `head -c` bounds the remote side; _read_capped bounds ours. Both are
+    # needed: the remote cap cannot bound brev's own stdout.
+    out = _remote(instance,
+                  f"{kill}sleep 1; head -c {MAX_FETCH_BYTES} {remote_csv} 2>/dev/null; "
+                  f"rm -rf {remote_dir}")
     # Structural validation, not a comma count. `ln.count(",") >= 6` publishes
     # whatever the remote `cat` returned into a public artifact, and the remote
     # path is a predictable same-user file in /tmp. A row now has to LOOK like
@@ -321,7 +404,7 @@ def _finish(
     sidecar = {
         "schema": 1,
         "instance": instance,
-        "gpu_name": meta.get("gpu_name", ""),
+
         "declared_gpu_count": meta.get("declared_gpu_count"),
         "run_id": meta.get("run_id"),
         "skill": meta.get("skill"),
