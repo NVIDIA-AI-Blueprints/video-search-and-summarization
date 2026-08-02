@@ -234,7 +234,7 @@ class BrevEnvironment(BaseEnvironment):
             self._instance_name,
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
+            "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
         # Fail loud: this is the load-bearing artifacts wipe. A silent failure
