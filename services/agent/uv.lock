@@ -3960,6 +3960,11 @@ all = [
     { name = "nvidia-vss-agents" },
     { name = "nvidia-vss-cli" },
 ]
+arango-graph = [
+    { name = "langchain-classic" },
+    { name = "langchain-community" },
+    { name = "python-arango" },
+]
 cli = [
     { name = "nvidia-vss-cli" },
 ]
@@ -3998,14 +4003,17 @@ eval = [
 
 [package.metadata]
 requires-dist = [
+    { name = "langchain-classic", marker = "extra == 'arango-graph'", specifier = ">=1.0" },
+    { name = "langchain-community", marker = "extra == 'arango-graph'", specifier = ">=0.3.27" },
     { name = "nvidia-vss-agents", marker = "extra == 'agent'", editable = "packages/vss_agents" },
     { name = "nvidia-vss-agents", marker = "extra == 'all'", editable = "packages/vss_agents" },
     { name = "nvidia-vss-cli", marker = "extra == 'agent'", editable = "packages/vss_cli" },
     { name = "nvidia-vss-cli", marker = "extra == 'all'", editable = "packages/vss_cli" },
     { name = "nvidia-vss-cli", marker = "extra == 'cli'", editable = "packages/vss_cli" },
     { name = "nvidia-vss-core", editable = "packages/vss_core" },
+    { name = "python-arango", marker = "extra == 'arango-graph'", specifier = ">=8.2" },
 ]
-provides-extras = ["agent", "all", "cli"]
+provides-extras = ["agent", "all", "arango-graph", "cli"]
 
 [package.metadata.requires-dev]
 cli-dev = [
@@ -5472,6 +5480,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/82/4c9ecabab13363e72d880f2fb504c5f750433b2b6f16e99f4ec21ada284c/pytest_timeout-2.4.0.tar.gz", hash = "sha256:7e68e90b01f9eff71332b25001f85c75495fc4e3a836701876183c4bcfd0540a", size = 17973, upload-time = "2025-05-05T19:44:34.99Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fa/b6/3127540ecdf1464a00e5a01ee60a1b09175f6913f0644ac748494d9c4b21/pytest_timeout-2.4.0-py3-none-any.whl", hash = "sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2", size = 14382, upload-time = "2025-05-05T19:44:33.502Z" },
+]
+
+[[package]]
+name = "python-arango"
+version = "8.3.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pyjwt" },
+    { name = "requests" },
+    { name = "requests-toolbelt" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7f/c6/482b66f5acede5556ebc3723fc15b386b1d3bb119bc37e275e46b9735fad/python_arango-8.3.3.tar.gz", hash = "sha256:399df2edb2f52d50ec41c9115ac20b46550a4808edf76450d77cdf36efeb0cf2", size = 155272, upload-time = "2026-06-01T11:18:39.92Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/b0/99c4e9ddaa192dab822718fbc5ef558d240fee7bf576142b19a6ba207937/python_arango-8.3.3-py3-none-any.whl", hash = "sha256:c09bc68a9a331a772d6e4fdcbf16a5ef64c3038f90833e834492da6041463408", size = 116346, upload-time = "2026-06-01T11:18:38.684Z" },
 ]
 
 [[package]]

@@ -137,6 +137,11 @@ cli = ["nvidia-vss-cli"]
 # installs `--extra agent`. Keeping cli here means `uv sync --extra agent`
 # resolves every package the suite imports. Do NOT drop nvidia-vss-cli.
 agent = ["nvidia-vss-agents", "nvidia-vss-cli"]
+arango_graph = [
+    "langchain-classic>=1.0",
+    "langchain-community>=0.3.27",
+    "python-arango>=8.2",
+]
 all = ["nvidia-vss-agents", "nvidia-vss-cli"]
 
 [dependency-groups]

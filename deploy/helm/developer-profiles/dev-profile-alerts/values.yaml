@@ -413,6 +413,7 @@ analytics:
             {"name": "sourceType", "value": "kafka"},
             {"name": "sinkType", "value": "kafka"},
             {"name": "numWorkersForIncidentGeneration", "value": "2"},
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "numWorkersForBehaviorCreation", "value": "0"},
             {"name": "numWorkersForEmbedFiltering", "value": "0"},
             {"name": "fovCountViolationIncidentEnable", "value": "true"},

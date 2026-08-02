@@ -182,6 +182,10 @@
 			"value": "[\"Vehicle\"]"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
+		},
+		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},
