@@ -275,8 +275,8 @@ analytics:
             }
           ],
           "app": [
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
-            {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "200"},
             {"name": "playbackLoop", "value": "10000"},
             {"name": "playbackFilterEmptyObjects", "value": "true"},
@@ -310,11 +310,16 @@ rtvi:
     httpPort: 9000
     streamType: kafka
     downloadNgcAppData: true
-    downloadModelsFromNgc: false
+    downloadModelsFromNgc: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcAppDataOrg: nvidia
     ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    ngcModelsToDownload:
+      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:

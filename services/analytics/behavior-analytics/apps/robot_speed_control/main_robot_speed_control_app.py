@@ -23,7 +23,6 @@ from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
 from mdx.analytics.core.schema.models import AmrState, RoiState
 from mdx.analytics.core.utils.schema_util import group_frames_by_sensor_id
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtEWithTripwire
 from mdx.analytics.core.stream.state.amr.amr_state_management import AmrStateMgmt
 from mdx.analytics.core.utils.processing_stats import BatchStats
 
@@ -35,7 +34,8 @@ class MuteUnmuteApp(BaseApp):
     def __init__(self, config: AppConfig, calibration_path: str | None) -> None:
 
         super().__init__(config, calibration_path)
-        self.state_mgmt = StateMgmtEWithTripwire(self.config, self.calibration)
+        # No behavior state manager: this app only registers the frame path, so it produces no
+        # behaviors and needs no shutdown flush.
         self.amr_state_mgmt = AmrStateMgmt(self.config, self.calibration)  # type: ignore
         
         # Get API configuration from environment variable or config, with default fallback

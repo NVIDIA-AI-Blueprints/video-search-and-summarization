@@ -103,9 +103,41 @@ jobs:
 
       - name: Package tracked source
         run: |
-          git archive --format=tar.gz --prefix=repo/ -o source.tar.gz HEAD
+          # actions/checkout above runs with lfs:false, but `git archive` applies
+          # checkout-side conversion (ident, then smudge/process), so it fetches
+          # the repo's entire ~989 MB of LFS payload on every run. 414 MB of that
+          # is services/vios, which no current consumer of this artifact reads.
+          #
+          # lfs.fetchexclude makes git-lfs pass those paths through as pointer
+          # text rather than fetching them. Scoped to this one command with -c,
+          # so nothing under .git is mutated and the services/analytics fixtures
+          # the integration jobs do read are still smudged normally.
+          git -c lfs.fetchexclude='services/vios/**' \
+            archive --format=tar.gz --prefix=repo/ -o source.tar.gz HEAD
           git ls-files > tracked-files.txt
           ls -lh source.tar.gz
+
+      # Assert the exclusion did what we think, in both directions. Without this
+      # a silent change in git-lfs behaviour either stops saving anything, or
+      # starts stripping fixtures the analytics integration jobs depend on.
+      - name: Verify LFS exclusion boundaries
+        run: |
+          # Must be a regular file, not a symlink: git archive stores a symlink's
+          # target text, so libaws-c-auth.so (mode 120000, content
+          # "libaws-c-auth.so.1.0.0") would never match the pointer signature and
+          # would fail this step for every run. All 126 vios LFS pointers are
+          # regular files; this is the resolved target of that symlink.
+          vios='repo/services/vios/prebuilts/aarch64/aws/libaws-c-auth.so.1.0.0'
+          keep='repo/services/analytics/behavior-analytics/tests/integration/expected_output/smart_city/mdx-behavior-data.json'
+          if ! tar -xzOf source.tar.gz "$vios" | head -c 64 | grep -q '^version https://git-lfs'; then
+            echo "::error::$vios is not an LFS pointer; lfs.fetchexclude is not taking effect"
+            exit 1
+          fi
+          if tar -xzOf source.tar.gz "$keep" | head -c 64 | grep -q '^version https://git-lfs'; then
+            echo "::error::$keep is a pointer; the exclusion over-matched and analytics fixtures would break"
+            exit 1
+          fi
+          echo "vios excluded as pointers, analytics fixtures smudged"
 
       - name: Upload source artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -321,6 +353,7 @@ jobs:
             .github/skill-eval/tests/test_lvs_deployment_config.py \
             .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
+            deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             -q
 
       - name: Upload coverage report
@@ -1169,12 +1202,18 @@ jobs:
     timeout-minutes: 140
     outputs:
       has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
+      run-downstream: ${{ steps.release-set.outputs.run_downstream }}
     permissions:
       actions: read
       contents: read
     steps:
+      # Full history: the downstream gate diffs changed paths against the
+      # previous commit. A shallow checkout makes that diff fail, which
+      # fails open and runs downstream for every push -- safe, but it
+      # defeats the gate.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Wait for successful GHCR release set
@@ -1185,6 +1224,8 @@ jobs:
           python3 .github/scripts/prepare_downstream_release_set.py \
             --attempts 520 \
             --interval-seconds 15 \
+            --repo-root . \
+            --before "${{ github.event.before }}" \
             --release-set-output downstream-release-set.json
 
       - name: Upload downstream release-set handoff
@@ -1220,7 +1261,7 @@ jobs:
       - wait-for-build-dev-images
     if: >-
       success() &&
-      needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries == 'true'
+      needs.wait-for-build-dev-images.outputs.run-downstream == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step

@@ -229,7 +229,17 @@ rtvi:
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
-    modelType: cnn
+    env:
+      DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_CONFIG_FILE: ds-main-config.txt
+      DS_VISION_ENCODER: "true"
+      DS_TRACKER_REID: "true"
+      DS_SHOW_SENSOR_ID: "false"
+      DS_MODE_FLAG: "1"
+      DS_MESSAGE_RATE: "1"
+      VISION_ENCODER_MODEL: siglip_v2
+      VISION_ENCODER_VERSION: v1.1
+      STREAM_TYPE: kafka
     otelSdkDisabled: 'true'
     otelServiceName: rtvi-cv
     downloadModelsFromNgc: true
@@ -251,15 +261,19 @@ rtvi:
     # here to match models.visionEncoder.model / .version when swapping encoders.
     ngcModelsToDownload:
       - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
         destPath: siglip_v2_v1.1.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
         destPath: siglip_v2_v1.1_weights.bin
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
         destPath: siglip_v2_v1.1_tokenizer
     models:
@@ -523,8 +537,8 @@ analytics:
           },
           "sensors": [],
           "app": [
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
-            {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "objectConfidenceThreshold", "value": "0.5"},
             {"name": "embedEnableDownsampling", "value": "false"},

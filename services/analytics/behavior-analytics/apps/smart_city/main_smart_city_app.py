@@ -21,7 +21,7 @@ from mdx.analytics.core.transform.calibration.calibration_dynamic import Calibra
 from mdx.analytics.core.schema.models import Behavior
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
 from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
-from mdx.analytics.core.stream.state.behavior.state_management_i import StateMgmtI
+from mdx.analytics.core.stream.state.behavior.state_management_g import StateMgmtG
 from mdx.analytics.core.transform.detection.collision_detection import CollisionDetection
 from mdx.analytics.core.utils.anomaly_util import AnomalyDetector
 from mdx.analytics.core.utils.crs import CoordinateReferenceSystem
@@ -77,13 +77,13 @@ class SmartCityApp(BaseApp):
             >>> smart_city_app = SmartCityApp(config, calibration_path)
         """
         calibration_type = self.calibration_type
+        self.crs = CoordinateReferenceSystem(config.coordinateReferenceSystem)
         if calibration_type == CalibrationType.IMAGE:
-            self.state_mgmt = StateMgmtI(self.config, self.calibration)  # type: ignore
-        elif calibration_type == CalibrationType.GEO:
             self.state_mgmt = StateMgmt(self.config, self.calibration)  # type: ignore
+        elif calibration_type == CalibrationType.GEO:
+            self.state_mgmt = StateMgmtG(self.config, self.calibration, self.crs)  # type: ignore
         else:
             raise NotImplementedError("CARTESIAN not supported in this build")
-        self.crs = CoordinateReferenceSystem(config.coordinateReferenceSystem)
 
 
     def process(self, frames: list[nvSchema.Frame], stats: BatchStats) -> None:
@@ -109,13 +109,12 @@ class SmartCityApp(BaseApp):
                 transformed_frames = {}
 
             updated_messages_map = messages_to_map(updated_messages)
-            behaviors = []
-    
-            for sensor_id, msgs in updated_messages_map.items():
-                if (behavior := self.state_mgmt.update_behavior(message_key=sensor_id, messages=msgs, crs=self.crs)):
-                    behaviors.append(behavior)
 
-            logger.info(f"[Batch {stats.batch_id}] created a total of {len(behaviors)} behavior(s)")
+            behavior_batch = self.state_mgmt.process_batch(updated_messages_map)
+            behaviors = behavior_batch.active_behaviors
+
+            logger.info(f"[Batch {stats.batch_id}] created a total of {len(behaviors)} behavior(s), "
+                        f"writing {len(behavior_batch.behaviors_to_write)}")
 
             self.anomaly_detector.stop_detection.update_frames(transformed_frames)
             potential_collisions, anomalies = self.anomaly_detector.detect_batch(behaviors, self.crs)
@@ -133,10 +132,9 @@ class SmartCityApp(BaseApp):
             if self.collision_detection and collision_incidents:
                 logger.info(f"[Batch {stats.batch_id}] a total of {len(collision_incidents)} incident(s) detected")
 
-            live_objects = list(self.state_mgmt.state.keys())
-            self.anomaly_detector.stop_detection.update_live_object(live_objects)
+            self.anomaly_detector.stop_detection.update_live_object(self.state_mgmt.live_object_ids())
 
-            self.write_behaviors(behaviors)
+            self.write_behaviors(behavior_batch.behaviors_to_write)
             self.write_anomalies(anomalies)
             self.write_incidents([ incident for incident, _ in collision_incidents ])
 
@@ -144,6 +142,21 @@ class SmartCityApp(BaseApp):
     def process_behavior_clustering(self, behaviors: list[Behavior], _: BatchStats) -> None:
 
         self.write_behaviors_with_clustering(behaviors)
+
+
+    def close(self) -> None:
+        """
+        Write behaviors still held back by emit-once mode, then release resources.
+
+        :return: None
+        """
+        pending = self.state_mgmt.flush_behaviors()
+
+        if pending:
+            logger.info(f"Flushing {len(pending)} pending behavior(s) before shutdown.")
+            self.write_behaviors(pending)
+
+        super().close()
 
 
 if __name__ == '__main__':

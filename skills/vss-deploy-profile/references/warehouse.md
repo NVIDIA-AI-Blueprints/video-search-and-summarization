@@ -2,7 +2,7 @@
 
 Blueprint: VSS Warehouse — RT-DETR (2D) / Sparse4D (3D) / MV3DT (multi-view 3D tracking with BEV Fusion) perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using the warehouse `.env` plus `generated.env` env-file pair.
 
-The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data (videos and models) is the only artifact you may need to acquire; see [App Data](#app-data).
+The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data supplies videos, playback, and calibration assets; RT-CV models are downloaded from versioned NGC model packages during ds-start phase 0 at perception startup. See [App Data](#app-data).
 
 Work through **one path** under [Choose your path](#choose-your-path). Reference tables (variants, services, GPU layout, endpoints, artifacts) are in the top half; operational phases are in the bottom half.
 
@@ -191,7 +191,7 @@ Deployed from `<repo>/deploy/docker/` (the repo's compose root) using:
 
 ## App Data
 
-App data (sample videos, perception models) is **not** bundled with the repo. Pick one source:
+App data (sample videos, playback, and calibration assets) is **not** bundled with the repo. Pick one source:
 
 | Source | When to use | `VSS_DATA_DIR` |
 |---|---|---|
@@ -199,13 +199,13 @@ App data (sample videos, perception models) is **not** bundled with the repo. Pi
 | Custom local path | Existing dataset on a non-repo path (e.g. `/mnt/warehouse-data`) | user-provided path |
 | NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` |
 
-Ask the user which source they want and whether they already have the assets on disk. Only run the NGC download (next subsection) when they explicitly choose the NGC source.
+Ask the user which source they want and whether they already have the assets on disk. Only run the NGC app-data download (next subsection) when they explicitly choose the NGC source. Perception models are independent of this choice and are downloaded by `ds-start.sh` phase 0 inside the perception container when a `models-download.json` manifest is mounted.
 
 ### NGC app-data download (optional)
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| App data (videos, models) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` | `vss-warehouse-app-data_v<version>/` |
+| App data (videos, playback, calibration) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` | `vss-warehouse-app-data_v<version>/` |
 
 > **Org:** use the canonical `nvidia/...` resource path for the published 3.2.0 bundle. If you get `403 Access Denied`, confirm the NGC key has access to the published VSS warehouse resource.
 
@@ -776,11 +776,11 @@ If the user chooses `remote`, also confirm `LLM_BASE_URL` and `NVIDIA_API_KEY` a
 
 ### Phase 4: Acquire App Data (first run only)
 
-Compose files ship in the repo — **nothing to download for compose**. Only app data may need to be acquired, and only for the source the user chose in [App Data](#app-data).
+Compose files ship in the repo. Only non-model app data may need to be acquired manually, and only for the source the user chose in [App Data](#app-data). RT-CV model packages are downloaded automatically when the selected perception profile starts.
 
 **Option A — `<repo>/data`:** ensure assets are present at `<repo>/data` and proceed to Phase 5 (`VSS_DATA_DIR=<repo>/data`).
 
-**Option B — custom local path:** confirm the path exists and has the expected `models/` and `videos/` subdirs, then set `VSS_DATA_DIR=<that path>` in Phase 5.
+**Option B — custom local path:** confirm the path exists and has the expected `videos/` and other app-data subdirs, then set `VSS_DATA_DIR=<that path>` in Phase 5.
 
 **Option C — NGC `vss-warehouse-app-data`:**
 
@@ -791,7 +791,8 @@ ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-d
 cd vss-warehouse-app-data_v<APP_DATA_VERSION>
 tar -xvf vss-warehouse-app-data.tar.gz
 
-sudo chmod -R 777 /path/to/vss-warehouse-app-data
+sudo mkdir -p /path/to/vss-warehouse-app-data/models /path/to/vss-warehouse-app-data/data_log
+sudo chmod 0777 /path/to/vss-warehouse-app-data/models /path/to/vss-warehouse-app-data/data_log
 ```
 
 See [App Data → NGC app-data download](#ngc-app-data-download-optional) for the current version pin.
@@ -862,7 +863,7 @@ HAPROXY_HOST_PORT=7777               # host-published ingress for VSS UI
 HAPROXY_PORT=7777                    # HAProxy container listen port
 
 # --- Credentials ---
-NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for local NIMs + image pulls
+NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for RT-CV model downloads, local NIMs, and image pulls
 NVIDIA_API_KEY=''                              # required for build.nvidia.com remote endpoints
 OPENAI_API_KEY=''                              # required for OpenAI remote endpoints
 ```
