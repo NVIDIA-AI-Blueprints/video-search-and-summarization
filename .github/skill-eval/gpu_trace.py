@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Sample the eval box's GPUs for the life of one leg.
+
+WHY THIS EXISTS. Nothing anywhere records what the GPUs do during a skill-eval
+leg. Measured 2026-08-01: `nvidia-smi` accounting mode is `Disabled` on all 13
+`vss-eval-*` boxes, so there is no retrospective data even in principle; the
+boxes carry no DCGM exporter; and Horde's `gpu_utilization` API is an allocation
+report, not a utilisation one. A snapshot of the idle fleet found 21 of 23 GPUs
+at 0% holding 210.8 GiB resident, with 11 of 13 boxes still running a full VSS
+stack hours after their last leg. That is suggestive, not attributable: it says
+nothing about which spec caused it. This module makes it attributable.
+
+WHERE IT HOOKS. `run_leg.py` holds the per-box `flock` and knows the run, spec,
+platform and chosen instance at the same moment. That is the only place in the
+pipeline where GPU identity and job identity coexist, so joining them here is
+free; anywhere else it needs a pipeline change.
+
+DESIGN CONSTRAINTS, each paid for by a previous incident:
+
+* **Default on, never fatal.** Every entry point swallows its exceptions and the
+  context manager always yields. A telemetry sampler that fails a deployment
+  eval is worse than no telemetry, so this cannot fail a leg even if the box is
+  unreachable, `nvidia-smi` is missing, or the fetch times out.
+* **Hard-bounded lifetime.** The remote sampler runs under `timeout`, so it dies
+  on its own even if this process is SIGKILLed and never calls stop. An earlier
+  hand-run sampler leaked and ran 213 minutes across unrelated trials; with no
+  bound and no timestamps the trace was unusable and was discarded.
+* **Timestamps in every row.** Same incident: a trace that cannot be segmented
+  afterwards is worthless.
+* **Allowlist, not redaction.** The remote command emits exactly the seven
+  `--query-gpu` fields below. It does not read process environments, command
+  lines, container state or file contents. Redaction fails open; an allowlist
+  fails closed. PR #516 leaked `NGC_CLI_API_KEY` through artifact collection,
+  which is why the per-trial `agent/` trajectory is still excluded from the
+  uploaded tarball, and why this module must not become a second such channel.
+* **Rides the existing artifact.** Output lands under `results_root`, which
+  `skills-eval.yml` and `skills-eval-daily.yml` already tar and upload with
+  28-day retention. No new network path, and no credential on the GPU box.
+  `_reset_docker_runtime` wipes the box between trials, so nothing may be left
+  there.
+
+The declared-versus-observed comparison is the point: `declared_gpu_count` comes
+from the spec and travels in the sidecar next to what the GPUs actually did.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import re
+import signal
+import subprocess
+import time
+from pathlib import Path
+
+
+def _int_env(name: str, default: int) -> int:
+    """Never let a malformed knob take down the leg.
+
+    These are module-level constants, so a bare int() would raise at IMPORT
+    time, and run_leg.py's guard only catches ImportError. `EVAL_GPU_TRACE_INTERVAL=x`
+    would then fail every leg before main() even runs -- telemetry config
+    breaking the thing it observes.
+    """
+    try:
+        value = int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+# Fixed field list. This IS the allowlist -- adding to it is a deliberate act,
+# and `nounits` keeps the CSV numeric so the collector needs no unit parsing.
+QUERY_FIELDS = (
+    "timestamp,index,utilization.gpu,utilization.memory,"
+    "memory.used,memory.total,power.draw"
+)
+CSV_HEADER = (
+    "timestamp,gpu_index,util_gpu_pct,util_mem_pct,"
+    "mem_used_mib,mem_total_mib,power_w"
+)
+
+# 10s matched the interval that established medians in the original one-box
+# trace. Do not raise the rate because you can: a 2h leg already yields ~1440
+# rows for a 2-GPU box, and the collector aggregates them anyway.
+INTERVAL_SEC = _int_env("EVAL_GPU_TRACE_INTERVAL", 10)
+
+# A row is accepted only if it has exactly these 7 fields, the first parses as
+# an nvidia-smi timestamp and the rest are numeric (or the literal [N/A] that
+# nvidia-smi prints for unsupported fields). "at least 6 commas" is NOT an
+# allowlist: it publishes whatever the remote `cat` returned, and the remote
+# file is a predictable same-user path in /tmp that could have been replaced.
+ROW_RE = re.compile(
+    r"^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+"
+    r"(?:,\s*(?:-?\d+(?:\.\d+)?|\[N/A\])){6}$"
+)
+# The recorded PID is remote-supplied text that gets interpolated into a shell
+# command. Anything but a bare positive integer is refused outright.
+PID_RE = re.compile(r"^[1-9][0-9]*$")
+
+# Cap what a single fetch may return. Without a bound, a replaced or endless
+# source could exhaust the runner's memory before any exception handler helps.
+MAX_FETCH_BYTES = _int_env("EVAL_GPU_TRACE_MAX_BYTES", 8 * 1024 * 1024)
+
+# Default ON. Set EVAL_GPU_TRACE=0 to suppress. The failure mode is a missing
+# trace, never a failed leg, so opt-out rather than opt-in is the right posture:
+# opt-in telemetry that nobody enables collects nothing.
+ENABLED = os.environ.get("EVAL_GPU_TRACE", "1") not in ("0", "false", "False", "")
+
+# Round-trip budget for the two `brev exec` calls. Measured 2026-08-01: a warm
+# `brev exec` round trip is ~2s, so 120s is ~60x headroom and still bounded.
+EXEC_TIMEOUT_SEC = _int_env("EVAL_GPU_TRACE_EXEC_TIMEOUT", 120)
+
+# Slack over the harbor timeout before the remote `timeout` fires. The sampler
+# must outlive a normal leg but must not outlive a SIGKILLed one for long.
+HARD_STOP_SLACK_SEC = 600
+
+
+def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC) -> str | None:
+    """Run `command` on the box. Returns stdout, or None on any failure.
+
+    Tries `brev exec` first (managed instances), then `ssh <alias>` (registered
+    nodes, which `brev exec` cannot reach). `brev shell` writes a lowercased
+    `Host` entry into ~/.brev/ssh_config, so the alias is the lowercased name --
+    the same convention `envs/brev_env.py::_ssh_alias_for` uses.
+
+    `timeout` is a TOTAL deadline across both attempts, not per attempt: two
+    120s attempts would be a 240s stall on a leg whose median is 132s.
+
+    Each attempt runs in its own session and is killed by process GROUP on
+    timeout. `subprocess.run`'s own timeout reaps only the immediate child, so
+    an ssh that forked would survive; `envs/brev_env.py::_kill_proc_group`
+    already fixes this exact problem the same way for harbor.
+    """
+    attempts = (
+        ["brev", "exec", instance, command],
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+         "-o", "StrictHostKeyChecking=no", instance.lower(), command],
+    )
+    deadline = time.monotonic() + timeout
+    for cmd in attempts:
+        remaining = deadline - time.monotonic()
+        if remaining <= 1:
+            break
+        try:
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, start_new_session=True,
+            )
+        except OSError:
+            continue
+        try:
+            out, _ = proc.communicate(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            with contextlib.suppress(Exception):
+                proc.communicate(timeout=10)
+            continue
+        except (OSError, ValueError):
+            continue
+        if proc.returncode == 0:
+            # `brev exec` echoes the instance name on its own line after the
+            # command output; drop it so callers get only the payload.
+            lines = [ln for ln in (out or "").splitlines()
+                     if ln.strip() != instance]
+            return "\n".join(lines)[:MAX_FETCH_BYTES]
+    return None
+
+
+def _token(run_id: str, spec_stem: str, platform: str, step: int) -> str:
+    """Filename-safe, collision-free per-invocation marker.
+
+    Includes the step index because a multi-step spec makes several harbor
+    invocations against the same box under one lock, and each needs its own
+    trace rather than appending to the previous one.
+    """
+    def clean(s: str) -> str:
+        return "".join(c if c.isalnum() or c in "-_" else "-" for c in str(s))
+
+    # The step suffix is appended AFTER truncation, never before. Truncating the
+    # joined string lets a long spec name push `-stepN` off the end, so step 1
+    # and step 2 collide and the second silently overwrites the first.
+    head = clean(f"{run_id}-{spec_stem}-{platform}")[:100]
+    return f"{head}-step{clean(step)}"
+
+
+@contextlib.contextmanager
+def trace(
+    instance: str,
+    results_root: Path,
+    *,
+    spec_stem: str = "",
+    platform: str = "",
+    step: int = 1,
+    declared_gpu_count: int | None = None,
+    skill: str = "",
+    harbor_timeout_sec: int = 7800,
+):
+    """Sample `instance`'s GPUs for the duration of the block.
+
+    Never raises and never re-raises: the body runs whether or not tracing
+    worked. On exit the trace is written to
+    ``results_root/gputrace/<token>.csv`` with a ``.json`` sidecar carrying the
+    job identity and the declared GPU count.
+    """
+    if not ENABLED or not instance:
+        yield
+        return
+
+    run_id = os.environ.get("GITHUB_RUN_ID", "local")
+    token = _token(run_id, spec_stem, platform, step)
+    remote_csv = f"/tmp/vss-gputrace/{token}.csv"
+    started_at = time.time()
+    pid: str | None = None
+    gpu_name = ""
+
+    # The remote `timeout` is the load-bearing guarantee: if this process dies
+    # without running the finally block, the sampler still exits on its own.
+    hard_stop = max(harbor_timeout_sec + HARD_STOP_SLACK_SEC, 900)
+    # GRAMMAR IS LOAD-BEARING, and the obvious form is wrong. `mkdir && nohup
+    # ... &` backgrounds the whole AND-list, so `$!` is a forked subshell rather
+    # than `timeout`, and killing it leaves the sampler running. Worse, that
+    # subshell inherits the stdout pipe, so `communicate()` blocks until the
+    # SAMPLER exits -- measured 2026-08-01: the start call took 3.03s under bash
+    # and 3.04s under sh for a 3s target, versus 0.01s under zsh. Brev execs via
+    # bash, so this would have stalled every start until the 120s timeout, then
+    # retried over ssh and started a SECOND sampler. Developing on a zsh laptop
+    # hid it completely.
+    #
+    # So: `mkdir` runs as its own statement, exactly ONE command is backgrounded,
+    # and its stdout AND stderr are redirected so no descriptor keeps the pipe
+    # open. `$!` is then genuinely `timeout`'s pid, and `timeout` forwards
+    # SIGTERM to nvidia-smi.
+    start_cmd = (
+        f"mkdir -p /tmp/vss-gputrace; "
+        f"nohup timeout -k 10 {hard_stop} nvidia-smi "
+        f"--query-gpu={QUERY_FIELDS} --format=csv,noheader,nounits "
+        f"-l {INTERVAL_SEC} >{remote_csv} 2>/dev/null </dev/null & "
+        f"echo PID=$!; "
+        f"nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1"
+    )
+    try:
+        out = _remote(instance, start_cmd)
+        if out:
+            for line in out.splitlines():
+                if line.startswith("PID="):
+                    # Remote-supplied text that is about to be interpolated
+                    # into a shell command. A bare positive integer or nothing:
+                    # `PID=1; rm -rf ...` must not become a cleanup command,
+                    # and a stale/reused pid must not become a kill target.
+                    candidate = line.split("=", 1)[1].strip()
+                    pid = candidate if PID_RE.match(candidate) else None
+                elif line.strip():
+                    gpu_name = line.strip()[:120]
+        if pid:
+            print(f"[gpu-trace] sampling {instance} every {INTERVAL_SEC}s "
+                  f"(pid {pid}, hard stop {hard_stop}s)", flush=True)
+        else:
+            print(f"[gpu-trace] could not start on {instance}; leg continues",
+                  flush=True)
+    except Exception as exc:  # noqa: BLE001 - telemetry must never fail a leg
+        print(f"[gpu-trace] start failed ({exc!r}); leg continues", flush=True)
+
+    try:
+        yield
+    finally:
+        # Runs on success, failure, harbor timeout and KeyboardInterrupt. A
+        # SIGKILL skips it, which is what the remote `timeout` covers.
+        with contextlib.suppress(Exception):
+            _finish(instance, remote_csv, pid, results_root, token,
+                    run_id=run_id, skill=skill, spec_stem=spec_stem,
+                    platform=platform, step=step, gpu_name=gpu_name,
+                    declared_gpu_count=declared_gpu_count,
+                    started_at=started_at)
+
+
+def _finish(
+    instance: str,
+    remote_csv: str,
+    pid: str | None,
+    results_root: Path,
+    token: str,
+    **meta,
+) -> None:
+    """Stop the sampler, pull the rows back, write CSV + sidecar. Best effort."""
+    # `timeout` forwards SIGTERM to nvidia-smi, so killing its pid is enough.
+    # The `rm` matters: `_reset_docker_runtime` does not clear /tmp, and an
+    # unbounded pile of traces on a box that has been up six weeks is litter.
+    # `pid` is PID_RE-validated at capture, so it cannot carry shell syntax.
+    kill = f"kill {pid} 2>/dev/null; " if pid else ""
+    out = _remote(instance, f"{kill}sleep 1; cat {remote_csv} 2>/dev/null; rm -f {remote_csv}")
+    # Structural validation, not a comma count. `ln.count(",") >= 6` publishes
+    # whatever the remote `cat` returned into a public artifact, and the remote
+    # path is a predictable same-user file in /tmp. A row now has to LOOK like
+    # nvidia-smi output -- an nvidia-smi timestamp then exactly six numeric (or
+    # [N/A]) fields -- or it is dropped. This is what makes the allowlist real
+    # rather than nominal.
+    rows = [ln for ln in (out or "").splitlines() if ROW_RE.match(ln.strip())]
+    dropped = len([ln for ln in (out or "").splitlines() if ln.strip()]) - len(rows)
+    if dropped > 0:
+        # Loud, because a persistent nonzero here means the remote file is not
+        # what we wrote and the fetch path needs looking at, not silencing.
+        print(f"[gpu-trace] dropped {dropped} malformed row(s) from {instance}", flush=True)
+    if not rows:
+        print(f"[gpu-trace] no samples returned from {instance}", flush=True)
+        return
+
+    dest = results_root / "gputrace"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / f"{token}.csv").write_text(
+        CSV_HEADER + "\n" + "\n".join(rows) + "\n", encoding="utf-8"
+    )
+
+    # Everything the collector needs to answer "declared versus observed"
+    # without re-deriving it from paths. `instance` is the only fleet-side
+    # identifier emitted; no IP, no hostname, no credentials.
+    sidecar = {
+        "schema": 1,
+        "instance": instance,
+        "gpu_name": meta.get("gpu_name", ""),
+        "declared_gpu_count": meta.get("declared_gpu_count"),
+        "run_id": meta.get("run_id"),
+        "skill": meta.get("skill"),
+        "spec_stem": meta.get("spec_stem"),
+        "platform": meta.get("platform"),
+        "step": meta.get("step"),
+        "interval_sec": INTERVAL_SEC,
+        "started_at": meta.get("started_at"),
+        "finished_at": time.time(),
+        "samples": len(rows),
+    }
+    (dest / f"{token}.json").write_text(
+        json.dumps(sidecar, indent=2) + "\n", encoding="utf-8"
+    )
+    span = sidecar["finished_at"] - (meta.get("started_at") or sidecar["finished_at"])
+    print(f"[gpu-trace] {len(rows)} samples over {span / 60:.1f} min "
+          f"-> {dest / (token + '.csv')}", flush=True)

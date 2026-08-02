@@ -249,10 +249,15 @@ jobs:
           # unique per (skill,spec,platform).
           LEG_TARBALL="/tmp/skills-eval-daily-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
           RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
-          if [ -n "$RESULTS" ]; then
+          # A GPU trace is worth archiving even with no result.json. A trial
+          # that hits the agent ceiling dies before Harbor writes one, and that
+          # is precisely the trace worth reading — gating the tarball on
+          # result.json alone silently dropped the most interesting cases.
+          TRACES=$(find "$LEG_RESULTS" -maxdepth 3 -path '*/gputrace/*.csv' 2>/dev/null | head -50 || true)
+          if [ -n "$RESULTS" ] || [ -n "$TRACES" ]; then
             tar czf "$LEG_TARBALL" \
               -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
+            echo "archived $(echo "$RESULTS" | grep -c . || true) result.json and $(echo "$TRACES" | grep -c . || true) gputrace file(s) (agent/ trajectories excluded)"
           else
             echo "results dir exists but empty — nothing to archive"
           fi
