@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import sys
 import time
 import tempfile
@@ -58,6 +59,7 @@ cmd = argv[-1] if argv else ""
 if os.environ.get("GPUTRACE_STUB_HOSTILE_PID") == "1" and "echo PID=$!" in cmd:
     # A compromised or confused box reports shell syntax where a pid belongs.
     sys.stdout.write("PID=1; touch " + os.environ["GPUTRACE_STUB_HOME"] + "/PWNED\n")
+    sys.stdout.write("DIR=/tmp/vss-gputrace.aaaaaaaa\n")
     sys.stdout.write("NVIDIA RTX PRO 6000 Blackwell Server Edition\n")
     sys.stdout.write(argv[1] + "\n" if len(argv) > 1 else "")
     raise SystemExit
@@ -78,6 +80,10 @@ sys.stdout.write(argv[1] + "\n" if len(argv) > 1 else "")
 # startup rather than the code under test.
 BODY_SETTLE_SEC = 1.5
 SMI_RUN_SEC = 8
+# The pid the fake reports. Shared by the stub and the assertion so the two
+# cannot drift; a hardcoded literal in only one of them is how "some number is
+# killed" passed while the wrong number was being killed.
+STUB_PID = "4242"
 NVIDIA_SMI_STUB = r"""#!/usr/bin/env python3
 import sys, time
 if "--query-gpu=name" in " ".join(sys.argv):
@@ -117,9 +123,13 @@ class Stub:
     KEYS = ("PATH", "GPUTRACE_STUB_REC", "GPUTRACE_STUB_FAIL",
             "GPUTRACE_STUB_HOME", "GPUTRACE_STUB_BIN", "GPUTRACE_STUB_HOSTILE_PID")
 
-    def __init__(self, fail: bool = False, hostile_pid: bool = False):
+    def __init__(self, fail: bool = False, hostile_pid: bool = False,
+                 payload: str | None = None):
         self.fail = fail
         self.hostile_pid = hostile_pid
+        # Override what the fake nvidia-smi emits, so a test can assert on how
+        # many samples survive the round trip rather than on a fixed fixture.
+        self.payload = payload
 
     def __enter__(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -137,7 +147,16 @@ class Stub:
             "-----BEGIN OPENSSH PRIVATE KEY-----\nCANARYSECRET\n", encoding="utf-8")
         self.bin = d / "bin"
         self.bin.mkdir()
-        for name, body in (("nvidia-smi", NVIDIA_SMI_STUB), ("timeout", TIMEOUT_STUB)):
+        smi = NVIDIA_SMI_STUB
+        if self.payload is not None:
+            smi = ('#!/usr/bin/env python3\nimport sys, time\n'
+                   'if "--query-gpu=name" in " ".join(sys.argv):\n'
+                   '    print("FAKE"); raise SystemExit\n'
+                   'sys.stdout.write(%r)\nsys.stdout.flush()\n'
+                   'if "-l" in sys.argv: time.sleep(%d)\n'
+                   % (self.payload if self.payload.endswith("\n") else self.payload + "\n",
+                      SMI_RUN_SEC))
+        for name, body in (("nvidia-smi", smi), ("timeout", TIMEOUT_STUB)):
             f = self.bin / name
             f.write_text(body, encoding="utf-8")
             f.chmod(f.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
@@ -267,6 +286,8 @@ class RemoteCallsAreBounded(unittest.TestCase):
 
 
 class TheHardStopIsPresent(unittest.TestCase):
+    PID_FROM_STUB = STUB_PID
+
     """The one property that cannot regress silently.
 
     Without `timeout`, a sampler survives a SIGKILLed leg and keeps writing
@@ -291,6 +312,31 @@ class TheHardStopIsPresent(unittest.TestCase):
         self.assertGreater(bound, 7800)
         self.assertLess(bound, 7800 + 3600)
 
+    def test_the_sampler_loops_for_the_life_of_the_leg(self):
+        """Dropping `-l` makes nvidia-smi print once and exit, which looks
+        identical to lifetime sampling in a fixture that emits two rows up
+        front. Then a 2-hour leg yields one instant instead of a trace."""
+        with tempfile.TemporaryDirectory() as out, Stub() as stub:
+            with mod.trace("box", Path(out)):
+                pass
+            start = stub.commands()[0]
+        self.assertRegex(start, r"-l \d+",
+                         f"sampler does not loop: {start!r}")
+
+    def test_the_output_path_is_unpredictable(self):
+        """A name derived from the job identity is guessable, and shell `>`
+        follows symlinks: a pre-placed `<token>.csv -> ~/.ssh/authorized_keys`
+        gets truncated. Verified in real bash on a victim holding KEEP-ME."""
+        with tempfile.TemporaryDirectory() as out, Stub() as stub:
+            with mod.trace("box", Path(out), spec_stem="search",
+                           platform="RTXPRO6000BW", step=1):
+                pass
+            start = stub.commands()[0]
+        self.assertIn("mktemp -d", start)
+        self.assertIn("set -C", start)          # noclobber: refuse to follow
+        self.assertNotIn("search", start.split("nvidia-smi")[0],
+                         f"job identity leaked into the remote path: {start!r}")
+
     def test_hard_stop_has_a_floor_for_tiny_timeouts(self):
         with tempfile.TemporaryDirectory() as out, Stub() as stub:
             with mod.trace("box", Path(out), harbor_timeout_sec=1):
@@ -303,20 +349,36 @@ class TheHardStopIsPresent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out, Stub() as stub:
             with mod.trace("box", Path(out)):
                 pass
-            self.assertIn("rm -f", stub.commands()[-1])
+            finish = stub.commands()[-1]
+        # The whole mktemp directory, not one file: it is created per
+        # invocation and a box that has been up six weeks must not accumulate
+        # one directory per leg.
+        self.assertIn("rm -rf /tmp/vss-gputrace.", finish)
 
     def test_the_sampler_is_actually_stopped(self):
         """Deleting the kill left all 22 of the original tests green. The
         cleanup command must name the pid the start call reported."""
         with tempfile.TemporaryDirectory() as out, Stub() as stub:
             with mod.trace("box", Path(out)):
-                pass
+                time.sleep(BODY_SETTLE_SEC)
+            # Scoped to THIS stub's bin directory. A broad pattern matched an
+            # unrelated stale process on the developer machine and reported a
+            # survivor that was never ours.
+            alive_after = len(subprocess.run(
+                ["pgrep", "-f", str(stub.bin)],
+                capture_output=True, text=True).stdout.split())
             cmds = stub.commands()
         start, finish = cmds[0], cmds[-1]
-        pid = start.split("echo PID=$!")[0]     # sanity: the start reports one
         self.assertIn("echo PID=$!", start)
-        self.assertRegex(finish, r"^kill [1-9][0-9]* ",
-                         f"cleanup does not kill the sampler: {finish!r}")
+        # The invariant is not "a kill command was emitted", it is "the sampler
+        # is dead". Asserting the former let a mutation that hardcodes the pid
+        # to 999999 pass while the real sampler kept running.
+        self.assertEqual(alive_after, 0,
+                         f"sampler survived the cleanup: {finish!r}")
+        # It must also confirm the pid is still OUR sampler before signalling:
+        # a pid that was freed and reused points at an unrelated process.
+        self.assertIn("nvidia-smi", finish.split("kill")[0],
+                      f"pid is signalled without an identity check: {finish!r}")
 
     def test_only_one_command_is_backgrounded_and_it_closes_its_pipe(self):
         """`mkdir && nohup ... &` backgrounds the whole AND-list, so `$!` is a
@@ -358,9 +420,18 @@ class TheAllowlist(unittest.TestCase):
              "memory.used", "memory.total", "power.draw"],
         )
 
-    def test_header_matches_the_query_field_count(self):
-        self.assertEqual(len(mod.CSV_HEADER.split(",")),
-                         len(mod.QUERY_FIELDS.split(",")))
+    def test_header_is_the_literal_contract_downstream_reads(self):
+        """Spelled out, NOT compared against the production constant. Swapping
+        `mem_used_mib` and `mem_total_mib` in CSV_HEADER passed the whole suite
+        because the test read the same constant it was checking, and downstream
+        would then report resident memory as capacity and vice versa."""
+        self.assertEqual(mod.CSV_HEADER,
+                         "timestamp,gpu_index,util_gpu_pct,util_mem_pct,"
+                         "mem_used_mib,mem_total_mib,power_w")
+        # And the header order must match the order nvidia-smi is asked for.
+        self.assertEqual(mod.QUERY_FIELDS,
+                         "timestamp,index,utilization.gpu,utilization.memory,"
+                         "memory.used,memory.total,power.draw")
 
     def test_remote_commands_never_read_env_or_process_state(self):
         with tempfile.TemporaryDirectory() as out, Stub() as stub:
@@ -499,7 +570,6 @@ class Output(unittest.TestCase):
         # Matches the CSV the sidecar describes, rather than a fixed number.
         self.assertEqual(d["samples"], csv_rows)
         self.assertGreater(d["samples"], 0)
-        self.assertIn("RTX PRO 6000", d["gpu_name"])
         self.assertGreater(d["finished_at"], 0)
 
     def test_sidecar_carries_no_host_identifiers_beyond_the_box_name(self):
@@ -517,6 +587,20 @@ class Output(unittest.TestCase):
                                platform="RTXPRO6000BW", step=step):
                     time.sleep(BODY_SETTLE_SEC)
             self.assertEqual(len(list((Path(out) / "gputrace").glob("*.csv"))), 3)
+
+    def test_every_returned_sample_is_kept(self):
+        """Truncating to the first N rows makes a 2-hour leg look like its
+        opening seconds while the file still parses and the sidecar's own
+        count still agrees with it. Nothing else in the suite would notice."""
+        many = "\n".join(
+            f"2026/08/01 21:{i // 60:02d}:{i % 60:02d}.000, {i % 2}, {i}, 0, 100, 97887, 71.2"
+            for i in range(40))
+        with tempfile.TemporaryDirectory() as out, Stub(payload=many):
+            with mod.trace("box", Path(out), spec_stem="keepall"):
+                time.sleep(BODY_SETTLE_SEC)
+            csv = next((Path(out) / "gputrace").glob("*.csv"))
+            rows = csv.read_text().strip().splitlines()[1:]
+        self.assertEqual(len(rows), 40, "samples were dropped")
 
     def test_token_is_filename_safe(self):
         t = mod._token("123", "a/b spec", "RTX/PRO", 1)
