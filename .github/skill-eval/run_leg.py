@@ -884,7 +884,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _terminate(signum: int, _frame) -> None:
+    """Turn SIGTERM into an unwinding exit so cleanup actually runs.
+
+    Python converts only SIGINT into an exception; SIGTERM keeps SIG_DFL and
+    terminates the interpreter without unwinding, so no `finally` and no
+    context-manager exit fires. That matters here because `skills-eval.yml`
+    sets `cancel-in-progress: true`: every push to a pull request SIGTERMs the
+    in-flight legs, up to `max-parallel` of them at once. Without this the GPU
+    sampler on each of those boxes is orphaned until its own remote hard stop
+    -- over two hours -- while the box is handed straight to the next leg, and
+    the partial trace is lost. A partial trace from a cancelled leg is exactly
+    the kind the workflow already goes out of its way to archive.
+    """
+    raise SystemExit(128 + signum)
+
+
 def main(argv: list[str] | None = None) -> int:
+    with contextlib.suppress(ValueError, OSError):
+        # ValueError if not on the main thread; never fatal either way.
+        signal.signal(signal.SIGTERM, _terminate)
     args = parse_args(argv or sys.argv[1:])
     try:
         invocations = discover_invocations(args.dataset_root)

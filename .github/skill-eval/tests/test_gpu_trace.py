@@ -56,6 +56,13 @@ cmd = argv[-1] if argv else ""
 # to the fetch command passed all 22 tests. A stub that does not run the
 # command cannot notice the command growing a payload, which is precisely the
 # boundary these tests exist to protect.
+if os.environ.get("GPUTRACE_STUB_HOSTILE_DIR") == "1" and "echo PID=$!" in cmd:
+    # A box replying with a directory that carries shell syntax. Without the
+    # trailing anchor on DIR_RE this lands inside `rm -rf {remote_dir}`.
+    sys.stdout.write("PID=4242\n")
+    sys.stdout.write("DIR=/tmp/vss-gputrace.aaaaaaaa; rm -f /tmp/CANARY_VICTIM #\n")
+    sys.stdout.write(argv[1] + "\n" if len(argv) > 1 else "")
+    raise SystemExit
 if os.environ.get("GPUTRACE_STUB_HOSTILE_PID") == "1" and "echo PID=$!" in cmd:
     # A compromised or confused box reports shell syntax where a pid belongs.
     sys.stdout.write("PID=1; touch " + os.environ["GPUTRACE_STUB_HOME"] + "/PWNED\n")
@@ -85,35 +92,151 @@ SMI_RUN_SEC = 8
 # killed" passed while the wrong number was being killed.
 STUB_PID = "4242"
 NVIDIA_SMI_STUB = r"""#!/usr/bin/env python3
-import sys, time
-if "--query-gpu=name" in " ".join(sys.argv):
-    print("NVIDIA RTX PRO 6000 Blackwell Server Edition"); raise SystemExit
-for n in range(2):
-    print(f"2026/08/01 21:00:{n:02d}.000, 0, 0, 0, 42800, 97887, 71.2")
-    print(f"2026/08/01 21:00:{n:02d}.000, 1, 97, 3, 74600, 97887, 310.5")
-# A polluted line in the remote file, which a same-user /tmp path can acquire.
-# It has seven comma-separated fields, so a comma-COUNT filter publishes it.
-print("NGC_CLI_API_KEY=CANARYSECRET,a,b,c,d,e,f")
-sys.stdout.flush()
-if "-l" in sys.argv:
-    time.sleep(%d)
-""" % SMI_RUN_SEC
+# A fake that IMPLEMENTS nvidia-smi's contract rather than encoding whatever the
+# caller happens to ask for. Three independent reviews found the previous
+# version ignored argv entirely, so deleting `--query-gpu=...`, appending
+# `gpu_uuid,gpu_serial`, adding `-i 0`, or changing `--format` all passed the
+# entire suite while collecting nothing usable on a real box.
+#
+# Rows are BUILT FROM THE PARSED FIELD LIST, so reordering or extending the
+# query changes the output and its column count. That is what makes a drift
+# between the command and CSV_HEADER visible instead of silent.
+import os, sys, time
+
+def ts(i, n): return "2026/08/01 21:00:{:02d}.000".format(n)
+FIELDS = {
+    "timestamp": ts,
+    "index": lambda i, n: str(i),
+    "name": lambda i, n: "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "utilization.gpu": lambda i, n: "97" if i else "0",
+    "utilization.memory": lambda i, n: "3" if i else "0",
+    "memory.used": lambda i, n: "74600" if i else "42800",
+    "memory.total": lambda i, n: "97887",
+    "power.draw": lambda i, n: "310.5" if i else "71.2",
+    "gpu_uuid": lambda i, n: "GPU-deadbeef-0000-0000-0000-00000000000" + str(i),
+    "gpu_serial": lambda i, n: "132000000000" + str(i),
+    "temperature.gpu": lambda i, n: "34",
+    "power.limit": lambda i, n: "600.00",
+}
+UNITS = {"utilization.gpu": " %", "utilization.memory": " %", "memory.used": " MiB",
+         "memory.total": " MiB", "power.draw": " W", "power.limit": " W"}
+
+argv = sys.argv[1:]
+query = None; fmt = ""; loop = None; outfile = None; ids = None
+k = 0
+while k < len(argv):
+    a = argv[k]
+    if a.startswith("--query-gpu="): query = a.split("=", 1)[1].split(",")
+    elif a.startswith("--format="):  fmt = a.split("=", 1)[1]
+    elif a == "-l": k += 1; loop = argv[k]
+    elif a == "-f": k += 1; outfile = argv[k]
+    elif a in ("-i", "--id"): k += 1; ids = [int(x) for x in argv[k].split(",")]
+    k += 1
+
+if query is None:
+    sys.stderr.write("Invalid combination of input arguments.\n"); raise SystemExit(2)
+for f in query:
+    if f not in FIELDS:
+        sys.stderr.write('Field "' + f + '" is not a valid field to query.\n'); raise SystemExit(2)
+if query == ["name"]:
+    print(FIELDS["name"](0, 0)); raise SystemExit
+
+noheader = "noheader" in fmt; nounits = "nounits" in fmt
+gpus = ids if ids is not None else [0, 1]
+out = open(outfile, "w") if outfile else sys.stdout
+
+def emit(n):
+    if n == 0 and not noheader:
+        out.write(", ".join(query) + "\n")
+    for i in gpus:
+        cells = []
+        for f in query:
+            v = FIELDS[f](i, n)
+            if not nounits and f in UNITS: v += UNITS[f]
+            cells.append(v)
+        out.write(", ".join(cells) + "\n")
+
+if os.environ.get("GPUTRACE_SMI_UNSUPPORTED") == "1":
+    # Real nvidia-smi prints these for unqueryable fields on some SKUs and under
+    # vGPU. ROW_RE accepts [N/A] and rejects [Not Supported]; a test can now say
+    # which is intended instead of the fake never emitting either.
+    out.write("2026/08/01 21:00:00.000, 0, [Not Supported], 0, 42800, 97887, [N/A]\n")
+
+emit(0)
+out.write("NGC_CLI_API_KEY=CANARYSECRET,a,b,c,d,e,f\n")
+out.flush()
+if loop is None: raise SystemExit
+# Actually loop, so the interval is observable rather than merely present.
+n = 1
+end = time.time() + __RUNSEC__
+while time.time() < end:
+    time.sleep(min(float(loop), 0.5)); emit(n); out.flush(); n += 1
+""".replace("__RUNSEC__", str(SMI_RUN_SEC))
 
 # macOS has no GNU `timeout`; the eval boxes are Linux and do. Without one on
 # PATH the executed command fails and no trace is produced, so the suite needs
 # a stand-in that honours `-k N <seconds> <cmd...>` and forwards SIGTERM.
 TIMEOUT_STUB = r"""#!/usr/bin/env python3
-import os, signal, subprocess, sys, threading
+# Implements GNU timeout's contract instead of discarding it. The previous fake
+# parsed the duration off argv and threw it away -- no timer, no escalation, no
+# exit 124 -- so the "hard-bounded lifetime" this module exists for had zero
+# behavioural coverage. Measured consequence: `MAX_SEC=0` and `-k 0` both passed
+# the whole suite, and under real GNU timeout a duration of 0 means the timeout
+# is DISABLED, i.e. exactly the unbounded sampler the bound is there to prevent.
+import os, signal, subprocess, sys, threading, time
+
 a = sys.argv[1:]
+kill_after = None
 if a and a[0] == "-k":
-    a = a[2:]
-a = a[1:]                                   # drop the duration
-p = subprocess.Popen(a)
-def reap(*_):
-    try: p.terminate()
+    if len(a) < 2:
+        sys.stderr.write("timeout: option requires an argument -- 'k'\n"); raise SystemExit(125)
+    kill_after = a[1]; a = a[2:]
+if kill_after is None:
+    # Deliberately stricter than GNU timeout, which allows -k to be absent.
+    # This codebase's hard-stop guarantee IS the escalation: a sampler wedged
+    # in an nvidia-smi driver call ignores SIGTERM, and without SIGKILL it
+    # outlives the bound on a machine we are renting.
+    sys.stderr.write("timeout-stub: -k is required by this caller's contract\n")
+    raise SystemExit(125)
+if not a:
+    sys.stderr.write("timeout: missing operand\n"); raise SystemExit(125)
+duration, cmd = a[0], a[1:]
+
+def _secs(v, what):
+    try:
+        f = float(v)
+    except ValueError:
+        sys.stderr.write("timeout: invalid time interval '%s'\n" % v); raise SystemExit(125)
+    if f <= 0:
+        # GNU timeout treats 0 as "no timeout at all". The tests refuse it so
+        # that pinning either value to zero is a failure rather than a shrug.
+        sys.stderr.write("timeout-stub: %s of 0 disables the bound; refused\n" % what)
+        raise SystemExit(125)
+    return f
+
+secs = _secs(duration, "duration")
+kill_secs = _secs(kill_after, "kill-after") if kill_after is not None else None
+
+p = subprocess.Popen(cmd, start_new_session=True)
+expired = {"v": False}
+
+def _fire():
+    expired["v"] = True
+    try: os.killpg(p.pid, signal.SIGTERM)
     except Exception: pass
-signal.signal(signal.SIGTERM, reap)
-sys.exit(p.wait())
+    if kill_secs is not None:
+        def _hard():
+            time.sleep(kill_secs)
+            if p.poll() is None:
+                try: os.killpg(p.pid, signal.SIGKILL)
+                except Exception: pass
+        threading.Thread(target=_hard, daemon=True).start()
+
+t = threading.Timer(secs, _fire); t.daemon = True; t.start()
+signal.signal(signal.SIGTERM, lambda *_: _fire())
+rc = p.wait()
+t.cancel()
+sys.exit(124 if expired["v"] else rc)
 """
 
 
@@ -121,12 +244,14 @@ class Stub:
     """Puts a fake `brev` (and a failing `ssh`) first on PATH."""
 
     KEYS = ("PATH", "GPUTRACE_STUB_REC", "GPUTRACE_STUB_FAIL",
-            "GPUTRACE_STUB_HOME", "GPUTRACE_STUB_BIN", "GPUTRACE_STUB_HOSTILE_PID")
+            "GPUTRACE_STUB_HOME", "GPUTRACE_STUB_BIN", "GPUTRACE_STUB_HOSTILE_PID",
+            "GPUTRACE_STUB_HOSTILE_DIR")
 
     def __init__(self, fail: bool = False, hostile_pid: bool = False,
-                 payload: str | None = None):
+                 payload: str | None = None, hostile_dir: bool = False):
         self.fail = fail
         self.hostile_pid = hostile_pid
+        self.hostile_dir = hostile_dir
         # Override what the fake nvidia-smi emits, so a test can assert on how
         # many samples survive the round trip rather than on a fixed fixture.
         self.payload = payload
@@ -149,11 +274,17 @@ class Stub:
         self.bin.mkdir()
         smi = NVIDIA_SMI_STUB
         if self.payload is not None:
+            # Honours -f like the real binary and like the main fake. A payload
+            # override that wrote to stdout would silently produce no trace once
+            # the production command stopped using a shell redirect -- the same
+            # "fake encodes the caller's assumption" trap, one level down.
             smi = ('#!/usr/bin/env python3\nimport sys, time\n'
-                   'if "--query-gpu=name" in " ".join(sys.argv):\n'
+                   'argv = sys.argv[1:]\n'
+                   'if "--query-gpu=name" in " ".join(argv):\n'
                    '    print("FAKE"); raise SystemExit\n'
-                   'sys.stdout.write(%r)\nsys.stdout.flush()\n'
-                   'if "-l" in sys.argv: time.sleep(%d)\n'
+                   'out = open(argv[argv.index("-f") + 1], "w") if "-f" in argv else sys.stdout\n'
+                   'out.write(%r)\nout.flush()\n'
+                   'if "-l" in argv: time.sleep(%d)\n'
                    % (self.payload if self.payload.endswith("\n") else self.payload + "\n",
                       SMI_RUN_SEC))
         for name, body in (("nvidia-smi", smi), ("timeout", TIMEOUT_STUB)):
@@ -167,6 +298,7 @@ class Stub:
         os.environ["GPUTRACE_STUB_HOME"] = str(self.home)
         os.environ["GPUTRACE_STUB_BIN"] = str(self.bin)
         os.environ["GPUTRACE_STUB_HOSTILE_PID"] = "1" if self.hostile_pid else "0"
+        os.environ["GPUTRACE_STUB_HOSTILE_DIR"] = "1" if self.hostile_dir else "0"
         return self
 
     def commands(self) -> list[str]:
@@ -259,6 +391,185 @@ class NothingButGpuMetricsCanReachTheArtifact(unittest.TestCase):
                          "an unvalidated pid was interpolated into the kill")
 
 
+class TheOtherRegexGuardsAnInterpolation(unittest.TestCase):
+    """DIR_RE guards the same kind of interpolation PID_RE does, and had no
+    test at all. Removing its `$` anchor -- one character -- lets a remote
+    reply carry a trailing `; rm -f <path> #` straight into `rm -rf {dir}`,
+    which was demonstrated end to end by deleting a victim file."""
+
+    def test_a_directory_carrying_shell_syntax_is_refused(self):
+        for hostile in (
+            "/tmp/vss-gputrace.aaaaaaaa; rm -rf /",
+            "/tmp/vss-gputrace.aaaaaaaa && curl evil",
+            "/tmp/vss-gputrace.aaaaaaaa\nrm -rf /",
+            "/tmp/vss-gputrace.aaaaaaaa/../../etc",
+            "/tmp/vss-gputrace.$(id)",
+            "/etc", "", "/tmp/vss-gputrace.short",
+        ):
+            self.assertIsNone(mod.DIR_RE.match(hostile), hostile)
+        self.assertTrue(mod.DIR_RE.match("/tmp/vss-gputrace.aB3xY9zQ"))
+
+    def test_the_regex_is_anchored_at_both_ends(self):
+        """Asserted explicitly because a trailing-anchor deletion is invisible
+        to every match-based test that only feeds it clean values."""
+        self.assertTrue(mod.DIR_RE.pattern.startswith("^"))
+        self.assertTrue(mod.DIR_RE.pattern.endswith("$"))
+        self.assertTrue(mod.ROW_RE.pattern.endswith("$"))
+        self.assertTrue(mod.PID_RE.pattern.endswith("$"))
+
+    def test_a_hostile_directory_never_reaches_the_cleanup_shell(self):
+        """End to end, mirroring the hostile-pid test."""
+        with tempfile.TemporaryDirectory() as out, Stub(hostile_dir=True) as stub:
+            with mod.trace("box", Path(out), spec_stem="hostiledir"):
+                pass
+            cmds = " ".join(stub.commands())
+        self.assertNotIn("rm -f /tmp/CANARY_VICTIM", cmds,
+                         f"injected command survived DIR_RE: {cmds!r}")
+
+    def test_a_row_with_a_valid_prefix_and_a_garbage_suffix_is_dropped(self):
+        """Every existing negative fails on the PREFIX. Deleting ROW_RE's
+        trailing anchor lets a well-formed row carry anything after it, which
+        is the PR #516 channel restored by one byte."""
+        good = "2026/08/01 21:00:00.000, 1, 97, 3, 74600, 97887, 310.5"
+        self.assertTrue(mod.ROW_RE.match(good))
+        for suffix in (
+            ",-----BEGIN OPENSSH PRIVATE KEY----- CANARYSECRET",
+            " -----BEGIN OPENSSH PRIVATE KEY-----",
+            ",nvapi-CANARYSECRET",
+            ", 1, 2, 3",
+        ):
+            self.assertIsNone(mod.ROW_RE.match(good + suffix), suffix)
+
+
+class TheChainIdentityIsCarried(unittest.TestCase):
+    """`chain` appeared zero times in this file, while run_leg.py passes a real
+    chain_key and two chains sharing a step index wrote the same filename."""
+
+    def test_two_chains_at_the_same_step_do_not_collide(self):
+        a = mod._token("30515350883", "search", "RTX", 1, "chainA")
+        b = mod._token("30515350883", "search", "RTX", 1, "chainB")
+        self.assertNotEqual(a, b, "two chains produce the same trace filename")
+
+    def test_chains_do_not_overwrite_each_other_end_to_end(self):
+        with tempfile.TemporaryDirectory() as out, Stub():
+            for chain in ("remote-all", "standalone"):
+                with mod.trace("box", Path(out), spec_stem="search",
+                               platform="RTX", step=1, chain=chain):
+                    time.sleep(BODY_SETTLE_SEC)
+            self.assertEqual(len(list((Path(out) / "gputrace").glob("*.csv"))), 2)
+
+
+class NoSamplesMeansNoFile(unittest.TestCase):
+    """A trace file that says "declared 2 GPUs, 0 samples over 70 minutes" is
+    indistinguishable from a genuinely idle 2-GPU box and argues directly for
+    the irreversible downgrade. Absence is the only honest answer."""
+
+    def test_an_empty_fetch_writes_nothing_at_all(self):
+        with tempfile.TemporaryDirectory() as out, Stub(payload=""):
+            with mod.trace("box", Path(out), spec_stem="nosamples",
+                           declared_gpu_count=2):
+                time.sleep(BODY_SETTLE_SEC)
+            # Asserted INSIDE the TemporaryDirectory. Outside it the directory
+            # is already gone and `.exists()` is vacuously False, so the test
+            # passes without testing anything -- which is exactly what it did.
+            d = Path(out) / "gputrace"
+            written = sorted(p.name for p in d.glob("*")) if d.exists() else []
+        self.assertEqual(written, [], "a zero-sample trace was published as fact")
+
+    def test_rows_that_all_fail_the_filter_write_nothing(self):
+        with tempfile.TemporaryDirectory() as out, Stub(payload="garbage\nmore garbage\n"):
+            with mod.trace("box", Path(out), spec_stem="allbad"):
+                time.sleep(BODY_SETTLE_SEC)
+            d = Path(out) / "gputrace"
+            written = sorted(p.name for p in d.glob("*")) if d.exists() else []
+        self.assertEqual(written, [],
+                         "rows that all failed the filter were published anyway")
+
+
+class TheKnobsParseSafely(unittest.TestCase):
+    """_int_env and the ENABLED parse had no test. A malformed knob used to
+    fail the leg at import; a zero one disables the caps it guards."""
+
+    def test_int_env_rejects_garbage_and_non_positive(self):
+        for raw in ("garbage", "", "-1", "0", "1.5", None):
+            env = {} if raw is None else {"X_KNOB": raw}
+            old = os.environ.pop("X_KNOB", None)
+            os.environ.update(env)
+            try:
+                self.assertEqual(mod._int_env("X_KNOB", 42), 42, repr(raw))
+            finally:
+                os.environ.pop("X_KNOB", None)
+                if old is not None:
+                    os.environ["X_KNOB"] = old
+
+    def test_int_env_accepts_a_real_override(self):
+        os.environ["X_KNOB"] = "7"
+        try:
+            self.assertEqual(mod._int_env("X_KNOB", 42), 7)
+        finally:
+            os.environ.pop("X_KNOB", None)
+
+    def test_the_documented_opt_out_string_actually_disables(self):
+        """`EVAL_GPU_TRACE=0` is the documented kill switch. Tests that set
+        mod.ENABLED directly never exercise the parse that implements it."""
+        import importlib
+        for raw, want in (("0", False), ("false", False), ("False", False),
+                          ("", False), ("1", True), ("yes", True)):
+            os.environ["EVAL_GPU_TRACE"] = raw
+            try:
+                importlib.reload(mod)
+                self.assertIs(mod.ENABLED, want, f"EVAL_GPU_TRACE={raw!r}")
+            finally:
+                os.environ.pop("EVAL_GPU_TRACE", None)
+        importlib.reload(mod)
+
+
+class TheFetchCapCountsBytes(unittest.TestCase):
+    """The cap's whole purpose is bounding memory. Nothing drove more than a
+    few KB through it, so counting characters instead of bytes, or counting
+    chunks instead of length, or dropping the killpg were all invisible."""
+
+    def test_the_cap_is_enforced_and_reported(self):
+        old = mod.MAX_FETCH_BYTES
+        mod.MAX_FETCH_BYTES = 4096
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-c",
+                 "import sys; sys.stdout.write('x' * 200000)"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+            out = mod._read_capped(proc, 20)
+        finally:
+            mod.MAX_FETCH_BYTES = old
+        self.assertLessEqual(len(out.encode("utf-8")), 4096,
+                             "the cap counted something other than bytes")
+
+    def test_an_endless_source_is_killed_not_merely_truncated(self):
+        old = mod.MAX_FETCH_BYTES
+        mod.MAX_FETCH_BYTES = 2048
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-c",
+                 "import sys, time\n"
+                 "while True:\n"
+                 "    sys.stdout.write('y' * 8192); sys.stdout.flush()"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+            mod._read_capped(proc, 20)
+            time.sleep(1)
+            alive = proc.poll() is None
+        finally:
+            mod.MAX_FETCH_BYTES = old
+            with contextlib_suppress():
+                proc.kill()
+        self.assertFalse(alive, "the emitter kept running after the cap fired")
+
+
+def contextlib_suppress():
+    import contextlib
+    return contextlib.suppress(Exception)
+
+
 class RemoteCallsAreBounded(unittest.TestCase):
     def test_remote_respects_a_total_deadline_across_both_attempts(self):
         """The timeout used to be per attempt, so a hung box cost 2x120s. It is
@@ -337,6 +648,18 @@ class TheHardStopIsPresent(unittest.TestCase):
         self.assertNotIn("search", start.split("nvidia-smi")[0],
                          f"job identity leaked into the remote path: {start!r}")
 
+    def test_the_bound_escalates_to_sigkill(self):
+        """`-k` is the whole guarantee: SIGTERM alone cannot stop a sampler
+        wedged in a driver call. The floor on hard_stop is 900s so a real
+        expiry cannot be driven from a test, hence the explicit assertion --
+        the fake refuses a missing -k, which covers the behaviour."""
+        with tempfile.TemporaryDirectory() as out, Stub() as stub:
+            with mod.trace("box", Path(out)):
+                pass
+            start = stub.commands()[0]
+        self.assertRegex(start, r"timeout -k [1-9][0-9]* [0-9]+",
+                         f"no SIGKILL escalation on the hard stop: {start!r}")
+
     def test_hard_stop_has_a_floor_for_tiny_timeouts(self):
         with tempfile.TemporaryDirectory() as out, Stub() as stub:
             with mod.trace("box", Path(out), harbor_timeout_sec=1):
@@ -377,8 +700,14 @@ class TheHardStopIsPresent(unittest.TestCase):
                          f"sampler survived the cleanup: {finish!r}")
         # It must also confirm the pid is still OUR sampler before signalling:
         # a pid that was freed and reused points at an unrelated process.
-        self.assertIn("nvidia-smi", finish.split("kill")[0],
+        # Matching the per-invocation nonce directory, not merely "some
+        # nvidia-smi": these boxes run nvidia-smi constantly, so a recycled pid
+        # that happens to be any of them would be killed, possibly another leg's.
+        guard = finish.split("kill")[0]
+        self.assertIn("ps -o args= -p", guard,
                       f"pid is signalled without an identity check: {finish!r}")
+        self.assertRegex(guard, r"grep -q /tmp/vss-gputrace\.[A-Za-z0-9]{8}",
+                         f"identity check is not scoped to this invocation: {finish!r}")
 
     def test_only_one_command_is_backgrounded_and_it_closes_its_pipe(self):
         """`mkdir && nohup ... &` backgrounds the whole AND-list, so `$!` is a
