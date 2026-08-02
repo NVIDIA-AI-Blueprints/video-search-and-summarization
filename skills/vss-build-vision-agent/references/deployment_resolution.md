@@ -135,8 +135,9 @@ does. Stock Ingress uses **Exact** paths that split LVS and RT-VLM:
 Derive the LVS client base as the **origin only**:
 
 ```bash
-# Kubernetes — append /v1/ready and /v1/summarize yourself
-LVS_BACKEND_URL="${LVS_BACKEND_URL:-${VSS_PUBLIC_URL%/}}"
+# Kubernetes — append /v1/ready and /v1/summarize yourself.
+# Force the public origin; a leftover Docker LVS_BACKEND_URL must not win.
+LVS_BACKEND_URL="${VSS_PUBLIC_URL%/}"
 VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
 # Docker Compose (unchanged)
 # LVS_BACKEND_URL=http://${HOST_IP}:38111
@@ -218,8 +219,8 @@ AGENT_URL="${VSS_PUBLIC_URL%/}"
 VSS_VIOS_URL="${AGENT_URL}/vst"
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 # Resolve VLM_ENDPOINT only with the probe-before-adopt flow above.
-# LVS client base is the origin (no /v1 suffix):
-LVS_BACKEND_URL="${LVS_BACKEND_URL:-${AGENT_URL}}"
+# LVS client base is the origin (no /v1 suffix); ignore Docker-derived values:
+LVS_BACKEND_URL="${AGENT_URL}"
 ```
 
 The public Agent, VIOS (`/vst`), and — when the chart enables them — RT-VLM and
