@@ -1474,10 +1474,16 @@ def _terminate(signum: int, _frame) -> None:
     terminates the interpreter without unwinding, so no `finally` and no
     context-manager exit fires. That matters here because `skills-eval.yml`
     sets `cancel-in-progress: true`: every push to a pull request SIGTERMs the
-    in-flight legs, up to `max-parallel` of them at once. Without this, a
-    cancelled leg never reaches the phase-timing write in main()'s finally, so
-    it produces no artifact at all -- and a leg cancelled after an hour in the
-    lock queue is one of the most informative things this feature can record.
+    in-flight legs, up to `max-parallel` of them at once. Two things are lost
+    without this, and a leg cancelled after an hour in the lock queue is one of
+    the most informative runs either of them could describe:
+
+    * the phase-timing write in main()'s finally never runs, so the leg
+      produces no timing artifact at all;
+    * the GPU sampler on each of those boxes is orphaned until its own remote
+      hard stop, over two hours, while the box is handed straight to the next
+      leg. The partial trace is lost, and a partial trace from a cancelled leg
+      is exactly the kind the workflow already goes out of its way to archive.
     """
     raise SystemExit(128 + signum)
 

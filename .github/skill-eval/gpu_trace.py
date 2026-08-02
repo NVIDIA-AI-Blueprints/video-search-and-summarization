@@ -164,7 +164,8 @@ def _read_capped(proc: subprocess.Popen, deadline_sec: float) -> str:
     return "".join(chunks)
 
 
-def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC) -> str | None:
+def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC,
+            attempts: int = 2) -> str | None:
     """Run `command` on the box. Returns stdout, or None on any failure.
 
     Tries `brev exec` first (managed instances), then `ssh <alias>` (registered
@@ -180,13 +181,13 @@ def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC) -> str
     an ssh that forked would survive; `envs/brev_env.py::_kill_proc_group`
     already fixes this exact problem the same way for harbor.
     """
-    attempts = (
+    candidates = (
         ["brev", "exec", instance, command],
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
          "-o", "StrictHostKeyChecking=no", instance.lower(), command],
-    )
+    )[:max(1, attempts)]
     deadline = time.monotonic() + timeout
-    for cmd in attempts:
+    for cmd in candidates:
         remaining = deadline - time.monotonic()
         if remaining <= 1:
             break
@@ -300,15 +301,33 @@ def trace(
     # `set -C` (noclobber) is belt-and-braces inside that fresh directory: it
     # refuses to write through an existing name at all.
     start_cmd = (
+        # Reap orphans first. Nothing else on the box does: _reset_docker_runtime
+        # touches only containers and volumes, the stray-agent reaper matches only
+        # claude, and the /logs wipe does not reach /tmp. Every abrupt-death path
+        # leaves a directory behind, and these boxes stay up for weeks. 180 min is
+        # safely past the hard stop, so this can never hit a live sampler.
+        f"find /tmp -maxdepth 1 -name 'vss-gputrace.*' -mmin +180 "
+        f"-exec rm -rf {{}} + 2>/dev/null; "
         f"set -C; d=$(mktemp -d /tmp/vss-gputrace.XXXXXXXX) || exit 0; "
         f"echo DIR=$d; "
+        # `-f FILE` rather than `> FILE`. A redirected stdout is block-buffered
+        # and SIGTERM does not flush it, so up to a full buffer of samples is
+        # discarded at exactly the moment cleanup runs -- on a 2-GPU box at 10s
+        # that is minutes of data, and a short leg would return nothing at all,
+        # logged indistinguishably from an unreachable box. Letting nvidia-smi
+        # own the file also puts the nonce directory into its argv, which is
+        # what makes the identity check below exact rather than a guess.
         f"nohup timeout -k 10 {hard_stop} nvidia-smi "
         f"--query-gpu={QUERY_FIELDS} --format=csv,noheader,nounits "
-        f"-l {INTERVAL_SEC} >\"$d/trace.csv\" 2>/dev/null </dev/null & "
+        f"-l {INTERVAL_SEC} -f \"$d/trace.csv\" >/dev/null 2>&1 </dev/null & "
         f"echo PID=$!"
     )
     try:
-        out = _remote(instance, start_cmd)
+        # Single attempt. `start_cmd` is NOT idempotent: a second run creates a
+        # second mktemp directory and a second sampler whose pid we never see,
+        # so nothing can kill it and it lives to the 140-minute hard stop. The
+        # fetch below is safely re-runnable and keeps both attempts.
+        out = _remote(instance, start_cmd, attempts=1)
         # Only two prefixes are read, and both are validated. There is
         # deliberately no free-form field: an earlier revision assigned every
         # other line to `gpu_name` and published it in the sidecar, so anything
@@ -361,6 +380,14 @@ def _finish(
     # `timeout` forwards SIGTERM to nvidia-smi, so killing its pid is enough.
     # The `rm` matters: `_reset_docker_runtime` does not clear /tmp, and an
     # unbounded pile of traces on a box that has been up six weeks is litter.
+    # The kill and the fetch were coupled to one guard, but only the fetch needs
+    # the directory. A reply where PID= validated and DIR= did not left a running
+    # sampler that nothing would ever kill, reported as a benign non-start.
+    if pid and not remote_dir:
+        _remote(instance, f"kill {pid} 2>/dev/null; true", attempts=1)
+        print(f"[gpu-trace] killed sampler {pid} on {instance} but have no trace path",
+              flush=True)
+        return
     if not remote_dir or not remote_csv:
         print(f"[gpu-trace] no remote trace directory for {instance}", flush=True)
         return
@@ -369,7 +396,12 @@ def _finish(
     # reuses it, and `kill <number>` then hits an unrelated process on a shared
     # box. Verified: handing back the pid of an unrelated `sleep 60` terminated
     # it. So the pid must still LOOK like our sampler before it is signalled.
-    kill = (f"ps -o args= -p {pid} 2>/dev/null | grep -q nvidia-smi "
+    # Match this invocation's nonce directory, not merely "some nvidia-smi".
+    # These boxes run nvidia-smi constantly -- deploy scripts, health checks,
+    # containers -- so a recycled pid that happens to be any nvidia-smi would be
+    # killed, possibly one belonging to another leg. The nonce is in argv now
+    # that the sampler uses `-f`, which makes this exact.
+    kill = (f"ps -o args= -p {pid} 2>/dev/null | grep -q {remote_dir} "
             f"&& kill {pid} 2>/dev/null; ") if pid else ""
     # `head -c` bounds the remote side; _read_capped bounds ours. Both are
     # needed: the remote cap cannot bound brev's own stdout.
