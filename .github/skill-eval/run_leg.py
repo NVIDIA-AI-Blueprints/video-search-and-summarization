@@ -40,6 +40,16 @@ import tempfile
 import threading
 import time
 import urllib.parse
+try:
+    import gpu_trace
+except Exception:  # noqa: BLE001 - telemetry is never load-bearing
+    # Deliberately broader than ImportError. gpu_trace reads its knobs at module
+    # scope, so a malformed EVAL_GPU_TRACE_INTERVAL used to raise ValueError
+    # here and fail the leg before main() ran -- telemetry config breaking the
+    # thing it observes. run_leg.py is normally executed as a script so its own
+    # directory is on sys.path; imported any other way, a missing or broken
+    # sampler must degrade to "no trace", never to a failed leg.
+    gpu_trace = None
 
 # Self-contained instrumentation with its own module state. Split out because
 # this file is long enough that a reader looking for the lock or the Harbor
@@ -1272,6 +1282,7 @@ def run_invocations(
     platform: str,
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
+    declared_gpu_count: int | None = None,
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -1354,8 +1365,29 @@ def run_invocations(
 
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
+        # Nested inside the phase, not beside it: the phase is the leg-level
+        # accounting for this invocation, so the sampler's own start and stop
+        # cost belongs inside the number rather than hidden next to it.
         with phase(f"harbor:{invocation.include_task_name}"):
-            rc = run_command(cmd, env, harbor_timeout_sec)
+            # Sample the box's GPUs for exactly this harbor invocation.
+            # Per-step, not per-leg: step-1 pays the cold deploy and later steps
+            # reuse it, so one trace spanning both would average away the
+            # difference that matters. The context manager is a no-op if
+            # tracing is disabled or the box is unreachable, and it never raises.
+            if gpu_trace is not None:
+                with gpu_trace.trace(
+                    instance,
+                    results_root,
+                    spec_stem=spec_stem,
+                    platform=platform,
+                    step=invocation.step_index or 1,
+                    declared_gpu_count=declared_gpu_count,
+                    skill=os.environ.get("EVAL_SKILL", ""),
+                    harbor_timeout_sec=harbor_timeout_sec,
+                ):
+                    rc = run_command(cmd, env, harbor_timeout_sec)
+            else:
+                rc = run_command(cmd, env, harbor_timeout_sec)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1531,6 +1563,10 @@ def main(argv: list[str] | None = None) -> int:
                     args.platform,
                     args.harbor_timeout_sec,
                     work_deadline,
+                    # The declaration under test. It has to travel with the
+                    # measurement, because "declared 2 GPUs, used 1" is the whole
+                    # question and the spec is the only place the 2 comes from.
+                    declared_gpu_count=int(metadata.get("gpu_count", 1) or 0),
                 )
         except LockTimeoutError:
             leg_timing.record_phase(
