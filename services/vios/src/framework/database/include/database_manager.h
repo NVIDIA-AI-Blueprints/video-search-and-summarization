@@ -128,6 +128,7 @@ public:
     virtual vector<SensorDetailsDBColumns> readAllSensorSatus(string deviceId) { return {}; }
     virtual VmsErrorCode getSensorIdsWithRecordingTimelines(std::unordered_set<string> &sensorIds) { return VmsErrorCode::NoError; };
     virtual int updateStreamInfo(string streamId, string proxyUrl, string replayUrl, std::pair<StreamStatus, string> status) { return -1; };
+    virtual int updateStreamVideoEncoderValues(const string& streamId, const SensorStreamsDBColumns& values) { return -1; };
     virtual vector<SensorStreamsDBColumns> readAllStreams() { return {}; };
     virtual int updateObjectIdInDb(const std::string& objectId, const std::string& filePath) { return -1; };
     virtual int updateFileProtectionAndObjectIdInDb(bool fileProtection, const std::string& objectId, const std::string& filePath) { return -1; };
