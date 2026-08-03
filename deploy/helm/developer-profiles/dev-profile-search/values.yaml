@@ -91,10 +91,13 @@ ingress:
   # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
   # /rtvi-cv/api/v1/... .
   #
-  # Off by default. The Docker edge keeps Elasticsearch query-only with
-  # per-path deny rules; an Ingress annotation cannot express that, so enabling
-  # this publishes a writable Elasticsearch. Enable only where that is
-  # acceptable, or front it with your own guard.
+  # Off by default. Enabling this publishes Elasticsearch on the public origin
+  # with no per-path guard, because an Ingress annotation cannot express one.
+  # The Docker edge is not a read-only baseline either: its deny rules stop
+  # PUT/DELETE, cluster-admin paths and the two-segment mutating operations, but
+  # POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
+  # there. Enable only where a writable Elasticsearch is acceptable, or front it
+  # with your own guard.
   #
   # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
   # enabled -- that Ingress already publishes both paths.
