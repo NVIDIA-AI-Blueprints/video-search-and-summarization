@@ -13,7 +13,8 @@ interface StreamCardProps {
   vstApiUrl?: string | null;
   onSelectionChange: (streamId: string, selected: boolean) => void;
   getEndTimeForStream: (streamId: string) => string | null;
-  onPlay?: (stream: StreamInfo) => void;
+  /** Resolving to `false` means playback could not be opened, and the card shows a notice. */
+  onPlay?: (stream: StreamInfo) => void | Promise<boolean | void>;
   isLoadingPlay?: boolean;
   /** When set, adds this stream as a chip in the app Chat sidebar (and still copies JSON). */
   onAddChatQueryContext?: (ctx: ChatSidebarQueryContext) => void;
@@ -34,7 +35,16 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [isLoadingThumbnail, setIsLoadingThumbnail] = useState(true);
   const [thumbnailError, setThumbnailError] = useState(false);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const currentObjectUrlRef = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -117,6 +127,17 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onSelectionChange(stream.streamId, e.target.checked);
   };
+
+  // VST has no recorded footage for a stream that was just added, so the URL
+  // request 404s and the modal never opens. Surface that instead of no-op'ing.
+  const handlePlayClick = useCallback(async () => {
+    if (!onPlay || isLoadingPlay) return;
+    setPlaybackFailed(false);
+    const opened = await onPlay(stream);
+    if (isMountedRef.current && opened === false) {
+      setPlaybackFailed(true);
+    }
+  }, [onPlay, isLoadingPlay, stream]);
 
   const handleCopyContext = useCallback(async () => {
     const data = {
@@ -224,7 +245,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
         {onPlay && (
           <button
             type="button"
-            onClick={() => !isLoadingPlay && onPlay(stream)}
+            onClick={handlePlayClick}
             disabled={isLoadingPlay}
             className={`absolute inset-0 flex items-center justify-center transition-colors duration-200 ${
               isLoadingPlay
@@ -248,6 +269,54 @@ export const StreamCard: React.FC<StreamCardProps> = ({
               )}
             </div>
           </button>
+        )}
+
+        {playbackFailed && (
+          <div
+            role="status"
+            data-testid="playback-notice"
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 p-3 text-center bg-gray-200/95 dark:bg-neutral-900/95"
+          >
+            <div className="flex items-center gap-1.5 text-red-600 dark:text-red-500">
+              <svg
+                aria-hidden="true"
+                data-testid="playback-warning-icon"
+                className="h-4 w-4 shrink-0 text-red-600 dark:text-red-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
+              <p className="text-xs font-medium leading-snug">
+                {isRtsp ? 'RTSP preview not ready. Retry shortly.' : 'Preview not ready. Retry shortly.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePlayClick}
+                disabled={isLoadingPlay}
+                data-testid="playback-notice-retry"
+                className="rounded px-2 py-1 text-xs font-medium transition-colors bg-gray-300 text-gray-800 hover:bg-gray-400 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlaybackFailed(false)}
+                data-testid="playback-notice-dismiss"
+                className="rounded px-2 py-1 text-xs transition-colors text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
