@@ -48,9 +48,9 @@ def mock_args():
     """Create mock arguments for RTVIStreamHandler initialization for embed server"""
     args = argparse.Namespace()
     args.asset_dir = tempfile.mkdtemp()
-    args.kafka_enabled = False
-    args.kafka_topic = "mdx-embed"
     args.kafka_bootstrap_servers = ""
+    args.message_bus = ""
+    args.message_bus_topic = "mdx-embed"
     args.enable_dev_dc_gen = False
     args.max_file_duration = 0
     args.max_live_streams = 10
@@ -90,7 +90,7 @@ def stream_handler(mock_args, request):
     with TempEnv(
         {
             "SKIP_PIPELINE_WARMUP": "1",
-            "KAFKA_ENABLED": "false",
+            "MESSAGE_BUS": "",
         }
     ):
         try:
@@ -115,7 +115,7 @@ class TestStreamHandlerInitialization:
 
     def test_handler_initialization(self, mock_args):
         """Test handler can be initialized for embeddings"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             try:
                 handler = RTVIStreamHandler(mock_args, service_name="rtvi-embed-test")
                 assert handler._request_info_map is not None
@@ -126,7 +126,7 @@ class TestStreamHandlerInitialization:
 
     def test_embeddings_model_configuration(self, mock_args):
         """Test embeddings model is configured correctly"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             try:
                 handler = RTVIStreamHandler(mock_args, service_name="rtvi-embed-test")
                 # Verify embeddings model configuration
@@ -138,7 +138,7 @@ class TestStreamHandlerInitialization:
 
     def test_kafka_disabled_by_default(self, mock_args):
         """Test Kafka is disabled by default"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             try:
                 handler = RTVIStreamHandler(mock_args, service_name="rtvi-embed-test")
                 assert handler._kafka_enabled is False
@@ -147,26 +147,9 @@ class TestStreamHandlerInitialization:
             except Exception as e:
                 pytest.skip(f"Initialization failed: {e}")
 
-    # def test_kafka_enabled_via_env(self, mock_args):
-    #     """Test Kafka can be enabled via environment variable"""
-    #     with TempEnv(
-    #         {
-    #             "SKIP_PIPELINE_WARMUP": "1",
-    #             "KAFKA_ENABLED": "true",
-    #             "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
-    #         }
-    #     ):
-    #         try:
-    #             handler = RTVIStreamHandler(mock_args, service_name="rtvi-embed-test")
-    #             # Kafka producer may be None if connection fails, but enabled flag should be True
-    #             assert handler._kafka_enabled is True
-    #             handler.stop(force=True)
-    #         except Exception as e:
-    #             pytest.skip(f"Initialization failed: {e}")
-
     def test_kafka_topic_for_embeddings(self, mock_args):
         """Test Kafka topic is set correctly for embeddings"""
-        assert mock_args.kafka_topic == "mdx-embed"
+        assert mock_args.message_bus_topic == "mdx-embed"
 
 
 class TestRequestInfo:
@@ -396,17 +379,21 @@ class TestArgumentParser:
         RTVIStreamHandler.populate_argument_parser(parser)
         args = parser.parse_args(
             [
-                "--kafka-enabled",
-                "--kafka-topic",
+                "--message-bus",
+                "kafka",
+                "--message-bus-topic",
                 "mdx-embed",
+                "--error-bus",
+                "redis",
                 "--max-file-duration",
                 "60",
                 "--vlm-model-type",
                 "custom",
             ]
         )
-        assert args.kafka_enabled is True
-        assert args.kafka_topic == "mdx-embed"
+        assert args.message_bus == "kafka"
+        assert args.message_bus_topic == "mdx-embed"
+        assert args.error_bus == "redis"
         assert args.max_file_duration == 60
         assert args.vlm_model_type.value == "custom"
 
@@ -422,7 +409,7 @@ class TestArgumentParser:
 
 #     def test_stop_handler_without_pipeline(self, mock_args):
 #         """Test stopping handler without pipeline"""
-#         with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+#         with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
 #             handler = RTVIStreamHandler(mock_args, service_name="rtvi-embed-test")
 #             # Manually set pipeline to None
 #             handler._vlm_pipeline = None
@@ -504,7 +491,7 @@ class TestServiceConfiguration:
 
     def test_service_name(self, mock_args):
         """Test service name is set correctly for embed"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             try:
                 handler = RTVIStreamHandler(mock_args, service_name="rtvi-embed-test")
                 # Service name should be passed during initialization

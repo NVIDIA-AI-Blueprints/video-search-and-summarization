@@ -33,6 +33,7 @@ import logging
 import os
 import tempfile
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,6 +45,49 @@ from vlm_pipeline.vlm_pipeline import VlmModelType
 API_PREFIX = "/v1"
 
 logger = logging.getLogger(__name__)
+
+# GPU-backed session fixtures must not run under multiple xdist workers.
+pytestmark = pytest.mark.xdist_group("gpu_embed")
+
+
+def _config_payload(
+    messagingbus="redis",
+    topic_prefix="mdx-bev",
+    alert_type="config",
+    change="config",
+    errorbus=None,
+    error_topic_prefix=None,
+):
+    metadata = {
+        "messagingbus": messagingbus,
+        "region": "region-1",
+        "group": "group_1",
+        "topic-prefix": topic_prefix,
+        "create-topic": True,
+        "topic-partition": 10,
+    }
+    if errorbus is not None:
+        metadata["errorbus"] = errorbus
+    if error_topic_prefix is not None:
+        metadata["error-topic-prefix"] = error_topic_prefix
+
+    return {
+        "alert_type": alert_type,
+        "created_at": "2023-03-10T00:45:16Z",
+        "txn_id": "f03ef248-2ec0-4a99-aeb5-938bd075bada",
+        "event": {
+            "camera_id": "",
+            "name": "region-1--group_1",
+            "camera_url": "",
+            "change": change,
+            "metadata": metadata,
+            "headers": {
+                "source": "vios",
+                "created_at": "2023-03-10T00:45:16.417Z",
+            },
+        },
+        "source": "vios",
+    }
 
 
 @pytest.fixture(scope="session")
@@ -57,9 +101,9 @@ def mock_args():
     args.host = "0.0.0.0"
     args.port = "8017"
     # Add any other required args from RTVIStreamHandler
-    args.kafka_enabled = False
-    args.kafka_topic = "mdx-embed"
     args.kafka_bootstrap_servers = ""
+    args.message_bus = ""
+    args.message_bus_topic = "mdx-embed"
     args.max_file_duration = 0
     args.num_gpus = 1
     args.vlm_batch_size = 4
@@ -103,20 +147,144 @@ def mock_args():
 @pytest.fixture(scope="session")
 def rtvi_server(mock_args):
     """Create an RTVI embed server instance for testing"""
-    with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+    with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
         server = RTVIServer(mock_args)
         yield server
         if hasattr(server, "_stream_handler") and server._stream_handler:
-            try:
-                server._stream_handler.stop()
-            except Exception as e:
-                logger.error(f"Error stopping RTVI stream handler: {e}")
+            server._stream_handler.stop()
 
 
 @pytest.fixture(scope="session")
 def test_client(rtvi_server):
     """Create a FastAPI test client (shared across all tests)"""
     return TestClient(rtvi_server._app)
+
+
+@pytest.fixture
+def config_rtvi_server(mock_args):
+    """Create a lightweight Embed server for config endpoint tests."""
+    with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
+        with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+            mock_pipeline = MagicMock()
+            mock_model_info = MagicMock()
+            mock_model_info.id = "test-model"
+            mock_model_info.created = 1234567890
+            mock_model_info.owned_by = "test"
+            mock_model_info.api_type = "test"
+            mock_pipeline.get_models_info.return_value = mock_model_info
+            mock_pipeline.get_health_status.return_value = []
+            mock_vlm_pipeline_class.return_value = mock_pipeline
+            server = RTVIServer(mock_args)
+            yield server
+            if hasattr(server, "_stream_handler") and server._stream_handler:
+                server._stream_handler.stop()
+
+
+@pytest.fixture
+def config_test_client(config_rtvi_server):
+    """Create a FastAPI test client for lightweight config endpoint tests."""
+    return TestClient(config_rtvi_server._app)
+
+
+class TestConfigEndpoint:
+    """Test VSS config API endpoint."""
+
+    def test_config_endpoint_updates_runtime_message_bus(
+        self, config_test_client, config_rtvi_server
+    ):
+        config_rtvi_server._stream_handler.configure_message_bus = MagicMock(
+            return_value={"messagingbus": "redis", "topic": "mdx-bev"}
+        )
+
+        response = config_test_client.post(f"{API_PREFIX}/config", json=_config_payload())
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "txn_id": "f03ef248-2ec0-4a99-aeb5-938bd075bada",
+            "status": "updated",
+            "messagingbus": "redis",
+            "topic": "mdx-bev",
+            "source": "vios",
+            "created_at": "2023-03-10T00:45:16Z",
+        }
+        config_rtvi_server._stream_handler.configure_message_bus.assert_called_once_with(
+            "redis",
+            "mdx-bev",
+            create_topic=True,
+            topic_partition=10,
+        )
+
+    def test_config_endpoint_updates_runtime_error_bus(
+        self, config_test_client, config_rtvi_server
+    ):
+        config_rtvi_server._stream_handler.configure_message_bus = MagicMock(
+            return_value={"messagingbus": "kafka", "topic": "mdx-bev"}
+        )
+        config_rtvi_server._stream_handler.configure_error_bus = MagicMock(
+            return_value={"errorbus": "redis", "topic": "mdx-errors"}
+        )
+
+        response = config_test_client.post(
+            f"{API_PREFIX}/config",
+            json=_config_payload(
+                messagingbus="kafka",
+                topic_prefix="mdx-bev",
+                errorbus="redis",
+                error_topic_prefix="mdx-errors",
+            ),
+        )
+
+        assert response.status_code == 200
+        assert response.json()["errorbus"] == "redis"
+        assert response.json()["error_topic"] == "mdx-errors"
+        config_rtvi_server._stream_handler.configure_error_bus.assert_called_once_with(
+            "redis",
+            "mdx-errors",
+            create_topic=True,
+            topic_partition=10,
+        )
+
+    def test_config_endpoint_supports_vios_path(self, config_test_client, config_rtvi_server):
+        config_rtvi_server._stream_handler.configure_message_bus = MagicMock(
+            return_value={"messagingbus": "kafka", "topic": "mdx-configured"}
+        )
+
+        response = config_test_client.post(
+            "/api/v1/config",
+            json=_config_payload(messagingbus="kafka", topic_prefix="mdx-configured"),
+        )
+
+        assert response.status_code == 200
+        assert response.json()["messagingbus"] == "kafka"
+        assert response.json()["topic"] == "mdx-configured"
+        assert "warnings" not in response.json()
+
+    def test_config_endpoint_returns_runtime_warning(self, config_test_client, config_rtvi_server):
+        warning = (
+            "Runtime message bus changed from kafka:old to redis:new while 1 media generation "
+            "request(s) are active. Messages already queued may still publish to the previous "
+            "route; subsequent chunk messages will use the updated route."
+        )
+        config_rtvi_server._stream_handler.configure_message_bus = MagicMock(
+            return_value={"messagingbus": "redis", "topic": "new", "warnings": [warning]}
+        )
+
+        response = config_test_client.post(
+            f"{API_PREFIX}/config",
+            json=_config_payload(messagingbus="redis", topic_prefix="new"),
+        )
+
+        assert response.status_code == 200
+        assert response.json()["warnings"] == [warning]
+
+    def test_config_endpoint_rejects_non_config_change(self, config_test_client):
+        response = config_test_client.post(
+            f"{API_PREFIX}/config",
+            json=_config_payload(change="camera_add"),
+        )
+
+        assert response.status_code == 400
+        assert "Unsupported change type" in response.json()["message"]
 
 
 class TestHealthEndpoints:
@@ -450,6 +618,205 @@ class TestStreamingConstraints:
         assert response.status_code in [400, 422]
 
 
+class TestCVStreamEndpoints:
+    """Test CV/VIOS-compatible stream endpoints."""
+
+    def test_stream_add_accepts_vios_camera_streaming_file_sensor(self, mock_args, tmp_path):
+        """VIOS camera_streaming file sensors are registered as file assets."""
+        with TempEnv(
+            {
+                "SKIP_PIPELINE_WARMUP": "1",
+                "MESSAGE_BUS": "",
+                "FILE_URL_ALLOWED_DIRS": str(tmp_path),
+            }
+        ):
+            with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                mock_pipeline = MagicMock()
+                mock_model_info = MagicMock()
+                mock_model_info.id = "test-model"
+                mock_model_info.created = 1234567890
+                mock_model_info.owned_by = "test"
+                mock_model_info.api_type = "test"
+                mock_pipeline.get_models_info.return_value = mock_model_info
+                mock_pipeline.get_health_status.return_value = []
+                mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                rtvi_server = RTVIServer(mock_args)
+                test_client = TestClient(rtvi_server._app)
+
+                try:
+                    self._assert_vios_file_sensor_roundtrip(test_client, rtvi_server, tmp_path)
+                finally:
+                    if hasattr(rtvi_server, "_stream_handler") and rtvi_server._stream_handler:
+                        rtvi_server._stream_handler.stop()
+
+    def _assert_vios_file_sensor_roundtrip(self, test_client, rtvi_server, tmp_path):
+        camera_id = f"vios-file-{uuid.uuid4()}"
+        file_path = tmp_path / "Camera_01.mp4"
+        file_path.write_bytes(b"not a real mp4")
+        body = {
+            "alert_type": "camera_status_change",
+            "created_at": "2026-07-09T15:02:40Z",
+            "event": {
+                "camera_id": camera_id,
+                "camera_name": "Camera_01",
+                "camera_url": str(file_path),
+                "change": "camera_streaming",
+                "camera_type": "file",
+                "tags": "",
+                "metadata": {
+                    "duration": "600",
+                    "file_start_time": "2026-07-09T14:58:40Z",
+                },
+            },
+            "source": "vios",
+        }
+
+        response = test_client.put(f"{API_PREFIX}/camera/streaming", json=body)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["camera_id"] == camera_id
+        assert data["asset_id"]
+        asset = rtvi_server._asset_manager.get_asset(data["asset_id"])
+        assert asset.path == str(file_path)
+        assert asset.is_live is False
+        assert asset.creation_time == "2026-07-09T14:58:40.000Z"
+        assert rtvi_server._asset_manager.get_asset_id_by_camera_id(camera_id) == data["asset_id"]
+
+        remove_response = test_client.request(
+            "DELETE",
+            f"{API_PREFIX}/camera/remove",
+            json={
+                "alert_type": "camera_status_change",
+                "created_at": "2026-07-09T15:03:40Z",
+                "event": {
+                    "camera_id": camera_id,
+                    "camera_name": "Camera_01",
+                    "camera_url": str(file_path),
+                    "change": "camera_remove",
+                    "camera_type": "file",
+                },
+                "source": "vios",
+            },
+        )
+        assert remove_response.status_code == 200
+        assert remove_response.json()["asset_id"] == data["asset_id"]
+
+    def test_stream_add_downloads_vios_https_file_sensor(self, mock_args):
+        """VIOS HTTPS camera URL is downloaded as a file asset with request headers."""
+        camera_id = f"vios-http-file-{uuid.uuid4()}"
+        asset_id = str(uuid.uuid4())
+        url_headers = {"Authorization": "Bearer test-token"}
+        remote_url = (
+            "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/"
+            "Big_Buck_Bunny_360_10s_1MB.mp4"
+        )
+
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
+            with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                mock_pipeline = MagicMock()
+                mock_pipeline.get_health_status.return_value = []
+                mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                rtvi_server = RTVIServer(mock_args)
+                test_client = TestClient(rtvi_server._app)
+                download_file = AsyncMock(return_value=asset_id)
+                add_live_stream = MagicMock()
+                rtvi_server._asset_manager.download_file = download_file
+                rtvi_server._asset_manager.add_live_stream = add_live_stream
+
+                try:
+                    response = test_client.put(
+                        f"{API_PREFIX}/camera/streaming",
+                        json={
+                            "alert_type": "camera_status_change",
+                            "created_at": "2026-07-09T15:02:40Z",
+                            "event": {
+                                "camera_id": camera_id,
+                                "camera_name": "Camera_01",
+                                "camera_url": remote_url,
+                                "change": "camera_streaming",
+                                "metadata": {"file_start_time": "2026-07-09T14:58:40Z"},
+                                "headers": {"url_headers": url_headers},
+                            },
+                            "source": "vios",
+                        },
+                    )
+                finally:
+                    if hasattr(rtvi_server, "_stream_handler") and rtvi_server._stream_handler:
+                        rtvi_server._stream_handler.stop()
+
+        assert response.status_code == 200
+        assert response.json()["asset_id"] == asset_id
+        add_live_stream.assert_not_called()
+        download_file.assert_awaited_once_with(
+            url=remote_url,
+            file_name="Big_Buck_Bunny_360_10s_1MB.mp4",
+            purpose="vision",
+            media_type="video",
+            creation_time="2026-07-09T14:58:40.000Z",
+            file_id=None,
+            url_headers=url_headers,
+            sensor_name=camera_id,
+            camera_id=camera_id,
+        )
+
+    def test_stream_remove_accepts_vios_registration_without_asset(self, mock_args):
+        """VIOS camera_remove is idempotent after registration-only camera_add."""
+        camera_id = f"vios-reg-remove-{uuid.uuid4()}"
+        register_body = {
+            "alert_type": "camera_status_change",
+            "created_at": "2026-07-01T07:06:11Z",
+            "event": {
+                "camera_id": camera_id,
+                "camera_name": "Camera_01",
+                "camera_url": "",
+                "change": "camera_add",
+                "tags": "",
+            },
+            "source": "vios",
+        }
+        remove_body = {
+            "alert_type": "camera_status_change",
+            "created_at": "2026-07-01T07:15:20Z",
+            "event": {
+                "camera_id": camera_id,
+                "camera_name": "Camera_01",
+                "camera_url": "",
+                "change": "camera_remove",
+                "tags": "",
+            },
+            "source": "vios",
+        }
+
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
+            with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                mock_pipeline = MagicMock()
+                mock_pipeline.get_health_status.return_value = []
+                mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                rtvi_server = RTVIServer(mock_args)
+                test_client = TestClient(rtvi_server._app)
+
+                try:
+                    register_response = test_client.post("/api/v1/camera/add", json=register_body)
+                    remove_response = test_client.request(
+                        "DELETE", "/api/v1/camera/remove", json=remove_body
+                    )
+                finally:
+                    if hasattr(rtvi_server, "_stream_handler") and rtvi_server._stream_handler:
+                        rtvi_server._stream_handler.stop()
+
+        assert register_response.status_code == 200
+        assert remove_response.status_code == 200
+        assert remove_response.json() == {
+            "camera_id": camera_id,
+            "asset_id": "",
+            "status": "removed",
+        }
+
+
 class TestErrorHandling:
     """Test error handling and edge cases"""
 
@@ -478,7 +845,7 @@ class TestServerInitialization:
 
     def test_server_initialization(self, mock_args):
         """Test server can be initialized"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             server = RTVIServer(mock_args)
             assert server._app is not None
             assert server._asset_manager is not None
@@ -502,7 +869,7 @@ class TestServerInitialization:
                 "0.0.0.0",
                 "--port",
                 "8017",
-                "--kafka-topic",
+                "--message-bus-topic",
                 "mdx-embed",
                 "--kafka-bootstrap-servers",
                 "kafka:9092",
@@ -546,7 +913,7 @@ class TestIntegrationWithServer:
     )
     def test_server_startup_shutdown(self, mock_args):
         """Test server can start and stop"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             server = RTVIServer(mock_args)
             # Note: Full server.run() would block, so we just test initialization
             assert server._app is not None
