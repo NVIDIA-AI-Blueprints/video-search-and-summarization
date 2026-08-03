@@ -18,6 +18,13 @@ global:
   # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
   vios:
     useSdrc: true
+  # Node IP or ingress hostname. VST uses this to build VST_INGRESS_ENDPOINT so
+  # the browser can reach VST for calibration overlays and incident URLs.
+  # Set at install: --set global.externalHost=<NODE_IP>
+  # With HAProxy ingress leave blank and set vssIngress.host instead.
+  externalHost: ""
+  # NodePort for VST ingress (30888). Set when using values-nodeport.yaml.
+  externalPort: ""
 
 bp-configurator:
   enabled: true
