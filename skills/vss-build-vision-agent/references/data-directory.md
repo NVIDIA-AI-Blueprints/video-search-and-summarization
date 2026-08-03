@@ -124,11 +124,12 @@ cleanup, or deployment.
 This gate creates the model directories (including `models/rtdetr-its` and
 `models/gdino` for `perception-alerts`) and makes them world-writable — the
 RT-CV container runs as a non-matching UID and writes generated TensorRT
-`.engine` files back into this tree, so the directories must stay `a+rwx`. It
-does **not** download the detector ONNX. When the build carries an RT-CV
-perception key, the detector model is downloaded and placed by
-[`model-staging.md`](model-staging.md) after this gate and before bring-up;
-that step also tightens the staged `.onnx` files to `644` (read-only inputs).
+`.engine` files back into this tree, so the directories must stay `a+rwx`. The
+gate does **not** download any model: when the build carries an RT-CV perception
+key, the RT-CV container downloads the detector ONNX (and the Search vision
+encoder) at first boot (ds-start phase 0) from its mounted `models-download.json`
+into this tree and sets their file permissions itself. No host-side staging is
+required.
 
 ## Existing PostgreSQL failure
 

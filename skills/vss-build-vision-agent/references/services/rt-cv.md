@@ -28,13 +28,13 @@ the mapping above is the composition surface, not a second source of truth.
   pipelines or consumers need detection in one build, they share that single
   detector — resolve to one service key and one model family, not two.
 - Selecting or changing the detector/model family is done through the env knobs
-  below (`MODEL_TYPE`, `MODEL_NAME_2D`, `DS_MODEL_FAMILY`, `VISION_ENCODER_*`)
-  plus the detector ONNX host-staged into `${VSS_DATA_DIR}/models/` before
-  bring-up by [`../model-staging.md`](../model-staging.md) (host-side, no
-  build-artifact footprint; the Search SigLIP vision encoder is fetched by
-  ds-start phase 0 when `DS_MODEL_DOWNLOAD=auto` and is not staged here).
-  This changes **no service definition**, so it needs no `patches/` entry: do
-  not patch `perception-2d-fusion` for a model or detector swap.
+  below (`MODEL_TYPE`, `MODEL_NAME_2D`, `DS_MODEL_FAMILY`, `VISION_ENCODER_*`).
+  The detector ONNX (and the Search SigLIP vision encoder) is downloaded by the
+  RT-CV container at first boot (ds-start phase 0 when `DS_MODEL_DOWNLOAD=auto`)
+  from its mounted `models-download.json` into `${VSS_DATA_DIR}/models/`; no
+  host-side staging is required. This changes **no service definition**, so it
+  needs no `patches/` entry: do not patch `perception-2d-fusion` for a model or
+  detector swap.
 
 ## Configuration knobs
 

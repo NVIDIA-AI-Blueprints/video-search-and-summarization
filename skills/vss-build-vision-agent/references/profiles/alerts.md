@@ -28,13 +28,13 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vs
 
 | Owner | Service profile keys |
 |---|---|
-| Alerts | `alert-bridge`, `vss-va-mcp`, `vss-video-analytics-api-alerts` |
+| Alerts | `alert-bridge`, `vss-video-analytics-api-alerts` |
 | Behavior analytics | `vss-behavior-analytics-alerts` (`2d_cv`) |
 | RT-CV | `perception-alerts` (`2d_cv`) |
 | RT-VLM | `rtvi-vlm` (`2d_vlm`) |
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-alerts` |
 | VIOS | `nvstreamer-alerts`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
-| Agent | `vss-agent`, `vss-ui`, `phoenix` |
+| Agent | `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix` |
 | Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 
