@@ -89,7 +89,6 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
                 self.assertIn(f'"%s/{name}"', text)
                 self.assertIn("trimSuffix", text)
 
-
     def test_search_profile_does_not_pin_managed_ui_image(self):
         text = (
             REPO_ROOT
