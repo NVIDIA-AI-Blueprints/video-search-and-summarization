@@ -118,8 +118,10 @@ serve no query. Both ends are separate runtime steps, and a headless
   the build resolved (RT-CV / RT-Embed / RT-VLM), each driven from the retried
   VIOS live-proxy URL.
 - **Read path (query).** Run `vss configure --base-url <build-origin>` (the fronting
-  `http://$HOST_IP:$HAPROXY_HOST_PORT`) to record the deployment, then defer to
-  `vss-search-archive` for the query.
+  `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local `vss` entry point
+  (`uv run --project <repo>/services/agent --no-dev vss`; see `deployment_resolution.md`),
+  not a bare `vss`, to record the deployment, then defer to `vss-search-archive` for
+  the query.
 
 ## Stop
 
