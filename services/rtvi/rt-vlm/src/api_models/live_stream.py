@@ -18,7 +18,8 @@ Includes both the original RTVI stream management models (/v1/streams/*)
 and CV-compatible models (/v1/stream/*) for cross-service interoperability.
 """
 
-from typing import Optional
+from datetime import datetime
+from typing import Annotated, Any, Optional, Union
 from uuid import UUID
 
 from pydantic import Field, field_validator
@@ -42,8 +43,16 @@ from .common import (
 )
 
 LIVE_STREAM_URL_PATTERN = r"^rtsp://"
-# CV-compatible URL pattern: accepts rtsp://, file://, http://, https://
+# CV-compatible URL pattern: accepts rtsp://, file://, http://, https://.
+# Empty VIOS camera_add registration URLs are handled by the VIOS-specific pattern.
 CV_STREAM_URL_PATTERN = r"^(rtsp://|file://|https?://)"
+# VIOS file sensors may send an absolute path rather than a file:// URL.
+VIOS_CAMERA_URL_PATTERN = r"^(rtsp://|file://|https?://|/|$)"
+VIOS_CAMERA_STATUS_CHANGE_ALERT_TYPE = "camera_status_change"
+STREAM_ADD_CHANGE_TYPES = ("camera_add", "add", "camera_streaming")
+STREAM_REMOVE_CHANGE_TYPES = ("camera_remove", "remove")
+STREAM_ADD_CHANGE_SCHEMA = {"enum": list(STREAM_ADD_CHANGE_TYPES)}
+STREAM_REMOVE_CHANGE_SCHEMA = {"enum": list(STREAM_REMOVE_CHANGE_TYPES)}
 
 
 class AddLiveStream(CommonBaseModel):
@@ -614,11 +623,31 @@ class StreamAddValue(CommonBaseModel):
         pattern=CV_STREAM_URL_PATTERN,
         examples=["rtsp://host:port/live/video"],
     )
+    camera_type: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        pattern=r"^(rtsp|file)$",
+        description="VIOS camera source type when provided.",
+        examples=["rtsp", "file"],
+    )
+    camera_vod_url: Optional[str] = Field(
+        default=None,
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
+        description="Optional VIOS VOD URL for the camera.",
+    )
+    tags: Optional[str] = Field(
+        default=None,
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
+        description="Optional VIOS tags string.",
+    )
     change: str = Field(
         description="Operation type (e.g. 'camera_add').",
         max_length=32,
         pattern=r"^[A-Za-z_]+$",
         examples=["camera_add"],
+        json_schema_extra=STREAM_ADD_CHANGE_SCHEMA,
     )
     creation_time: Optional[str] = Field(
         default=None,
@@ -639,12 +668,24 @@ class StreamAddHeaders(CommonBaseModel):
         default=None,
         max_length=256,
         pattern=ANY_CHAR_PATTERN,
-        examples=["vst"],
+        examples=["vios"],
     )
     created_at: Optional[str] = Field(
         default=None,
         max_length=64,
         pattern=ANY_CHAR_PATTERN,
+    )
+    url_headers: Optional[
+        dict[str, Annotated[str, Field(max_length=8192, pattern=r"^[^\r\n]*$")]]
+    ] = Field(
+        default=None,
+        description=(
+            "Optional HTTP headers for URL download. Overrides server-level "
+            "ASSET_DOWNLOAD_AUTH_TOKENS for this request and is only used for HTTP(S) "
+            "file-sensor downloads."
+        ),
+        json_schema_extra={"nullable": True},
+        examples=[{"Authorization": "Bearer token123"}],
     )
 
 
@@ -654,6 +695,230 @@ class StreamAddRequest(CommonBaseModel):
     key: str = Field(max_length=256, pattern=ANY_CHAR_PATTERN, examples=["sensor"])
     value: StreamAddValue
     headers: Optional[StreamAddHeaders] = Field(default=None)
+
+
+def _stream_metadata_from_vios_metadata(
+    metadata: Optional[dict[str, Any]],
+) -> Optional[StreamMetadata]:
+    """Extract known StreamMetadata fields from arbitrary VIOS metadata."""
+    if not metadata:
+        return None
+
+    known_metadata = {
+        field_name: value
+        for field_name, value in metadata.items()
+        if field_name in StreamMetadata.model_fields
+    }
+    if not known_metadata:
+        return None
+    return StreamMetadata(**known_metadata)
+
+
+def _normalize_vios_camera_url(camera_url: Optional[str]) -> Optional[str]:
+    """Normalize VIOS file sensor paths into the existing URL-oriented shape."""
+    if camera_url and camera_url.startswith("/"):
+        return f"file://{camera_url}"
+    return camera_url
+
+
+def _normalize_file_creation_time(timestamp: str) -> str:
+    """Normalize second-precision timestamps to the file API's millisecond shape."""
+    if len(timestamp) != 20 or not timestamp.endswith("Z"):
+        return timestamp
+    try:
+        datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return timestamp
+    return f"{timestamp[:-1]}.000Z"
+
+
+def _vios_creation_time_from_metadata(
+    metadata: Optional[dict[str, Any]],
+    fallback: str,
+    camera_url: Optional[str],
+    camera_type: Optional[str],
+) -> str:
+    """Prefer VIOS file sensor start time when provided."""
+    is_file_sensor = camera_type == "file" or bool(
+        camera_url and camera_url.startswith(("file://", "http://", "https://"))
+    )
+    if not is_file_sensor:
+        return fallback
+    if not metadata:
+        return _normalize_file_creation_time(fallback)
+    file_start_time = metadata.get("file_start_time")
+    if isinstance(file_start_time, str) and file_start_time:
+        return _normalize_file_creation_time(file_start_time)
+    return _normalize_file_creation_time(fallback)
+
+
+class ViosStreamEventBase(CommonBaseModel):
+    """Common VIOS camera event fields."""
+
+    camera_id: str = Field(
+        description="User-provided unique camera identifier.",
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
+        examples=["camera-001"],
+    )
+    camera_name: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
+        description="Human-readable camera name.",
+    )
+    camera_type: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        pattern=r"^(rtsp|file)$",
+        description="VIOS camera source type.",
+        examples=["rtsp", "file"],
+    )
+    camera_vod_url: Optional[str] = Field(
+        default=None,
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
+        description="Optional VIOS VOD URL for the camera.",
+    )
+    tags: Optional[str] = Field(
+        default=None,
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
+        description="Optional VIOS tags string.",
+    )
+    metadata: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional VIOS metadata. Custom keys are accepted; known StreamMetadata "
+            "fields are used for optional inference."
+        ),
+    )
+    headers: Optional[StreamAddHeaders] = Field(
+        default=None,
+        description="Optional VIOS event headers, including per-request URL download headers.",
+    )
+
+    @field_validator("metadata", mode="after")
+    def validate_known_metadata(cls, v):
+        _stream_metadata_from_vios_metadata(v)
+        return v
+
+
+class ViosStreamAddEvent(ViosStreamEventBase):
+    """VIOS event payload for POST /v1/stream/add."""
+
+    camera_url: str = Field(
+        description="Stream URL or absolute file path.",
+        max_length=1024,
+        pattern=VIOS_CAMERA_URL_PATTERN,
+        examples=["rtsp://host:port/live/video"],
+    )
+    change: str = Field(
+        description="VIOS add operation type.",
+        max_length=32,
+        pattern=r"^[A-Za-z_]+$",
+        examples=["camera_streaming"],
+        json_schema_extra=STREAM_ADD_CHANGE_SCHEMA,
+    )
+
+
+class ViosStreamRemoveEvent(ViosStreamEventBase):
+    """VIOS event payload for POST /v1/stream/remove."""
+
+    camera_url: Optional[str] = Field(
+        default=None,
+        max_length=1024,
+        pattern=VIOS_CAMERA_URL_PATTERN,
+    )
+    change: str = Field(
+        description="VIOS remove operation type.",
+        max_length=32,
+        pattern=r"^[A-Za-z_]+$",
+        examples=["camera_remove"],
+        json_schema_extra=STREAM_REMOVE_CHANGE_SCHEMA,
+    )
+
+
+class ViosStreamRequestBase(CommonBaseModel):
+    """Common VIOS message-bus stream request envelope."""
+
+    alert_type: str = Field(
+        description="VIOS alert type.",
+        max_length=128,
+        pattern=ANY_CHAR_PATTERN,
+        examples=[VIOS_CAMERA_STATUS_CHANGE_ALERT_TYPE],
+    )
+    created_at: str = Field(
+        description="VIOS event creation timestamp.",
+        max_length=64,
+        pattern=ANY_CHAR_PATTERN,
+        examples=["2023-01-20T21:50:36Z"],
+    )
+    source: str = Field(
+        description="VIOS event source.",
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
+        examples=["vios"],
+    )
+
+
+class ViosStreamAddRequest(ViosStreamRequestBase):
+    """VIOS request body for POST /v1/stream/add."""
+
+    event: ViosStreamAddEvent
+
+
+class ViosStreamRemoveRequest(ViosStreamRequestBase):
+    """VIOS request body for POST /v1/stream/remove."""
+
+    event: ViosStreamRemoveEvent
+
+
+def normalize_stream_add_request(
+    request: Union[StreamAddRequest, ViosStreamAddRequest],
+) -> tuple[StreamAddValue, Optional[StreamAddHeaders]]:
+    """Return the existing CV stream add shape for either supported envelope."""
+    if isinstance(request, StreamAddRequest):
+        return request.value, request.headers
+
+    metadata = _stream_metadata_from_vios_metadata(request.event.metadata)
+    camera_url = _normalize_vios_camera_url(request.event.camera_url)
+    event_headers = request.event.headers
+    value_data = dict(
+        camera_id=request.event.camera_id,
+        camera_name=request.event.camera_name,
+        camera_url=camera_url,
+        camera_type=request.event.camera_type,
+        camera_vod_url=request.event.camera_vod_url,
+        tags=request.event.tags,
+        change=request.event.change,
+        creation_time=_vios_creation_time_from_metadata(
+            request.event.metadata,
+            request.created_at,
+            camera_url,
+            request.event.camera_type,
+        ),
+        metadata=metadata,
+    )
+    value = (
+        StreamAddValue.model_construct(**value_data)
+        if camera_url == ""
+        else StreamAddValue(**value_data)
+    )
+    return (
+        value,
+        StreamAddHeaders(
+            source=(
+                event_headers.source if event_headers and event_headers.source else request.source
+            ),
+            created_at=(
+                event_headers.created_at
+                if event_headers and event_headers.created_at
+                else request.created_at
+            ),
+            url_headers=event_headers.url_headers if event_headers else None,
+        ),
+    )
 
 
 class StreamAddResponse(CommonBaseModel):
@@ -697,10 +962,30 @@ class StreamRemoveValue(CommonBaseModel):
         max_length=1024,
         pattern=CV_STREAM_URL_PATTERN,
     )
+    camera_type: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        pattern=r"^(rtsp|file)$",
+        description="VIOS camera source type when provided.",
+        examples=["rtsp", "file"],
+    )
+    camera_vod_url: Optional[str] = Field(
+        default=None,
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
+        description="Optional VIOS VOD URL for the camera.",
+    )
+    tags: Optional[str] = Field(
+        default=None,
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
+        description="Optional VIOS tags string.",
+    )
     change: str = Field(
         max_length=32,
         pattern=r"^[A-Za-z_]+$",
         examples=["camera_remove"],
+        json_schema_extra=STREAM_REMOVE_CHANGE_SCHEMA,
     )
     metadata: Optional[StreamMetadata] = Field(
         default=None,
@@ -714,6 +999,51 @@ class StreamRemoveRequest(CommonBaseModel):
     key: str = Field(max_length=256, pattern=ANY_CHAR_PATTERN, examples=["sensor"])
     value: StreamRemoveValue
     headers: Optional[StreamAddHeaders] = Field(default=None)
+
+
+StreamAddInput = Union[StreamAddRequest, ViosStreamAddRequest]
+StreamRemoveInput = Union[StreamRemoveRequest, ViosStreamRemoveRequest]
+
+
+def normalize_stream_remove_request(
+    request: StreamRemoveInput,
+) -> tuple[StreamRemoveValue, Optional[StreamAddHeaders]]:
+    """Return the existing CV stream remove shape for either supported envelope."""
+    if isinstance(request, StreamRemoveRequest):
+        return request.value, request.headers
+
+    metadata = _stream_metadata_from_vios_metadata(request.event.metadata)
+    camera_url = _normalize_vios_camera_url(request.event.camera_url)
+    event_headers = request.event.headers
+    value_data = dict(
+        camera_id=request.event.camera_id,
+        camera_name=request.event.camera_name,
+        camera_url=camera_url,
+        camera_type=request.event.camera_type,
+        camera_vod_url=request.event.camera_vod_url,
+        tags=request.event.tags,
+        change=request.event.change,
+        metadata=metadata,
+    )
+    value = (
+        StreamRemoveValue.model_construct(**value_data)
+        if camera_url == ""
+        else StreamRemoveValue(**value_data)
+    )
+    return (
+        value,
+        StreamAddHeaders(
+            source=(
+                event_headers.source if event_headers and event_headers.source else request.source
+            ),
+            created_at=(
+                event_headers.created_at
+                if event_headers and event_headers.created_at
+                else request.created_at
+            ),
+            url_headers=event_headers.url_headers if event_headers else None,
+        ),
+    )
 
 
 class StreamRemoveResponse(CommonBaseModel):
