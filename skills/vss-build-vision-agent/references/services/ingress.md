@@ -4,18 +4,18 @@
 
 | Capability | Canonical service profile keys |
 |---|---|
-| Single-origin HTTP ingress for browse / data-plane surfaces | `vss-haproxy-ingress` |
+| Single-origin HTTP ingress for browse and host-CLI operate surfaces | `vss-haproxy-ingress` |
 
 ## Access role
 
 A bridge-network reverse proxy that fronts HTTP surfaces on one origin (default
 port `7777`) behind a host-header allowlist. It is infrastructure, not a
-capability producer: it only routes to owners the build already deploys and
-introduces no data path of its own. It has two independent uses — (a) the
-interactive tier's public front door (UI + agent), and (b) a standalone browse
-ingress for a headless build that exposes only data-plane surfaces. It is
-reached only when the request asks to expose surfaces through one origin;
-otherwise it is pruned. NvStreamer is never fronted by this owner (see below).
+capability producer — it only routes to owners the build already deploys. Two
+independent uses: (a) the interactive tier's public front door (UI + agent);
+(b) a single origin for a headless build, fronting its **browse** and host-CLI
+**operate** surfaces (detailed below). It is reached only when the request asks
+to expose surfaces through one origin; otherwise it is pruned. NvStreamer is
+never fronted here (see below).
 
 ## Required peers
 
@@ -23,29 +23,43 @@ otherwise it is pruned. NvStreamer is never fronted by this owner (see below).
   deployed simply returns `503` (every backend uses `init-addr none`), so the
   proxy starts regardless of which surfaces are present.
 - The interactive front-door use requires the Agent owner (`vss-agent` / UI).
-  The headless browse use requires none of that tier — only the data-plane
-  owners it routes to (ELK/Kibana, VIOS, Alerts).
+  The headless use requires none of that tier — only the browse/operate owners it
+  routes to (ELK/Kibana, VIOS, Alerts, Elasticsearch, RT-Embed, RT-CV).
 - Requires the host-identity env below, or the host-header allowlist returns
   `404` for every request.
 
-## Headless browse / data-plane ingress
+## Headless single-origin ingress
 
 The shipped `haproxy.cfg.template` is authored for the full stack: its catch-all
-plus the `/api`, `/chat`, `/static`, `/websocket`, `/api/chat`, `/phoenix`, and
-`/va-mcp` routes target the interactive tier that a headless build prunes. Two
-headless modes, not interchangeable — **default to the curated patch** when the
-build exposes a chosen set of surfaces through one origin (a "single ingress"
-request, or any named-surface list). It is a build-generation artifact, so a
-validate-only pass is no reason to skip it. Use as-is only when the caller
-explicitly accepts advertised dead routes and a `503` `/` landing.
+plus the `/api/chat`, `/chat`, `/static`, `/websocket`, `/phoenix`, and `/va-mcp`
+routes target the interactive tier that a headless build prunes. Two headless
+modes, not interchangeable — **default to the curated patch** when the build
+exposes a chosen set of surfaces through one origin (a "single ingress" request,
+or any named-surface list). It is a build-generation artifact, so a validate-only
+pass is no reason to skip it. Use as-is only when the caller explicitly accepts
+advertised dead routes and a `503` `/` landing.
+
+**Curate by consumer class, not by profile.** Retain, for the backends the build
+deploys, the routes each consumer of the origin needs:
+
+| Consumer of the origin | Routes to retain (for deployed backends) |
+|---|---|
+| Human **browse** | `/kibana`, `/vst`, `/storage`, `/video-analytics-api`, and (combined only) `/alert-bridge` |
+| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
+
+The operate set is exactly what `vss configure` probes to resolve a deployment
+through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable headless
+build **must** carry it — post-#1469 `vss search run` takes no endpoints, so a
+build missing these routes is **unqueryable from the host CLI** (no ingress-less
+read path). RT-VLM is never on the ingress (host-port resolved), so it is in
+neither set.
 
 - **Curated (patch).** Mount a trimmed config via a `patches/<haproxy>.yml`
-  service-definition patch that overrides the config volume, keeping only the
-  routes whose backends serve HTTP on the routed port and replacing the catch-all.
+  service-definition patch that overrides the config volume, keeping the browse +
+  operate routes above for the build's deployed backends and replacing the catch-all.
 - **As-is (explicit shortcut only).** Activate `vss-haproxy-ingress` and set the
-  host-identity env. Interactive routes 503 harmlessly; the data-plane routes —
-  `/kibana`, `/vst`, `/storage`, `/video-analytics-api`, and (combined only)
-  `/alert-bridge` — work, but dead routes are advertised and `/` 503s.
+  host-identity env. Interactive routes 503 harmlessly; the browse and operate
+  routes work, but dead routes are advertised and `/` 503s.
 
 Discipline for the trimmed config:
 
@@ -53,10 +67,15 @@ Discipline for the trimmed config:
   pruned services from the shipped template and swapping the catch-all — never
   write one from scratch, so it stays a faithful subset and is re-derivable when
   the template moves. Copy every `replace-path` block verbatim.
-- **Route only HTTP surfaces, not merely deployed containers.** A backend that
-  binds no HTTP port always `503`s. Behavior-Analytics (the
-  `vss-search-analytics-2d-fusion` worker) is Kafka-only, so drop its
-  `/behavior-analytics` route — that data is reached via Kibana/ES, not the ingress.
+- **Prune only on a structural test, never on a liveness `503`.** Drop a route
+  only when its backend **never binds an HTTP port** — not when it merely `503`s
+  now. Behavior-Analytics (the `vss-search-analytics-2d-fusion` worker) is
+  Kafka-only, so it always `503`s: drop its `/behavior-analytics` route (reached
+  via Kibana/ES instead). Every browse/operate backend above binds HTTP, so none
+  qualify. A required operate route that transiently `503`s (backend not yet ready)
+  is **not** a drop reason: `vss configure` records it as *absent*, not
+  present-but-broken, and a re-probe after readiness resolves it — keep required
+  routes exposed regardless.
 - **Guard the catch-all — do not let it preempt routes.** HAProxy runs **every
   `http-request` rule before any `use_backend`**, regardless of line order, so
   an unconditional `http-request redirect location /kibana/ … if h_main`
@@ -76,7 +95,7 @@ Discipline for the trimmed config:
   port (default `31000`) in every profile; do not add a subpath route for it
   (its UI has no base-path setting, so a subpath mount breaks its assets).
 
-### Reference trimmed config (headless data-plane)
+### Reference trimmed config (headless: browse + operate)
 
 Pruned from `haproxy.cfg.template`; mount it via the patch. Keep the omitted
 verbatim blocks exactly as the template has them.
@@ -101,7 +120,7 @@ resolvers docker
     accepted_payload_size 8192
     hold valid 10s
 
-# --- Data-plane / browse backends only (rewrites copied verbatim) ---
+# --- Browse backends (rewrites copied verbatim); operate backends added below ---
 
 backend bk_vst_ingress
     server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
@@ -129,6 +148,23 @@ backend bk_alert_bridge_strip
     http-request replace-path ^/alert-bridge/(.*) /\1
     http-request replace-path ^/alert-bridge$ /
     server s1 "${ALERT_BRIDGE_SERVICE_HOST}:${ALERT_BRIDGE_PORT}" check resolvers docker init-addr none
+
+# Operate route-set (`vss configure`) — add these for the backends the build
+# deploys; drop any whose backend is not shipped. Copied verbatim from the template.
+backend bk_elasticsearch_strip
+    http-request replace-path ^/elasticsearch/(.*) /\1
+    http-request replace-path ^/elasticsearch$ /
+    server s1 "${ELASTICSEARCH_SERVICE_HOST}:${ELASTICSEARCH_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_embed_strip
+    http-request replace-path ^/rtvi-embed/(.*) /\1
+    http-request replace-path ^/rtvi-embed$ /
+    server s1 "${RTVI_EMBED_SERVICE_HOST}:${RTVI_EMBED_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_cv_strip
+    http-request replace-path ^/rtvi-cv/(.*) /\1
+    http-request replace-path ^/rtvi-cv$ /
+    server s1 "${RTVI_CV_SERVICE_HOST}:${RTVI_CV_SERVICE_PORT}" check resolvers docker init-addr none
 
 frontend fe_http
     bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
@@ -161,12 +197,34 @@ frontend fe_http
     use_backend bk_vst_prefixed_compat if h_main p_vst_prefixed
     use_backend bk_vst_ingress if h_main p_vst
 
+    # --- Operate route-set (`vss configure`) — keep for the deployed backends ---
+    # Elasticsearch is read-only at the edge: COPY the guard block below (method-
+    # deny + admin/mutating-deny) VERBATIM from haproxy.cfg.template — it is
+    # security-bearing, like the storage-preflight and h_main blocks.
+    acl p_elasticsearch path /elasticsearch
+    acl p_elasticsearch path_beg /elasticsearch/
+    acl es_read_method method GET HEAD POST OPTIONS
+    acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
+    acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method
+    http-request deny status 403 if h_main p_elasticsearch es_admin_path
+    http-request deny status 403 if h_main p_elasticsearch es_mutating_op
+    use_backend bk_elasticsearch_strip if h_main p_elasticsearch
+
+    acl p_rtvi_embed path /rtvi-embed
+    acl p_rtvi_embed path_beg /rtvi-embed/
+    use_backend bk_rtvi_embed_strip if h_main p_rtvi_embed
+
+    acl p_rtvi_cv path /rtvi-cv
+    acl p_rtvi_cv path_beg /rtvi-cv/
+    use_backend bk_rtvi_cv_strip if h_main p_rtvi_cv
+
     # Catch-all: land any UNMATCHED path on Kibana (no UI in headless). Guarded
     # because HAProxy runs all http-request rules before any use_backend: an
     # unconditional `... if h_main` would 302 every request (even /vst, /kibana)
-    # to /kibana/. Keep p_routed in sync with the routes kept above (drop
-    # /alert-bridge unless the combined-alerts route ships).
-    acl p_routed path_beg /kibana /vst /storage /video-analytics-api /alert-bridge
+    # to /kibana/. Keep p_routed in sync with the routes kept above (drop any
+    # whose backend the build does not deploy).
+    acl p_routed path_beg /kibana /vst /storage /video-analytics-api /alert-bridge /elasticsearch /rtvi-embed /rtvi-cv
     acl p_routed path_reg ^/[^/]+:[0-9]+/vst(/|$)
     http-request redirect location /kibana/ code 302 if h_main !p_routed
 ```
@@ -177,7 +235,8 @@ frontend fe_http
 |---|---|
 | `HAPROXY_HOST_PORT`, `HAPROXY_PORT`, `HAPROXY_BIND_ADDR` | Publish and bind the proxy origin. |
 | `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT`, `EXTERNAL_IP`, `HOST_IP` | Host-header allowlist — required, or every request 404s. |
-| `KIBANA_SERVICE_HOST`, `KIBANA_PORT`, `VST_INGRESS_SERVICE_HOST`, `VST_PORT`, `BEHAVIOR_ANALYTICS_SERVICE_HOST`, `VIDEO_ANALYTICS_API_SERVICE_HOST`, `ALERT_BRIDGE_SERVICE_HOST` (+ ports) | Per-backend targets; Docker-DNS defaults suit the shipped service keys. |
+| `KIBANA_SERVICE_HOST`, `KIBANA_PORT`, `VST_INGRESS_SERVICE_HOST`, `VST_PORT`, `BEHAVIOR_ANALYTICS_SERVICE_HOST`, `VIDEO_ANALYTICS_API_SERVICE_HOST`, `ALERT_BRIDGE_SERVICE_HOST` (+ ports) | Per-backend browse targets; Docker-DNS defaults suit the shipped service keys. |
+| `ELASTICSEARCH_SERVICE_HOST`/`_PORT`, `RTVI_EMBED_SERVICE_HOST`/`_PORT`, `RTVI_CV_SERVICE_HOST`/`_PORT` | Per-backend operate targets (`vss configure` route-set); add for the backends the build deploys. |
 
 ## Sources
 

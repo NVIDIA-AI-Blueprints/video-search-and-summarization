@@ -134,6 +134,13 @@ backend**, not through VIOS alone. The agent's ingest routes own the VIOS upload
 RTVI-CV registration + RTVI-Embed pipeline as one transaction; a bare VIOS
 PUT only stores the bytes and never wires them into Elasticsearch.
 
+This is the **agent-backed** (full-stack) ingestion path, and it is unchanged.
+When a deployment has **no agent tier** — a `vss-build-vision-agent` headless
+build — the equivalent register-and-fan-out is driven by direct REST from
+`vss-manage-video-io-storage`
+[`references/provision-vios-source.md`](../vss-manage-video-io-storage/references/provision-vios-source.md);
+return here for the query itself once the source is ingested.
+
 Confirm the source exists in VIOS first (Mandatory workflow step 2). If it is
 missing, ingest it with one of the recipes below before running `vss search
 run`. After ingestion succeeds, the source appears in `sensor/list` under the

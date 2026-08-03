@@ -1,11 +1,32 @@
-# Stream provisioning
+# Provision and fan-out (headless, direct REST)
 
-Deployment brings the services **up** but registers **no** source. Provisioning is
-the runtime step that registers one video source and fans it into the consumers a
-build deployed. A stock full-stack profile does this through the agent; a build
-from this skill is **headless** (no agent tier), so the operator or a runtime eval
-must do it by **direct REST**. This file is that recipe — agent-free by
-construction; do not route it through the agent's ingest tools.
+Registering a source brings **no** perception with it: a bare VIOS add stores or
+publishes the media, but nothing detects, embeds, or captions it until the
+source is fanned into the consumers a build deployed. A stock full-stack profile
+does this through the agent (`video_ingest` / `rtsp_ingest`, one transaction). When
+**no agent tier is present** — e.g. a `vss-build-vision-agent` headless
+`_builds/<name>` deployment — the operator or a runtime eval must do it by
+**direct REST**. This file is that recipe: register one source, then fan it out to
+only the resolved consumers.
+
+## Headless-only — first line of defense
+
+This recipe is the **agent-free** path. If the deployment exposes an agent `/api`
+tier, **STOP** — provisioning is agent-owned there, and a direct-REST fan-out
+would double-provision. Probe once and defer:
+
+```bash
+# If an agent tier answers, do NOT use this recipe.
+curl -sf --max-time 5 "${ORIGIN%/}/api/v1/videos" >/dev/null 2>&1 && {
+  echo "agent tier present — use the agent-backed ingest instead" >&2; exit 1; }
+```
+
+Defer full-stack provisioning to the agent-mediated path for the build's
+capability — search ingestion to `vss-search-archive` (`/api/v1/videos` +
+`/complete`), alert rules to `vss-manage-alerts`, or the agent's
+`video_ingest` / `rtsp_ingest` routes. The `/api` probe is a coarse public-route
+capability check (the same class of signal `vss configure` uses), not internal
+discovery.
 
 ## One mechanism, off one VIOS sensor
 
@@ -18,17 +39,17 @@ so a direct call is the one mechanism that covers every consumer uniformly.)
 The consumer set follows the build's resolved capabilities, not any profile. One
 invariant: **VIOS is the mandatory base** — every build registers exactly one
 source — and each consumer below is provisioned **only if the build resolved it**.
-Read the owner contracts under `services/` for the authoritative keys:
+Read the owner contracts for the authoritative keys:
 
 | Consumer | Provision when the build resolves… | Owner |
 |---|---|---|
-| **VIOS source** (`/sensor/add` or `/storage/file`) | always — the mandatory base | `services/vios.md` |
-| **RT-CV** `/stream/add` | detection / tracking / attribute perception (also the base a CV-verification alert runs off) | `services/rt-cv.md` |
-| **RT-Embed** `generate_video_embeddings` | chunk/video embeddings (retrieval / search) | `services/rt-embed.md` |
-| **RT-VLM** (`/v1/files` or `/v1/streams/add`) | real-time VLM captioning / alerts | `services/rt-vlm.md` |
+| **VIOS source** (`/sensor/add` or `/storage/file`) | always — the mandatory base | this skill (`api-reference.md`, `nvstreamer-api-reference.md`) |
+| **RT-CV** `/stream/add` | detection / tracking / attribute perception (also the base a CV-verification alert runs off) | `vss-deploy-detection-tracking-2d` |
+| **RT-Embed** `generate_video_embeddings` | chunk/video embeddings (retrieval / search) | `vss-deploy-video-embedding` |
+| **RT-VLM** (`/v1/files` or `/v1/streams/add`) | real-time VLM **dense captioning** (captions/incidents), and only when the build has **no Alert Bridge** — see the bridge carve-out below | `vss-deploy-dense-captioning` |
 
 Provision **any subset** off the single VIOS source — RT-CV for detection,
-RT-Embed for embeddings, RT-VLM for real-time alerts — in any combination,
+RT-Embed for embeddings, RT-VLM for dense captioning — in any combination,
 including **RT-VLM alone** (VIOS + RT-VLM, no CV or embeddings). No consumer is a
 prerequisite for another. **Behavior-Analytics is never provisioned here**: it
 consumes Kafka (`mdx-raw` / `mdx-embed`), so enabling its workers is config, not a
@@ -36,27 +57,34 @@ source call. The fan-out set is exactly `{RT-CV, RT-Embed, RT-VLM}`.
 
 Both feed origins — upload and live — reach every consumer; the origin only
 changes which source URL a consumer gets (Step 1) and, for RT-VLM, which endpoint
-you call (Step 2). The one genuinely live-stream-bound path is the Alert Bridge
-realtime-rule orchestration (`POST :9080/api/v1/realtime`, per-sensor
-`live_stream_url`), owned by the alerts operating skill, not this recipe.
+you call (Step 2). **RT-VLM's direct fan-out here is dense captioning only.** When
+the build carries an **Alert Bridge** (alerts `2d_vlm` realtime or `2d_cv`
+verification), RT-VLM is bridge-driven: the rule is created via `vss-manage-alerts`
+`POST :9080/api/v1/realtime` (per-sensor `live_stream_url`), and the bridge wires
+`rtvi-vlm` itself. Do **not** also call `rtvi-vlm` directly for those builds — a
+direct `/v1/streams/add` bypasses rule persistence and is a failure even if the
+stream goes live. That orchestration is owned by `vss-manage-alerts`, not this
+recipe.
 
-## Resolve endpoints from the build — never hard-code ports
+## Endpoints are injected by the caller — never hard-code ports
 
-Take every port from the deployed build's `resolved.yml` (`ports:` mappings); a
-build can remap them (RT-CV's is `${RTVI_CV_HOST_PORT:-9000}`, not a fixed `9000`).
-Address each endpoint by the vantage that uses it:
+This recipe takes the consumer endpoints as **inputs** — `VST_API_BASE`,
+`RTVI_CV_URL`, `RTVI_EMBED_URL`, `RTVI_VLM_URL` — resolved and passed in by the
+caller; it reads no build manifest itself. A `vss-build-vision-agent` build reads
+them from its `resolved.yml` `ports:` mappings and hands them in; a human operator
+supplies them directly. A build can remap ports (RT-CV's is
+`${RTVI_CV_HOST_PORT:-9000}`, not a fixed `9000`), so never hard-code. Address
+each endpoint by the vantage that uses it:
 
 - **Calls you make from the deploy host** — VIOS/VST, NvStreamer, RT-CV, RT-Embed,
   RT-VLM — use `http://localhost:<resolved-port>`, the same loopback the readiness
-  checks use.
+  checks use. RT-VLM has no ingress route, so loopback (`http://localhost:${RTVI_VLM_PORT:-8018}`)
+  is its only form — identical to every other consumer here, not an exception.
 - **URLs a service consumes** — the synthetic RTSP from NvStreamer and the VIOS
   live proxy handed to the consumers — are host-reachable `$HOST_IP` URLs produced
   by those services: **read** them, don't build them. VIOS assigns the RTSP port
   from its pool (`30554–30564`) at registration, so only VIOS knows the exact value
   (Step 1).
-
-This mirrors the split the read path already uses (`query.md`: `localhost` for
-backend calls, `$HOST_IP` for the URLs that must outlive the call).
 
 ## Step 1 — register the source, then resolve its consumer URL
 
@@ -130,18 +158,20 @@ POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # {"id":"<i
 #     publishing does not require it held open); stop with
 #     DELETE /v1/generate_video_embeddings/{id} then DELETE /v1/streams/delete/{id}.
 
-# RT-VLM — real-time alerts (source-agnostic; incidents land on mdx-vlm-incidents):
-POST http://localhost:<rt-vlm-port>/v1/files          # uploaded (VOD): multipart form only — -F purpose=vision -F media_type=video -F url=<vios-storage-url> → file_id (a JSON body 422s; url is a form field)
+# RT-VLM — dense captioning (source-agnostic; captions → mdx-vlm-captions, yes/no
+# incidents → mdx-vlm-incidents). SKIP when the build has an Alert Bridge: RT-VLM is
+# then bridge-driven via vss-manage-alerts POST :9080/api/v1/realtime, not from here.
+POST http://localhost:<rt-vlm-port>/v1/files          # uploaded (VOD): multipart form only — -F purpose=vision -F media_type=video -F url=<vios-storage-url> -F creation_time=<upload-anchor> → file_id (a JSON body 422s; url is a form field; omit creation_time and captions land in a …-1970-01-01 index)
 POST http://localhost:<rt-vlm-port>/v1/streams/add    # RTSP: feed the VIOS live-proxy URL
 #   then POST .../v1/generate_captions with the returned file_id/stream_id
 ```
 
 Exact payloads and field lists live in the operating contracts — do not restate
 them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
-`vss-deploy-video-embedding` `rest-api.md`; VIOS/NvStreamer
-`vss-manage-video-io-storage` `integrate-vios-service.md` +
-`nvstreamer-api-reference.md`; RT-VLM `vss-deploy-dense-captioning`
-`integrate-rt-vlm.md`.
+`vss-deploy-video-embedding` `rest-api.md`; VIOS/NvStreamer this skill's
+[`integrate-vios-service.md`](integrate-vios-service.md) +
+[`nvstreamer-api-reference.md`](nvstreamer-api-reference.md); RT-VLM
+`vss-deploy-dense-captioning` `integrate-rt-vlm.md`.
 
 ## The upload-date rule
 
@@ -149,12 +179,13 @@ them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
 `video_ingest`, RTSP mirrors `rtsp_ingest`:
 - VIOS anchors an untimed upload at `2025-01-01T00:00:00.000Z`; pin
   `timestamp=2025-01-01T00:00:00.000Z` to state that anchor;
-- pass that anchor as `creation_time` on **both** upload consumers — RT-CV
-  `/stream/add` (`value.creation_time` + `headers.created_at`) and RT-Embed
-  `generate_video_embeddings`. Omit it and frame times are file-relative (epoch 0),
-  landing records in a `…-1970-01-01` index a date-pinned read can't see — RT-Embed
-  is **not** exempt;
-- **RTSP carries none** on either — chunks are stamped from live NTP time.
+- pass that anchor as `creation_time` on **every** upload consumer — RT-CV
+  `/stream/add` (`value.creation_time` + `headers.created_at`), RT-Embed
+  `generate_video_embeddings`, and RT-VLM `/v1/files` (dense-captioning builds).
+  Omit it and frame times are file-relative (epoch 0), landing records in a
+  `…-1970-01-01` index a date-pinned read can't see — RT-Embed and RT-VLM are
+  **not** exempt;
+- **RTSP carries none** on any — chunks are stamped from live NTP time.
 
 ## Idempotency and teardown
 
@@ -169,7 +200,8 @@ VIOS leaves the consumers provisioned.
 
 ## Sources
 
-- `skills/vss-manage-video-io-storage/references/integrate-vios-service.md`, `references/nvstreamer-api-reference.md`, `references/api-reference.md` (`§ RTSP Proxy` for `/proxy/streams`; `/sensor/streams`)
+- This skill: [`integrate-vios-service.md`](integrate-vios-service.md), [`nvstreamer-api-reference.md`](nvstreamer-api-reference.md), [`api-reference.md`](api-reference.md) (`§ RTSP Proxy` for `/proxy/streams`; `/sensor/streams`)
 - `skills/vss-deploy-detection-tracking-2d/references/api-reference.md`
 - `skills/vss-deploy-video-embedding/references/rest-api.md`
 - `skills/vss-deploy-dense-captioning/references/integrate-rt-vlm.md`
+- Endpoint contract (read-vs-write resolution split): `skills/vss-build-vision-agent/references/deployment_resolution.md`

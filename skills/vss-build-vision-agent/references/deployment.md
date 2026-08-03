@@ -111,12 +111,15 @@ Deployment and readiness bring the backends **up**; they register no source and
 serve no query. Both ends are separate runtime steps, and a headless
 `_builds/<name>` build has no agent to do either:
 
-- **Write path (provisioning).** Follow [`stream-provisioning.md`](stream-provisioning.md)
-  to register one VIOS source and fan it out by direct REST — consumer ports
-  resolved from `resolved.yml` — to only the consumers the build resolved
-  (RT-CV / RT-Embed / RT-VLM), each driven from the retried VIOS live-proxy URL.
-- **Read path (query).** Follow [`query.md`](query.md) to resolve the CLI
-  endpoints and indexes from the build's `resolved.yml` and run against them.
+- **Write path (provisioning).** Resolve consumer ports from `resolved.yml`, confirm
+  the build is headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
+  [`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md)
+  to register one VIOS source and fan it out by direct REST to only the consumers
+  the build resolved (RT-CV / RT-Embed / RT-VLM), each driven from the retried
+  VIOS live-proxy URL.
+- **Read path (query).** Run `vss configure --base-url <build-origin>` (the fronting
+  `http://$HOST_IP:$HAPROXY_HOST_PORT`) to record the deployment, then defer to
+  `vss-search-archive` for the query.
 
 ## Stop
 
