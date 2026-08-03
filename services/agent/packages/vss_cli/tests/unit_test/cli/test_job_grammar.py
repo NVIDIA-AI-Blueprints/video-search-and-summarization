@@ -252,3 +252,29 @@ def test_configure_warns_when_elasticsearch_holds_no_search_indices(tmp_path, mo
     assert result.exit_code == 0, result.output
     assert "no mdx-* search indices yet" in result.output
     assert "re-run this command after ingesting" in result.output
+
+
+def test_rt_vlm_is_discovered_from_the_same_origin(tmp_path, monkeypatch) -> None:
+    """RT-VLM is reachable through the ingress, not only on its host port.
+
+    ``describes`` is matched by exact string, so a typo silently records the
+    url with no models and raises nothing -- it would pass every other test in
+    this file. Pin the recorded shape so that failure cannot ship quietly.
+    """
+    from vss_cli import configure as configure_mod
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+    monkeypatch.setattr(
+        configure_mod,
+        "_probe",
+        lambda _base, path, _t: (path == "/rtvi-vlm/v1/models", "HTTP 200"),
+    )
+    monkeypatch.setattr(configure_mod, "_describe", lambda *_a, **_k: ["cosmos-reason"])
+
+    result = CliRunner().invoke(configure_mod.configure, ["--base-url", "http://h:7777"])
+    assert result.exit_code == 0, result.output
+
+    recorded = config_mod.load()
+    assert recorded.services.keys() == {"rt_vlm"}
+    assert recorded.endpoint("rt_vlm") == "http://h:7777/rtvi-vlm"
+    assert recorded.services["rt_vlm"].models == ["cosmos-reason"]

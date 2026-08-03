@@ -98,6 +98,11 @@ backend bk_rtvi_cv_strip
     http-request replace-path ^/rtvi-cv$ /
     server s1 "${RTVI_CV_SERVICE_HOST}:${RTVI_CV_SERVICE_PORT}" check resolvers docker init-addr none
 
+backend bk_rtvi_vlm_strip
+    http-request replace-path ^/rtvi-vlm/(.*) /\1
+    http-request replace-path ^/rtvi-vlm$ /
+    server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
+
 backend bk_phoenix_strip
     http-request replace-path ^/phoenix/(.*) /\1
     http-request replace-path ^/phoenix$ /
@@ -180,6 +185,13 @@ frontend fe_http
     acl p_rtvi_cv path /rtvi-cv
     acl p_rtvi_cv path_beg /rtvi-cv/
     use_backend bk_rtvi_cv_strip if h_main p_rtvi_cv
+
+    # RT-VLM, mounted at its service name like its two siblings. Profiles that
+    # do not run rtvi-vlm leave the backend DOWN, so the route answers 503 and
+    # `vss configure` records it absent rather than present-but-broken.
+    acl p_rtvi_vlm path /rtvi-vlm
+    acl p_rtvi_vlm path_beg /rtvi-vlm/
+    use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
 
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/

@@ -41,11 +41,12 @@
 {{- $vssAgent := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
 {{- $agentEnabled := index $agent "enabled" | default true }}
 {{/*
-  CLI edge routes. Mirrors the three backends the Docker edge exposes in
+  CLI edge routes. Mirrors the four backends the Docker edge exposes in
   deploy/docker/services/infra/haproxy/haproxy.cfg.template so `vss configure`
   resolves the same paths on both. Each mount carries whatever that service
-  itself serves -- /elasticsearch/_cat/..., /rtvi-embed/v1/..., and
-  /rtvi-cv/api/v1/... -- the same convention /vst/api already follows.
+  itself serves -- /elasticsearch/_cat/..., /rtvi-embed/v1/...,
+  /rtvi-cv/api/v1/... and /rtvi-vlm/v1/... -- the same convention /vst/api
+  already follows.
 
   Off by default: enabling this publishes Elasticsearch on the public origin
   with no per-path guard at all, because an Ingress annotation cannot express
@@ -54,10 +55,11 @@
   but POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
   there. Turn this on only where a writable ES is acceptable.
 
-  The rtvi paths are skipped when rtviInternalIngress is enabled, because that
-  Ingress already publishes /rtvi-cv and /rtvi-embed and renders no host when
-  its own `host` is empty -- two Ingress objects claiming one path on one host
-  is ambiguous.
+  /rtvi-cv and /rtvi-embed are skipped when rtviInternalIngress is enabled,
+  because that Ingress already publishes those two paths and renders no host
+  when its own `host` is empty -- two Ingress objects claiming one path on one
+  host is ambiguous. /rtvi-vlm is not among them, so it is gated on cliRoutes
+  alone.
 */}}
 {{- $rii := (.Values.global | default dict).rtviInternalIngress | default dict }}
 {{- $cli := (.Values.ingress | default dict).cliRoutes | default dict }}
@@ -65,6 +67,7 @@
 {{- $cliRtvi := and $cliOn (not (default false $rii.enabled)) }}
 {{- $embedSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-embed") }}
 {{- $cvSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-cv") }}
+{{- $vlmSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-vlm") }}
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $esSvc := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
@@ -88,6 +91,8 @@ metadata:
 {{- if $cliOn }}
       /elasticsearch/(.*) /\1
       /elasticsearch /
+      /rtvi-vlm/(.*) /\1
+      /rtvi-vlm /
 {{- end }}
 {{- if $cliRtvi }}
       /rtvi-embed/(.*) /\1
@@ -220,6 +225,13 @@ spec:
                 name: {{ $esSvc }}
                 port:
                   number: {{ $cli.elasticsearchPort | default 9200 }}
+          - path: /rtvi-vlm
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $vlmSvc }}
+                port:
+                  number: {{ $cli.rtviVlmPort | default 8000 }}
           {{- end }}
           {{- if $cliRtvi }}
           - path: /rtvi-embed

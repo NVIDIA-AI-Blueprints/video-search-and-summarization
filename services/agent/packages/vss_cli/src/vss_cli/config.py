@@ -258,5 +258,17 @@ INGRESS_SERVICES.update(
         # anything. Recorded by URL alone until the service grows a
         # read-only endpoint.
         "rtvi_cv": ServiceRoute(mount="/rtvi-cv", probe="/rtvi-cv/api/v1/stream/add"),
+        # RT-VLM speaks the same OpenAI shape as RT-Embed, so ``/v1/models`` is
+        # both the proof it is routed and the description of what it serves.
+        # In remote-VLM deployments the local container stays in the request
+        # path as an openai-compat proxy, so the recorded url is local while the
+        # model id names the remote backend -- which is the model actually
+        # serving, and the honest answer for a descriptive config.
+        "rt_vlm": ServiceRoute(
+            mount="/rtvi-vlm",
+            probe="/rtvi-vlm/v1/models",
+            describe="/rtvi-vlm/v1/models",
+            describes="models",
+        ),
     }
 )
