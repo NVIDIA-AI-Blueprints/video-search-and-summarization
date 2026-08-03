@@ -118,6 +118,83 @@ describe('StreamCard — play button', () => {
   });
 });
 
+describe('StreamCard — playback failure notice', () => {
+  const rtspNotice = /rtsp preview not ready\. retry shortly\./i;
+
+  it('shows the RTSP notice when onPlay resolves false', async () => {
+    const onPlay = jest.fn().mockResolvedValue(false);
+    renderStreamCard({ stream: rtspStream, onPlay });
+
+    fireEvent.click(screen.getByRole('button', { name: `Play ${rtspStream.name}` }));
+
+    expect(await screen.findByTestId('playback-notice')).toHaveTextContent(rtspNotice);
+    expect(screen.getByTestId('playback-warning-icon')).toHaveClass('text-red-600');
+  });
+
+  it('shows a generic notice for uploaded videos when onPlay resolves false', async () => {
+    const onPlay = jest.fn().mockResolvedValue(false);
+    renderStreamCard({ onPlay });
+
+    fireEvent.click(screen.getByRole('button', { name: `Play ${videoStream.name}` }));
+
+    const notice = await screen.findByTestId('playback-notice');
+    expect(notice).toHaveTextContent(/preview not ready\. retry shortly\./i);
+    expect(notice).not.toHaveTextContent(rtspNotice);
+  });
+
+  it('does not show the notice when onPlay resolves true', async () => {
+    const onPlay = jest.fn().mockResolvedValue(true);
+    renderStreamCard({ stream: rtspStream, onPlay });
+
+    fireEvent.click(screen.getByRole('button', { name: `Play ${rtspStream.name}` }));
+
+    await waitFor(() => expect(onPlay).toHaveBeenCalled());
+    expect(screen.queryByTestId('playback-notice')).not.toBeInTheDocument();
+  });
+
+  it('does not show the notice when onPlay returns nothing', async () => {
+    const onPlay = jest.fn();
+    renderStreamCard({ stream: rtspStream, onPlay });
+
+    fireEvent.click(screen.getByRole('button', { name: `Play ${rtspStream.name}` }));
+
+    await waitFor(() => expect(onPlay).toHaveBeenCalled());
+    expect(screen.queryByTestId('playback-notice')).not.toBeInTheDocument();
+  });
+
+  it('hides the notice when dismissed', async () => {
+    const onPlay = jest.fn().mockResolvedValue(false);
+    renderStreamCard({ stream: rtspStream, onPlay });
+
+    fireEvent.click(screen.getByRole('button', { name: `Play ${rtspStream.name}` }));
+    fireEvent.click(await screen.findByTestId('playback-notice-dismiss'));
+
+    expect(screen.queryByTestId('playback-notice')).not.toBeInTheDocument();
+  });
+
+  it('retries playback and clears the notice once it succeeds', async () => {
+    const onPlay = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    renderStreamCard({ stream: rtspStream, onPlay });
+
+    fireEvent.click(screen.getByRole('button', { name: `Play ${rtspStream.name}` }));
+    fireEvent.click(await screen.findByTestId('playback-notice-retry'));
+
+    await waitFor(() => expect(screen.queryByTestId('playback-notice')).not.toBeInTheDocument());
+    expect(onPlay).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the notice when a retry fails again', async () => {
+    const onPlay = jest.fn().mockResolvedValue(false);
+    renderStreamCard({ stream: rtspStream, onPlay });
+
+    fireEvent.click(screen.getByRole('button', { name: `Play ${rtspStream.name}` }));
+    fireEvent.click(await screen.findByTestId('playback-notice-retry'));
+
+    await waitFor(() => expect(onPlay).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId('playback-notice')).toBeInTheDocument();
+  });
+});
+
 describe('StreamCard — basic rendering', () => {
   it('displays stream name', () => {
     renderStreamCard();

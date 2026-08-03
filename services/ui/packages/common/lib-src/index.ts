@@ -20,6 +20,19 @@ export type {
   UploadFilesDialogMetadataConfig,
   UploadFilesDialogOptions,
 } from './components/UploadFilesDialog';
+
+export { UploadProgressPopup } from './components/UploadProgressPopup';
+export type {
+  UploadFileStatus,
+  UploadProgressFileItem,
+  UploadProgressPopupProps,
+} from './components/UploadProgressPopup';
+
+export { UploadSuccessPopup } from './components/UploadSuccessPopup';
+export type {
+  UploadResultItem,
+  UploadSuccessPopupProps,
+} from './components/UploadSuccessPopup';
 export type {
   UploadFileConfigTemplate,
   UploadFileFieldConfig,

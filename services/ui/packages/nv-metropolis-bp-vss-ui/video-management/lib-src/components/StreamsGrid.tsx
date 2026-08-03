@@ -18,7 +18,8 @@ interface StreamsGridProps {
   showVideos: boolean;
   showRtsps: boolean;
   getEndTimeForStream: (streamId: string) => string | null;
-  onPlayStream?: (stream: StreamInfo) => void;
+  /** Resolving to `false` means playback could not be opened, and the card shows a notice. */
+  onPlayStream?: (stream: StreamInfo) => void | Promise<boolean | void>;
   loadingStreamId?: string | null;
   onAddChatQueryContext?: (ctx: ChatSidebarQueryContext) => void;
 }

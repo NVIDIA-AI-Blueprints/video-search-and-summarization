@@ -457,7 +457,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         />
 
         {/* Active Filter Tags */}
-        {(activeFilters.sensors.size > 0 || activeFilters.alertTypes.size > 0 || activeFilters.alertTriggered.size > 0) && (
+        {(activeFilters.sensors.size > 0 || activeFilters.alertTypes.size > 0) && (
           <div className="flex items-center gap-2 flex-wrap mt-2">
             {Array.from(activeFilters.sensors).map(filter => (
               <FilterTag
@@ -475,16 +475,6 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
                 type="alertTypes"
                 filter={filter}
                 colors={getFilterColors('alertTypes', isDark)}
-                onRemove={removeFilter}
-              />
-            ))}
-
-            {Array.from(activeFilters.alertTriggered).map(filter => (
-              <FilterTag
-                key={`alertTriggered-${filter}`}
-                type="alertTriggered"
-                filter={filter}
-                colors={getFilterColors('alertTriggered', isDark)}
                 onRemove={removeFilter}
               />
             ))}
