@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Local example SDRC workload config for HTTP-header stream lifecycle testing.
-# This file intentionally lives under services/sdrc/tests/http-header-lifecycle
+# This file intentionally lives under services/sdrc/demo/http-header-lifecycle
 # so production warehouse blueprint configs do not need lifecycle demo endpoints.
 
 docker-workload-rtvi-cv:

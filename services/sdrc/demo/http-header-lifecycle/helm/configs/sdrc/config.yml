@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Local Helm example SDRC workload config for HTTP-header stream lifecycle
-# testing. This file stays under services/sdrc/tests/http-header-lifecycle so
+# testing. This file stays under services/sdrc/demo/http-header-lifecycle so
 # production warehouse blueprint configs do not carry lifecycle demo endpoints.
 
 k8s-workload-rtvi-cv:

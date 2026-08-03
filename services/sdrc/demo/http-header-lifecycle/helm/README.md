@@ -30,7 +30,7 @@ Use this when you only want to inspect the rendered Kubernetes manifests.
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-CHART_DIR="$REPO_ROOT/services/sdrc/tests/http-header-lifecycle/helm"
+CHART_DIR="$REPO_ROOT/services/sdrc/demo/http-header-lifecycle/helm"
 
 helm dependency build "$CHART_DIR"
 helm template sdrc-http-header "$CHART_DIR" --namespace sdrc-http-header
@@ -45,7 +45,7 @@ already contain the warehouse app data.
 RELEASE=sdrc-http-header
 NAMESPACE=sdrc-http-header
 REPO_ROOT=$(git rev-parse --show-toplevel)
-CHART_DIR="$REPO_ROOT/services/sdrc/tests/http-header-lifecycle/helm"
+CHART_DIR="$REPO_ROOT/services/sdrc/demo/http-header-lifecycle/helm"
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
@@ -77,7 +77,7 @@ Use this shorter path if the `vss-rtvi-cv-models` PVC already contains
 RELEASE=sdrc-http-header
 NAMESPACE=sdrc-http-header
 REPO_ROOT=$(git rev-parse --show-toplevel)
-CHART_DIR="$REPO_ROOT/services/sdrc/tests/http-header-lifecycle/helm"
+CHART_DIR="$REPO_ROOT/services/sdrc/demo/http-header-lifecycle/helm"
 
 helm dependency build "$CHART_DIR"
 helm upgrade --install "$RELEASE" "$CHART_DIR" \

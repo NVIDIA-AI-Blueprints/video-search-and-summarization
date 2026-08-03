@@ -40,7 +40,7 @@ container as `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx`.
 ## Start
 
 ```bash
-cd "$REPO_ROOT/services/sdrc/tests/http-header-lifecycle/docker"
+cd "$REPO_ROOT/services/sdrc/demo/http-header-lifecycle/docker"
 docker compose up -d
 ```
 
@@ -85,7 +85,7 @@ docker compose logs -f perception
 ## Stop
 
 ```bash
-cd "$REPO_ROOT/services/sdrc/tests/http-header-lifecycle/docker"
+cd "$REPO_ROOT/services/sdrc/demo/http-header-lifecycle/docker"
 docker compose down
 ```
 
