@@ -132,7 +132,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post or update PR comment
-        if: always() && steps.ctx.outputs.skip != 'true' && steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
+        if: always() && steps.ctx.outputs.skip != 'true' && steps.gen.outputs.rows != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
