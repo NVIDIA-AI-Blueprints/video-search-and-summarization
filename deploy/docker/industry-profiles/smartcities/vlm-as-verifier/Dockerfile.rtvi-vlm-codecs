@@ -1,0 +1,14 @@
+FROM nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1
+
+USER root
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ffmpeg \
+        gstreamer1.0-libav \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-ugly \
+    && rm -rf /var/lib/apt/lists/*
+
+USER 1001:1001

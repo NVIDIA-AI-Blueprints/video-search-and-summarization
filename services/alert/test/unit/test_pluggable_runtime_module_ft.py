@@ -239,6 +239,23 @@ class TestRuntimeHelpersRoundTrip:
         # Default-path slot must NOT leak on the pluggable path.
         assert "reasoning" not in info
 
+    def test_success_helper_mirrors_parser_verdict(self):
+        from schemas.pluggable_parser_runtime import apply_pluggable_parser_output
+
+        msg = {"info": {"verdict": "stale"}}
+        apply_pluggable_parser_output(
+            msg,
+            {
+                "verdict": "Yes",
+                "description": "Confirmed collision between two vehicles",
+                "risk_level": "high",
+                "recommended_action": "Dispatch responders",
+            },
+            video_source="https://cdn/collision.mp4",
+        )
+
+        assert msg["info"]["verdict"] == "confirmed"
+
     def test_error_helper_sets_error_source_and_verdict(self):
         from schemas.pluggable_parser_runtime import (
             apply_pluggable_parser_error,

@@ -28,7 +28,7 @@ import signal
 import sys
 import time
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from multiprocessing import Process
 from queue import Queue, Empty
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
@@ -504,9 +504,10 @@ class AnomalyEnhancer(
     def _load_pluggable_parser(self):
         """Load external pluggable parser from vlm.response_parser config.
 
-        When configured, the parser fully replaces the built-in CR1/CR2
-        verification parsing: its ``parse(raw_response) -> dict`` output
-        is serialized into ``info["vlm_response"]`` with ``info["verdict"] = None``.
+        When configured, the parser fully replaces the built-in verification
+        parsing: its ``parse(raw_response) -> dict`` output is serialized into
+        ``info["vlm_response"]`` and a Yes/No ``verdict`` is mapped to
+        confirmed/rejected in ``info["verdict"]``.
         """
         dotted_path = self.config.get('vlm', {}).get('response_parser')
         if not dotted_path:
@@ -1209,9 +1210,10 @@ class AnomalyEnhancer(
         """Evaluate a local video file through the VLM and merge the response.
 
         If a pluggable parser is configured it replaces the default verification
-        parsing; its output is JSON-stringified into ``info["vlm_response"]`` with
-        ``info["verdict"] = None``. Otherwise the default CR1/CR2 verification
-        path runs unchanged.
+        parsing; its output is JSON-stringified into ``info["vlm_response"]`` and
+        a Yes/No ``verdict`` is mapped to confirmed/rejected in
+        ``info["verdict"]``.
+        Otherwise the default CR1/CR2 verification path runs unchanged.
         """
         if not os.path.isfile(video_path):
             logger.warning("Pass-through mode: video file not found; skipping message", extra={
@@ -1401,8 +1403,82 @@ class AnomalyEnhancer(
                 return
 
             vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
+            fallback_vlm_video_url = vlm_video_url
+            video_url_to_validate = video_url
 
-            if not self.validate_video_url(video_url):
+            if getattr(self, 'config', {}).get('vst_config', {}).get('primary_bbox_for_vlm', False):
+                clean_start_time = (
+                    datetime.fromisoformat(
+                        effective_start_time.replace('Z', '+00:00')
+                    )
+                    + timedelta(seconds=1)
+                ).isoformat().replace('+00:00', 'Z')
+                primary_object_id = (message.get('info') or {}).get('primaryObjectId')
+                target_object_ids = (
+                    [primary_object_id]
+                    if primary_object_id is not None
+                    else message.get('objectIds', [])[:1]
+                )
+                clean_video_url = None
+                clean_clip_error = None
+                start = time.time()
+                try:
+                    clean_video_url, _, _ = self._get_video_stream_url_with_mode(
+                        sensor_id,
+                        clean_start_time,
+                        effective_end_time,
+                        objects_ids=target_object_ids,
+                        remove_overlay=False,
+                        alert_type_anchor='start',
+                        show_object_id=False,
+                    )
+                except Exception as exc:
+                    clean_clip_error = exc
+                    logger.warning(
+                        "Primary-object VLM clip unavailable; falling back to full-overlay clip "
+                        "[sensor=%s category=%s primary_object_id=%s]: %s",
+                        sensor_id,
+                        message.get('category', 'N/A'),
+                        primary_object_id,
+                        exc,
+                    )
+                duration = round(time.time() - start, 3)
+                latency['getTargetVideoForVlm'] = {
+                    'success': bool(clean_video_url),
+                    'duration': duration,
+                }
+                if clean_video_url:
+                    vlm_video_url, _ = self._transform_video_urls(clean_video_url)
+                    video_url_to_validate = clean_video_url
+                    logger.info(
+                        "Using primary-object bbox without ID label for VLM while retaining "
+                        "full overlay for storage [sensor=%s category=%s primary_object_id=%s]",
+                        sensor_id,
+                        message.get('category', 'N/A'),
+                        primary_object_id,
+                    )
+                elif clean_clip_error is None:
+                    logger.warning(
+                        "VST returned no primary-object VLM clip; falling back to full-overlay "
+                        "clip [sensor=%s category=%s primary_object_id=%s]",
+                        sensor_id,
+                        message.get('category', 'N/A'),
+                        primary_object_id,
+                    )
+
+            video_url_valid = self.validate_video_url(video_url_to_validate)
+            if not video_url_valid and video_url_to_validate != video_url:
+                logger.warning(
+                    "Primary-object VLM clip failed validation; falling back to full-overlay "
+                    "clip [sensor=%s category=%s]",
+                    sensor_id,
+                    message.get('category', 'N/A'),
+                )
+                vlm_video_url = fallback_vlm_video_url
+                video_url_to_validate = video_url
+                video_url_valid = self.validate_video_url(video_url)
+
+            if not video_url_valid:
                 self._handle_url_validation_failure(
                     message, storage_video_url, worker_start_time, latency
                 )

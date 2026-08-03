@@ -131,6 +131,7 @@ export interface AlertsComponentProps {
     vlmVerifiedAlertReportPromptTemplate?: string;
     maxSearchTimeLimit?: string; // Format: "0" (unlimited), "10m", "2h", "3d", "1w", "2M", "1y"
     mediaWithObjectsBbox?: boolean; // Enable overlay bounding boxes on thumbnails and videos
+    internalVstHostnames?: string[]; // Additional internal VST hosts whose stored URLs need browser rewriting
   } | null;
   serverRenderTime?: string;
   // External controls rendering

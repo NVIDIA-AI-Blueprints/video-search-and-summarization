@@ -17,7 +17,7 @@ import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import httpx
@@ -607,9 +607,85 @@ class EventLoopPipelineMixin:
                 return
 
             vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
+            fallback_vlm_video_url = vlm_video_url
+            video_url_to_validate = video_url
+
+            if getattr(self, 'config', {}).get('vst_config', {}).get('primary_bbox_for_vlm', False):
+                clean_start_time = (
+                    datetime.fromisoformat(
+                        effective_start_time.replace('Z', '+00:00')
+                    )
+                    + timedelta(seconds=1)
+                ).isoformat().replace('+00:00', 'Z')
+                primary_object_id = (message.get('info') or {}).get('primaryObjectId')
+                target_object_ids = (
+                    [primary_object_id]
+                    if primary_object_id is not None
+                    else message.get('objectIds', [])[:1]
+                )
+                clean_video_url = None
+                clean_clip_error = None
+                start = time.time()
+                try:
+                    async with self._capacity_slot(self._vst_capacity, 'vst', latency):
+                        clean_video_url, _, _ = await self._vst_handler.get_video_stream_url_async(
+                            self._get_event_loop_http_client(),
+                            sensor_id,
+                            clean_start_time,
+                            effective_end_time,
+                            objects_ids=target_object_ids,
+                            remove_overlay=False,
+                            alert_type_anchor='start',
+                            show_object_id=False,
+                        )
+                except Exception as exc:
+                    clean_clip_error = exc
+                    logger.warning(
+                        "Primary-object VLM clip unavailable; falling back to full-overlay clip "
+                        "[sensor=%s category=%s primary_object_id=%s]: %s",
+                        sensor_id,
+                        message.get('category', 'N/A'),
+                        primary_object_id,
+                        exc,
+                    )
+                duration = round(time.time() - start, 3)
+                latency['getTargetVideoForVlm'] = {
+                    'success': bool(clean_video_url),
+                    'duration': duration,
+                }
+                if clean_video_url:
+                    vlm_video_url, _ = self._transform_video_urls(clean_video_url)
+                    video_url_to_validate = clean_video_url
+                    logger.info(
+                        "Using primary-object bbox without ID label for VLM while retaining "
+                        "full overlay for storage [sensor=%s category=%s primary_object_id=%s]",
+                        sensor_id,
+                        message.get('category', 'N/A'),
+                        primary_object_id,
+                    )
+                elif clean_clip_error is None:
+                    logger.warning(
+                        "VST returned no primary-object VLM clip; falling back to full-overlay "
+                        "clip [sensor=%s category=%s primary_object_id=%s]",
+                        sensor_id,
+                        message.get('category', 'N/A'),
+                        primary_object_id,
+                    )
 
             async with self._capacity_slot(self._vst_capacity, 'vst', latency):
-                video_url_valid = await self._validate_video_url_async(video_url)
+                video_url_valid = await self._validate_video_url_async(video_url_to_validate)
+            if not video_url_valid and video_url_to_validate != video_url:
+                logger.warning(
+                    "Primary-object VLM clip failed validation; falling back to full-overlay "
+                    "clip [sensor=%s category=%s]",
+                    sensor_id,
+                    message.get('category', 'N/A'),
+                )
+                vlm_video_url = fallback_vlm_video_url
+                video_url_to_validate = video_url
+                async with self._capacity_slot(self._vst_capacity, 'vst', latency):
+                    video_url_valid = await self._validate_video_url_async(video_url)
+
             if not video_url_valid:
                 await asyncio.to_thread(
                     self._handle_url_validation_failure,

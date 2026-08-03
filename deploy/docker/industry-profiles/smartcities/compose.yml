@@ -15,6 +15,20 @@
 
 services:
 
+  alert-bridge:
+    volumes:
+      - $VSS_APPS_DIR/industry-profiles/smartcities/vlm-as-verifier/parsers:/app/parsers:ro
+
+  rtvi-vlm:
+    image: vss-rt-vlm:smartcities-codecs
+    build:
+      context: $VSS_APPS_DIR/industry-profiles/smartcities/vlm-as-verifier
+      dockerfile: Dockerfile.rtvi-vlm-codecs
+
+  streamprocessing-ms:
+    volumes:
+      - ${VST_CALIBRATION_FILE:-${VSS_APPS_DIR}/industry-profiles/smartcities/smc-app/calibration/sample-data/calibration.json}:/home/vst/vst_release/configs/calibration.json:ro
+
   vss-behavior-analytics-alerts:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
@@ -119,7 +133,7 @@ services:
     profiles: ["vss-video-analytics-api-alerts"]
     container_name: vss-video-analytics-api
     volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-api:/opt/mdx/vss-video-analytics-api
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json:ro
       - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
 
   import-calibration-output-container-smartcities:

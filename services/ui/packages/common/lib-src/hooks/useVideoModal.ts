@@ -11,7 +11,11 @@
  */
 
 import { useRef, useState, useCallback } from 'react';
-import { checkVideoUrl, fetchVideoUrlFromVst } from '../utils/videoModal';
+import {
+  checkVideoUrl,
+  fetchVideoUrlFromVst,
+  replaceVideoUrlBase,
+} from '../utils/videoModal';
 
 export interface VideoModalState {
   isOpen: boolean;
@@ -45,6 +49,31 @@ export interface AlertLike {
 export interface UseVideoModalOptions {
   sensorMap?: Map<string, string>;
   showObjectsBbox?: boolean;
+  /** Additional Compose/internal VST hostnames whose stored URLs need browser rewriting. */
+  internalVstHostnames?: string[];
+}
+
+const INTERNAL_VST_HOSTNAMES = new Set([
+  'vst-ingress',
+  'vss-vios-nvstreamer',
+]);
+const EMPTY_INTERNAL_VST_HOSTNAMES: readonly string[] = [];
+
+function isInternalVstVideoUrl(
+  videoSource: string,
+  additionalHostnames: readonly string[]
+): boolean {
+  try {
+    const hostname = new URL(videoSource).hostname.toLowerCase();
+    return (
+      INTERNAL_VST_HOSTNAMES.has(hostname) ||
+      additionalHostnames.some(
+        (additionalHostname) => additionalHostname.toLowerCase() === hostname
+      )
+    );
+  } catch {
+    return false;
+  }
 }
 
 export const useVideoModal = (
@@ -61,6 +90,8 @@ export const useVideoModal = (
 
   const sensorMap = options?.sensorMap;
   const showObjectsBbox = options?.showObjectsBbox ?? false;
+  const internalVstHostnames =
+    options?.internalVstHostnames ?? EMPTY_INTERNAL_VST_HOSTNAMES;
 
   /**
    * Opens the playback modal for a clip. Resolves `false` when no video could
@@ -148,15 +179,24 @@ export const useVideoModal = (
       try {
         const videoSource = alert.metadata?.info?.videoSource;
         if (videoSource) {
-          const isAccessible = await checkVideoUrl(
+          // Alert Bridge may persist a Compose-internal VST hostname. Rewrite
+          // it through the browser-reachable VST base before probing so the UI
+          // does not wait for a guaranteed timeout and regenerate the clip.
+          const browserVideoSource = vstApiUrl && isInternalVstVideoUrl(
             videoSource,
+            internalVstHostnames
+          )
+            ? replaceVideoUrlBase(videoSource, vstApiUrl)
+            : videoSource;
+          const isAccessible = await checkVideoUrl(
+            browserVideoSource,
             abortController.signal
           );
 
           if (abortController.signal.aborted) return;
 
           if (isAccessible) {
-            openVideoModalFromUrl(title, videoSource);
+            openVideoModalFromUrl(title, browserVideoSource);
             setLoadingAlertId(null);
             return;
           }
@@ -217,7 +257,13 @@ export const useVideoModal = (
         }
       }
     },
-    [vstApiUrl, sensorMap, showObjectsBbox, openVideoModalFromUrl]
+    [
+      vstApiUrl,
+      sensorMap,
+      showObjectsBbox,
+      internalVstHostnames,
+      openVideoModalFromUrl,
+    ]
   );
 
   const closeVideoModal = useCallback(() => {

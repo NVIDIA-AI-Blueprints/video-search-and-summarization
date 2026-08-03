@@ -26,7 +26,8 @@ services:
       VLM_NAME: ${VLM_NAME}
       # URL rewriting configuration
       EXTERNAL_IP: ${EXTERNAL_IP}
-      INTERNAL_IP: ${HOST_IP}
+      # VST returns Compose-internal URLs using this service hostname.
+      INTERNAL_IP: ${VST_SERVICE_HOST:-vst-ingress}
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       # Realtime REST API (restapi-realtime-alerts feature)

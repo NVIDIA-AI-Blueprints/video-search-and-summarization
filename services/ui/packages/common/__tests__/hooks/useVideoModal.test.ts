@@ -145,6 +145,7 @@ describe('useVideoModal', () => {
         return originalCreateElement(tag);
       });
 
+      global.fetch = jest.fn();
       const sensorMap = new Map([['Cam-A', 'sensor-id']]);
       const { result } = renderHook(() =>
         useVideoModal('http://vst.test', { sensorMap })
@@ -160,6 +161,80 @@ describe('useVideoModal', () => {
 
       expect(result.current.videoModal.videoUrl).toBe('http://direct.example.com/clip.mp4');
       expect(result.current.loadingAlertId).toBeNull();
+    });
+
+    it('rewrites a configured internal stored videoSource before probing it', async () => {
+      const originalCreateElement = document.createElement.bind(document);
+      jest.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+        if (tag === 'video') {
+          const video = originalCreateElement('video') as HTMLVideoElement;
+          setTimeout(() => {
+            if (video.onloadedmetadata) video.onloadedmetadata(new Event('loadedmetadata'));
+          }, 0);
+          return video;
+        }
+        return originalCreateElement(tag);
+      });
+
+      global.fetch = jest.fn();
+      const sensorMap = new Map([['Cam-A', 'sensor-id']]);
+      const { result } = renderHook(() =>
+        useVideoModal('http://public.test:7777/vst/api', {
+          sensorMap,
+          internalVstHostnames: ['custom-vst'],
+        })
+      );
+
+      await act(async () => {
+        await result.current.openVideoModalFromAlert(
+          makeAlert({
+            metadata: {
+              info: {
+                videoSource:
+                  'http://custom-vst:30888/vst/storage/temp_files/clip.mp4',
+              },
+            },
+          })
+        );
+      });
+
+      expect(result.current.videoModal.videoUrl).toBe(
+        'http://public.test:7777/vst/storage/temp_files/clip.mp4'
+      );
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('preserves an accessible public videoSource containing a /vst/ path', async () => {
+      const originalCreateElement = document.createElement.bind(document);
+      jest.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+        if (tag === 'video') {
+          const video = originalCreateElement('video') as HTMLVideoElement;
+          setTimeout(() => {
+            if (video.onloadedmetadata) video.onloadedmetadata(new Event('loadedmetadata'));
+          }, 0);
+          return video;
+        }
+        return originalCreateElement(tag);
+      });
+
+      global.fetch = jest.fn();
+      const sensorMap = new Map([['Cam-A', 'sensor-id']]);
+      const { result } = renderHook(() =>
+        useVideoModal('http://public.test:7777/vst/api', { sensorMap })
+      );
+      const publicVideoSource =
+        'https://external.example/vst/storage/temp_files/clip.mp4';
+
+      await act(async () => {
+        await result.current.openVideoModalFromAlert(
+          makeAlert({
+            metadata: { info: { videoSource: publicVideoSource } },
+          })
+        );
+      });
+
+      expect(result.current.videoModal.videoUrl).toBe(publicVideoSource);
+      expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it('falls back to VST API when videoSource not accessible', async () => {

@@ -203,7 +203,14 @@ class AlertTypeConfigLoader:
         }
 
 
-    def seed_to_store(self, alert_type: str, config: AlertTypeConfig, store) -> None:
+    def seed_to_store(
+        self,
+        alert_type: str,
+        config: AlertTypeConfig,
+        store,
+        *,
+        overwrite_prompts: bool = False,
+    ) -> None:
         """
         Seed an alert type config from the static JSON file into the
         alert-config store (``alert_config:{alert_type}`` record). Existing
@@ -216,6 +223,7 @@ class AlertTypeConfigLoader:
             alert_type: Alert type identifier
             config: ``AlertTypeConfig`` parsed from ``alert_type_config.json``
             store: ``handlers.alert_config`` store instance
+            overwrite_prompts: Replace persisted prompt fields with file values
         """
         try:
             from datetime import datetime, timezone
@@ -245,6 +253,9 @@ class AlertTypeConfigLoader:
             # Top-level merge: API-managed values (existing) win for non-None
             # keys; the file populates keys that are missing from the store.
             merged = {**file_data, **{k: v for k, v in existing.items() if v is not None}}
+            if overwrite_prompts:
+                for key in ("prompt", "system_prompt", "enrichment_prompt"):
+                    merged[key] = file_data[key]
 
             # vlm_params needs a deep merge so partial API updates do not
             # drop file-supplied defaults on restart. File defaults seed any

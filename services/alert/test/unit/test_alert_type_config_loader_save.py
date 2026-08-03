@@ -85,6 +85,62 @@ class TestSeedingMerge:
         assert record["prompt"] == "API user prompt"
         assert record["output_category"] == "API category"
 
+    def test_explicit_prompt_override_replaces_persisted_prompts(self):
+        loader, store = _loader(), _store()
+        store.set("collision", {
+            "prompt": "old user prompt",
+            "system_prompt": "old system prompt",
+            "enrichment_prompt": "old enrichment prompt",
+            "output_category": "API category",
+            "alert_type": "collision",
+        })
+        config = AlertTypeConfig(
+            alert_type="collision",
+            prompts=Prompts(
+                user="new user prompt",
+                system="new system prompt",
+                enrichment="new enrichment prompt",
+            ),
+        )
+
+        loader.seed_to_store(
+            "collision",
+            config,
+            store,
+            overwrite_prompts=True,
+        )
+
+        record = store.get("collision")
+        assert record["prompt"] == "new user prompt"
+        assert record["system_prompt"] == "new system prompt"
+        assert record["enrichment_prompt"] == "new enrichment prompt"
+        assert record["output_category"] == "API category"
+
+    def test_explicit_prompt_override_clears_removed_prompts(self):
+        loader, store = _loader(), _store()
+        store.set("collision", {
+            "prompt": "old user prompt",
+            "system_prompt": "old system prompt",
+            "enrichment_prompt": "old enrichment prompt",
+            "alert_type": "collision",
+        })
+        config = AlertTypeConfig(
+            alert_type="collision",
+            prompts=Prompts(user="new user prompt"),
+        )
+
+        loader.seed_to_store(
+            "collision",
+            config,
+            store,
+            overwrite_prompts=True,
+        )
+
+        record = store.get("collision")
+        assert record["prompt"] == "new user prompt"
+        assert record["system_prompt"] is None
+        assert record["enrichment_prompt"] is None
+
     def test_partial_api_vlm_params_merged_with_file_defaults(self):
         loader, store = _loader(), _store()
         # User PUT only sent ``temperature``; file defaults provide the rest.

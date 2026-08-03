@@ -134,3 +134,19 @@ class TestAsyncVSTErrorTaxonomy:
         assert captured["params"]["streamId"] == params["streamId"]
         assert captured["params"]["container"] == params["container"]
         assert json.loads(captured["params"]["configuration"]) == json.loads(params["configuration"])
+
+    def test_primary_bbox_can_hide_object_id_label(self):
+        handler = _make_handler()
+        handler.add_overlay = True
+
+        _, _, params, _, _, _ = handler._build_video_url_request(
+            "cam-1",
+            "2026-01-01T00:00:00.000Z",
+            "2026-01-01T00:00:10.000Z",
+            objects_ids=["primary-1"],
+            show_object_id=False,
+        )
+
+        bbox = json.loads(params["configuration"])["overlay"]["bbox"]
+        assert bbox["objectId"] == ["primary-1"]
+        assert bbox["showObjId"] is False

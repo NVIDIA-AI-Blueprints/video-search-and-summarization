@@ -63,8 +63,14 @@ class PromptManager:
         self.alert_type_prompts = {}
         self.alert_type_system_prompts = {}
 
-        if self.override_prompts_on_start:
-            self._seed_prompts_to_store()
+        if self.alert_config_loader is not None:
+            self._seed_prompts_to_store(
+                overwrite_prompts=self.override_prompts_on_start,
+            )
+        elif self.override_prompts_on_start:
+            raise RuntimeError(
+                "Prompt override requested but alert type configuration is unavailable"
+            )
         
     def load_prompts(self) -> None:
         self.logger.info("load_prompts() is deprecated; prompts are fetched directly from the alert-config store")
@@ -359,7 +365,7 @@ class PromptManager:
                 raise KeyError(path)
         return str(current)
 
-    def _seed_prompts_to_store(self) -> None:
+    def _seed_prompts_to_store(self, *, overwrite_prompts: bool) -> None:
         """Seed every alert type from ``alert_type_config.json`` into the
         alert-config store (``alert_config:*`` records) so runtime hot-path
         lookups have a complete record at startup."""
@@ -373,4 +379,9 @@ class PromptManager:
             config = self.alert_config_loader.get_config_for_alert_type(alert_type)
             if not config:
                 continue
-            self.alert_config_loader.seed_to_store(alert_type, config, self.alert_config_store)
+            self.alert_config_loader.seed_to_store(
+                alert_type,
+                config,
+                self.alert_config_store,
+                overwrite_prompts=overwrite_prompts,
+            )

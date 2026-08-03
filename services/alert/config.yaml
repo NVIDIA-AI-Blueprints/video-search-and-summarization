@@ -93,9 +93,10 @@ vlm:
   # custom_parser_module: "custom_parsers.my_parser"  # dotted Python module path
 
   # Pluggable response parser: external parser class for custom use cases.
-  # When set, it fully replaces the default CR1/CR2 verification parsing.
+  # When set, it fully replaces the default verification parsing.
   # The class must expose parse(raw_response: str) -> dict; its output is
-  # JSON-stringified into info["vlm_response"] with info["verdict"] = "".
+  # JSON-stringified into info["vlm_response"]. A Yes/No parser verdict is
+  # mapped to confirmed/rejected in info["verdict"].
   # Parser modules live outside the AB repo; AB loads the class at startup.
   # IMPORTANT: parser classes MUST be thread-safe — Alert Bridge shares one
   # instance across all worker threads + the async dispatcher.

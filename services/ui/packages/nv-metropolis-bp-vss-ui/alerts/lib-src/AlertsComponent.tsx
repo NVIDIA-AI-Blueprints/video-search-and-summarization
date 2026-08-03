@@ -212,6 +212,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   const alertReportPromptTemplate = alertsData?.alertReportPromptTemplate;
   const vlmVerifiedAlertReportPromptTemplate = alertsData?.vlmVerifiedAlertReportPromptTemplate;
   const mediaWithObjectsBbox = alertsData?.mediaWithObjectsBbox ?? false;
+  const internalVstHostnames = alertsData?.internalVstHostnames;
 
   const [pageSize, setPageSize] = useSessionState('alertsTabPageSize', defaultPageSize, parseIntRange(1, 500));
   const [maxResults, setMaxResults] = useSessionState('alertsTabMaxResults', defaultMaxResults, parseIntRange(10, 5000));
@@ -311,7 +312,12 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
       }),
     [timeWindow, vlmVerified, vlmVerdict, pageSize, activeFilters],
   );
-  const { videoModal, openVideoModalFromAlert, closeVideoModal, loadingAlertId } = useVideoModal(vstApiUrl, { sensorMap, showObjectsBbox: mediaWithObjectsBbox });
+  const { videoModal, openVideoModalFromAlert, closeVideoModal, loadingAlertId } =
+    useVideoModal(vstApiUrl, {
+      sensorMap,
+      showObjectsBbox: mediaWithObjectsBbox,
+      internalVstHostnames,
+    });
 
   const handleTableLoadMore = React.useCallback(async () => {
     const ok = await loadMoreAlerts();
