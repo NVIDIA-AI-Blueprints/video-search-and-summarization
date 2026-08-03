@@ -64,6 +64,12 @@ defaults:
   run:
     shell: bash
 
+env:
+  # The scheduled workflow definition comes from main but checks out develop.
+  # Pin the interpreter expected by develop's skill-eval harness instead of
+  # inheriting the self-hosted runner's system Python.
+  SKILL_EVAL_PYTHON_VERSION: "3.12"
+
 jobs:
   # ---------------------------------------------------------------------
   # plan — enumerate every skill into the dispatch matrix (full sweep:
@@ -87,6 +93,11 @@ jobs:
           # (github.ref) so on-demand runs can still target any branch.
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
           fetch-depth: 0   # plan diffs the cumulative head...base range
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
       - name: Compute matrix
         id: plan
@@ -128,6 +139,21 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
           fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
 
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Prepare isolated agent runtime
+        env:
+          SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
+        run: |
+          python3 -m venv "$SKILL_EVAL_VENV"
+          "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet "claude-agent-sdk==0.2.128"
+          "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
+          echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
+
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
           # The runner host (vss-skill-validator-v2) keeps coordinator
@@ -159,9 +185,19 @@ jobs:
           BASH_MAX_TIMEOUT_MS: "10800000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
+          skill_eval_venv_dir="$SKILL_EVAL_VENV"
+          skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # The operator-managed .env may define PATH. Restore the isolated
+          # runtime afterwards so the agent and every Python child agree.
+          export SKILL_EVAL_VENV="$skill_eval_venv_dir"
+          export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
+          export VIRTUAL_ENV="$skill_eval_venv_dir"
+          export PATH="$skill_eval_venv_dir/bin:$PATH"
+          hash -r
+          python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # Pin the box-side repo sync to the SHA the runner actually checked
           # out — NOT github.sha. On a scheduled run github.sha is the default
           # branch (main) tip, but the checkout above is develop; using it here
