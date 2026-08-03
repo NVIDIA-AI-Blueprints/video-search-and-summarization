@@ -307,6 +307,72 @@ class TestHttpHeaderLifecycle:
         assert data["change"] == "reprovision"
         assert original_json["event"]["camera_name"] == "Dock Camera 1"
 
+    def test_http_header_reprovision_requires_cached_stream_state(
+        self, client, app_module, monkeypatch
+    ):
+        self._enable_http_lifecycle(app_module)
+        app_module.cfg.getworkLoadSpecById.return_value = []
+        app_module.redisMsging.getIdPodMapping.return_value = "pod-0"
+        calls = []
+
+        def fake_reprovision(k8swlob_name, data, original_json, parent_context):
+            calls.append((k8swlob_name, data, original_json, parent_context))
+
+        monkeypatch.setattr(app_module, "reprovisionStreamRedis", fake_reprovision)
+
+        r = client.post(
+            "/sdrc/v1/streams/reprovision",
+            headers={"streamid": "camera-001"},
+        )
+
+        assert r.status_code == 404
+        assert r.get_json()["stream_id"] == "camera-001"
+        assert calls == []
+
+    def test_shared_add_reprovision_endpoint_uses_body_presence(
+        self, client, app_module, monkeypatch
+    ):
+        self._enable_http_lifecycle(app_module)
+        app_module.app.config.update(
+            WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH="/api/v1/stream/add",
+            WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH="/api/v1/stream/add",
+        )
+        app_module.cfg.getworkLoadSpecById.return_value = [
+            {
+                "event": {
+                    "camera_id": "camera-001",
+                    "camera_url": "rtsp://cached",
+                    "camera_name": "Dock Camera 1",
+                }
+            }
+        ]
+        app_module.redisMsging.getIdPodMapping.return_value = "pod-0"
+        calls = []
+
+        def fake_provision(k8swlob_name, data, original_json, parent_context=None):
+            calls.append(("add", data, original_json))
+
+        def fake_reprovision(k8swlob_name, data, original_json, parent_context):
+            calls.append(("reprovision", data, original_json))
+
+        monkeypatch.setattr(app_module, "provisionStreamRedis", fake_provision)
+        monkeypatch.setattr(app_module, "reprovisionStreamRedis", fake_reprovision)
+
+        add_response = client.post(
+            "/api/v1/stream/add",
+            json={"event": {"camera_url": "rtsp://example.local/camera-001"}},
+            headers={"streamid": "camera-001"},
+        )
+        reprovision_response = client.post(
+            "/api/v1/stream/add", headers={"streamid": "camera-001"}
+        )
+
+        assert add_response.status_code == 200
+        assert add_response.get_json()["action"] == "add"
+        assert reprovision_response.status_code == 200
+        assert reprovision_response.get_json()["action"] == "reprovision"
+        assert [call[0] for call in calls] == ["add", "reprovision"]
+
 
 class TestGetWlReplicaData:
     def test_get_wl_replica_data_returns_json(self, client):

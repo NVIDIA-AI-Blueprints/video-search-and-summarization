@@ -100,7 +100,9 @@ def test_dashboard_lifecycle_config_defaults_to_message_bus(monkeypatch):
     assert cfg["binding_warning"] == ""
 
 
-def test_dashboard_lifecycle_config_warns_on_duplicate_http_bindings(monkeypatch):
+def test_dashboard_lifecycle_config_allows_shared_add_reprovision_binding(
+    monkeypatch,
+):
     rw = _import_run_workloads()
 
     monkeypatch.delenv("WDM_LIFECYCLE_INGRESS_MODE", raising=False)
@@ -118,9 +120,32 @@ def test_dashboard_lifecycle_config_warns_on_duplicate_http_bindings(monkeypatch
     cfg = rw._dashboard_lifecycle_config({}, entry)
 
     assert cfg["mode"] == "http-header"
+    assert cfg["binding_warning"] == ""
+
+
+def test_dashboard_lifecycle_config_warns_on_unsupported_duplicate_binding(
+    monkeypatch,
+):
+    rw = _import_run_workloads()
+
+    monkeypatch.delenv("WDM_LIFECYCLE_INGRESS_MODE", raising=False)
+    entry = {
+        "wl_obj_name": "vss-rtvi-cv",
+        "WDM_LIFECYCLE_INGRESS_MODE": "http",
+        "WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH": "/api/v1/stream",
+        "WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD": "POST",
+        "WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH": "/api/v1/stream",
+        "WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD": "POST",
+        "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH": "/api/v1/stream/reprovision",
+        "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD": "POST",
+    }
+
+    cfg = rw._dashboard_lifecycle_config({}, entry)
+
+    assert cfg["mode"] == "http-header"
     assert cfg["binding_warning"] == (
-        "Duplicate HTTP lifecycle binding POST /api/v1/stream/add "
-        "is used by add and reprovision; SDRC can classify only one action."
+        "Duplicate HTTP lifecycle binding POST /api/v1/stream "
+        "is used by add and delete; only add and reprovision may share a binding."
     )
 
 

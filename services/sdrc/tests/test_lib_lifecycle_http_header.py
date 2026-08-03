@@ -94,6 +94,36 @@ class TestHttpLifecycleClassification:
     def test_does_not_infer_action_from_unconfigured_path(self, lifecycle_config):
         assert match_http_lifecycle_action("POST", "/other", lifecycle_config) is None
 
+    def test_body_disambiguates_shared_add_reprovision_binding(self, lifecycle_config):
+        lifecycle_config["WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH"] = "/api/v1/stream/add"
+        lifecycle_config["WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH"] = "/api/v1/stream/add"
+
+        assert (
+            match_http_lifecycle_action(
+                "POST", "/api/v1/stream/add", lifecycle_config, has_body=True
+            )
+            == ACTION_ADD
+        )
+        assert (
+            match_http_lifecycle_action(
+                "POST", "/api/v1/stream/add", lifecycle_config, has_body=False
+            )
+            == ACTION_REPROVISION
+        )
+
+    def test_rejects_ambiguous_non_body_aware_duplicate_binding(
+        self, lifecycle_config
+    ):
+        lifecycle_config["WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH"] = "/api/v1/stream"
+        lifecycle_config["WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD"] = "POST"
+        lifecycle_config["WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH"] = "/api/v1/stream"
+        lifecycle_config["WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD"] = "POST"
+
+        with pytest.raises(ValueError, match="only add/reprovision"):
+            match_http_lifecycle_action(
+                "POST", "/api/v1/stream", lifecycle_config, has_body=True
+            )
+
 
 class TestHttpLifecycleHeadersAndPayload:
     def test_extracts_configured_header_case_insensitively(self):
