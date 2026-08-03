@@ -93,10 +93,75 @@ ensure_models_from_manifest() {
     bash "$script"
 }
 
+# Append DeepStream samples/<subdir> dirs under both the deepstream/ entry
+# point and any versioned deepstream-N.M/ tree (same layout split as Tracker).
+# Caller passes a nameref array name; keeps failures in-process under set -e.
+append_deepstream_sample_dirs() {
+    local subdir="$1"
+    local -n _dirs_ref="$2"
+    local canonical="/opt/nvidia/deepstream/deepstream/samples/${subdir}"
+    local d canonical_real other_real
+
+    _dirs_ref+=("$canonical")
+    canonical_real="$(readlink -f "$canonical" 2>/dev/null || true)"
+
+    shopt -s nullglob
+    for d in /opt/nvidia/deepstream/deepstream-[0-9]*/samples/"${subdir}"; do
+        [[ -d "$d" ]] || continue
+        other_real="$(readlink -f "$d" 2>/dev/null || true)"
+        # Deduplicate only when both resolve to the same path; empty readlink
+        # results must not look like a match.
+        if [[ -n "$canonical_real" && -n "$other_real" && "$canonical_real" == "$other_real" ]]; then
+            continue
+        fi
+        _dirs_ref+=("$d")
+    done
+    shopt -u nullglob
+}
+
+# Option A: after the privilege drop the app is STORAGE_UID, but several
+# image-owned DeepStream paths remain unwritable (streams HTTP download dir,
+# Tracker engine dir, app cwd) and HOME still points at /root. Prepare those
+# once here — same contract as download-models.sh / setup-tracker-reid.sh.
+prepare_runtime_user_environment() {
+    local uid="${STORAGE_UID:-1001}"
+    local gid="${STORAGE_GID:-1001}"
+    local runtime_home="${RTVI_CV_RUNTIME_HOME:-/tmp/rtvi-cv-home}"
+    local -a runtime_dirs=()
+    local d
+
+    # Redirect HOME/cache before setpriv so the dropped process inherits them
+    # (setpriv does not rewrite HOME). Avoids dconf/GStreamer writes under /root.
+    mkdir -p "${runtime_home}/.cache/gstreamer-1.0"
+    export HOME="${runtime_home}"
+    export XDG_CACHE_HOME="${runtime_home}/.cache"
+    export GST_REGISTRY="${runtime_home}/.cache/gstreamer-1.0/registry.bin"
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "##### Skipping runtime dir ownership (not root); HOME=${HOME} #####"
+        return 0
+    fi
+
+    chown -R "${uid}:${gid}" "${runtime_home}"
+
+    # Non-recursive: streams accumulates downloaded videos; only the dir must
+    # be writable so fopen(..., "wb") for HTTP_DOWNLOAD_DIR succeeds.
+    append_deepstream_sample_dirs streams runtime_dirs
+    append_deepstream_sample_dirs models/Tracker runtime_dirs
+    runtime_dirs+=("${DS_APP_DIR}")
+    for d in "${runtime_dirs[@]}"; do
+        [[ -n "$d" ]] || continue
+        install -d -m 0755 "$d"
+        chown "${uid}:${gid}" "$d"
+        echo "##### Prepared runtime-writable dir ${d} -> ${uid}:${gid} #####"
+    done
+}
+
 # Drop to STORAGE_UID/GID before exec'ing the perception binary (Option A).
 exec_as_runtime_user() {
     local uid="${STORAGE_UID:-1001}"
     local gid="${STORAGE_GID:-1001}"
+    prepare_runtime_user_environment
     if [[ "$(id -u)" -ne 0 ]]; then
         exec "$@"
     fi
