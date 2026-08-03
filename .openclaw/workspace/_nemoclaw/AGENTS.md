@@ -126,7 +126,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 > The tool names below (`vss_orchestrator__*`) are listed for orientation, but **always confirm them against `tools/list` output** (per TOOLS.md) before invoking — use whatever names discovery returns.
 
 - When the user says **"deploy VSS base"**, **"deploy VSS search"**, **"deploy VSS lvs"**, or **"deploy VSS alerts"**:
-  1. Call `vss_orchestrator__prereqs` — abort if it fails; tell the user to run the matching cell in `deploy/docker/scripts/deploy_nemoclaw_vss.ipynb` (the notebook lives on the host, not in the sandbox — do not try to read, list, find, or open it from inside the sandbox; just tell the user).
+  1. Call `vss_orchestrator__prereqs` — abort if it fails; tell the user to run the matching cell in `deploy/docker/scripts/deploy_vss_orchestrator.ipynb` (the notebook lives on the host, not in the sandbox — do not try to read, list, find, or open it from inside the sandbox; just tell the user).
   2. Call `vss_orchestrator__docker_generate` with `profile=<name>`. If the profile has modes (currently: `alerts` → `verification` | `real-time`), also pass `profile_mode` — confirm with the user first. The tool will fail loudly if a mode-requiring profile is invoked without `profile_mode`.
   3. Capture the returned `docker_compose_id`.
   4. Call `vss_orchestrator__docker_up` with that id; capture `docker_compose_ops_id`.

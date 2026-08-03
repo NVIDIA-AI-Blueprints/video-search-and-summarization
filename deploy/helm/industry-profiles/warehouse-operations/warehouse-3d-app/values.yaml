@@ -308,7 +308,7 @@ analytics:
             {"name": "spaceAnalyticsUseGA", "value": "false"},
             {"name": "spaceAnalyticsPopulationSizeGA", "value": "100"},
             {"name": "spaceAnalyticsNumGenerationsGA", "value": "100"},
-            {"name": "behaviorStateTimeout", "value": "20"},
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "in3dMode", "value": "true"},

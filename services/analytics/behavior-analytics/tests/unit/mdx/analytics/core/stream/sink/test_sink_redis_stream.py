@@ -219,7 +219,7 @@ class TestSinkRedisStreamFunctionality:
         assert mock_redis_client.xadd.call_count == len(messages)
 
     @patch('mdx.analytics.core.stream.sink.sink_redis_stream.redis.Redis')
-    def test_write_stream_not_found_error(self, mock_redis_class, mock_redis_client):
+    def test_write_skips_undefined_stream(self, mock_redis_class, mock_redis_client):
         """Test write functionality when stream is not found."""
         # Arrange
         mock_redis_class.return_value = mock_redis_client
@@ -230,11 +230,12 @@ class TestSinkRedisStreamFunctionality:
         value_serializer = lambda x: json.dumps(x).encode('utf-8')
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a redis stream with key: nonexistent"):
-            self.sink.write(dest_key, messages, value_serializer)
+        self.sink.write(dest_key, messages, value_serializer)
+
+        mock_redis_client.xadd.assert_not_called()
 
     @patch('mdx.analytics.core.stream.sink.sink_redis_stream.redis.Redis')
-    def test_write_msg_stream_not_found_error(self, mock_redis_class, mock_redis_client):
+    def test_write_msg_skips_undefined_stream(self, mock_redis_class, mock_redis_client):
         """Test write_msg functionality when stream is not found."""
         # Arrange
         mock_redis_class.return_value = mock_redis_client
@@ -245,8 +246,9 @@ class TestSinkRedisStreamFunctionality:
         key = b"test_key"
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a redis stream with key: nonexistent"):
-            self.sink.write_msg(dest_key, message, key)
+        self.sink.write_msg(dest_key, message, key)
+
+        mock_redis_client.xadd.assert_not_called()
 
     @patch('mdx.analytics.core.stream.sink.sink_redis_stream.redis.Redis')
     def test_redis_connection_configuration(self, mock_redis_class, mock_redis_client):

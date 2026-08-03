@@ -614,13 +614,13 @@ def scenario_upsert_partial_with_forbidden(args, producer: Producer) -> str:
         args, producer, tag,
         config={
             "kafka": {"brokers": "should-be-rejected"},
-            "app": [{"name": "behaviorStateTimeout", "value": "20"}],
+            "app": [{"name": "behaviorMaxPoints", "value": "20"}],
         },
         expected_status="partial-success",
         expected_error_substr="kafka",
         verify_body=lambda body: (
             "kafka" not in body
-            and any(item.get("name") == "behaviorStateTimeout" for item in body.get("app", []))
+            and any(item.get("name") == "behaviorMaxPoints" for item in body.get("app", []))
         ),
     )
 
