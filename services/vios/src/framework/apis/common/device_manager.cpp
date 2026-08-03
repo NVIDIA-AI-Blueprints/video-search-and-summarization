@@ -1668,18 +1668,15 @@ StreamInfo::StreamInfo (): live_url("")
 
         if (updateDB)
         {
-            SensorStreamsDBColumns stream_row =  GET_DB_INSTANCE()->readSensorStreams(id);
-            if (!stream_row.stream_id_value.empty())
-            {
-                stream_row.encoding_value = settings.encoderValues.encoding;
-                stream_row.frameRate_value = settings.encoderValues.frameRate;
-                stream_row.resolution_value = settings.encoderValues.resolution.getString();
-                stream_row.encodingProfile_value = settings.encoderValues.encodingProfile;
-                stream_row.numFrames_value = settings.encoderValues.numFrames;
-                stream_row.bitrate_value = settings.encoderValues.bitrate;
-                stream_row.isBframesPresent_value = settings.encoderValues.isBframesPresent ? 1 : 0;
-                GET_DB_INSTANCE()->insertRowStream(stream_row);
-            }
+            SensorStreamsDBColumns encoder_values;
+            encoder_values.encoding_value = settings.encoderValues.encoding;
+            encoder_values.frameRate_value = settings.encoderValues.frameRate;
+            encoder_values.resolution_value = settings.encoderValues.resolution.getString();
+            encoder_values.encodingProfile_value = settings.encoderValues.encodingProfile;
+            encoder_values.numFrames_value = settings.encoderValues.numFrames;
+            encoder_values.bitrate_value = settings.encoderValues.bitrate;
+            encoder_values.isBframesPresent_value = settings.encoderValues.isBframesPresent ? 1 : 0;
+            GET_DB_INSTANCE()->updateStreamVideoEncoderValues(id, encoder_values);
         }
     }
 

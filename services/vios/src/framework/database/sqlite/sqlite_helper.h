@@ -153,6 +153,7 @@ namespace nv_vms
         vector<SensorDetailsDBColumns> readAllSensorSatus(string deviceId) override;
         VmsErrorCode getSensorIdsWithRecordingTimelines(unordered_set<string> &sensorIds) override;
         int updateStreamInfo(string streamId, string proxyUrl, string replayUrl, std::pair<StreamStatus, string> status) override;
+        int updateStreamVideoEncoderValues(const string& streamId, const SensorStreamsDBColumns& values) override;
         vector<SensorStreamsDBColumns> readAllStreams() override;
         string searchSensorFileIdBased(const string &id) override;
         
