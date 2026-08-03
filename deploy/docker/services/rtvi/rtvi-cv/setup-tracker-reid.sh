@@ -66,20 +66,35 @@ resolve_etlt_source() {
 
 install_etlt_to_tracker_dirs() {
     local src="$1"
-    local tdir dest
+    local tdir dest src_real dest_real
 
     collect_tracker_dirs
+    src_real="$(readlink -f "$src" 2>/dev/null || true)"
     for tdir in "${TRACKER_DIRS[@]}"; do
         dest="${tdir}/${REID_BASENAME}"
         install -d -m 0755 "$tdir"
-        if [[ -e "$dest" && ! -L "$dest" ]]; then
-            echo "TRACKER_REID: ALREADY_PRESENT  $dest"
-        elif (( USE_SYMLINK )); then
+        if (( USE_SYMLINK )); then
             ln -sfn -T "$src" "$dest"
             echo "TRACKER_REID: LINKED  $dest  ->  $src"
         else
-            install -m 0644 "$src" "$dest"
-            echo "TRACKER_REID: INSTALLED  $src  ->  $dest"
+            # A symlink here came from a previous --symlink run; replace it with
+            # a real copy rather than writing through to the link target.
+            if [[ -L "$dest" ]]; then
+                rm -f "$dest"
+            fi
+            dest_real="$(readlink -f "$dest" 2>/dev/null || true)"
+            if [[ -f "$dest" && -n "$src_real" && "$src_real" == "$dest_real" ]]; then
+                # Source resolved to the already-staged file (a rerun without
+                # --src can find it); install refuses to copy a file onto
+                # itself, so only normalise the mode.
+                chmod 0644 "$dest"
+                echo "TRACKER_REID: IN_PLACE  $dest"
+            else
+                # Unconditional: normalises the mode and repairs a stale or
+                # truncated etlt that an existence-only check would keep forever.
+                install -m 0644 "$src" "$dest"
+                echo "TRACKER_REID: INSTALLED  $src  ->  $dest"
+            fi
         fi
         # Unconditional: the tracker writes its built ReID engine here as the
         # privilege-dropped app user, including when the etlt was already staged.
