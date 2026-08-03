@@ -87,9 +87,7 @@ Offer the user **exactly** the capabilities in the table below. Each row's owner
 | **Object detection & tracking (2D)** — bounding boxes, class labels, track IDs | `rt-cv.md` | `perception-2d-fusion` *(search)* / `perception-alerts` *(alerts)* | `search` | Kafka-backed; use the selected profile's key, not the shared `perception` extends source |
 | **Semantic search over video** — embeddings + agentic search | `search.md` (+ `rt-embed.md`) | `vss-search-analytics-2d-fusion`, `rtvi-embed` | `search` | Requires RT-CV + RT-Embed + ELK; critique needs RT-VLM unless disabled |
 | **Real-time alerting / verification** — VLM-verified incidents | `alerts.md` | `alert-bridge`, `vss-va-mcp`, `vss-video-analytics-api-alerts` | `alerts` | Real-time needs RT-VLM; CV-verification needs RT-CV + Behavior Analytics |
-| **Behavior analytics** — incident rules, counts, ROI / dwell events | `behavior-analytics.md` | `vss-behavior-analytics-alerts` *(alerts)* / `vss-search-analytics-2d-fusion` *(search)* | `alerts` or `search` | Rides on RT-CV events; rule thresholds live in the mounted JSON config, not env |
 | **Video summarization** — time-windowed summaries on demand | `lvs.md` | `lvs-server` | `lvs` | Requires Agent + one reachable LLM + one VLM/RT-VLM |
-| **Agent query tools** — agent-callable query surface + Web UI | `agent.md` | `vss-agent`, `vss-va-mcp`, `vss-ui` | *(per Foundation)* | LLM required; ELK / Search / Alerts / LVS peers are capability-dependent |
 
 **Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) and ELK + Kafka + Redis message bus + indexing (`elk.md`). **Added automatically, never offered directly:** the LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends — activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
 
