@@ -144,13 +144,10 @@ repo evolves.
 
    - Both deployment paths default to
      `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
-   - Compose selects the channel with env vars `VSS_CONTAINER_REGISTRY` +
-     `VSS_CONTAINER_TAG` (`deploy/docker/containers.env`).
-   - Helm selects the same channel with `global.container_prefix` +
-     `global.container_tag` when set. QA uses those two values to select a promoted NGC staging drop without editing individual
-     subcharts, e.g.
-     `--set global.container_prefix=nvcr.io/nvstaging/vss-core
-     --set global.container_tag=nightly-YYYYMMDD`.
+   - Helm resolves the managed image prefix and tag from
+     `global.container_prefix` and `global.container_tag` when set. QA uses
+     those two values to select a promoted NGC staging drop without editing
+     individual subcharts.
    - Treat a Helm chart that retains an immutable
      `nvcr.io/nvstaging/vss-core/*` default, ignores either global override, or
      hard-codes a managed image in an umbrella profile as drift.

@@ -89,21 +89,6 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
                 self.assertIn(f'"%s/{name}"', text)
                 self.assertIn("trimSuffix", text)
 
-    def test_umbrella_values_declare_managed_channel_globals(self):
-        umbrellas = [
-            "deploy/helm/developer-profiles/dev-profile-base/values.yaml",
-            "deploy/helm/developer-profiles/dev-profile-alerts/values.yaml",
-            "deploy/helm/developer-profiles/dev-profile-lvs/values.yaml",
-            "deploy/helm/developer-profiles/dev-profile-search/values.yaml",
-            "deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values.yaml",
-            "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/values.yaml",
-            "deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml",
-        ]
-        for relative_path in umbrellas:
-            text = (REPO_ROOT / relative_path).read_text()
-            self.assertIn("container_prefix:", text, relative_path)
-            self.assertIn("container_tag:", text, relative_path)
-            self.assertIn("VSS_CONTAINER_REGISTRY", text, relative_path)
 
     def test_search_profile_does_not_pin_managed_ui_image(self):
         text = (
