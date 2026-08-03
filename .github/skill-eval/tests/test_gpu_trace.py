@@ -426,6 +426,27 @@ class TheOtherRegexGuardsAnInterpolation(unittest.TestCase):
         self.assertNotIn("rm -f /tmp/CANARY_VICTIM", cmds,
                          f"injected command survived DIR_RE: {cmds!r}")
 
+    def test_a_valid_pid_with_a_rejected_directory_still_checks_identity(self):
+        """The branch this exercises used to run a bare `kill <pid>`.
+
+        A valid PID whose DIR fails DIR_RE takes a separate cleanup path from
+        the normal one, and that path had no identity check at all -- while the
+        code immediately below it documented, with a reproduction, why killing
+        an unvalidated pid signals whatever inherited it. The nonce is
+        unavailable here by definition (the nonce IS the rejected directory),
+        so the guard matches the sampler's `vss-gputrace` argv prefix instead.
+        """
+        with tempfile.TemporaryDirectory() as out, Stub(hostile_dir=True) as stub:
+            with mod.trace("box", Path(out), spec_stem="hostiledir"):
+                pass
+            kills = [c for c in stub.commands() if "kill " in c]
+        self.assertTrue(kills, "the degraded path never tried to stop the sampler")
+        for c in kills:
+            self.assertIn("ps -o args= -p", c,
+                          f"pid signalled with no identity check at all: {c!r}")
+            self.assertRegex(c, r"grep[^;|]*&&\s*kill\b",
+                             f"identity check does not gate the kill: {c!r}")
+
     def test_a_row_with_a_valid_prefix_and_a_garbage_suffix_is_dropped(self):
         """Every existing negative fails on the PREFIX. Deleting ROW_RE's
         trailing anchor lets a well-formed row carry anything after it, which
@@ -449,6 +470,27 @@ class TheChainIdentityIsCarried(unittest.TestCase):
         a = mod._token("30515350883", "search", "RTX", 1, "chainA")
         b = mod._token("30515350883", "search", "RTX", 1, "chainB")
         self.assertNotEqual(a, b, "two chains produce the same trace filename")
+
+    def test_chains_do_not_collide_when_the_spec_name_is_long(self):
+        """The assertion above uses a 6-character spec name, so it passed while
+        `chain` still sat INSIDE the truncated head and a long spec name pushed
+        it off the end. That is the same defect already fixed for `step`, and it
+        survived here because nothing exercised the 100-character boundary."""
+        long_spec = "x" * 100
+        a = mod._token("30515350883", long_spec, "RTX", 1, "chainA")
+        b = mod._token("30515350883", long_spec, "RTX", 1, "chainB")
+        self.assertNotEqual(
+            a, b, "a long spec name truncates the chain away and the second "
+                  f"trace silently overwrites the first: {a!r}")
+
+    def test_the_step_suffix_survives_a_long_spec_and_a_long_chain(self):
+        """Both discriminators have to outlive truncation, not just one."""
+        for n in (1, 2):
+            t = mod._token("30515350883", "x" * 100, "RTX", n, "y" * 50)
+            self.assertTrue(t.endswith(f"-step{n}"), t)
+        self.assertNotEqual(
+            mod._token("30515350883", "x" * 100, "RTX", 1, "y" * 50),
+            mod._token("30515350883", "x" * 100, "RTX", 1, "z" * 50))
 
     def test_chains_do_not_overwrite_each_other_end_to_end(self):
         with tempfile.TemporaryDirectory() as out, Stub():
@@ -706,8 +748,17 @@ class TheHardStopIsPresent(unittest.TestCase):
         guard = finish.split("kill")[0]
         self.assertIn("ps -o args= -p", guard,
                       f"pid is signalled without an identity check: {finish!r}")
-        self.assertRegex(guard, r"grep -q /tmp/vss-gputrace\.[A-Za-z0-9]{8}",
+        # Assert the nonce is matched, without pinning the exact grep flags --
+        # an earlier revision of this assertion hardcoded `grep -q ` and so
+        # failed when the match was tightened to the fixed-string `grep -qF`,
+        # which is a stricter version of the very property being asserted.
+        self.assertRegex(guard, r"grep -[a-zA-Z]*q[a-zA-Z]* .*/tmp/vss-gputrace\.[A-Za-z0-9]{8}",
                          f"identity check is not scoped to this invocation: {finish!r}")
+        # The guard must GATE the kill, not merely precede it. `grep ...; kill`
+        # reads almost identically and passes any text-only assertion while
+        # killing unconditionally, which is the defect this test exists for.
+        self.assertRegex(finish, r"grep[^;|]*&&\s*kill\b",
+                         f"identity check does not gate the kill: {finish!r}")
 
     def test_only_one_command_is_backgrounded_and_it_closes_its_pipe(self):
         """`mkdir && nohup ... &` backgrounds the whole AND-list, so `$!` is a
