@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Unit tests for registered-node SSH fallback in brev_env.py.
@@ -43,7 +42,7 @@ sys.modules["harbor.environments.base"] = _base
 ENVS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENVS_DIR))
 
-import brev_env  # noqa: E402
+import brev_env
 
 
 class RtspSampleUrlResolution(unittest.TestCase):

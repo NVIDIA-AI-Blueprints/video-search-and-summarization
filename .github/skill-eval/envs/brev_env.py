@@ -28,20 +28,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from enum import Enum
 import json
 import logging
 import os
-from pathlib import Path
 import shlex
 import shutil
 import signal
 import subprocess
 import tempfile
 import uuid
+from enum import Enum
+from pathlib import Path
 
-from harbor.environments.base import BaseEnvironment
-from harbor.environments.base import ExecResult
+from harbor.environments.base import BaseEnvironment, ExecResult
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +132,7 @@ class BrevEnvironment(BaseEnvironment):
         stop()     → no-op (instance stays running for reuse)
     """
 
-    def __init__(self, **kwargs):  # noqa: ANN003
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._instance_name: str | None = DEFAULT_INSTANCE
         self._started = False
@@ -1690,7 +1689,7 @@ async def _load_registered_nodes() -> dict[str, dict]:
                 name = (n.get("name") or "").strip()
                 if name:
                     cache[name.lower()] = n
-        except Exception as e:
+        except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as e:
             logger.warning("brev ls nodes failed (attempt %s): %s", attempt + 1, e)
         if cache:
             _registered_nodes_cache = cache
@@ -2173,7 +2172,7 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
         return None
     try:
         result = await _run_brev("search", "gpu", "--json", timeout=30)
-    except Exception as exc:
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         logger.warning("brev search gpu --json failed: %s", exc)
         return None
     if result.return_code != 0:

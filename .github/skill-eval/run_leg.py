@@ -30,7 +30,6 @@ import errno
 import fcntl
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
@@ -39,6 +38,7 @@ import sys
 import tempfile
 import time
 import urllib.parse
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -972,7 +972,7 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
     cleanup_started = False
     previous_handlers: dict[signal.Signals, object] = {}
 
-    def forward_external_signal(signum, _frame):  # noqa: ANN001
+    def forward_external_signal(signum, _frame):
         nonlocal cleanup_started, pending_signal
         # Install before Popen to close the parent-signal race. If a signal
         # lands while Popen is still constructing the child, remember it and

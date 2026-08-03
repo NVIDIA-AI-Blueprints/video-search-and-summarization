@@ -11,11 +11,11 @@ import contextlib
 import importlib.util
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from typing import ClassVar
 from unittest import mock
 
@@ -254,15 +254,17 @@ class PhaseBudgets(unittest.TestCase):
             args.harbor_timeout_sec, run_leg.DEFAULT_HARBOR_TIMEOUT_SEC
         )
 
-        with mock.patch.object(run_leg.sys, "stderr"):
-            with self.assertRaises(SystemExit) as raised:
-                run_leg.parse_args(
-                    required
-                    + [
-                        "--harbor-timeout-sec",
-                        str(run_leg.MIN_HARBOR_BACKSTOP_SEC),
-                    ]
-                )
+        with (
+            mock.patch.object(run_leg.sys, "stderr"),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            run_leg.parse_args(
+                required
+                + [
+                    "--harbor-timeout-sec",
+                    str(run_leg.MIN_HARBOR_BACKSTOP_SEC),
+                ]
+            )
         self.assertEqual(raised.exception.code, 2)
 
     def test_agent_deadline_is_inherited_and_expired_values_fail_closed(self):
@@ -347,8 +349,8 @@ class HarborEnvironment(unittest.TestCase):
 
 
 class RunCommand(unittest.TestCase):
-    COMMAND = ["uvx", "harbor", "run"]
-    ENV = {"BREV_INSTANCE": "vss-eval-box"}
+    COMMAND: ClassVar[list[str]] = ["uvx", "harbor", "run"]
+    ENV: ClassVar[dict[str, str]] = {"BREV_INSTANCE": "vss-eval-box"}
 
     @staticmethod
     def _expired(timeout):
@@ -666,7 +668,7 @@ time.sleep(30)
 
 
 class RunInvocations(unittest.TestCase):
-    ENV = {
+    ENV: ClassVar[dict[str, str]] = {
         "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
     }
