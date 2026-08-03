@@ -274,7 +274,7 @@ profile name, or friendly name is also the serving id.
 ## Helm Notes
 
 The Helm service chart lives at `deploy/helm/services/video-summarization`.
-Important 3.2 values:
+Current image values:
 
 - `image.repository: ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization`
 - `image.tag: "develop-latest"` (multi-arch manifest; same tag on every host)

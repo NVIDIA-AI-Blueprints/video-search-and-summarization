@@ -26,7 +26,7 @@ phoenix:
   useReleaseNamePrefix: false
   replicas: 1
   image:
-    repository: arizephoenix/phoenix
+    repository: docker.io/arizephoenix/phoenix
     tag: "19.8.0"
     pullPolicy: IfNotPresent
   phoenixHost: "0.0.0.0"
@@ -46,7 +46,7 @@ redis:
   enabled: false
   replicas: 1
   image:
-    repository: redis
+    repository: docker.io/library/redis
     tag: 8.6.2-alpine
     pullPolicy: IfNotPresent
   port: 6379
@@ -63,7 +63,7 @@ mosquitto:
   enabled: false
   replicas: 1
   image:
-    repository: eclipse-mosquitto
+    repository: docker.io/library/eclipse-mosquitto
     tag: "2"
     pullPolicy: IfNotPresent
   port: 1883

@@ -704,8 +704,8 @@ run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "ba
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
-# L40S forbids local_shared for LLM/VLM; search profile default is local_shared for LLM (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
-LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d
+# L40S forbids local_shared for LLM/VLM; the search profile shares both GPUs (devices 0,1 in FIXED_SHARED), so LLM and VLM must both be remote for L40S to be allowed.
+LLM_ENDPOINT_URL=http://127.0.0.1:1 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x --use-remote-vlm --vlm my-remote-vlm -d
 
 _out_compose_env_order="$(mktemp)"
 _err_compose_env_order="$(mktemp)"
@@ -732,13 +732,33 @@ rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 # Search: RT-VLM (vss-rtvi-vlm) is always deployed because it serves both the critic and
 # video_understanding. It is activated via the explicit "rtvi-vlm" compose profile (no vlm_
 # NIM profile) and the agent is wired to it with VLM_NAME_SLUG=none, VLM_MODEL_TYPE=rtvi,
-# VLM_BASE_URL=http://rtvi-vlm:8000. RT_VLM_DEVICE_ID follows the shared/VLM device (2).
+# VLM_BASE_URL=http://rtvi-vlm:8000. RT-VLM shares GPU 0 with RT-CV, so device 0 is in
+# FIXED_SHARED_DEVICE_IDS and VLM_MODE derives to local_shared, which caps RT-VLM at the
+# 0.4 H100 shared fraction so RT-CV keeps its headroom.
 run_dry_run_up_and_check_generated_env "generated.env search default wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
-  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
-  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2" \
-  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
+  "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+_mock_brev_one_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_brev_one_gpu_dir}")
+cat > "${_mock_brev_one_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n'
+else
+  printf 'NVIDIA RTX PRO 6000 Blackwell\n'
+fi
+EOF
+chmod +x "${_mock_brev_one_gpu_dir}/nvidia-smi"
+# One GPU cannot host RT-CV + RT-VLM and RT-Embed + LLM, so local RT-VLM is rejected.
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
+  -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
+  "VLM_MODE" "remote" "RTVI_VLM_MODEL_PATH" "none" "RT_VLM_DEVICE_ID" "0"
+
 _mock_brev_two_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_two_gpu_dir}")
 cat > "${_mock_brev_two_gpu_dir}/nvidia-smi" <<'EOF'
@@ -750,8 +770,11 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
-# RT-VLM always deploys locally for search, so a 2-GPU Brev is rejected; only --use-remote-vlm avoids it.
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 2 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+# Two GPUs are enough for a local RT-VLM now that it shares GPU 0 with RT-CV.
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
+  -i 127.0.0.1 -d -- \
+  "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
 PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
@@ -769,12 +792,14 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
+# Placement comes from the profile env, not the host GPU count, so a 3-GPU host still
+# co-locates RT-VLM with RT-CV on GPU 0 and leaves GPU 2 unused.
 PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
-  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2"
+  "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
 
-# --- Setup paths: data directory and selective downloads (assert dry-run output) ---
+# --- Setup paths: data directory and profile-specific setup messaging (assert dry-run output) ---
 _out_setup="$(mktemp)"
 cd "${REPO_ROOT}"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_setup}" 2>&1
@@ -818,29 +843,190 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alerts profile: dry-run must include NGC model download steps (rtdetr-its, trafficcamnet, gdino/mask_grounding_dino)
+# Alerts profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_alerts="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m verification -d > "${_out_alerts}" 2>&1
-if grep -q "models/rtdetr-its" "${_out_alerts}" && grep -q "trafficcamnet" "${_out_alerts}" && grep -q "models/gdino" "${_out_alerts}" && grep -q "mask_grounding_dino" "${_out_alerts}" && grep -q "mgdino_mask_head_pruned_dynamic_batch.onnx" "${_out_alerts}" && grep -q "ngc registry model" "${_out_alerts}"; then
-  echo "PASS: alerts dry-run output includes NGC model download steps"
+if grep -q "Alerts model download runs in ds-start.sh phase 0 (perception)." "${_out_alerts}" && ! grep -q "ngc registry model download-version" "${_out_alerts}"; then
+  echo "PASS: alerts dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts dry-run output missing NGC model download steps (models/rtdetr-its, trafficcamnet, models/gdino, mask_grounding_dino, mgdino_mask_head_pruned_dynamic_batch.onnx, ngc registry model)"
+  echo "FAIL: alerts dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_alerts}"
 
-# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvidia TAO).
+# Search profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvidia/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvidia" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
-  echo "PASS: search dry-run output includes NGC model download steps"
+if grep -q "Search model download runs in ds-start.sh phase 0 (perception)." "${_out_search}" && ! grep -q "ngc registry model download-version" "${_out_search}"; then
+  echo "PASS: search dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvidia/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvidia, ngc registry model)"
+  echo "FAIL: search dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
+
+# --- Warehouse RT-CV model acquisition: manifests and flattened paths ---
+_warehouse_model_config_failed=0
+_warehouse_root="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations"
+_warehouse_2d_manifest="${_warehouse_root}/warehouse-2d-app/models-download.json"
+_warehouse_3d_manifest="${_warehouse_root}/warehouse-3d-app/models-download.json"
+_warehouse_mv3dt_manifest="${_warehouse_root}/warehouse-mv3dt-app/models-download.json"
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2",
+    "org": "nvidia",
+    "sourcePath": "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx",
+    "destPath": "rtdetr_warehouse_v1.0.2.fp16.onnx"
+  }]
+' "${_warehouse_2d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 2D manifest should download RT-DETR to the flattened model root"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/sparse4d_rn50:deployable_v2.2",
+    "org": "nvidia",
+    "sourcePath": "sparse4d_warehouse_v2.2_r50.onnx",
+    "destPath": "sparse4d/sparse4d_warehouse_v2.2.onnx"
+  }]
+' "${_warehouse_3d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 3D manifest should download only Sparse4D to its flattened path"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  (.downloads | length) == 2
+  and any(.downloads[]; .model == "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2" and .destPath == "rtdetr_warehouse_v1.0.2.fp16.onnx")
+  and any(.downloads[]; .model == "nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0" and .sourcePath == "bodypose3dnet_accuracy.onnx" and .destPath == "BodyPose3DNet/bodypose3dnet_accuracy.onnx")
+' "${_warehouse_mv3dt_manifest}" >/dev/null; then
+  echo "FAIL: warehouse MV3DT manifest should download flattened RT-DETR and BodyPose3DNet artifacts"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ! -s "${_warehouse_root}/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy" ]]; then
+  echo "FAIL: warehouse 3D repository anchor asset is missing or empty"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! grep -q '^onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml" \
+  || ! grep -q '^engine_file: /opt/storage/sparse4d/model.engine$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml"; then
+  echo "FAIL: warehouse 3D config should use namespaced flattened model and engine paths"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if grep -E 'models/mtmc|models/sparse4d/ov|models-download-warehouse-' \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml" >/dev/null; then
+  echo "FAIL: warehouse Compose should not use legacy app-data model mounts or download init services"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+for _wh_yml in \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"; do
+  if ! grep -q 'models-download.json:/opt/config/models-download.json:ro' "${_wh_yml}"; then
+    echo "FAIL: ${_wh_yml} should mount models-download.json for ds-start phase 0"
+    ((_warehouse_model_config_failed++)) || true
+  fi
+done
+
+_rtvi_compose="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/compose.yaml"
+if grep -q '^  download-models:' "${_rtvi_compose}" \
+  || ! grep -q 'download-models.sh' "${_rtvi_compose}" \
+  || ! grep -q 'user: "0:0"' "${_rtvi_compose}"; then
+  echo "FAIL: base rtvi-cv compose should drop download-models service and run perception as root with download script mounted"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_helm_job="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/job-download-models.yaml"
+_helm_ss="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset.yaml"
+if [[ -e "${_helm_job}" ]] \
+  || grep -q 'wait-for-models' "${_helm_ss}" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-2d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-3d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml" \
+  || ! grep -q 'ensure_models_from_manifest' \
+    "${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/ds-start.sh" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/ds-start.sh"; then
+  echo "FAIL: no-init download contract missing (Job/wait removed; ensure_models present)"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_standalone_skill_defaults="${REPO_ROOT}/skills/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
+if grep -E 'vss-warehouse-app-data/models/(mtmc|sparse4d/ov)' "${_standalone_skill_defaults}" >/dev/null \
+  || ! grep -q 'ref: *nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'ref: *nvidia/tao/sparse4d_rn50:deployable_v2.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'kind: *repo' "${_standalone_skill_defaults}"; then
+  echo "FAIL: standalone detection skill should use NGC model packages and repository Sparse4D companions"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ${_warehouse_model_config_failed} -eq 0 ]]; then
+  echo "PASS: warehouse RT-CV model manifests and flattened paths are aligned"
+  ((TESTS_PASSED++)) || true
+else
+  ((TESTS_FAILED++)) || true
+fi
+
+_helm_mv3dt_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml"
+_helm_mv3dt_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
+_helm_mv3dt_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
+if grep -q 'downloadModelsFromNgc: true' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_mv3dt_values}" \
+  && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_mv3dt_values}" \
+  && grep -q 'DS_MODEL_DOWNLOAD' "${_helm_mv3dt_statefulset}" \
+  && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_mv3dt_statefulset}" \
+  && ! grep -q 'wait-for-models' "${_helm_mv3dt_statefulset}" \
+  && ! grep -Eq 'prepare-mv3dt-models|runtime-storage|rtdetrPvcSubPath|bodyPosePvcSubPath' \
+    "${_helm_mv3dt_statefulset}" "${_helm_mv3dt_defaults}"; then
+  echo "PASS: warehouse Helm MV3DT uses per-file models via ds-start phase 0 and direct PVC storage"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse Helm MV3DT should use flattened model downloads without wait-for-models or legacy copies"
+  ((TESTS_FAILED++)) || true
+fi
+
+BLUEPRINT_DEPLOY="${REPO_ROOT}/deploy/docker/scripts/blueprint-deploy.sh"
+if grep -Fq 'Warehouse RT-CV model download runs in ds-start phase 0' "${BLUEPRINT_DEPLOY}" \
+  && grep -q 'mkdir -p "${data_directory}/models"' "${BLUEPRINT_DEPLOY}" \
+  && ! grep -q 'models/mv3dt/BodyPose3DNet' "${BLUEPRINT_DEPLOY}"; then
+  echo "PASS: blueprint-deploy.sh prepares flattened warehouse models dir and delegates RT-CV download to ds-start"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: blueprint-deploy.sh should create flattened models/ and log ds-start warehouse model download"
+  ((TESTS_FAILED++)) || true
+fi
+
+_warehouse_3d_skill="${REPO_ROOT}/skills/vss-deploy-detection-tracking-3d"
+if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
+  "${_warehouse_3d_skill}/SKILL.md" \
+  "${_warehouse_3d_skill}/references" \
+  "${_warehouse_3d_skill}/evals" >/dev/null; then
+  echo "PASS: warehouse MV3DT skill uses flattened per-file model paths"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT skill should not reference legacy app-data model paths"
+  ((TESTS_FAILED++)) || true
+fi
+
+_compose_mv3dt_root="${_warehouse_root}/warehouse-mv3dt-app"
+_helm_mv3dt_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
+if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_mv3dt_start}" \
+  && grep -q 'PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml" \
+  && grep -q 'PERCEPTION_TAG:-3.3.0-26.07.2' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
+  echo "PASS: warehouse MV3DT startup script and perception fallback are aligned across Compose and Helm"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT Compose and Helm startup semantics or perception fallback diverged"
+  ((TESTS_FAILED++)) || true
+fi
 
 # NGC download failures must stop before kernel setup, docker login, or compose.
 run_ngc_download_fail_fast_test() {
@@ -991,22 +1177,6 @@ EOF
   fi
 }
 
-run_ngc_download_fail_fast_test \
-  "NGC search RT-DETR download failure fails fast" \
-  "search" \
-  "\\[ERROR\\] Failed to download RT-DETR model from NGC (exit 42)" \
-  -p search -i 127.0.0.1 -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts trafficcamnet download failure fails fast" \
-  "alerts-first" \
-  "\\[ERROR\\] Failed to download trafficcamnet RT-DETR model from NGC (exit 42)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts grounding DINO download failure fails fast" \
-  "alerts-second" \
-  "\\[ERROR\\] Failed to download grounding DINO model from NGC (exit 43)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
-
 # --- Profile env split: stable .env plus script-modifiable overrides.env ---
 _common_overrides_env_keys=(
   HARDWARE_PROFILE COMPOSE_PROFILES
@@ -1097,8 +1267,6 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     COMPOSE_PROFILES_WH_2D
     COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
     COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
-    COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL
-    COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL
     COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
     COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
     COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
@@ -1480,6 +1648,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasone
   "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
 
+run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasoner-fp8 maps to RT-VLM FP8 path+basename" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner-fp8 -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
+
 run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT-VLM git path+basename" "base" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
@@ -1487,6 +1661,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT
   "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
 
 # Search routes --vlm through RT-VLM (integrated checkpoint), same as base/lvs; see the base --vlm tests above.
+run_dry_run_up_and_check_generated_env "generated.env search --vlm cosmos3-reasoner-fp8 maps to RT-VLM FP8 path+basename" "search" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner-fp8 -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
+
 run_dry_run_up_and_check_generated_env "generated.env search --vlm Qwen maps to RT-VLM git path+basename" "search" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \

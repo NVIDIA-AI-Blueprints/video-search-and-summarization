@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.1"
+ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2"
 FROM ${BASE_IMAGE}
 
 # Copy sources

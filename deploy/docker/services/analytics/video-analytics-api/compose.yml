@@ -15,7 +15,7 @@
 
 services:
   vss-video-analytics-api:
-    image: ${VSS_VIDEO_ANALYTICS_API_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-analytics-api}:${VSS_VIDEO_ANALYTICS_API_TAG:-3.2.0}
+    image: ${VSS_VIDEO_ANALYTICS_API_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-video-analytics-api}:${VSS_VIDEO_ANALYTICS_API_TAG:-develop-latest}
     command: node index.js --config /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
     restart: always
     ports:

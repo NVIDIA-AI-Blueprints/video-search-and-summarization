@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 import { Config } from './interfaces/interfaces';
+import { appendBasePath, getPublicBasePath } from './utils/runtimeConfig';
 
 const isDevelopment = () => {
     return process.env.NODE_ENV === 'development';
@@ -24,16 +25,23 @@ const getPort = () => {
     return isDevelopment() ? '30000' : window.location.port;
 };
 
+const getViosOrigin = () => {
+    return isDevelopment()
+        ? `${window.location.protocol}//${window.location.hostname}:${getPort()}`
+        : window.location.origin;
+};
+
 const mdatWebAPIDefaultPort = '8081';
 const analyticsUIServerDefaultPort = '8003';
+const viosEndpoint = appendBasePath(getViosOrigin(), getPublicBasePath());
 
 const config: Config = {
-    sensorManagementEndpoint: `${window.location.protocol}//${window.location.hostname}:${getPort()}`,
-    streamRecorderEndpoint: `${window.location.protocol}//${window.location.hostname}:${getPort()}`,
-    storageManagementEndpoint: `${window.location.protocol}//${window.location.hostname}:${getPort()}`,
-    liveStreamEndpoint: `${window.location.protocol}//${window.location.hostname}:${getPort()}`,
-    replayStreamEndpoint: `${window.location.protocol}//${window.location.hostname}:${getPort()}`,
-    streambridgeEndpoint: `${window.location.protocol}//${window.location.hostname}:${getPort()}`,
+    sensorManagementEndpoint: viosEndpoint,
+    streamRecorderEndpoint: viosEndpoint,
+    storageManagementEndpoint: viosEndpoint,
+    liveStreamEndpoint: viosEndpoint,
+    replayStreamEndpoint: viosEndpoint,
+    streambridgeEndpoint: viosEndpoint,
 
     mdatWebApiEndpoint: `${window.location.protocol}//${window.location.hostname}:${mdatWebAPIDefaultPort}`,
     analyticsUIServerEndpoint: `${window.location.protocol}//${window.location.hostname}:${analyticsUIServerDefaultPort}`,

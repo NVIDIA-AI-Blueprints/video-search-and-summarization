@@ -413,6 +413,7 @@ analytics:
             {"name": "sourceType", "value": "kafka"},
             {"name": "sinkType", "value": "kafka"},
             {"name": "numWorkersForIncidentGeneration", "value": "2"},
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "numWorkersForBehaviorCreation", "value": "0"},
             {"name": "numWorkersForEmbedFiltering", "value": "0"},
             {"name": "fovCountViolationIncidentEnable", "value": "true"},
@@ -438,8 +439,16 @@ rtvi:
   vss-rtvi-cv:
     enabled: true
     profileMode: alerts
-    # Primary detector: env.MODEL_NAME_2D=GDINO (default) or RTDETR; NUM_SENSORS must match TensorRT batch.
-    # Configs/scripts come from this profile (ConfigMap); workload is the shared rtvi-cv subchart.
+    # Profile-specific ConfigMap data is staged by the shared chart-owned ds-start.sh.
+    env:
+      DS_MODEL_FAMILY: rtdetr-gdino
+      DS_CONFIG_FILE: run_config-api-rtdetr-protobuf.txt
+      DS_VISION_ENCODER: "false"
+      DS_TRACKER_REID: "false"
+      DS_SHOW_SENSOR_ID: "true"
+      MODEL_NAME_2D: GDINO
+      NUM_SENSORS: "1"
+      STREAM_TYPE: kafka
     downloadModelsFromNgc: true
     downloadModelsFromNgcWaitSeconds: 900
     waitForKafka:
@@ -449,9 +458,11 @@ rtvi:
     ngcOrg: nvidia
     ngcModelsToDownload:
       - model: nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
+        org: nvidia
         sourcePath: trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx
         destPath: rtdetr-its/model_epoch_035.fp16.onnx
       - model: nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
+        org: nvidia
         sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
         destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
     engineCache:

@@ -33,7 +33,6 @@
       "source_path": "services/agent",
       "context": "services",
       "dockerfile": "services/agent/docker/Dockerfile",
-      "lfs_include": "services/agent/3rdparty/ffmpeg/*",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-agent"],
       "tag_variables": ["VSS_AGENT_VERSION"]
@@ -56,6 +55,7 @@
       "source_path": "services/alert",
       "context": "services/alert",
       "dockerfile": "services/alert/Dockerfile",
+      "lfs_include": "services/alert/warmup/*",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-alert-ms", "vss-alert-verification"],
       "tag_variables": ["VSS_ALERT_TAG"],

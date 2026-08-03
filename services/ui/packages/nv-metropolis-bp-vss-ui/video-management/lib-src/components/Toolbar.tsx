@@ -20,10 +20,18 @@ interface ToolbarProps {
   isDeleting?: boolean;
   enableAddRtspButton?: boolean;
   enableVideoUpload?: boolean;
+  /** Called when user clicks "Upload Video" — opens the upload dialog directly (bypasses native file picker). */
+  onUploadClick?: () => void;
   /** Only show Video option when API returned at least one video stream */
   hasVideoStreams?: boolean;
   /** Only show RTSP option when API returned at least one RTSP stream */
   hasRtspStreams?: boolean;
+  /**
+   * A dialog is already open. The RTSP and delete dialogs overlay only the pane below
+   * this toolbar, so its buttons stay clickable; disable them so a second dialog cannot
+   * be opened on top of the first.
+   */
+  isDialogOpen?: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -41,8 +49,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isDeleting = false,
   enableAddRtspButton = true,
   enableVideoUpload = true,
+  onUploadClick,
   hasVideoStreams = true,
   hasRtspStreams = true,
+  isDialogOpen = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterTriggerRef = useRef<HTMLDivElement>(null);
@@ -155,12 +165,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         />
 
         {enableVideoUpload && (
-          <Button kind="primary" onClick={handleUploadClick}>
+          <Button kind="primary" onClick={onUploadClick ?? handleUploadClick} disabled={isDialogOpen}>
             + Upload Video
           </Button>
         )}
         {enableAddRtspButton && (
-          <Button kind="secondary" onClick={onAddRtspClick}>
+          <Button kind="secondary" onClick={onAddRtspClick} disabled={isDialogOpen}>
             + Add RTSP
           </Button>
         )}
@@ -300,7 +310,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <Button
           kind="secondary"
           onClick={onDeleteSelected}
-          disabled={selectedCount === 0 || isDeleting}
+          disabled={selectedCount === 0 || isDeleting || isDialogOpen}
           className="shrink-0"
         >
           {isDeleting ? (

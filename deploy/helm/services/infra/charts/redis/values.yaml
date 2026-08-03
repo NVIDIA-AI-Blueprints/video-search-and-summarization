@@ -17,7 +17,7 @@ enabled: false
 global: {}
 replicas: 1
 image:
-  repository: redis
+  repository: docker.io/library/redis
   tag: 8.6.2-alpine
   pullPolicy: IfNotPresent
 # Optional container command/args override (used by alerts profile to load Redis modules for JSON.SET support).

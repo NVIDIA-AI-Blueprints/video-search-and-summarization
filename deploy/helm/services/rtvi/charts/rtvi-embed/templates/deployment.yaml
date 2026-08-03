@@ -79,7 +79,7 @@ spec:
       initContainers:
         {{- if $waitKafka }}
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -97,7 +97,7 @@ spec:
         {{- end }}
         {{- if .Values.clearCachedEnginesOnStart }}
         - name: clear-rtvi-trt-cache
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh

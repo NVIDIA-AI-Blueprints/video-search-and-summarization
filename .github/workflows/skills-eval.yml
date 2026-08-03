@@ -68,6 +68,12 @@ defaults:
   run:
     shell: bash
 
+env:
+  # One interpreter contract for the coordinator wrapper, adapter generators,
+  # run_leg.py, and Harbor's isolated uvx environment. Do not fall back to the
+  # self-hosted runner's system python3 (currently 3.10).
+  SKILL_EVAL_PYTHON_VERSION: "3.12"
+
 jobs:
   # ---------------------------------------------------------------------
   # plan — compute the dispatch matrix from the PR diff (push only).
@@ -88,6 +94,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0   # plan diffs the cumulative head...base range
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
       - name: Extract PR number + base
         id: pr
@@ -144,10 +155,12 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
-    # (AGENTS.md `--agent-timeout-multiplier 6.0`). 840m covers six full
-    # 130-minute Harbor invocation ceilings plus deploy/dataset/comment overhead. AGENTS.md's
-    # box-lock wait (run_leg.py --lock-timeout-sec 21000 ≈ 5.8 h) is kept strictly under this
-    # 840 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
+    # (AGENTS.md `--agent-timeout-multiplier 6.0`). A timeout stops the
+    # remaining chain; successful steps normally finish well below their
+    # 200-minute emergency backstop. AGENTS.md's box-lock wait
+    # (run_leg.py --lock-timeout-sec
+    # 21000 ≈ 5.8 h) is kept strictly under this 840 m ceiling so a
+    # lock-starved leg emits `BLOCKED: lock timeout`
     # before the job-killer fires (a 43200 s / 12 h wait would be
     # silently killed while waiting on a box with no verdict — the exit-4 trap).
     timeout-minutes: 840
@@ -156,6 +169,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Prepare isolated agent runtime
+        env:
+          SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
+        run: |
+          python3 -m venv "$SKILL_EVAL_VENV"
+          "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet "claude-agent-sdk==0.2.128"
+          "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
+          echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
@@ -189,14 +217,27 @@ jobs:
           # output — silently defeating the "block on Harbor" wait contract
           # (the PreToolUse hook can't catch a
           # runtime-initiated background; it only inspects call input). Both
-          # stay under the job's timeout-minutes so the call can't outlive it.
-          BASH_DEFAULT_TIMEOUT_MS: "21600000"
-          BASH_MAX_TIMEOUT_MS: "21600000"
+          # Match the job window. Because this call starts after the job, the
+          # Actions watchdog always owns final cancellation instead of Claude
+          # backgrounding a still-running run_leg.py process first.
+          BASH_DEFAULT_TIMEOUT_MS: "50400000"
+          BASH_MAX_TIMEOUT_MS: "50400000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
+          skill_eval_venv_dir="$SKILL_EVAL_VENV"
+          skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # The coordinator .env is operator-managed and may define PATH.
+          # Reassert the per-leg runtime afterwards so Claude's Bash children
+          # use the same Python for adapters and run_leg.py.
+          export SKILL_EVAL_VENV="$skill_eval_venv_dir"
+          export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
+          export VIRTUAL_ENV="$skill_eval_venv_dir"
+          export PATH="$skill_eval_venv_dir/bin:$PATH"
+          hash -r
+          python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
@@ -215,10 +256,10 @@ jobs:
           eval "$(ssh-agent -s)" > /dev/null
           trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
           # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
-          # Orphaned agents older than the job's timeout-minutes (360m;
-          # 25200s = 7h) cannot belong to any live leg on this host.
+          # Orphaned agents older than the job's timeout-minutes (840m;
+          # 54000s = 15h) cannot belong to any live leg on this host.
           ps -eo pid=,ppid=,etimes=,args= \
-            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>25200 {print $1}' \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>54000 {print $1}' \
             | xargs -r kill 2>/dev/null || true
           export PR_NUMBER="${{ needs.plan.outputs.pr_number }}"
           export PR_BASE="${{ needs.plan.outputs.pr_base }}"

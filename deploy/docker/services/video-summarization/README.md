@@ -137,4 +137,3 @@ You can also use the legacy shell script instead of Docker Compose:
 ```
 
 This script provides the same functionality but uses `docker run` directly.
-

@@ -20,8 +20,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    Alpine Linux: https://alpinelinux.org/
 
 
-2. alpine/curl:8.17.0
-   Image: alpine/curl:8.17.0
+2. docker.io/alpine/curl:8.21.0
+   Image: docker.io/alpine/curl:8.21.0
    License: MIT (image packaging); image contains Alpine Linux (see alpine
             above) and curl (curl license).
    Registry: https://hub.docker.com/r/alpine/curl
@@ -143,8 +143,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://curl.se/docs/copyright.html
 
 
-12. ghcr.io/google/cadvisor:0.56.2
-    Image: ghcr.io/google/cadvisor:0.56.2
+12. ghcr.io/google/cadvisor:0.60.5
+    Image: ghcr.io/google/cadvisor:0.60.5
     License: Apache License 2.0
     Registry: https://ghcr.io/google/cadvisor
     Source: https://github.com/google/cadvisor
@@ -167,8 +167,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://opensource.org/licenses/MIT
 
 
-14. grafana/grafana:13.0.1-ubuntu
-    Image: grafana/grafana:13.0.1-ubuntu
+14. docker.io/grafana/grafana:13.1.1-ubuntu
+    Image: docker.io/grafana/grafana:13.1.1-ubuntu
     License: GNU Affero General Public License v3.0 (AGPL-3.0)
     Registry: https://hub.docker.com/r/grafana/grafana
     Source: https://github.com/grafana/grafana
@@ -179,8 +179,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://www.gnu.org/licenses/agpl-3.0.html
 
 
-15. haproxy:3.0-alpine
-    Image: haproxy:3.0-alpine
+15. docker.io/library/haproxy:3.4.2-alpine
+    Image: docker.io/library/haproxy:3.4.2-alpine
     License: GNU General Public License v2.0 or later (GPL-2.0+). Some
              library components are LGPL-2.1+. See HAProxy licensing page.
     Registry: https://hub.docker.com/_/haproxy
@@ -208,8 +208,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://docs.nvidia.com/deeplearning/cudnn/sla/index.html
 
 
-17. nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
-    Image: nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
+17. docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
+    Image: docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
     License: Apache License 2.0
     Registry: https://hub.docker.com/r/nvidia/dcgm-exporter
     Source: https://github.com/NVIDIA/dcgm-exporter
@@ -231,8 +231,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://www.postgresql.org/about/licence/
 
 
-19. quay.io/prometheus/node-exporter:v1.11.1
-    Image: quay.io/prometheus/node-exporter:v1.11.1
+19. quay.io/prometheus/node-exporter:v1.12.1
+    Image: quay.io/prometheus/node-exporter:v1.12.1
     License: Apache License 2.0
     Registry: https://quay.io/prometheus/node-exporter
     Source: https://github.com/prometheus/node_exporter
@@ -243,8 +243,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://www.apache.org/licenses/LICENSE-2.0
 
 
-20. quay.io/prometheus/prometheus:v3.11.3
-    Image: quay.io/prometheus/prometheus:v3.11.3
+20. quay.io/prometheus/prometheus:v3.13.1
+    Image: quay.io/prometheus/prometheus:v3.13.1
     License: Apache License 2.0
     Registry: https://quay.io/prometheus/prometheus
     Source: https://github.com/prometheus/prometheus

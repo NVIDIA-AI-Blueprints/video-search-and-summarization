@@ -15,7 +15,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import prepare_downstream_release_set as module  # noqa: E402
-from prepare_downstream_release_set import downstream_variables  # noqa: E402
+from prepare_downstream_release_set import downstream_relevant, downstream_variables  # noqa: E402
 
 
 class GhcrBuildEntriesTest(unittest.TestCase):
@@ -105,15 +105,66 @@ class DownstreamVariablesTest(unittest.TestCase):
                 clear=True,
             ), mock.patch.object(
                 module, "validate_release_set", return_value=[]
+            ), mock.patch.object(
+                # Pin the gate: its real inputs depend on git state, which
+                # differs between a local worktree and a CI checkout.
+                module, "downstream_relevant", return_value=(False, "pinned")
             ), mock.patch.object(module, "download_release_set") as download:
                 self.assertEqual(module.main(), 0)
                 download.assert_not_called()
             self.assertIn("DOWNSTREAM_EXTRA_VARIABLES_JSON", env_path.read_text())
             self.assertEqual(
                 output_path.read_text(),
-                "has_ghcr_build_entries=false\n",
+                "has_ghcr_build_entries=false\nrun_downstream=false\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
+
+
+
+INVENTORY = {
+    "images": [
+        {"name": "vss-agent", "source_path": "services/agent", "ghcr_build": True},
+        {"name": "vss-rt-cv", "source_path": "services/rt-cv",
+         "trigger_downstream_from_source": True},
+        {"name": "vss-configurator", "source_path": "services/configurator"},
+    ]
+}
+
+
+class DownstreamGateTest(unittest.TestCase):
+    """(source changed AND (ghcr_build OR opt-in)) OR deploy/ changed."""
+
+    def test_ghcr_source_change_runs(self):
+        run, why = downstream_relevant(["services/agent/app.py"], INVENTORY)
+        self.assertTrue(run)
+        self.assertIn("vss-agent", why)
+
+    def test_opted_in_non_ghcr_source_change_runs(self):
+        run, why = downstream_relevant(["services/rt-cv/x.cpp"], INVENTORY)
+        self.assertTrue(run)
+        self.assertIn("vss-rt-cv", why)
+
+    def test_unflagged_source_change_does_not_run(self):
+        run, _ = downstream_relevant(["services/configurator/a.py"], INVENTORY)
+        self.assertFalse(run)
+
+    def test_deploy_change_runs_without_any_source_change(self):
+        run, why = downstream_relevant(["deploy/docker/containers.env"], INVENTORY)
+        self.assertTrue(run)
+        self.assertIn("deploy/", why)
+
+    def test_unrelated_change_does_not_run(self):
+        run, _ = downstream_relevant(["docs/readme.md", "skills/x/SKILL.md"], INVENTORY)
+        self.assertFalse(run)
+
+    def test_unresolvable_diff_runs_rather_than_skips(self):
+        run, why = downstream_relevant(None, INVENTORY)
+        self.assertTrue(run)
+        self.assertIn("unavailable", why)
+
+    def test_source_path_prefix_is_not_matched_loosely(self):
+        run, _ = downstream_relevant(["services/agent-extras/x.py"], INVENTORY)
+        self.assertFalse(run)
 
 
 if __name__ == "__main__":

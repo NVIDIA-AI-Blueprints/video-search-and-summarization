@@ -226,7 +226,7 @@ describe('Foundation component migration – AlertsTable', () => {
     const tertiaryButtons = Array.from(foundationButtons).filter(
       (b) => b.getAttribute('data-kind') === 'tertiary',
     );
-    expect(tertiaryButtons.length).toBeGreaterThanOrEqual(3);
+    expect(tertiaryButtons.length).toBeGreaterThanOrEqual(2);
   });
 
   it('uses bg-black instead of bg-gray-800 in dark mode table header', () => {

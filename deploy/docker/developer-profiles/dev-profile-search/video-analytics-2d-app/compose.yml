@@ -59,11 +59,12 @@ services:
     user: "0:0"
     #runtime: nvidia
     profiles: ["nvstreamer-2d-fusion"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
@@ -84,34 +85,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  perception-2d-init:
-    image: debian:12-slim
-    profiles: ["perception-2d-init"]
-    container_name: vss-rtvi-cv-init
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 6g
-        reservations:
-          cpus: '0.5'
-          memory: 1g
-    volumes:
-      - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/download-vision-encoder.sh:/opt/scripts/download-vision-encoder.sh:ro
-    environment:
-      VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
-      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
-      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
-      STORAGE_UID: ${STORAGE_UID:-1001}
-      STORAGE_GID: ${STORAGE_GID:-1001}
-    command:
-      - bash
-      - /opt/scripts/download-vision-encoder.sh
-
   perception-2d-fusion:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
@@ -119,31 +92,26 @@ services:
     profiles: ["perception-2d-fusion"]
     container_name: vss-rtvi-cv
     volumes:
-        # Config file mounts (read-only staging; ds-search-start.sh copies to the writable app dir)
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/ds-configs-ro:ro
+      # Config file mounts (read-only; canonical ds-start.sh stages mounted-configs -> configs)
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/models-download.json:/opt/config/models-download.json:ro
 
-      # Search-profile wrapper script (patches configs, then calls ds-start.sh)
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/ds-search-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh:ro
-
-      # Models directory — RT-DETR + vision encoder models (downloaded by init container)
+      # Models directory — RT-DETR + vision encoder models (downloaded by ds-start phase 0)
       - $VSS_DATA_DIR/models/:/opt/storage/
-    command:
-      - bash
-      - -c
-      - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0
       HF_HUB_OFFLINE: 0
       DS_MODE_FLAG: "1"
       DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_VISION_ENCODER: "true"
       DS_TRACKER_REID: "true"
       DS_SHOW_SENSOR_ID: "false"
       VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
       VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
-      perception-2d-init:
-        condition: service_completed_successfully
       sensor-ms:
         condition: service_started
       broker-health-check:

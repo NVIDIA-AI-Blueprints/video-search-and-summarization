@@ -223,17 +223,6 @@ const SensorVideoDownloadCard: React.FC = () => {
             url += `&container=${encodeURIComponent(container.trim())}`;
         }
 
-        let proxy = window.location.pathname;
-        if (proxy !== '/' && proxy.length > 0) {
-            if (proxy[proxy.length - 1] === '/') {
-                proxy = proxy.slice(0, -1);
-            }
-            const emdxEndpoint = useVSTUIStore.getState().emdxEndpoint;
-            if (!emdxEndpoint || (emdxEndpoint && !url.includes(emdxEndpoint))) {
-                url = url.replace('/api', `${proxy}/api`);
-            }
-        }
-
         return url;
     }, [selectedSensor, selectedStartTime, selectedEndTime, useConfiguration, videoConfig, container]);
 

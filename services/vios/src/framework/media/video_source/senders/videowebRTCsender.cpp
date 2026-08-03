@@ -22,14 +22,6 @@
 #include "api/make_ref_counted.h"
 using namespace std;
 
-namespace
-{
-uint32_t ToVideoRtpTimestamp(int64_t timestamp_us)
-{
-    return static_cast<uint32_t>((timestamp_us * 90) / 1000);
-}
-}
-
 void VideoWebRTCSender::unRefDataStructure(void *ptr)
 {
     if (ptr)
@@ -268,14 +260,13 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
             nv_video_frame_buffer->rtspToWebrtcStartTime.tv_sec = std::numeric_limits<time_t>::max();
         }
 
-        const int64_t frame_timestamp_us = nextWebrtcFrameTimestampUs();
-        const uint32_t frame_rtp_timestamp = ToVideoRtpTimestamp(frame_timestamp_us);
+        const WebrtcFrameTimestamp frame_timestamp = m_frameTimestamper.next();
 
         webrtc::VideoFrame decodedImage  = webrtc::VideoFrame::Builder()
                                         .set_video_frame_buffer(nv_video_frame_buffer)
                                         .set_rotation(webrtc::kVideoRotation_0)
-                                        .set_timestamp_us(frame_timestamp_us)
-                                        .set_timestamp_rtp(frame_rtp_timestamp)
+                                        .set_timestamp_us(frame_timestamp.m_timestampUs)
+                                        .set_timestamp_rtp(frame_timestamp.m_rtpTimestamp)
                                         .build();
         
         // Validate broadcaster and state before calling OnFrame to prevent crashes
@@ -285,23 +276,6 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
             LOG(verbose) << "Skipping frame for peer " << it->first 
                          << " - broadcaster: " << (sink->m_broadcaster ? "valid" : "null")
                          << ", state: " << sink->m_state << endl;
-        }
-    }
-}
-
-int64_t VideoWebRTCSender::nextWebrtcFrameTimestampUs()
-{
-    int64_t last_timestamp_us = m_lastWebrtcFrameTimestampUs.load();
-    while (true)
-    {
-        int64_t timestamp_us = webrtc::TimeMicros();
-        if (timestamp_us <= last_timestamp_us)
-        {
-            timestamp_us = last_timestamp_us + 1;
-        }
-        if (m_lastWebrtcFrameTimestampUs.compare_exchange_weak(last_timestamp_us, timestamp_us))
-        {
-            return timestamp_us;
         }
     }
 }

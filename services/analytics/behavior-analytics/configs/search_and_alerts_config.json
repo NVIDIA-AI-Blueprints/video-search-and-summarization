@@ -32,6 +32,10 @@
 				"value": "mdx-incidents"
 			},
 			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
 				"name": "embed",
 				"value": "mdx-embed"
 			},
@@ -70,12 +74,12 @@
 		},
 
 		{
-			"name": "behaviorWatermarkSec",
-			"value": "30"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
+			"name": "behaviorWatermarkSec",
+			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",

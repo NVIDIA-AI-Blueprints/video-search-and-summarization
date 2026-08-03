@@ -306,17 +306,19 @@ For `sample` or `videos`, leave `SENSOR_INFO_SOURCE` unset/default (`nvstreamer`
 
 ### `VSS_DATA_DIR` — what to point it at
 
-This is the directory containing the **extracted** `vss-warehouse-app-data` tarball — **separate from the repo**. Expected layout:
+This is the warehouse data directory — **separate from the repo**. The extracted `vss-warehouse-app-data` supplies videos/playback/calibration, while ds-start phase 0 downloads RT-CV models into the flattened `models/` tree on first perception startup. Expected active layout:
 
 ```
 <extracted-dir>/
 ├── videos/<dataset>/        Camera*.mp4 or cam_*.mp4
-├── models/mv3dt/BodyPose3DNet/   TRT/onnx weights
+├── models/
+│   ├── rtdetr_warehouse_v1.0.2.fp16.onnx
+│   └── BodyPose3DNet/bodypose3dnet_accuracy.onnx
 ├── data_log/                 broker / VST log dir (created at deploy)
 └── auto-calib/vggt/          optional VGGT model
 ```
 
-If you haven't extracted it yet, use the published warehouse app-data resource from the VSS 3.2.0 manifests:
+If you need the official sample videos/playback/calibration, use the published warehouse app-data resource from the VSS 3.2.0 manifests. Do not rely on its legacy `models/` subtree; ds-start phase 0 downloads RT-DETR and BodyPose3DNet separately on first perception startup:
 
 ```bash
 export NGC_CLI_API_KEY='<your-key>'
@@ -342,7 +344,7 @@ fi
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
 
-After extraction, run the `mkdir -p` + scoped-ACL `data_log` permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it.
+After extraction, run the `mkdir -p` + scoped-ACL `data_log` permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it. Also ensure `${VSS_DATA_DIR}/models` exists and is writable; ds-start phase 0 writes downloaded models there.
 
 > For `sample` / `videos`, always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's MV3DT cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying. For `rtsp`, validate `camera_info.json` instead of video count.
 
@@ -371,8 +373,8 @@ On DGX-SPARK, switch `PERCEPTION_TAG` to its `-sbsa` variant in the active `gene
 
 ```bash
 # PERCEPTION_TAG ships an SBSA variant for DGX-SPARK — comment the default, uncomment the -sbsa line:
-# PERCEPTION_TAG="3.2.1"
-PERCEPTION_TAG="3.3.0-sbsa-26.07.1"
+# PERCEPTION_TAG="3.3.0-26.07.2"
+PERCEPTION_TAG="3.3.0-sbsa-26.07.2"
 ```
 
 The `blueprint-configurator` enforces this: on `HARDWARE_PROFILE=DGX-SPARK` it validates that `PERCEPTION_TAG` contains `sbsa`.

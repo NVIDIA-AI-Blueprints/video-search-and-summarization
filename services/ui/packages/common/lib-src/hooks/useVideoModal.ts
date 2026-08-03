@@ -62,11 +62,16 @@ export const useVideoModal = (
   const sensorMap = options?.sensorMap;
   const showObjectsBbox = options?.showObjectsBbox ?? false;
 
+  /**
+   * Opens the playback modal for a clip. Resolves `false` when no video could
+   * be loaded (e.g. VST 404s because a freshly added stream has no recorded
+   * footage yet) so callers can surface that instead of failing silently.
+   */
   const openVideoModal = useCallback(
-    async (videoData: VideoModalData, showBbox: boolean = false) => {
+    async (videoData: VideoModalData, showBbox: boolean = false): Promise<boolean> => {
       if (!vstApiUrl) {
         console.error('VST API URL not available');
-        return;
+        return false;
       }
 
       if (abortControllerRef.current) {
@@ -92,18 +97,25 @@ export const useVideoModal = (
           abortController.signal
         );
 
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted) return false;
+
+        if (!finalVideoUrl) {
+          console.error('VST returned no video URL for', videoData);
+          return false;
+        }
 
         setVideoModal({
           isOpen: true,
           videoUrl: finalVideoUrl,
           title: video_name,
         });
+        return true;
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
-          return;
+          return false;
         }
         console.error('Error fetching video URL:', err);
+        return false;
       } finally {
         if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null;
