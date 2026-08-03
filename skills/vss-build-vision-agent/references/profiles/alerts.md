@@ -34,7 +34,8 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vs
 | RT-VLM | `rtvi-vlm` (`2d_vlm`) |
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-alerts` |
 | VIOS | `nvstreamer-alerts`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
-| Agent | `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix` |
+| Agent | `vss-agent`, `vss-ui`, `phoenix` |
+| Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 
 ## Profile-specific environment knobs

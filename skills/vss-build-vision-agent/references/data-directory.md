@@ -119,6 +119,17 @@ Do not silently ignore dangling symlinks. A permission walker may skip one in
 best-effort mode, but the stale path can still break a later bind mount,
 cleanup, or deployment.
 
+## RT-CV model contents
+
+This gate creates the model directories (including `models/rtdetr-its` and
+`models/gdino` for `perception-alerts`) and makes them world-writable — the
+RT-CV container runs as a non-matching UID and writes generated TensorRT
+`.engine` files back into this tree, so the directories must stay `a+rwx`. It
+does **not** download the detector ONNX. When the build carries an RT-CV
+perception key, the detector model is downloaded and placed by
+[`model-staging.md`](model-staging.md) after this gate and before bring-up;
+that step also tightens the staged `.onnx` files to `644` (read-only inputs).
+
 ## Existing PostgreSQL failure
 
 If `vss-vios-postgres` already reports corrupted or stale PGDATA, stop the

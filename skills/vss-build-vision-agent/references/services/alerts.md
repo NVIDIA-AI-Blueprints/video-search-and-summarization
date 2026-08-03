@@ -12,10 +12,39 @@
 
 - `alert-bridge` requires Kafka, Elasticsearch, topic initialization, and the
   matching checked-in alert config mounts.
-- CV verification requires RT-CV and Behavior Analytics.
-- Real-time alerts require RT-VLM.
+- CV-verification alerts derive from detections: RT-CV feeds Behavior Analytics,
+  which generates incidents that a VLM then verifies. This path requires RT-CV
+  and Behavior Analytics with its incident processor enabled.
+- Real-time alerts derive from continuous VLM inspection of the media: the signal
+  flows `rtvi-vlm` → `alert-bridge` and requires RT-VLM. This path does not use
+  Behavior Analytics or incident generation.
 - `vss-va-mcp` requires the matching Agent config and reachable VST/ELK
   endpoints.
+
+## Write-path topic flow
+
+A build resolves exactly one alerts mode; the two flows are mutually exclusive.
+Surface the resolved flow in the architecture preview (SKILL.md step 6 requires
+principal data flows and topics); both are authoritatively defined in
+`skills/vss-manage-alerts/references/integrate-alerts.md`.
+
+- **CV verification** (`perception-alerts` + `vss-behavior-analytics-alerts` +
+  `alert-bridge`): `perception-alerts -> mdx-raw -> vss-behavior-analytics-alerts ->
+  mdx-incidents` (candidate incidents) `-> alert-bridge` (retrieves the clip and runs
+  the VLM verifier) `-> mdx-vlm-incidents` (verified). Alert Bridge writes the verified
+  record with its `verdict` **directly to Elasticsearch** `mdx-vlm-incidents-*` and
+  `mdx-vlm-alerts-*` (its `vlm_enhanced_sink`; optionally also to Kafka
+  `mdx-vlm-incidents`). Requires RT-CV and Behavior Analytics with incident generation
+  enabled.
+- **VLM real-time** (`alert-bridge` realtime rules + `rtvi-vlm`, no Behavior
+  Analytics): an `alert-bridge` realtime rule drives `rtvi-vlm` over the live stream;
+  `rtvi-vlm -> mdx-vlm-incidents` (`RTVI_VLM_KAFKA_INCIDENT_TOPIC`) `-> Logstash ->
+  Elasticsearch mdx-vlm-incidents-*`. RT-VLM produces the incident (confirmed at
+  source); Alert Bridge orchestrates the rule but does **not** write Elasticsearch.
+  This path has no `mdx-raw`/`mdx-incidents` candidate stage.
+
+The modes are exclusive: do not enable Behavior Analytics incident generation for
+real-time alerts, and do not route CV verification through the real-time rule path.
 
 ## Configuration knobs
 
