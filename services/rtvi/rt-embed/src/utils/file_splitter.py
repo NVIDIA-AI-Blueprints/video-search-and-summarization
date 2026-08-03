@@ -204,12 +204,29 @@ class FileSplitter:
                     info.end_ntp = get_timestamp_str(self._base_ntp_time + info.end_pts / 1e9)
                     info.start_ntp_float = ntp_to_unix_timestamp(info.start_ntp)
                     info.end_ntp_float = ntp_to_unix_timestamp(info.end_ntp)
+                    # Check if this is the last chunk (end of file reached,
+                    # next chunk would start past end, or the leftover tail
+                    # sliver after this chunk is too short to be emitted as a
+                    # chunk of its own — in which case the loop breaks before
+                    # creating it, so this chunk is effectively the last one).
+                    next_pts = (
+                        cur_pts
+                        + (self._chunk_duration_sec - self._sliding_window_overlap_sec) * 1000000000
+                    )
+                    remaining_after = end_pts - next_pts
+                    if (
+                        info.end_pts >= end_pts
+                        or next_pts >= end_pts
+                        or (
+                            min_video_frame_duration_ns
+                            and remaining_after < min_video_frame_duration_ns
+                        )
+                    ):
+                        info.is_last = True
                     self._on_new_chunk(info)
                     chunkIdx += 1
                     # Get the next chunk start time
-                    cur_pts += (
-                        self._chunk_duration_sec - self._sliding_window_overlap_sec
-                    ) * 1000000000
+                    cur_pts = next_pts
                     # if the end time of the chunking is already reached stop iterating
                     if info.end_pts >= end_pts:
                         break
