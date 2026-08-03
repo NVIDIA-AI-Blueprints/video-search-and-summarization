@@ -230,6 +230,7 @@ VIA uses extensive environment variable configuration. Key patterns:
 - Database backends selected via `LVS_DATABASE_BACKEND`
 - `KAFKA_ENABLED`: Enables Kafka integration for livestream and file paths
 - `LVS_CAPTION_SOURCE`: Controls caption source for file-path Kafka aggregation (`sse` default, or `db` for Elasticsearch)
+- `LVS_AGGREGATION_EMPTY_RETRIES`: Extra attempts at a CA-RAG aggregation call that returns neither events nor a video summary (default `2`, `0` disables)
 
 ### Logging
 
