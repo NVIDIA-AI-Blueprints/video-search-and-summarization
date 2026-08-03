@@ -37,6 +37,10 @@ ngc:
 # global.llmName / vlmName: shared defaults for vss-agent (override with agent.vss-agent.llmName, etc. when needed).
 global:
   useReleaseNamePrefix: false
+  # Shared managed-image channel (Compose: VSS_CONTAINER_REGISTRY / VSS_CONTAINER_TAG).
+  # Overrides agent/UI/alert/va-mcp/analytics image prefix+tag when set.
+  container_prefix: ""
+  container_tag: ""
   postgresServiceHost: ""
   imagePullSecrets:
     - name: ngc-secret
