@@ -183,9 +183,11 @@ start_rtdetr_gdino()
     mkdir -p "${ENGINES_DIR}/gdino" "${ENGINES_DIR}/rtdetr-its"
     GDINO_TRT_PLAN="${ENGINES_DIR}/gdino/model_gdino_trt.plan"
 
-    require_file "models/rtdetr-its/resnet50_market1501.etlt" "Required tracker artifact missing from image/models volume."
-    cp models/rtdetr-its/resnet50_market1501.etlt \
-       /opt/nvidia/deepstream/deepstream/samples/models/Tracker/resnet50_market1501.etlt
+    local reid_src="${DS_APP_DIR}/models/rtdetr-its/resnet50_market1501.etlt"
+    require_file "$reid_src" "Required tracker artifact missing from image/models volume."
+    ENGINE_CACHE_DIR="${ENGINE_CACHE_DIR:-/opt/engines}"
+    export ENGINE_CACHE_DIR STORAGE_UID STORAGE_GID
+    bash "${SETUP_TRACKER_REID_SCRIPT:-/startup-script/setup-tracker-reid.sh}" --src "$reid_src"
 
     if [[ "${MODEL_NAME_2D:-}" == "GDINO" ]]; then
         require_file "/opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx" "GDINO ONNX model must be available in shared storage."
