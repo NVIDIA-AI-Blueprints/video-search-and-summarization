@@ -143,7 +143,30 @@ interface RawIncident {
   sensorId?: string;
   category?: string;
   analyticsModule?: { info?: { triggerModules?: string; verdict?: string }; description?: string };
+  info?: { enrichment?: string; vlm_response?: string };
   [key: string]: unknown;
+}
+
+export function parseVlmDescription(vlmResponse?: string): string {
+  if (!vlmResponse) return '';
+  try {
+    const parsed: unknown = JSON.parse(vlmResponse);
+    if (typeof parsed === 'object' && parsed !== null) {
+      const response = parsed as {
+        description?: unknown;
+        reasoning?: unknown;
+      };
+      if (typeof response.description === 'string' && response.description.trim()) {
+        return response.description.trim();
+      }
+      if (typeof response.reasoning === 'string') {
+        return response.reasoning.trim();
+      }
+    }
+  } catch {
+    // Malformed structured output should fall back to the next description source.
+  }
+  return '';
 }
 
 function transformIncidentsPayload(data: { incidents?: RawIncident[] }): AlertData[] {
@@ -154,7 +177,11 @@ function transformIncidentsPayload(data: { incidents?: RawIncident[] }): AlertDa
     sensor: incident.sensorId || '',
     alertType: incident.category || '',
     alertTriggered: incident.analyticsModule?.info?.triggerModules || '',
-    alertDescription: incident.analyticsModule?.description || '',
+    alertDescription:
+      parseVlmDescription(incident.info?.enrichment) ||
+      parseVlmDescription(incident.info?.vlm_response) ||
+      incident.analyticsModule?.description ||
+      '',
     metadata: incident,
   }));
 }

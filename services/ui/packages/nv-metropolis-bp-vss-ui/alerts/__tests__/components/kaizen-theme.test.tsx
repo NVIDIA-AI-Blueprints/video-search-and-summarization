@@ -229,6 +229,27 @@ describe('Foundation component migration – AlertsTable', () => {
     expect(tertiaryButtons.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('parses verdict from vlm_response into the verdict column', () => {
+    const alertData = {
+      id: 'collision-1',
+      timestamp: '2026-01-01T00:00:00Z',
+      sensor: 'Cam-1',
+      alertType: 'collision',
+      alertTriggered: 'collision',
+      alertDescription: 'Confirmed collision',
+      metadata: {
+        info: {
+          verdict: '',
+          vlm_response: JSON.stringify({ verdict: 'Yes' }),
+        },
+      },
+    };
+
+    render(<AlertsTable {...baseProps} alerts={[alertData]} />);
+
+    expect(screen.getByTestId('alert-vlm-verdict')).toHaveTextContent('Confirmed');
+  });
+
   it('uses bg-black instead of bg-gray-800 in dark mode table header', () => {
     const alertData = {
       id: 'a1',

@@ -8,6 +8,7 @@ import {
   getMinEndIsoForPaging,
   isoUtcToEpochNanoseconds,
   LOAD_MORE_TO_TIMESTAMP_SUBTRACT_MS,
+  parseVlmDescription,
 } from '../../lib-src/hooks/useAlerts';
 import { VLM_VERDICT } from '../../lib-src/types';
 
@@ -47,6 +48,29 @@ const mockIncidents = {
     },
   ],
 };
+
+describe('parseVlmDescription', () => {
+  it('returns a trimmed structured VLM description', () => {
+    expect(parseVlmDescription('{"description":"  Confirmed collision  "}')).toBe(
+      'Confirmed collision'
+    );
+  });
+
+  it('returns enrichment reasoning when description is absent', () => {
+    expect(
+      parseVlmDescription(
+        '{"reasoning":"  Detailed enrichment analysis  ","responseCode":200}'
+      )
+    ).toBe('Detailed enrichment analysis');
+  });
+
+  it.each([undefined, '', '{malformed', '[]', '{"description":42}'])(
+    'returns empty string for unusable parser output',
+    (value) => {
+      expect(parseVlmDescription(value)).toBe('');
+    }
+  );
+});
 
 describe('isoUtcToEpochNanoseconds', () => {
   it('preserves sub-millisecond fractional seconds (no float rounding in comparison)', () => {
@@ -186,6 +210,60 @@ describe('useAlerts', () => {
 
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
+  });
+
+  it('prefers enrichment, then legacy VLM, then Behavior Analytics descriptions', async () => {
+    const incidents = {
+      incidents: [
+        {
+          Id: 'canonical',
+          timestamp: '2024-01-15T09:00:00Z',
+          sensorId: 'cam-1',
+          category: 'collision',
+          info: {
+            enrichment: JSON.stringify({ reasoning: 'Canonical enrichment' }),
+            vlm_response: JSON.stringify({ description: 'Legacy VLM' }),
+          },
+          analyticsModule: { description: 'Behavior Analytics' },
+        },
+        {
+          Id: 'legacy',
+          timestamp: '2024-01-15T09:01:00Z',
+          sensorId: 'cam-2',
+          category: 'collision',
+          info: {
+            enrichment: '{malformed',
+            vlm_response: JSON.stringify({ description: 'Legacy VLM fallback' }),
+          },
+          analyticsModule: { description: 'Behavior Analytics' },
+        },
+        {
+          Id: 'behavior',
+          timestamp: '2024-01-15T09:02:00Z',
+          sensorId: 'cam-3',
+          category: 'collision',
+          info: { enrichment: '', vlm_response: '{malformed' },
+          analyticsModule: { description: 'Behavior Analytics fallback' },
+        },
+      ],
+    };
+    global.fetch = jest.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(url.includes('/incidents') ? incidents : []),
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useAlerts({ apiUrl: 'http://api.test', vstApiUrl: 'http://vst.test' })
+    );
+
+    await waitFor(() => expect(result.current.alerts).toHaveLength(3));
+    expect(result.current.alerts.map((alert) => alert.alertDescription)).toEqual([
+      'Canonical enrichment',
+      'Legacy VLM fallback',
+      'Behavior Analytics fallback',
+    ]);
   });
 
   it('fetches sensor list and builds sensor map', async () => {
