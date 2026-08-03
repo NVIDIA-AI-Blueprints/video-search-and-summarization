@@ -64,6 +64,23 @@ describe('UploadFilesDialog', () => {
     expect(screen.getByTestId('upload-confirm-button')).toBeInTheDocument();
   });
 
+  // Chat wants the full window; Video Management needs the overlay confined to its pane so
+  // the dialog is not painted underneath the chat sidebar next to it.
+  it('overlays the full viewport by default', () => {
+    render(<UploadFilesDialog {...defaultProps} open={true} />);
+    expect(screen.getByText('Upload Files').closest('div')?.parentElement).toHaveClass(
+      'fixed',
+      'z-50'
+    );
+  });
+
+  it('overlays only the positioned ancestor when overlay is contained', () => {
+    render(<UploadFilesDialog {...defaultProps} open={true} overlay="contained" />);
+    const overlay = screen.getByText('Upload Files').closest('div')?.parentElement;
+    expect(overlay).toHaveClass('absolute', 'z-40');
+    expect(overlay).not.toHaveClass('fixed');
+  });
+
   it('calls onClose when Cancel is clicked', () => {
     render(<UploadFilesDialog {...defaultProps} open={true} />);
     fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
