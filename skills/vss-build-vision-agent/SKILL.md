@@ -79,8 +79,22 @@ These are **predefined developer profiles**, so the skill does **not** compute a
 
 For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Foundational services — video I/O + storage and message bus + indexing — are always included**; present them as informational, not as choices. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
 
+Offer the user **exactly** the capabilities in the table below. Each row's owner contract, canonical service-profile key(s), and closest Foundation profile are fixed — do not invent options or keys outside it.
+
+| Option (shown to user) | Owner contract (`references/services/`) | Canonical service-profile key(s) | Closest Foundation | Peer notes |
+|---|---|---|---|---|
+| **Dense captioning** — natural-language descriptions of video | `rt-vlm.md` | `rtvi-vlm` | `base` | — |
+| **Object detection & tracking (2D)** — bounding boxes, class labels, track IDs | `rt-cv.md` | `perception-2d-fusion` *(search)* / `perception-alerts` *(alerts)* | `search` | Kafka-backed; use the selected profile's key, not the shared `perception` extends source |
+| **Semantic search over video** — embeddings + agentic search | `search.md` (+ `rt-embed.md`) | `vss-search-analytics-2d-fusion`, `rtvi-embed` | `search` | Requires RT-CV + RT-Embed + ELK; critique needs RT-VLM unless disabled |
+| **Real-time alerting / verification** — VLM-verified incidents | `alerts.md` | `alert-bridge`, `vss-va-mcp`, `vss-video-analytics-api-alerts` | `alerts` | Real-time needs RT-VLM; CV-verification needs RT-CV + Behavior Analytics |
+| **Behavior analytics** — incident rules, counts, ROI / dwell events | `behavior-analytics.md` | `vss-behavior-analytics-alerts` *(alerts)* / `vss-search-analytics-2d-fusion` *(search)* | `alerts` or `search` | Rides on RT-CV events; rule thresholds live in the mounted JSON config, not env |
+| **Video summarization** — time-windowed summaries on demand | `lvs.md` | `lvs-server` | `lvs` | Requires Agent + one reachable LLM + one VLM/RT-VLM |
+| **Agent query tools** — agent-callable query surface + Web UI | `agent.md` | `vss-agent`, `vss-va-mcp`, `vss-ui` | *(per Foundation)* | LLM required; ELK / Search / Alerts / LVS peers are capability-dependent |
+
+**Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) and ELK + Kafka + Redis message bus + indexing (`elk.md`). **Added automatically, never offered directly:** the LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends — activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
+
 Rules for the multi-select:
-- **Offer only capabilities whose owner contracts exist** under `references/services/`; show pending capabilities disabled with a short "not yet available" note — do **not** silently offer a capability the skill cannot resolve.
+- **Offer exactly the table rows** whose owner contract exists under `references/services/` (all rows are present on this branch); show any pending capability disabled with a short "not yet available" note. **Never offer a foundational or model-backend owner as a choice** — do **not** silently offer a capability the skill cannot resolve.
 - **Require at least one capability** — the foundational services alone are not a vision agent.
 - Multiple selections compose in one deployment (e.g. captioning + alerting, or captioning + detection).
 
