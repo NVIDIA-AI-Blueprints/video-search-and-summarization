@@ -1964,6 +1964,41 @@ int Postgresql::updateStreamInfo(string streamId, string proxyUrl, string replay
     return 0;
 }
 
+int Postgresql::updateStreamVideoEncoderValues(const string& streamId, const SensorStreamsDBColumns& values)
+{
+    string currentUtcTime = getCurrentUtcTime();
+
+    std::string queryTemplate = "UPDATE " + SensorStreamsDBColumns::table_name + " SET " +
+                SensorStreamsDBColumns::encoding + " = COALESCE(NULLIF(" + PARAM_PLACEHOLDER(0) + ", ''), " + SensorStreamsDBColumns::encoding + "), " +
+                SensorStreamsDBColumns::frameRate + " = COALESCE(NULLIF(" + PARAM_PLACEHOLDER(1) + ", ''), " + SensorStreamsDBColumns::frameRate + "), " +
+                SensorStreamsDBColumns::resolution + " = COALESCE(NULLIF(" + PARAM_PLACEHOLDER(2) + ", ''), " + SensorStreamsDBColumns::resolution + "), " +
+                SensorStreamsDBColumns::encodingProfile + " = COALESCE(NULLIF(" + PARAM_PLACEHOLDER(3) + ", ''), " + SensorStreamsDBColumns::encodingProfile + "), " +
+                SensorStreamsDBColumns::numFrames + " = COALESCE(NULLIF(" + PARAM_PLACEHOLDER(4) + ", ''), " + SensorStreamsDBColumns::numFrames + "), " +
+                SensorStreamsDBColumns::bitrate + " = COALESCE(NULLIF(" + PARAM_PLACEHOLDER(5) + ", ''), " + SensorStreamsDBColumns::bitrate + "), " +
+                SensorStreamsDBColumns::isBframesPresent + " = CASE WHEN " + SensorStreamsDBColumns::isBframesPresent + " = 1 AND " + PARAM_PLACEHOLDER(6) + " = 0 THEN 1 ELSE " + PARAM_PLACEHOLDER(6) + " END, " +
+                SensorStreamsDBColumns::modified_date_time + " = " + PARAM_PLACEHOLDER(7) +
+                " WHERE " + SensorStreamsDBColumns::stream_id + " = " + PARAM_PLACEHOLDER(8) + ";";
+    std::vector<std::string> params = {
+        values.encoding_value,
+        values.frameRate_value,
+        values.resolution_value,
+        values.encodingProfile_value,
+        values.numFrames_value,
+        values.bitrate_value,
+        std::to_string(values.isBframesPresent_value),
+        currentUtcTime,
+        streamId
+    };
+
+    LOG(verbose) << "SQL query: " << queryTemplate << endl;
+    if (!executeQuery(queryTemplate, params))
+    {
+        LOG(error) << "Error updating video encoder values for stream: " << streamId << endl;
+        return -1;
+    }
+    return 0;
+}
+
 SensorStreamsDBColumns Postgresql::readSensorStreams(string streamId)
 {
     SensorStreamsDBColumns row;
