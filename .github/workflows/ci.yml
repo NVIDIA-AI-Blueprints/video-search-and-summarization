@@ -356,6 +356,24 @@ jobs:
             deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             -q
 
+      - name: Skill eval harness contracts
+        working-directory: ${{ github.workspace }}
+        env:
+          SKILL_EVAL_EXPECTED_PYTHON_VERSION: "3.12"
+        run: |
+          uvx --python 3.12 --from "pytest==9.1.1" pytest \
+            .github/skill-eval/tests/test_adapter_agent_timeout.py \
+            .github/skill-eval/tests/test_python_runtime_contract.py \
+            .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
+            .github/skill-eval/envs/tests/test_cancellation_recovery.py \
+            .github/skill-eval/tests/test_run_leg.py::HarborCommand \
+            .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
+            .github/skill-eval/tests/test_run_leg.py::HarborEnvironment \
+            .github/skill-eval/tests/test_run_leg.py::RunCommand \
+            .github/skill-eval/tests/test_run_leg.py::ProcessGroupShutdown \
+            .github/skill-eval/tests/test_run_leg.py::RunInvocations \
+            -q
+
       - name: Upload coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
