@@ -53,7 +53,7 @@ kafka:
   max_poll_interval_ms: 600000                  # Reduced to 5 minutes
   session_timeout_ms: 45000
   heartbeat_interval_ms: 15000
-  poll_timeout: 5                             # Kafka consumer poll wait timeout in milliseconds
+  poll_timeout: 2                             # Kafka consumer poll wait timeout in milliseconds
   message_type: "Incident"  # Protobuf message type: "Behavior" or "Incident"
   enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"     # Not currently used will be removed in the next version
   incidents_topic: "alert-bridge-incidents" # Not currently used will be removed in the next version
@@ -62,8 +62,8 @@ kafka:
 vlm:
   base_url: ${VLM_BASE_URL}/v1
   model: "${VLM_NAME}"
-  max_tokens: 4096
-  request_timeout: 5
+  max_tokens: 1
+  request_timeout: 600
 
   # VLM Media Source: how to send video to VLM endpoint
   # false (default) - Pass video URL to VLM (VLM fetches from URL)
@@ -153,8 +153,8 @@ vlm:
   do_resize: true
   # Beware that these parameters need to be set in accordance with the VLM max context window
   min_pixels: 1568
-  max_pixels: 3960000
-  num_frames: 5
+  max_pixels: 1960000
+  # num_frames: REMOVED
   enable_sampling: true
   sampling_fps: 4
   # Warmup tuning — override defaults for slow GPUs or large models
@@ -246,7 +246,7 @@ alert_agent:
     timeout_seconds: 30                          # Download timeout per file
     max_size_mb: 50                              # Maximum file size to download
     allow_private_urls: true                     # Allow private/local URLs (development only, SSRF risk)
-    use_verdict: false                           # VLM response mode: true=verdict-based, false=freestyle
+    use_verdict: true                           # VLM response mode: true=verdict-based, false=freestyle
 
   # Enrichment Processing Configuration
   enrichment:
