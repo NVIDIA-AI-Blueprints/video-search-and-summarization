@@ -548,6 +548,10 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `WDM_KFK_SESSION_TIME_OUT` | `30000` | Kafka session timeout in milliseconds. |
 | `WDM_FORWARD_MSG_TYPE` | `event_message` | Whether to forward the full event envelope or only the inner event to workers. |
 | `WDM_WL_CHANGE_ID_POD_CONFIGURE` | `config` | Change value that triggers pod configuration. |
+| `WDM_HANDLE_CONFIG_EVENTS` | unset | Enable config handling. When unset, effective behavior follows `WDM_ENABLE_REGEX_MAPPING`; set `false` for workloads without `/config`. |
+| `WDM_CONFIG_RETRY_ATTEMPTS` | `3` | Number of transport retry attempts for `/config` calls only. |
+| `WDM_CONFIG_RETRY_DELAY` | `0.5` | Delay between `/config` transport retries in seconds. |
+| `WDM_CONFIG_DEFER_ON_FAILURE` | `False` | If true, deferred config failures are left uncommitted for retry; default terminal failures are committed. |
 | `DELETE_API_METHOD` | `POST` | HTTP method used for worker delete calls. |
 | `WDM_ADD_REMOVE_RETRY_ATTEMPTS` | `2` | Number of add/remove retry attempts. |
 | `WDM_ADD_REMOVE_RETRY_DELAY` | `0.5` | Delay between retries in seconds. |
