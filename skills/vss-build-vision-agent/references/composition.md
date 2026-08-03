@@ -3,6 +3,7 @@
 - [Model](#model)
 - [Select the foundation](#select-the-foundation)
 - [Compute the delta](#compute-the-delta)
+- [Clarification gate](#clarification-gate)
 - [Artifact contract](#artifact-contract)
 - [Resolve](#resolve)
 - [Validate](#validate)
@@ -34,7 +35,8 @@ this workflow.
 3. Prefer an exact capability match and use stock mode.
 4. Otherwise minimize service-set additions, removals, and definition changes,
    in that order.
-5. Ask the user when two profiles have an equally small delta.
+5. Do not break a Foundation tie by guessing; an equally small delta between
+   two profiles is a clarification-gate blocker (see below).
 
 The selected profile's checked-in `overrides.env` is authoritative for its
 Profile Service Set. The copied list in `profiles/` is a routing aid and must be
@@ -58,7 +60,71 @@ Start with the Foundation's effective `COMPOSE_PROFILES`.
 - Put user-configurable values in the env delta. Do not copy default values that
   are unchanged.
 
+The Foundation is a starting graph to trim, not a floor to inherit. A delta is
+symmetric: after adding requested owners and their peers, prune every Foundation
+service that no requested capability needs. Compute the reachable set by forward
+closure: start from the requested capabilities, resolve each to its owner, then
+follow that owner's `Required peers` transitively. Remove every Foundation
+service outside that closure, including a peer whose only consumer was removed
+(for example an LLM required solely by an orchestration owner that is not
+requested). A service is retained only because a requested capability reaches it,
+never because the Foundation happened to ship it.
+
+When more than one requested capability maps to the same owner, converge on a
+single instance (one service key, one variant, one config), never two variants
+of one owner for the same role (for example, one detector feeding two pipelines).
+If that owner's output feeds another service, align the consumer's config to the
+variant you selected, not to the one its Foundation shipped. Owner contracts
+state which owners are singletons, what output each fixes, and which consumer
+keys track it; read them before merging configs.
+
 Service activation alone is never a Compose-definition change.
+
+## Clarification gate
+
+This gate is generic: it settles any resolution blocker the rules cannot,
+not just Foundation choice. Resolution is deterministic: parse the request into
+required and excluded capabilities, map each to an owner, select the Foundation,
+then compute the delta by forward closure, prune, and singleton convergence. Run
+that pass in full first. Only when it leaves a blocker the rules cannot settle,
+ask exactly one structured clarification. The gate is a last resort that
+replaces a reasoning loop; it is never an early exit or a substitute for
+resolution the rules can do.
+
+Ask only for a blocker in this closed set:
+
+- **Unmapped capability**: a required capability resolves to no owner.
+- **Ambiguous owner**: a capability maps to more than one owner and no routing
+  cue in `profiles/` or `services/` disambiguates.
+- **Foundation tie**: two Foundations have an equally small delta.
+- **Singleton conflict**: two requested capabilities force two incompatible
+  variants of one singleton owner (for example two detector families feeding one
+  consumer taxonomy).
+- **Capability contradiction**: a requested capability overlaps an excluded one.
+
+Anything outside this set is resolved with the rules, not a question. Do not ask
+before the pass completes, do not ask about a decision the rules already settle
+(the strictly-closest Foundation, peers fixed by `Required peers`, pruning
+outcomes), and do not guess past a blocker or improvise a service set.
+
+Bound the interaction so it cannot loop:
+
+- Make one resolution attempt. If blockers remain, stop and ask; never re-run
+  the same resolution expecting a different result.
+- Batch every open blocker into one clarification. Do not ask serially.
+- After the answer, re-resolve once. If the answer creates a new blocker, ask
+  once more and say the answer introduced it. Never repeat an answered question.
+
+State the clarification exactly, with no hedging:
+
+1. Lead with what is resolved (the Foundation and the mapped capabilities and
+   owners), so the question is bounded.
+2. State each unresolved item as one closed question, never an open-ended one.
+3. Offer concrete options: the candidate owners, service keys, or Foundations.
+4. Mark a recommended option when the rules lean one way, with a one-clause
+   reason.
+5. Ask only what is unresolved. Do not restate settled decisions or hedge
+   ("I think", "maybe", "possibly").
 
 ## Artifact contract
 
@@ -73,7 +139,13 @@ _builds/<name>/
 ```
 
 `<name>` is a filesystem label supplied by the user or a neutral description of
-the requested build. It is never a Compose profile.
+the requested build. It is never a Compose profile. If the user supplies no
+`<name>`, derive a neutral one rather than writing elsewhere.
+
+The only writable location is `_builds/<name>/`. Never create or edit files under
+`deploy/docker/**` or a `dev-profile-*` Foundation directory, and never write
+`resolved.yml` outside `_builds/<name>/`. The env artifact is always named
+`override.env`.
 
 `override.env` contains:
 
@@ -123,16 +195,22 @@ Create a file under `patches/` only when:
 - an existing service definition must change in a way Compose env interpolation
   cannot express.
 
-A patch may contain only the changed or new `services:` entries. Reuse the
-canonical service key. Do not copy unchanged services, volumes, networks, or
-profile files. Add multiple patch paths after the root file when multiple
-service definitions change.
+A patch may contain only the changed or new `services:` entries under the
+canonical service key. The patch **filename** must be
+`patches/<canonical-COMPOSE_PROFILES-key>.yml` — the same key the service uses
+in `COMPOSE_PROFILES`, not a shortened or generic name. Do not copy unchanged
+services, volumes, networks, or profile files. Add multiple patch paths after
+the root file when multiple service definitions change.
 
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
 effective service set and its dependencies are serialized. Normalization then
 removes their now-redundant service profile gates. It is the exact, standalone
-Compose model used directly for validation, deployment, readiness, and teardown.
+Compose model used directly for validation, deployment, readiness, and teardown:
+`config` bakes the `name`, `env_file`, and interpolation, so it needs no
+`--env-file`. Pass the resolve env layers only to `config`, never to `up`, `ps`,
+or `down`, and deploy with `pull --ignore-buildable && up -d --build`
+(see [`deployment.md`](deployment.md)).
 
 All three primary files are required in stock and delta mode. `_builds/` is
 gitignored because `override.env` and `resolved.yml` can contain credentials.
@@ -165,6 +243,19 @@ uv run "$REPO/skills/vss-build-vision-agent/scripts/normalize_resolved_yml.py" \
 uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 ```
+
+`docker compose config` writes the resolved model to stdout and its warnings and
+errors to stderr. Only stdout may reach `resolved.yml`, so write it with the `>`
+redirect shown: never merge the streams (`2>&1`, `&>`, or a combined `tee`), and
+never reconstruct `resolved.yml` from the command's captured output — an agent
+shell interleaves stderr into that capture, so the warnings pollute the YAML even
+with no explicit merge. Leave stderr on the terminal so it stays visible in the
+command output; do not silence it with `2>/dev/null`. Then act on what it reports: a non-zero exit code
+means resolution failed (a required variable, missing file, or invalid
+definition) and must be fixed before continuing; on success, the
+`variable is not set. Defaulting to a blank string.` lines are informational:
+unset optional knobs are expected, but scan them for any value that belonged in
+`override.env`'s dependent-value closure and set it if so.
 
 The env layers are ordered from broad defaults to build-specific customization;
 later values override earlier values. Regenerate `resolved.yml` whenever
@@ -201,11 +292,22 @@ Then verify:
 - The resolved service list is non-empty.
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
+- Every retained service is transitively required by at least one requested
+  capability; no orphaned Foundation carryover survives the delta.
+- A shared singleton owner resolves to exactly one variant, and every consumer
+  config that keys on that owner's output (class-label taxonomy and casing,
+  topic names) matches the resolved variant; no consumer filters on a taxonomy
+  the resolved owner does not emit.
 - No unrequested service definition is present in a patch.
 - Any patch contains only changed or new service entries.
 - `resolved.yml` contains no real unresolved `${...}` Compose interpolation and
   every selected service's environment is filled in. Escaped `$${...}` variables
   are container-shell expressions, not Compose interpolation failures.
+- Every credential key the selected mode requires (see `credentials.md`
+  Required By Mode) resolves to a non-empty literal. A required credential that
+  resolved empty is a blocker: set it and re-resolve, never deploy the empty
+  value, since a baked `''` cannot be supplied at deploy time. Keys the mode
+  does not require (for example `HF_TOKEN` off edge) may be empty.
 - `resolved.yml` contains no stock sentinels such as
   `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
