@@ -35,7 +35,7 @@ jobs:
     env:
       REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}
       SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
       EXTERNAL_ID: gitlab-osrb:${{ github.event.workflow_run.id }}
 
@@ -70,7 +70,7 @@ jobs:
           python3 .github/scripts/osrb_check.py skip \
             --repo "$REPO" \
             --sha "$HEAD_SHA" \
-            --run-url "$RUN_URL" \
+            --run-url "$LICENSE_RUN_URL" \
             --external-id "$EXTERNAL_ID" \
             --summary "PR targets ${{ steps.pr.outputs.base }}; OSRB was already enforced on the develop-targeted PR."
 
@@ -82,7 +82,7 @@ jobs:
           python3 .github/scripts/osrb_check.py start \
             --repo "$REPO" \
             --sha "$HEAD_SHA" \
-            --run-url "$RUN_URL" \
+            --run-url "$LICENSE_RUN_URL" \
             --external-id "$EXTERNAL_ID"
 
       - name: Trigger private OSRB pipeline
@@ -103,6 +103,7 @@ jobs:
             "GITHUB_REPOSITORY":"${{ github.repository }}",
             "GITHUB_PR_NUMBER":"${{ steps.pr.outputs.number }}",
             "GITHUB_LICENSE_RUN_ID":"${{ github.event.workflow_run.id }}",
+            "GITHUB_LICENSE_RUN_URL":"${{ github.event.workflow_run.html_url }}",
             "GITHUB_OSRB_RUN_URL":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
         run: |
           python3 .github/scripts/trigger-downstream-pipeline.sh
@@ -137,7 +138,7 @@ jobs:
           python3 .github/scripts/osrb_check.py complete \
             --repo "$REPO" \
             --sha "$HEAD_SHA" \
-            --run-url "$RUN_URL" \
+            --run-url "$LICENSE_RUN_URL" \
             --external-id "$EXTERNAL_ID" \
             --summary "$summary" \
             "${success[@]}"

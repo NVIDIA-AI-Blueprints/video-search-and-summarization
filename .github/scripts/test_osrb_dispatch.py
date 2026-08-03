@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 DIRECTORY = Path(__file__).parent
+WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-review.yml"
 
 
 def load_python(name: str, path: Path):
@@ -50,6 +51,15 @@ class DispatchTests(unittest.TestCase):
 
     def test_check_external_id_is_private_pipeline_scoped(self) -> None:
         self.assertEqual(check.EXTERNAL_PREFIX, "gitlab-osrb:")
+
+    def test_dispatch_passes_canonical_license_diff_run_url(self) -> None:
+        workflow = WORKFLOW.read_text()
+        self.assertIn(
+            '"GITHUB_LICENSE_RUN_URL":"${{ github.event.workflow_run.html_url }}"',
+            workflow,
+        )
+        self.assertIn('LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}', workflow)
+        self.assertIn('--run-url "$LICENSE_RUN_URL"', workflow)
 
 
 if __name__ == "__main__":
