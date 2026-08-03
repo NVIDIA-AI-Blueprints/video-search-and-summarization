@@ -184,14 +184,9 @@ def test_batch_delete_preserves_error_shape():
 
 
 @pytest.mark.no_gpu
-def test_batch_delete_bounds_use_count_poll(monkeypatch):
-    """A stuck setup (use_count never decreases) must not hang the batch delete.
-
-    The poll loop is bounded by RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC; once the
-    deadline expires it logs a warning and proceeds with the delete.
-    """
-    # Very short timeout so the test runs in well under a second.
-    monkeypatch.setenv("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "0.2")
+def test_batch_delete_rejects_asset_in_use_without_wait(monkeypatch):
+    """A stuck or active use_count returns ResourceInUse instead of deleting."""
+    monkeypatch.setenv("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "30")
 
     asset_manager, stream_handler, executor, request, stream_id_uuids = _build_mocks(
         num_streams=1, sleep_per_call=0.01
@@ -209,11 +204,16 @@ def test_batch_delete_bounds_use_count_poll(monkeypatch):
     finally:
         executor.shutdown(wait=True)
 
-    # Delete still proceeded after the timeout fired.
-    assert resp.deleted == stream_id_uuids
-    assert resp.errors == []
-    # Must return promptly after the 0.2s deadline, not hang on the unbounded poll.
-    assert elapsed < 2.0, f"Batch delete took {elapsed:.2f}s; expected < 2.0s"
+    assert resp.deleted == []
+    assert len(resp.errors) == 1
+    error = resp.errors[0]
+    assert error["stream_id"] == str(stream_id_uuids[0])
+    assert error["error_code"] == "ResourceInUse"
+    assert error["status_code"] == 409
+    assert "currently being used" in error["error"]
+    assert elapsed < 1.0, f"Batch delete took {elapsed:.2f}s; expected immediate 409"
+    stream_handler.remove_rtsp_stream.assert_not_called()
+    asset_manager.cleanup_asset.assert_not_called()
 
 
 @pytest.mark.no_gpu

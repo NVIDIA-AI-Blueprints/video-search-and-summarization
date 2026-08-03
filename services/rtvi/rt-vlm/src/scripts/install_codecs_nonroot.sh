@@ -26,6 +26,10 @@ INSTALL_DIR=${CODEC_INSTALL_DIR:-/opt/nvidia/rtvi/codecs}
 DEBS_DIR=$(mktemp -d /tmp/rtvi_codec_debs_XXXXXX)
 APT_DIR="$DEBS_DIR/apt"
 SOURCES_LIST="$APT_DIR/sources.list"
+PYTHON_CODEC_DIR="$INSTALL_DIR/python"
+PYNVVIDEO_CODEC_VERSION="${PYNVVIDEO_CODEC_VERSION:-2.1.0}"
+PYAV_VERSION="${PYAV_VERSION:-16.0.1}"
+OPENCV_PYTHON_HEADLESS_VERSION="${OPENCV_PYTHON_HEADLESS_VERSION:-4.13.0.92}"
 
 cleanup() {
     rm -rf "$DEBS_DIR"
@@ -74,6 +78,7 @@ PACKAGES=(
     # FFmpeg and GStreamer
     ffmpeg
     libavcodec60
+    libavdevice60
     libavfilter9
     libavformat60
     libavutil58
@@ -219,6 +224,22 @@ for deb in "${DEBS[@]}"; do
     fi
 done
 
+echo "Installing PyNvVideoCodec ${PYNVVIDEO_CODEC_VERSION}, PyAV ${PYAV_VERSION}," \
+    "and OpenCV headless ${OPENCV_PYTHON_HEADLESS_VERSION} into the codec overlay..."
+if ! python3 -m pip install \
+    --disable-pip-version-check \
+    --no-cache-dir \
+    --no-deps \
+    --only-binary=:all: \
+    --upgrade \
+    --target "$PYTHON_CODEC_DIR" \
+    "PyNvVideoCodec==${PYNVVIDEO_CODEC_VERSION}" \
+    "av==${PYAV_VERSION}" \
+    "opencv-python-headless==${OPENCV_PYTHON_HEADLESS_VERSION}"; then
+    echo "ERROR: Failed to install codec Python packages" >&2
+    exit 1
+fi
+
 [ -f "$LIB_DIR/blas/libblas.so.3" ] &&
     ln -sf "$LIB_DIR/blas/libblas.so.3" "$LIB_DIR/libblas.so.3"
 [ -f "$LIB_DIR/lapack/liblapack.so.3" ] &&
@@ -238,7 +259,8 @@ rm -rf ~/.cache/gstreamer-1.0/
 
 cat > "$INSTALL_DIR/codec_env.sh" <<EOF
 export GST_PLUGIN_PATH=${GST_PLUGIN_DIR}\${GST_PLUGIN_PATH:+:\$GST_PLUGIN_PATH}
-export LD_LIBRARY_PATH=${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+export PYTHONPATH=${PYTHON_CODEC_DIR}\${PYTHONPATH:+:\$PYTHONPATH}
+export LD_LIBRARY_PATH=${PYTHON_CODEC_DIR}/PyNvVideoCodec:${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 export PATH=${INSTALL_DIR}/usr/bin\${PATH:+:\$PATH}
 EOF
 
