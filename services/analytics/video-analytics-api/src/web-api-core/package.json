@@ -1,7 +1,7 @@
 {
     "name": "@nvidia-mdx/web-api-core",
-    "version": "3.2.0",
-    "description": "Core functionalities of mdx web apis",
+    "version": "3.3.0",
+    "description": "Core functionalities of video analytics apis",
     "main": "index.js",
     "dependencies": {
         "@elastic/elasticsearch": "9.4.3",
