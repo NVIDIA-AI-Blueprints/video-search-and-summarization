@@ -10,7 +10,9 @@ stream lifecycle management.
 - `perception`: the shared RTVI-CV Docker Compose service.
 
 Clients call SDRC through the RTVI-CV workload listener on host port `10001`.
-The lifecycle endpoint paths come from `./configs/config.yml`.
+The lifecycle endpoint paths and methods come from `./configs/config.yml`; this
+example config uses `POST /api/v1/stream/add` for add/reprovision and
+`POST /api/v1/stream/remove` for delete.
 
 ## Prerequisites
 
@@ -30,6 +32,17 @@ export VSS_DATA_DIR=/path/to/vss-warehouse-app-data
 export HOST_IP=127.0.0.1
 export HARDWARE_PROFILE=dGPU
 export SDR_MW_L_IMAGE=sdr-mw-l:local
+```
+
+Optional host-port overrides, useful when a local service already uses one of
+the defaults:
+
+```bash
+export SDRC_CONTROLLER_HOST_PORT=5003
+export SDRC_RTVI_CV_PROXY_HOST_PORT=10001
+export SDRC_DIRECT_HOST_PORT=8011
+export SDRC_ENVOY_ADMIN_HOST_PORT=9902
+export REDIS_HOST_PORT=6379
 ```
 
 Use the same value for `VSS_DATA_DIR` that you would pass to
@@ -58,22 +71,66 @@ Check containers:
 docker compose ps
 ```
 
-Check SDRC router health:
+Check SDRC router health and open the SDRC UI:
 
 ```bash
-curl -s http://localhost:5003/dashboard/health
+curl -s http://localhost:${SDRC_CONTROLLER_HOST_PORT:-5003}/dashboard/health
 ```
+
+SDRC UI: `http://localhost:${SDRC_CONTROLLER_HOST_PORT:-5003}`
 
 Check that Envoy created the RTVI-CV workload listener on `10001`:
 
 ```bash
-curl -s http://localhost:9902/listeners | grep 10001
+curl -s http://localhost:${SDRC_ENVOY_ADMIN_HOST_PORT:-9902}/listeners | grep ${SDRC_RTVI_CV_PROXY_HOST_PORT:-10001}
 ```
 
 ## Exercise Lifecycle
 
-Run the add, reprovision, and delete curl commands from the parent
-[README](../README.md#lifecycle-requests).
+These commands call the SDRC workload listener on `10001`. The `streamid`
+header is the routing key and the stream identity SDRC uses for add, cached
+reprovision, and delete.
+
+Add a stream:
+
+```bash
+curl --location --request POST "http://localhost:${SDRC_RTVI_CV_PROXY_HOST_PORT:-10001}/api/v1/stream/add" \
+  --header 'streamid: camera-001' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "alert_type": "camera_status_change",
+    "created_at": "2026-01-01T00:00:00Z",
+    "event": {
+      "camera_id": "camera-001",
+      "camera_name": "Dock Camera 1",
+      "camera_url": "rtsp://vss-vios-streamprocessing:30554/webrtc/camera-001",
+      "change": "camera_add",
+      "metadata": {"site": "warehouse-a"}
+    },
+    "source": "vst"
+  }'
+```
+
+Reprovision the same stream. This intentionally uses the configured add path
+without a request body; SDRC reuses the cached stream state for the `streamid`
+header value.
+
+```bash
+curl --location --request POST "http://localhost:${SDRC_RTVI_CV_PROXY_HOST_PORT:-10001}/api/v1/stream/add" \
+  --header 'streamid: camera-001'
+```
+
+Delete the stream:
+
+```bash
+curl --location --request POST "http://localhost:${SDRC_RTVI_CV_PROXY_HOST_PORT:-10001}/api/v1/stream/remove" \
+  --header 'streamid: camera-001'
+```
+
+A successful add/delete returns JSON with `status: ok`. Reprovision can return
+`status: deferred` when workload replicas are not ready; that means SDRC
+accepted the HTTP-header request and deferred reprovision until readiness is
+satisfied.
 
 ## Logs
 
@@ -102,7 +159,10 @@ rm -rf .generated
   not at the repository `data/` directory unless that directory contains the
   warehouse model bundle.
 - `localhost:10001` connection reset: confirm `sdr-controller` is healthy and
-  `curl -s http://localhost:9902/listeners | grep 10001` returns a listener.
+  `curl -s http://localhost:${SDRC_ENVOY_ADMIN_HOST_PORT:-9902}/listeners | grep ${SDRC_RTVI_CV_PROXY_HOST_PORT:-10001}` returns a listener.
+- Add/delete returns an unexpected method error: verify the curl command uses
+  the method configured in `configs/config.yml`. This demo config uses `POST`
+  for both add and delete.
 
 ## SPDX
 
