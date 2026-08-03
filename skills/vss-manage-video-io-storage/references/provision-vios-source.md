@@ -11,22 +11,30 @@ only the resolved consumers.
 
 ## Headless-only — first line of defense
 
-This recipe is the **agent-free** path. If the deployment exposes an agent `/api`
-tier, **STOP** — provisioning is agent-owned there, and a direct-REST fan-out
-would double-provision. Probe once and defer:
+This recipe is the **agent-free** path. If an agent tier is present, **STOP** —
+provisioning is agent-owned and a direct-REST fan-out double-provisions. The
+authoritative, ingress-independent signal is caller-supplied: the caller confirms
+**no agent tier is deployed** before invoking this recipe, by the same contract it
+injects the consumer endpoints (a `vss-build-vision-agent` caller derives it from
+the build's service set). Absent that signal, fall back to a status-code-aware
+probe — only a `2xx` is a real agent route; a `3xx` is the curated ingress's
+catch-all redirect to `/kibana/` (headless), which `curl -sf` would wrongly count
+as success:
 
 ```bash
-# If an agent tier answers, do NOT use this recipe.
-curl -sf --max-time 5 "${ORIGIN%/}/api/v1/videos" >/dev/null 2>&1 && {
-  echo "agent tier present — use the agent-backed ingest instead" >&2; exit 1; }
+# Only a 2xx is a real agent route. A 3xx is the ingress catch-all to /kibana/
+# (headless) — do NOT treat it as present.
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${ORIGIN%/}/api/v1/videos")
+case "$code" in
+  2*) echo "agent tier present — use the agent-backed ingest instead" >&2; exit 1 ;;
+esac
 ```
 
 Defer full-stack provisioning to the agent-mediated path for the build's
 capability — search ingestion to `vss-search-archive` (`/api/v1/videos` +
 `/complete`), alert rules to `vss-manage-alerts`, or the agent's
-`video_ingest` / `rtsp_ingest` routes. The `/api` probe is a coarse public-route
-capability check (the same class of signal `vss configure` uses), not internal
-discovery.
+`video_ingest` / `rtsp_ingest` routes. The probe is a coarse public-route
+capability check, not internal discovery.
 
 ## One mechanism, off one VIOS sensor
 
@@ -71,7 +79,7 @@ recipe.
 This recipe takes the consumer endpoints as **inputs** — `VST_API_BASE`,
 `RTVI_CV_URL`, `RTVI_EMBED_URL`, `RTVI_VLM_URL` — resolved and passed in by the
 caller; it reads no build manifest itself. A `vss-build-vision-agent` build reads
-them from its `resolved.yml` `ports:` mappings and hands them in; a human operator
+them from its resolved service ports and hands them in; a human operator
 supplies them directly. A build can remap ports (RT-CV's is
 `${RTVI_CV_HOST_PORT:-9000}`, not a fixed `9000`), so never hard-code. Address
 each endpoint by the vantage that uses it:
