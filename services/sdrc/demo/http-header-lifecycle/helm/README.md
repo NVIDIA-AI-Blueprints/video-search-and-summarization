@@ -107,43 +107,50 @@ kubectl rollout status deployment/sdrc -n "$NAMESPACE" --timeout=300s
 kubectl rollout status statefulset/vss-rtvi-cv -n "$NAMESPACE" --timeout=600s
 ```
 
-Confirm the SDRC Service exposes both the UI/API port and the HTTP-header
-workload listener. The output should include `5003` and `10001`:
+Confirm the SDRC Service exposes both the UI/API NodePort and the
+HTTP-header workload listener NodePort from `values.yaml`. The output should
+include `30003` for the SDRC UI/API and `31001` for the RTVI-CV lifecycle
+listener:
 
 ```bash
-kubectl get svc sdrc-controller -n "$NAMESPACE" -o jsonpath='{.spec.ports[*].port}'
-echo
+kubectl get svc sdrc-controller -n "$NAMESPACE"
 ```
 
-Forward the lifecycle listener to your workstation:
+Set the node IP used for NodePort access. For a single-node local cluster this
+is usually the first node InternalIP:
+
+```bash
+export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+```
+
+Open the SDRC UI at `http://$NODE_IP:30003` or check health with:
+
+```bash
+curl -s "http://$NODE_IP:30003/dashboard/health"
+```
+
+Optional local fallback: if NodePort access is blocked by your cluster network,
+use port-forward in separate terminals instead:
 
 ```bash
 kubectl port-forward svc/sdrc-controller 10001:10001 -n "$NAMESPACE"
-```
-
-Optional: forward the SDRC UI/API port in another terminal:
-
-```bash
 kubectl port-forward svc/sdrc-controller 5003:5003 -n "$NAMESPACE"
-```
-
-Then open `http://localhost:5003` or check health with:
-
-```bash
-curl -s http://localhost:5003/dashboard/health
 ```
 
 ## Exercise Lifecycle
 
-Keep `kubectl port-forward svc/sdrc-controller 10001:10001 -n "$NAMESPACE"`
-running in another terminal before executing these commands. They call the SDRC
-workload listener on `10001`. The `streamid` header is the routing key and the
+These commands use the RTVI-CV lifecycle NodePort from `values.yaml`: service
+port `10001` exposed as node port `31001`. They call SDRC through
+`http://$NODE_IP:31001`. The `streamid` header is the routing key and the
 stream identity SDRC uses for add, cached reprovision, and delete.
+
+If you use the optional port-forward fallback instead, replace
+`http://$NODE_IP:31001` with `http://localhost:10001` in the curl commands.
 
 Add a stream:
 
 ```bash
-curl --location --request POST 'http://localhost:10001/api/v1/stream/add' \
+curl --location --request POST "http://$NODE_IP:31001/api/v1/stream/add" \
   --header 'streamid: camera-001' \
   --header 'Content-Type: application/json' \
   --data '{
@@ -165,14 +172,14 @@ without a request body; SDRC reuses the cached stream state for the `streamid`
 header value.
 
 ```bash
-curl --location --request POST 'http://localhost:10001/api/v1/stream/add' \
+curl --location --request POST "http://$NODE_IP:31001/api/v1/stream/add" \
   --header 'streamid: camera-001'
 ```
 
 Delete the stream:
 
 ```bash
-curl --location --request POST 'http://localhost:10001/api/v1/stream/remove' \
+curl --location --request POST "http://$NODE_IP:31001/api/v1/stream/remove" \
   --header 'streamid: camera-001'
 ```
 
@@ -206,14 +213,19 @@ kubectl delete namespace "$NAMESPACE"
   `deploy/helm/services/infra` and `deploy/helm/services/rtvi` present.
 - RTVI-CV waits for app data: either create the NGC secrets and install with
   `downloadNgcAppData=true`, or pre-populate the models PVC.
-- `localhost:10001` does not respond: keep the lifecycle `kubectl port-forward`
-  command running and verify `kubectl get svc sdrc-controller` shows port
+- `$NODE_IP:31001` does not respond: verify `kubectl get svc sdrc-controller`
+  shows node port `31001` for the lifecycle listener, and confirm your cluster
+  allows NodePort access to the selected node IP. Use the port-forward fallback
+  if NodePort traffic is blocked.
+- `localhost:10001` does not respond with the fallback path: keep the lifecycle
+  `kubectl port-forward` command running and verify the Service shows port
   `10001`.
 - Add/delete returns an unexpected method error: verify the curl command uses
   the method configured in `configs/sdrc/config.yml`. This demo config uses
   `POST` for both add and delete.
-- SDRC UI is not reachable: start the optional `5003:5003` port-forward and
-  verify the Service exposes port `5003`.
+- SDRC UI is not reachable on `$NODE_IP:30003`: verify the Service shows
+  node port `30003`, or start the optional `5003:5003` port-forward and use
+  `http://localhost:5003`.
 
 ## SPDX
 

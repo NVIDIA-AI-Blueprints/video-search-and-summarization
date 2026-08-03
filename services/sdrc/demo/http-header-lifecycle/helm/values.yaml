@@ -46,6 +46,7 @@ infra:
         - name: rtvi-cv-http
           port: 10001
           targetPort: 10001
+          nodePort: 31001
     image:
       repository: localhost:5000/sdr-mw-l
       tag: local
