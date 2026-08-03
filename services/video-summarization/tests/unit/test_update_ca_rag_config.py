@@ -23,7 +23,6 @@ the aggregation LLM has context for generating accurate summaries via both
 """
 
 from threading import RLock
-from unittest.mock import MagicMock
 
 
 def _make_handler(config=None):
