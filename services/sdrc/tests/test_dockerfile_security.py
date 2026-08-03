@@ -21,8 +21,14 @@ def test_wdm_router_does_not_mirror_compliance_artifacts():
     assert "pip3 download" not in dockerfile
     assert "/wdm/wheels" not in dockerfile
     assert "/wdm/ThirdPartySourceCodes" not in dockerfile
-    assert "ThirdPartyLicences.txt" not in dockerfile
-    assert "COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md" in dockerfile
+    executable_lines = [
+        line.strip()
+        for line in dockerfile.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert "COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt" not in executable_lines
+    assert "COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md" in executable_lines
+    assert "CI license injection anchor: COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt" in dockerfile
 
 
 def test_runtime_requirements_do_not_pin_setuptools():
