@@ -37,10 +37,58 @@ metadata:
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
 | Two Foundations have an equally small capability delta | Ask the user to choose between those Foundations. |
 | Warehouse or another industry profile | Stop: this skill currently covers developer examples only. |
+| Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
+
+## Entry Mode (Step 0)
+
+Before routing, detect the **entry mode** — one of three: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (profile catalog, Foundation selection, delta composition, resolution, and deployment); the mode only determines where the flow enters. **Pre-built workflow** is a true fast path — it deploys a validated developer profile as-is in Stock mode with **no delta and no `_build`** — while **Custom build** is a guided front door onto Delta mode.
+
+### Step 0.0 — Entry-mode detection
+
+Classify the request before any other work:
+
+1. **A concrete capability, microservice, profile, or existing deployment is named** (e.g. "create a profile for streaming dense captioning", "add agentic search to my base deployment", "deploy the alerts profile") → **Prompt-driven**. Parse inputs and continue at Step 1.
+2. **An open / generic / first-time / "quickstart" intent with no extractable capability** (e.g. "build a vision agent", "add vision capabilities", "help me get started", "just deploy something"), or no capability description at all → open the **guided front door** (Q1 below), which leads with **Pre-built workflow (the recommended default)** and offers **Custom build**.
+3. **Ambiguous** → ask one disambiguating question, or default to the guided front door (it is safe, reversible, and explicit: the user makes selections before anything is generated or deployed). Never silently assume a capability or fall back to a default profile.
+
+### Guided front door — Q1
+
+Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until the user selects AND confirms downstream (the deploy prompt for Pre-built workflow; the Step 6 architecture diagram for Custom build).
+
+**Q1 — Starting point.** *"How would you like to start?"*
+
+- **Deploy a pre-built workflow** *(recommended for a first run / quickstart)* — a ready-made, validated VSS developer profile. Fastest path to a running system; no composition needed. Deploys as-is; you can customize it afterward.
+- **Build a custom configuration** — pick the specific vision capabilities you need and let the skill compose the smallest delta overlay for them.
+
+### Mode: Pre-built workflow (quickstart)
+
+The recommended first-run path. Deploys a validated upstream developer profile **as-is** via **Stock mode** — no delta, **no `_build`**, no invented flag, and no compose patching. Ask **Q2a (single-select): "Which pre-built workflow do you want to deploy?"** and map the choice to the developer profile:
+
+| Option | Capability | Profile |
+|---|---|---|
+| **Base** | Streaming + on-demand dense captioning | `base` |
+| **Alerts** | VLM real-time alerting on top of base | `alerts` |
+| **Video Summarization** | Time-windowed video summaries | `lvs` |
+| **Search** | Detection + embeddings + agentic search | `search` |
+
+These are **predefined developer profiles**, so the skill does **not** compute a delta and does **not** create a `_build`. It: (1) maps the selection to the profile above; (2) runs the applicable prerequisite / credential / NGC checks (`references/prerequisites.md`, `references/credentials.md`, `references/ngc.md`); (3) deploys the profile **as-is** in **Stock mode** (per the Routing table) against the unmodified `deploy/docker/` tree; (4) runs the profile's readiness checks (`references/readiness.md`) and reports; (5) **offers to customize**.
+
+**Customize a pre-built workflow → seed a Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** for a delta (the profile itself is never modified — it is only the baseline). This is the **only** way the pre-built mode produces a `_build`: the user must explicitly choose to customize.
+
+### Mode: Custom build (guided)
+
+For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Foundational services — video I/O + storage and message bus + indexing — are always included**; present them as informational, not as choices. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
+
+Rules for the multi-select:
+- **Offer only capabilities whose owner contracts exist** under `references/services/`; show pending capabilities disabled with a short "not yet available" note — do **not** silently offer a capability the skill cannot resolve.
+- **Require at least one capability** — the foundational services alone are not a vision agent.
+- Multiple selections compose in one deployment (e.g. captioning + alerting, or captioning + detection).
+
+After Q2b, the selected capabilities **are** the required-capability set. Select the closest current developer profile as the **Foundation**, compute the **smallest delta** (add or remove only canonical service-profile keys, change only requested knobs), and continue at Step 2. This is **Delta mode** (per the Routing table); `_builds/<name>/` is created here.
 
 ## Steps
 
-1. Parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks.
+1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow deploys a named profile as-is in Stock mode.
 2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all four current profiles and select exactly one Foundation; ask only when two are equally plausible. Read `references/edge.md` for DGX Spark or Thor.
 3. Before resolution or deployment, run the applicable checks from `references/prerequisites.md`, `references/credentials.md`, and `references/ngc.md`. Read the environment and Brev references when applicable.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
