@@ -10,18 +10,19 @@ def test_wdm_router_dockerfile_removes_setuptools_from_runtime():
     dockerfile = (REPO_ROOT / "envoy" / "Dockerfile.wdm-router").read_text(encoding="utf-8")
 
     assert "setuptools==78.1.1" in dockerfile
-    assert "setuptools>=78.1.1,<81" in dockerfile
     assert "setuptools==63.2.0" not in dockerfile
     assert "python3 -m pip uninstall -y setuptools wheel pip" in dockerfile
     assert "/root/.cache/uv" in dockerfile
 
 
-def test_wdm_router_downloads_protobuf_sdist_without_build_isolation():
+def test_wdm_router_does_not_mirror_compliance_artifacts():
     dockerfile = (REPO_ROOT / "envoy" / "Dockerfile.wdm-router").read_text(encoding="utf-8")
 
-    assert 'grep -v "^protobuf==" /wdm/requirements.txt' in dockerfile
-    assert "pip3 download protobuf==3.20.0" in dockerfile
-    assert "--no-build-isolation" in dockerfile
+    assert "pip3 download" not in dockerfile
+    assert "/wdm/wheels" not in dockerfile
+    assert "/wdm/ThirdPartySourceCodes" not in dockerfile
+    assert "ThirdPartyLicences.txt" not in dockerfile
+    assert "COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md" in dockerfile
 
 
 def test_runtime_requirements_do_not_pin_setuptools():

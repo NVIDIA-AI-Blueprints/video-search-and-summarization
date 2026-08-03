@@ -858,11 +858,10 @@ docker build -f envoy/Dockerfile.wdm-router -t wdm-router .
 **Build stages:**
 
 1. **`pybase`** — Ubuntu Jammy, Python 3.10, `uv`, PyInstaller
-2. Downloads all wheels and source tarballs for third-party license compliance (`/sdrc/wheels/`, `/sdrc/ThirdPartySourceCodes/`)
-3. Installs runtime dependencies via `uv sync --frozen`
-4. Builds `sdr` and `sdr-mw` PyInstaller binaries
-5. Installs Envoy from the official Envoy apt repository
-6. Installs Lua 5.2 / LuaJIT with `luasocket`, `redis-lua`, `lua-cjson` (used by Envoy Lua filter for Redis lookups at routing time)
+2. Installs runtime dependencies via `uv sync --frozen`
+3. Builds `sdr` and `sdr-mw` PyInstaller binaries
+4. Installs Envoy from the official Envoy apt repository
+5. Installs Lua 5.2 / LuaJIT with `luasocket`, `redis-lua`, `lua-cjson` (used by Envoy Lua filter for Redis lookups at routing time)
 
 **Exposed ports:**
 
