@@ -149,6 +149,10 @@ If you use the optional port-forward fallback instead, replace
 
 Add a stream:
 
+Note: replace the sample `camera_url` with a valid, reachable RTSP stream for
+your environment. If the RTSP stream is not working, RTVI-CV may accept the
+lifecycle request but you will not see FPS for that stream.
+
 ```bash
 curl --location --request POST "http://$NODE_IP:31001/api/v1/stream/add" \
   --header 'streamid: camera-001' \
@@ -187,6 +191,15 @@ A successful add/delete returns JSON with `status: ok`. Reprovision can return
 `status: deferred` when workload replicas are not ready; that means SDRC
 accepted the HTTP-header request and deferred reprovision until readiness is
 satisfied.
+
+## Verify In RTVI-CV
+
+After add or delete returns successfully, check RTVI-CV logs to confirm the
+workload received the stream lifecycle update:
+
+```bash
+kubectl logs -f statefulset/vss-rtvi-cv -n "$NAMESPACE" -c vss-rtvi-cv
+```
 
 ## Logs
 
