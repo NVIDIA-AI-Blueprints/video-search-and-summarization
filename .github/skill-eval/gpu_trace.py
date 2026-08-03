@@ -229,15 +229,20 @@ def _token(run_id: str, spec_stem: str, platform: str, step: int,
     def clean(s: str) -> str:
         return "".join(c if c.isalnum() or c in "-_" else "-" for c in str(s))
 
-    # The step suffix is appended AFTER truncation, never before. Truncating the
-    # joined string lets a long spec name push `-stepN` off the end, so step 1
-    # and step 2 collide and the second silently overwrites the first.
+    # BOTH discriminators are appended AFTER truncation, never before. Truncating
+    # a joined string lets a long spec name push the suffix off the end, so two
+    # invocations collide and the second silently overwrites the first.
     # `chain` is load-bearing: discover_invocations() supports several chains
     # per leg, and two chains sharing a step index produced the same token, so
     # the second silently overwrote the first. Verified: four remote calls, one
     # surviving file.
-    head = clean(f"{run_id}-{spec_stem}-{platform}-{chain}")[:100]
-    return f"{head}-step{clean(step)}"
+    # `chain` used to sit INSIDE the truncated head, which reintroduced exactly
+    # that collision for any spec_stem long enough to push it past 100 chars:
+    # `_token(r, "x"*100, p, 1, "chainA") == _token(r, "x"*100, p, 1, "chainB")`.
+    # Step was already fixed this way; chain was not.
+    head = clean(f"{run_id}-{spec_stem}-{platform}")[:100]
+    tail = f"-{clean(chain)}" if chain else ""
+    return f"{head}{tail}-step{clean(step)}"
 
 
 @contextlib.contextmanager
@@ -384,9 +389,23 @@ def _finish(
     # the directory. A reply where PID= validated and DIR= did not left a running
     # sampler that nothing would ever kill, reported as a benign non-start.
     if pid and not remote_dir:
-        _remote(instance, f"kill {pid} 2>/dev/null; true", attempts=1)
-        print(f"[gpu-trace] killed sampler {pid} on {instance} but have no trace path",
-              flush=True)
+        # Identity still has to be established here, and this branch cannot use
+        # the nonce because the nonce IS the directory that failed to validate.
+        # A bare `kill <number>` is the exact defect the guard below documents:
+        # the sampler can exit early, the OS reuses the pid, and cleanup then
+        # signals whatever inherited it. Verified there with an unrelated
+        # `sleep 60`; nothing about this branch makes that safer.
+        # The literal `vss-gputrace` prefix is in the sampler's argv (it owns
+        # the file via `-f "$d/trace.csv"`), so match on that: weaker than the
+        # exact nonce -- it cannot tell this leg's sampler from another's --
+        # but it is the difference between "some gputrace sampler" and "any
+        # process on the box". Both samplers are bounded by their own timeout,
+        # so the weaker match costs at most a slightly early stop.
+        _remote(instance,
+                f"ps -o args= -p {pid} 2>/dev/null | grep -qF vss-gputrace "
+                f"&& kill {pid} 2>/dev/null; true", attempts=1)
+        print(f"[gpu-trace] tried to stop sampler {pid} on {instance} "
+              f"but have no trace path", flush=True)
         return
     if not remote_dir or not remote_csv:
         print(f"[gpu-trace] no remote trace directory for {instance}", flush=True)
@@ -401,7 +420,10 @@ def _finish(
     # containers -- so a recycled pid that happens to be any nvidia-smi would be
     # killed, possibly one belonging to another leg. The nonce is in argv now
     # that the sampler uses `-f`, which makes this exact.
-    kill = (f"ps -o args= -p {pid} 2>/dev/null | grep -q {remote_dir} "
+    # -F, not a bare pattern: DIR_RE permits `.`, which is a BRE wildcard, so
+    # `grep -q /tmp/vss-gputrace.ABCD1234` also matches `/tmp/vss-gputraceXABCD1234`.
+    # A fixed-string match makes the nonce mean what it looks like it means.
+    kill = (f"ps -o args= -p {pid} 2>/dev/null | grep -qF -- {remote_dir} "
             f"&& kill {pid} 2>/dev/null; ") if pid else ""
     # `head -c` bounds the remote side; _read_capped bounds ours. Both are
     # needed: the remote cap cannot bound brev's own stdout.
