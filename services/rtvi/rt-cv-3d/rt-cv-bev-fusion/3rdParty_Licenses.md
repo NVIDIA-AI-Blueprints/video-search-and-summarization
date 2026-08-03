@@ -255,7 +255,7 @@ support library is itself covered by the above license.
 
 ---
 
-## redis:7.4.0
+## redis-py:7.4.0
 
 **License Type:** MIT
 
