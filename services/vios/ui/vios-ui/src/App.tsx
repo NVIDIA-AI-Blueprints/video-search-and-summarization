@@ -17,7 +17,6 @@
 import { HashRouter } from 'react-router-dom';
 import Router from './layout/routes/Routes';
 import { VstAdaptorWrapper } from './features/wrappers/AdaptorWrapper';
-import { NotificationsProvider } from '@toolpad/core/useNotifications';
 import React from 'react';
 import ErrorBoundary from './components/errorBoundary/ErrorBoundary';
 
@@ -25,11 +24,9 @@ function App() {
     return (
         <ErrorBoundary>
             <HashRouter>
-                <NotificationsProvider>
-                    <VstAdaptorWrapper>
-                        <Router />
-                    </VstAdaptorWrapper>
-                </NotificationsProvider>
+                <VstAdaptorWrapper>
+                    <Router />
+                </VstAdaptorWrapper>
             </HashRouter>
         </ErrorBoundary>
     );
