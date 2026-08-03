@@ -1,9 +1,11 @@
 # Data Directory Gate
 
-Run this gate for every stock or delta build after writing
-`_builds/<name>/override.env` and before `docker compose up`. Docker otherwise
-creates missing bind sources as `root:root`, and dangling symlinks left by an
-older deployment can make permission or mount setup fail unpredictably.
+Run this gate for every stock or delta build once `_builds/<name>/override.env`
+exists — a bring-up prerequisite, not a deploy step, so run it whether or not
+this run deploys. Any later `docker compose up`, this agent's or hand-run, needs
+it: Docker otherwise creates missing bind sources as `root:root`, and stale
+dangling symlinks break permission or mount setup. It only prepares the external
+`VSS_DATA_DIR`, never the repository tree.
 
 ## Check and create
 

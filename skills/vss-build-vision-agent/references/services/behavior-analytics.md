@@ -30,6 +30,8 @@
   embed filtering for search embeddings — leave the rest at zero. In particular,
   alerts that do not derive from this owner (see the Alerts owner) leave incident
   generation off.
+- A combined instance writes more than one Elasticsearch index family, so its
+  Kibana initializer must seed all of them — see `elk.md` (Kibana seeding).
 
 ## Configuration knobs
 
