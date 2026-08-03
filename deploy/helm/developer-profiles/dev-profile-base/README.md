@@ -232,6 +232,42 @@ helm upgrade --install vss-base ./dev-profile-base \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
 ```
 
+### Managed images (`global.container_prefix` / `global.container_tag`)
+
+Override the shared agent / UI / alert / analytics image channel with umbrella
+globals:
+
+| Helm value | Purpose |
+|---|---|
+| `global.container_prefix` | Registry prefix (e.g. `nvcr.io/nvstaging/vss-core`) |
+| `global.container_tag` | Shared image tag (e.g. `nightly-20260725`) |
+
+Example — pull a promoted NGC staging drop:
+
+```bash
+helm upgrade --install vss-base ./dev-profile-base \
+  -f dev-profile-base/values-base.yaml \
+  -n vss-base --create-namespace \
+  --set global.container_prefix=nvcr.io/nvstaging/vss-core \
+  --set global.container_tag=nightly-20260725
+```
+
+Or from env vars:
+
+```bash
+export VSS_CONTAINER_REGISTRY=nvcr.io/nvstaging/vss-core
+export VSS_CONTAINER_TAG=nightly-20260725
+
+helm upgrade --install vss-base ./dev-profile-base \
+  -f dev-profile-base/values-base.yaml \
+  -n vss-base --create-namespace \
+  --set "global.container_prefix=${VSS_CONTAINER_REGISTRY}" \
+  --set "global.container_tag=${VSS_CONTAINER_TAG}"
+```
+
+Leave both empty to keep each subchart default
+(`ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`).
+
 ## Exposing the stack
 
 **Note:** After install or upgrade, wait until **all** pods in your namespace are **Ready** before using the application in the browser. The LLM NIM and RT-VLM model may need extra time for image pull, model download, and warm-up. Opening **vss-agent-ui** while these backends are still starting can produce transient errors. Check **`kubectl get pods -n <NAMESPACE>`** (or **`kubectl get pods -n <NAMESPACE> -w`**) until every workload shows **`Running`** and **`READY`** matches the expected column.

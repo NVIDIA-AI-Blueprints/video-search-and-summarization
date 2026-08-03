@@ -22,6 +22,10 @@ global:
     - name: ngc-docker-reg-secret
   storageClass: ''
   useReleaseNamePrefix: false
+  # Shared managed-image channel (Compose: VSS_CONTAINER_REGISTRY / VSS_CONTAINER_TAG).
+  # Overrides agent/UI/alert/va-mcp/analytics image prefix+tag when set.
+  container_prefix: ""
+  container_tag: ""
   ingress:
     enabled: true
     mainHost: ''

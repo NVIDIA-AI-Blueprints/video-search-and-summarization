@@ -6,6 +6,10 @@ global:
     - name: ngc-docker-reg-secret
   storageClass: ""
   useReleaseNamePrefix: false
+  # Shared managed-image channel (Compose: VSS_CONTAINER_REGISTRY / VSS_CONTAINER_TAG).
+  # When set, retargets analytics (video-analytics-api / behavior-analytics) images.
+  container_prefix: ""
+  container_tag: ""
   # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
   vios:
     useSdrc: true

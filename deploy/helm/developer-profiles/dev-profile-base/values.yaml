@@ -38,6 +38,15 @@ global:
   # When true, all subcharts default to <release>-<chart> naming again.
   # Per-subchart <subchart>.useReleaseNamePrefix overrides this value.
   useReleaseNamePrefix: false
+  # Shared managed-image channel (Compose: VSS_CONTAINER_REGISTRY / VSS_CONTAINER_TAG).
+  # When set, overrides repository prefix + tag for agent, UI, alert-ms, va-mcp,
+  # video-analytics-api, and behavior-analytics (ghcr_build images). Leave empty
+  # to keep each subchart's default (ghcr.io/nvidia-ai-blueprints/vss:<develop-latest>).
+  # Example NGC staging drop:
+  #   --set global.container_prefix=nvcr.io/nvstaging/vss-core \
+  #   --set global.container_tag=nightly-20260725
+  container_prefix: ""
+  container_tag: ""
   # Optional: must match vss-vios-postgres Service / *-postgres-cm name when vss-vios-postgres.fullnameOverride is set (sensor & streamprocessing cannot read that subchart's values).
   postgresServiceHost: ""
   imagePullSecrets:
