@@ -24,6 +24,7 @@ import torch
 
 import models.vllm_compatible.vllm_compatible_model as vllm_compatible_model
 from common.service_exception import ServiceException
+from models.base_vlm_model import VlmGenerationConfig
 from models.vllm_compatible.vllm_compatible_model import VllmCompatible
 
 
@@ -77,6 +78,20 @@ async def _run_process_async_vllm(model):
     )
 
 
+def test_qwen3vl_chat_template_disables_thinking_by_default():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+
+    assert model._get_apply_chat_template_kwargs(VlmGenerationConfig()) == {
+        "enable_thinking": False
+    }
+    assert model._get_apply_chat_template_kwargs(
+        VlmGenerationConfig(enable_reasoning=True)
+    ) == {
+        "enable_thinking": True
+    }
+
+
 @pytest.mark.parametrize(
     "vllm_error",
     [
@@ -108,20 +123,6 @@ def test_unrelated_value_error_still_propagates(monkeypatch):
     assert model._inflight_req_ids == []
 
 
-def test_qwen3vl_nvfp4_uses_side_installed_vllm_017():
-    model_config = {"quantization_config": {"format": "nvfp4-pack-quantized"}}
-
-    assert vllm_compatible_model._requires_vllm017("Qwen3VLForConditionalGeneration", model_config)
-
-
-def test_qwen3vl_fp8_uses_default_side_installed_vllm():
-    model_config = {"quantization_config": {"format": "float-quantized"}}
-
-    assert not vllm_compatible_model._requires_vllm017(
-        "Qwen3VLForConditionalGeneration", model_config
-    )
-
-
 def test_optional_int_env_returns_none_when_unset(monkeypatch):
     monkeypatch.delenv("VLLM_KV_CACHE_MEMORY_BYTES", raising=False)
 
@@ -148,6 +149,111 @@ def test_optional_int_env_rejects_negative_values(monkeypatch):
 
     with pytest.raises(ValueError, match="greater than or equal to 0"):
         vllm_compatible_model._parse_optional_int_env("VLLM_KV_CACHE_MEMORY_BYTES")
+
+
+def test_rtvi_vllm_env_sanitizer_moves_compatibility_aliases(monkeypatch):
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+
+    monkeypatch.setenv("VLLM_GPU_MEMORY_UTILIZATION", "0.6")
+    monkeypatch.setenv("VLLM_MAX_NUM_BATCHED_TOKENS", "8192")
+    monkeypatch.setenv("VLLM_NUM_PREPROCESS_WORKERS", "16")
+    monkeypatch.setenv("VLLM_ROOT", "/custom/vllm")
+    monkeypatch.setenv("VLLM_USE_AOT_COMPILE", "0")
+
+    vllm_compatible_model._sanitize_rtvi_vllm_env()
+
+    assert "VLLM_GPU_MEMORY_UTILIZATION" not in vllm_compatible_model.os.environ
+    assert "VLLM_MAX_NUM_BATCHED_TOKENS" not in vllm_compatible_model.os.environ
+    assert "VLLM_NUM_PREPROCESS_WORKERS" not in vllm_compatible_model.os.environ
+    assert "VLLM_ROOT" not in vllm_compatible_model.os.environ
+    assert vllm_compatible_model.os.environ["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.6"
+    assert vllm_compatible_model.os.environ["RTVI_VLLM_MAX_NUM_BATCHED_TOKENS"] == "8192"
+    assert vllm_compatible_model.os.environ["RTVI_VLLM_NUM_PREPROCESS_WORKERS"] == "16"
+    assert vllm_compatible_model.os.environ["RTVI_VLLM_ROOT"] == "/custom/vllm"
+    assert vllm_compatible_model.os.environ["VLLM_USE_AOT_COMPILE"] == "0"
+
+
+def test_rtvi_vllm_env_sanitizer_preserves_internal_override(monkeypatch):
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+
+    monkeypatch.setenv("VLLM_ENFORCE_EAGER", "true")
+    monkeypatch.setenv("RTVI_VLLM_ENFORCE_EAGER", "false")
+
+    vllm_compatible_model._sanitize_rtvi_vllm_env()
+
+    assert "VLLM_ENFORCE_EAGER" not in vllm_compatible_model.os.environ
+    assert vllm_compatible_model._parse_bool_env("VLLM_ENFORCE_EAGER", default=True) is False
+
+
+def test_rtvi_vllm_env_sanitizer_unsets_blank_import_env(monkeypatch):
+    monkeypatch.setenv("VLLM_CONFIGURE_LOGGING", "")
+    monkeypatch.setenv("VLLM_LOGGING_LEVEL", "")
+
+    vllm_compatible_model._sanitize_rtvi_vllm_env()
+
+    assert "VLLM_CONFIGURE_LOGGING" not in vllm_compatible_model.os.environ
+    assert "VLLM_LOGGING_LEVEL" not in vllm_compatible_model.os.environ
+
+
+def test_rtvi_vllm_env_sanitizer_preserves_explicit_import_env(monkeypatch):
+    monkeypatch.setenv("VLLM_CONFIGURE_LOGGING", "0")
+    monkeypatch.setenv("VLLM_LOGGING_LEVEL", "debug")
+
+    vllm_compatible_model._sanitize_rtvi_vllm_env()
+
+    assert vllm_compatible_model.os.environ["VLLM_CONFIGURE_LOGGING"] == "0"
+    assert vllm_compatible_model.os.environ["VLLM_LOGGING_LEVEL"] == "debug"
+
+
+def test_kv_cache_dtype_override_is_forwarded_when_supported(monkeypatch):
+    monkeypatch.setenv("VLLM_KV_CACHE_DTYPE", "auto")
+    engine_args = {}
+
+    applied = vllm_compatible_model._apply_kv_cache_dtype_override(
+        engine_args,
+        {"kv_cache_dtype"},
+    )
+
+    assert applied is True
+    assert engine_args["kv_cache_dtype"] == "auto"
+
+
+def test_attention_backend_override_is_forwarded_when_supported(monkeypatch):
+    monkeypatch.setenv("VLLM_ATTENTION_BACKEND", "TRITON_ATTN")
+    engine_args = {}
+
+    applied = vllm_compatible_model._apply_attention_backend_override(
+        engine_args,
+        {"attention_backend"},
+    )
+
+    assert applied is True
+    assert engine_args["attention_backend"] == "TRITON_ATTN"
+
+
+def test_num_preprocess_workers_defaults_to_parallel_video_value(monkeypatch):
+    monkeypatch.delenv("VLLM_NUM_PREPROCESS_WORKERS", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_NUM_PREPROCESS_WORKERS", raising=False)
+
+    assert vllm_compatible_model._get_num_preprocess_workers() == 16
+
+
+def test_num_preprocess_workers_uses_rtvi_alias(monkeypatch):
+    monkeypatch.setenv("VLLM_NUM_PREPROCESS_WORKERS", "8")
+    monkeypatch.setenv("RTVI_VLLM_NUM_PREPROCESS_WORKERS", "12")
+
+    assert vllm_compatible_model._get_num_preprocess_workers() == 12
+
+
+def test_num_preprocess_workers_rejects_non_positive_values(monkeypatch):
+    monkeypatch.setenv("VLLM_NUM_PREPROCESS_WORKERS", "0")
+
+    with pytest.raises(ValueError, match="VLLM_NUM_PREPROCESS_WORKERS"):
+        vllm_compatible_model._get_num_preprocess_workers()
 
 
 def test_video_tensor_is_converted_to_numpy_before_vllm_processor():
@@ -365,3 +471,63 @@ def test_cosmos3_vllm_plugin_entry_point_is_discoverable():
         ep.name == "register_cosmos3" and ep.value == "vllm_cosmos3:register"
         for ep in general_plugins
     )
+
+
+# --- EVS session sampling kwargs (VLLM_IGNORE_EOS propagation) -----------------
+
+
+def test_evs_sampling_kwargs_passes_max_tokens_and_defaults(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(100, {})
+
+    assert kwargs["max_tokens"] == 100
+    assert kwargs["temperature"] == 0.4
+    assert kwargs["top_p"] == 0.8
+    assert kwargs["top_k"] == 20
+    assert kwargs["repetition_penalty"] == 1.1
+    assert kwargs["seed"] == 1
+
+
+def test_evs_sampling_kwargs_omits_ignore_eos_by_default(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(100, {})
+
+    assert "ignore_eos" not in kwargs
+
+
+def test_evs_sampling_kwargs_sets_ignore_eos_from_env(monkeypatch):
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.setenv("VLLM_IGNORE_EOS", "true")
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(100, {})
+
+    assert kwargs["ignore_eos"] is True
+
+
+def test_evs_sampling_kwargs_sets_ignore_eos_from_config(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(100, SimpleNamespace(ignore_eos=True))
+
+    assert kwargs["ignore_eos"] is True
+
+
+def test_evs_sampling_kwargs_forwards_min_tokens_from_config(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(100, SimpleNamespace(min_tokens=8))
+
+    assert kwargs["min_tokens"] == 8
+
+
+def test_evs_sampling_kwargs_omits_min_tokens_when_unset(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(100, {})
+
+    assert "min_tokens" not in kwargs

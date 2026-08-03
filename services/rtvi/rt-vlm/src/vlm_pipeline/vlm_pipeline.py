@@ -37,13 +37,14 @@ from api_models.embeddings import TextEmbeddingsQuery
 from common.chunk_info import ChunkInfo
 from common.health_status import HealthStatus
 from common.logger import LOG_STATUS_LEVEL, logger
+from common.service_exception import ServiceException
 from models.base_vlm_model import VlmGenerationConfig, VlmModelOutput
 from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
 
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
 from .ngc_model_downloader import download_model, download_model_git
-from .process_base import ProcessBase
+from .process_base import ProcessBase, _move_cuda_frames_to_cpu, _safe_cuda_empty_cache
 
 # Built-in model class paths
 BUILTIN_MODEL_CLASSES = {
@@ -231,6 +232,7 @@ class DecoderProcess(ProcessBase):
         from .video_file_frame_getter import DefaultFrameSelector, VideoFileFrameGetter
 
         self._live_stream_handle_info: dict[str, dict] = {}
+        self._live_stream_handle_info_lock = Lock()
 
         self._nfrms = self._num_frames_per_second_or_fixed_frames_chunk
         self._image_mean = None
@@ -500,18 +502,93 @@ class DecoderProcess(ProcessBase):
     def _handle_command(self, command, **kwargs):
         logger.debug(f"command is {command}")
         if command == "start-live-stream":
+            asset = kwargs["asset"]
+            live_stream_id = asset.asset_id
+            request_id = kwargs.get("request_id") or live_stream_id
             logger.debug("start-live-stream")
+            with self._live_stream_handle_info_lock:
+                if live_stream_id in self._live_stream_handle_info:
+                    self._live_stream_handle_info[live_stream_id].setdefault("subscribers", {})[
+                        request_id
+                    ] = kwargs.get("request_params")
+                    return "already-running"
+                self._live_stream_handle_info[live_stream_id] = {
+                    "frame_getter": None,
+                    "num_chunks": 0,
+                    "subscribers": {request_id: kwargs.get("request_params")},
+                    "stop_requested": False,
+                }
             self._thread_pool.submit(self._live_stream, **kwargs)
             logger.debug("start-live-stream")
+            return "started"
+        if command == "add-live-stream-subscriber":
+            live_stream_id = kwargs["live_stream_id"]
+            request_id = kwargs.get("request_id") or live_stream_id
+            with self._live_stream_handle_info_lock:
+                if live_stream_id not in self._live_stream_handle_info:
+                    logger.error(
+                        "Live stream %s not found for subscriber %s",
+                        live_stream_id,
+                        request_id,
+                    )
+                    return False
+                handle_info = self._live_stream_handle_info[live_stream_id]
+                handle_info.setdefault("subscribers", {})[request_id] = kwargs.get("request_params")
+                num_chunks = handle_info.get("num_chunks", 0)
+            logger.debug("Added live stream subscriber %s for %s", request_id, live_stream_id)
+            return {"added": True, "num_chunks": num_chunks}
+        if command == "remove-live-stream-subscriber":
+            live_stream_id = kwargs["live_stream_id"]
+            request_id = kwargs.get("request_id") or live_stream_id
+            fgetter = None
+            with self._live_stream_handle_info_lock:
+                handle_info = self._live_stream_handle_info.get(live_stream_id)
+                if not handle_info:
+                    logger.debug(
+                        "Live stream %s not found while removing subscriber %s",
+                        live_stream_id,
+                        request_id,
+                    )
+                    return False
+                subscribers = handle_info.setdefault("subscribers", {})
+                if subscribers.pop(request_id, None) is None:
+                    logger.debug(
+                        "Live stream subscriber %s for %s was already absent",
+                        request_id,
+                        live_stream_id,
+                    )
+                    return False
+                remaining = len(subscribers)
+                if remaining == 0:
+                    fgetter = handle_info.get("frame_getter")
+                    if fgetter is None:
+                        handle_info["stop_requested"] = True
+            if fgetter is not None:
+                self._thread_pool.submit(fgetter.stop_stream)
+            logger.debug(
+                "Removed live stream subscriber %s for %s; remaining=%d",
+                request_id,
+                live_stream_id,
+                remaining,
+            )
+            return {"removed": True, "remaining": remaining}
         if command == "stop-live-stream":
             live_stream_id = kwargs["live_stream_id"]
             logger.debug(f"Stop live stream - {live_stream_id} checking")
-            if live_stream_id in self._live_stream_handle_info:
+            with self._live_stream_handle_info_lock:
+                handle_info = self._live_stream_handle_info.get(live_stream_id)
+                if handle_info:
+                    fgetter = handle_info.get("frame_getter")
+                    if fgetter is None:
+                        handle_info["stop_requested"] = True
+                else:
+                    fgetter = None
+            if fgetter is not None:
                 logger.debug(f"Stop live stream - {live_stream_id} found")
-                fgetter = self._live_stream_handle_info[live_stream_id]["frame_getter"]
                 self._thread_pool.submit(fgetter.stop_stream)
             else:
                 logger.error(f"Stop live stream - {live_stream_id} not found")
+            return None
 
     def _live_stream(
         self,
@@ -559,7 +636,40 @@ class DecoderProcess(ProcessBase):
             audio_support=self._enable_audio,
         )
 
-        self._live_stream_handle_info[asset.asset_id] = {"frame_getter": fgetter, "num_chunks": 0}
+        with self._live_stream_handle_info_lock:
+            handle_info = self._live_stream_handle_info.setdefault(
+                asset.asset_id,
+                {
+                    "frame_getter": None,
+                    "num_chunks": 0,
+                    "subscribers": {},
+                    "stop_requested": False,
+                },
+            )
+            handle_info["frame_getter"] = fgetter
+            request_id = kwargs.get("request_id") or asset.asset_id
+            handle_info.setdefault("subscribers", {}).setdefault(
+                request_id,
+                kwargs.get("request_params"),
+            )
+            stop_requested = handle_info.get("stop_requested", False)
+
+        if stop_requested:
+            self._thread_pool.submit(fgetter.stop_stream)
+
+        passthrough_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key not in ("chunk_id", "request_id", "request_params")
+        }
+
+        def _copy_live_chunk(chunk_: ChunkInfo, live_stream_id_: str) -> ChunkInfo:
+            if hasattr(chunk_, "model_copy"):
+                chunk_copy = chunk_.model_copy(deep=True)
+            else:
+                chunk_copy = chunk_.copy(deep=True)
+            chunk_copy.streamId = live_stream_id_
+            return chunk_copy
 
         def on_chunk_decoded(
             chunk: ChunkInfo,
@@ -574,7 +684,6 @@ class DecoderProcess(ProcessBase):
             **kwargs,
         ):
             frame_times = [float("%.2f" % frame_ele) for frame_ele in frame_times]
-            chunk.streamId = live_stream_id
 
             asr_output = ""
             for asr_transcript in transcripts:
@@ -590,44 +699,67 @@ class DecoderProcess(ProcessBase):
                     LOG_STATUS_LEVEL, "Decoded new chunk (%s), frames=%d", chunk, len(frames)
                 )
 
-            if len(frames) >= self._minframes:
-                self._handle_result(
-                    {
-                        "chunk": chunk,
-                        "frames": frames,
-                        "frame_times": frame_times,
-                        "request_id": kwargs.get("request_id", ""),
-                        "chunk_id": chunk.chunkIdx,
-                        "enqueue_time": decode_start_time,
-                        "audio_frames": audio_frames or [],
-                        "audio_transcript": transcript,
-                        "error": error_msg,
-                        "is_live_stream": True,
-                        "decode_start_time": decode_start_time,
-                        "decode_end_time": decode_end_time,
-                        **kwargs,
-                    },
-                    chunk=chunk,
-                    **kwargs,
-                )
-                self._live_stream_handle_info[live_stream_id]["num_chunks"] += 1
-            elif error_msg:
-                self._final_output_queue.put(
-                    {
-                        "chunk": chunk,
-                        "request_id": kwargs.get("request_id", ""),
-                        "chunk_id": chunk.chunkIdx,
-                        "error": error_msg,
-                        "error_status_code": (
-                            CUDA_OOM_STATUS_CODE if is_cuda_oom_error(error_msg) else 500
-                        ),
-                        "is_live_stream": True,
-                        "decode_start_time": decode_start_time,
-                        "decode_end_time": decode_end_time,
-                        **kwargs,
-                    }
-                )
-                self._live_stream_handle_info[live_stream_id]["num_chunks"] += 1
+            will_emit_result = bool(error_msg) or len(frames) >= self._minframes
+            with self._live_stream_handle_info_lock:
+                handle_info = self._live_stream_handle_info.get(live_stream_id)
+                subscribers = dict(handle_info.get("subscribers", {})) if handle_info else {}
+                if subscribers and will_emit_result and handle_info is not None:
+                    handle_info["num_chunks"] = handle_info.get("num_chunks", 0) + 1
+
+            if not subscribers:
+                logger.debug("No subscribers registered for live stream %s", live_stream_id)
+                return
+
+            if len(frames) >= self._minframes and not error_msg:
+                try:
+                    frames_for_vlm = _move_cuda_frames_to_cpu(frames)
+                except Exception as ex:
+                    error_msg = f"Failed to transfer decoded frames from GPU to CPU: {ex}"
+                    logger.error(
+                        "Failed to prepare decoded live frames for stream %s: %s",
+                        live_stream_id,
+                        ex,
+                        exc_info=True,
+                    )
+                    _safe_cuda_empty_cache(force=True)
+                else:
+                    for request_id, request_params in subscribers.items():
+                        self._output_queue.put(
+                            {
+                                "chunk": _copy_live_chunk(chunk, live_stream_id),
+                                "frames": frames_for_vlm,
+                                "frame_times": frame_times,
+                                "request_params": request_params,
+                                "request_id": request_id,
+                                "chunk_id": f"{chunk.chunkIdx}:{request_id}",
+                                "enqueue_time": decode_start_time,
+                                "audio_frames": audio_frames or [],
+                                "audio_transcript": transcript,
+                                "error": None,
+                                "is_live_stream": True,
+                                "decode_start_time": decode_start_time,
+                                "decode_end_time": decode_end_time,
+                                **passthrough_kwargs,
+                            }
+                        )
+                    return
+
+            if error_msg:
+                error_status_code = CUDA_OOM_STATUS_CODE if is_cuda_oom_error(error_msg) else 500
+                for request_id in subscribers:
+                    self._final_output_queue.put(
+                        {
+                            "chunk": _copy_live_chunk(chunk, live_stream_id),
+                            "request_id": request_id,
+                            "chunk_id": f"{chunk.chunkIdx}:{request_id}",
+                            "error": error_msg,
+                            "error_status_code": error_status_code,
+                            "is_live_stream": True,
+                            "decode_start_time": decode_start_time,
+                            "decode_end_time": decode_end_time,
+                            **passthrough_kwargs,
+                        }
+                    )
 
         def on_stream_error(error_message: str, stream_id: str, attempt_count: int):
             """Callback to send stream errors to output queue for Kafka logging."""
@@ -674,14 +806,19 @@ class DecoderProcess(ProcessBase):
         fgetter.destroy_pipeline()
         logger.debug(f"Pipeline for live stream torn down: {asset.asset_id}")
 
+        with self._live_stream_handle_info_lock:
+            handle_info = self._live_stream_handle_info.get(asset.asset_id, {})
+            total_chunks = handle_info.get("num_chunks", 0)
+
         self._final_output_queue.put(
             {
                 "live_stream_ended": True,
                 "live_stream_id": asset.asset_id,
-                "total_chunks": self._live_stream_handle_info[asset.asset_id]["num_chunks"],
+                "total_chunks": total_chunks,
             }
         )
-        self._live_stream_handle_info.pop(asset.asset_id)
+        with self._live_stream_handle_info_lock:
+            self._live_stream_handle_info.pop(asset.asset_id, None)
 
     def _deinitialize(self):
         for fgetter in self._fgetters:
@@ -756,6 +893,12 @@ class VlmProcess(ProcessBase):
 
         return True
 
+    def _handle_command(self, command, **kwargs):
+        if command == "close-evs-session":
+            if hasattr(self._model, "_close_evs_session"):
+                self._model._close_evs_session(kwargs["stream_id"])
+            return None
+
     def _deinitialize(self):
         self._model = None
 
@@ -763,6 +906,8 @@ class VlmProcess(ProcessBase):
         return True
 
     def _can_batch(self, item1, item2):
+        if item1.get("is_live_stream", False) or item2.get("is_live_stream", False):
+            return False
         if hasattr(self._model, "can_batch"):
             return self._model.can_batch(item1, item2)
         else:
@@ -1277,13 +1422,37 @@ def check_peer_access():
 class VlmPipeline:
     """VLM Pipeline"""
 
+    @dataclass
+    class _LiveStreamSubscriber:
+        on_chunk_result: Callable[[PipelineChunkResult], None] | None = None
+        start_chunk_count: int = 0
+        num_chunks_processed: int = 0
+        all_chunks_processed: bool = False
+
+    @dataclass
     class _LiveStreamInfo:
-        num_chunks_processed = 0
-        on_chunk_result: Callable[[PipelineChunkResult], None] = None
-        end_of_stream = False
-        total_chunks_at_eos = 0
-        all_chunks_processed = False
-        gpu_id = -1
+        subscribers: dict[str, "VlmPipeline._LiveStreamSubscriber"] = field(default_factory=dict)
+        end_of_stream: bool = False
+        total_chunks_at_eos: int = 0
+        all_chunks_processed: bool = False
+        gpu_id: int = -1
+        decode_signature: tuple = field(default_factory=tuple)
+
+        # Kept as instance fields because tests and live-context features attach
+        # rolling-caption state here.
+        context_window_size: int = 0
+        caption_history: object | None = None
+        context_summarize: bool = False
+        _summarize_in_progress: bool = False
+        current_summary: str | None = None
+        summarize_frequency: int = 0
+
+    @staticmethod
+    def _subscriber_expected_chunks_at_eos(
+        subscriber: "VlmPipeline._LiveStreamSubscriber",
+        total_chunks_at_eos: int,
+    ) -> int:
+        return max(total_chunks_at_eos - subscriber.start_chunk_count, 0)
 
     def __init__(self, asset_dir, args) -> None:
         """Initialize the VLM pipeline"""
@@ -1313,6 +1482,7 @@ class VlmPipeline:
         self._chunk_counter = 0
         self._chunk_callback_map: dict[int, Callable[[PipelineChunkResult], None]] = {}
         self._live_stream_id_map: dict[str, VlmPipeline._LiveStreamInfo] = {}
+        self._live_stream_lock = Lock()
 
         self._enqueue_lock = Lock()
 
@@ -1507,13 +1677,17 @@ class VlmPipeline:
             if item.get("stream_error", False):
                 # Handle stream reconnection errors - send to callback for Kafka logging
                 stream_id = item.get("stream_id", "")
-                if stream_id in self._live_stream_id_map:
-                    lsinfo = self._live_stream_id_map[stream_id]
+                with self._live_stream_lock:
+                    lsinfo = self._live_stream_id_map.get(stream_id)
+                    subscribers = list(lsinfo.subscribers.values()) if lsinfo else []
+                if subscribers:
                     chunk_result = PipelineChunkResult()
                     chunk_result.is_stream_error = True
                     chunk_result.stream_error_message = item.get("error_message", "")
                     chunk_result.stream_error_attempt_count = item.get("attempt_count", 0)
-                    lsinfo.on_chunk_result(chunk_result)
+                    for subscriber in subscribers:
+                        if subscriber.on_chunk_result:
+                            subscriber.on_chunk_result(chunk_result)
                 continue
 
             if item.get("live_stream_ended", False):
@@ -1523,17 +1697,46 @@ class VlmPipeline:
                 # must be ignored rather than crash the watcher with KeyError.
                 # Mirrors the guards used on stream-error (above) and chunk
                 # results (below).
-                if live_stream_id not in self._live_stream_id_map:
-                    continue
-                lsinfo = self._live_stream_id_map[live_stream_id]
-                lsinfo.end_of_stream = True
-                lsinfo.total_chunks_at_eos = item["total_chunks"]
+                eos_callbacks = []
+                close_sessions = False
+                with self._live_stream_lock:
+                    lsinfo = self._live_stream_id_map.get(live_stream_id)
+                    if not lsinfo:
+                        continue
+                    lsinfo.end_of_stream = True
+                    lsinfo.total_chunks_at_eos = item["total_chunks"]
 
-                if lsinfo.num_chunks_processed >= lsinfo.total_chunks_at_eos:
+                    for subscriber in lsinfo.subscribers.values():
+                        if (
+                            not subscriber.all_chunks_processed
+                            and subscriber.num_chunks_processed
+                            >= self._subscriber_expected_chunks_at_eos(
+                                subscriber,
+                                lsinfo.total_chunks_at_eos,
+                            )
+                        ):
+                            subscriber.all_chunks_processed = True
+                            if subscriber.on_chunk_result:
+                                eos_callbacks.append(subscriber.on_chunk_result)
+
+                    if lsinfo.subscribers and all(
+                        subscriber.all_chunks_processed
+                        for subscriber in lsinfo.subscribers.values()
+                    ):
+                        lsinfo.all_chunks_processed = True
+                        close_sessions = True
+
+                if eos_callbacks:
                     chunk_result = PipelineChunkResult()
                     chunk_result.is_live_stream_ended = True
-                    lsinfo.on_chunk_result(chunk_result)
-                    lsinfo.all_chunks_processed = True
+                    for callback in eos_callbacks:
+                        callback(chunk_result)
+                if close_sessions:
+                    Thread(
+                        target=self.close_evs_sessions,
+                        args=(live_stream_id,),
+                        daemon=True,
+                    ).start()
                 continue
 
             chunk_result = PipelineChunkResult()
@@ -1578,22 +1781,84 @@ class VlmPipeline:
                         "Detected high load on the system. This may result in higher response"
                         " times. Try reducing number of streams or increasing the chunk size"
                     )
-                if chunk_result.chunk.streamId in self._live_stream_id_map:
-                    lsinfo = self._live_stream_id_map[chunk_result.chunk.streamId]
-                    lsinfo.on_chunk_result(chunk_result)
-                    lsinfo.num_chunks_processed += 1
-                    if (
-                        lsinfo.end_of_stream
-                        and lsinfo.num_chunks_processed >= lsinfo.total_chunks_at_eos
+                stream_id = chunk_result.chunk.streamId
+                request_id = item.get("request_id") or ""
+                result_callbacks = []
+                eos_callbacks = []
+                close_sessions = False
+
+                with self._live_stream_lock:
+                    lsinfo = self._live_stream_id_map.get(stream_id)
+                    if not lsinfo:
+                        continue
+                    if request_id:
+                        subscriber = lsinfo.subscribers.get(request_id)
+                        if not subscriber:
+                            logger.debug(
+                                "Live stream result for %s had unknown request_id %s",
+                                stream_id,
+                                request_id,
+                            )
+                            continue
+                        target_subscribers = [subscriber]
+                    else:
+                        target_subscribers = list(lsinfo.subscribers.values())
+                        if len(target_subscribers) > 1:
+                            logger.warning(
+                                "Live stream result for %s had no request_id; "
+                                "broadcasting to %d subscribers",
+                                stream_id,
+                                len(target_subscribers),
+                            )
+
+                    for subscriber in target_subscribers:
+                        subscriber.num_chunks_processed += 1
+                        if subscriber.on_chunk_result:
+                            result_callbacks.append(subscriber.on_chunk_result)
+                        if (
+                            lsinfo.end_of_stream
+                            and not subscriber.all_chunks_processed
+                            and subscriber.num_chunks_processed
+                            >= self._subscriber_expected_chunks_at_eos(
+                                subscriber,
+                                lsinfo.total_chunks_at_eos,
+                            )
+                        ):
+                            subscriber.all_chunks_processed = True
+                            if subscriber.on_chunk_result:
+                                eos_callbacks.append(subscriber.on_chunk_result)
+
+                    if lsinfo.subscribers and all(
+                        subscriber.all_chunks_processed
+                        for subscriber in lsinfo.subscribers.values()
                     ):
-                        chunk_result = PipelineChunkResult()
-                        chunk_result.is_live_stream_ended = True
-                        lsinfo.on_chunk_result(chunk_result)
                         lsinfo.all_chunks_processed = True
+                        close_sessions = True
+
+                for callback in result_callbacks:
+                    callback(chunk_result)
+                if eos_callbacks:
+                    live_stream_ended = PipelineChunkResult()
+                    live_stream_ended.is_live_stream_ended = True
+                    for callback in eos_callbacks:
+                        callback(live_stream_ended)
+                if close_sessions:
+                    Thread(
+                        target=self.close_evs_sessions,
+                        args=(stream_id,),
+                        daemon=True,
+                    ).start()
                 continue
             callback = self._chunk_callback_map.pop(item["chunk_id"], None)
             if callback:
                 callback(chunk_result)
+
+    def close_evs_sessions(self, stream_id: str):
+        for proc in self._vlm_procs:
+            try:
+                proc.send_command("close-evs-session", stream_id=stream_id)
+            except Exception:
+                logger.debug("Failed to close EVS session for stream %s", stream_id, exc_info=True)
 
     def abort_chunks(self, stream_id: str):
         for proc in self._decoder_procs + self._vlm_procs + self._asr_procs:
@@ -1764,11 +2029,22 @@ class VlmPipeline:
                 is_live_stream=False,
             )
 
+    def _live_stream_decode_signature(self, vlm_query: VlmQuery) -> tuple:
+        return (
+            int(vlm_query.chunk_duration or 0),
+            float(vlm_query.num_frames_per_second_or_fixed_frames_chunk or 0),
+            bool(vlm_query.use_fps_for_chunking or False),
+            int(vlm_query.vlm_input_width or 0),
+            int(vlm_query.vlm_input_height or 0),
+            bool(vlm_query.enable_audio or False),
+        )
+
     def add_live_stream(
         self,
         asset: Asset,
         vlm_query: VlmQuery,
         on_chunk_result: Callable[[PipelineChunkResult], None],
+        request_id: str = "",
     ):
         """Add a live stream for processing.
 
@@ -1778,24 +2054,121 @@ class VlmPipeline:
                 (including chunk_duration settings)
             on_chunk_result: Callback function for chunk results
         """
-        gpu_dec_use_cnt = {i: 0 for i in range(self._args.num_gpus)}
-        for info in self._live_stream_id_map.values():
-            gpu_dec_use_cnt[info.gpu_id] += 1
-        least_used_gpu = min(gpu_dec_use_cnt, key=gpu_dec_use_cnt.get)
-
-        self._live_stream_id_map[asset.asset_id] = self._LiveStreamInfo()
-        self._live_stream_id_map[asset.asset_id].gpu_id = least_used_gpu
-        self._live_stream_id_map[asset.asset_id].on_chunk_result = on_chunk_result
-
-        # Build request params from vlm_query
+        request_id = request_id or asset.asset_id
         request_params = VlmRequestParams.from_vlm_query(vlm_query)
+        decode_signature = self._live_stream_decode_signature(vlm_query)
+        should_start_decoder = False
 
-        self._decoder_procs[least_used_gpu].send_command(
-            "start-live-stream",
-            asset=asset,
-            vlm_query=vlm_query,
-            request_params=request_params,
+        with self._live_stream_lock:
+            lsinfo = self._live_stream_id_map.get(asset.asset_id)
+            if lsinfo:
+                if lsinfo.decode_signature != decode_signature:
+                    raise ServiceException(
+                        "Live stream already has caption request(s) with different "
+                        "decode settings. Stop the active request(s) before changing "
+                        "chunk duration, frame sampling, input size, or audio settings.",
+                        "BadParameters",
+                        400,
+                    )
+                subscriber = self._LiveStreamSubscriber(on_chunk_result)
+                lsinfo.subscribers[request_id] = subscriber
+                gpu_id = lsinfo.gpu_id
+            else:
+                gpu_dec_use_cnt = {i: 0 for i in range(self._args.num_gpus)}
+                for info in self._live_stream_id_map.values():
+                    gpu_dec_use_cnt[info.gpu_id] += 1
+                gpu_id = min(gpu_dec_use_cnt, key=gpu_dec_use_cnt.get)
+                lsinfo = self._LiveStreamInfo(
+                    subscribers={
+                        request_id: self._LiveStreamSubscriber(on_chunk_result),
+                    },
+                    gpu_id=gpu_id,
+                    decode_signature=decode_signature,
+                )
+                self._live_stream_id_map[asset.asset_id] = lsinfo
+                should_start_decoder = True
+
+            try:
+                if should_start_decoder:
+                    self._decoder_procs[gpu_id].send_command(
+                        "start-live-stream",
+                        asset=asset,
+                        vlm_query=vlm_query,
+                        request_params=request_params,
+                        request_id=request_id,
+                    )
+                else:
+                    added = self._decoder_procs[gpu_id].send_command(
+                        "add-live-stream-subscriber",
+                        live_stream_id=asset.asset_id,
+                        request_id=request_id,
+                        request_params=request_params,
+                    )
+                    if added is False:
+                        raise ServiceException(
+                            f"Live stream {asset.asset_id} is not active in the decoder",
+                            "StreamNotActive",
+                            409,
+                        )
+                    if isinstance(added, dict):
+                        subscriber.start_chunk_count = int(added.get("num_chunks", 0))
+            except Exception:
+                current = self._live_stream_id_map.get(asset.asset_id)
+                if current:
+                    current.subscribers.pop(request_id, None)
+                    if should_start_decoder or not current.subscribers:
+                        self._live_stream_id_map.pop(asset.asset_id, None)
+                raise
+
+    def remove_live_stream_subscriber(self, live_stream_id: str, request_id: str) -> bool:
+        """Remove one subscriber from a shared live stream.
+
+        Returns True when the stream still has remaining subscribers after the
+        removal. Returns False when the stream/request was already absent or no
+        subscribers remain.
+        """
+        live_stream_lock = getattr(self, "_live_stream_lock", None)
+        request_id = str(request_id)
+        if live_stream_lock:
+            with live_stream_lock:
+                lsinfo = self._live_stream_id_map.get(live_stream_id)
+                if not lsinfo:
+                    return False
+                if lsinfo.subscribers.pop(request_id, None) is None:
+                    return False
+                gpu_id = lsinfo.gpu_id
+                remaining = bool(lsinfo.subscribers)
+                if not remaining:
+                    lsinfo.all_chunks_processed = True
+        else:
+            lsinfo = self._live_stream_id_map.get(live_stream_id)
+            if not lsinfo:
+                return False
+            if lsinfo.subscribers.pop(request_id, None) is None:
+                return False
+            gpu_id = lsinfo.gpu_id
+            remaining = bool(lsinfo.subscribers)
+            if not remaining:
+                lsinfo.all_chunks_processed = True
+
+        self._decoder_procs[gpu_id].send_command(
+            "remove-live-stream-subscriber",
+            live_stream_id=live_stream_id,
+            request_id=request_id,
         )
+
+        if not remaining:
+            if live_stream_lock:
+                with live_stream_lock:
+                    current = self._live_stream_id_map.get(live_stream_id)
+                    if current is lsinfo and not current.subscribers:
+                        self._live_stream_id_map.pop(live_stream_id, None)
+            else:
+                current = self._live_stream_id_map.get(live_stream_id)
+                if current is lsinfo and not current.subscribers:
+                    self._live_stream_id_map.pop(live_stream_id, None)
+
+        return remaining
 
     def remove_live_stream(
         self, live_stream_id: str, timeout_sec: Optional[float] = None
@@ -1807,9 +2180,14 @@ class VlmPipeline:
         record per-stream drain latency without racing on shared state —
         critical under parallel batch delete.
         """
-        if live_stream_id not in self._live_stream_id_map:
+        live_stream_lock = getattr(self, "_live_stream_lock", None)
+        if live_stream_lock:
+            with live_stream_lock:
+                lsinfo = self._live_stream_id_map.get(live_stream_id)
+        else:
+            lsinfo = self._live_stream_id_map.get(live_stream_id)
+        if not lsinfo:
             return None
-        lsinfo = self._live_stream_id_map[live_stream_id]
 
         if timeout_sec is None:
             timeout_sec = float(os.environ.get("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "30"))
@@ -1842,11 +2220,14 @@ class VlmPipeline:
             )
             lsinfo.all_chunks_processed = True
 
-        try:
-            self._live_stream_id_map.pop(live_stream_id)
-        except KeyError as e:
+        if live_stream_lock:
+            with live_stream_lock:
+                removed = self._live_stream_id_map.pop(live_stream_id, None)
+        else:
+            removed = self._live_stream_id_map.pop(live_stream_id, None)
+        if removed is None:
             # can happen if multiple stream delete requests are happening in parallel
-            logger.info(f"{e}: live stream already removed from map;")
+            logger.info("%s: live stream already removed from map;", live_stream_id)
 
         for proc in self._vlm_procs:
             proc.send_command("stop-drop-chunks", stream_id=live_stream_id)

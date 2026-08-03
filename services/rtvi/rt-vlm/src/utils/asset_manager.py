@@ -24,7 +24,7 @@ import socket
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from threading import Thread
+from threading import RLock, Thread
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -32,6 +32,7 @@ import aiofiles
 import aiofiles.os
 import boto3
 from aiofiles import tempfile
+from opentelemetry import metrics
 
 from api_models.common import (
     AWS_S3_OBJECT_URL_PATTERN,
@@ -74,6 +75,55 @@ def _parse_max_download_file_size_bytes() -> int:
 
 # Maximum file size for URL/data URI ingestion.
 MAX_DOWNLOAD_FILE_SIZE = _parse_max_download_file_size_bytes()
+
+
+class _AssetDownloadMetrics:
+    """OpenTelemetry instruments for remote asset downloads."""
+
+    def __init__(self) -> None:
+        meter = metrics.get_meter_provider().get_meter("rtvi-asset-manager")
+        self.duration = meter.create_histogram(
+            name="asset_download_duration_seconds",
+            description="Remote asset download latency in seconds",
+            unit="s",
+        )
+        self.bytes = meter.create_counter(
+            name="asset_download_bytes_total",
+            description="Number of bytes downloaded from remote asset sources",
+            unit="By",
+        )
+        self.requests = meter.create_counter(
+            name="asset_download_requests_total",
+            description="Number of remote asset download attempts",
+            unit="1",
+        )
+
+
+class _AssetDownloadTracker:
+    """Collect one download's measurements and emit them exactly once."""
+
+    def __init__(self, instruments: _AssetDownloadMetrics, source: str) -> None:
+        self._instruments = instruments
+        self._source = source
+        self._start_time = time.perf_counter()
+        self._bytes = 0
+        self._finished = False
+
+    def add_bytes(self, value: int) -> None:
+        self._bytes += value
+
+    def finish(self, status: str) -> None:
+        if self._finished:
+            return
+        self._finished = True
+        attributes = {"source": self._source, "status": status}
+        try:
+            self._instruments.duration.record(time.perf_counter() - self._start_time, attributes)
+            self._instruments.bytes.add(self._bytes, attributes)
+            self._instruments.requests.add(1, attributes)
+        except Exception as e:
+            # Metrics must never change download behavior.
+            logger.debug("Failed to record asset download metrics: %s", e)
 
 
 def validate_url_ssrf_runtime(url: str) -> None:
@@ -470,6 +520,7 @@ class AssetManager:
         self._asset_dir = asset_dir
         self._max_storage_usage_gb = max_storage_usage_gb
         self._asset_removal_callback = asset_removal_callback
+        self._download_metrics = _AssetDownloadMetrics()
 
         try:
             os.makedirs(self._asset_dir, exist_ok=True)
@@ -478,6 +529,9 @@ class AssetManager:
 
         self._asset_map: dict[str, Asset] = {}
         self._camera_id_map: dict[str, str] = {}  # camera_id -> asset_id
+        self._asset_id_reservations: set[str] = set()
+        self._camera_id_reservations: dict[str, str] = {}
+        self._asset_lock = RLock()
 
         self._aged_out_assets = []
 
@@ -491,6 +545,60 @@ class AssetManager:
         if self._max_storage_usage_gb or self._max_asset_age_hours:
             self._age_out_thread = Thread(target=self._age_out_thread_func, daemon=True)
             self._age_out_thread.start()
+
+    def _reserve_asset_slot(
+        self,
+        requested_asset_id: Optional[str],
+        camera_id: Optional[str],
+        camera_subject: str,
+        duplicate_asset_code: str = "DuplicateAssetId",
+    ) -> str:
+        """Reserve an asset id and camera_id before any slow asset ingestion work."""
+        with self._asset_lock:
+            if requested_asset_id:
+                asset_id = str(requested_asset_id)
+                if asset_id in self._asset_map or asset_id in self._asset_id_reservations:
+                    raise ServiceException(
+                        f"Asset with id '{asset_id}' already exists",
+                        duplicate_asset_code,
+                        409,
+                    )
+            else:
+                asset_id = str(uuid.uuid4())
+                while asset_id in self._asset_map or asset_id in self._asset_id_reservations:
+                    asset_id = str(uuid.uuid4())
+
+            if camera_id:
+                existing_asset_id = self._camera_id_map.get(camera_id)
+                if camera_id in self._camera_id_reservations or (
+                    existing_asset_id and existing_asset_id in self._asset_map
+                ):
+                    raise ServiceException(
+                        f"{camera_subject} with camera_id '{camera_id}' already exists",
+                        "DuplicateCameraId",
+                        409,
+                    )
+                if existing_asset_id:
+                    self._camera_id_map.pop(camera_id, None)
+                self._camera_id_reservations[camera_id] = asset_id
+
+            self._asset_id_reservations.add(asset_id)
+            return asset_id
+
+    def _release_asset_slot(self, asset_id: str, camera_id: Optional[str]) -> None:
+        with self._asset_lock:
+            self._asset_id_reservations.discard(asset_id)
+            if camera_id and self._camera_id_reservations.get(camera_id) == asset_id:
+                self._camera_id_reservations.pop(camera_id, None)
+
+    def _publish_asset(self, asset: Asset) -> None:
+        with self._asset_lock:
+            self._asset_map[asset.asset_id] = asset
+            self._asset_id_reservations.discard(asset.asset_id)
+            if asset.camera_id:
+                self._camera_id_map[asset.camera_id] = asset.asset_id
+                self._camera_id_reservations.pop(asset.camera_id, None)
+            self._storage_usage_cache = None
 
     def _get_bucket_and_object_key_from_url(self, url: str):
         """Get the bucket and object key from a URL.
@@ -520,7 +628,41 @@ class AssetManager:
         purpose: str,
         media_type: str,
         creation_time: Optional[str],
-        file_id: str,
+        file_id: Optional[str],
+        sensor_name: str = "",
+        camera_id: Optional[str] = None,
+    ):
+        """Download an S3 asset and record its transfer metrics."""
+        tracker = _AssetDownloadTracker(self._download_metrics, "s3")
+        try:
+            asset_id = await self._download_file_from_s3(
+                url,
+                file_name,
+                purpose,
+                media_type,
+                creation_time,
+                file_id,
+                tracker,
+                sensor_name,
+                camera_id,
+            )
+            tracker.finish("success")
+            return asset_id
+        except BaseException:
+            tracker.finish("failure")
+            raise
+
+    async def _download_file_from_s3(
+        self,
+        url: str,
+        file_name: str,
+        purpose: str,
+        media_type: str,
+        creation_time: Optional[str],
+        file_id: Optional[str],
+        download_tracker: _AssetDownloadTracker,
+        sensor_name: str = "",
+        camera_id: Optional[str] = None,
     ):
         """Download a file from a URL and save it as a file.
         Args:
@@ -528,7 +670,11 @@ class AssetManager:
             file_name: Name of the file.
             purpose: Purpose of the file.
             media_type: Media type (video/image) of the file.
+            creation_time: ISO 8601 creation time for frame time offsets.
             file_id: File ID to be used for the file.
+            sensor_name: User-defined sensor name. Defaults to empty string.
+            camera_id: External camera identifier for CV-compatible lookups.
+                Defaults to None.
         Returns:
             A unique id for the asset.
         """
@@ -631,6 +777,7 @@ class AssetManager:
                     break
                 await temp_file.write(chunk)
                 bytes_written += len(chunk)
+                download_tracker.add_bytes(len(chunk))
                 chunk_count += 1
             logger.info(f"Downloaded file from S3 - url: {url} bytes: {bytes_written}")
 
@@ -639,7 +786,15 @@ class AssetManager:
             await temp_file.seek(0)
 
             asset_id = await self.save_file(
-                temp_file, temp_file_name, purpose, media_type, creation_time, file_id, url, ""
+                temp_file,
+                temp_file_name,
+                purpose,
+                media_type,
+                creation_time,
+                file_id,
+                url,
+                sensor_name,
+                camera_id,
             )
             logger.info(f"Saved file to temporary file - asset_id: {asset_id}")
 
@@ -652,8 +807,47 @@ class AssetManager:
         purpose: str,
         media_type: str,
         creation_time: Optional[str],
-        file_id: str,
+        file_id: Optional[str],
         url_headers: Optional[dict] = None,
+        sensor_name: str = "",
+        camera_id: Optional[str] = None,
+    ):
+        """Download an HTTP(S) asset and record its transfer metrics."""
+        source = urlparse(url).scheme.lower()
+        if source not in ("http", "https"):
+            source = "unknown"
+        tracker = _AssetDownloadTracker(self._download_metrics, source)
+        try:
+            asset_id = await self._download_file(
+                url,
+                file_name,
+                purpose,
+                media_type,
+                creation_time,
+                file_id,
+                tracker,
+                url_headers,
+                sensor_name,
+                camera_id,
+            )
+            tracker.finish("success")
+            return asset_id
+        except BaseException:
+            tracker.finish("failure")
+            raise
+
+    async def _download_file(
+        self,
+        url: str,
+        file_name: str,
+        purpose: str,
+        media_type: str,
+        creation_time: Optional[str],
+        file_id: Optional[str],
+        download_tracker: _AssetDownloadTracker,
+        url_headers: Optional[dict] = None,
+        sensor_name: str = "",
+        camera_id: Optional[str] = None,
     ):
         """Download a file from a URL and save it as a file.
         Args:
@@ -667,6 +861,9 @@ class AssetManager:
                 (e.g., Authorization). Filtered through an allowlist and
                 only sent to the original host over HTTPS. Overrides
                 ASSET_DOWNLOAD_AUTH_TOKENS for this request.
+            sensor_name: User-defined sensor name. Defaults to empty string.
+            camera_id: External camera identifier for CV-compatible lookups.
+                Defaults to None.
         Returns:
             A unique id for the asset.
         """
@@ -895,6 +1092,7 @@ class AssetManager:
                                 413,
                             )
                         await temp_file.write(chunk)
+                        download_tracker.add_bytes(len(chunk))
 
                 logger.info(
                     "Downloaded file from URL - url: %s bytes: %d",
@@ -917,7 +1115,15 @@ class AssetManager:
                 temp_file_name = file_name
 
             asset_id = await self.save_file(
-                temp_file, temp_file_name, purpose, media_type, creation_time, file_id, url, ""
+                temp_file,
+                temp_file_name,
+                purpose,
+                media_type,
+                creation_time,
+                file_id,
+                url,
+                sensor_name,
+                camera_id,
             )
             logger.info(f"Saved file to temporary file - asset_id: {asset_id}")
 
@@ -933,6 +1139,7 @@ class AssetManager:
         file_id: Optional[str] = None,
         url: Optional[str] = None,
         sensor_name: str = "",
+        camera_id: Optional[str] = None,
     ):
         """Save the uploaded as a file.
 
@@ -945,87 +1152,83 @@ class AssetManager:
             file_id: UUID of the file. If not provided, a new ID will be generated.
             url: URL of the file if downloaded from URL.
             sensor_name: User-defined sensor name. Defaults to empty string.
+            camera_id: External camera identifier for CV-compatible lookups.
+                Defaults to None.
         Returns:
             A unique id for the asset.
         """
-
-        if file_id:
-            asset_id = str(file_id)
-        else:
-            # Generate a unique id for the asset.
-            asset_id = str(uuid.uuid4())
-            while asset_id in self._asset_map:
-                asset_id = str(uuid.uuid4())
+        asset_id = self._reserve_asset_slot(file_id, camera_id, "Asset")
 
         asset_dir = os.path.join(self._asset_dir, asset_id)
 
         try:
-            await aiofiles.os.makedirs(asset_dir)
-        except FileExistsError as err:
-            raise ServiceException(
-                f"Asset directory already exists: {asset_dir}", "BadParameter", 400
-            ) from err
-        except Exception as err:
-            raise ServiceException("Could not create directory for asset") from err
+            try:
+                await aiofiles.os.makedirs(asset_dir)
+            except FileExistsError as err:
+                raise ServiceException(
+                    f"Asset directory already exists: {asset_dir}", "BadParameter", 400
+                ) from err
+            except Exception as err:
+                raise ServiceException("Could not create directory for asset") from err
 
-        current_storage_size = await self._get_storage_usage()
-        current_file_size = 0
+            current_storage_size = await self._get_storage_usage()
+            current_file_size = 0
 
-        # Write the uploaded file to assets directory
-        async with aiofiles.open(os.path.join(asset_dir, file_name), "wb") as f:
-            while chunk := await file.read(1024 * 1024 * 10):
-                current_file_size += len(chunk)
+            # Write the uploaded file to assets directory
+            async with aiofiles.open(os.path.join(asset_dir, file_name), "wb") as f:
+                while chunk := await file.read(1024 * 1024 * 10):
+                    current_file_size += len(chunk)
 
-                # Check if writing the current chunk will cross threshold
-                if self._max_storage_usage_gb and (
-                    current_storage_size + current_file_size / (1024.0**3)
-                    > AGE_OUT_THRESHOLD * self._max_storage_usage_gb
-                ):
-                    # Try to clean assets
-                    await self._age_out_assets()
-                    current_storage_size = await self._get_storage_usage()
-                    current_file_size = 0
+                    # Check if writing the current chunk will cross threshold
+                    if self._max_storage_usage_gb and (
+                        current_storage_size + current_file_size / (1024.0**3)
+                        > AGE_OUT_THRESHOLD * self._max_storage_usage_gb
+                    ):
+                        # Try to clean assets
+                        await self._age_out_assets()
+                        current_storage_size = await self._get_storage_usage()
+                        current_file_size = 0
 
-                # Check if writing the current chunk will cross max size
-                if self._max_storage_usage_gb and (
-                    current_storage_size + current_file_size / (1024.0**3)
-                    > self._max_storage_usage_gb
-                ):
-                    await f.close()
-                    try:
-                        loop = asyncio.get_event_loop()
-                        await loop.run_in_executor(None, shutil.rmtree, asset_dir)
-                    except Exception:
-                        pass
-                    raise ServiceException(
-                        "Asset storage full. Could not remove existing older assets"
-                        " because they are in use",
-                        "ServerBusy",
-                        503,
-                    )
-                await f.write(chunk)
+                    # Check if writing the current chunk will cross max size
+                    if self._max_storage_usage_gb and (
+                        current_storage_size + current_file_size / (1024.0**3)
+                        > self._max_storage_usage_gb
+                    ):
+                        await f.close()
+                        try:
+                            loop = asyncio.get_event_loop()
+                            await loop.run_in_executor(None, shutil.rmtree, asset_dir)
+                        except Exception:
+                            pass
+                        raise ServiceException(
+                            "Asset storage full. Could not remove existing older assets"
+                            " because they are in use",
+                            "ServerBusy",
+                            503,
+                        )
+                    await f.write(chunk)
 
-        asset = Asset(
-            asset_id=asset_id,
-            path=os.path.join(asset_dir, file_name),
-            fileName=file_name,
-            purpose=purpose,
-            media_type=media_type,
-            asset_dir=asset_dir,
-            username="",
-            password="",
-            description="",
-            video_fps=None,
-            creation_time=creation_time,
-            url=url,
-            sensor_name=sensor_name,
-        )
+            asset = Asset(
+                asset_id=asset_id,
+                path=os.path.join(asset_dir, file_name),
+                fileName=file_name,
+                purpose=purpose,
+                media_type=media_type,
+                asset_dir=asset_dir,
+                username="",
+                password="",
+                description="",
+                video_fps=None,
+                creation_time=creation_time,
+                url=url,
+                sensor_name=sensor_name,
+                camera_id=camera_id,
+            )
 
-        # add an entry in the asset map
-        self._asset_map[asset_id] = asset
-
-        # Invalidate storage cache since we added a file
-        self._storage_usage_cache = None
+            self._publish_asset(asset)
+        except BaseException:
+            self._release_asset_slot(asset_id, camera_id)
+            raise
 
         logger.info(f"[AssetManager] Saved file - asset-id: {asset_id} name: {file_name}")
 
@@ -1170,6 +1373,7 @@ class AssetManager:
         creation_time=None,
         file_id: Optional[str] = None,
         sensor_name: str = "",
+        camera_id: Optional[str] = None,
     ):
         """Add a file already on the file system as a path.
 
@@ -1181,44 +1385,45 @@ class AssetManager:
             creation_time: Creation time of the file.
             file_id: UUID of the file. If not provided, a new ID will be generated.
             sensor_name: User-defined sensor name. Defaults to empty string.
+            camera_id: External camera identifier for CV-compatible lookups.
+                Defaults to None.
         Returns:
             A unique id for the asset.
         """
         if not os.path.isfile(file_path):
             raise ServiceException(f"{file_path} is not a valid file", "InvalidParameters", 400)
 
-        if reuse_asset:
-            asset = self._get_asset_id_for_file(file_path)
-            if asset:
-                logger.info(f"Reusing asset id {asset.asset_id} for {file_path}")
-                return asset.asset_id
+        asset_id = self._reserve_asset_slot(file_id, camera_id, "Asset")
 
-        if file_id:
-            asset_id = str(file_id)
-        else:
-            # Generate a unique id for the asset.
-            asset_id = str(uuid.uuid4())
-            while asset_id in self._asset_map:
-                asset_id = str(uuid.uuid4())
+        try:
+            if reuse_asset:
+                asset = self._get_asset_id_for_file(file_path)
+                if asset:
+                    logger.info(f"Reusing asset id {asset.asset_id} for {file_path}")
+                    self._release_asset_slot(asset_id, camera_id)
+                    return asset.asset_id
 
-        # No directory needed for add_file since file already exists at file_path
-        asset = Asset(
-            asset_id=asset_id,
-            path=file_path,
-            fileName=os.path.basename(file_path),
-            purpose=purpose,
-            media_type=media_type,
-            asset_dir="",  # No asset directory for existing files
-            username="",
-            password="",
-            description="",
-            video_fps=None,
-            creation_time=creation_time,
-            sensor_name=sensor_name,
-        )
+            # No directory needed for add_file since file already exists at file_path
+            asset = Asset(
+                asset_id=asset_id,
+                path=file_path,
+                fileName=os.path.basename(file_path),
+                purpose=purpose,
+                media_type=media_type,
+                asset_dir="",  # No asset directory for existing files
+                username="",
+                password="",
+                description="",
+                video_fps=None,
+                creation_time=creation_time,
+                sensor_name=sensor_name,
+                camera_id=camera_id,
+            )
 
-        # add an entry in the asset map
-        self._asset_map[asset_id] = asset
+            self._publish_asset(asset)
+        except BaseException:
+            self._release_asset_slot(asset_id, camera_id)
+            raise
         logger.info(
             f"[AssetManager] Added file from path - asset-id: {asset_id} original path: {file_path}"
         )
@@ -1262,62 +1467,41 @@ class AssetManager:
         Returns:
             A unique id for the asset.
         """
-        if camera_id:
-            existing_asset_id = self._camera_id_map.get(camera_id)
-            if existing_asset_id and existing_asset_id in self._asset_map:
-                raise ServiceException(
-                    f"Live stream with camera_id '{camera_id}' already exists",
-                    "DuplicateCameraId",
-                    409,
-                )
-            if existing_asset_id:
-                # Defensive cleanup for stale camera_id mappings left by an
-                # interrupted or legacy cleanup path.
-                self._camera_id_map.pop(camera_id, None)
-
-        if stream_id:
-            asset_id = str(stream_id)
-            if asset_id in self._asset_map:
-                raise ServiceException(
-                    f"Live stream with stream_id '{asset_id}' already exists",
-                    "DuplicateStreamId",
-                    409,
-                )
-        else:
-            # Generate a unique id for the asset.
-            asset_id = str(uuid.uuid4())
-            while asset_id in self._asset_map:
-                asset_id = str(uuid.uuid4())
-
-        # No directory needed for live streams since there's no file to store
-        asset = Asset(
-            asset_id=asset_id,
-            path=url,
-            fileName=url,
-            purpose="",
-            media_type="",
-            asset_dir="",  # No asset directory for live streams
-            username=username,
-            password=password,
-            description=description,
-            video_fps=None,
-            place_name=place_name,
-            place_type=place_type,
-            place_lat=place_lat,
-            place_lon=place_lon,
-            place_alt=place_alt,
-            place_coordinate_x=place_coordinate_x,
-            place_coordinate_y=place_coordinate_y,
-            sensor_name=sensor_name,
-            camera_id=camera_id,
+        asset_id = self._reserve_asset_slot(
+            stream_id,
+            camera_id,
+            "Live stream",
+            duplicate_asset_code="DuplicateStreamId",
         )
 
-        # add an entry in the asset map
-        self._asset_map[asset_id] = asset
+        try:
+            # No directory needed for live streams since there's no file to store
+            asset = Asset(
+                asset_id=asset_id,
+                path=url,
+                fileName=url,
+                purpose="",
+                media_type="",
+                asset_dir="",  # No asset directory for live streams
+                username=username,
+                password=password,
+                description=description,
+                video_fps=None,
+                place_name=place_name,
+                place_type=place_type,
+                place_lat=place_lat,
+                place_lon=place_lon,
+                place_alt=place_alt,
+                place_coordinate_x=place_coordinate_x,
+                place_coordinate_y=place_coordinate_y,
+                sensor_name=sensor_name,
+                camera_id=camera_id,
+            )
 
-        # Track camera_id -> asset_id mapping for CV-compatible lookups
-        if camera_id:
-            self._camera_id_map[camera_id] = asset_id
+            self._publish_asset(asset)
+        except BaseException:
+            self._release_asset_slot(asset_id, camera_id)
+            raise
 
         logger.info(f"[AssetManager] Added live stream - asset-id: {asset_id} URL: {url}")
         return asset_id
@@ -1334,20 +1518,21 @@ class AssetManager:
                 caller only pays the cost of in-memory bookkeeping. When
                 ``None``, rmtree runs inline (preserves legacy behavior).
         """
-        if asset_id in self._aged_out_assets:
-            raise ServiceException(f"{asset_id} already deleted", "BadParameter", 400)
+        with self._asset_lock:
+            if asset_id in self._aged_out_assets:
+                raise ServiceException(f"{asset_id} already deleted", "BadParameter", 400)
 
-        if asset_id not in self._asset_map:
-            raise ServiceException(f"No such resource {asset_id}", "BadParameter", 400)
+            if asset_id not in self._asset_map:
+                raise ServiceException(f"No such resource {asset_id}", "BadParameter", 400)
 
-        # Do not allow asset to be removed if it is in use.
-        if self._asset_map[asset_id].use_count > 0:
-            raise ServiceException(
-                f"Resource {asset_id} is currently being used", "ResourceInUse", 409
-            )
+            # Do not allow asset to be removed if it is in use.
+            if self._asset_map[asset_id].use_count > 0:
+                raise ServiceException(
+                    f"Resource {asset_id} is currently being used", "ResourceInUse", 409
+                )
 
-        # Remove asset directory if it exists (only save_file creates directories now)
-        asset = self._asset_map[asset_id]
+            # Remove asset directory if it exists (only save_file creates directories now)
+            asset = self._asset_map[asset_id]
         asset_dir = asset.asset_dir if asset.asset_dir else None
 
         def _do_rmtree(path: str, aid: str) -> None:
@@ -1364,17 +1549,15 @@ class AssetManager:
             else:
                 _do_rmtree(asset_dir, asset_id)
 
-        # Clean up camera_id mapping if present
-        if asset.camera_id and asset.camera_id in self._camera_id_map:
-            del self._camera_id_map[asset.camera_id]
+        with self._asset_lock:
+            # Clean up camera_id mapping if present
+            if asset.camera_id and self._camera_id_map.get(asset.camera_id) == asset_id:
+                del self._camera_id_map[asset.camera_id]
 
-        # Defensive: two concurrent cleanup_asset calls for the same asset_id
-        # would race on the pop. AssetManager has no per-asset lock, so accept
-        # that the second caller sees the slot already gone.
-        self._asset_map.pop(asset_id, None)
+            self._asset_map.pop(asset_id, None)
 
-        # Invalidate storage cache since we freed space
-        self._storage_usage_cache = None
+            # Invalidate storage cache since we freed space
+            self._storage_usage_cache = None
 
         logger.info(f"Removed asset {asset_id} and cleaned up associated resources")
 
@@ -1387,7 +1570,8 @@ class AssetManager:
         Returns:
             The asset_id if found, or None if no asset has the given camera_id.
         """
-        return self._camera_id_map.get(camera_id)
+        with self._asset_lock:
+            return self._camera_id_map.get(camera_id)
 
     def _get_existing_asset_ids(self):
         entries = os.listdir(self._asset_dir)
