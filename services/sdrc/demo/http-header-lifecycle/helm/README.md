@@ -21,7 +21,7 @@ HTTP methods are defined in `helm/configs/sdrc/config.yml`; this example uses
 - Kubernetes cluster with GPU nodes and NVIDIA device plugin.
 - `helm` v3 and `kubectl` configured for the target cluster.
 - Access to the SDRC and RTVI-CV images configured by the reused charts. The
-  default SDRC image in `values.yaml` is `localhost:5000/sdr-mw-l:local`;
+  default SDRC image in `values.yaml` is `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10`;
   override it if your cluster pulls from another registry.
 - Warehouse app data for RTVI-CV. The easiest fresh install path is to let the
   chart download the NGC warehouse data bundle after you create the NGC secrets.
@@ -72,7 +72,7 @@ helm upgrade --install "$RELEASE" "$CHART_DIR" \
   --set-string rtvi.vss-rtvi-cv.ngcAppDataResourceVersion=<vss-warehouse-app-data-resource>
 ```
 
-If your SDRC image is not available as `localhost:5000/sdr-mw-l:local`, add
+If your SDRC image is not available as `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10`, add
 image overrides to the install command:
 
 ```bash

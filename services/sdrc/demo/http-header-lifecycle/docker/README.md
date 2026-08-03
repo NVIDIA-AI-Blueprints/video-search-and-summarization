@@ -31,7 +31,7 @@ export VSS_APPS_DIR="$REPO_ROOT/deploy/docker"
 export VSS_DATA_DIR=/path/to/vss-warehouse-app-data
 export HOST_IP=127.0.0.1
 export HARDWARE_PROFILE=dGPU
-export SDR_MW_L_IMAGE=sdr-mw-l:local
+export SDR_MW_L_IMAGE=nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10
 ```
 
 Optional host-port overrides, useful when a local service already uses one of
