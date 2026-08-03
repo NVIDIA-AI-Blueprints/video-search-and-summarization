@@ -16,7 +16,6 @@
  */
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { splitVendorChunkPlugin } from 'vite'
 import { compression } from 'vite-plugin-compression2'
 import { visualizer } from 'rollup-plugin-visualizer'
 
@@ -27,7 +26,6 @@ const isCompress = process.env.COMPRESS === 'true';
 export default defineConfig({
   plugins: [
     react(),
-    splitVendorChunkPlugin(),
     ...(isCompress ? [
       compression({
         algorithm: 'gzip',
