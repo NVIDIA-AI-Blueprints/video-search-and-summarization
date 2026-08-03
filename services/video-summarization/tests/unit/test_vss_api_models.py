@@ -58,6 +58,35 @@ class TestMediaInfoOffsetValidation:
         assert m.start_offset is None
         assert m.end_offset is None
 
+    def test_for_response_omits_equal_placeholder(self):
+        m = MediaInfoOffset.for_response(0, 0)
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+    def test_for_response_omits_missing_bounds(self):
+        m = MediaInfoOffset.for_response()
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+    def test_for_response_keeps_valid_range(self):
+        m = MediaInfoOffset.for_response(0, 60)
+        assert m.start_offset == 0
+        assert m.end_offset == 60
+
+    def test_for_response_omits_iso_timestamps(self):
+        m = MediaInfoOffset.for_response(
+            "2026-04-30T10:39:20.934Z",
+            "2026-04-30T10:45:00.000Z",
+        )
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+    def test_for_response_coerces_none_like_or_zero(self):
+        m = MediaInfoOffset.for_response(None, None)
+        assert m.type == "offset"
+        assert m.start_offset is None
+        assert m.end_offset is None
+
 
 # ---------------------------------------------------------------------------
 # SummarizationQuery — min_tokens > max_tokens rejection
