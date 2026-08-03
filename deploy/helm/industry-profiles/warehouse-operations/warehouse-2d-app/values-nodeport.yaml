@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# values-nodeport.yaml
+# Exposes the UIs on node ports instead of the HAProxy Ingress. No ingress
+# controller required.
+#
+#   helm install wh ./warehouse-2d-app -n <namespace> \
+#     -f warehouse-2d-app/values-nodeport.yaml
+#
+# Then, with <NODE_IP> being any cluster node:
+#   VST         http://<NODE_IP>:30888/vst/
+#   NVStreamer  http://<NODE_IP>:30900/
+#   Kibana      http://<NODE_IP>:31560/
+#   Grafana     http://<NODE_IP>:30300/
+#   Prometheus  http://<NODE_IP>:30909/
+#
+# Ports sit in the default 30000-32767 NodePort range.
+
+global:
+  vssIngress:
+    enabled: false
+
+vssIngress:
+  enabled: false
+
+vios:
+  vss-vios-ingress:
+    service:
+      type: NodePort
+      nodePort: 30888
+  vss-vios-nvstreamer:
+    service:
+      type: NodePort
+      nodePort: 30900
+
+infra:
+  kibana:
+    # Served from the root of its own node port, so no path prefix.
+    basePath: ""
+    service:
+      type: NodePort
+      nodePort: 31560
+
+monitoring:
+  grafana:
+    rootUrl: ""
+    service:
+      type: NodePort
+      nodePort: 30300
+  prometheus:
+    routePrefix: ""
+    service:
+      type: NodePort
+      nodePort: 30909

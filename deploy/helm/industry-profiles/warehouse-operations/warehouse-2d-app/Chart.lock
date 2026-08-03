@@ -23,5 +23,8 @@ dependencies:
 - name: agent
   repository: file://../../../services/agent
   version: 3.2.0
-digest: sha256:7da2694c24341b06247eb93cbd623fceb786e7a800a5664372f556ac98fac06a
-generated: "2026-07-22T16:39:25.357456313-07:00"
+- name: monitoring
+  repository: file://../../../services/monitoring
+  version: 3.2.0
+digest: sha256:4c9c04e5d7f8e9d95189dcfb8c4932e7ffacab1e86b0e0e8d680c5a0cbd920c8
+generated: "2026-07-29T12:22:08.139642041-07:00"

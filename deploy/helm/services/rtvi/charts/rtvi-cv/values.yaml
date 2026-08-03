@@ -175,7 +175,6 @@ standaloneWarehouse:
       enabled: false
       calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
       waitTimeoutSeconds: 3600
-      delaySeconds: 10
       configInit:
         image:
           repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-config-init
@@ -193,6 +192,13 @@ persistence:
   storageClass: ""
   models:
     size: 50Gi
+  # /opt/storage holds the models copied out of the models PVC plus the TRT
+  # engines built on first run. On emptyDir every restart rebuilds them.
+  runtimeStorage:
+    enabled: false
+    existingClaim: ""
+    size: 50Gi
+    storageClass: ""
 
 resources:
   limits:

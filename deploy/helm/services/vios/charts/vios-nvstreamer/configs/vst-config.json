@@ -146,7 +146,7 @@
     "nv_streamer_loop_playback": true,
     "nv_streamer_seekable": false,
     "nv_streamer_sync_playback": false,
-    "nv_streamer_sync_file_count": 0,
+    "nv_streamer_sync_file_count": __SYNC_FILE_COUNT__,
     "nv_streamer_max_upload_file_size_MB": 10000,
     "nv_streamer_media_container_supported": [
       "mp4",

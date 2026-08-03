@@ -47,3 +47,7 @@ dependencies:
   version: 3.2.0
   repository: file://../../../services/agent
   condition: agent.enabled
+- name: monitoring
+  version: 3.2.0
+  repository: file://../../../services/monitoring
+  condition: monitoring.enabled

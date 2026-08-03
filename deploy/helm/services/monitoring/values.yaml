@@ -1,0 +1,118 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Kubernetes port of deploy/docker/services/monitoring/compose.yml.
+enabled: true
+global: {}
+
+prometheus:
+  enabled: true
+  replicas: 1
+  image:
+    repository: quay.io/prometheus/prometheus
+    tag: v3.11.3
+    pullPolicy: IfNotPresent
+  port: 9090
+  scrapeInterval: 15s
+  retention: 15d
+  # Serve under a path prefix, e.g. /prometheus, when behind an ingress.
+  routePrefix: ""
+  externalUrl: ""
+  service:
+    type: ClusterIP
+    # Set nodePort (e.g. 30909) when type is NodePort.
+    nodePort: null
+  serviceAccount:
+    create: true
+    name: ""
+  # true scrapes the whole cluster instead of just this namespace.
+  scrapeAllNamespaces: false
+  # Container metrics off the kubelet's cAdvisor. Needs nodes/proxy.
+  kubelet:
+    enabled: true
+  # The GPU operator's dcgm-exporter. Leave on even with dcgmExporter disabled.
+  gpuOperator:
+    enabled: true
+    namespace: nvidia-gpu-operator
+    serviceName: nvidia-dcgm-exporter
+  # Appended to scrape_configs verbatim.
+  extraScrapeConfigs: []
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+
+grafana:
+  enabled: true
+  replicas: 1
+  image:
+    repository: grafana/grafana
+    tag: 13.0.1-ubuntu
+    pullPolicy: IfNotPresent
+  port: 3000
+  # Full external URL when Grafana is served under a path, e.g.
+  # http://<host>:8080/grafana. Enables serve_from_sub_path.
+  rootUrl: ""
+  service:
+    type: ClusterIP
+    # Set nodePort (e.g. 35000, matching GRAFANA_HOST_PORT in compose) when type is NodePort.
+    nodePort: null
+  admin:
+    user: admin
+    password: admin
+    # Secret with admin-user / admin-password keys.
+    existingSecret: ""
+  # Provision files/grafana-dashboards as ConfigMaps.
+  dashboards:
+    enabled: true
+  extraEnv: []
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 5Gi
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+
+nodeExporter:
+  enabled: true
+  image:
+    repository: quay.io/prometheus/node-exporter
+    tag: v1.11.1
+    pullPolicy: IfNotPresent
+  port: 9100
+  resources: {}
+  nodeSelector: {}
+  tolerations:
+    - operator: Exists
+
+# Only needed on clusters without the GPU operator.
+dcgmExporter:
+  enabled: false
+  image:
+    repository: nvidia/dcgm-exporter
+    tag: 3.3.6-3.4.2-ubuntu22.04
+    pullPolicy: IfNotPresent
+  port: 9400
+  resources: {}
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule

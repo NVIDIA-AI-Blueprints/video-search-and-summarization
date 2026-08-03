@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-server.host: "0.0.0.0"
-{{- with .Values.basePath }}
-server.basePath: "{{ . }}"
-server.rewriteBasePath: true
-{{- end }}
-server.shutdownTimeout: "5s"
-elasticsearch.hosts: ["{{ .Values.elasticsearchHosts | default (printf "http://%s:9200" (include "kibana.elasticsearchServiceHostname" .)) }}"]
-monitoring.ui.container.elasticsearch.enabled: true
+apiVersion: v2
+name: monitoring
+description: Prometheus, Grafana and host/GPU exporters for VSS app profiles (Kubernetes port of deploy/docker/services/monitoring)
+type: application
+version: 3.2.0
+appVersion: "1.0"
+keywords:
+  - metropolis
+  - monitoring
+  - prometheus
+  - grafana
+maintainers:
+  - name: NVIDIA

@@ -135,13 +135,12 @@ spec:
               echo "Kafka is ready."
         {{- end }}
         {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
-        {{- include "vss-rtvi-cv.mv3dtCalibrationDelivery" . | nindent 8 }}
         - name: mv3dt-config-init
           image: "{{ $mv3dt.dynamicCameraConfig.configInit.image.repository }}:{{ $mv3dt.dynamicCameraConfig.configInit.image.tag }}"
           imagePullPolicy: {{ $mv3dt.dynamicCameraConfig.configInit.image.pullPolicy | default "IfNotPresent" }}
           env:
-            - name: CALIBRATION_JSON_PATH
-              value: /calibration/calibration.json
+            - name: CALIBRATION_API_URL
+              value: {{ $mv3dt.dynamicCameraConfig.calibrationApiUrl | quote }}
             - name: CAM_INFO_OUTPUT_DIR
               value: /tmp/camInfo
             - name: PUB_SUB_OUTPUT_DIR
@@ -153,9 +152,6 @@ spec:
             - name: MQTT_PORT
               value: {{ $mv3dt.mqttPort | default "1883" | quote }}
           volumeMounts:
-            - name: calibration
-              mountPath: /calibration
-              readOnly: true
             - name: mv3dt-caminfo
               mountPath: /tmp/camInfo
             - name: generated
@@ -273,6 +269,14 @@ spec:
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+        - name: runtime-storage
+          {{- $rs := (.Values.persistence | default dict).runtimeStorage | default dict }}
+          {{- if $rs.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $rs.existingClaim | default (printf "%s-runtime-storage" (include "vss-rtvi-cv.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         - name: generated
           emptyDir: {}
         - name: startup-script
@@ -285,8 +289,6 @@ spec:
             defaultMode: 420
         {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
         - name: mv3dt-caminfo
-          emptyDir: {}
-        - name: calibration
           emptyDir: {}
         {{- else }}
         - name: mv3dt-caminfo

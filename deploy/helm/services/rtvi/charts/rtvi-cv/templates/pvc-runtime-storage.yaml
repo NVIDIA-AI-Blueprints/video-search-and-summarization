@@ -13,25 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- if .Values.enabled }}
+# Keeps /opt/storage across restarts so the TRT engines are built once.
+{{- $rs := (.Values.persistence | default dict).runtimeStorage | default dict }}
+{{- if and .Values.enabled $rs.enabled (not $rs.existingClaim) }}
 apiVersion: v1
-kind: Service
+kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "vss-vios-nvstreamer.fullname" . }}
+  name: {{ include "vss-rtvi-cv.fullname" . }}-runtime-storage
   labels:
-    app.kubernetes.io/name: vss-vios-nvstreamer
+    app.kubernetes.io/name: vss-rtvi-cv
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
-      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
-      nodePort: {{ .Values.service.nodePort }}
-      {{- end }}
-  selector:
-    app.kubernetes.io/name: vss-vios-nvstreamer
-    app.kubernetes.io/instance: {{ .Release.Name }}
+  accessModes:
+    - ReadWriteOnce
+  {{- $sc := $rs.storageClass | default (.Values.persistence).storageClass | default (index (.Values.global | default dict) "storageClass") }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $rs.size | default "50Gi" }}
 {{- end }}
