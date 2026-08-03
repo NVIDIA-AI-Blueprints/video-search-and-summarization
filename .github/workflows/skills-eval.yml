@@ -154,10 +154,10 @@ jobs:
       max-parallel: 8
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
-    # sequential harbor invocations, each up to the 1 h agent ceiling
-    # (AGENTS.md `--agent-timeout-multiplier 6.0`). A timeout stops the
+    # sequential harbor invocations, each up to the 2 h agent ceiling
+    # (AGENTS.md `--agent-timeout-multiplier 12.0`). A timeout stops the
     # remaining chain; successful steps normally finish well below their
-    # 200-minute emergency backstop. AGENTS.md's box-lock wait
+    # 260-minute emergency backstop. AGENTS.md's box-lock wait
     # (run_leg.py --lock-timeout-sec
     # 21000 ≈ 5.8 h) is kept strictly under this 840 m ceiling so a
     # lock-starved leg emits `BLOCKED: lock timeout`

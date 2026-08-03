@@ -637,16 +637,17 @@ Notes that have burned prior runs:
 - **Timeout budgets** cover cold-box realities. Every adapter-generated
   `task.toml` MUST set `[agent] timeout_sec = 600.0`; without that explicit
   base, Harbor treats the agent timeout as unbounded and
-  `--agent-timeout-multiplier` is a no-op. Keep the section and multipliers
-  verbatim:
+  `--agent-timeout-multiplier` is a no-op. `run_leg.py` owns four independent
+  absolute phase limits and derives Harbor's CLI multipliers from the pinned
+  Harbor 0.20 bases; do not modify the generated command flags:
   - `--environment-build-timeout-multiplier 3.0` → 1800s env start.
     Massedcompute L40S provisioning can exceed 10 min; 600s fires
     `EnvironmentStartTimeoutError` before the box is READY.
-  - `--agent-timeout-multiplier 6.0` → 3600s (1 h) per trial. Cold
-    `/vss-deploy-profile` (esp. `lvs` / `alerts_*` pulling local NIMs)
-    plus follow-on ingest / multi-step work overran the old 30-min
-    ceiling and harbor logged `NonZeroAgentExitCodeError` (exit 124).
-    Only this multiplier is 6.0 — it's the trial-work budget.
+  - `--agent-setup-timeout-multiplier 1.0` → 360s agent installation/setup.
+  - `--agent-timeout-multiplier 12.0` → 7200s (2 h) per trial. A legitimate
+    cold `/vss-deploy-profile` can spend more than an hour downloading and
+    starting local NIMs before follow-on ingest or checks begin. Preserved
+    caches improve the common path but are not a correctness prerequisite.
   - `--verifier-timeout-multiplier 3.0` → 1800s verify. `generic_judge.py`
     runs a judge per check (4-6 on specs like `vss-manage-video-io-storage`),
     which compounds past 600s and raises `VerifierTimeoutError`.
@@ -664,13 +665,13 @@ real failure: the wrapper exits 4, see § Output requirements).
 Don't background the trial (`run_in_background`, `&`/`nohup`/`disown`):
 the harness blocks those and raises the Bash timeout cap so the long
 foreground wrapper call is not auto-backgrounded into a pollable task.
-`run_leg.py` applies a 12000s (200 min) hard backstop to each internal Harbor
-subprocess: 7560s for environment build + agent setup + agent + verifier,
+`run_leg.py` applies a 15600s (260 min) hard backstop to each internal Harbor
+subprocess: 11160s for environment build + agent setup + agent + verifier,
 2520s for four bounded artifact-transfer/recovery windows, and 1920s of
 scheduling/non-transfer teardown headroom. `brev_env.py` caps each transfer's
 active work at 600s and its total process-reap wall time at 630s, so that
 recovery term is real rather than aspirational. The normal
-3600s agent deadline should fire first; the outer backstop is emergency-only
+7200s agent deadline should fire first; the outer backstop is emergency-only
 and requests SIGINT before bounded TERM/KILL escalation. The agent publishes a
 12-hour SDK deadline inside the 14-hour job and an earlier 11.5-hour Harbor
 deadline, reserving 30 minutes for result inspection, the PR comment, and the

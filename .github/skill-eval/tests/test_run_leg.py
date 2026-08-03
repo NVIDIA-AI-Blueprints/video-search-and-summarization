@@ -127,6 +127,10 @@ class HarborCommand(unittest.TestCase):
             str(run_leg.HARBOR_AGENT_TIMEOUT_MULTIPLIER),
         )
         self.assertEqual(
+            cmd[cmd.index("--agent-setup-timeout-multiplier") + 1],
+            str(run_leg.HARBOR_AGENT_SETUP_TIMEOUT_MULTIPLIER),
+        )
+        self.assertEqual(
             cmd[cmd.index("--verifier-timeout-multiplier") + 1],
             str(run_leg.HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         )
@@ -169,11 +173,17 @@ class HarborCommand(unittest.TestCase):
 
 class PhaseBudgets(unittest.TestCase):
     def test_default_backstop_exceeds_all_phases_and_recovery_headroom(self):
-        self.assertEqual(run_leg.HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC, 1800)
-        self.assertEqual(run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC, 360)
-        self.assertEqual(run_leg.HARBOR_AGENT_BUDGET_SEC, 3600)
-        self.assertEqual(run_leg.HARBOR_VERIFIER_BUDGET_SEC, 1800)
-        self.assertEqual(run_leg.HARBOR_PHASE_BUDGET_SEC, 7560)
+        self.assertEqual(run_leg.HARBOR_ENVIRONMENT_BUILD_TIMEOUT_SEC, 1800)
+        self.assertEqual(run_leg.HARBOR_AGENT_SETUP_TIMEOUT_SEC, 360)
+        self.assertEqual(run_leg.HARBOR_AGENT_TIMEOUT_SEC, 7200)
+        self.assertEqual(run_leg.HARBOR_VERIFIER_TIMEOUT_SEC, 1800)
+        self.assertEqual(
+            run_leg.HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER, 3.0
+        )
+        self.assertEqual(run_leg.HARBOR_AGENT_SETUP_TIMEOUT_MULTIPLIER, 1.0)
+        self.assertEqual(run_leg.HARBOR_AGENT_TIMEOUT_MULTIPLIER, 12.0)
+        self.assertEqual(run_leg.HARBOR_VERIFIER_TIMEOUT_MULTIPLIER, 3.0)
+        self.assertEqual(run_leg.HARBOR_PHASE_BUDGET_SEC, 11160)
         self.assertEqual(run_leg.HARBOR_TRANSFER_OPERATION_BUDGET_SEC, 630)
         self.assertEqual(run_leg.HARBOR_RECOVERY_TRANSFER_OPERATION_COUNT, 4)
         self.assertEqual(run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC, 2520)
@@ -182,13 +192,19 @@ class PhaseBudgets(unittest.TestCase):
             run_leg.HARBOR_PHASE_BUDGET_SEC
             + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
         )
-        self.assertEqual(run_leg.MIN_HARBOR_BACKSTOP_SEC, 10080)
-        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 12000)
+        self.assertEqual(run_leg.MIN_HARBOR_BACKSTOP_SEC, 13680)
+        self.assertEqual(run_leg.HARBOR_BACKSTOP_ADDITIONAL_HEADROOM_SEC, 1920)
+        self.assertEqual(
+            run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+            run_leg.MIN_HARBOR_BACKSTOP_SEC
+            + run_leg.HARBOR_BACKSTOP_ADDITIONAL_HEADROOM_SEC,
+        )
+        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 15600)
         self.assertEqual(run_leg.HARBOR_SIGINT_GRACE_SEC, 1380)
         self.assertEqual(run_leg.HARBOR_SHUTDOWN_GRACE_SEC, 1420)
         self.assertEqual(
             run_leg.invocation_reserve_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC),
-            13480,
+            17080,
         )
         self.assertGreater(
             run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
@@ -196,8 +212,9 @@ class PhaseBudgets(unittest.TestCase):
         )
         self.assertGreater(
             run_leg.MIN_BREV_EXEC_TIMEOUT_SEC,
-            run_leg.HARBOR_AGENT_BUDGET_SEC,
+            run_leg.HARBOR_AGENT_TIMEOUT_SEC,
         )
+        self.assertEqual(run_leg.MIN_BREV_EXEC_TIMEOUT_SEC, 7830)
 
     def test_timeout_validation_rejects_boundary_and_accepts_default(self):
         with self.assertRaisesRegex(ValueError, "cleanup/recovery"):
@@ -282,7 +299,7 @@ class HarborEnvironment(unittest.TestCase):
             int(env["BREV_EXEC_TIMEOUT"]), run_leg.MIN_BREV_EXEC_TIMEOUT_SEC
         )
         self.assertGreater(
-            int(env["BREV_EXEC_TIMEOUT"]), run_leg.HARBOR_AGENT_BUDGET_SEC
+            int(env["BREV_EXEC_TIMEOUT"]), run_leg.HARBOR_AGENT_TIMEOUT_SEC
         )
         self.assertEqual(
             int(env["BREV_TRANSFER_TOTAL_TIMEOUT_SEC"]),

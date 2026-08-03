@@ -21,7 +21,7 @@ serially inside a single `uvx harbor run` loop. Two problems:
    failure" (one agent burned its turn budget on `sleep && tail` before a
    cold-box trial finished, then exited with no `DONE:`/`BLOCKED:`).
 2. **One slow/failed spec blocks the rest.** Serial dispatch means a spec
-   that hits the 1 h agent ceiling delays every spec behind it; a crash
+   that hits the 2 h agent ceiling delays every spec behind it; a crash
    mid-loop can drop later specs entirely.
 
 ## Core idea
@@ -135,7 +135,7 @@ PreToolUse hook); each leg's foreground agent therefore *must* drive
 ## Unchanged on purpose
 
 - Per-leg agent logic: adapter autogeneration, adapter auto-commit flow, harbor flags
-  (incl. `--agent-timeout-multiplier 6.0` = 1 h), result-comment format,
+  (incl. `--agent-timeout-multiplier 12.0` = 2 h), result-comment format,
   per-trial metric extraction, failure-mode handling, no `skills/` writes,
   no instance lifecycle calls.
 - The drop of harness-side profile pre-deploy / `active-deploy.txt`

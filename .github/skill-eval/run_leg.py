@@ -56,34 +56,39 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 # the host, not per leg, so every leg publishes its trials in here.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 
-# Harbor phase budgets. Adapters set the task's base agent timeout to the same
-# 600-second base used by Harbor for environment build and verification; these
-# multipliers are also passed on the command line below. Keep the outer process
-# backstop strictly beyond every phase plus recovery time so Harbor gets a
-# chance to record the real phase outcome, download logs, and stop the Brev
-# environment before this wrapper intervenes.
-HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
-HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
-HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
-HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
-HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
-    HARBOR_BASE_PHASE_TIMEOUT_SEC
-    * HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+# Harbor phase policy is expressed as four independent absolute timeouts.
+# Harbor 0.20's CLI transports those values as phase-specific multipliers over
+# separate task/default bases, so derive that encoding here rather than making
+# a shared base the source of truth. Adapters explicitly emit the 600-second
+# agent base; the other three bases are pinned defaults in Harbor 0.20.0.
+HARBOR_ENVIRONMENT_BUILD_BASE_TIMEOUT_SEC = 600
+HARBOR_AGENT_SETUP_BASE_TIMEOUT_SEC = 360
+HARBOR_AGENT_BASE_TIMEOUT_SEC = 600
+HARBOR_VERIFIER_BASE_TIMEOUT_SEC = 600
+
+HARBOR_ENVIRONMENT_BUILD_TIMEOUT_SEC = 30 * 60
+HARBOR_AGENT_SETUP_TIMEOUT_SEC = 6 * 60
+HARBOR_AGENT_TIMEOUT_SEC = 2 * 60 * 60
+HARBOR_VERIFIER_TIMEOUT_SEC = 30 * 60
+
+HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = (
+    HARBOR_ENVIRONMENT_BUILD_TIMEOUT_SEC
+    / HARBOR_ENVIRONMENT_BUILD_BASE_TIMEOUT_SEC
 )
-# Harbor applies a separate six-minute ceiling while installing/configuring
-# the selected agent, before the task's [agent] timeout begins.
-HARBOR_AGENT_SETUP_BUDGET_SEC = 360
-HARBOR_AGENT_BUDGET_SEC = int(
-    HARBOR_BASE_PHASE_TIMEOUT_SEC * HARBOR_AGENT_TIMEOUT_MULTIPLIER
+HARBOR_AGENT_SETUP_TIMEOUT_MULTIPLIER = (
+    HARBOR_AGENT_SETUP_TIMEOUT_SEC / HARBOR_AGENT_SETUP_BASE_TIMEOUT_SEC
 )
-HARBOR_VERIFIER_BUDGET_SEC = int(
-    HARBOR_BASE_PHASE_TIMEOUT_SEC * HARBOR_VERIFIER_TIMEOUT_MULTIPLIER
+HARBOR_AGENT_TIMEOUT_MULTIPLIER = (
+    HARBOR_AGENT_TIMEOUT_SEC / HARBOR_AGENT_BASE_TIMEOUT_SEC
+)
+HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = (
+    HARBOR_VERIFIER_TIMEOUT_SEC / HARBOR_VERIFIER_BASE_TIMEOUT_SEC
 )
 HARBOR_PHASE_BUDGET_SEC = (
-    HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC
-    + HARBOR_AGENT_SETUP_BUDGET_SEC
-    + HARBOR_AGENT_BUDGET_SEC
-    + HARBOR_VERIFIER_BUDGET_SEC
+    HARBOR_ENVIRONMENT_BUILD_TIMEOUT_SEC
+    + HARBOR_AGENT_SETUP_TIMEOUT_SEC
+    + HARBOR_AGENT_TIMEOUT_SEC
+    + HARBOR_VERIFIER_TIMEOUT_SEC
 )
 # brev_env.py caps each upload/download API, including active work and process
 # reaping, to this duration. These VSS tasks serially perform no more than four
@@ -98,15 +103,18 @@ HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC = (
 MIN_HARBOR_BACKSTOP_SEC = (
     HARBOR_PHASE_BUDGET_SEC + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
 )
-# Stay strictly above the minimum rather than making the validation boundary
-# itself the default.  The round 200-minute backstop leaves another 32 minutes
-# for scheduling jitter and bounded teardown that does not transfer files.
-DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
+# Derive the default rather than maintaining a second phase-budget literal.
+# Preserve 32 minutes beyond the strict minimum for scheduling jitter and
+# bounded teardown that does not transfer files.
+HARBOR_BACKSTOP_ADDITIONAL_HEADROOM_SEC = 32 * 60
+DEFAULT_HARBOR_TIMEOUT_SEC = (
+    MIN_HARBOR_BACKSTOP_SEC + HARBOR_BACKSTOP_ADDITIONAL_HEADROOM_SEC
+)
 
 # A single remote agent command must not be killed by Brev before Harbor's own
 # agent deadline can fire and drive normal artifact/environment cleanup.
 MIN_BREV_EXEC_TIMEOUT_SEC = (
-    HARBOR_AGENT_BUDGET_SEC + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+    HARBOR_AGENT_TIMEOUT_SEC + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
 )
 
 # Emergency-only escalation after the outer backstop. SIGINT gives Harbor's
@@ -244,10 +252,10 @@ def validate_harbor_timeout_sec(timeout_sec: int) -> int:
         raise ValueError(
             "harbor timeout must be greater than "
             f"{MIN_HARBOR_BACKSTOP_SEC}s: environment "
-            f"{HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC}s + agent setup "
-            f"{HARBOR_AGENT_SETUP_BUDGET_SEC}s + agent "
-            f"{HARBOR_AGENT_BUDGET_SEC}s + verifier "
-            f"{HARBOR_VERIFIER_BUDGET_SEC}s + cleanup/recovery "
+            f"{HARBOR_ENVIRONMENT_BUILD_TIMEOUT_SEC}s + agent setup "
+            f"{HARBOR_AGENT_SETUP_TIMEOUT_SEC}s + agent "
+            f"{HARBOR_AGENT_TIMEOUT_SEC}s + verifier "
+            f"{HARBOR_VERIFIER_TIMEOUT_SEC}s + cleanup/recovery "
             f"{HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC}s"
         )
     return timeout_sec
@@ -330,6 +338,8 @@ def build_harbor_command(
         str(HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
         "--agent-timeout-multiplier",
         str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
+        "--agent-setup-timeout-multiplier",
+        str(HARBOR_AGENT_SETUP_TIMEOUT_MULTIPLIER),
         "--verifier-timeout-multiplier",
         str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         "--max-retries",
