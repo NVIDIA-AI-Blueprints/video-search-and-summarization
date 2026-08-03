@@ -7,20 +7,20 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Selects an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
-4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes `uvx harbor run` with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
+4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 
-The whole thing runs inside the 8-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
+The whole thing runs inside the 14-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
 
 ## Prerequisites
 
 The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill-validator` (a long-running Brev CPU instance in the NVIDIA org). That host needs:
 
-- **[uv](https://github.com/astral-sh/uv)** — harbor is invoked as `uvx harbor`.
+- **[uv](https://github.com/astral-sh/uv)** — Harbor 0.20.0 is invoked in an isolated Python 3.12 environment.
 - **[Brev CLI](https://docs.nvidia.com/brev/latest/cli/cli-overview)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
 - **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo.
-- **Python 3** — for the adapters.
+- **Python 3.12** — the workflows pin this runtime for the coordinator, adapters, `run_leg.py`, and Harbor. Each matrix leg installs Claude Agent SDK 0.2.128 in its own virtual environment so parallel jobs never mutate a shared interpreter.
 - **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file.
 
 ### GPU targets (operator-managed `vss-eval-*` pool)
@@ -228,7 +228,7 @@ a 404.
 `harbor view` runs persistently on the CI runner host. If it's down:
 
 ```bash
-nohup uvx harbor view /tmp/skill-eval/results/_viewer --jobs \
+nohup uvx --python 3.12 --from 'harbor==0.20.0' harbor view /tmp/skill-eval/results/_viewer --jobs \
   --host 0.0.0.0 --port 8080 > /tmp/harbor-view.log 2>&1 &
 disown
 ```
