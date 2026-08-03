@@ -18,6 +18,18 @@ import os
 import pathlib
 
 
+def _bool_env(name, default=False):
+    if name not in os.environ or os.environ[name].strip() == "":
+        return default
+    return os.environ[name].strip().lower() == "true"
+
+
+def _optional_bool_env(name):
+    if name not in os.environ or os.environ[name].strip() == "":
+        return None
+    return os.environ[name].strip().lower() == "true"
+
+
 class Config(object):
     DEBUG = False
     TESTING = False
@@ -611,6 +623,12 @@ class Config(object):
         and os.environ["WDM_ADD_REMOVE_RETRY_ATTEMPTS"].strip() != ""
         else 2
     )
+    WDM_CONFIG_RETRY_ATTEMPTS = (
+        int(os.environ["WDM_CONFIG_RETRY_ATTEMPTS"].strip())
+        if "WDM_CONFIG_RETRY_ATTEMPTS" in os.environ
+        and os.environ["WDM_CONFIG_RETRY_ATTEMPTS"].strip() != ""
+        else 3
+    )
     WDM_POD_WATCH_DOCKER_DELAY = (
         float(os.environ["WDM_POD_WATCH_DOCKER_DELAY"].strip())
         if "WDM_POD_WATCH_DOCKER_DELAY" in os.environ
@@ -623,11 +641,20 @@ class Config(object):
         and os.environ["WDM_ADD_REMOVE_RETRY_DELAY"].strip() != ""
         else 0.5
     )
+    WDM_CONFIG_RETRY_DELAY = (
+        float(os.environ["WDM_CONFIG_RETRY_DELAY"].strip())
+        if "WDM_CONFIG_RETRY_DELAY" in os.environ
+        and os.environ["WDM_CONFIG_RETRY_DELAY"].strip() != ""
+        else 0.5
+    )
     WDM_ADD_REMOVE_REQUEST_TIMEOUT = (
         int(os.environ["WDM_ADD_REMOVE_REQUEST_TIMEOUT"].strip())
         if "WDM_ADD_REMOVE_REQUEST_TIMEOUT" in os.environ
         and os.environ["WDM_ADD_REMOVE_REQUEST_TIMEOUT"].strip() != ""
         else 2
+    )
+    WDM_CONFIG_DEFER_ON_FAILURE = _bool_env(
+        "WDM_CONFIG_DEFER_ON_FAILURE", False
     )
     WDM_DS_STATUS_CHECK = (
         True
@@ -743,6 +770,7 @@ class Config(object):
         and os.environ["WDM_ENABLE_REGEX_MAPPING"].strip().lower() == "true"
         else False
     )
+    WDM_HANDLE_CONFIG_EVENTS = _optional_bool_env("WDM_HANDLE_CONFIG_EVENTS")
     ENVOY_REQUEST_TIMEOUT = (
         int(os.environ["ENVOY_REQUEST_TIMEOUT"])
         if "ENVOY_REQUEST_TIMEOUT" in os.environ and os.environ["ENVOY_REQUEST_TIMEOUT"].strip() != ""
