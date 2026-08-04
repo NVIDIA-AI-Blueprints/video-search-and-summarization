@@ -30,6 +30,17 @@ services:
         soft: 131072
         hard: 262144
     environment:
+      ELASTICSEARCH_SERVICE_HOST: ${ELASTICSEARCH_SERVICE_HOST:-elasticsearch}
+      ELASTICSEARCH_SERVICE_PORT: ${ELASTICSEARCH_SERVICE_PORT:-9200}
+      RTVI_EMBED_SERVICE_HOST: ${RTVI_EMBED_SERVICE_HOST:-rtvi-embed}
+      RTVI_EMBED_SERVICE_PORT: ${RTVI_EMBED_SERVICE_PORT:-8000}
+      RTVI_CV_SERVICE_HOST: ${RTVI_CV_SERVICE_HOST:-vss-rtvi-cv}
+      RTVI_CV_SERVICE_PORT: ${RTVI_CV_PORT:-9000}
+      # 8000 is rtvi-vlm's container port. RTVI_VLM_PORT is the host-published
+      # one (8018) and must not be used here -- haproxy reaches the service over
+      # the compose network, where the published port does not apply.
+      RTVI_VLM_SERVICE_HOST: ${RTVI_VLM_SERVICE_HOST:-rtvi-vlm}
+      RTVI_VLM_SERVICE_PORT: ${RTVI_VLM_SERVICE_PORT:-8000}
       HAPROXY_PORT: ${HAPROXY_PORT:-7777}
       HAPROXY_HOST_PORT: ${HAPROXY_HOST_PORT:-7777}
       HAPROXY_BIND_ADDR: ${HAPROXY_BIND_ADDR:-*}
