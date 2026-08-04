@@ -69,7 +69,7 @@ class PromptManager:
             )
         elif self.override_prompts_on_start:
             raise RuntimeError(
-                "Prompt override requested but alert type configuration is unavailable"
+                "Alert type configuration loader not available; cannot override prompts"
             )
         
     def load_prompts(self) -> None:

@@ -136,7 +136,12 @@ class TestSeedPromptsToStore:
         make_manager(self._config_yaml(), store=store, loader=loader)
 
         assert loader.seed_to_store.call_count == 2
-        loader.seed_to_store.assert_any_call("collision", {"type": "collision"}, store)
+        loader.seed_to_store.assert_any_call(
+            "collision",
+            {"type": "collision"},
+            store,
+            overwrite_prompts=True,
+        )
 
     def test_alert_types_without_config_are_skipped(self, store):
         loader = MagicMock()
