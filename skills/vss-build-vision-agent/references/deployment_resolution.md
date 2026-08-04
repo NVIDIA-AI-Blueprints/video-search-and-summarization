@@ -119,23 +119,26 @@ adds archive search and a separate NvStreamer host:
 
 ## Docker Compose
 
-Use `--deployment docker --profile <profile>` for host CLI search. The profile
-must have both its checked-in `.env` and a runtime `generated.env` from the
-profile deploy workflow.
-
-Resolve operate endpoints with `discover_docker_host_endpoints(profile)`:
+Resolve the deployment once with `vss configure`, then read the endpoints back
+from the recorded config. The profile must have both its checked-in `.env` and a
+runtime `generated.env` from the profile deploy workflow.
 
 ```bash
-PROFILE="${PROFILE:-search}"
-DOCKER_ENDPOINTS=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python -c 'import json,sys; from vss_cli.deployment import discover_docker_host_endpoints; print(json.dumps(discover_docker_host_endpoints(sys.argv[1])))' \
-  "${PROFILE}")
-AGENT_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.agent_url')
-VST_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.vst_url')
-VSS_VIOS_URL="${VST_URL%/}/vst"
+VSS_ORIGIN="${VSS_ORIGIN:-http://${HOST_IP:-127.0.0.1}:${HAPROXY_HOST_PORT:-7777}}"
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss)
+
+"${VSS[@]}" configure --base-url "${VSS_ORIGIN}"
+DEPLOYMENT=$("${VSS[@]}" configure show)
+
+AGENT_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.base_url')
+VSS_VIOS_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.services.vst.url')
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
-ES_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.es_url')
-RTVI_VLM_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.rtvi_vlm_url')
+ES_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.services.elasticsearch.url')
+# `vss configure` records RT-VLM at `.services.rt_vlm.url` where the profile
+# routes it, which is what discovery needs. Inference keeps using the host port:
+# the ingress applies `timeout server 120s`, and a non-streaming completion or a
+# caption over a whole video runs past that.
+RTVI_VLM_URL="http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}"
 ```
 
 For VIOS-only operate work without the search CLI, the Compose fallback is:
@@ -152,11 +155,12 @@ variable is a Compose/deploy runtime detail, not a Kubernetes operate input;
 when `VSS_PUBLIC_URL` is set, ignore `VST_EXTERNAL_URL` and use
 `VSS_PUBLIC_URL`.
 
-The host CLI reads shared VST/RTVI defaults, overlays `.env` then
-`generated.env`, maps Compose service DNS to loopback ports, and resolves index
-names from the interpolated agent config. Direct Elasticsearch and RTVI probes
-are valid Docker readiness checks; they are not Kubernetes operate
-prerequisites.
+`vss configure` probes each known route on the origin and records only the ones
+that answer, so a route the deployment does not expose is absent from the config
+rather than present-but-broken. Index names come from that same probe, and they
+are created by ingestion — re-run `vss configure` after ingesting, or the
+recorded index list stays empty. Direct Elasticsearch and RTVI probes are valid
+Docker readiness checks; they are not Kubernetes operate prerequisites.
 
 ## Kubernetes consumer contract (no port-forward)
 

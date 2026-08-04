@@ -3276,7 +3276,7 @@ wheels = [
 
 [[package]]
 name = "multi-storage-client"
-version = "0.50.0"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
@@ -3294,9 +3294,9 @@ dependencies = [
     { name = "xattr" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/c6/988f70ef7e53dc3b3e525296fd72ac2063763f6f37e9a5422b79a8098b12/multi_storage_client-0.50.0-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:bd4a58678bbec4a50ed337f279e0f23fc2e710ff150d1a0dda0e8a7956861658", size = 10109628, upload-time = "2026-06-05T22:01:09.787Z" },
-    { url = "https://files.pythonhosted.org/packages/24/34/970fea62bdee7768ac1842abe8f10f8f0723698780d6a353fa9bed89ddd1/multi_storage_client-0.50.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c82cd26a418fabdc5ac86ed3bed44da8fa92b65a2d6ce9b9da9c1bfa0e739ff0", size = 6343625, upload-time = "2026-06-05T22:01:31.996Z" },
-    { url = "https://files.pythonhosted.org/packages/cf/1e/7fc1ed9dfb43b2041dbf377d833f9fcf43cceae939797469c4584a0f8c89/multi_storage_client-0.50.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d8319bbce5bbe51c63e128e337a32dfd57d9e7ff1258ca4632c698609907e29c", size = 6542379, upload-time = "2026-06-05T22:01:53.487Z" },
+    { url = "https://files.pythonhosted.org/packages/98/0e/363077ba34de2adaa031eca723a997aea12f39beef67f2756ee46b5c0d29/multi_storage_client-1.0.1-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:a4ce8bf5b22d90c0c00cd548f779473370514ea99d62d2eb00fff68040b183aa", size = 10249453, upload-time = "2026-07-24T19:35:14.847Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/31/4381f667f73e3db2c879b2cae021c81b724a5a7e058c2826106b9e7f967c/multi_storage_client-1.0.1-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d1fc8e5ba0b1a1f87e0e1e491237e7abac89b3fef48d28dad3633f3c328071fb", size = 6379619, upload-time = "2026-07-24T19:35:34.194Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/6e/c5d1f48b2878b91fb58ffbb03cb2aae6a08194e8cd3e9ee5e8ec68815155/multi_storage_client-1.0.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:2955f55dd8260f2999ba1e6ecdb59e29fe4984a88357036dd00db741f9abc5c9", size = 6578656, upload-time = "2026-07-24T19:35:55.502Z" },
 ]
 
 [package.optional-dependencies]
@@ -3583,8 +3583,8 @@ wheels = [
 
 [[package]]
 name = "nvdataset"
-version = "0.89.0"
-source = { registry = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple" }
+version = "0.93.0"
+source = { registry = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" }
 dependencies = [
     { name = "multi-storage-client", extra = ["boto3", "observability-otel", "vault"] },
     { name = "packaging" },
@@ -3599,9 +3599,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/nvdataset/0.89.0/nvdataset-0.89.0.tar.gz", hash = "sha256:04d030d796c88dd54d019ad05dd8e753ae1f0597ed4a4f12f68c6d2a1dae1777" }
+sdist = { url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0.tar.gz", hash = "sha256:b58acf8b8a248b008938935fef8350bc64d09559a2efd4262f68ff7728624726" }
 wheels = [
-    { url = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/nvdataset/0.89.0/nvdataset-0.89.0-py3-none-any.whl", hash = "sha256:bf49dc09ed893593187974b072fa27ea1935822c63877a035def4eb26823bca6" },
+    { url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0-py3-none-any.whl", hash = "sha256:159ff0739ef0b61c8114d3cc1ad92063e5041d0277f42f5fb50aa942d5995e42" },
 ]
 
 [[package]]
@@ -4042,7 +4042,7 @@ dev = [
     { name = "types-requests", specifier = ">=2.32.4.20260107" },
 ]
 eval = [
-    { name = "nvdataset", specifier = ">=0.77", index = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple" },
+    { name = "nvdataset", specifier = ">=0.77", index = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" },
     { name = "nvidia-nat", extras = ["langchain", "weave"], specifier = "==1.8.0" },
     { name = "spacy", specifier = ">=3.7,<4.0" },
 ]
@@ -4101,11 +4101,15 @@ requires-dist = [
 name = "nvidia-vss-cli"
 source = { editable = "packages/vss_cli" }
 dependencies = [
+    { name = "click" },
     { name = "nvidia-vss-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "nvidia-vss-core", editable = "packages/vss_core" }]
+requires-dist = [
+    { name = "click", specifier = ">=8.1" },
+    { name = "nvidia-vss-core", editable = "packages/vss_core" },
+]
 
 [[package]]
 name = "nvidia-vss-core"
@@ -4596,7 +4600,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -6606,16 +6610,13 @@ dependencies = [
     { name = "typing-extensions", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
 ]
 wheels = [
-    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp313-cp313-linux_s390x.whl", hash = "sha256:966d020354f465672dc7dd10d3a5c6cd17d7eb48620aa1d265b48a1f78f06898", upload-time = "2026-07-08T19:29:30Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:0b8f7d0423027ae8b90c7977c627f3379f325363a08224dffad9b4b2d684a83d", upload-time = "2026-07-08T19:29:40Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:3fbf9c9d1f3c10c2d59d04aca426dee9ccc6ceb32d255c61e93acc3b4f75fae6", upload-time = "2026-07-08T19:29:54Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp313-cp313-win_amd64.whl", hash = "sha256:a17ff48608634db245e17e8bb00a9558554a49aeb1e4f5fe6cd039af2a10515b", upload-time = "2026-07-08T19:30:05Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp313-cp313-win_arm64.whl", hash = "sha256:ac7aaf322be4777765a53bed7264a214dd81b3a1d276b93150515a3c5f75e4b0", upload-time = "2026-07-08T19:30:12Z" },
-    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314-linux_s390x.whl", hash = "sha256:dec241fef3984c0d1edadd1f58708e218d4eae881ceef7bc10cf9964d41b68b9", upload-time = "2026-07-08T19:30:20Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:ca021f9eb2f8345c83fa03e3a04587308afb8df71bd472670b3ece00df58621c", upload-time = "2026-07-08T19:30:32Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:d20fa53ee744502fa4c69818a720b05ca0d37abd055d4f6e66cae155114bc691", upload-time = "2026-07-08T19:30:45Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314-win_amd64.whl", hash = "sha256:e2e5134decf00e218da62318f3dc5df156231d367871918e91eba95ab0ad43ab", upload-time = "2026-07-08T19:30:58Z" },
-    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314t-linux_s390x.whl", hash = "sha256:991cc14b39e751122c01f017be6448533989868731cb5eecd1006893d26787c2", upload-time = "2026-07-08T19:31:09Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:7b8d26e29bceafbdaa8d63bfe7612f23875b5af2cc07e13f809c3ed890bbe1d8", upload-time = "2026-07-08T19:31:21Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:b222c15a0fc2ce207d1c1a59700b46c8fa6748df1f447ad11e5c870dde0933d9", upload-time = "2026-07-08T19:31:35Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314t-win_amd64.whl", hash = "sha256:a43376bd094124ef626bfdd3d4c2c62eacb0b5ddc99776f4a32d4fd16f1f3420", upload-time = "2026-07-08T19:31:48Z" },
