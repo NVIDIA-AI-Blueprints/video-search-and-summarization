@@ -4,21 +4,39 @@
 
 | Capability | Canonical service profile keys |
 |---|---|
-| Agent orchestration and REST API | `vss-agent` |
+| Agentic (natural-language) orchestration and agent REST API | `vss-agent` |
 | Video-analytics MCP | `vss-va-mcp` |
 | Web UI | `vss-ui` |
 | Tracing UI | `phoenix` |
 
 ## Access role
 
-This owner backs the interactive surface: conversational orchestration and REST
-API, video-analytics MCP, Web UI, and tracing. Its public front door is a
-separate owner (`ingress.md`), so browse ingress can be requested without this
-tier. None of these keys sit on the ingest, detection, embedding, indexing, or
-service-native (Kibana/REST) browse path, and no write-path service depends on
-them. A headless, ingestion-only, or service-native-browse request reaches none
-of them, so the whole owner (and the LLM peer only `vss-agent` required) is
-pruned as unreachable.
+This owner backs the interactive surface: agentic (natural-language)
+orchestration, its own agent REST API, video-analytics MCP, Web UI, and tracing.
+Its public front door is a separate owner (`ingress.md`), so browse ingress can
+be requested without this tier.
+
+As a capability owner the agent is reached only by **agentic orchestration** — a
+request that needs an LLM to plan across tools and services (the agent's
+`/generate`), or an explicit request for the agent REST API, video-analytics
+MCP, Web UI, or tracing. It is **not** reached by two verb classes that look
+interactive but are served elsewhere: (a) structured or programmatic query,
+retrieval, and browse — owned by Elasticsearch with the host-CLI read path
+(`vss configure` / `vss search run`), Kibana for dashboards, and each backend's
+own REST API (VIOS, RT-CV, RT-Embed, Alerts); and (b) single-model VLM inference
+— VLM Q&A and dense captioning go directly to RT-VLM (`/v1/chat/completions`,
+`/v1/generate_captions`). "REST" alone is therefore not an agent cue: the agent's
+REST API is that orchestration endpoint, distinct from those service-native REST
+surfaces. The agent may also be pulled in as another owner's declared Required
+peer (for example `lvs-server` lists it). Absent both an agentic request and such
+a peer, nothing else reaches the agent, so the whole owner (and the LLM peer only
+`vss-agent` required) is pruned as unreachable. "Headless" is just the explicit
+name for that pruning, not a separate trigger.
+
+Web UI (`vss-ui`) and tracing (`phoenix`) are independently gated: each is
+reached only by an explicit Web-UI or tracing request, carries no capability
+another service needs, and is never retained merely because `vss-agent` is
+present. Prune either unless itself requested.
 
 ## Required peers
 
