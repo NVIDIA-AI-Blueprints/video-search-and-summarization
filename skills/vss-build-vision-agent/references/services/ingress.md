@@ -47,12 +47,15 @@ deploys, the routes each consumer of the origin needs:
 | Human **browse** | `/kibana`, `/vst`, `/storage`, `/video-analytics-api`, and (combined only) `/alert-bridge` |
 | Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
 
-The operate set is exactly what `vss configure` probes to resolve a deployment
-through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable headless
-build **must** carry it — post-#1469 `vss search run` takes no endpoints, so a
-build missing these routes is **unqueryable from the host CLI** (no ingress-less
-read path). RT-VLM is never on the ingress (host-port resolved), so it is in
-neither set.
+The operate set is the read-path subset of what `vss configure` probes to resolve
+a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
+headless build **must** carry it — post-#1469 `vss search run` takes no endpoints,
+so a build missing these routes is **unqueryable from the host CLI** (no
+ingress-less read path). `vss configure` also probes `/rtvi-vlm`, but RT-VLM is
+host-port resolved and deliberately **not** fronted here — it records `absent`,
+which is expected and harmless because no read path consumes it. Do not add the
+route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
+through HAProxy.
 
 - **Curated (patch).** Mount a trimmed config via a `patches/<haproxy>.yml`
   service-definition patch that overrides the config volume, keeping the browse +

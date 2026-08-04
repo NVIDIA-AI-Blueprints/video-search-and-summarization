@@ -144,23 +144,24 @@ Call each resolved consumer with the Step-1 source URL (storage URL for an uploa
 live proxy for a live stream); RT-VLM on an upload takes its `file_id` instead:
 
 ```bash
-# RT-CV — detection/tracking (sensor envelope):
+# RT-CV — detection/tracking (sensor envelope). Header x-stream-id: <sensorId>.
 POST http://localhost:<rtvi-cv-port>/api/v1/stream/add
-#   {"key":"sensor","value":{"camera_id":"<id>","camera_url":"<vios-url>",
-#     "change":"camera_add","creation_time":"<upload-anchor>"},
+#   {"key":"sensor","value":{"camera_id":"<sensorId>","camera_name":"<source-name>",
+#     "camera_url":"<vios-url>","change":"camera_add","creation_time":"<upload-anchor>"},
 #    "headers":{"source":"vst","created_at":"<upload-anchor>"}}
+#   camera_id = the Step-1 sensorId, camera_name = the source name (see the shared-id rule).
 #   Upload: creation_time + created_at REQUIRED; RTSP: omit both (see upload-date rule).
 
 # RT-Embed — chunk embeddings (only when embeddings/retrieval is resolved).
 # The two origins drive the endpoint differently:
 #   Upload (VOD): one synchronous call, no register, no teardown —
-POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # {"url":"<vios-storage-url>","id":"<id>","model":"<resolved>","creation_time":"<upload-anchor>","chunk_duration":<n>}
+POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-stream-id: <sensorId>; body {"url":"<vios-storage-url>","id":"<sensorId>","model":"<resolved>","creation_time":"<upload-anchor>","chunk_duration":<n>}
 #     accept: application/json; blocks until the bounded clip finishes
-#     (read usage.total_chunks_processed). creation_time REQUIRED (see upload-date
-#     rule). No stream:true, no /v1/streams/add.
+#     (read usage.total_chunks_processed). id = the Step-1 sensorId (see the shared-id
+#     rule). creation_time REQUIRED (see upload-date rule). No stream:true, no /v1/streams/add.
 #   Live (RTSP): register, then fire-and-verify — do NOT hold the SSE open —
-POST http://localhost:<rt-embed-port>/v1/streams/add                 # register the live proxy
-POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # {"id":"<id>","model":"<resolved>","stream":true,"chunk_duration":<n>}
+POST http://localhost:<rt-embed-port>/v1/streams/add                 # register the live proxy (header x-stream-id: <sensorId>)
+POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-stream-id: <sensorId>; body {"id":"<sensorId>","model":"<resolved>","stream":true,"chunk_duration":<n>}
 #     open, confirm HTTP 200, then CLOSE. The server keeps embedding and publishing
 #     to Kafka after you disconnect (closing the SSE does not stop it, and Kafka
 #     publishing does not require it held open); stop with
@@ -180,6 +181,18 @@ them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
 [`integrate-vios-service.md`](integrate-vios-service.md) +
 [`nvstreamer-api-reference.md`](nvstreamer-api-reference.md); RT-VLM
 `vss-deploy-dense-captioning` `integrate-rt-vlm.md`.
+
+## The shared-id rule
+
+Every consumer must key on the **one VST `sensorId` returned at Step 1** — exactly as
+the agent's `video_ingest`/`rtsp_ingest` do (VOD and RTSP alike). Thread that `sensorId`
+verbatim as RT-CV `camera_id`, RT-Embed `id`, and the `x-stream-id` header on **both**
+calls (`x-stream-id` pins the stream to a worker under an SDR-fronted RTVI deployment).
+Set RT-CV `camera_name` to the canonical **source name** (distinct from the id): embed
+keys on the `sensorId`, behavior and raw on the name, and the search read path resolves
+each accordingly. Never let a consumer mint its own id — given no `id`,
+RT-Embed generates its own asset UUID and its embeddings land under a `sensor.id` no name-
+or sensor-scoped query can reach.
 
 ## The upload-date rule
 
