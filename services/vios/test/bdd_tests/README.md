@@ -110,6 +110,8 @@ bdd_tests/
 │       ├── sensor_management/
 │       ├── storage_management/
 │       ├── stream_recorder/
+│       ├── ingress/
+│       ├── nvstreamer/
 │       └── mcp_gateway/
 │
 ├── scripts/                       # Utility scripts
@@ -120,14 +122,15 @@ bdd_tests/
 └── reports/                       # Generated test reports
     ├── report.html               # pytest HTML test report
     ├── junit.xml                 # JUnit XML report
-    ├── unit_tests/               # Per-service unit test CSVs
-    │   ├── live_stream.csv
-    │   ├── replay_stream.csv
-    │   ├── rtsp_proxy.csv
+    ├── unit_tests/               # Per-container unit test CSVs / JUnit
     │   ├── sensor_management.csv
-    │   ├── storage_management.csv
-    │   ├── stream_recorder.csv
-    │   └── mcp_gateway.csv
+    │   ├── streamprocessing.csv
+    │   ├── ingress.csv
+    │   ├── nvstreamer.csv
+    │   ├── vst-sensor.xml
+    │   ├── vst-streamprocessing.xml
+    │   ├── vst-ingress.xml
+    │   └── vst-nvstreamer.xml
     ├── stats/                    # Container resource monitoring
     │   ├── container_stats.json
     │   ├── container_stats.csv
@@ -385,6 +388,8 @@ API endpoint validation tests for each VST microservice. Each service produces i
 | Sensor Management | 13 | list, status, streams, info, qos, system/stats, timelines, version, help, configuration (+ per-sensor variants) |
 | Storage Management | 7 | size, info, version, help, configuration, file/list, file/protected |
 | Stream Recorder | 5 | streams, version, help, configuration, timelines |
+| Ingress | 4 | /health, sensor proxy, streamprocessing proxy, unknown-route 4xx |
+| NVStreamer | 11 | ready probes, version/list/help, upload→streams→info→mediainfo→RTSP→delete, POST transcode |
 | MCP Gateway | 16 | sensor tools, recording tools, picture tools, storage tools (via MCP protocol) |
 
 **Running all unit tests (generates per-service CSVs):**
@@ -426,6 +431,11 @@ poetry run pytest tests/unit_tests/stream_recorder/ \
     --csv=reports/unit_tests/stream_recorder.csv \
     --override-ini="addopts=" -v --tb=short --disable-container-monitor
 
+# NVStreamer (hits :31000; override with NVSTREAMER_ENDPOINTS or nvstreamer.host)
+poetry run pytest tests/unit_tests/nvstreamer/test_nvstreamer_api.py \
+    --csv=reports/unit_tests/nvstreamer.csv \
+    --override-ini="addopts=" -v --tb=short --disable-container-monitor
+
 # MCP Gateway
 poetry run pytest tests/unit_tests/mcp_gateway/ \
     --csv=reports/unit_tests/mcp_gateway.csv \
@@ -437,7 +447,10 @@ poetry run pytest tests/unit_tests/mcp_gateway/ \
 - `--disable-container-monitor` prevents redundant monitor start/stop per service
 - WebRTC signaling endpoints are excluded (require full WebRTC handshake)
 - MCP tests require the MCP gateway to be running (port 8001 by default)
-
+- NVStreamer tests target port 31000 (not ingress 30888). `run_unit_tests.sh` writes
+  `vst-nvstreamer.xml` / `nvstreamer.csv` for the dashboard container row.
+- Opt-in route-mode tests under `tests/unit_tests/nvstreamer_routes/` stay gated by
+  `RUN_NVSTREAMER_ROUTE_TESTS=1` and are not part of the default container group.
 ## Configuration
 
 All tests are configured via `config.json`:
