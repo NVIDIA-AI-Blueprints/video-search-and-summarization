@@ -66,6 +66,14 @@ rtspLatency: ""
 rtspReconnectionInterval: "5"
 rtspReconnectionMaxAttempts: "10"
 rtspReconnectionWindow: "60"
+assetDownloadConnectTimeout: "10"
+assetDownloadTotalTimeout: "300"
+assetDownloadMaxFileSizeGb: 8
+assetDownloadSslSkipVerifyDomains: ""
+assetDownloadMaxRedirects: "0"
+fileUrlAllowedDirs: ""
+maxAssetStorageSizeGb: ""
+assetMaxAgeHours: "0"
 
 resources:
   limits:

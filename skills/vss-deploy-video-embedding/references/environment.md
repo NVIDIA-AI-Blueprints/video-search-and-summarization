@@ -66,6 +66,13 @@ Several host-side variables map to differently named container variables. The Co
 | `REDIS_PASSWORD` | Redis password. | (empty) |
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Maximum seconds for a URL asset download. | `300` |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Connection timeout for asset downloads. | `10` |
+| `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` | Max file size for HTTP/data URI asset ingestion. | `8` |
+| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains where RT-Embed should skip TLS verification for asset downloads. | (empty) |
+| `ASSET_DOWNLOAD_MAX_REDIRECTS` | Max redirect hops for URL downloads. `0` disables redirects. | `0` |
+| `ASSET_DOWNLOAD_AUTH_TOKENS` | Optional server-level auth headers for URL downloads, formatted as `domain=Bearer token` entries separated by semicolons. | (empty) |
+| `FILE_URL_ALLOWED_DIRS` | Comma-separated allow-list for `file://` URL access. Empty disables `file://` URLs. | (empty) |
+| `MAX_ASSET_STORAGE_SIZE_GB` | Optional numeric max asset storage size in GB for eviction. | (empty) |
+| `ASSET_MAX_AGE_HOURS` | TTL-based asset eviction in hours. `0` disables TTL eviction. | `0` |
 | `ENABLE_REQUEST_PROFILING` | Per-request profiling. | `false` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list (constructed by Compose as `${HOST_IP}:9092`). | derived |
 
@@ -78,6 +85,7 @@ The following are credentials. Set them through `.env`, a secrets manager, or yo
 - `HF_TOKEN`
 - `REDIS_PASSWORD`
 - `REMOTE_EMBED_ENDPOINT_API_KEY`
+- `ASSET_DOWNLOAD_AUTH_TOKENS`
 
 ## Volume / Bind Variables
 

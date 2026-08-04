@@ -108,6 +108,13 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `REDIS_PASSWORD` | Redis password. | (empty) | Yes when the Redis instance requires auth |
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Maximum seconds for a URL asset download. | `300` | No |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Connection timeout (seconds) for asset downloads. | `10` | No |
+| `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` | Max file size for HTTP/data URI asset ingestion. | `8` | No |
+| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains where RT-Embed should skip TLS verification for asset downloads. | (empty) | No |
+| `ASSET_DOWNLOAD_MAX_REDIRECTS` | Max redirect hops for URL downloads. `0` disables redirects. | `0` | No |
+| `ASSET_DOWNLOAD_AUTH_TOKENS` | Optional server-level auth headers for URL downloads, formatted as `domain=Bearer token` entries separated by semicolons. | (empty) | No |
+| `FILE_URL_ALLOWED_DIRS` | Comma-separated allow-list for `file://` URL access. Empty disables `file://` URLs. | (empty) | No |
+| `MAX_ASSET_STORAGE_SIZE_GB` | Optional numeric max asset storage size in GB for eviction. | (empty) | No |
+| `ASSET_MAX_AGE_HOURS` | TTL-based asset eviction in hours. `0` disables TTL eviction. | `0` | No |
 | `ENABLE_REQUEST_PROFILING` | Per-request profiling. | `false` | No |
 | `NGC_MODEL_CACHE` | Optional bind/named volume override for the NGC model cache. | Named volume `rtvi-ngc-model-cache` | No |
 | `RTVI_EMBED_HF_CACHE` | Optional bind/named volume override for the Hugging Face cache. | Named volume `rtvi-hf-cache` | No |
