@@ -130,10 +130,10 @@ jobs:
         run: |
           set -euo pipefail
           success=()
-          summary="The protected downstream OSRB review did not approve this change. See the PR review."
+          summary="This change needs attention. Read the automated PR review and linked License Diff, then correct the dependency or work with the OSRB owner before pushing an update."
           if [[ "$TRIGGER_OUTCOME" == "success" && "$POLL_OUTCOME" == "success" ]]; then
             success=(--success)
-            summary="The protected downstream OSRB review approved this change."
+            summary="The reported dependency changes passed OSRB review. No further OSRB action is required; normal required checks and CODEOWNERS review still apply."
           fi
           python3 .github/scripts/osrb_check.py complete \
             --repo "$REPO" \

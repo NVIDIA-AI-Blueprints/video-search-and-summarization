@@ -14,6 +14,8 @@ from unittest import mock
 
 DIRECTORY = Path(__file__).parent
 WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-review.yml"
+LICENSE_WORKFLOW = DIRECTORY.parent / "workflows" / "license-diff.yml"
+DEVELOPER_GUIDE = DIRECTORY.parent / "OSRB_REVIEW.md"
 
 
 def load_python(name: str, path: Path):
@@ -52,6 +54,17 @@ class DispatchTests(unittest.TestCase):
     def test_check_external_id_is_private_pipeline_scoped(self) -> None:
         self.assertEqual(check.EXTERNAL_PREFIX, "gitlab-osrb:")
 
+    def test_check_links_to_public_developer_instructions(self) -> None:
+        repo = "NVIDIA-AI-Blueprints/video-search-and-summarization"
+        self.assertEqual(
+            check.guide_url(repo),
+            f"https://github.com/{repo}/blob/main/.github/OSRB_REVIEW.md",
+        )
+        self.assertIn(
+            "[How to respond to this check]",
+            check.summary_with_guide(repo, "Review passed."),
+        )
+
     def test_dispatch_passes_canonical_license_diff_run_url(self) -> None:
         workflow = WORKFLOW.read_text()
         self.assertIn(
@@ -60,6 +73,14 @@ class DispatchTests(unittest.TestCase):
         )
         self.assertIn('LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}', workflow)
         self.assertIn('--run-url "$LICENSE_RUN_URL"', workflow)
+
+    def test_github_output_explains_developer_actions(self) -> None:
+        guide = DEVELOPER_GUIDE.read_text()
+        license_workflow = LICENSE_WORKFLOW.read_text()
+        self.assertIn("### OSRB Review fails or is inconclusive", guide)
+        self.assertIn("Do not paste private ticket comments", guide)
+        self.assertIn("### What to do", license_workflow)
+        self.assertIn("Developer instructions", license_workflow)
 
 
 if __name__ == "__main__":

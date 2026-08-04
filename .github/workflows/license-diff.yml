@@ -149,6 +149,7 @@ jobs:
           BASE: ${{ steps.ctx.outputs.base }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          GUIDE_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/.github/OSRB_REVIEW.md
         run: |
           set -euo pipefail
           marker='<!-- license-diff-osrb -->'
@@ -156,7 +157,7 @@ jobs:
             echo "$marker"
             echo "## License Diff for OSRB"
             echo
-            echo "**${ROWS}** changed packages require OSRB review (vs \`${BASE}\`)."
+            echo "**${ROWS}** package changes were detected (vs \`${BASE}\`)."
             echo "Download the full CSV directly: [\`license-diff.csv\`](${ARTIFACT_URL}) (or browse the [workflow run](${RUN_URL}))."
             echo
             cat diff-table.md
@@ -168,8 +169,13 @@ jobs:
             echo '```'
             echo "</details>"
             echo
-            echo "_The trusted **OSRB Review** follow-up sends this artifact to the protected compliance pipeline."
-            echo "It approves already-cleared changes or blocks with the missing evidence. CODEOWNERS remains the final merge gate._"
+            echo "### What to do"
+            echo
+            echo "Wait for the **OSRB Review** check. If it passes, no further OSRB action is required."
+            echo "If it fails or is inconclusive, read the automated PR review and correct the reported issue before pushing an update."
+            echo "Do not paste private approval evidence into this public PR."
+            echo
+            echo "[Developer instructions](${GUIDE_URL}) · CODEOWNERS remains the final merge gate."
           } > comment.md
           existing=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
             --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id")

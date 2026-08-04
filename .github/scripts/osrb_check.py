@@ -23,6 +23,14 @@ class CheckError(RuntimeError):
     """A GitHub check operation failed."""
 
 
+def guide_url(repo: str) -> str:
+    return f"https://github.com/{repo}/blob/main/.github/OSRB_REVIEW.md"
+
+
+def summary_with_guide(repo: str, summary: str) -> str:
+    return f"{summary}\n\n[How to respond to this check]({guide_url(repo)})"
+
+
 def token() -> str:
     value = os.environ.get("GITHUB_TOKEN", "").strip()
     if not value:
@@ -82,7 +90,11 @@ def start(repo: str, sha: str, run_url: str, external_id: str) -> None:
         "started_at": datetime.now(timezone.utc).isoformat(),
         "output": {
             "title": "Private OSRB review is running",
-            "summary": "The protected downstream compliance pipeline is evaluating this PR.",
+            "summary": summary_with_guide(
+                repo,
+                "Wait for this check to finish before merging. "
+                "The protected compliance reviewer is evaluating the public License Diff.",
+            ),
         },
     }
     existing = find_check(repo, sha, external_id)
@@ -115,7 +127,7 @@ def complete(
             "details_url": run_url,
             "output": {
                 "title": "OSRB review passed" if success else "OSRB review needs attention",
-                "summary": summary,
+                "summary": summary_with_guide(repo, summary),
             },
         },
     )
