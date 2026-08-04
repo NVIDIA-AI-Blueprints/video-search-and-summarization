@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("license_diff_csv.py")
@@ -174,6 +175,27 @@ dependencies = [
             },
             set(inventory),
         )
+
+
+class DiffRequirementsTest(unittest.TestCase):
+    @mock.patch.object(license_diff_csv, "pypi_metadata")
+    def test_version_bump_resolves_both_license_versions(self, metadata: mock.Mock) -> None:
+        metadata.side_effect = [
+            {"license": "MIT", "repository_url": "https://example.com/old"},
+            {"license": "MPL-2.0", "repository_url": "https://example.com/new"},
+        ]
+
+        rows = license_diff_csv.diff_requirements(
+            {"demo": "1.0.0"},
+            {"demo": "2.0.0"},
+            set(),
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["old_license"], "MIT")
+        self.assertEqual(rows[0]["new_license"], "MPL-2.0")
+        self.assertEqual(rows[0]["repository_url"], "https://example.com/new")
+        self.assertIn("license changed", rows[0]["notes"])
 
 
 if __name__ == "__main__":
