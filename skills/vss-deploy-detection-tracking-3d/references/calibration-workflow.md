@@ -260,7 +260,7 @@ if jq -e '
 fi
 ```
 
-### 4b — Synthesize `images/Top.png` + `imageMetadata.json` (extended profile only)
+### 4b — Synthesize `images/Top.png` + `imageMetadata.json` (extended service list only)
 
 `vss-import-calibration-output-mv3dt` (deployed under `MINIMAL_PROFILE=""`) requires both files; it exits 1 with `imageMetadata.json not found at /opt/vss/images/imageMetadata.json` otherwise, leaving the overlay index unpopulated in Elasticsearch. The AMC export doesn't produce them — synthesize from the user-supplied layout (or any AMC project output PNG as a fallback). Place hierarchy is derived from the patched `calibration.json` so the two stay in sync.
 
@@ -315,7 +315,7 @@ If no candidate PNG is available (rare — most users have a layout for the AMC 
 ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null | wc -l   # must equal user's camera count
 test -f "${CAL_DIR}/calibration.json" && jq -e '.sensors | length' "${CAL_DIR}/calibration.json" >/dev/null && echo "calibration.json OK"
 jq -e '(.sensors[0].group.name // "") != ""' "${CAL_DIR}/calibration.json" >/dev/null && echo "group/region/place populated"
-# Extended profile only:
+# Extended service list only:
 test -f "${CAL_DIR}/images/Top.png" && test -f "${CAL_DIR}/images/imageMetadata.json" && echo "overlay assets OK"
 ```
 
@@ -332,7 +332,7 @@ Project state under `${VSS_APPS_DIR}/services/auto-calibration/projects/project_
 Calibration is now on disk at `${CAL_DIR}`. Hand back to the parent flow:
 
 1. Walk [`configure-cameras.md`](configure-cameras.md) — run Step 0 to normalize AMC/VGGT sensor IDs and video names to `Camera, Camera_01, ...`, then set `NUM_STREAMS` to the `camInfo/*.yaml` count and sync DeepStream batch sizes.
-2. For `rtsp`, create or update `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json` before final deploy. Use the ordered RTSP URLs from AMC capture, and use the normalized sensor IDs from `${CAL_DIR}/calibration.json` as each `camera_name`. Set `SENSOR_INFO_SOURCE=file` and `SENSOR_FILE_PATH` in `.env`; [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) shows the schema and validates it.
+2. For `rtsp`, create or update `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json` before final deploy. Use the ordered RTSP URLs from AMC capture, and use the normalized sensor IDs from `${CAL_DIR}/calibration.json` as each `camera_name`. Set `SENSOR_INFO_SOURCE=file` and `SENSOR_FILE_PATH` in the active `generated.env`; [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) shows the schema and validates it.
 3. Walk [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) — `docker compose up` with `MODE=mv3dt` + `BP_PROFILE=bp_wh_kafka` + `MINIMAL_PROFILE=""` (extended, the Q0 default — overlays enabled). Use `MINIMAL_PROFILE="true"` only if the user explicitly chose minimal in Q0.
 4. Walk [`verify-and-view.md`](verify-and-view.md) — confirm perception FPS, BEV ready, VST video wall.
 

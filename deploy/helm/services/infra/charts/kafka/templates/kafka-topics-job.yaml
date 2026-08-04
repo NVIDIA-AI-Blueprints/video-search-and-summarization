@@ -22,7 +22,9 @@ metadata:
     {{- include "kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: kafka-topics-init
 spec:
-  ttlSecondsAfterFinished: {{ .Values.topicJob.ttlSecondsAfterFinished }}
+  {{- with .Values.topicJob.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   backoffLimit: {{ .Values.topicJob.backoffLimit }}
   template:
     metadata:

@@ -27,9 +27,11 @@ interface AnalyticsOverlayDialogProps {
     onSave: (settings: { overlay: StreamOverlayOptions; composite?: StreamCompositeOptions; framerate?: number }, tag?: string) => void;
     sensors?: Sensor[];
     streamType?: StreamType;
+    /** Portal container for the dialog. Set to the fullscreen element so it is visible in fullscreen. */
+    container?: Element | null;
 }
 
-const AnalyticsOverlayDialog: React.FC<AnalyticsOverlayDialogProps> = ({ open, onClose, onSave, sensors, streamType }) => {
+const AnalyticsOverlayDialog: React.FC<AnalyticsOverlayDialogProps> = ({ open, onClose, onSave, sensors, streamType, container }) => {
     const panelRef = useRef<OverlaySettingsPanelHandle>(null);
 
     const handleSave = () => {
@@ -38,7 +40,7 @@ const AnalyticsOverlayDialog: React.FC<AnalyticsOverlayDialogProps> = ({ open, o
     };
 
     return (
-        <Dialog open={open} onClose={onClose} maxWidth='md' fullWidth>
+        <Dialog open={open} onClose={onClose} maxWidth='md' fullWidth container={container}>
             <DialogTitle
                 sx={{
                     borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
@@ -49,7 +51,13 @@ const AnalyticsOverlayDialog: React.FC<AnalyticsOverlayDialogProps> = ({ open, o
                 Analytics Overlay Settings
             </DialogTitle>
             <DialogContent sx={{ p: 0 }}>
-                <OverlaySettingsPanel ref={panelRef} onSettingsChange={onSave} sensors={sensors} streamType={streamType} />
+                <OverlaySettingsPanel
+                    ref={panelRef}
+                    onSettingsChange={onSave}
+                    sensors={sensors}
+                    streamType={streamType}
+                    menuContainer={container}
+                />
             </DialogContent>
             <DialogActions
                 sx={{

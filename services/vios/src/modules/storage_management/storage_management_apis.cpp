@@ -28,12 +28,111 @@
 #include <atomic>
 #include <memory>
 #include <random>
+#include <algorithm>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 #include "VideoGeneratorTaskManager.h"
 #include "HttpServerRequestHandler.h"
 #include "vstmodule.h"
 #include "health_probes.h"
 
 using namespace std;
+
+// Implementation of StorageManagement::computeConfigHash (declared in
+// storage_management.h). Defined here rather than in storage_management.cpp
+// because it sits next to the /url-flow code that uses it.
+//
+// Only fields that change the produced video bytes belong in this hash.
+// Cache-lifetime knobs (expiryMinutes, blocking) and presentation-only
+// params must NOT be included or the cache will fragment for no reason.
+string StorageManagement::computeConfigHash(const string& enableOverlay,
+                        const string& container,
+                        const string& disableAudio,
+                        const string& transcode,
+                        const string& uselibav,
+                        const string& frameRate,
+                        const OverlayBBoxParams* overlay)
+{
+    Json::Value root(Json::objectValue);
+    root["enableOverlay"] = enableOverlay;
+    root["container"]     = container;
+    root["disableAudio"]  = disableAudio;
+    root["transcode"]     = transcode;
+    root["uselibav"]      = uselibav;
+    root["frameRate"]     = frameRate;
+
+    if (overlay && enableOverlay == "true")
+    {
+        Json::Value ol(Json::objectValue);
+        ol["enableBbox"]        = overlay->m_enableBbox;
+        ol["enableTripwire"]    = overlay->m_enableTripwire;
+        ol["enableROI"]         = overlay->m_enableROI;
+        ol["enableSensorName"]  = overlay->m_enableSensorNameText;
+        ol["sensorNamePosX"]    = overlay->m_sensorNameTextPosX;
+        ol["sensorNamePosY"]    = overlay->m_sensorNameTextPosY;
+        ol["enableGodsEyeView"] = overlay->m_enableGodsEyeView;
+        ol["enablePose"]        = overlay->m_enablePose;
+        ol["enableBboxId"]      = overlay->m_enableBboxId;
+        ol["enableHalos"]       = overlay->m_enableHalos;
+        ol["bboxThickness"]     = static_cast<Json::UInt>(overlay->m_bboxThickness);
+        ol["bboxOpacity"]       = static_cast<Json::UInt>(overlay->m_bboxOpacity);
+        ol["bboxColor"]         = overlay->m_bboxColor;
+        ol["bboxDebug"]         = overlay->m_bboxDebug;
+        ol["bboxDebugFontSize"] = overlay->m_bboxDebugFontSize;
+        ol["bboxIdPosition"]    = static_cast<int>(overlay->m_bboxIdPosition);
+        ol["bboxIdColor"]       = overlay->m_bboxIdColor;
+        ol["bboxIdBgColor"]     = overlay->m_bboxIdBgColor;
+        ol["proximityClass"]    = overlay->m_proximityClass;
+        ol["entrantClass"]      = overlay->m_entrantClass;
+        // max_digits10 preserves every distinct double value while the
+        // classic locale keeps the decimal representation stable.
+        std::ostringstream proximityAreaFactor;
+        proximityAreaFactor.imbue(std::locale::classic());
+        proximityAreaFactor
+            << std::setprecision(std::numeric_limits<double>::max_digits10)
+            << overlay->m_proximityAreaFactor;
+        ol["proximityAreaFactor"] = proximityAreaFactor.str();
+        ol["proximityAnimation"]  = overlay->m_proximityAnimation;
+
+        // Sort the bbox ID list so URL parameter order does not fragment
+        // the cache. TRIPWIRE/ROI slots are not populated by the /url
+        // overlay JSON parser; they are reserved for other code paths and
+        // would just hash to empty arrays here, so we skip them.
+        {
+            std::vector<std::string> sortedBbox = overlay->m_overlayIdList[BBOX];
+            std::sort(sortedBbox.begin(), sortedBbox.end());
+            Json::Value arr(Json::arrayValue);
+            for (const auto& s : sortedBbox) { arr.append(s); }
+            ol["overlayIdList_bbox"] = arr;
+        }
+        {
+            std::vector<std::string> sortedClass = overlay->m_overlayClassTypeList;
+            std::sort(sortedClass.begin(), sortedClass.end());
+            Json::Value arr(Json::arrayValue);
+            for (const auto& s : sortedClass) { arr.append(s); }
+            ol["overlayClassTypeList"] = arr;
+        }
+        // m_colorCode: map ordering is already deterministic (std::map).
+        Json::Value colorMap(Json::objectValue);
+        for (const auto& kv : overlay->m_colorCode)
+        {
+            Json::Value arr(Json::arrayValue);
+            for (int v : kv.second) { arr.append(v); }
+            colorMap[kv.first] = arr;
+        }
+        ol["colorCode"] = colorMap;
+
+        root["overlay"] = ol;
+    }
+
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    const std::string serialized = Json::writeString(builder, root);
+
+    return vst_common::computeStableHash(serialized);
+}
 
 static string gStorageManagementApiList = R"([
         {"method": "GET - To get total used storage size and used storage size for each recorded streams", "endpoint": "/api/v1/storage/size"},
@@ -70,6 +169,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/configuration"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -83,6 +188,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/version"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -99,6 +210,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/help"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         Json::CharReaderBuilder builder;
         std::istringstream iss(gStorageManagementApiList);
 
@@ -131,6 +248,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/file/mediainfo"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -157,13 +280,19 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
     m_func["/api/v1/storage/file/protect"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -175,6 +304,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/info"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -186,6 +321,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/file/protected"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -199,6 +340,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/aging"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -210,6 +357,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/size/update"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -221,6 +374,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/capacity"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -232,6 +391,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/file/list"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -270,8 +435,8 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, out, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, out, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
@@ -286,8 +451,8 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
@@ -347,8 +512,8 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
@@ -389,8 +554,8 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            ret = VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            ret = VmsErrorCode::MethodNotAllowedError;
         }
     }
     /* Upload API*/
@@ -706,8 +871,8 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
             }
             else
             {
-                SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-                ret = VmsErrorCode::VMSNotSupportedError;
+                SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+                ret = VmsErrorCode::MethodNotAllowedError;
             }
         }
         else if((iequals(requestMethod, "delete")) && (requestApi.find(STORAGE_FILE_API_PREFIX) != string::npos))
@@ -761,14 +926,14 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
             }
             else
             {
-                SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-                ret = VmsErrorCode::VMSNotSupportedError;
+                SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+                ret = VmsErrorCode::MethodNotAllowedError;
             }
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            ret = VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            ret = VmsErrorCode::MethodNotAllowedError;
         }
     }
     else if (requestApi.find(STORAGE_API_PREFIX) != string::npos)
@@ -890,20 +1055,20 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
             }
             else
             {
-                SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-                ret = VmsErrorCode::VMSNotSupportedError;
+                SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+                ret = VmsErrorCode::MethodNotAllowedError;
             }
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            ret = VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            ret = VmsErrorCode::MethodNotAllowedError;
         }
     }
     else
     {
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        ret = VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        ret = VmsErrorCode::MethodNotAllowedError;
     }
     return ret;
 }
@@ -1075,9 +1240,10 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                         else
                         {
                             // Handle bboxObjectId
-                            if (opts.count("bboxObjectId") && !opts.at("bboxObjectId").empty())
+                            if ((opts.count("bboxObjectId") && !opts.at("bboxObjectId").empty()) ||
+                                (opts.count("overlayObjectId") && !opts.at("overlayObjectId").empty()))
                             {
-                                string bboxIds = opts.at("bboxObjectId");
+                                string bboxIds = opts.count("bboxObjectId") ? opts.at("bboxObjectId") : opts.at("overlayObjectId");
                                 auto tokens = splitString(bboxIds, ",");
                                 for (const auto& token : tokens)
                                 {
@@ -1089,9 +1255,10 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                             }
 
                             // Handle bboxClassType
-                            if (opts.count("bboxClassType") && !opts.at("bboxClassType").empty())
+                            if ((opts.count("bboxClassType") && !opts.at("bboxClassType").empty()) ||
+                                (opts.count("overlayClassType") && !opts.at("overlayClassType").empty()))
                             {
-                                string classTypes = opts.at("bboxClassType");
+                                string classTypes = (opts.count("bboxClassType") && !opts.at("bboxClassType").empty()) ? opts.at("bboxClassType") : opts.at("overlayClassType");
                                 auto tokens = splitString(classTypes, ",");
                                 for (const auto& token : tokens)
                                 {
@@ -1152,15 +1319,56 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                 }
                 if (opts.count("overlayThickness"))
                 {
-                    olParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), DEFAULT_BBOX_WIDTH);
+                    olParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), getDefaultBboxWidth());
                 }
                 if (opts.count("overlayDebug"))
                 {
                     olParams.m_bboxDebug = opts.at("overlayDebug") == "true";
                 }
+                if (opts.count("overlayDebugFontSize") && !opts.at("overlayDebugFontSize").empty())
+                {
+                    olParams.m_bboxDebugFontSize = stringToInt(opts.at("overlayDebugFontSize"), 0);
+                }
                 if (opts.count("overlayPose"))
                 {
                     olParams.m_enablePose = opts.at("overlayPose") == "true";
+                }
+                if (opts.count("overlayProximityClass") && !opts.at("overlayProximityClass").empty())
+                {
+                    olParams.m_proximityClass = opts.at("overlayProximityClass");
+                }
+                if (opts.count("overlayEntrantClass") && !opts.at("overlayEntrantClass").empty())
+                {
+                    olParams.m_entrantClass = opts.at("overlayEntrantClass");
+                }
+                if (opts.count("overlayColorCode") && !opts.at("overlayColorCode").empty())
+                {
+                    string colorCode = opts.at("overlayColorCode");
+                    auto tokens = splitString(colorCode, ",");
+                    for (uint i = 0; i < tokens.size(); i++)
+                    {
+                        // key=r:g:b:a,key=r:g:b:a,....
+                        auto keyValue = splitString(tokens[i], "=");
+                        if (keyValue.size() < 2)
+                        {
+                            continue;
+                        }
+                        auto rgba = splitString(keyValue[1], ":");
+                        std::vector<int> rgba_values;
+                        for (const auto& value : rgba)
+                        {
+                            rgba_values.push_back(stringToInt(value, 0));
+                        }
+                        olParams.m_colorCode[keyValue[0]] = rgba_values;
+                    }
+                }
+                if (opts.count("overlayProximityAreaFactor") && !opts.at("overlayProximityAreaFactor").empty())
+                {
+                    olParams.m_proximityAreaFactor = stringToDouble(opts.at("overlayProximityAreaFactor"), DEFAULT_PROXIMITY_AREA_FACTOR);
+                }
+                if (opts.count("overlayProximityAnimation") && !opts.at("overlayProximityAnimation").empty())
+                {
+                    olParams.m_proximityAnimation = opts.at("overlayProximityAnimation");
                 }
             }
         }
@@ -1329,6 +1537,11 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
             return ret;
         }
 
+        // Split point: everything up to here is file generation (makeVideoFile);
+        // handleMediaFileDownload below is the HTTP send to the client, which is
+        // bounded by client/network speed, not server compute.
+        auto generation_end_tp = std::chrono::steady_clock::now();
+
         // Handle URL generation request
         if (isURLRequested)
         {
@@ -1347,6 +1560,12 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
             params.overlayParams = olParams;  // Directly assign the value, will be wrapped in optional
             params.frameRate = frameRate;
             params.isCloudStream = isCloudStream;
+            // Partition the temp-file cache by output-affecting config so a
+            // request with a different overlay setup doesn't reuse an earlier
+            // cached file generated with a different overlay. See
+            // computeConfigHash() above for the field set.
+            params.configHash = computeConfigHash(enableOverlay, container, disableAudio,
+                                                  transcode, uselibav, frameRate, &olParams);
 
             // Parse blocking parameter to decide between sync and async generation
             string blockingStr;
@@ -1377,11 +1596,15 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
             }
 
             ret = storageMngt->handleMediaFileDownload(fileName, conn);
-            /* Log download block time */
+            /* Log download block time, split into server-side generation vs the
+             * client-bound HTTP send (send is bounded by client/network speed). */
             {
                 auto download_block_end_tp = std::chrono::steady_clock::now();
-                auto download_block_ms = std::chrono::duration_cast<std::chrono::milliseconds>(download_block_end_tp - download_block_start_tp).count();
-                LOG(warning) << "#### Download perf for streamId: " << streamId << " took: " << download_block_ms << " ms ####" << endl;
+                auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(download_block_end_tp - download_block_start_tp).count();
+                auto generation_ms = std::chrono::duration_cast<std::chrono::milliseconds>(generation_end_tp - download_block_start_tp).count();
+                auto send_ms = std::chrono::duration_cast<std::chrono::milliseconds>(download_block_end_tp - generation_end_tp).count();
+                LOG(warning) << "#### Download perf for streamId: " << streamId << " took: " << total_ms
+                             << " ms (generation: " << generation_ms << " ms, send: " << send_ms << " ms) ####" << endl;
             }
 
             bool isFileDeleted = deleteFile (fileName);
@@ -1549,6 +1772,16 @@ VmsErrorCode StorageManagement::generateReplayVideoUrlSync(const VideoGeneration
 // Helper method implementations
 bool StorageManagement::tryReuseCachedTempFile(const VideoGenerationParam& params, VideoUrlGenerationContext& context, Json::Value& response)
 {
+    // Operator kill switch: skip the cache-lookup step entirely so every
+    // /url request regenerates. Inserts still happen so cleanup/expiry
+    // continue to track every produced file.
+    if (GET_CONFIG().disable_url_caching)
+    {
+        LOG(info) << "[CACHE] disable_url_caching=true; bypassing video temp-file reuse "
+                  << "for streamId=" << params.streamId << endl;
+        return false;
+    }
+
     int64_t startMs = parseTimeToEpochMs(params.startTime);
     int64_t endMs = parseTimeToEpochMs(params.endTime);
 
@@ -1564,7 +1797,8 @@ bool StorageManagement::tryReuseCachedTempFile(const VideoGenerationParam& param
     }
 
     auto existing = dbHelper->findTempFileByStreamAndTime(
-        m_deviceId, params.streamId, startMs, endMs, nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO, params.container);
+        m_deviceId, params.streamId, startMs, endMs,
+        nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO, params.container, params.configHash);
 
     if (existing.file_path_value.empty() || !isFileExist(existing.file_path_value))
     {
@@ -1663,6 +1897,7 @@ VmsErrorCode StorageManagement::recordTempFileInDatabase(const VideoUrlGeneratio
             tempRec.end_time_ms_value = parseTimeToEpochMs(params.endTime);
             tempRec.file_type_value = nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO;
             tempRec.container_format_value = params.container;
+            tempRec.config_hash_value = params.configHash;
 
             int ins = dbHelper->insertTempFileRecord(tempRec);
             if (ins != 0)

@@ -23,8 +23,8 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 
 ## Common app keys (examples)
 - `in3dMode`: "false" (supports env var when value starts with `$`)
-- `coordinateSystem`: "image" | "euclidean" | "geo"
 - `imageLocationMode`: "center" | "bottom_center" (for image coordinate system, determines which point from bbox is used to calculate location; default: "bottom_center")
+- `roiEventDetectionMode`: "coordinate" | "bbox" (ROI ENTRY/EXIT test; "coordinate" [default] = object point inside ROI polygon, "bbox" = object bbox overlaps ROI polygon; "bbox" is image-calibration only, else falls back to coordinate)
 - `behaviorMaxPoints`: "200"
 - `sourceType` / `sinkType`: typically "kafka" (also supports `redisStream`, `mqtt`)
 - `spaceAnalyticsIntervalSec`: "5.0"
@@ -42,7 +42,7 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 ```json
 {
   "kafka": {
-    "brokers": "localhost:9092",
+    "brokers": "kafka:29092",
     "group": "my-app",
     "consumer": {"timeout": 0.1},
     "producer": {},
@@ -54,15 +54,17 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
   "sensors": [{"id": "default", "configs": []}],
   "app": [
     {"name": "behaviorMaxPoints", "value": "200"},
-    {"name": "coordinateSystem", "value": "image"}
+    {"name": "in3dMode", "value": "false"}
   ]
 }
 ```
 
+> **Broker address.** `kafka.brokers` (and `redisStream.host` / `mqtt.host`) are **Docker DNS service names** (`kafka:29092`, `redis:6379`) resolved on the VSS compose bridge network — the shipped configs use these. For a **standalone** deploy against a broker that isn't on that network, set them to a reachable `host:port` instead (the DNS names won't resolve on a lone bridge network).
+
 ## Incidents & frame state
 - All incident types (proximity, restricted area, confined area, FOV count) default to disabled (`...IncidentEnable = "false"`). Set the corresponding `...IncidentEnable = "true"` to turn them on.
 - Each type has its own `...Threshold` (duration in sec) and `...ExpirationWindow` (gap tolerance in sec); both default to `"1"`.
-- FOV count additionally requires `fovCountViolationIncidentObjectThreshold` — the object type being counted.
+- FOV count uses two keys: `fovCountViolationIncidentObjectType` — the object **class** to count (e.g. `person`; must match the detector's label casing) — and `fovCountViolationIncidentObjectThreshold` — the **count** above which an incident fires.
 - Details and timing: `video-search-and-summarization/services/analytics/behavior-analytics/docs/incident-detection.md`.
 
 ## Examples directory

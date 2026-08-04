@@ -108,14 +108,17 @@ ls "$SAMPLE_DIR"
 
 ## Run Inline (No File Written)
 
-Run the test on the fly — pipe Python into `python3` via heredoc so nothing is saved into the user's repo. The block below is fully self-contained: it resolves `REPO_ROOT` via `git rev-parse`, reads `MS_PORT` from the warehouse-operations `.env`, picks (or creates) a Python with `requests` installed, and then pipes the inline script. Safe to copy/paste verbatim. Each invocation creates a fresh project.
+Run the test on the fly — pipe Python into `python3` via heredoc so nothing is saved into the user's repo. The block below is fully self-contained: it resolves `REPO_ROOT` via `git rev-parse`, reads `MS_PORT` and `HOST_IP` from the warehouse runtime override env, picks (or creates) a Python with `requests` installed, and then pipes the inline script. Safe to copy/paste verbatim. Each invocation creates a fresh project.
 
 ```bash
 # Resolve env
 export REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-ENV_FILE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env"
-export MS_PORT="$(grep ^VSS_AUTO_CALIBRATION_PORT "$ENV_FILE" 2>/dev/null | cut -d= -f2)"
+ENV_STABLE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env"
+ENV_RUNTIME="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+[ -f "$ENV_RUNTIME" ] || ENV_RUNTIME="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
+export MS_PORT="$(grep ^VSS_AUTO_CALIBRATION_HOST_PORT "$ENV_RUNTIME" 2>/dev/null | cut -d= -f2)"
 export MS_PORT="${MS_PORT:-8010}"
+HOST_IP="$(grep ^HOST_IP "$ENV_RUNTIME" 2>/dev/null | cut -d= -f2 | tr -d '"')"
 export BASE_URL="http://${HOST_IP:-localhost}:${MS_PORT}/v1"
 # Optional: export SAMPLE_DIR=/abs/path/to/extracted/sample to override autodetection
 

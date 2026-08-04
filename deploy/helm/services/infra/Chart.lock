@@ -5,6 +5,9 @@ dependencies:
 - name: redis
   repository: file://./charts/redis
   version: 3.2.0
+- name: mosquitto
+  repository: file://./charts/mosquitto
+  version: 3.2.0
 - name: sdrc
   repository: file://./charts/sdrc
   version: 3.2.0
@@ -23,5 +26,5 @@ dependencies:
 - name: vss-broker-health-check
   repository: file://./charts/broker-health-check
   version: 3.2.0
-digest: sha256:900e583523428c862eb6d08d0d23dce10601bc7686ce924a4d8b59712f7be474
-generated: "2026-06-04T16:43:37.560719+05:30"
+digest: sha256:c0e63590221106967c80af85403704b9522f9bafecdb62534c642a346fbd8891
+generated: "2026-06-22T13:10:55.663615094-07:00"

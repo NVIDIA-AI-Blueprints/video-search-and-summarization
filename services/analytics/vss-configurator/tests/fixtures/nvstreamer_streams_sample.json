@@ -1,0 +1,20 @@
+[
+  {
+    "source": "preload",
+    "event": {
+      "camera_id": "cam-vst-01",
+      "camera_name": "cam-vst-01",
+      "camera_url": "rtsp://vst:554/live/01",
+      "change": "camera_streaming"
+    }
+  },
+  {
+    "source": "preload",
+    "event": {
+      "camera_id": "cam-vst-02",
+      "camera_name": "cam-vst-02",
+      "camera_url": "rtsp://vst:554/live/02",
+      "change": "camera_streaming"
+    }
+  }
+]

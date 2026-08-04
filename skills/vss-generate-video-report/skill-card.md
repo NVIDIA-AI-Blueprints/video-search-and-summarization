@@ -9,33 +9,28 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers producing structured video analysis reports from recorded clips (via VLM) or incident-range queries (via video analytics) within the NVIDIA Video Search and Summarization platform. <br>
+Developers and engineers use this skill to generate structured video analysis reports — either per-clip VLM analysis or incident-range narrative reports — from NVIDIA Video Search and Summarization (VSS) deployments. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
-
-## Requirements / Dependencies: <br>
-**Requires API Key or External Credential:** [Not Specified] <br>
-**Credential Type(s):** [None identified] <br>
-
-Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [Video Analysis Report Template](assets/video-analysis-report.md) <br>
-- [Incident Range Report Template](assets/incident-range-report.md) <br>
+- [Video Analysis Report Template](references/report-templates/video-analysis-report.md) <br>
+- [Incident Range Report Template](references/report-templates/incident-range-report.md) <br>
+- [Default VLM Prompt](references/default-vlm-prompt.md) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Markdown report] <br>
+**Output Type(s):** [Analysis, Markdown report] <br>
 **Output Format:** [Markdown] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [Mode A produces a Video Analysis Report; Mode B produces an Incident Range Report] <br>
+**Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
 - `claude-code` <br>
@@ -44,7 +39,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-3 evaluation tasks (3 positive skill-activation cases) via NVSkills-Eval external profile. <br>
+Evaluated against 3 evaluation tasks in the `external` NVSkills-Eval profile (environment: astra-sandbox, 1 attempt per task, 50% pass threshold). Overall verdict: PASS. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -69,13 +64,13 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 52% (+43%) | 23% (+20%) |
-| Discoverability | 3 | 8% (+0%) | 0% (+0%) |
-| Effectiveness | 3 | 68% (+67%) | 34% (+28%) |
+| Correctness | 3 | 51% (+43%) | 27% (+23%) |
+| Discoverability | 3 | 11% (+3%) | 0% (+0%) |
+| Effectiveness | 3 | 61% (+60%) | 37% (+34%) |
 | Efficiency | 3 | 26% (-0%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+3.2.9 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

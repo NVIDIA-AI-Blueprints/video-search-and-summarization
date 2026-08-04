@@ -169,6 +169,7 @@ def _task_toml(
     platform: str,
     mode: str,
     profile: str,
+    deploy_mode: str,
     step_idx: int,
     step_count: int,
     check_count: int,
@@ -177,11 +178,18 @@ def _task_toml(
     step_suffix: str,
 ) -> str:
     short = pspec["short_name"]
+    # Deploy-mode-aware label + keywords (verification CV vs VLM real-time).
+    is_cv = deploy_mode == "verification"
+    desc_label = "verification (CV)" if is_cv else "VLM real-time"
+    mode_keywords = '"cv", "verification"' if is_cv else '"vlm", "real-time"'
     lines = [
         "[task]",
         f'name = "nvidia-vss/vss-manage-alerts-{spec_stem}-{short}-{mode}{step_suffix}"',
-        f'description = "Alerts VLM real-time step {step_idx}/{step_count} on {platform}/{mode}"',
-        f'keywords = ["vss-manage-alerts", "vlm", "real-time", "{platform}", "{mode}"]',
+        f'description = "Alerts {desc_label} step {step_idx}/{step_count} on {platform}/{mode}"',
+        f'keywords = ["vss-manage-alerts", {mode_keywords}, "{platform}", "{mode}"]',
+        "",
+        "[agent]",
+        "timeout_sec = 600.0",
         "",
         "[environment]",
         'skills_dir = "/skills"',
@@ -225,6 +233,10 @@ def generate_platform_mode(
     short = pspec["short_name"]
     expects = rendered_spec.get("expects") or []
     profile: str = str(spec.get("profile", "alerts"))
+    # Deploy mode (real-time VLM vs verification CV), distinct from `mode`
+    # (LLM/VLM NIM placement); drives step-2+ context + task-metadata labels.
+    deploy_mode: str = str(spec.get("deploy_mode", "real-time"))
+    mode_label = "verification (CV)" if deploy_mode == "verification" else "real-time (VLM)"
 
     platform_dir = output_root / spec_stem / f"{short}-{mode}"
     platform_dir.mkdir(parents=True, exist_ok=True)
@@ -253,8 +265,8 @@ def generate_platform_mode(
         else:
             leading = [
                 f"Use the `/vss-manage-alerts` skill on this `{platform}` host.",
-                "The VSS **alerts** profile is already deployed in **real-time (VLM)** mode "
-                "with `remote-all` placement (deployed by step 1).",
+                f"The VSS **alerts** profile is already deployed in **{mode_label}** mode "
+                f"with `{mode}` placement (deployed by step 1).",
             ]
 
         instruction_lines = [
@@ -289,6 +301,7 @@ def generate_platform_mode(
             platform=platform,
             mode=mode,
             profile=profile,
+            deploy_mode=deploy_mode,
             step_idx=idx,
             step_count=len(expects),
             check_count=len(expect.get("checks") or []),

@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState, useEffect } from 'react';
 import {
     Paper,
@@ -154,7 +155,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
             // Set webApiUrl from project data, or use default if not found
             setWebApiUrl(projectData.webApiUrl || '');
         } catch (error) {
-            console.error('Failed to fetch project data:', error);
+            LOG.error('Failed to fetch project data:', error);
             setWebApiUrl(''); // fallback default
         } finally {
             setLoadingWebApiUrl(false);
@@ -187,7 +188,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                 // For cartesian calibration, (0,0) coordinates are valid as origin point
                 // Only skip if coordinates are undefined/null, not if they're zero
                 if (originLat === undefined || originLng === undefined || originLat === null || originLng === null) {
-                    console.warn(`Skipping sensor ${sensorId} due to undefined coordinates: lat=${originLat}, lng=${originLng}`);
+                    LOG.warn(`Skipping sensor ${sensorId} due to undefined coordinates: lat=${originLat}, lng=${originLng}`);
                     return;
                 }
 
@@ -214,7 +215,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                             }
                         });
                     } catch (e) {
-                        console.warn('Failed to parse ROI polygon:', e);
+                        LOG.warn('Failed to parse ROI polygon:', e);
                     }
 
                     // Parse tripwires for image calibration
@@ -247,7 +248,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                             }
                         });
                     } catch (e) {
-                        console.warn('Failed to parse tripwires:', e);
+                        LOG.warn('Failed to parse tripwires:', e);
                     }
 
                     const attributes = [
@@ -302,7 +303,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                             }));
                         }
                     } catch (e) {
-                        console.warn('Failed to parse sensor polygon:', e);
+                        LOG.warn('Failed to parse sensor polygon:', e);
                     }
 
                     // Parse edge lengths for global coordinates (matching ReactJS exactly)
@@ -327,10 +328,10 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                                 y: point.y / 100, // Note: DIVISION, not multiplication
                             }));
                         } else {
-                            console.warn(`Sensor ${sensorId} has no edge lengths data`);
+                            LOG.warn(`Sensor ${sensorId} has no edge lengths data`);
                         }
                     } catch (e) {
-                        console.warn('Failed to parse edge lengths:', e);
+                        LOG.warn('Failed to parse edge lengths:', e);
                     }
 
                     // Parse ROIs (matching ReactJS getCartesianPolygons)
@@ -364,10 +365,10 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                                 }
                             });
                         } else {
-                            console.warn(`Sensor ${sensorId} missing homography or invertImHeight for ROI transformation`);
+                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for ROI transformation`);
                         }
                     } catch (e) {
-                        console.warn('Failed to parse ROI polygon:', e);
+                        LOG.warn('Failed to parse ROI polygon:', e);
                     }
 
                     // Parse tripwires (matching ReactJS getCartesianPolygons)
@@ -417,10 +418,10 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                                 }
                             });
                         } else {
-                            console.warn(`Sensor ${sensorId} missing homography or invertImHeight for tripwire transformation`);
+                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for tripwire transformation`);
                         }
                     } catch (e) {
-                        console.warn('Failed to parse tripwires:', e);
+                        LOG.warn('Failed to parse tripwires:', e);
                     }
 
                     const attributes = [
@@ -511,7 +512,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                 // For cartesian calibration, (0,0) coordinates are valid as origin point
                 // Only skip if coordinates are undefined/null, not if they're zero
                 if (originLat === undefined || originLng === undefined || originLat === null || originLng === null) {
-                    console.warn(`Skipping sensor ${sensorId} due to undefined coordinates: lat=${originLat}, lng=${originLng}`);
+                    LOG.warn(`Skipping sensor ${sensorId} due to undefined coordinates: lat=${originLat}, lng=${originLng}`);
                     return;
                 }
 
@@ -532,7 +533,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                             }));
                         }
                     } catch (e) {
-                        console.warn('Failed to parse sensor polygon:', e);
+                        LOG.warn('Failed to parse sensor polygon:', e);
                     }
 
                     // Parse edge lengths for global coordinates
@@ -554,10 +555,10 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                                 y: point.y / 100,
                             }));
                         } else {
-                            console.warn(`Sensor ${sensorId} has no edge lengths data`);
+                            LOG.warn(`Sensor ${sensorId} has no edge lengths data`);
                         }
                     } catch (e) {
-                        console.warn('Failed to parse edge lengths:', e);
+                        LOG.warn('Failed to parse edge lengths:', e);
                     }
 
                     // Parse ROIs (matching ReactJS getCartesianPolygons)
@@ -591,10 +592,10 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                                 }
                             });
                         } else {
-                            console.warn(`Sensor ${sensorId} missing homography or invertImHeight for ROI transformation`);
+                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for ROI transformation`);
                         }
                     } catch (e) {
-                        console.warn('Failed to parse ROI polygon:', e);
+                        LOG.warn('Failed to parse ROI polygon:', e);
                     }
 
                     // Parse tripwires (matching ReactJS getCartesianPolygons)
@@ -644,10 +645,10 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                                 }
                             });
                         } else {
-                            console.warn(`Sensor ${sensorId} missing homography or invertImHeight for tripwire transformation`);
+                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for tripwire transformation`);
                         }
                     } catch (e) {
-                        console.warn('Failed to parse tripwires:', e);
+                        LOG.warn('Failed to parse tripwires:', e);
                     }
 
                     const attributes = [
@@ -707,7 +708,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                             }
                         });
                     } catch (e) {
-                        console.warn('Failed to parse ROI polygon:', e);
+                        LOG.warn('Failed to parse ROI polygon:', e);
                     }
 
                     // Parse tripwires for image calibration (upsert format)
@@ -740,7 +741,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                             }
                         });
                     } catch (e) {
-                        console.warn('Failed to parse tripwires:', e);
+                        LOG.warn('Failed to parse tripwires:', e);
                     }
 
                     const attributes = [
@@ -781,7 +782,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                     });
                 } else {
                     // For other calibration types, use similar logic but adjust as needed
-                    console.warn(`Upsert calibration not fully implemented for calibration type: ${calibrationType}`);
+                    LOG.warn(`Upsert calibration not fully implemented for calibration type: ${calibrationType}`);
                 }
             }
         });
@@ -798,7 +799,7 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                 calibrationJson: JSON.stringify(calibrationJson),
             });
         } catch (error) {
-            console.error('Error saving calibration JSON to backend:', error);
+            LOG.error('Error saving calibration JSON to backend:', error);
         }
     };
 
@@ -938,13 +939,13 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
                 type: 'application/json',
             });
             formData.append('configFiles', jsonBlob, 'calibration.json');
-            console.log('Calibration Json: ', calibrationJson);
+            LOG.info('Calibration Json: ', calibrationJson);
             // Safely print the calibration JSON object
             try {
-                console.log('Calibration JSON (formatted):', JSON.stringify(calibrationJson, null, 2));
+                LOG.info('Calibration JSON (formatted):', JSON.stringify(calibrationJson, null, 2));
             } catch (error) {
-                console.error('Error printing calibration JSON:', error);
-                console.log('Calibration JSON (raw):', calibrationJson);
+                LOG.error('Error printing calibration JSON:', error);
+                LOG.info('Calibration JSON (raw):', calibrationJson);
             }
             // Send to the MDat Web API endpoint using nvAxios
             await nvAxios.post(`${config.mdatWebApiEndpoint}/config/upload-file/calibration`, formData, {

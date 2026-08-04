@@ -45,6 +45,7 @@ from prometheus_client import (
 from sse_starlette.sse import EventSourceResponse
 
 from chunk_info import RequestSource
+from otel_helper import extract_context_from_headers
 from rtvi_vlm_client import RtviError
 from via_exception import ViaException
 from via_logger import LOG_PERF_LEVEL, TimeMeasure, logger, patch_logger_handlers
@@ -61,6 +62,7 @@ from vss_api_models import (
     CompletionResponseChoice,
     CompletionUsage,
     DeleteFileResponse,
+    DeleteIndexResponse,
     GenerateCaptionsRequest,
     GenerateCaptionsResponse,
     ListFilesResponse,
@@ -1098,6 +1100,7 @@ class ViaServer:
         )
         async def stream_summarize(
             request_body: StreamSummarizeRequest,
+            request: Request,
         ) -> CompletionResponse:
             if not self._stream_handler._kafka_enabled:
                 raise ViaException(
@@ -1128,11 +1131,14 @@ class ViaServer:
                 request_body.end_time,
             )
 
+            trace_context = extract_context_from_headers(request.headers)
+
             loop = asyncio.get_event_loop()
             request_id = await loop.run_in_executor(
                 self._async_executor,
                 self._stream_handler.summarize_stream,
                 request_body,
+                trace_context,
             )
 
             logger.info(
@@ -1424,12 +1430,18 @@ class ViaServer:
             loop = asyncio.get_event_loop()
             videoId = source.source_id
 
+            # Capture the caller's trace context here, on the event loop thread.
+            # run_in_executor hands work to a ThreadPoolExecutor and contextvars
+            # do not cross that boundary, so the context must travel explicitly.
+            trace_context = extract_context_from_headers(request.headers)
+
             # File-based summarization
             request_id = await loop.run_in_executor(
                 self._async_executor,
                 self._stream_handler.summarize,
                 source,
                 query,
+                trace_context,
             )
             logger.info("Created video file query %s for source %s", request_id, videoId)
 
@@ -1704,6 +1716,46 @@ class ViaServer:
         # POST /v1/stream/add when metadata.prompt is set (auto-inference);
         # LVS no longer triggers RTVI captioning. See
         # docs/streaming_rtvi_kafka_logstash.md for the operator workflow.
+
+        # ======================= Asset Index Cleanup API
+
+        @self._app.delete(
+            f"{API_PREFIX}/assets/{{asset_id}}/index",
+            summary="Delete Elasticsearch index for an asset",
+            description=(
+                "Drop the per-asset Elasticsearch index (`default_<asset_id>`) created "
+                "during summarization. Prevents shard-cap exhaustion when many assets are "
+                "summarized without being explicitly cleaned up. Idempotent on a missing "
+                "index. Returns `deleted=false` when CA-RAG is disabled."
+            ),
+            responses={
+                200: {"description": "Successful Response."},
+                **add_common_error_responses([500]),
+            },
+            tags=["Summarization"],
+        )
+        async def delete_asset_index(
+            asset_id: Annotated[
+                UUID,
+                Path(description="Asset ID whose Elasticsearch index should be deleted."),
+            ],
+        ) -> DeleteIndexResponse:
+            asset_id_str = str(asset_id)
+            logger.info("delete_asset_index: asset_id=%s", asset_id_str)
+            try:
+                result = self._stream_handler.drop_collection_for_asset(
+                    asset_id_str, force_legacy=True
+                )
+            except Exception as e:
+                logger.warning("drop_collection_for_asset failed for %s: %s", asset_id_str, e)
+                raise ViaException(
+                    f"Failed to delete index for asset {asset_id_str}: {e}",
+                    "InternalServerError",
+                    500,
+                )
+            deleted = "error" not in result and not result.get("skipped", False)
+            detail = result.get("reason") or result.get("error") or None
+            return DeleteIndexResponse(asset_id=asset_id_str, deleted=deleted, detail=detail)
 
         # ======================= Recommended Config API
 

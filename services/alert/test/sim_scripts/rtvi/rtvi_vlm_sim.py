@@ -187,6 +187,18 @@ def create_app():
             call_log.clear()
         return jsonify({"status": "cleared"})
 
+    @app.route("/v1/streams", methods=["DELETE"])
+    def clear_streams():
+        """Drop every registered stream — simulates an RTVI restart.
+
+        After a real RTVI restart its in-memory stream registry is empty, so a
+        subsequent replay must re-issue ``/streams/add`` for each rule. Tests
+        call this to model that fresh-RTVI state before exercising replay.
+        """
+        with streams_registry_lock:
+            streams_registry.clear()
+        return jsonify({"status": "streams_cleared"})
+
     @app.route("/v1/fault", methods=["PUT"])
     def set_fault():
         """Set a fault injection.

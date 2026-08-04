@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# DeepStream configs for profileMode standalone-mv3dt (RT-DETR + MV3DT + BEV fusion).
+
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") }}
+{{- $bundle := "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs" }}
+{{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict }}
+{{- $fusion := $mv3dt.fusion | default dict }}
+{{- $rawTopic := $fusion.rawTopic | default "mdx-raw" }}
+{{- $kafkaBootstrap := include "vss-rtvi-cv.kafkaBootstrap" . }}
+{{- $kafkaParts := splitList ":" $kafkaBootstrap }}
+{{- $kafkaHost := first $kafkaParts }}
+{{- $kafkaPort := "9092" }}
+{{- if gt (len $kafkaParts) 1 }}
+{{- $kafkaPort = last $kafkaParts }}
+{{- end }}
+{{- $kafkaConn := printf "%s;%s;%s" $kafkaHost $kafkaPort $rawTopic }}
+{{- $redisHost := include "vss-rtvi-cv.mv3dtRedisHost" . }}
+{{- $redisPort := $mv3dt.redisPort | default "6379" }}
+{{- $mqttEndpoint := printf "%s:%s" (include "vss-rtvi-cv.mv3dtMqttHost" .) ($mv3dt.mqttPort | default "1883") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-mv3dt
+data:
+{{- range $path, $_ := .Files.Glob "files/warehouse-standalone-mv3dt/deepstream/configs/*" }}
+{{- $base := base $path }}
+{{- $content := $.Files.Get $path }}
+{{- if eq $base "ds-main-config-mv3dt.txt" }}
+  {{ $base }}: |
+{{- $c := replace "msg-broker-conn-str=localhost;9092;mdx-raw" (printf "msg-broker-conn-str=%s" $kafkaConn) $content }}
+{{- $c = replace "topic=mdx-raw" (printf "topic=%s" $rawTopic) $c }}
+{{- $c = replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) $c }}
+{{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
+{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s/ds-mv3dt-tracker-config.yml" $bundle) $c }}
+{{- $c = replace "http-port=9000" (printf "http-port=%v" $.Values.httpPort) $c }}
+{{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mv3dt.maxBatchSize | default "4")) }}
+{{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mv3dt.batchSize | default "4")) }}
+{{ $c | nindent 4 }}
+{{- else if eq $base "ds-main-redis-config-mv3dt.txt" }}
+  {{ $base }}: |
+{{- $c := replace "msg-broker-conn-str=localhost;6379;" (printf "msg-broker-conn-str=%s;%s;" $redisHost $redisPort) $content }}
+{{- $c = replace "topic=mdx-raw" (printf "topic=%s" $rawTopic) $c }}
+{{- $c = replace "msg-broker-config=ds-redis-config.txt" (printf "msg-broker-config=%s/ds-redis-config.txt" $bundle) $c }}
+{{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
+{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s/ds-mv3dt-tracker-config.yml" $bundle) $c }}
+{{- $c = replace "http-port=9000" (printf "http-port=%v" $.Values.httpPort) $c }}
+{{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mv3dt.maxBatchSize | default "4")) }}
+{{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mv3dt.batchSize | default "4")) }}
+{{ $c | nindent 4 }}
+{{- else if eq $base "ds-redis-config.txt" }}
+  {{ $base }}: |
+{{- $c := replace "hostname=localhost" (printf "hostname=%s" $redisHost) $content }}
+{{- $c = replace "port=6379" (printf "port=%s" $redisPort) $c }}
+{{ $c | nindent 4 }}
+{{- else if eq $base "ds-pgie-config.yml" }}
+  {{ $base }}: |
+{{- $c := replace "labelfile-path: ds-detector-labels.txt" (printf "labelfile-path: %s/ds-detector-labels.txt" $bundle) $content }}
+{{ $c | nindent 4 }}
+{{- else if eq $base "pub_sub_info_config.yml" }}
+  {{ $base }}: |
+{{ replace "localhost:1883" $mqttEndpoint $content | nindent 4 }}
+{{- else }}
+  {{ $base }}: |
+{{ $content | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

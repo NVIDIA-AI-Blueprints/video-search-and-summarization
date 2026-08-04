@@ -40,16 +40,17 @@ void NvLLTransform::setOriginalFrameSize(int w, int h)
     m_height = h;
     m_sourceWidth = w;
     m_sourceHeight = h;
-#ifdef JETSON_PLATFORM
-    /* Update the overlay resolution when out-resolution is not specified and enc is present */
-    Resolution resolution;
-    resolution = GET_CONFIG().webrtc_out_default_resolution;
-    if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+    if (isJetsonPlatform())
     {
-        m_width = w;
-        m_height = h;
+        /* Update the overlay resolution when out-resolution is not specified and enc is present */
+        Resolution resolution;
+        resolution = GET_CONFIG().webrtc_out_default_resolution;
+        if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+        {
+            m_width = w;
+            m_height = h;
+        }
     }
-#endif
 }
 
 void NvLLTransform::setIPCMeta ()
@@ -279,7 +280,13 @@ void NvLLTransform::doTransformTask()
                 }
                 if (sink_frame->m_gstBuffer)
                 {
-#ifdef JETSON_PLATFORM
+                    if (isJetsonPlatform())
+                    {
+                    // The IPC-meta path (GST_NV_IPC_META_GET -> gst_nv_ipc_meta_api_get_type)
+                    // is aarch64-only; the defining lib (libnvdsgst_ipcmeta) exists only for
+                    // aarch64, so compile-gate it out on x86 (isJetsonPlatform() is false there
+                    // anyway).
+#ifdef AARCH64_PLATFORM
                     if (GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
                         ipc_meta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
@@ -287,6 +294,12 @@ void NvLLTransform::doTransformTask()
                     }
                     else
 #endif
+                    {
+                        meta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
+                        pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
+                    }
+                    }
+                    else
                     {
                         meta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
@@ -468,11 +481,11 @@ void NvLLTransform::doTransformTask()
                 else
                 {
                     // case 2 enc not present
-                    rtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new rtc::RefCountedObject<webrtc::I420Buffer>(sink_frame->m_targetWidth, sink_frame->m_targetHeight));
+                    webrtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new webrtc::RefCountedObject<webrtc::I420Buffer>(sink_frame->m_targetWidth, sink_frame->m_targetHeight));
 
                     if (is_sw_mode) // Input is sw buffer
                     {
-                        rtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new rtc::RefCountedObject<webrtc::I420Buffer>(m_width, m_height));
+                        webrtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new webrtc::RefCountedObject<webrtc::I420Buffer>(m_width, m_height));
 
                         /* Use src stride from frame_data when set (decoder output), else use width (contiguous) */
                         const int src_stride_y = (sink_frame->m_srcStrideY > 0) ? sink_frame->m_srcStrideY : m_width;

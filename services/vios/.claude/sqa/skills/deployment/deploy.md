@@ -51,11 +51,9 @@ Infer the target from user context or the invoking agent's workflow. Do not prom
 
 | Mode | Target flag | Command |
 |---|---|---|
-| Stream-processor (default) | — | nvstreamer step + `deploy --auto --force` (two steps — see Step 2) |
-| NVStreamer only | `nvstreamer` | `deploy --target nvstreamer --auto --force` |
-| Full stack (all microservices + NVStreamer) | `all` | `deploy --target all --auto --force` |
-| Scaled microservices | `scaled` | nvstreamer step + `deploy --target scaled --auto --force` (two steps) |
-| With MinIO | — | add `--with-minio` |
+| VIOS / stream-processor (default) | — | `deploy --force` (VIOS only; NVStreamer is opt-in — see Step 2) |
+| NVStreamer only | `nvstreamer` | `deploy --target nvstreamer --force` |
+| Full stack (stream-processor + NVStreamer) | `all` | `deploy --target all --force` |
 | With monitoring | — | add `--with-monitoring` |
 
 ---
@@ -88,44 +86,92 @@ Do not add `--pull-always` — that pulls from the registry and discards the loc
 
 ## Step 2 — Run the deployment script
 
-NVStreamer must always be deployed before the stream-processor. Follow the sequences below exactly — do NOT add an extra nvstreamer step before `--target all`; that target already deploys NVStreamer internally and adding another step would deploy it twice.
-
-**Stream-processor (default) — explicit two steps (script does NOT deploy NVStreamer for this target):**
 ```bash
-cd <PROJECT_ROOT>/deployment
-# add --nvstreamer-tag <BUILD_TAG> if deploying a locally built NVStreamer (see Step 1b)
-python3 oneclick_dc_deployment_for_dev.py deploy --target nvstreamer --auto --force
-
-# add --all-tag <BUILD_TAG> if deploying locally built VIOS images (see Step 1b)
-python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
+cd <PROJECT_ROOT>/services/vios/deployment/stream-processing
 ```
 
-**Full stack (`--target all`) — single command (script deploys NVStreamer internally, do not add an nvstreamer step before this):**
+### Step 2a — Classify the deploy intent
+
+NVStreamer is **opt-in and independent of the adaptor** — a bare deploy never deploys, starts, or probes it. Decide what to deploy from the user's prompt:
+
+| Pattern in the user's prompt | Decision | Next step |
+|---|---|---|
+| Mentions `nvstreamer` together with any of `+`, `&`, `and`, `with`, `alongside`, `plus` — e.g. *"deploy vios + nvstreamer"*, *"deploy vios and nvstreamer"* | **Deploy NVStreamer too**, regardless of adaptor. | Jump to Step 2d and run BOTH commands (or `deploy --target all --force` for "full stack" wording). |
+| `full stack` / `everything` / `deploy both` | `--target all` | Run: `deploy --target all --force`. |
+| `deploy nvstreamer` / `deploy the streamer` (NVStreamer only, no VIOS) | NVStreamer-only target | Run: `deploy --target nvstreamer --force`. |
+| **Anything else** — bare `deploy` / `deploy vios` / `deploy vst` / `start vios deployment`, or `without nvstreamer` | **VIOS only — do NOT touch NVStreamer.** | Run the mms-credentials pre-flight (Step 2b) if the adaptor is mms-type, then Step 2d: `deploy --force`. |
+
+> NVStreamer is **not** auto-deployed or probed for bare deploys. After a VIOS-only deploy where the adaptor is `vst_rtsp`/`streamer`, note in the response that sensors need an RTSP source (re-run with `+ nvstreamer`, or point them at an external RTSP/camera).
+
+### Step 2b — Adaptor pre-flight (only when needed)
+
+Bare deploys are **VIOS-only** and do **not** probe or deploy NVStreamer. The only adaptor-dependent pre-flight is for **mms-type** adaptors:
+
+**If `VST_ADAPTOR` is an mms-type adaptor (`milestone_onvif`, `milestone_soap`), run the credentials pre-flight in `skills/deployment/adaptor-mode.md` Step 2.5 BEFORE invoking the deploy command.** Missing `ip`/`user`/`password` in `adaptor_config.json` cause silent runtime failures. The skill covers prompt-parsing, the ask-the-user phrasing, the dry-run diff, the write, and the credentials-hygiene reminder.
+
+For adaptor↔NGINX_MODE↔JSON consistency and post-deploy verification, see `skills/deployment/adaptor-mode.md`. (Reminder: the `-sdrc` suffix on `NGINX_MODE` is the SDRC toggle, independent of the adaptor.)
+
+### Step 2d — Commands
+
 ```bash
-# add --all-tag <BUILD_TAG> --nvstreamer-tag <BUILD_TAG> if deploying locally built images (see Step 1b)
-python3 oneclick_dc_deployment_for_dev.py deploy --target all --auto --force
+# (only for explicit "+ nvstreamer" / full-stack / nvstreamer-only requests — never for a bare deploy)
+# Add --nvstreamer-tag <BUILD_TAG> if deploying a locally built NVStreamer (see Step 1b)
+python3 oneclick_dc_deployment.py deploy --target nvstreamer --force
+
+# Default VIOS deploy (VIOS only — NVStreamer is opt-in)
+# Add --all-tag <BUILD_TAG> if deploying locally built VIOS images (see Step 1b)
+python3 oneclick_dc_deployment.py deploy --force
 ```
 
-**Scaled — two steps:**
+**Deployment mode (SDRC vs direct) — independent of the adaptor and of NVStreamer.** The stack defaults to **SDRC** (`NGINX_MODE=vst-sdrc`, `sdr-controller` running). If the user asked for **direct mode** ("no sdrc" / "direct" / "single-pod" / "no sdr-controller"), append **`--no-sdrc`** to the VIOS deploy command; it persistently rewrites `compose.env` to direct values (`VST_USE_SDRC=false`, `NGINX_MODE=vst`, cleared `COMPOSE_PROFILES`, stream-processor on `:30001`). `vst-sdrc` is **not** an adaptor — do not touch the adaptor settings for this. **Scaling requires SDRC:** direct mode is single-pod only, so if the user wants multiple stream-processor pods / scale-out (>~100 streams), keep SDRC and do **not** pass `--no-sdrc`. Example:
 ```bash
-# add --nvstreamer-tag <BUILD_TAG> if deploying a locally built NVStreamer (see Step 1b)
-python3 oneclick_dc_deployment_for_dev.py deploy --target nvstreamer --auto --force
+python3 oneclick_dc_deployment.py deploy --no-sdrc --force
+```
 
-# add --all-tag <BUILD_TAG> if deploying locally built VIOS images (see Step 1b)
-python3 oneclick_dc_deployment_for_dev.py deploy --target scaled --auto --force
+**Full stack (`--target all`)** — single command, do NOT add an nvstreamer step before this; the script handles NVStreamer internally:
+```bash
+# Add --all-tag <BUILD_TAG> --nvstreamer-tag <BUILD_TAG> if deploying locally built images (see Step 1b)
+python3 oneclick_dc_deployment.py deploy --target all --force
 ```
 
 **NVStreamer only:**
 ```bash
-# add --nvstreamer-tag <BUILD_TAG> if deploying a locally built NVStreamer (see Step 1b)
-python3 oneclick_dc_deployment_for_dev.py deploy --target nvstreamer --auto --force
+# Add --nvstreamer-tag <BUILD_TAG> if deploying a locally built NVStreamer (see Step 1b)
+python3 oneclick_dc_deployment.py deploy --target nvstreamer --force
 ```
 
 Additional flags for the **VIOS deploy command only** (do not append to the nvstreamer step):
 ```bash
---with-minio        # MinIO storage
 --with-monitoring   # Grafana/Prometheus
+--skip-sysctl       # Skip host network-buffer (sysctl) tuning. Pass this for
+                    # agent/CI runs without passwordless sudo. The script also
+                    # auto-skips with a warning if stdin is non-TTY and sudo
+                    # would prompt, but this flag is clearer in the log.
 ```
+
+### Sysctl pre-flight (run BEFORE the VIOS deploy command)
+
+The deploy script tunes four kernel network-buffer sysctls (`net.core.rmem_max`, `net.core.wmem_max`, `net.ipv4.tcp_rmem`, `net.ipv4.tcp_wmem`) to support high-throughput streaming. If the host already has these at the target values, the script no-ops. Otherwise it invokes `sudo sysctl -w …` — which **prompts for a password unless sudo is passwordless**.
+
+Run the script's built-in probe — it returns a single machine-parseable line and **never invokes sudo** (only `sudo -n true`, which exits cleanly either way):
+
+```bash
+python3 oneclick_dc_deployment.py preflight-sysctl
+# → SYSCTL_PREFLIGHT status=<S> rmem_max=… wmem_max=… tcp_rmem="…" tcp_wmem="…" rmem_max_target=… tcp_target="…" sudo=<S>
+```
+
+Extract `status` and branch:
+
+```bash
+STATUS=$(python3 oneclick_dc_deployment.py preflight-sysctl | grep -oE 'status=[a-z_]+' | cut -d= -f2)
+```
+
+- `status=skip` → all four sysctls already meet target; append `--skip-sysctl` to silence the info log (script would no-op anyway).
+- `status=passwordless` → tuning is needed AND `sudo -n` works; run deploy normally — sudo passes through silently.
+- `status=needs_password` AND **interactive user available** → ask the user *"Deploy will tune host network buffers (rmem_max → 2 MB, etc.); enter sudo password, or pass --skip-sysctl to skip (throughput may be lower)?"* then proceed accordingly.
+- `status=needs_password` AND **non-interactive (you can't surface a prompt)** → append `--skip-sysctl` to avoid hanging. The script will also auto-skip with a warning, but the explicit flag is clearer in the deploy log.
+
+> **Why this command (vs. inline `sysctl`/`sudo -n` shell):** the script command is static-analyzable (no `$(…)`, no `if`, no `sudo -n` invocation at the agent layer), so coding agents auto-allowlist it instead of asking the user to approve every pre-flight run.
 
 ---
 
@@ -184,9 +230,26 @@ EOF
 
 Report to the user:
 - Which containers are running and their status
-- Resolved BASE_URL
-- VIOS UI: `<BASE_URL>/vios/#/dashboard`
+- `VIOS UI: <BASE_URL>/vios/#/dashboard` — always label it **"VIOS UI"** (never a bare "UI"). The link already shows host:port, so do **not** print a separate `BASE_URL` line (it's an internal value, not user-facing output).
+- For NVStreamer deploys / full stack: `NVStreamer UI: http://<HOST>:<NVSTREAMER_HTTP_PORT_N>/#/dashboard` — one line per active instance (ports `31000–31004`).
+- Active adaptor + deployment mode (SDRC vs direct)
 - Any warnings from the deployment script output
+
+---
+
+## Sample Video Files
+
+Deployments now start **without** any pre-seeded videos -- the sample clips are
+no longer shipped under `tools/data/` (they are baked into the BDD test image
+and used only by the BDD suite). NVStreamer comes up with no streams.
+
+If a deployment needs a video source:
+
+- **Ask the user to point to a directory that contains valid video files**
+  (MP4/MKV/TS carrying H.264 or H.265). Do not assume `tools/data/` exists.
+- Upload those files to NVStreamer (`PUT /vst/api/v1/storage/file/<name>`), then
+  run a sensor scan from the VST UI (or `POST /vst/api/v1/sensor/scan`) so VIOS
+  imports the RTSP streams.
 
 ---
 
@@ -194,11 +257,13 @@ Report to the user:
 
 | Flag | Controls |
 |---|---|
-| `--all-tag <TAG>` | All service images |
+| `--all-tag <TAG>` | Stream-processor + sensor images |
+| `--streamprocessor-tag <TAG>` | Stream-processor module |
 | `--sensor-tag <TAG>` | Sensor module |
-| `--rtsp-tag <TAG>` | RTSP server module |
-| `--recorder-tag <TAG>` | Recorder module |
-| `--livestream-tag <TAG>` | Livestream module |
 | `--nvstreamer-tag <TAG>` | NVStreamer |
+| `--streamprocessor-image <REF>` | Full stream-processor image ref (pair with `--streamprocessor-tag`) |
+| `--sensor-image <REF>` | Full sensor image ref (pair with `--sensor-tag`) |
+| `--image-registry <REG>` | Swap only the registry/org prefix on stream-processor + sensor images |
+| `--nvstreamer-image <REPO>` | Swap the NVStreamer image repository |
 
 If no tag flags are given, the script uses whatever is configured in the compose files.

@@ -15,24 +15,9 @@
 
 services:
 
-  # Redis service - default (no profile)
-  alert-bridge-redis:
-    image: redis/redis-stack-server:7.2.0-v9
-    container_name: alert-bridge-redis
-    ports:
-      - "6379:6379"
-    # Remove custom command to let Redis Stack load all modules automatically
-    # command: redis-server --appendonly yes --appendfsync everysec
-    network_mode: "host"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Alert bridge service - runs with either profile
+  # Alert bridge service. Redis has been removed — dedup/filter state is
+  # in-process and durable state (verdict protection, alert configs) lives
+  # in Elasticsearch. No Redis container is required.
   alert-bridge:
     image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
     #image: alert-bridge:19
@@ -44,23 +29,14 @@ services:
       # Storage service endpoint override for VST media path resolution
       # Example resolves to: http://127.0.0.1:30000
       - STORAGE_MODULE_ENDPOINT=http://${HOST_IP:-127.0.0.1}:${STORAGE_HTTP_PORT:-30000}
-      # VSS Agent base URL override (takes precedence over config.yaml vss_agent.base_url)
-      # Example:
-      - VSS_BASE_URL=http://localhost:8000
-      #- VSS_BASE_URL=${VSS_BASE_URL:-}
     volumes:
       - ${ALERT_BRIDGE_CONFIG_FILE:-./config.yaml}:/app/config.yaml
 
 
     container_name: alert-bridge
-    depends_on:
-      - alert-bridge-redis
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9080/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-
-volumes:
-  redis_data:

@@ -12,7 +12,7 @@
 #define RTC_BASE_IFADDRS_ANDROID_H_
 
 #include <stdio.h>
-#include <sys/socket.h>
+#include <sys/socket.h>  // no-presubmit-check
 
 // Implementation of getifaddrs for Android.
 // Fills out a list of ifaddr structs (see below) which contain information
@@ -28,11 +28,11 @@ struct ifaddrs {
   // We don't need them (yet?).
 };
 
-namespace rtc {
+namespace webrtc {
 
 int getifaddrs(struct ifaddrs** result);
 void freeifaddrs(struct ifaddrs* addrs);
 
-}  // namespace rtc
+}  // namespace webrtc
 
 #endif  // RTC_BASE_IFADDRS_ANDROID_H_

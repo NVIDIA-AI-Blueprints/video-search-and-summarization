@@ -8,7 +8,8 @@
 # proprietary, ELv2, GPL, BUSL, Commons-Clause, "Other", empty — fail-closed
 # by default.
 #
-# Scope: only runtime deps that actually ship. Dev-only tools are excluded
+# Scope: only runtime deps that actually ship (base + the agent extra).
+# Dev-only tools are excluded
 # via `--no-default-groups`. We use `uv pip install` (not `uv run pip
 # install`) and `uv run --no-sync` so uv does not auto-resync the dev group
 # back into the venv.
@@ -36,7 +37,7 @@ rm -rf "$uv_env"
 trap 'rm -rf "$uv_env"' EXIT
 export UV_PROJECT_ENVIRONMENT="$uv_env"
 
-uv sync --frozen --no-default-groups --quiet
+uv sync --frozen --no-default-groups --extra agent --quiet
 uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --quiet pip-licenses
 
 # Both halves of the pipe run inside the agent's uv venv: pip-licenses needs

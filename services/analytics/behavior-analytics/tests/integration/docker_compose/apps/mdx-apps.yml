@@ -16,7 +16,7 @@
 services:
 
   analytics-stream-playback:
-    image: py-behavior-analytics:latest
+    image: ${BEHAVIOR_ANALYTICS_IMAGE:-vss-behavior-analytics:latest}
     network_mode: "host"
     volumes:
       - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-$STREAMING_SERVICE-config.json:/resources/analytics-stream-config.json
@@ -27,7 +27,7 @@ services:
       - logstash
 
   analytics-stream:
-    image: py-behavior-analytics:latest
+    image: ${BEHAVIOR_ANALYTICS_IMAGE:-vss-behavior-analytics:latest}
     network_mode: "host"
     volumes:
       - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-$STREAMING_SERVICE-config.json:/resources/analytics-stream-config.json

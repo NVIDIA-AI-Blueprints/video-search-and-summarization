@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-vios-ingress
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-vios-ingress
+  tag: "2.1.0-26.07.1"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -47,6 +47,8 @@ hostIpFollowsExternallyAccessibleIp: false
 # Empty: use global.externalHost, then 127.0.0.1 for EXTERNALLY_ACCESSIBLE_IP only.
 externallyAccessibleIp: ""
 vstIngressHttpPort: "30888"
+# Nginx upload limit for VST ingest (client_max_body_size). Increase for large video uploads (e.g. 20G).
+clientMaxBodySize: "25G"
 # Sensor API backend. Empty = use Release.Name-vss-vios-sensor:30000 (e.g. vss-alerts-vss-vios-sensor:30000).
 # Override if sensor API is elsewhere (e.g. nvstreamer in minimal setups).
 sensorUpstream: ""

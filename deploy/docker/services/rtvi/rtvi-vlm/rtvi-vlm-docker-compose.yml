@@ -18,12 +18,12 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.1}
+    image: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm}:${RTVI_VLM_IMAGE_TAG:-3.2.1}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
     runtime: nvidia
-    profiles: ["bp_wh_2d", "bp_developer_alerts_2d_vlm", "bp_developer_alerts_2d_cv", "bp_developer_base_2d_IGX-THOR", "bp_developer_base_2d_AGX-THOR", "bp_developer_lvs_2d"]
+    profiles: ["rtvi-vlm"]
     deploy:
       resources:
         reservations:
@@ -98,7 +98,7 @@ services:
       # Bounded queue size for the async Kafka sender.
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
 
-      KAFKA_BOOTSTRAP_SERVERS: ${HOST_IP}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       NGC_API_KEY: "${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
       RTVI_EXTRA_ARGS: "${RTVI_EXTRA_ARGS:-}"
       HF_TOKEN: "${HF_TOKEN:-}"

@@ -34,6 +34,14 @@ on:
   # `develop` in the ref dropdown, and GitHub runs develop's version of this
   # file (env passthrough + agent invocation all come from develop).
   workflow_dispatch:
+    inputs:
+      agent:
+        description: "Agent to evaluate in Harbor trials"
+        type: choice
+        default: claude-code
+        options:
+          - claude-code
+          - codex
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -54,7 +62,7 @@ permissions:
 # `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
 # carries `<profile_tag>|<run_id>`, so a marker from this run never matches
 # the next run's desired marker and the next run always tears down + redeploys.
-# Same path handles SIGKILL (the 12h timeout-minutes terminator) and host reboots
+# Same path handles SIGKILL (the 14h timeout-minutes terminator) and host reboots
 # — there's no exit-side cleanup machinery to bypass.
 concurrency:
   group: skills-eval-daily-${{ github.ref }}
@@ -63,6 +71,11 @@ concurrency:
 defaults:
   run:
     shell: bash
+
+env:
+  # Match the PR workflow: every coordinator-side Python process, including
+  # Harbor's uvx environment, runs on one declared minor version.
+  SKILL_EVAL_PYTHON_VERSION: "3.12"
 
 jobs:
   # ---------------------------------------------------------------------
@@ -88,6 +101,11 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
           fetch-depth: 0   # plan diffs the cumulative head...base range
 
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
       - name: Compute matrix
         id: plan
         env:
@@ -105,20 +123,20 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Cap concurrent legs near the vss-eval-* box count so legs don't
-      # all grab a runner slot only to block on flock. Excess legs queue.
-      max-parallel: 4
+      # Match the PR workflow's eight-leg limit. Unavailable runner slots
+      # queue in Actions; per-instance flock still serializes each GPU box.
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
-    # (AGENTS.md `--agent-timeout-multiplier 6.0`). 360m covers a ~4-step
-    # cold-box spec plus deploy/dataset/comment overhead without the
-    # whole-sweep 12 h cap the single-job design needed. AGENTS.md's
-    # box-lock wait (flock -w 21000 ≈ 5.8 h) is kept strictly under this
-    # 360 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
+    # (AGENTS.md `--agent-timeout-multiplier 6.0`). A timeout stops the
+    # remaining chain; successful steps normally finish well below their
+    # 200-minute emergency backstop. AGENTS.md's box-lock wait
+    # (flock -w 21000 ≈ 5.8 h) is kept strictly under this 840 m ceiling so a
+    # lock-starved leg emits `BLOCKED: lock timeout`
     # before the job-killer fires (a 43200 s / 12 h wait would be
     # silently killed mid-flock with no verdict — the exit-4 trap).
-    timeout-minutes: 360
+    timeout-minutes: 840
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
@@ -127,6 +145,21 @@ jobs:
           # chosen ref. Both jobs must check out the same tree.
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
           fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Prepare isolated agent runtime
+        env:
+          SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
+        run: |
+          python3 -m venv "$SKILL_EVAL_VENV"
+          "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet "claude-agent-sdk==0.2.128"
+          "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
+          echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
@@ -143,25 +176,60 @@ jobs:
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
+          # Prefer the rotatable repository secret for Anthropic auth. The
+          # coordinator .env remains the source for NGC/Brev and is loaded
+          # below, then this value is restored so it cannot overwrite the
+          # GitHub Actions secret.
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
-          # Raise the Bash-tool timeout cap above the worst-case single
-          # `uvx harbor run` (~2h: env-build 1800s + agent 3600s + verify
-          # 1800s). Without this the runtime auto-backgrounds the foreground
-          # harbor call at the 10-min default cap and the agent falls into
-          # polling its task output — silently defeating the "block on
-          # harbor" wait contract (the PreToolUse hook can't catch a
-          # runtime-initiated background; it only inspects call input). Both
-          # stay under the job's timeout-minutes so the call can't outlive it.
-          BASH_DEFAULT_TIMEOUT_MS: "7200000"
-          BASH_MAX_TIMEOUT_MS: "10800000"
+          # Keep the whole multi-step run_leg.py call foregrounded. Match the
+          # job window so the Actions watchdog, which started earlier, owns
+          # final cancellation instead of Claude backgrounding the call.
+          BASH_DEFAULT_TIMEOUT_MS: "50400000"
+          BASH_MAX_TIMEOUT_MS: "50400000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
+          skill_eval_venv_dir="$SKILL_EVAL_VENV"
+          skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # Keep the per-leg venv ahead of any operator-provided PATH so the
+          # SDK's Bash children resolve adapters and run_leg.py with 3.12.
+          export SKILL_EVAL_VENV="$skill_eval_venv_dir"
+          export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
+          export VIRTUAL_ENV="$skill_eval_venv_dir"
+          export PATH="$skill_eval_venv_dir/bin:$PATH"
+          hash -r
+          python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
+          # the public relay for RTSP-dependent skill checks.
+          export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
+            export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
+          # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
+          # processes (reparented to PID 1, never killed) on every
+          # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
+          # accumulated 23k agents on the coordinator host and OOM-killed
+          # every runner service (2026-07-08). With SSH_AUTH_SOCK pointing
+          # at a live agent brev reuses it and spawns none, so give the
+          # whole leg one agent and kill it when the step ends. Runs after
+          # the .env source so nothing can overwrite SSH_AUTH_SOCK /
+          # SSH_AGENT_PID behind the trap's back.
+          eval "$(ssh-agent -s)" > /dev/null
+          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+          # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
+          # Orphaned agents older than the longest leg wallclock on any
+          # host sharing this pool (skills-eval.yml timeout-minutes: 840;
+          # 54000s = 15h) cannot belong to any live leg.
+          ps -eo pid=,ppid=,etimes=,args= \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>54000 {print $1}' \
+            | xargs -r kill 2>/dev/null || true
           # Pin the box-side repo sync to the SHA the runner actually checked
           # out — NOT github.sha. On a scheduled run github.sha is the default
           # branch (main) tip, but the checkout above is develop; using it here
@@ -180,6 +248,7 @@ jobs:
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
           export DAILY_RUN="true"
+          export EVAL_AGENT="${{ inputs.agent || 'claude-code' }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —

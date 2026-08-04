@@ -31,7 +31,7 @@ vst_config:
   segment_anchor: "end"          # enable end-anchored window
   segment_duration_seconds: 10   # M (already used today)
   add_overlay: false
-  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  # Storage service configuration (separate base URL and endpoint)
   storage:
     base_url: "http://localhost:30888"
     # Endpoint to fetch media file path by VST id
@@ -157,51 +157,16 @@ vlm:
   #   inference_timeout: 120  # seconds for first (cold) inference
   #   num_requests: 3         # number of warmup inferences to send
 
-# Event Bridge Configuration - Choose between kafka and redisStream
+# Event Bridge Configuration - Kafka transport (Redis has been removed).
 event_bridge:
-  sourceType: "kafka"                     # redisStream or "kafka"
-  sinkType: "kafka"                       # redisStream or "kafka"
+  sourceType: "kafka"
+  sinkType: "kafka"
 
   kafka_source:
     group_id: 'alert-bridge-vlm-group'
     topics:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
-
-  # Redis Streams Configuration
-  redis_source:
-    host: "localhost"
-    port: 6379
-    db: 0
-    dedup_ttl_seconds: 300
-    # Categories listed here will retain the incident end timestamp when building the dedup key.
-    # Any category not listed will omit the end timestamp for deduplication purposes.
-    end_time_in_dedup_key_categories: []
-    # Feature flag: Protect confirmed VLM verdicts from being overwritten
-    protect_confirmed_verdicts:
-      enabled: false  # Master switch - set true to enable feature
-      ttl_seconds: 600  # TTL for confirmed markers (10 minutes)
-    # End time delta filter: blocks incidents unless end time changed significantly
-    end_time_delta_filter:
-      enabled: false
-      threshold_seconds: 5
-      ttl_seconds: 3600
-    streams:
-      anomaly_stream: "alert-bridge-input-stream"
-      heartbeat_stream: "alert-bridge-heartbeats-stream"
-    consumer_group: "vlm_agents_group"
-    consumer_config:
-      block_time: 10
-      count: 1
-      batch_size: 1
-
-  redis_sink:
-    host: "localhost"
-    port: 6379
-    db: 0
-    streams:
-      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
-      incidents_stream: "alert-bridge-incidents-stream"
 
 prompt:
   prefer_payload_prompt: false
@@ -217,20 +182,68 @@ alert_agent:
   default_stream_interval: 1                    # Default stream interval in minutes
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
   chunk_size: 1
+
+  # In-process event filtering / dedup tuning (no external store).
+  event_filters:
+    dedup_ttl_seconds: 300
+    # Categories listed here retain the incident end timestamp when building
+    # the dedup key. Any category not listed omits the end timestamp.
+    end_time_in_dedup_key_categories: []
+    # Protect confirmed VLM verdicts from being re-verified (Elasticsearch-backed).
+    protect_confirmed_verdicts:
+      enabled: false      # Master switch
+      ttl_seconds: 600    # TTL for confirmed markers (10 minutes)
+      # Cooldown (s) before retrying the verdict-protection ES client after a
+      # construction failure. Fails open + retries; never a permanent disable.
+      es_retry_backoff_seconds: 30
+      # Retention reaper for expired ``ab-confirmed-verdicts`` markers.
+      retention_interval_seconds: 3600          # hourly delete-by-query pass
+      retention_requests_per_second: 50         # throttle to bound cluster impact
+    # End time delta filter: blocks incidents unless end time changed significantly.
+    end_time_delta_filter:
+      enabled: false
+      threshold_seconds: 5
+      ttl_seconds: 3600
+
   metrics:
     # Requires PROMETHEUS_METRICS_ENABLED=true (env var) to have any effect.
+    # On-demand HTTP metrics use the separate alert_bridge_ondemand_* namespace
+    # and are aggregate-only; per_sensor_labels applies to Kafka metrics.
     # When false (default), the *_BY_SENSOR metric variants are never observed
     # (zero cardinality cost). When true, each distinct sensor ID mints ~12
     # additional Prometheus series per histogram — only enable for deployments
     # with a bounded sensor fleet and a known series budget (~10k per target).
     per_sensor_labels: false
+  # Pipeline execution mode: sync | thread_bridge | event_loop.
+  # Unset -> derived from async_io.enabled (false=sync, true=thread_bridge).
+  # An invalid value fails startup. Also accepted at async_io.pipeline_mode.
+  # event_loop runs one coroutine per message on a persistent event loop with
+  # async clients per stage (VLM: AsyncOpenAI, VST: httpx, sink/verdict:
+  # AsyncElasticsearch): concurrency is bounded by async_dispatch_max_in_flight
+  # plus the per-service caps below instead of by thread count, so Kafka
+  # consumption stays decoupled from VLM latency.
+  # Per-mode meaning of the two dispatch knobs (see README "Pipeline modes"):
+  #   async_dispatch_workers      thread_bridge: dispatch-pool thread count =
+  #                               VLM concurrency ceiling. event_loop: no pool
+  #                               is created; only the default for the caps.
+  #   async_dispatch_max_in_flight  both async modes: global in-flight bound
+  #                               (backpressure to the Kafka consume loop).
+  # pipeline_mode: event_loop
   async_io:
     enabled: false                               # guardrail: keep sync behavior by default
-    vst_enabled: false                           # Guardrail: async-submit VST lookup path
-    elastic_enabled: false                       # Guardrail: async-submit Elastic sink publishing path
-    redis_enabled: false                         # Guardrail: async-submit Redis dedup/read operations
-    external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/Redis operations
+    vst_enabled: false                           # Guardrail: async-submit VST lookup path (thread_bridge only)
+    elastic_enabled: false                       # Guardrail: async-submit Elastic sink publishing path (thread_bridge only)
+    dedup_enabled: false                         # Guardrail: async-submit in-process dedup/state operations (thread_bridge only)
+    external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
     sink_warn_in_flight: 20                      # Warning threshold for in-flight async sink operations
+    # event_loop per-service concurrency caps (default: async_dispatch_workers,
+    # which keeps downstream pressure identical to the thread_bridge profile).
+    # max_vlm_concurrent MUST stay at or below the benchmarked concurrency
+    # ceiling of the VLM backend (see README "VLM concurrency ceiling
+    # benchmark") — above it, requests pile onto the backend and its latency
+    # balloons instead of throughput improving.
+    # max_vlm_concurrent: 8
+    # max_vst_concurrent: 8
 
   # URL Transformation - transforms internal IPs to external for VLM/UI access
   url_transform:
@@ -291,6 +304,15 @@ rtvi_vlm:
   # one only disables the realtime-rules path.
   enable_realtime_persistence: true
 
+  # Realtime alert consolidation — group repeated VLM positives from the same
+  # camera and alert type into a single event. Controlled per request via the
+  # `consolidate` query param on GET /api/v1/realtime/incidents (omitted/false =
+  # raw chunk-level documents; true = consolidated). The keys below only tune the grouping.
+  consolidation:
+    max_inter_alert_gap_seconds: 60    # a positive arriving after this gap starts a new event
+    max_event_duration_seconds: 300    # cap on a single consolidated event (null = unbounded)
+    representative: "latest"           # chunk that supplies the representative fields: latest | longest_reasoning
+
 # Webhook Notification — fire-and-forget POST on VLM-verified incidents
 # When enabled, every successfully verified incident is POSTed to the
 # configured URL (e.g. OpenClaw).  No retry / no queue / no dead-letter.
@@ -302,15 +324,6 @@ webhook:
     group_id: "openclaw-webhook-group"            # Kafka consumer group (independent from main AB consumer)
     timeout_seconds: 5                            # HTTP POST timeout
     max_pending: 100                              # Max queued deliveries before dropping
-
-# WebSocket Configuration - Real-time alert broadcasting
-websocket:
-  enabled: false                                 # Enable/disable WebSocket service
-  consumer_group_prefix: "websocket_instance"  # Prefix for consumer groups
-  redis_consumer:
-    block_time: 1000                           # Redis XREAD block time in milliseconds
-    count: 1                                   # Number of messages to read per batch
-    reconnect_delay: 5                         # Seconds to wait before reconnecting on failure
 
 cors:
   enabled: true
@@ -329,6 +342,10 @@ persistence:
   enabled: true
   backend: "elasticsearch"               # Only "elasticsearch" supported for now
   index_prefix: "ab-"                    # Indices created as ab-{collection}
+  # DEV/LOCAL ONLY. When persistence.enabled is false, a non-dev deployment
+  # fails readiness. Set this true to explicitly opt a dev/local profile
+  # into the non-durable in-process alert-config store instead.
+  dev_allow_in_memory: false
   # elasticsearch:                       # Optional: override hosts (defaults to elastic.hosts above)
   #   hosts:
   #     - http://localhost:9200

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1"
+ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2"
 FROM ${BASE_IMAGE}
 
 # Copy sources
@@ -23,7 +23,7 @@ COPY src/metropolis_perception_app.h /opt/nvidia/deepstream/deepstream/sources/a
 COPY src/Makefile /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/Makefile
 COPY tests/ /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/tests/
 
-ENV CUDA_VER=13.1
+ENV CUDA_VER=13.2
 WORKDIR "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app"
 
 # Build binary

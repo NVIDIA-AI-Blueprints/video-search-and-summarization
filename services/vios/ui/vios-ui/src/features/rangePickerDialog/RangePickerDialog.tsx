@@ -15,7 +15,18 @@
  * limitations under the License.
  */
 import React, { useState } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Checkbox, FormControlLabel, Box } from '@mui/material';
+import {
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Button,
+    TextField,
+    Checkbox,
+    FormControlLabel,
+    Box,
+    type DialogProps,
+} from '@mui/material';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -26,9 +37,10 @@ interface RangePickerDialogProps {
     open: boolean;
     onClose: () => void;
     onSubmit: (startTime: string, endTime: string) => void;
+    container?: DialogProps['container'];
 }
 
-const RangePickerDialog: React.FC<RangePickerDialogProps> = ({ open, onClose, onSubmit }) => {
+const RangePickerDialog: React.FC<RangePickerDialogProps> = ({ open, onClose, onSubmit, container }) => {
     const [startDate, setStartDate] = useState<Date | null>(new Date());
     const [endDate, setEndDate] = useState<Date | null>(new Date());
     const [startMicroseconds, setStartMicroseconds] = useState<number>(0);
@@ -60,7 +72,7 @@ const RangePickerDialog: React.FC<RangePickerDialogProps> = ({ open, onClose, on
     };
 
     return (
-        <Dialog open={open} onClose={onClose}>
+        <Dialog open={open} onClose={onClose} container={container}>
             <DialogTitle>Select Date and Time Range</DialogTitle>
             <DialogContent>
                 <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -72,6 +84,7 @@ const RangePickerDialog: React.FC<RangePickerDialogProps> = ({ open, onClose, on
                             views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
                             defaultValue={new Date()}
                             timeSteps={{ hours: 1, minutes: 1, seconds: 1 }}
+                            slotProps={{ popper: { container }, dialog: { container } }}
                         />
                         <DateTimePicker
                             label='End Date and Time'
@@ -80,6 +93,7 @@ const RangePickerDialog: React.FC<RangePickerDialogProps> = ({ open, onClose, on
                             views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
                             defaultValue={new Date()}
                             timeSteps={{ hours: 1, minutes: 1, seconds: 1 }}
+                            slotProps={{ popper: { container }, dialog: { container } }}
                         />
                     </Box>
                 </LocalizationProvider>

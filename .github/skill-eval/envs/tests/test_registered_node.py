@@ -14,11 +14,13 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Stub the harbor.environments.base import so brev_env is importable.
 _base = types.ModuleType("harbor.environments.base")
@@ -42,6 +44,20 @@ ENVS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENVS_DIR))
 
 import brev_env  # noqa: E402
+
+
+class RtspSampleUrlResolution(unittest.TestCase):
+    def test_uses_public_default_when_unset(self):
+        with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": ""}):
+            self.assertEqual(
+                brev_env._resolve_rtsp_sample_url(),
+                "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03",
+            )
+
+    def test_preserves_operator_override(self):
+        custom_url = "rtsp://stream.example.test:8554/eval"
+        with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": custom_url}):
+            self.assertEqual(brev_env._resolve_rtsp_sample_url(), custom_url)
 
 
 class RegisteredNodeDetection(unittest.TestCase):

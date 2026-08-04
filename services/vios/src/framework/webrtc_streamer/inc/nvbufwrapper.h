@@ -54,9 +54,10 @@ typedef NvBufSurfTransform_Error (*NvBufSurfTransform_t) (NvBufSurface *, NvBufS
 typedef int (*NvBufSurfTransformSetSessionParams_t) (NvBufSurfTransformConfigParams*);
 typedef int (*NvBufSurfTransformSetDefaultSession_t) (void);
 typedef NvBufSurfTransform_Error (*NvBufSurfTransformMultiInputBufCompositeBlend_t) (NvBufSurface **src, NvBufSurface *dst, NvBufSurfTransformCompositeBlendParamsEx *composite_blend_params);
-#ifdef JETSON_PLATFORM
+// Only resolved at runtime on Jetson/Orin (see NvBufSurface2Raw dlsym below), but the
+// typedef and member are declared unconditionally so the class layout is identical
+// across platforms in the unified aarch64 build.
 typedef int (*NvBufSurface2Raw_t) (NvBufSurface*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned char*);
-#endif
 
 enum NvBufferMode
 {
@@ -90,9 +91,7 @@ class NvBufWrapper
             , NvBufSurfTransform (nullptr)
             , NvBufSurfTransformSetSessionParams (nullptr)
             , NvBufSurfTransformSetDefaultSession(nullptr)
-#ifdef JETSON_PLATFORM
             , NvBufSurface2Raw (nullptr)
-#endif
             , m_nvBufferMode (NvBufferModeHardwareSurface)
             , handle_nvbufsurface_utils (nullptr)
             , handle_nvbufsurfacetransform_utils (nullptr)
@@ -117,7 +116,10 @@ class NvBufWrapper
                 return;
             }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
+            // Loaded from /usr/lib/aarch64-linux-gnu/nvidia/: on Jetson (Orin/Thor)
+            // the device/BSP injects the Tegra libs there; on discrete aarch64
+            // (DGX-Spark/SBSA) Dockerfile.app symlinks them from the sbsa prebuilts.
             handle_nvbufsurface_utils = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so", RTLD_LAZY);
             handle_nvbufsurfacetransform_utils = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so", RTLD_LAZY);
 #else
@@ -145,10 +147,13 @@ class NvBufWrapper
                 DL_ERROR_EXIT
                 NvBufSurfaceUnMap = (NvBufSurfaceUnMap_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurfaceUnMap");
                 DL_ERROR_EXIT
-#ifdef JETSON_PLATFORM
-                NvBufSurface2Raw = (NvBufSurface2Raw_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurface2Raw");
-                DL_ERROR_EXIT
-#endif
+                // NvBufSurface2Raw is exported only by the Jetson/Orin variant of
+                // libnvbufsurface; resolving it on Thor/SBSA/x86 would fail init.
+                if (isJetsonPlatform())
+                {
+                    NvBufSurface2Raw = (NvBufSurface2Raw_t)  dlsym(handle_nvbufsurface_utils, "NvBufSurface2Raw");
+                    DL_ERROR_EXIT
+                }
 
                 /* Surface transform library functions */
                 dlerror();
@@ -255,8 +260,7 @@ class NvBufWrapper
                 input_params.params.height      = sourceHeight;
                 input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                 input_params.params.colorFormat = NVBUF_COLOR_FORMAT_YUV420;
-#ifdef JETSON_PLATFORM
-                if (g_isJetsonGpuMode)
+                if (isJetsonPlatform() && g_useCudaDeviceMemory)
                 {
                     LOG(info) << "Using CUDA Device memory" << endl;
                     input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -266,9 +270,6 @@ class NvBufWrapper
                     LOG(info) << "Using Default memory" << endl;
                     input_params.params.memType     = NVBUF_MEM_DEFAULT;
                 }
-#else
-                input_params.params.memType     = NVBUF_MEM_DEFAULT;
-#endif
                 input_params.memtag             = NvBufSurfaceTag_VIDEO_CONVERT;
                 int ret = NvBufSurfaceAllocate(&hw_surf, 1, &input_params);
                 if (ret != 0)
@@ -293,17 +294,16 @@ class NvBufWrapper
 
                 // Color conversion from I420 to NV12 and Resolution change
                 NvBufSurface *op_surf = 0;
-#ifndef JETSON_PLATFORM
-                if (fd && *fd == -1)
-#endif
+                // On Jetson/Orin a fresh output surface is always allocated; on
+                // Thor/SBSA/x86 it is derived from an existing fd when one is provided.
+                if (isJetsonPlatform() || (fd && *fd == -1))
                 {
                     input_params = {0};
                     input_params.params.width       = width;
                     input_params.params.height      = height;
                     input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                     input_params.params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-#ifdef JETSON_PLATFORM
-                    if (g_isJetsonGpuMode)
+                    if (isJetsonPlatform() && g_useCudaDeviceMemory)
                     {
                         LOG(info) << "Using CUDA Device memory" << endl;
                         input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -313,9 +313,6 @@ class NvBufWrapper
                         LOG(info) << "Using Default memory" << endl;
                         input_params.params.memType     = NVBUF_MEM_DEFAULT;
                     }
-#else
-                    input_params.params.memType     = NVBUF_MEM_DEFAULT;
-#endif
                     input_params.memtag             = NvBufSurfaceTag_VIDEO_CONVERT;
                     ret = NvBufSurfaceAllocate(&op_surf, 1, &input_params);
                     if (ret != 0)
@@ -329,7 +326,6 @@ class NvBufWrapper
                     }
                     op_surf->numFilled = 1;
                 }
-#ifndef JETSON_PLATFORM
                 else
                 {
                     int status = -1;
@@ -348,7 +344,6 @@ class NvBufWrapper
                         }
                     }
                 }
-#endif
                 NvBufSurfTransformConfigParams config_params;
                 config_params.gpu_id       = g_gpuIndex;
                 config_params.compute_mode = NvBufSurfTransformCompute_Default;
@@ -464,8 +459,7 @@ class NvBufWrapper
                     {
                         buf_params.width       = targetWidth;
                         buf_params.height      = targetHeight;
-#ifdef JETSON_PLATFORM
-                        if (g_isJetsonGpuMode)
+                        if (isJetsonPlatform() && g_useCudaDeviceMemory)
                         {
                             LOG(info) << "Using CUDA Device memory" << endl;
                             buf_params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -475,9 +469,6 @@ class NvBufWrapper
                             LOG(info) << "Using Default memory" << endl;
                             buf_params.memType     = NVBUF_MEM_DEFAULT;
                         }
-#else
-                        buf_params.memType     = NVBUF_MEM_DEFAULT;
-#endif
                         buf_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
                         buf_params.gpuId       = g_gpuIndex;
                         int status = NvBufSurfaceCreate(&op_surf, 1, &buf_params);
@@ -1280,7 +1271,7 @@ class NvBufWrapper
             }
         }
 
-        int getSwNvBufSurface(rtc::scoped_refptr<webrtc::I420Buffer> buffer, NvBufSurface* sw_surf)
+        int getSwNvBufSurface(webrtc::scoped_refptr<webrtc::I420Buffer> buffer, NvBufSurface* sw_surf)
         {
             if (!sw_surf || !sw_surf->surfaceList)
             {
@@ -1344,9 +1335,7 @@ class NvBufWrapper
         NvBufSurfTransform_t NvBufSurfTransform;
         NvBufSurfTransformSetSessionParams_t NvBufSurfTransformSetSessionParams;
         NvBufSurfTransformSetDefaultSession_t NvBufSurfTransformSetDefaultSession;
-#ifdef JETSON_PLATFORM
         NvBufSurface2Raw_t NvBufSurface2Raw;
-#endif
 
     private:
         NvBufferMode m_nvBufferMode;

@@ -70,7 +70,11 @@ Path to the xlsx test plan. Default: agent searches for `vios_dev_sanity.xlsx` i
 
 ### `--nvstreamer-url` flag
 
-NvStreamer base URL. If omitted, the agent derives it from the deployment's `compose.env` file or defaults to `http://<BASE_HOST>:31000`.
+NvStreamer base URL. If omitted, the agent auto-detects a **local** NvStreamer (running container's published port, or a probe of `http://localhost:31000`). The "add RTSP" / H265 tests use this local NvStreamer (`http://localhost:31000/...`) as their source.
+
+### Environment preflight
+
+Environment-specific values (IPs, hosts, ports, image tags) are not committed to the repo. The agent resolves them from the live environment at startup — running containers, `compose.env`, and the sensor API. Anything that cannot be auto-detected is requested **once, at the start**, before any test runs. Most commonly: if **no local NvStreamer is detected**, the agent prompts for a **NvStreamer IP** and uses `http://<that-ip>:31000` for the run. The agent also checks the NvStreamer stream count and, if fewer than two streams are present, asks you to add more before running (Video Wall and multi-sensor tests need at least two).
 
 ### `--update-xls` flag
 

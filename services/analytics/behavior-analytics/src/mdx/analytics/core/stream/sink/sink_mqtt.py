@@ -62,12 +62,13 @@ class SinkMQTT(Sink):
         :param Callable | None key_extractor: Optional function to extract keys from messages
         :param Callable | None key_serializer: Optional function to serialize message keys
         :param Mapping[str, str | bytes] | None headers: Optional headers to include with messages
-        :raises ValueError: If no topic can be found for the given dest_key
+        :return: None. Returns without writing when no topic is configured for ``dest_key``;
+            an undefined destination is a disabled output, logged once by :meth:`Sink.resolve_destination`.
         """
 
-        topic = self._get_topic(dest_key)
+        topic = self.resolve_destination(dest_key, self._get_topic)
         if not topic:
-            raise ValueError(f"Could not find a topic with key: {dest_key}")
+            return
 
         if not self._client:
             self._init_client()
@@ -106,12 +107,13 @@ class SinkMQTT(Sink):
         :param bytes message: Serialized message payload
         :param bytes | None key: Optional message key
         :param Mapping[str, str | bytes] | None headers: Optional headers to include with the message
-        :raises ValueError: If no topic can be found for the given dest_key
+        :return: None. Returns without writing when no topic is configured for ``dest_key``;
+            an undefined destination is a disabled output, logged once by :meth:`Sink.resolve_destination`.
         """
 
-        topic = self._get_topic(dest_key)
+        topic = self.resolve_destination(dest_key, self._get_topic)
         if not topic:
-            raise ValueError(f"Could not find a topic with key: {dest_key}")
+            return
 
         if not self._client:
             self._init_client()

@@ -8,6 +8,7 @@ service reference for the VSS 3.2.0 `lvs` profile.
 Source files:
 
 - `deploy/docker/developer-profiles/dev-profile-lvs/.env`
+- `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`
 - `deploy/docker/services/video-summarization/compose.yml`
 - `deploy/docker/services/video-summarization/configs/config.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
@@ -17,10 +18,10 @@ Key service signals in the current develop branch:
 
 | Item | Value |
 |---|---|
-| Compose profile | `bp_developer_lvs_2d` |
+| Compose profile | `lvs-server` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
-| video summarization image | `${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.1}` (use `LVS_TAG=3.2.1-sbsa` on SBSA / DGX Spark / Grace) |
+| video summarization image | `${LVS_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization}:${LVS_TAG:-develop-latest}` (multi-arch manifest; same tag on every platform) |
 | REST API | `http://<HOST_IP>:38111` |
 | Readiness | `GET /v1/ready` |
 | MCP port | `38112`, disabled by default in the developer profile |
@@ -54,17 +55,19 @@ If you are already operating the resolved Docker Compose stack, include the
 profile that owns the video summarization service:
 
 ```bash
-docker compose --profile bp_developer_lvs_2d ps lvs-server
-docker compose --profile bp_developer_lvs_2d logs -f lvs-server
+docker compose --profile lvs-server ps lvs-server
+docker compose --profile lvs-server logs -f lvs-server
 ```
 
 ## Required Inputs
 
-The checked-in profile env file,
-`deploy/docker/developer-profiles/dev-profile-lvs/.env`, is the defaults file.
-For a deployment, follow `vss-deploy-profile` and apply overrides to
+The checked-in profile env files split stable defaults and runtime/profile defaults:
+`deploy/docker/developer-profiles/dev-profile-lvs/.env` is the stable-default layer,
+and `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env` is copied to
+`generated.env` for deployment-specific overrides. For a deployment, follow
+`vss-deploy-profile` and apply overrides to
 `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`, then resolve
-`deploy/docker/resolved.yml`. Do not edit the service compose directly.
+`deploy/docker/resolved.yml` using `.env` plus `generated.env`. Do not edit the service compose directly.
 Password values should come from the profile env or deployment overrides; do
 not add password defaults to the service compose file.
 
@@ -86,8 +89,8 @@ Video summarization service values:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | video summarization image repository. |
-| `LVS_TAG` | `3.2.1` (x86 / Jetson Thor); `3.2.1-sbsa` (SBSA / DGX Spark / Grace) | video summarization image tag in current develop. The tag must match the host CPU platform. |
+| `LVS_IMAGE` | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | video summarization image repository. |
+| `LVS_TAG` | `develop-latest` | video summarization image tag in current develop. GHCR publishes a multi-arch manifest, so the tag does not vary by host CPU platform. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
@@ -211,7 +214,9 @@ same dry-run path used by `vss-deploy-profile`:
 
 ```bash
 cd "$REPO/deploy/docker"
-docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
+docker compose \
+  --env-file developer-profiles/dev-profile-lvs/.env \
+  --env-file developer-profiles/dev-profile-lvs/generated.env \
   -f compose.yml -f <db-override.yml> \
   config > resolved.yml
 ```
@@ -257,29 +262,24 @@ RT-VLM values:
 
 ## Model Id Rule
 
-For the default integrated RT-VLM path:
-
-```bash
-VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-```
-
-`VLM_NAME` must match the id returned by:
+`VLM_NAME`, when configured, must match the id returned by:
 
 ```bash
 curl -sf "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'
 ```
 
-Do not replace it with the friendly model name unless the endpoint advertises
-that exact id.
+Use the endpoint response as authoritative; do not assume an image tag, NIM
+profile name, or friendly name is also the serving id.
 
 ## Helm Notes
 
 The Helm service chart lives at `deploy/helm/services/video-summarization`.
-Important 3.2 values:
+Current image values:
 
-- `image.repository: nvcr.io/nvidia/vss-core/vss-video-summarization`
-- `image.tag: "3.2.1"` (use `"3.2.1-sbsa"` on SBSA / DGX Spark / Grace hosts)
+- `image.repository: ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization`
+- `image.tag: "develop-latest"` (multi-arch manifest; same tag on every host)
+- `global.container_prefix` / `global.container_tag` override the repository
+  root and tag for the whole managed set, LVS included
 - `service.backendPort: 38111`
 - `service.mcpPort: 38112`
 - `KAFKA_ENABLED: "true"`

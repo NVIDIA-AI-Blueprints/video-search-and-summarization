@@ -64,19 +64,10 @@ docker compose -f docker/deploy/compose.yaml --env-file=<path/to/.env> up
 ### Linting
 
 ```bash
-# Check code style and formatting
-flake8 src/ tests/
-
-# Auto-format a file
-black <file>
-
-# Organize imports
-# (Use VSCode "Organize Imports" or run isort via CLI if available)
+# Check / format with ruff (repo-standard; line-length 100 in pyproject.toml)
+ruff check src/ tests/
+ruff format src/ tests/
 ```
-
-Linting configuration:
-- `.flake8`: flake8 rules (max line length 110, ignores E203, W503)
-- `pyproject.toml`: black (line length 100) and isort (black profile)
 
 ### Testing
 
@@ -190,9 +181,10 @@ Note: Livestream summarization uses the dedicated two-phase APIs above, not `POS
 
 ### Docker Architecture
 
-**Multi-stage build**:
-1. Base image (`docker/base/Dockerfile`): Dependencies only (apt + Python packages)
-2. VIA image (`docker/Dockerfile`): Application code on top of base
+**Multi-stage build** (`docker/Dockerfile`):
+1. `runtime-base` — distroless Python + apt/uv deps from `docker/base/`
+2. `pkg-installer` / `app-builder` — app packages, configs, and sources
+3. Final image — copies runtime artifacts onto `runtime-base`
 
 **Development vs Release**:
 - Dev: Source mounted from `VIA_SRC_DIR`, runs `src/via_server.py`

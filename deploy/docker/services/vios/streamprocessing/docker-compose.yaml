@@ -16,9 +16,15 @@
 services:
   streamprocessing-ms:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["streamprocessing-ms"]
     container_name: vss-vios-streamprocessing
-    network_mode: host
+    ports:
+      - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
+      - ${RTSP_SERVER_HOST_PORT:-30554}-${RTSP_SERVER_HOST_PORT_END:-30564}:${RTSP_SERVER_PORT:-30554}-${RTSP_SERVER_PORT_END:-30564}
+    networks:
+      default:
+        aliases:
+          - vss-vios-streamprocessing
     runtime: nvidia
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
@@ -31,8 +37,9 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
-      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT:-${VST_INTERNAL_IP:-vst-ingress:${VST_PORT:-30888}}/vst}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
@@ -65,12 +72,18 @@ services:
 
   streamprocessing-ms-2d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_auto_calib_2d"]
+    profiles: ["streamprocessing-ms-2d"]
     container_name: vss-vios-streamprocessing
-    network_mode: host
+    ports:
+      - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
+      - ${RTSP_SERVER_HOST_PORT:-30554}-${RTSP_SERVER_HOST_PORT_END:-30564}:${RTSP_SERVER_PORT:-30554}-${RTSP_SERVER_PORT_END:-30564}
+    networks:
+      default:
+        aliases:
+          - vss-vios-streamprocessing
     runtime: nvidia
     user: "0:0"
-    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
@@ -80,19 +93,28 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
-      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT:-${VST_INTERNAL_IP:-vst-ingress:${VST_PORT:-30888}}/vst}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
+      - VST_STATIC_TURNURL_LIST=${VST_STATIC_TURNURL_LIST:-}
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
+      - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
+      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - vss-turn-password:/run/secrets/vss-turn:ro
+      - ${VSS_APPS_DIR}/services/vios/scripts/apply_turn_config.sh:/home/vst/vst_release/tools/apply_turn_config.sh:ro
     ulimits:
       nofile:
         soft: 8192
@@ -108,6 +130,8 @@ services:
       retries: 75
       start_period: 20s
     depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
       centralizedb:
         condition: service_healthy
       redis:
@@ -115,12 +139,18 @@ services:
 
   streamprocessing-ms-3d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
+    profiles: ["streamprocessing-ms-3d"]
     container_name: vss-vios-streamprocessing
-    network_mode: host
+    ports:
+      - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
+      - ${RTSP_SERVER_HOST_PORT:-30554}-${RTSP_SERVER_HOST_PORT_END:-30564}:${RTSP_SERVER_PORT:-30554}-${RTSP_SERVER_PORT_END:-30564}
+    networks:
+      default:
+        aliases:
+          - vss-vios-streamprocessing
     runtime: nvidia
     user: "0:0"
-    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
@@ -130,13 +160,20 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
-      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT:-${VST_INTERNAL_IP:-vst-ingress:${VST_PORT:-30888}}/vst}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
+      - VST_STATIC_TURNURL_LIST=${VST_STATIC_TURNURL_LIST:-}
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
+      - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
+      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/home/vst/vst_release/configs/labels.txt
@@ -145,6 +182,8 @@ services:
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - vss-turn-password:/run/secrets/vss-turn:ro
+      - ${VSS_APPS_DIR}/services/vios/scripts/apply_turn_config.sh:/home/vst/vst_release/tools/apply_turn_config.sh:ro
     ulimits:
       nofile:
         soft: 8192
@@ -160,6 +199,8 @@ services:
       retries: 75
       start_period: 20s
     depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
       centralizedb:
         condition: service_healthy
       redis:
@@ -167,12 +208,18 @@ services:
 
   streamprocessing-ms-mv3dt:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_mv3dt"]
+    profiles: ["streamprocessing-ms-mv3dt"]
     container_name: vss-vios-streamprocessing
-    network_mode: host
+    ports:
+      - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
+      - ${RTSP_SERVER_HOST_PORT:-30554}-${RTSP_SERVER_HOST_PORT_END:-30564}:${RTSP_SERVER_PORT:-30554}-${RTSP_SERVER_PORT_END:-30564}
+    networks:
+      default:
+        aliases:
+          - vss-vios-streamprocessing
     runtime: nvidia
     user: "0:0"
-    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
@@ -182,13 +229,20 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
-      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT:-${VST_INTERNAL_IP:-vst-ingress:${VST_PORT:-30888}}/vst}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
+      - VST_STATIC_TURNURL_LIST=${VST_STATIC_TURNURL_LIST:-}
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
+      - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
+      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
@@ -197,6 +251,8 @@ services:
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - vss-turn-password:/run/secrets/vss-turn:ro
+      - ${VSS_APPS_DIR}/services/vios/scripts/apply_turn_config.sh:/home/vst/vst_release/tools/apply_turn_config.sh:ro
     ulimits:
       nofile:
         soft: 8192
@@ -212,6 +268,8 @@ services:
       retries: 75
       start_period: 20s
     depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
       centralizedb:
         condition: service_healthy
       redis:

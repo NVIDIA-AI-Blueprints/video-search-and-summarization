@@ -1,7 +1,7 @@
 
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"group": "mdx-fusion-search-analytics-app",
 		"consumer": {
 			"autoOffsetReset": "latest",
@@ -41,12 +41,12 @@
 	"sensors": [],
 	"app": [
 		{
-			"name": "behaviorWatermarkSec",
-			"value": "30"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
+			"name": "behaviorWatermarkSec",
+			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",
@@ -103,6 +103,10 @@
 		{
 			"name": "numWorkersForEmbedFiltering",
 			"value": "1"
+		},
+		{
+			"name": "numWorkersForIncidentGeneration",
+			"value": "0"
 		},
 		{
 			"name": "inSimulationMode",

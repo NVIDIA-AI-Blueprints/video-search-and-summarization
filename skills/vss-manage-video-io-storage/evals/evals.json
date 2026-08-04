@@ -8,7 +8,7 @@
     "ground_truth": "The agent should load vss-manage-video-io-storage, verify the VST endpoint is reachable, use the VIOS REST API directly, resolve sensorId and streamId from sensor/list and sensor/<sensorId>/streams, fetch timelines before choosing clip timestamps, and use a binary direct storage endpoint for clip download.",
     "expected_behavior": [
       "Loads vss-manage-video-io-storage rather than vss-search-archive, vss-ask-video, or vss-summarize-video.",
-      "Checks http://<VST_ENDPOINT>/vst/api/v1/sensor/version before issuing operational calls.",
+      "Resolves VST_ENDPOINT from VSS_PUBLIC_URL for Kubernetes or HOST_IP for Docker Compose, then checks <VST_ENDPOINT>/vst/api/v1/sensor/version before issuing operational calls; it never uses kubectl port-forward, Service DNS, or a guessed NodePort.",
       "Resolves missing sensorId or streamId from the VIOS API instead of fabricating identifiers.",
       "Fetches the stream timeline before selecting startTime and endTime.",
       "Uses direct binary endpoints for clip or snapshot downloads when possible and avoids printing credentials."
@@ -22,7 +22,7 @@
     "expected_script": null,
     "ground_truth": "The agent should load vss-manage-video-io-storage, distinguish NvStreamer from the VIOS gateway by endpoint and port, upload through the NvStreamer API, read the generated RTSP URL from /sensor/<id>/streams, and use sensorUrl when registering that RTSP URL with VIOS.",
     "expected_behavior": [
-      "Uses the NvStreamer endpoint for file-to-RTSP operations and the VIOS endpoint for sensor registration or recording operations.",
+      "Uses explicit VSS_STREAMER_URL for Kubernetes NvStreamer file-to-RTSP operations and the VSS_PUBLIC_URL /vst route for VIOS sensor registration or recording operations; it never derives a streamer host or uses kubectl port-forward.",
       "Does not invoke vss-deploy-profile or a search, Q&A, or summarization skill for API-only VIOS operations.",
       "Reads generated RTSP URLs from NvStreamer instead of constructing them from hardcoded container paths.",
       "Uses the sensorUrl field for VIOS POST /sensor/add, not url.",

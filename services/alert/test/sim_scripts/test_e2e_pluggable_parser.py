@@ -125,7 +125,7 @@ def test_pluggable_parser_e2e():
         assert resp.status_code == 200, f"NIM stub not healthy: {resp.status_code}"
         print("  NIM stub server is healthy")
 
-        from models.base_response_parser import load_response_parser
+        from schemas.base_response_parser import load_response_parser
         parser = load_response_parser("e2e_test_parser.PPEClassifier")
         print(f"  Parser loaded: {parser.__class__.__name__}")
 
@@ -168,7 +168,7 @@ def test_pluggable_parser_e2e():
         #   - no flat-merge of parser keys into info
         # Nvschema alignment (map<string,string>): merge_info_with_response coerces
         # None→"", int→str, dict→JSON.
-        from models.responses import (
+        from schemas.vlm_responses import (
             AlertBridgeResponse,
             merge_info_with_response,
         )

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 include:
-  - path: ./sdr-streamprocessing/sdr-compose.yaml
+  - path: ./sdrc/docker-compose.yaml
   - path: ./monitoring/docker-compose.yml
 
 services:
@@ -28,6 +28,9 @@ services:
       - ADAPTOR=${VST_ADAPTOR}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
+      - VST_USE_SDRC=${VST_USE_SDRC:-false}
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - RTSP_SERVER_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT:-}
       - NEED_STORAGE=false
       - NEED_STREAM_MONITORING=true
       - HTTP_PORT=${SENSOR_HTTP_PORT}
@@ -38,6 +41,7 @@ services:
       - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
       - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+      - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
@@ -58,12 +62,69 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+        required: false
       centralizedb:
         condition: service_healthy
-      sdr-streamprocessing:
+      sdr-controller:
         condition: service_started
-      envoy-streamprocessing:
-        condition: service_started
+        required: false
+
+  streamprocessing-ms-1:
+    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    user: "0:0"
+    runtime: nvidia
+    network_mode: host
+    container_name: streamprocessing-ms-1
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB:-}
+      - CONTAINER_NAME=streamprocessing-ms-1
+      - ADAPTOR=${VST_ADAPTOR}
+      - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT_1}
+      - PROMETHEUS_PORT=${STREAM_PROCESSOR_PROMETHEUS_PORT_1}
+      - RTSP_SERVER_PORT=${RTSP_SERVER_PORT_1}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+      - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
+      - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
+      - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+      - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 8192
+    deploy:
+      restart_policy:
+        condition: always
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT};
+          printf "GET /v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3;
+          read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+      interval: 20s
+      timeout: 3s
+      retries: 60
+      start_period: 20s
+    depends_on:
+      centralizedb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+        required: false
 
   centralizedb:
     image: ${POSTGRES_IMAGE}
@@ -111,7 +172,14 @@ services:
       sensor-ms:
         condition: service_healthy
 
+  # Redis is the message broker SDR consumes from, and the routing-table
+  # backing store Envoy's Lua filter reads. It's only used in SDRC mode. Profile-
+  # gated to "sdrc" so direct mode skips it entirely. sensor-MS still has
+  # `enable_notification: true` in its vst_config.json, so in direct mode it
+  # will attempt to publish camera_status_change events to a non-existent
+  # broker — the async notification queue logs and drops them, no crash.
   redis:
+    profiles: ["sdrc"]
     image: ${REDIS_IMAGE}
     user: "0:0"
     restart: always

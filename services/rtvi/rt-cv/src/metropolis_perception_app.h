@@ -15,7 +15,6 @@
 * limitations under the License.
 */
 
-
 #ifndef __METROPOLIS_PERCEPTION_APP_H__
 #define __METROPOLIS_PERCEPTION_APP_H__
 

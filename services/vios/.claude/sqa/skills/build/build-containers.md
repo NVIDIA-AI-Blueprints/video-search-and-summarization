@@ -25,16 +25,43 @@ Which modules to build depends on the deployment target:
 
 | Deployment target | VIOS modules | Additional containers |
 |---|---|---|
-| Default (`vios` / stream-processor) | `streamprocessing,sensor` | `nvstreamer`, `ingress` |
-| Scaled (`--target scaled`) | `sensor,rtspserver,recorder,livestream,replaystream,storage` | `nvstreamer`, `ingress` |
+| Default (`vst` / stream-processor; alias `vios`) | `streamprocessing,sensor` | `nvstreamer`, `ingress` |
 | NVStreamer only (`--target nvstreamer`) | _(none)_ | `nvstreamer` |
 | All (`--target all`) | `streamprocessing,sensor` | `nvstreamer`, `ingress` |
 
-> **`--target all` deploys NVStreamer + stream-processor** — the same containers as the default target. Use this flag when you want to be explicit about deploying both services together. It does NOT deploy the scaled microservices; use `--target scaled` for that.
+> **`--target all` deploys NVStreamer + stream-processor** — the same containers as the default target plus NVStreamer. Use this flag when you want to be explicit about deploying both services together.
 
 `mcp` is never built — it takes too long and the pre-built image is used at deploy time.
 
 `streambridge` is unused and never built.
+
+---
+
+## Toolchain & base image are automatic — do NOT ask the user about them
+
+`build.sh` compiles inside a **toolchain** container and layers modules on a **base** image. Both are handled automatically — you never need to ask the user about them:
+
+- On the first build, `build.sh` **auto-builds** the toolchain and base if they're missing, then proceeds. On later builds it **detects them on disk and skips** — they are never rebuilt unless deleted.
+- So for any build request, just run the `./build.sh container module=…` command directly. Do **not** prompt the user to build the toolchain first, and do **not** ask which toolchain tag to use.
+- **Heads-up to surface (don't ask, just mention):** the *first* build on a fresh clone is ~10-15 min longer because it builds the toolchain + base once. Subsequent builds are fast.
+- Only deviate when the user explicitly wants a pre-pulled toolchain from a registry — then pass `toolchain-image=<ref>` (or set `X86_BUILD_IMAGE`/`AARCH64_CC_IMAGE`) and add `no-auto-deps` to fail fast instead of building locally. See the main `README.md` "Going further" section.
+- `./build.sh all` is the one-shot path (toolchain → base → all modules → NVStreamer) when the user says "build everything".
+
+### Explicitly building / pushing the toolchain
+
+If the user asks to **build the toolchain itself** (e.g. "build the toolchain for x86" / "build and push the arm64 toolchain to our registry"):
+
+```bash
+# Build locally
+./build.sh toolchain                 # x86_64
+./build.sh arch=arm64 toolchain      # aarch64 cross-compile
+
+# Build + push (push REQUIRES a registry-qualified image name)
+./build.sh toolchain push=1 toolchain-image=<registry>/vios-build:x86-devel-ubuntu24.04-cuda13.2.0
+./build.sh arch=arm64 toolchain push=1 toolchain-image=<registry>/vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0
+```
+
+**Ask before pushing if no registry was given.** Pushing the default tag (`vios-build:x86-devel-ubuntu24.04-cuda13.2.0`) targets Docker Hub, which is almost never intended. If the user says "push to registry" without naming one, ask which registry / image path to use, then pass it via `toolchain-image=` (or `X86_BUILD_IMAGE`/`AARCH64_CC_IMAGE`). This is the one build case where you SHOULD ask a clarifying question. The same applies to `base-container push=1` (use `image-registry=<ref>`).
 
 ---
 
@@ -51,9 +78,19 @@ git pull
 
 ---
 
-## Step 2 — Clean rule (MANDATORY between every build.sh invocation)
+## Step 2 — Clean rule (only when switching module set or arch)
 
-Run `cc=0 make clean && cc=1 make clean && cc=2 make clean` **before every individual `build.sh` call**. Stale object files from a previous build will corrupt the next one. This applies regardless of whether you are switching between module types (e.g. VIOS modules → nvstreamer) or running the same module type again.
+Run `./build.sh clean` (add `arch=arm64` when cross-compiling) **only when**:
+
+- switching between module sets that change compile flags (e.g. VIOS modules → nvstreamer, or adding/removing a `module=`), or
+- switching architecture (x86_64 ↔ aarch64).
+
+A plain rebuild of the **same** modules does **not** need a clean — Make tracks dependencies incrementally, and forcing a clean every time triggers a slow full recompile.
+
+Notes:
+
+- `./build.sh clean` cleans only the **current arch's** build context. Do **not** clean the other arch — cleaning runs inside that arch's toolchain container, so e.g. cleaning aarch64 on an x86-only host would needlessly require (and pull) the aarch64 cross-compiler image just to delete files.
+- It clears C++ object files only; it does **not** remove the cached toolchain/base Docker images (so it never triggers a toolchain rebuild — use `no-cache` for that).
 
 ---
 
@@ -64,8 +101,8 @@ Skip this step if the target is `nvstreamer` only.
 ```bash
 cd <PROJECT_ROOT>
 
-# Clean first (see Step 2 rule)
-cc=0 make clean && cc=1 make clean && cc=2 make clean
+# Clean ONLY if switching module set or arch (see Step 2). Skip for a same-modules rebuild.
+./build.sh clean                  # add arch=arm64 when cross-compiling
 
 # Default or all targets (stream-processor) — sensor-ms is also deployed by these targets
 ./build.sh container module=streamprocessing,sensor
@@ -82,21 +119,28 @@ Run in background and monitor output. The build is complete when `build.sh` exit
 
 ## Step 4 — Build additional containers
 
-Each container is a separate `build.sh` invocation — **clean before each one**.
+Each container is a separate `build.sh` invocation. Going from VIOS modules → NVStreamer/ingress **is** a module-set switch, so clean once before the first one (see Step 2).
 
 ```bash
 cd <PROJECT_ROOT>
 
-# Clean before NVStreamer build
-cc=0 make clean && cc=1 make clean && cc=2 make clean
+# Module-set switch (VIOS modules → nvstreamer): clean once
+./build.sh clean                  # add arch=arm64 when cross-compiling
 ./build.sh container nvstreamer
 
-# Clean before ingress build (skip ingress entirely for nvstreamer-only target)
-cc=0 make clean && cc=1 make clean && cc=2 make clean
+# Ingress is another container (skip ingress entirely for nvstreamer-only target)
 ./build.sh container ingress
 ```
 
 > **Do not build the MCP container** — `./build.sh container mcp` is intentionally skipped. It takes too long and the pre-built image is used instead.
+
+---
+
+## Other build variants
+
+- **Base image, built alone** ("build the base image"): `./build.sh base-container`. To publish it, `./build.sh base-container push=1 image-registry=<registry>` — ask the user for the registry if they didn't name one (default tag would push to Docker Hub).
+- **Force rebuild / no cache** ("force rebuild", "rebuild from scratch", "rebuild without cache"): add `no-cache` to any build, e.g. `./build.sh container module=streamprocessing no-cache`. This is the way to force a **toolchain/base rebuild** — they are otherwise cached and skipped. (Deleting the image works too.)
+- **Debug build** ("build sensor in debug mode"): `./build.sh debug module=<module>` (compile only) or `./build.sh container debug module=<module>` for a debug container image.
 
 ---
 
@@ -142,7 +186,8 @@ On build failure, stop and report the error. Do not proceed to deployment.
 
 ## Notes
 
-- **Never invoke `make` directly for any purpose.** The only permitted `make` usage is the specific clean command `cc=0 make clean && cc=1 make clean && cc=2 make clean`, run before each `build.sh` invocation. All builds go through `./build.sh`.
-- Build uses the GitLab registry base images by default (appropriate for dev/test).
+- **Never invoke `make` directly.** All builds and cleans go through `./build.sh` — use `./build.sh clean` (see Step 2), not raw `make clean`.
+- The toolchain + base images are built locally on first use and cached (see "Toolchain & base image are automatic" above). `./build.sh clean` clears C++ object files only — it does NOT remove the cached toolchain/base Docker images, so cleaning does not trigger a toolchain rebuild.
 - A custom tag can be passed: `./build.sh container tag=<TAG> module=<modules>`.
+- To publish under a registry, pass `image-registry=<ref>` / `nvstreamer-image=<ref>` / `toolchain-image=<ref>` (or the matching env vars) at build time, then `push=1`. See the main `README.md`.
 - The build must complete successfully before proceeding to `skills/deployment/deploy.md`.

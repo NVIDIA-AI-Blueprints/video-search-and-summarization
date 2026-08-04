@@ -17,8 +17,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-video-analytics-api
-  tag: "3.2.0"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 replicas: 1
 
@@ -41,7 +41,7 @@ tolerations: []
 waitForDependencies:
   enabled: false
   image:
-    repository: busybox
+    repository: docker.io/library/busybox
     tag: "1.37.0"
     pullPolicy: IfNotPresent
   kafkaHost: ""

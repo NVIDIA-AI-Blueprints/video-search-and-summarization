@@ -22,6 +22,7 @@
 #include <functional>
 #include <math.h>
 
+#include "rtc_base/logging.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/thread.h"
 #include "openssl/hmac.h"
@@ -107,6 +108,22 @@ const char kCandidateSdpName[] = "candidate";
 // Names used for a SessionDescription JSON object.
 const char kSessionDescriptionTypeName[] = "type";
 const char kSessionDescriptionSdpName[] = "sdp";
+
+namespace {
+
+bool JsonObjectGetString(const Json::Value& in, const char* key, std::string* out) {
+  if (!out || !key || !in.isObject() || !in.isMember(key)) {
+    return false;
+  }
+  const Json::Value& v = in[key];
+  if (!v.isString()) {
+    return false;
+  }
+  *out = v.asString();
+  return true;
+}
+
+}  // namespace
 
 std::string PeerConnectionManager::m_rpStunServer;
 std::mutex PeerConnectionManager::m_rpStunServerLock;
@@ -695,7 +712,7 @@ PeerConnectionManager::~PeerConnectionManager()
     m_audioDeviceModule = nullptr;
     delete fakeAdm;
 #endif
-    rtc::CleanupSSL();
+    webrtc::CleanupSSL();
 }
 
 VmsErrorCode PeerConnectionManager::startStream(const Json::Value& req_info, const Json::Value &in, Json::Value &response)
@@ -847,9 +864,9 @@ VmsErrorCode PeerConnectionManager::getIceServers(const std::string &peerid, con
 /* ---------------------------------------------------------------------------
 **  get PeerConnection associated with peerid
 ** -------------------------------------------------------------------------*/
-rtc::scoped_refptr<webrtc::PeerConnectionInterface> PeerConnectionManager::getRtcPeerConnection(const std::string &peerid)
+webrtc::scoped_refptr<webrtc::PeerConnectionInterface> PeerConnectionManager::getRtcPeerConnection(const std::string &peerid)
 {
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection;
+    webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection;
     shared_ptr<PeerConnection> peerConnection = std::dynamic_pointer_cast<PeerConnection>(getPeerConnection(peerid));
     if (peerConnection.get())
     {
@@ -891,7 +908,7 @@ VmsErrorCode PeerConnectionManager::createOffer(unordered_map<string, string> ur
     }
     else
     {
-        rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
+        webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
 #if 0
         ret = this->AddStreams(peerConnection, urlParameters, opts, offer);
         if (ret != VmsErrorCode::NoError)
@@ -1252,8 +1269,8 @@ bool PeerConnectionManager::streamStillUsed(const std::string &streamLabel)
         {
             continue;
         }
-        rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = pc->getRtcPeerConnection();
-        std::vector<rtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = rtcPeerConnection->GetSenders();
+        webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = pc->getRtcPeerConnection();
+        std::vector<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = rtcPeerConnection->GetSenders();
         for (auto stream : senders)
         {
             std::vector<std::string> streamVector = stream->stream_ids();
@@ -1300,7 +1317,7 @@ bool PeerConnectionManager::isWebrtcInLimitCrossed()
         {
             continue;
         }
-        rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
+        webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
         if (rtcPeerConnection)
         {
             webrtc::PeerConnectionInterface::PeerConnectionState peerConnection_state
@@ -1637,12 +1654,12 @@ VmsErrorCode PeerConnectionManager::getStreamStats(std::string &peerId, Json::Va
         if (audio_video_pair_it != m_stream_map.end())
         {
             AudioVideoPair pair = audio_video_pair_it->second;
-            rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource(pair.first);
+            webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource(pair.first);
             if(m_deviceManager->getDeviceType() == TYPE_VST)
             {
 #if 0 /* TODO Fix decoder stats */
                 /* get decoder stats */
-                rtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<rtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource);
+                webrtc::VideoSourceInterface<webrtc::VideoFrame>* videoSourceInterface = static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame>*>(videoSource);
                 TrackSource<NvGstVideoCapturer>* trackSource = static_cast<TrackSource<NvGstVideoCapturer>*>(videoSourceInterface);
                 if (trackSource != nullptr)
                 {
@@ -1962,25 +1979,59 @@ void PeerConnectionManager::resolveAndValidateRP()
     }
 }
 
+namespace {
+
+/* webRTC filters its own log output on the LoggingConfig singleton, not on
+ * LogMessage::LogToDebug(). That config defaults to LS_INFO and is created by
+ * the first call that touches the logging subsystem, after which
+ * InitializeLogging() is a no-op. It therefore has to be installed before
+ * anything else logs, otherwise webRTC keeps writing its LS_INFO chatter to
+ * stderr whatever LogToDebug() is set to. */
+void configureWebrtcLogging(webrtc::LoggingSeverity severity)
+{
+    webrtc::LoggingConfig log_config;
+    /* min_severity drops messages below `severity` at the RTC_LOG call site,
+     * debug_severity gates what reaches stderr. Both are needed. */
+    log_config.set_min_severity(severity);
+    log_config.set_debug_severity(severity);
+    log_config.set_log_timestamp(true);
+    log_config.set_log_thread(true);
+
+    const bool applied = webrtc::InitializeLogging(std::move(log_config));
+
+    /* Keeps GetLogToDebug() reporting the effective level for its callers. */
+    webrtc::LogMessage::LogToDebug(severity);
+    /* Already carried by the config; repeated so timestamps survive the case
+     * where the config above was rejected as already installed. */
+    webrtc::LogMessage::LogTimestamps(true);
+
+    const webrtc::LoggingSeverity effective_severity = webrtc::GetLoggingConfig().debug_severity();
+    if (!applied && effective_severity != severity)
+    {
+        LOG(warning) << "webRTC logging was already initialized at severity " << effective_severity
+                     << ", requested severity " << severity << " not applied to its log output" << endl;
+    }
+}
+
+}  // namespace
+
 /* ---------------------------------------------------------------------------
 **  check if factory is initialized
 ** -------------------------------------------------------------------------*/
 void PeerConnectionManager::InitializePeerConnection()
 {
-    int logLevel              = rtc::LS_ERROR;
+    webrtc::LoggingSeverity logLevel = webrtc::LS_ERROR;
     // To print webrtc latency stats
     if (GET_CONFIG().enable_latency_logging == true)
     {
-        logLevel              = rtc::LS_WARNING;
+        logLevel              = webrtc::LS_WARNING;
     }
-    rtc::LogMessage::LogToDebug((rtc::LoggingSeverity)logLevel);
-    rtc::LogMessage::LogTimestamps();
-    rtc::LogMessage::LogThreads();
-    LOG(verbose) << "Logger level:" <<  rtc::LogMessage::GetLogToDebug() << std::endl;
+    configureWebrtcLogging(logLevel);
+    LOG(info) << "Logger level:" <<  webrtc::LogMessage::GetLogToDebug() << std::endl;
 #ifdef ASYNC_API
     m_eventLoop.setParent(this);
 #endif
-    rtc::InitializeSSL();
+    webrtc::InitializeSSL();
     if (GET_CONFIG().use_reverse_proxy == true)
     {
         resolveAndValidateRP();
@@ -2660,6 +2711,7 @@ int PeerConnectionManager::notify(const string& change, const string& deviceId, 
             event["camera_name"] = sensor->name;
             event["camera_url"] = stream->live_url; // Use original URL for payload
             event["change"] = change;
+            event["camera_type"] = vst_common::sensorTypeToCameraType(sensor->type);
             payload["created_at"] = getCurrentTime();
             payload["source"] = "vst";
             payload["alert_type"] = "camera_status_change";
@@ -3631,7 +3683,7 @@ int PeerConnectionManager::startDataChannel()
         int sdp_mlineindex = current_candidate["sdpMLineIndex"].asInt();
         string sdp_name = current_candidate["candidate"].asString();
         std::unique_ptr<webrtc::IceCandidateInterface> candidate(webrtc::CreateIceCandidate(sdp_mid, sdp_mlineindex, sdp_name, nullptr));
-        rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
+        webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
         rtcPeerConnection->AddIceCandidate(candidate.get());
     }
     return 0;
@@ -3803,7 +3855,7 @@ int PeerConnectionManager::startPeerConnectionForRemoteDevice(shared_ptr<StreamI
         int sdp_mlineindex = current_candidate["sdpMLineIndex"].asInt();
         string sdp_name = current_candidate["candidate"].asString();
         std::unique_ptr<webrtc::IceCandidateInterface> candidate(webrtc::CreateIceCandidate(sdp_mid, sdp_mlineindex, sdp_name, nullptr));
-        rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
+        webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
         rtcPeerConnection->AddIceCandidate(candidate.get());
     }
     return 0;
@@ -3900,7 +3952,7 @@ void PeerConnectionManager::parseRemoteAnswer(const Json::Value& in, Json::Value
     std::string type;
     std::string sdp;
     Json::Value jmessage = in.get("sessionDescription", EMPTY_STRING);
-    if (!rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionTypeName, &type) || !rtc::GetStringFromJsonObject(jmessage, kSessionDescriptionSdpName, &sdp))
+    if (!JsonObjectGetString(jmessage, kSessionDescriptionTypeName, &type) || !JsonObjectGetString(jmessage, kSessionDescriptionSdpName, &sdp))
     {
         LOG(error) << "Can't parse received message." << endl;
         return;
@@ -4024,7 +4076,7 @@ VmsErrorCode PeerConnectionManager::onWsDisconnect(const string connectionId)
         return VmsErrorCode::VMSInternalError;
     }
 
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
+    webrtc::scoped_refptr<webrtc::PeerConnectionInterface> rtcPeerConnection = peerConnection->getRtcPeerConnection();
     if (rtcPeerConnection)
     {
         webrtc::PeerConnectionInterface::PeerConnectionState peerConnection_state

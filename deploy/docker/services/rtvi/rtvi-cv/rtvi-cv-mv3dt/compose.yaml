@@ -15,10 +15,15 @@
 
 services:
   perception:
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.1}
-    network_mode: "host"
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.2}
     runtime: nvidia
     container_name: vss-rtvi-cv-mv3dt
+    ports:
+      - ${RTVI_CV_MV3DT_HOST_PORT:-9000}:${RTVI_CV_MV3DT_PORT:-9000}
+    networks:
+      default:
+        aliases:
+          - vss-rtvi-cv-mv3dt
     deploy:
       restart_policy:
         condition: on-failure
@@ -39,13 +44,12 @@ services:
 
   measurement-fusion:
     image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0}
-    network_mode: "host"
     container_name: vss-rtvi-cv-bev-fusion
     restart: always
     environment:
       BROKER_TYPE: ${STREAM_TYPE:-kafka}
-      KAFKA_BOOTSTRAP: "localhost:9092"
-      REDIS_HOST: "localhost"
+      KAFKA_BOOTSTRAP: "kafka:29092"
+      REDIS_HOST: "redis"
       REDIS_PORT: "6379"
       RAW_TOPIC: "mdx-raw"
       FUSED_TOPIC: "mdx-bev"

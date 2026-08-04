@@ -82,10 +82,91 @@ def _list_lockfiles(ref: str, filename: str) -> list[str]:
 
 
 def parse_uv_lock(data: bytes) -> Inventory:
-    """Return {(name, version): {repository_url}} parsed from uv.lock."""
+    """Return the runtime dependency closure from a ``uv.lock`` file.
+
+    A uv lock records every resolved dependency group.  In particular, the
+    root editable package's ``package.dev-dependencies`` contains linters and
+    test runners, which do not ship in a release artifact and must not expand
+    the OSRB review.  Start from local project packages and follow their
+    regular ``dependencies`` plus every entry of their ``optional-dependencies``
+    (a root project's extras, e.g. the agent stack behind ``nvidia-vss[agent]``, ship
+    in release artifacts); deliberately do not follow ``dev-dependencies``.
+    Third-party packages only contribute the extras that a runtime dependency
+    actually requests.
+    """
     doc = tomllib.loads(data.decode("utf-8"))
+    packages = doc.get("package", []) or []
+    packages_by_name: dict[str, list[int]] = {}
+    roots: list[int] = []
+
+    for index, pkg in enumerate(packages):
+        name = (pkg.get("name") or "").lower()
+        if not name:
+            continue
+        # uv can fork a package by platform, source, or Python version.  Keep
+        # every entry and use a dependency's optional version/source metadata
+        # to select the correct fork below.
+        packages_by_name.setdefault(name, []).append(index)
+        source = pkg.get("source") or {}
+        if "editable" in source or "virtual" in source:
+            roots.append(index)
+
+    # A lockfile produced for a project always has an editable/virtual root.
+    # Keep a conservative fallback for malformed or third-party lockfiles so
+    # an unexpected format cannot silently omit a package from OSRB review.
+    root_names = set(roots)
+    if not roots:
+        roots = list(range(len(packages)))
+
+    runtime_package_indexes: set[int] = set()
+    expanded_extras: dict[int, set[str]] = {}
+    pending: list[tuple[int, set[str]]] = [
+        (index, set((packages[index].get("optional-dependencies") or {}).keys()))
+        for index in roots
+    ]
+
+    def add_dependency(dependency: dict) -> None:
+        """Queue every lock entry selected by one dependency declaration."""
+        dependency_name = (dependency.get("name") or "").lower()
+        if not dependency_name:
+            return
+        dependency_version = str(dependency.get("version") or "")
+        dependency_source = dependency.get("source") or {}
+        dependency_extras = set(dependency.get("extra") or [])
+        for dependency_index in packages_by_name.get(dependency_name, []):
+            candidate = packages[dependency_index]
+            candidate_source = candidate.get("source") or {}
+            if dependency_version and candidate.get("version") != dependency_version:
+                continue
+            if dependency_source and candidate_source != dependency_source:
+                continue
+            pending.append((dependency_index, dependency_extras))
+
+    while pending:
+        index, requested_extras = pending.pop()
+        previous_extras = expanded_extras.get(index, set())
+        new_extras = requested_extras - previous_extras
+        first_visit = index not in runtime_package_indexes
+        if not first_visit and not new_extras:
+            continue
+        runtime_package_indexes.add(index)
+        expanded_extras[index] = previous_extras | requested_extras
+        pkg = packages[index]
+        if first_visit:
+            for dependency in pkg.get("dependencies", []) or []:
+                add_dependency(dependency)
+        optional_dependencies = pkg.get("optional-dependencies") or {}
+        for extra in new_extras:
+            for dependency in optional_dependencies.get(extra, []) or []:
+                add_dependency(dependency)
+
     out: Inventory = {}
-    for pkg in doc.get("package", []) or []:
+    for index in sorted(runtime_package_indexes):
+        # The editable/virtual root is this repository's own project, not a
+        # third-party package subject to OSRB review.
+        if index in root_names:
+            continue
+        pkg = packages[index]
         name = (pkg.get("name") or "").lower()
         version = str(pkg.get("version") or "")
         if not name:
@@ -227,13 +308,19 @@ def diff_requirements(
                 "repository_url": "", "notes": "removed from requirements.txt",
             })
         elif bv != hv and bv and hv:  # pinned == bump on both sides
-            meta = pypi_metadata(name, hv)
+            old_meta = pypi_metadata(name, bv)
+            new_meta = pypi_metadata(name, hv)
+            old_license = old_meta.get("license", "")
+            new_license = new_meta.get("license", "")
+            notes = "requirements.txt version pin changed"
+            if old_license and new_license and old_license != new_license:
+                notes += "; license changed"
             rows.append({
                 "language": "python", "package": name, "change": "updated",
                 "old_version": bv, "new_version": hv,
-                "old_license": "", "new_license": meta.get("license", ""),
-                "repository_url": meta.get("repository_url", ""),
-                "notes": "requirements.txt version pin changed",
+                "old_license": old_license, "new_license": new_license,
+                "repository_url": new_meta.get("repository_url", ""),
+                "notes": notes,
             })
     return rows
 

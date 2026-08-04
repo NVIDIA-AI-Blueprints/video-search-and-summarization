@@ -41,7 +41,7 @@ public:
     std::shared_ptr<NvCompositor> getCompositor() const override { return m_compositor; }
     std::shared_ptr<VideoWebRTCSender> getVideoSender() const override { return nullptr; }
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const override { return nullptr; }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> getIPCProducer() const override { return nullptr; }
 #endif
 

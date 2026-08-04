@@ -47,7 +47,7 @@ public:
     void getIceCandidateList(Json::Value& out) { m_observer->getIceCandidateList(out); }
     void getStats(Json::Value& content);
     void isIceCandidateAdded();
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> getRtcPeerConnection() { return m_pc; };
+    webrtc::scoped_refptr<webrtc::PeerConnectionInterface> getRtcPeerConnection() { return m_pc; };
     bool isRpStunAvailable() { return m_peerConnectionManager->isRpStunAvailable(); }
     string getRpStunServer() { return m_peerConnectionManager->getRpStunServer(); }
     pair<string, int> getRpSeat() { return m_rpSeat; }
@@ -94,9 +94,9 @@ protected:
     int CreateAndAddTrack(string video, std::map<string, string, std::less<>>& opts
                         , bool is_audio_required, string streamLabel
                         , shared_ptr<StreamInfo> stream_info, Json::Value& response);
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> CreateVideoSource(
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> CreateVideoSource(
         const std::string & videourl, const std::map<std::string,std::string, std::less<>> & opts);
-    rtc::scoped_refptr<webrtc::AudioSourceInterface> CreateAudioSource(
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface> CreateAudioSource(
         const std::string & audiourl, const std::map<std::string,std::string, std::less<>> & opts);
 public:
     void removeTracks(const Json::Value &);
@@ -141,39 +141,39 @@ private:
     bool removeAudioTrack(const std::string peerid);
     bool isRemoteDescriptionSet();
     void processRemoteCandidatesFromCache();
-    VmsErrorCode addAudioTrack(rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource,
-                rtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource, std::string peerid,
+    VmsErrorCode addAudioTrack(webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource,
+                webrtc::scoped_refptr<webrtc::AudioSourceInterface> audioSource, std::string peerid,
                 std::string video, std::map<std::string, std::string, std::less<>> opts, Json::Value&);
     VmsErrorCode addUdpTrack(const string sensorId, const string stream_id);
     VmsErrorCode createOffer(const Json::Value& in, Json::Value& offer);
     VmsErrorCode getAudioVideoPair(std::map<std::string, AudioVideoPair, std::less<>>::iterator& it
                                 , const std::string &mediaSessionId, Json::Value& response);
     VmsErrorCode getMediaSources(const std::string &mediaSessionId,
-                                rtc::scoped_refptr<webrtc::VideoTrackSourceInterface>& videoSource,
-                                rtc::scoped_refptr<webrtc::AudioSourceInterface>& audioSource,
+                                webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>& videoSource,
+                                webrtc::scoped_refptr<webrtc::AudioSourceInterface>& audioSource,
                                 Json::Value& response);
     VmsErrorCode streamSettings(const std::string &peerId, const Json::Value &data,
                                 Json::Value& response);
 private:
-    std::unique_ptr<rtc::Thread>                             m_signalingThread;
-    std::unique_ptr<rtc::Thread>                             m_workerThread;
+    std::unique_ptr<webrtc::Thread>                             m_signalingThread;
+    std::unique_ptr<webrtc::Thread>                             m_workerThread;
     std::unique_ptr<vst_webrtc::PeerConnectionObserver>      m_observer;
     PeerConnectionManager*                                   m_peerConnectionManager;
     const std::string                                        m_peerid;
     std::string                                              m_deviceId;
     std::string                                              m_thirdPartyPeerId;
     std::string                                              m_clientPublicIpAddr;
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface>      m_pc;
-    rtc::scoped_refptr<vst_webrtc::PeerConnectionStatsCollectorCallback> m_statsCallback;
+    webrtc::scoped_refptr<webrtc::PeerConnectionInterface>      m_pc;
+    webrtc::scoped_refptr<vst_webrtc::PeerConnectionStatsCollectorCallback> m_statsCallback;
     std::unique_ptr<vst_webrtc::VideoSink>                   m_videosink;
     std::unique_ptr<vst_webrtc::AudioSink>                   m_audiosink;
     std::atomic<bool>                                        m_deleting{false};
     std::shared_ptr<WebrtcStream>                            m_producer;
     std::unique_ptr<Bosma::Scheduler>                        m_webrtcInputDataWatchDog;
-    rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> m_peer_connection_factory;
+    webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> m_peer_connection_factory;
     const std::regex                                         m_publishFilter;
-    rtc::scoped_refptr<webrtc::AudioDecoderFactory>          m_audioDecoderfactory;
-    rtc::scoped_refptr<webrtc::AudioDeviceModule>            m_audioDeviceModule;
+    webrtc::scoped_refptr<webrtc::AudioDecoderFactory>          m_audioDecoderfactory;
+    webrtc::scoped_refptr<webrtc::AudioDeviceModule>            m_audioDeviceModule;
     std::map<std::string, AudioVideoPair, std::less<>>                    m_streamMap;
     EventLoop                                                m_eventLoop;
     std::shared_ptr<nv_vms::DeviceManager>                   m_deviceManager;

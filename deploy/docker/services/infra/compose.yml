@@ -15,20 +15,74 @@
 
 include:
   - path: ./haproxy/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/agent/agent.env
+      - ${VSS_APPS_DIR}/services/alert/alert.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./sdrc/docker-compose.yaml
 
 services:
+  turnserver-init:
+    image: alpine:3.24.1
+    profiles: ["turnserver-init"]
+    container_name: vss-turnserver-init
+    user: "0:0"
+    environment:
+      TURN_PASSWORD_FILE: /run/secrets/vss-turn/turn-password
+      TURN_PASSWORD_BYTES: ${TURN_PASSWORD_BYTES:-32}
+      TURN_PASSWORD_UID: "0"
+      TURN_PASSWORD_GID: "65534"
+    volumes:
+      - vss-turn-password:/run/secrets/vss-turn:rw
+      - ${VSS_APPS_DIR}/services/infra/turnserver/scripts/init-password.sh:/usr/local/bin/vss-turnserver-init-password.sh:ro
+    entrypoint: ["/usr/local/bin/vss-turnserver-init-password.sh"]
+    restart: "no"
+
+  turnserver:
+    image: coturn/coturn:4.14.0
+    profiles: ["turnserver"]
+    container_name: vss-turnserver
+    user: "65534:65534"
+    restart: unless-stopped
+    ports:
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/udp
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/tcp
+      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/udp
+      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/tcp
+    networks:
+      default:
+        aliases:
+          - turnserver
+          - vss-turnserver
+    environment:
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_MIN_RELAY_PORT: ${TURN_MIN_RELAY_PORT:-49160}
+      TURN_MAX_RELAY_PORT: ${TURN_MAX_RELAY_PORT:-49200}
+      TURN_REALM: ${TURN_REALM:-vss.local}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_PASSWORD_FILE: /run/secrets/vss-turn/turn-password
+      TURN_PASSWORD_WAIT_SECONDS: ${TURN_PASSWORD_WAIT_SECONDS:-30}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-${EXTERNAL_IP:-${HOST_IP}}}
+    volumes:
+      - ${VSS_APPS_DIR}/services/infra/turnserver/scripts/entrypoint.sh:/usr/local/bin/vss-turnserver-entrypoint.sh:ro
+      - vss-turn-password:/run/secrets/vss-turn:ro
+    entrypoint: ["/usr/local/bin/vss-turnserver-entrypoint.sh"]
+    depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
+
   mosquitto:
     image: eclipse-mosquitto:2
-    network_mode: "host"
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["mosquitto"]
     container_name: mosquitto
+    ports:
+      - ${MQTT_HOST_PORT:-1883}:${MQTT_PORT:-1883}
     restart: always
-    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf", "-p", "${MQTT_PORT:-1883}"]
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     volumes:
       - $VSS_APPS_DIR/services/infra/mosquitto/configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     healthcheck:
-      test: ["CMD", "mosquitto_pub", "-h", "${MQTT_HOST:-localhost}", "-p", "${MQTT_PORT:-1883}", "-t", "health", "-m", "ping"]
+      test: ["CMD", "mosquitto_pub", "-h", "${MQTT_HEALTHCHECK_HOST:-localhost}", "-p", "${MQTT_PORT:-1883}", "-t", "health", "-m", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -37,15 +91,15 @@ services:
 
   phoenix:
     container_name: phoenix
-    image: 'arizephoenix/phoenix:14.15.0'
-    profiles: ["bp_wh_2d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: 'arizephoenix/phoenix:19.8.0'
+    profiles: ["phoenix"]
     environment:
       PHOENIX_WORKING_DIR: '/.phoenix/'
       PHOENIX_HOST_ROOT_PATH: '/phoenix'
     volumes:
     - phoenix-data:/.phoenix
     ports:
-    - 6006:6006
+    - ${PHOENIX_HOST_PORT:-6006}:6006
 
   elasticsearch:
     build:
@@ -53,17 +107,18 @@ services:
       dockerfile: Dockerfiles/elasticsearch.Dockerfile
       network: "host"
     image: elasticsearch
-    network_mode: "host"
     environment:
       ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
       discovery.type: single-node
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["elasticsearch"]
     volumes:
       - $VSS_APPS_DIR/services/infra/elk/elasticsearch/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
       - mdx-elastic-data:/tmp/elastic/data:rw
       - mdx-elastic-logs:/tmp/elastic/logs:rw
     container_name: elasticsearch
     restart: always
+    ports:
+      - ${ELASTICSEARCH_HOST_PORT:-9200}:9200
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?local=false&wait_for_status=yellow&wait_for_events=normal&timeout=5s' | grep -q '\"timed_out\"[[:space:]]*:[[:space:]]*false'"]
       interval: 10s
@@ -76,11 +131,11 @@ services:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/elastic-init.Dockerfile
       network: "host"
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    network_mode: "host"
+    profiles: ["elasticsearch-init-container"]
     container_name: vss-elasticsearch-init
     environment:
-      - BP_PROFILE=${BP_PROFILE}
+      - ELASTICSEARCH_ENABLE_EMBEDDINGS=${ELASTICSEARCH_ENABLE_EMBEDDINGS:-false}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS=${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}
       - ELASTICSEARCH_ILM_MIN_AGE=${ELASTICSEARCH_ILM_MIN_AGE:-4h}
       - ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM:-1536}
@@ -96,21 +151,20 @@ services:
     restart: "on-failure:5"
 
   kafka:
-    image: confluentinc/cp-kafka:8.2.0
-    network_mode: "host"
+    image: confluentinc/cp-kafka:8.3.0
     volumes:
       - mdx-kafka:/tmp/kafka-data
       - $VSS_APPS_DIR/services/infra/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_kafka_mv3dt","playback_kafka_2d","playback_kafka_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["kafka"]
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_NODE_ID: 1
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:9093'
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://$HOST_IP:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://${HOST_IP}:${KAFKA_HOST_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -124,18 +178,27 @@ services:
       KAFKA_LOG_DIRS: '/tmp/kafka-data'
     container_name: kafka
     entrypoint: ["/bin/sh","/usr/local/bin/kafka-entrypoint.sh"]
+    ports:
+      - ${KAFKA_HOST_PORT:-9092}:9092
+    networks:
+      default:
+        aliases:
+          - kafka-kafka
     healthcheck:
-      test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
       interval: 15s
       timeout: 15s
       retries: 60
       start_period: 60s
 
   kafka-topic-init-container:
-    image: confluentinc/cp-kafka:8.2.0
+    build:
+      context: $VSS_APPS_DIR/services/infra
+      dockerfile: Dockerfiles/kafka-health-check.Dockerfile
+      target: kafka-base
+    image: vss-kafka-topic-init
     container_name: vss-kafka-topics
-    network_mode: "host"
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_kafka_mv3dt","playback_kafka_2d","playback_kafka_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["kafka-topic-init-container"]
     volumes:
       - $VSS_APPS_DIR/services/infra/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
     environment:
@@ -143,8 +206,8 @@ services:
       DEFAULT_RETENTION_MS: "14400000"
       DEFAULT_SEGMENT_MS: "3600000"
       DEFAULT_REPLICATION_FACTOR: "1"
-      BOOTSTRAP_HOST: localhost
-      KAFKA_PORT: 9092
+      BOOTSTRAP_HOST: ${KAFKA_BOOTSTRAP_HOST:-kafka}
+      KAFKA_PORT: ${KAFKA_INTERNAL_PORT:-29092}
       KAFKA_TOPICS: '[{"name": "mdx-raw"},
         {"name": "mdx-bev"},
         {"name": "mdx-space-utilization"},
@@ -173,24 +236,26 @@ services:
 
   redis:
     image: redis:8.6.2-alpine
-    profiles: ["bp_wh_2d","bp_wh_redis_2d","bp_wh_redis_3d","bp_wh_redis_mv3dt","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_kafka_mv3dt","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt","bp_developer_base_2d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["redis"]
     restart: always
     command: redis-server /config/redis.conf
-    network_mode: host
     container_name: redis
+    ports:
+      - ${REDIS_HOST_PORT:-6379}:6379
     volumes:
       - $VSS_APPS_DIR/services/infra/redis/configs/redis.conf:/config/redis.conf
       - $VSS_DATA_DIR/data_log/redis/data:/data
       - $VSS_DATA_DIR/data_log/redis/log:/log
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.3.3
-    network_mode: "host"
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: docker.elastic.co/kibana/kibana:9.4.4
+    profiles: ["kibana"]
     volumes:
       - $VSS_APPS_DIR/services/infra/elk/kibana/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
     container_name: kibana
     restart: always
+    ports:
+      - ${KIBANA_HOST_PORT:-5601}:5601
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -202,9 +267,8 @@ services:
       start_period: 60s
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.3.3
-    network_mode: "host"
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: docker.elastic.co/logstash/logstash:9.4.4
+    profiles: ["logstash"]
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs
       - $VSS_APPS_DIR/services/infra/elk/logstash/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
@@ -214,7 +278,7 @@ services:
       - $VSS_APPS_DIR/services/infra/elk/logstash/configs/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
       - $VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-${STREAM_TYPE}.yml:/usr/share/logstash/config/pipelines.yml:ro
       - $VSS_APPS_DIR/services/infra/elk/logstash/pipelines/${STREAM_TYPE}/:/usr/share/logstash/pipelines/:ro
-      - $VSS_APPS_DIR/services/infra/elk/logstash/gems/logstash-input-redis_stream-3.1.0-java.gem:/usr/share/logstash/gems/logstash-redis-stream-input-java.gem
+      - $VSS_APPS_DIR/services/infra/elk/logstash/gems/logstash-input-redis_stream-3.3.0-java.gem:/usr/share/logstash/gems/logstash-input-redis_stream-java.gem
     environment:
       LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
       STREAM_TYPE: ${STREAM_TYPE}
@@ -231,7 +295,7 @@ services:
         ls -al /opt/logstash-data-libs/ &&
         if [ \"$$STREAM_TYPE\" = 'redis' ]; then
           echo 'Installing Redis stream input plugin...' &&
-          /usr/share/logstash/bin/logstash-plugin install /usr/share/logstash/gems/logstash-redis-stream-input-java.gem;
+          /usr/share/logstash/bin/logstash-plugin install /usr/share/logstash/gems/logstash-input-redis_stream-java.gem;
         elif [ \"$$STREAM_TYPE\" = 'kafka' ]; then
           echo 'Installing protobuf codec plugin...' &&
           /usr/share/logstash/bin/logstash-plugin install logstash-codec-protobuf;
@@ -245,13 +309,12 @@ services:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
       network: host
-    profiles: ["bp_wh_2d","bp_wh_redis_3d","bp_wh_redis_mv3dt","bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_kafka_mv3dt","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    network_mode: "host"
+    profiles: ["broker-health-check"]
     environment:
       MAX_RETRIES: 60
       RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: localhost
-      KAFKA_PORT: 9092
+      BOOTSTRAP_HOST: ${BROKER_BOOTSTRAP_HOST:-${STREAM_TYPE:-kafka}}
+      KAFKA_PORT: ${KAFKA_INTERNAL_PORT:-29092}
       REDIS_PORT: 6379
       KAFKA_TOPICS: '[{"name": "mdx-raw"},
         {"name": "mdx-bev"},
@@ -278,6 +341,7 @@ services:
     restart: "no"
 
 volumes:
+  vss-turn-password:
   phoenix-data:
   mdx-logstash-libs:
   mdx-elastic-data:

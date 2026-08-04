@@ -13,20 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os as _os
+import sys as _sys
+# Bootstrap: this launcher lives at the service root while the packages live
+# under ``src/``. Put ``src/`` on the import path so ``import vlm`` etc. resolve
+# both locally and inside the container (Dockerfile keeps CMD at /app).
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "src"))
+
 import argparse
+import asyncio
 import json
-import logging
 import os
 import signal
 import sys
 import time
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from multiprocessing import Process
 from queue import Queue, Empty
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
-import uuid
-import mimetypes
 
 from concurrent.futures import ThreadPoolExecutor, Future, TimeoutError as FutureTimeoutError
 
@@ -35,15 +40,14 @@ import uvicorn
 import yaml
 from openai import APIConnectionError, APITimeoutError, InternalServerError, UnprocessableEntityError
 from openai.types.chat import ChatCompletionMessage
-from urllib.parse import urlsplit
 
 from metrics import PROMETHEUS_ENABLED
 if PROMETHEUS_ENABLED:
     from metrics import reset_prometheus_multiproc_dir
     reset_prometheus_multiproc_dir()
 
-from its_redis.redis_handler import RedisHandler
-from mdx.anomaly.event_bridge_factory import EventBridgeFactory
+from clients.redis_handler import RedisHandler
+from mdx.event_bridge_factory import EventBridgeFactory
 from vst.exceptions import (
     VSTError,
     VSTClientError,
@@ -52,22 +56,22 @@ from vst.exceptions import (
     VSTTimeoutError,
     VSTUnavailableError,
 )
-from mdx.anomaly.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
-from models.responses import (
+from mdx.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
+from schemas.vlm_responses import (
     AlertBridgeResponse,
     VLMResponse,
     merge_info_with_response,
 )
-from models.base_response_parser import load_response_parser
-from models.pluggable_parser_runtime import (
+from schemas.base_response_parser import load_response_parser
+from schemas.pluggable_parser_runtime import (
     ERROR_SOURCE_MEDIA_DOWNLOAD,
-    ERROR_SOURCE_PLUGGABLE_PARSER,
     ERROR_SOURCE_VLM_API,
     ERROR_SOURCE_VLM_SCHEMA,
     PLUGGABLE_PARSER_ERROR_STATUS,
     PLUGGABLE_PARSER_OK_STATUS,
     apply_pluggable_parser_error as _apply_pluggable_parser_error,
     apply_pluggable_parser_output as _apply_pluggable_parser_output,
+    ERROR_SOURCE_PLUGGABLE_PARSER,
     safe_json_dumps_parser_output as _safe_json_dumps_parser_output,
 )
 if TYPE_CHECKING:
@@ -77,29 +81,34 @@ if TYPE_CHECKING:
 # (``_PLUGGABLE_PARSER_OK_STATUS`` / ``_PLUGGABLE_PARSER_ERROR_STATUS``).
 # External tests and a handful of diagnostic scripts still read these via
 # ``enhance_alert_with_vlm._PLUGGABLE_PARSER_OK_STATUS``; the helpers and
-# constants themselves now live in :mod:`models.pluggable_parser_runtime`
+# constants themselves now live in :mod:`schemas.pluggable_parser_runtime`
 # so Mode-3 (``DirectMediaHandler``) can import them at module load time
 # without paying a circular-import lazy-import penalty.
 _PLUGGABLE_PARSER_OK_STATUS = PLUGGABLE_PARSER_OK_STATUS
 _PLUGGABLE_PARSER_ERROR_STATUS = PLUGGABLE_PARSER_ERROR_STATUS
 from handlers.enrichment import EnrichmentProcessor
 from handlers.direct_media import DirectMediaHandler
-from handlers.async_dispatch_mixin import AsyncDispatchMixin
+from handlers.async_dispatch_mixin import (
+    AsyncDispatchMixin,
+    PIPELINE_MODE_EVENT_LOOP,
+    PIPELINE_MODE_SYNC,
+    PIPELINE_MODE_THREAD_BRIDGE,
+    resolve_pipeline_mode,
+)
 from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
+from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
 from utils.url_transformer import transform_video_url, is_vlm_local
-from mdx.anomaly.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
+from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
 from utils.logging_config import setup_logging, get_logger, enforce_log_level
 from utils.schema_util import protobuf_anomalies_to_json_string_list
 from vlm.vlm_client import VLMClient, AsyncVLMRuntime
 from vlm.warmup import warmup_vlm, WARMUP_VIDEO
-from vss import VSSHandler
 from metrics.recorder import (
     inc_events_after_dedup,
     inc_events_dropped,
     inc_events_skipped_confirmed,
-    observe_pipeline_latency,
     observe_video_length,
     observe_vlm_duration,
     observe_vst_duration,
@@ -145,7 +154,23 @@ def _dropped_messages(before, after):
     return [msg for msg in before if id(msg) not in after_ids]
 
 
-class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixin):
+# Ordered VLM API error classification: (exception type, (response code,
+# status prefix, failure reason, log label)). Timeout must stay ahead of
+# connection error because openai's APITimeoutError subclasses it.
+_VLM_API_ERROR_CLASSIFICATION = (
+    (APITimeoutError, (504, "VLM request timed out", "vlm_timeout", "VLM timeout")),
+    (APIConnectionError, (503, "Failed to connect to VLM service", "vlm_connection_error", "VLM connection error")),
+    (InternalServerError, (500, "VLM service internal error", "vlm_server_error", "VLM server error")),
+    (UnprocessableEntityError, (422, "Invalid VLM request payload", "vlm_invalid_payload", "VLM invalid payload")),
+)
+
+
+class AnomalyEnhancer(
+    AsyncDispatchMixin,
+    AsyncExternalIOMixin,
+    AsyncVLMModeMixin,
+    EventLoopPipelineMixin,
+):
     def __init__(self, config_file="config.yaml"):
         self.config = self.load_config(config_file)
         logger.debug("Configuration loaded: %s", list(self.config.keys()))
@@ -161,12 +186,13 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         # Get source type for logging
         self.source_type = self.config.get('event_bridge', {}).get('sourceType', 'unknown')
 
-        # Initialize RedisHandler early so it can be shared with the VLM sink
+        # Initialize the in-process dedup/verdict-protection state handler
+        # early so it can be shared with the VLM sink. (No Redis: dedup /
+        # filter state is in-process; verdict protection is ES-backed.)
         self.redis_handler = RedisHandler(config_file)
 
         # PromptManager has to come before the sink build so its
-        # AlertConfigStore (constructed from event_bridge.redis_source via
-        # DynamicPromptHandler — same backend the verification API
+        # AlertConfigStore (the same ES-backed store the verification API
         # writes to) can be threaded into the sink. Without this the
         # sink would have no live source for output_category and would
         # silently use the startup file mapping instead.
@@ -186,17 +212,46 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             ),
         )
 
-        # Initialize VSS handler only if enabled
-        if self.config.get('vss_agent', {}).get('enabled', False):
-            logger.info("VSS is enabled, initializing VSS handler...")
-            self.vss_handler = VSSHandler(self.config)
-            # Initialize VSS handler (will try up to 3 times)
-            logger.info("Initializing VSS handler - will retry up to 3 times...")
-            self.vss_handler.initialize()
-            logger.info("VSS handler initialization completed")
-        else:
-            logger.info("VSS is disabled, skipping VSS handler initialization")
-            self.vss_handler = None
+        # Create the confirmed-verdict marker index up front (before any
+        # traffic) so a mapping/creation problem surfaces at startup and the
+        # index-readiness gauge reflects the real state, rather than the
+        # index only appearing on the first confirmed write. Non-fatal: a
+        # transient ES outage here leaves verdict protection to fail open and
+        # retry via the handler's backoff path.
+        self._verdict_retention_job = None
+        try:
+            if self.redis_handler is not None:
+                self.redis_handler.ensure_verdict_index()
+        except Exception as e:
+            logger.warning("Verdict index startup ensure failed (non-fatal): %s", e)
+
+        # Start the hourly throttled reaper for expired
+        # confirmed-verdict markers so ``ab-confirmed-verdicts`` does not grow
+        # unbounded. Only runs when verdict protection is enabled.
+        try:
+            if getattr(self.redis_handler, "_protect_confirmed_enabled", False):
+                from clients.verdict_retention import (
+                    DEFAULT_INTERVAL_SECONDS,
+                    DEFAULT_REQUESTS_PER_SECOND,
+                    VerdictRetentionJob,
+                )
+                _protect_cfg = (
+                    self.config.get('alert_agent', {})
+                    .get('event_filters', {})
+                    .get('protect_confirmed_verdicts', {})
+                )
+                self._verdict_retention_job = VerdictRetentionJob(
+                    self.redis_handler,
+                    interval_seconds=_protect_cfg.get(
+                        'retention_interval_seconds', DEFAULT_INTERVAL_SECONDS
+                    ),
+                    requests_per_second=_protect_cfg.get(
+                        'retention_requests_per_second', DEFAULT_REQUESTS_PER_SECOND
+                    ),
+                )
+                self._verdict_retention_job.start()
+        except Exception as e:
+            logger.warning("Verdict retention job failed to start (non-fatal): %s", e)
 
         self.num_workers = self.config.get('alert_agent', {}).get(
             'num_workers', 1)  # Default to sequential
@@ -224,17 +279,51 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         )
 
         async_io_cfg = self.config.get('alert_agent', {}).get('async_io', {}) or {}
-        self.async_io_enabled = bool(
-            async_io_cfg.get('enabled', False)
+        legacy_async_io_enabled = bool(async_io_cfg.get('enabled', False))
+        # ``pipeline_mode`` is accepted at both alert_agent.pipeline_mode and
+        # alert_agent.async_io.pipeline_mode; conflicting values fail startup.
+        raw_pipeline_mode = self.config.get('alert_agent', {}).get('pipeline_mode')
+        nested_pipeline_mode = async_io_cfg.get('pipeline_mode')
+        if raw_pipeline_mode is not None and nested_pipeline_mode is not None \
+                and str(raw_pipeline_mode).strip().lower() != str(nested_pipeline_mode).strip().lower():
+            raise ValueError(
+                "Conflicting pipeline_mode values: "
+                f"alert_agent.pipeline_mode={raw_pipeline_mode!r} vs "
+                f"alert_agent.async_io.pipeline_mode={nested_pipeline_mode!r}"
+            )
+        if raw_pipeline_mode is None:
+            raw_pipeline_mode = nested_pipeline_mode
+        self.pipeline_mode = resolve_pipeline_mode(
+            raw_pipeline_mode,
+            legacy_async_io_enabled,
         )
+        # ``async_io_enabled`` gates the thread_bridge machinery only; the
+        # event_loop mode awaits external I/O on the pipeline loop instead of
+        # routing it through the per-service guardrail wrappers.
+        self.async_io_enabled = self.pipeline_mode == PIPELINE_MODE_THREAD_BRIDGE
+        event_loop_mode = self.pipeline_mode == PIPELINE_MODE_EVENT_LOOP
+        if event_loop_mode and any(
+            bool(async_io_cfg.get(key, False))
+            for key in ('vst_enabled', 'elastic_enabled', 'redis_enabled', 'dedup_enabled')
+        ):
+            logger.warning(
+                "Per-service async_io flags are ignored in event_loop mode; "
+                "all external I/O runs on the pipeline event loop"
+            )
         self.async_vst_enabled = bool(async_io_cfg.get('vst_enabled', False)) and self.async_io_enabled
         self.async_elastic_enabled = bool(async_io_cfg.get('elastic_enabled', False)) and self.async_io_enabled
-        self.async_redis_enabled = bool(async_io_cfg.get('redis_enabled', False)) and self.async_io_enabled
+        # ``dedup_enabled`` is the current key; ``redis_enabled`` is the
+        # deprecated legacy name (kept for back-compat). This flag controls
+        # async submission of the in-process dedup/state operations.
+        self.async_redis_enabled = bool(
+            async_io_cfg.get('dedup_enabled', async_io_cfg.get('redis_enabled', False))
+        ) and self.async_io_enabled
         external_timeout = async_io_cfg.get('external_timeout_seconds', 30)
         try:
             self.async_external_timeout_seconds = max(1.0, float(external_timeout))
         except (TypeError, ValueError):
             self.async_external_timeout_seconds = 30.0
+        logger.info("Pipeline mode is %s", self.pipeline_mode)
         logger.info(
             "Async external I/O guardrail is %s",
             "enabled" if self.async_io_enabled else "disabled",
@@ -249,18 +338,13 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             "enabled" if self.async_elastic_enabled else "disabled",
         )
         logger.info(
-            "Async Redis mode is %s",
+            "Async dedup-state mode is %s",
             "enabled" if self.async_redis_enabled else "disabled",
         )
         # Lazy-initialized VST handler for media path resolution
         self._vst_handler = None
         #TODO add VLM PARAMS INITIALIZATION from config
         self.vlm_client = VLMClient(self.config.get('vlm', {}))
-        self.async_vlm_runtime = (
-            AsyncVLMRuntime(self.config.get('vlm', {}))
-            if self.async_io_enabled
-            else None
-        )
         async_dispatch_workers = self.config.get('alert_agent', {}).get(
             'async_dispatch_workers', self.num_workers
         )
@@ -274,12 +358,48 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         if not isinstance(async_dispatch_max_in_flight, int) or async_dispatch_max_in_flight <= 0:
             async_dispatch_max_in_flight = self.async_dispatch_workers * 2
         self.async_dispatch_max_in_flight = async_dispatch_max_in_flight
+        # Per-service concurrency caps for event_loop mode. Defaulting to the
+        # dispatch worker count keeps downstream pressure identical to the
+        # thread-bridge profile until operators raise the caps deliberately.
+        max_vlm_concurrent = async_io_cfg.get('max_vlm_concurrent', self.async_dispatch_workers)
+        if not isinstance(max_vlm_concurrent, int) or max_vlm_concurrent <= 0:
+            max_vlm_concurrent = self.async_dispatch_workers
+        self.max_vlm_concurrent = max_vlm_concurrent
+        max_vst_concurrent = async_io_cfg.get('max_vst_concurrent', self.async_dispatch_workers)
+        if not isinstance(max_vst_concurrent, int) or max_vst_concurrent <= 0:
+            max_vst_concurrent = self.async_dispatch_workers
+        self.max_vst_concurrent = max_vst_concurrent
+        self.async_vlm_runtime = (
+            AsyncVLMRuntime(
+                self.config.get('vlm', {}),
+                io_workers=(
+                    min(32, max(8, self.max_vst_concurrent + 8))
+                    if event_loop_mode
+                    else None
+                ),
+            )
+            if self.pipeline_mode != PIPELINE_MODE_SYNC
+            else None
+        )
+        self._vlm_capacity: Optional[asyncio.Semaphore] = (
+            asyncio.Semaphore(self.max_vlm_concurrent) if event_loop_mode else None
+        )
+        self._vst_capacity: Optional[asyncio.Semaphore] = (
+            asyncio.Semaphore(self.max_vst_concurrent) if event_loop_mode else None
+        )
+        if event_loop_mode:
+            logger.info(
+                "Event-loop concurrency caps: max_in_flight=%s max_vlm_concurrent=%s max_vst_concurrent=%s",
+                self.async_dispatch_max_in_flight,
+                self.max_vlm_concurrent,
+                self.max_vst_concurrent,
+            )
         self._message_dispatch_executor: Optional[ThreadPoolExecutor] = None
         self._message_dispatch_lock = threading.Lock()
         self._message_dispatch_futures: Set[Future] = set()
         self._dispatch_backpressure_semaphore: Optional[threading.BoundedSemaphore] = (
             threading.BoundedSemaphore(self.async_dispatch_max_in_flight)
-            if self.async_io_enabled
+            if self.pipeline_mode != PIPELINE_MODE_SYNC
             else None
         )
         sink_cfg = self.config.get("vlm_enhanced_sink", {}) or {}
@@ -306,9 +426,9 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         self._vlm_rate_limit_enabled = bool(self.config.get('vlm_rate_limit_enabled', False))
         self.include_latency_info = self.config.get('alert_agent', {}).get('include_latency_info', False)
         self.url_transform_enabled = self.config.get('alert_agent', {}).get('url_transform', {}).get('enabled', True)
-        
+
         self.vlm_media_source_using_base64 = self.config.get('vlm', {}).get('vlm_media_source_using_base64', False)
-        
+
         # Initialize DirectMediaHandler for Mode 3
         self.direct_media_handler = DirectMediaHandler(
             vlm_client=self.vlm_client,
@@ -318,11 +438,11 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         )
 
         # Initialize entity validator for request processing
-        from entity_management import EntityValidator
+        from schemas import EntityValidator
         self.entity_validator = EntityValidator()
 
         # Initialize ResponseBuilder for clean response handling
-        from entity_management.response_entity import ResponseBuilder
+        from schemas.response_entity import ResponseBuilder
         self.response_builder = ResponseBuilder()
 
         # PromptManager is now initialised earlier (before the VLM
@@ -355,7 +475,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 "PromptManager did not expose an alert_config_store; "
                 "hot-path per-alert-type overrides will fall back to static config"
             )
-       
+
         self._openclaw_notifier: "OpenClawNotifier | None" = None
         self._webhook_forwarder: "WebhookKafkaForwarder | None" = None
         _oc_cfg = (self.config.get("webhook") or {}).get("openclaw") or {}
@@ -629,6 +749,14 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                     "Async message dispatch enabled with %s workers",
                     self.async_dispatch_workers,
                 )
+            elif self.pipeline_mode == PIPELINE_MODE_EVENT_LOOP:
+                logger.info(
+                    "Event-loop message dispatch enabled (max_in_flight=%s, "
+                    "max_vlm_concurrent=%s, max_vst_concurrent=%s)",
+                    self.async_dispatch_max_in_flight,
+                    self.max_vlm_concurrent,
+                    self.max_vst_concurrent,
+                )
 
             with ThreadPoolExecutor(max_workers=self.num_workers, thread_name_prefix="ab-vlm-worker") as executor:
                 # Populate the worker queue with worker slots
@@ -707,28 +835,21 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                                 #     len(sub_batch_messages),
                                 #     str(batch_worker_id),
                                 # )
-                                if not self.config.get("vss_agent", {}).get("enabled", False):
-                                    batch_kind = (batch.get("kind") or "").lower()
-                                    batch_message_type = (
-                                        "Incident"
-                                        if batch_kind == "incident"
-                                        else "Behavior"
-                                    )
-                                    future: Future = executor.submit(
-                                        self.process_batch_vlm,
-                                        batch_worker_id,
-                                        sub_batch_messages,
-                                        batch_message_type,
-                                        batch.get("kafka_consumed_at"),
-                                        batch.get("kafka_published_at"),
-                                        batch_worker_assigned_at,
-                                    )
-                                else:
-                                    future: Future = executor.submit(
-                                        self.process_batch_vss,
-                                        batch_worker_id,
-                                        sub_batch_messages,
-                                    )
+                                batch_kind = (batch.get("kind") or "").lower()
+                                batch_message_type = (
+                                    "Incident"
+                                    if batch_kind == "incident"
+                                    else "Behavior"
+                                )
+                                future: Future = executor.submit(
+                                    self.process_batch_vlm,
+                                    batch_worker_id,
+                                    sub_batch_messages,
+                                    batch_message_type,
+                                    batch.get("kafka_consumed_at"),
+                                    batch.get("kafka_published_at"),
+                                    batch_worker_assigned_at,
+                                )
 
                                 # When the sub-batch is done, release the worker slot back to the pool
                                 future.add_done_callback(
@@ -789,14 +910,22 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 self._sink_async_futures.clear()
             if PROMETHEUS_ENABLED:
                 ASYNC_SINK_IN_FLIGHT.set(0)
+            if (
+                self.async_vlm_runtime is not None
+                and self.pipeline_mode == PIPELINE_MODE_EVENT_LOOP
+            ):
+                # Close async clients in order (HTTP -> Elastic) before the
+                # runtime closes the VLM client and stops the loop.
+                try:
+                    self.async_vlm_runtime.run_coroutine(self._aclose_event_loop_clients())
+                except Exception:
+                    logger.exception("Failed closing event-loop clients during shutdown")
             if self.async_vlm_runtime is not None:
                 self.async_vlm_runtime.stop()
             if self._webhook_forwarder is not None:
                 self._webhook_forwarder.close()
             if self._openclaw_notifier is not None:
                 self._openclaw_notifier.close()
-            if self.vss_handler:
-                self.vss_handler.close()
             self.sink.close()
             self.source.close()
             logger.info("Resources closed successfully")
@@ -970,7 +1099,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             inc_events_after_dedup(total_messages, messages=messages)
             for idx, message in enumerate(messages, start=1):
                 event_type = 'alert' if is_alert(message) else 'incident'
-                if self.async_io_enabled:
+                if self.async_io_enabled or getattr(self, 'pipeline_mode', None) == PIPELINE_MODE_EVENT_LOOP:
                     logger.debug(f"Queueing {event_type} message {idx}/{total_messages} for async dispatch")
                 else:
                     logger.debug(f"Processing {event_type} message {idx}/{total_messages}")
@@ -993,9 +1122,9 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
     def _process_media_passthrough(self, worker_id: int, messages: List[Dict[str, Any]]) -> None:
         """
         Extended pass-through mode with support for:
-        - Mode 2: Local file (info.video_path) 
-        - Mode 3: Direct media URL (info.media_url) 
-        
+        - Mode 2: Local file (info.video_path)
+        - Mode 3: Direct media URL (info.media_url)
+
         Routing priority: media_url > video_path > skip
         """
         for message in messages:
@@ -1006,7 +1135,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                     "message_id": message.get('id')
                 })
                 continue
-            
+
             try:
                 user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
 
@@ -1016,7 +1145,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 info_block = message.get('info') or {}
                 category = message.get('category', '')
                 merged_vlm = self._get_merged_vlm_config(category)
-                
+
                 # ROUTING: Check for direct media URLs
                 # Handle both list and JSON string
                 media_urls = info_block.get('media_urls')
@@ -1025,7 +1154,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         media_urls = json.loads(media_urls)
                     except json.JSONDecodeError:
                         media_urls = None
-                
+
                 if media_urls and isinstance(media_urls, list) and len(media_urls) > 0 and self.direct_media_handler.enabled:
                     logger.info("Mode 3: Direct media URLs detected (%d), bypassing VST", len(media_urls), extra={
                         "worker_id": worker_id,
@@ -1040,7 +1169,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         config_overrides=merged_vlm,
                     )
                     continue
-                
+
                 # Local file path
                 video_path = info_block.get('video_path') or message.get('videoPath')
                 if video_path:
@@ -1053,13 +1182,13 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         config_overrides=merged_vlm,
                     )
                     continue
-                
+
                 # No media source found
                 logger.warning("Pass-through mode: no media source found (media_urls or video_path)", extra={
                     "worker_id": worker_id,
                     "message_id": message.get('id')
                 })
-                
+
             except Exception as err:
                 logger.error("Pass-through mode: failed to process message", extra={
                     "worker_id": worker_id,
@@ -1251,248 +1380,31 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             },
         }
 
-        # ─── Early skip if already confirmed ───
-        # C25: wrap the skip check so Redis failures surface as a
-        # ``VERIFICATION_FAILURES{reason="redis_unavailable"}`` event
-        # instead of bubbling to ``process_batch_vlm``'s generic
-        # ``except Exception`` (which logs but never touches
-        # Prometheus). This is narrower than the outer ``try`` below
-        # which starts at the VST call — the skip check has no
-        # downstream dependency on VST / VLM / sink state, so folding
-        # its exception into ``record_event_complete`` with a
-        # specific reason keeps the dashboard signal clean.
-        try:
-            if self._set_message_id_and_should_skip(message, sensor_id):
-                return
-        except Exception as exc:
-            logger.error(
-                "Pre-processing error in confirmed-verdict skip check "
-                "[sensor=%s]: %s",
-                sensor_id, exc, exc_info=True,
-            )
-            record_event_complete(
-                worker_start_time,
-                message,
-                latency,
-                failure_reason=self._classify_pre_processing_failure(exc),
-            )
+        prompts = self._prepare_message_context(
+            message, sensor_id, latency, worker_start_time
+        )
+        if prompts is None:
             return
-        # ────────────────────────────────────────
+        user_prompt, system_prompt = prompts
 
-        user_prompt: str = ""
-        system_prompt: str = ""
-
-        user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
-
-        if user_prompt is None and system_prompt is None:
-            # add the alert type to the warning message
-            logger.warning("No prompt found [sensor=%s category=%s start=%s end=%s]",
-                           sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
-            # C10: record the early-exit so operators watching dashboards
-            # can correlate "events stopped flowing" with "alert type has
-            # no prompt configured". Previously this path silently
-            # bypassed the recorder, leaving only a WARNING log correlate
-            # — misconfigured alert types were invisible to Prometheus
-            # and broke the C2 reconciliation identity.
-            record_event_complete(
-                worker_start_time,
-                message,
-                latency,
-                failure_reason="no_prompt",
-            )
-            return
-
-        # logger.debug(f"waiting for 30 seconds (thread={threading.current_thread().name})")
-        # time.sleep(30)
         video_url = None
-        start = time.time()
+        storage_video_url = None
         try:
-            # time_exist = self._vst_handler.check_time_in_recording_with_retries(sensor_id, message['timestamp'])
-            # duration = round(time.time() - start, 3)
-            # if not time_exist:
-            #     logger.debug(f'no recording found for this stream and timestamp in {duration} seconds')
-            # #     return
-            # # else:
-            #     logger.debug(f'recording found for this stream and timestamp in {duration} seconds')
-
-            objects_ids = message.get('objectIds', [])
-
-            # Look up per-alert-type segment anchor override
-            alert_type_anchor = None
-            alert_type = message.get('category', '')
-            if alert_type and self.prompt_manager and self.prompt_manager.alert_config_loader:
-                alert_config = self.prompt_manager.alert_config_loader.get_config_for_alert_type(alert_type)
-                if alert_config and alert_config.segment_anchor:
-                    alert_type_anchor = alert_config.segment_anchor
-                    logger.debug(f"Using per-alert-type segment_anchor='{alert_type_anchor}' for category='{alert_type}'")
-
-            vst_error_captured = None
-            # Accumulate wall-clock across every VST attempt for this event
-            # (primary + optional retry_without_overlay) and observe once per
-            # event after the retry block. Prior to this fix, each attempt
-            # produced its own VST_DURATION observation, which inflated
-            # ``alert_bridge_vst_duration_seconds_count`` by up to 2x on
-            # retry-success paths and biased the distribution with the
-            # short-tail fail-fast-then-succeed pairs. The per-attempt
-            # durations are still preserved individually in
-            # ``latency['getVideoStreamUrlWithOverlay'|'...WithoutOverlay']``
-            # for ES/debug visibility.
-            vst_total_duration = 0.0
-
-            try:
-                start = time.time()
-                video_url, effective_start_time, effective_end_time = self._get_video_stream_url_with_mode(
-                    sensor_id,
-                    message['timestamp'],
-                    message['end'],
-                    objects_ids=objects_ids,
-                    latency=latency,
-                    alert_type_anchor=alert_type_anchor,
-                )
-                duration = round(time.time() - start, 3)
-                latency['getVideoStreamUrlWithOverlay'] = {'success': video_url is not None, 'duration': duration}
-                vst_total_duration += duration
-                observe_video_length(
-                    iso_delta_seconds(effective_start_time, effective_end_time),
-                    sensor_id,
-                )
-            except VSTError as e:
-                duration = round(time.time() - start, 3)
-                latency['getVideoStreamUrlWithOverlay'] = {'success': False, 'duration': duration}
-                vst_total_duration += duration
-                logger.error(
-                    "VST error getting video URL [sensor=%s category=%s start=%s end=%s]: "
-                    "type=%s status=%s category=%s body=%s",
-                    sensor_id, message.get('category', 'N/A'),
-                    message.get('timestamp', 'N/A'), message.get('end', 'N/A'),
-                    type(e).__name__, e.status_code, e.category, e.response_body,
-                )
-                vst_error_captured = e
-                video_url = None
-                if self.config.get('vst_config', {}).get('retry_without_overlay', False):
-                    try:
-                        logger.info("Retrying video URL without overlay [sensor=%s category=%s start=%s end=%s]",
-                                     sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
-                        start = time.time()
-                        video_url, effective_start_time, effective_end_time = self._get_video_stream_url_with_mode(
-                            sensor_id,
-                            message['timestamp'],
-                            message['end'],
-                            objects_ids=objects_ids,
-                            remove_overlay=True,
-                            alert_type_anchor=alert_type_anchor,
-                        )
-                        duration = round(time.time() - start, 3)
-                        latency['getVideoStreamUrlWithoutOverlay'] = {'success': video_url is not None, 'duration': duration}
-                        vst_total_duration += duration
-                        observe_video_length(
-                            iso_delta_seconds(effective_start_time, effective_end_time),
-                            sensor_id,
-                        )
-                        vst_error_captured = None
-                    except VSTError as retry_e:
-                        duration = round(time.time() - start, 3)
-                        latency['getVideoStreamUrlWithoutOverlay'] = {'success': False, 'duration': duration}
-                        vst_total_duration += duration
-                        logger.error(
-                            "VST error on retry without overlay [sensor=%s category=%s start=%s end=%s]: "
-                            "type=%s status=%s category=%s body=%s",
-                            sensor_id, message.get('category', 'N/A'),
-                            message.get('timestamp', 'N/A'), message.get('end', 'N/A'),
-                            type(retry_e).__name__, retry_e.status_code, retry_e.category, retry_e.response_body,
-                        )
-                        vst_error_captured = retry_e
-                        video_url = None
-                    except Exception as retry_e:
-                        duration = round(time.time() - start, 3)
-                        latency['getVideoStreamUrlWithoutOverlay'] = {'success': False, 'duration': duration}
-                        vst_total_duration += duration
-                        logger.error("Unexpected error on retry without overlay [sensor=%s category=%s start=%s end=%s]: %s",
-                                     sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'), retry_e)
-                        video_url = None
-            except Exception as e:
-                duration = round(time.time() - start, 3)
-                latency['getVideoStreamUrlWithOverlay'] = {'success': False, 'duration': duration}
-                vst_total_duration += duration
-                logger.error("Unexpected error getting video URL [sensor=%s category=%s start=%s end=%s]: %s",
-                             sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'), e)
-                video_url = None
-
-            # Emit VST_DURATION exactly once per event regardless of attempt count.
-            observe_vst_duration(round(vst_total_duration, 3), sensor_id)
+            video_url, effective_start_time, effective_end_time, vst_error_captured = (
+                self._resolve_video_url(message, sensor_id, latency)
+            )
 
             if not video_url:
-                vst_code, vst_status = self._classify_vst_failure(vst_error_captured)
-                logger.warning("Media collection failed [sensor=%s category=%s start=%s end=%s] reason=%s",
-                               sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'), vst_status)
-                user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
-                merge_info_with_response(
-                    message,
-                    AlertBridgeResponse(
-                        vlm_response=None,
-                        video_source=None,
-                        verification_response_code=vst_code,
-                        verification_response_status=vst_status,
-                        verdict="verification-failed",
-                        error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
-                    ),
-                    latency=latency,
-                    include_latency=self.include_latency_info,
-                )
-                publish_future = self._publish_error_with_mode(
-                    message,
-                    user_prompt,
-                    system_prompt,
-                    {},
-                )
-                self._complete_event_after_publish(
-                    publish_future,
-                    worker_start_time,
-                    message,
-                    latency,
-                    failure_reason=self._classify_vst_failure_reason(vst_error_captured),
+                self._handle_media_collection_failure(
+                    message, vst_error_captured, worker_start_time, latency
                 )
                 return
 
-            # Transform video URLs for different consumers (if enabled)
-            # VLM needs external URL only in remote mode; ES/UI always needs external URL
-            if self.url_transform_enabled:
-                vlm_video_url = transform_video_url(video_url, to_external=not is_vlm_local())
-                storage_video_url = transform_video_url(video_url, to_external=True)
-            else:
-                vlm_video_url = video_url
-                storage_video_url = video_url
+            vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
 
-            video_url_valid = self.validate_video_url(video_url)
-            if not video_url_valid:
-                logger.error("URL validation failed [sensor=%s category=%s start=%s end=%s]",
-                             sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
-                user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
-                merge_info_with_response(
-                    message,
-                    AlertBridgeResponse(
-                        vlm_response=None,
-                        video_source=storage_video_url,
-                        verification_response_code=400,
-                        verification_response_status="Video URL could not be validated or was unreachable",
-                        verdict="verification-failed",
-                        error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
-                    ),
-                    latency=latency,
-                    include_latency=self.include_latency_info,
-                )
-                publish_future = self._publish_error_with_mode(
-                    message,
-                    user_prompt,
-                    system_prompt,
-                    {},
-                )
-                self._complete_event_after_publish(
-                    publish_future,
-                    worker_start_time,
-                    message,
-                    latency,
-                    failure_reason="url_validation",
+            if not self.validate_video_url(video_url):
+                self._handle_url_validation_failure(
+                    message, storage_video_url, worker_start_time, latency
                 )
                 return
 
@@ -1547,63 +1459,14 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                     if os.getenv('LOG_VERBOSE_VLM_RESPONSE', 'false').lower() in ('1', 'true', 'yes'):
                         logger.debug(f"Raw VLM response: {response_content}")
 
-                    if self._pluggable_parser is not None:
-                        # Pluggable parser errors are deterministic (parser
-                        # bug) — no point retrying. We emit an explicit
-                        # parser-error event and exit the retry loop.
-                        try:
-                            parsed = self._pluggable_parser.parse(response_content)
-                            if not isinstance(parsed, dict):
-                                raise TypeError(
-                                    f"Pluggable parser returned {type(parsed).__name__}, expected dict"
-                                )
-                        except Exception as parser_error:
-                            _apply_pluggable_parser_error(
-                                message, parser_error,
-                                video_source=storage_video_url,
-                                latency=latency,
-                                include_latency=self.include_latency_info,
-                            )
-                            verification_successful = False
-                            # Route to _publish_error_with_mode via the
-                            # post-loop dispatcher (which branches on
-                            # ``response_content is not None``). Without
-                            # this clear, parser crashes would be
-                            # mislabeled as successful publishes and skew
-                            # sink metrics / alert triage.
-                            response_content = None
-                            break
-                        _apply_pluggable_parser_output(
-                            message, parsed,
-                            video_source=storage_video_url,
-                            latency=latency,
-                            include_latency=self.include_latency_info,
-                        )
-                    else:
-                        # Use the already-merged per-category VLM config so
-                        # ``model`` / ``response_format`` / ``json_parser``
-                        # overrides applied to the *request* also apply to
-                        # the *response parser* (mirrors the
-                        # local-file path's resolution semantics).
-                        vlm_data = VLMResponse.model_validate_text(
-                            response_content,
-                            model_name=merged_vlm.get('model', ''),
-                            response_format=merged_vlm.get('response_format', 'auto'),
-                            json_config=merged_vlm.get('json_parser'),
-                        )
-                        merge_info_with_response(
-                            message,
-                            AlertBridgeResponse(
-                                vlm_response=vlm_data,
-                                video_source=storage_video_url,
-                                verification_response_code=200,
-                                verification_response_status="OK",
-                            ),
-                            latency=latency,
-                            include_latency=self.include_latency_info,
-                        )
-                    verification_successful = True
-                    break # Success, exit loop
+                    verification_successful, response_content = self._apply_vlm_response(
+                        message,
+                        response_content,
+                        merged_vlm,
+                        storage_video_url,
+                        latency,
+                    )
+                    break # Terminal outcome (success or pluggable-parser error)
 
                 except (APITimeoutError, APIConnectionError, InternalServerError, UnprocessableEntityError) as e:
                     # API-level error: analyze_video_url() threw before returning,
@@ -1633,82 +1496,20 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         logger.warning("VLM validation/processing error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
                         self._sleep_retry_with_mode(retry_delay)
                     else:
-                        raw_excerpt = response_content if response_content else "<no response>"
-                        logger.warning(
-                            "VLM response parsing failed "
-                            "[sensor=%s category=%s model=%s endpoint=%s]: %s | "
-                            "Raw VLM response: %s",
-                            sensor_id,
-                            message.get('category', 'N/A'),
-                            self.vlm_client.model,
-                            self.vlm_client.base_url,
-                            e,
-                            raw_excerpt,
+                        vlm_failure_reason = self._apply_vlm_parse_failure(
+                            message, e, response_content, storage_video_url, latency
                         )
-
-                        if not response_content or not response_content.strip():
-                            parse_status = (
-                                "VLM returned an empty response, the model produced no output "
-                                "for this video. This may indicate the model failed to process "
-                                "the input or encountered an internal issue."
-                            )
-                        elif "not in expected format" in str(e):
-                            parse_status = (
-                                "VLM response not in expected YES/NO format, the model returned "
-                                f"free-form text instead of a structured verdict. Raw response: '{raw_excerpt}'"
-                            )
-                        else:
-                            parse_status = (
-                                f"VLM response failed validation, {e}. "
-                                f"Raw response: '{raw_excerpt}'"
-                            )
-
                         response_content = None
-                        vlm_failure_reason = "vlm_parse_failure"
-                        merge_info_with_response(
-                            message,
-                            AlertBridgeResponse(
-                                vlm_response=None,
-                                video_source=storage_video_url,
-                                verification_response_code=500,
-                                verification_response_status=parse_status,
-                                verdict="verification-failed",
-                                error_source=ERROR_SOURCE_VLM_SCHEMA,
-                            ),
-                            latency=latency,
-                            include_latency=self.include_latency_info,
-                        )
                         break
 
-            # C23: the inline ``elasticReadyAt = now()`` stamp that
-            # used to live here has moved into ``record_event_complete``
-            # (recorder already has the same ``setdefault`` behaviour)
-            # and, when async elastic sink is enabled, will fire from
-            # the publish future's done-callback rather than inline.
-            # That way the stamp reflects the real sink-write
-            # completion wall-clock, not the submit-queue-enqueue time.
-            publish_future: Optional[Future] = None
-            if response_content is not None:
-                publish_future = self._publish_success_with_mode(
-                    message,
-                    user_prompt,
-                    system_prompt,
-                    response_content,
-                )
-            else:
-                publish_future = self._publish_error_with_mode(
-                    message,
-                    user_prompt,
-                    system_prompt,
-                    {},
-                )
-
-            self._complete_event_after_publish(
-                publish_future,
-                worker_start_time,
+            publish_future = self._publish_outcome_and_complete(
                 message,
+                user_prompt,
+                system_prompt,
+                response_content,
+                vlm_failure_reason,
+                worker_start_time,
                 latency,
-                failure_reason=vlm_failure_reason,
             )
 
             # Process enrichment after publish (async pattern - zero latency impact on alert availability)
@@ -1727,171 +1528,530 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         enrichment_result,
                         publish_future=publish_future,
                     )
-        except APITimeoutError as e:
-            root_cause = self._extract_root_cause(e)
-            merge_info_with_response(
-                message,
-                AlertBridgeResponse(
-                    vlm_response=None,
-                    video_source=locals().get('storage_video_url'),
-                    verification_response_code=504,
-                    verification_response_status=f"VLM request timed out, {root_cause}",
-                    verdict="verification-failed",
-                    error_source=ERROR_SOURCE_VLM_API,
-                ),
-                latency=latency,
-                include_latency=self.include_latency_info,
-            )
-            publish_future = self._publish_error_with_mode(
-                message,
-                user_prompt,
-                system_prompt,
-                {},
-            )
-            self._complete_event_after_publish(
-                publish_future,
-                worker_start_time,
-                message,
-                latency,
-                failure_reason="vlm_timeout",
-            )
-            logger.error("VLM timeout [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
-                         sensor_id, message.get('category', 'N/A'),
-                         self.vlm_client.model, self.vlm_client.base_url,
-                         message.get('timestamp', 'N/A'), message.get('end', 'N/A'), e)
-            return
-        except APIConnectionError as e:
-            root_cause = self._extract_root_cause(e)
-            merge_info_with_response(
-                message,
-                AlertBridgeResponse(
-                    vlm_response=None,
-                    video_source=locals().get('storage_video_url'),
-                    verification_response_code=503,
-                    verification_response_status=f"Failed to connect to VLM service, {root_cause}",
-                    verdict="verification-failed",
-                    error_source=ERROR_SOURCE_VLM_API,
-                ),
-                latency=latency,
-                include_latency=self.include_latency_info,
-            )
-            publish_future = self._publish_error_with_mode(
-                message,
-                user_prompt,
-                system_prompt,
-                {},
-            )
-            self._complete_event_after_publish(
-                publish_future,
-                worker_start_time,
-                message,
-                latency,
-                failure_reason="vlm_connection_error",
-            )
-            logger.error("VLM connection error [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
-                         sensor_id, message.get('category', 'N/A'),
-                         self.vlm_client.model, self.vlm_client.base_url,
-                         message.get('timestamp', 'N/A'), message.get('end', 'N/A'), e)
-            return
-        except InternalServerError as e:
-            root_cause = self._extract_root_cause(e)
-            merge_info_with_response(
-                message,
-                AlertBridgeResponse(
-                    vlm_response=None,
-                    video_source=locals().get('storage_video_url'),
-                    verification_response_code=500,
-                    verification_response_status=f"VLM service internal error, {root_cause}",
-                    verdict="verification-failed",
-                    error_source=ERROR_SOURCE_VLM_API,
-                ),
-                latency=latency,
-                include_latency=self.include_latency_info,
-            )
-            publish_future = self._publish_error_with_mode(
-                message,
-                user_prompt,
-                system_prompt,
-                {},
-            )
-            self._complete_event_after_publish(
-                publish_future,
-                worker_start_time,
-                message,
-                latency,
-                failure_reason="vlm_server_error",
-            )
-            logger.error("VLM server error [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
-                         sensor_id, message.get('category', 'N/A'),
-                         self.vlm_client.model, self.vlm_client.base_url,
-                         message.get('timestamp', 'N/A'), message.get('end', 'N/A'), e)
-            return
-        except UnprocessableEntityError as e:
-            root_cause = self._extract_root_cause(e)
-            merge_info_with_response(
-                message,
-                AlertBridgeResponse(
-                    vlm_response=None,
-                    video_source=locals().get('storage_video_url'),
-                    verification_response_code=422,
-                    verification_response_status=f"Invalid VLM request payload, {root_cause}",
-                    verdict="verification-failed",
-                    error_source=ERROR_SOURCE_VLM_API,
-                ),
-                latency=latency,
-                include_latency=self.include_latency_info,
-            )
-            publish_future = self._publish_error_with_mode(
-                message,
-                user_prompt,
-                system_prompt,
-                {},
-            )
-            self._complete_event_after_publish(
-                publish_future,
-                worker_start_time,
-                message,
-                latency,
-                failure_reason="vlm_invalid_payload",
-            )
-            logger.error("VLM invalid payload [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
-                         sensor_id, message.get('category', 'N/A'),
-                         self.vlm_client.model, self.vlm_client.base_url,
-                         message.get('timestamp', 'N/A'), message.get('end', 'N/A'), e)
-            return
         except Exception as e:
-            root_cause = self._extract_root_cause(e)
-            merge_info_with_response(
+            self._handle_vlm_exception(
+                e,
                 message,
-                AlertBridgeResponse(
-                    vlm_response=None,
-                    video_source=locals().get('storage_video_url'),
-                    verification_response_code=500,
-                    verification_response_status=f"Video verification could not be completed, {root_cause}",
-                    verdict="verification-failed",
-                    error_source=ERROR_SOURCE_VLM_API,
-                ),
+                user_prompt,
+                system_prompt,
+                storage_video_url,
+                worker_start_time,
+                latency,
+            )
+            return
+
+    def _prepare_message_context(
+        self,
+        message: Dict[str, Any],
+        sensor_id: Any,
+        latency: Dict[str, Any],
+        worker_start_time: float,
+    ) -> Optional[tuple]:
+        """
+        Run the confirmed-verdict skip check and resolve prompts.
+
+        Returns ``(user_prompt, system_prompt)``, or ``None`` when the message
+        was fully handled (skipped or recorded as a pre-processing failure).
+        """
+        # Reject messages missing fields the downstream VST stage dereferences
+        # directly (``message['timestamp']`` / ``message['end']``). The HTTP JSON
+        # endpoint validates these, but producers that bypass it — the protobuf
+        # endpoint, a raw Kafka producer, or replay tooling — can still enqueue a
+        # malformed message. Without this guard those raise ``KeyError`` deep in
+        # ``_resolve_video_url``; record it as a first-class failure instead.
+        missing_fields = [
+            field for field in ("sensorId", "timestamp", "end") if not message.get(field)
+        ]
+        if missing_fields:
+            logger.error(
+                "Dropping malformed message missing required field(s) %s [sensor=%s]",
+                missing_fields, message.get('sensorId', 'N/A'),
+            )
+            record_event_complete(
+                worker_start_time,
+                message,
+                latency,
+                failure_reason="malformed_message",
+            )
+            return None
+
+        # C25: wrap the skip check so state-backend failures surface as a
+        # ``VERIFICATION_FAILURES`` event instead of bubbling to
+        # ``process_batch_vlm``'s generic ``except Exception`` (which logs
+        # but never touches Prometheus).
+        try:
+            if self._set_message_id_and_should_skip(message, sensor_id):
+                return None
+        except Exception as exc:
+            logger.error(
+                "Pre-processing error in confirmed-verdict skip check "
+                "[sensor=%s]: %s",
+                sensor_id, exc, exc_info=True,
+            )
+            record_event_complete(
+                worker_start_time,
+                message,
+                latency,
+                failure_reason=self._classify_pre_processing_failure(exc),
+            )
+            return None
+
+        user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
+
+        if user_prompt is None and system_prompt is None:
+            logger.warning("No prompt found [sensor=%s category=%s start=%s end=%s]",
+                           sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
+            # C10: record the early-exit so operators watching dashboards
+            # can correlate "events stopped flowing" with "alert type has
+            # no prompt configured".
+            record_event_complete(
+                worker_start_time,
+                message,
+                latency,
+                failure_reason="no_prompt",
+            )
+            return None
+
+        return user_prompt, system_prompt
+
+    def _resolve_video_url(
+        self,
+        message: Dict[str, Any],
+        sensor_id: Any,
+        latency: Dict[str, Any],
+    ) -> tuple:
+        """
+        Fetch the VST video URL (with optional overlay-less retry).
+
+        Returns ``(video_url, effective_start_time, effective_end_time,
+        vst_error)``; failures are captured in ``vst_error`` with
+        ``video_url=None`` rather than raised.
+        """
+        objects_ids = message.get('objectIds', [])
+
+        # Look up per-alert-type segment anchor override
+        alert_type_anchor = None
+        alert_type = message.get('category', '')
+        if alert_type and self.prompt_manager and self.prompt_manager.alert_config_loader:
+            alert_config = self.prompt_manager.alert_config_loader.get_config_for_alert_type(alert_type)
+            if alert_config and alert_config.segment_anchor:
+                alert_type_anchor = alert_config.segment_anchor
+                logger.debug(f"Using per-alert-type segment_anchor='{alert_type_anchor}' for category='{alert_type}'")
+
+        vst_error_captured = None
+        # Accumulate wall-clock across every VST attempt for this event
+        # (primary + optional retry_without_overlay) and observe once per
+        # event after the retry block, so retry-success paths do not inflate
+        # ``alert_bridge_vst_duration_seconds_count``. The per-attempt
+        # durations are still preserved individually in
+        # ``latency['getVideoStreamUrlWithOverlay'|'...WithoutOverlay']``.
+        vst_total_duration = 0.0
+        video_url = None
+        effective_start_time = None
+        effective_end_time = None
+
+        try:
+            start = time.time()
+            video_url, effective_start_time, effective_end_time = self._get_video_stream_url_with_mode(
+                sensor_id,
+                message['timestamp'],
+                message['end'],
+                objects_ids=objects_ids,
+                latency=latency,
+                alert_type_anchor=alert_type_anchor,
+            )
+            duration = round(time.time() - start, 3)
+            latency['getVideoStreamUrlWithOverlay'] = {'success': video_url is not None, 'duration': duration}
+            vst_total_duration += duration
+            observe_video_length(
+                iso_delta_seconds(effective_start_time, effective_end_time),
+                sensor_id,
+            )
+        except VSTError as e:
+            duration = round(time.time() - start, 3)
+            latency['getVideoStreamUrlWithOverlay'] = {'success': False, 'duration': duration}
+            vst_total_duration += duration
+            logger.error(
+                "VST error getting video URL [sensor=%s category=%s start=%s end=%s]: "
+                "type=%s status=%s category=%s body=%s",
+                sensor_id, message.get('category', 'N/A'),
+                message.get('timestamp', 'N/A'), message.get('end', 'N/A'),
+                type(e).__name__, e.status_code, e.category, e.response_body,
+            )
+            vst_error_captured = e
+            video_url = None
+            if self.config.get('vst_config', {}).get('retry_without_overlay', False):
+                try:
+                    logger.info("Retrying video URL without overlay [sensor=%s category=%s start=%s end=%s]",
+                                 sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
+                    start = time.time()
+                    video_url, effective_start_time, effective_end_time = self._get_video_stream_url_with_mode(
+                        sensor_id,
+                        message['timestamp'],
+                        message['end'],
+                        objects_ids=objects_ids,
+                        remove_overlay=True,
+                        alert_type_anchor=alert_type_anchor,
+                    )
+                    duration = round(time.time() - start, 3)
+                    latency['getVideoStreamUrlWithoutOverlay'] = {'success': video_url is not None, 'duration': duration}
+                    vst_total_duration += duration
+                    observe_video_length(
+                        iso_delta_seconds(effective_start_time, effective_end_time),
+                        sensor_id,
+                    )
+                    vst_error_captured = None
+                except VSTError as retry_e:
+                    duration = round(time.time() - start, 3)
+                    latency['getVideoStreamUrlWithoutOverlay'] = {'success': False, 'duration': duration}
+                    vst_total_duration += duration
+                    logger.error(
+                        "VST error on retry without overlay [sensor=%s category=%s start=%s end=%s]: "
+                        "type=%s status=%s category=%s body=%s",
+                        sensor_id, message.get('category', 'N/A'),
+                        message.get('timestamp', 'N/A'), message.get('end', 'N/A'),
+                        type(retry_e).__name__, retry_e.status_code, retry_e.category, retry_e.response_body,
+                    )
+                    vst_error_captured = retry_e
+                    video_url = None
+                except Exception as retry_e:
+                    duration = round(time.time() - start, 3)
+                    latency['getVideoStreamUrlWithoutOverlay'] = {'success': False, 'duration': duration}
+                    vst_total_duration += duration
+                    logger.error("Unexpected error on retry without overlay [sensor=%s category=%s start=%s end=%s]: %s",
+                                 sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'), retry_e)
+                    video_url = None
+        except Exception as e:
+            duration = round(time.time() - start, 3)
+            latency['getVideoStreamUrlWithOverlay'] = {'success': False, 'duration': duration}
+            vst_total_duration += duration
+            logger.error("Unexpected error getting video URL [sensor=%s category=%s start=%s end=%s]: %s",
+                         sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'), e)
+            video_url = None
+
+        # Emit VST_DURATION exactly once per event regardless of attempt count.
+        observe_vst_duration(round(vst_total_duration, 3), sensor_id)
+        return video_url, effective_start_time, effective_end_time, vst_error_captured
+
+    def _transform_video_urls(self, video_url: str) -> tuple:
+        """Return ``(vlm_video_url, storage_video_url)`` for the consumers.
+
+        VLM needs the external URL only in remote mode; ES/UI always needs
+        the external URL.
+        """
+        if self.url_transform_enabled:
+            return (
+                transform_video_url(video_url, to_external=not is_vlm_local()),
+                transform_video_url(video_url, to_external=True),
+            )
+        return video_url, video_url
+
+    def _handle_media_collection_failure(
+        self,
+        message: Dict[str, Any],
+        vst_error_captured,
+        worker_start_time: float,
+        latency: Dict[str, Any],
+    ) -> None:
+        sensor_id = message.get('sensorId')
+        vst_code, vst_status = self._classify_vst_failure(vst_error_captured)
+        logger.warning("Media collection failed [sensor=%s category=%s start=%s end=%s] reason=%s",
+                       sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'), vst_status)
+        user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
+        merge_info_with_response(
+            message,
+            AlertBridgeResponse(
+                vlm_response=None,
+                video_source=None,
+                verification_response_code=vst_code,
+                verification_response_status=vst_status,
+                verdict="verification-failed",
+                error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
+            ),
+            latency=latency,
+            include_latency=self.include_latency_info,
+        )
+        publish_future = self._publish_error_with_mode(
+            message,
+            user_prompt,
+            system_prompt,
+            {},
+        )
+        self._complete_event_after_publish(
+            publish_future,
+            worker_start_time,
+            message,
+            latency,
+            failure_reason=self._classify_vst_failure_reason(vst_error_captured),
+        )
+
+    def _handle_url_validation_failure(
+        self,
+        message: Dict[str, Any],
+        storage_video_url: Optional[str],
+        worker_start_time: float,
+        latency: Dict[str, Any],
+    ) -> None:
+        sensor_id = message.get('sensorId')
+        logger.error("URL validation failed [sensor=%s category=%s start=%s end=%s]",
+                     sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
+        user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
+        merge_info_with_response(
+            message,
+            AlertBridgeResponse(
+                vlm_response=None,
+                video_source=storage_video_url,
+                verification_response_code=400,
+                verification_response_status="Video URL could not be validated or was unreachable",
+                verdict="verification-failed",
+                error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
+            ),
+            latency=latency,
+            include_latency=self.include_latency_info,
+        )
+        publish_future = self._publish_error_with_mode(
+            message,
+            user_prompt,
+            system_prompt,
+            {},
+        )
+        self._complete_event_after_publish(
+            publish_future,
+            worker_start_time,
+            message,
+            latency,
+            failure_reason="url_validation",
+        )
+
+    def _apply_vlm_response(
+        self,
+        message: Dict[str, Any],
+        response_content: Optional[str],
+        merged_vlm: Dict[str, Any],
+        storage_video_url: Optional[str],
+        latency: Dict[str, Any],
+    ) -> tuple:
+        """
+        Parse the VLM response and merge the outcome into the message.
+
+        Returns ``(verification_successful, response_content)``. Pluggable
+        parser failures are terminal (deterministic parser bug — no point
+        retrying); validation errors on the built-in path raise so the caller
+        can retry.
+        """
+        if self._pluggable_parser is not None:
+            try:
+                parsed = self._pluggable_parser.parse(response_content)
+                if not isinstance(parsed, dict):
+                    raise TypeError(
+                        f"Pluggable parser returned {type(parsed).__name__}, expected dict"
+                    )
+            except Exception as parser_error:
+                _apply_pluggable_parser_error(
+                    message, parser_error,
+                    video_source=storage_video_url,
+                    latency=latency,
+                    include_latency=self.include_latency_info,
+                )
+                # Route to _publish_error_with_mode via the post-loop
+                # dispatcher (which branches on ``response_content is not
+                # None``) so parser crashes are not mislabeled as
+                # successful publishes.
+                return False, None
+            _apply_pluggable_parser_output(
+                message, parsed,
+                video_source=storage_video_url,
                 latency=latency,
                 include_latency=self.include_latency_info,
             )
+            return True, response_content
+
+        # Use the already-merged per-category VLM config so ``model`` /
+        # ``response_format`` / ``json_parser`` overrides applied to the
+        # *request* also apply to the *response parser*.
+        vlm_data = VLMResponse.model_validate_text(
+            response_content,
+            model_name=merged_vlm.get('model', ''),
+            response_format=merged_vlm.get('response_format', 'auto'),
+            json_config=merged_vlm.get('json_parser'),
+        )
+        merge_info_with_response(
+            message,
+            AlertBridgeResponse(
+                vlm_response=vlm_data,
+                video_source=storage_video_url,
+                verification_response_code=200,
+                verification_response_status="OK",
+            ),
+            latency=latency,
+            include_latency=self.include_latency_info,
+        )
+        return True, response_content
+
+    def _apply_vlm_parse_failure(
+        self,
+        message: Dict[str, Any],
+        error: Exception,
+        response_content: Optional[str],
+        storage_video_url: Optional[str],
+        latency: Dict[str, Any],
+    ) -> str:
+        """Merge the terminal parse-failure response; returns the failure reason."""
+        raw_excerpt = response_content if response_content else "<no response>"
+        logger.warning(
+            "VLM response parsing failed "
+            "[sensor=%s category=%s model=%s endpoint=%s]: %s | "
+            "Raw VLM response: %s",
+            message.get('sensorId'),
+            message.get('category', 'N/A'),
+            self.vlm_client.model,
+            self.vlm_client.base_url,
+            error,
+            raw_excerpt,
+        )
+
+        if not response_content or not response_content.strip():
+            parse_status = (
+                "VLM returned an empty response, the model produced no output "
+                "for this video. This may indicate the model failed to process "
+                "the input or encountered an internal issue."
+            )
+        elif "not in expected format" in str(error):
+            parse_status = (
+                "VLM response not in expected YES/NO format, the model returned "
+                f"free-form text instead of a structured verdict. Raw response: '{raw_excerpt}'"
+            )
+        else:
+            parse_status = (
+                f"VLM response failed validation, {error}. "
+                f"Raw response: '{raw_excerpt}'"
+            )
+
+        merge_info_with_response(
+            message,
+            AlertBridgeResponse(
+                vlm_response=None,
+                video_source=storage_video_url,
+                verification_response_code=500,
+                verification_response_status=parse_status,
+                verdict="verification-failed",
+                error_source=ERROR_SOURCE_VLM_SCHEMA,
+            ),
+            latency=latency,
+            include_latency=self.include_latency_info,
+        )
+        return "vlm_parse_failure"
+
+    def _publish_outcome_and_complete(
+        self,
+        message: Dict[str, Any],
+        user_prompt: str,
+        system_prompt: Optional[str],
+        response_content: Optional[str],
+        vlm_failure_reason: Optional[str],
+        worker_start_time: float,
+        latency: Dict[str, Any],
+    ) -> Optional[Future]:
+        # C23: ``elasticReadyAt`` is stamped by ``record_event_complete``;
+        # when the async elastic sink is enabled it fires from the publish
+        # future's done-callback so the stamp reflects the real sink-write
+        # completion wall-clock, not the submit-queue-enqueue time.
+        if response_content is not None:
+            publish_future = self._publish_success_with_mode(
+                message,
+                user_prompt,
+                system_prompt,
+                response_content,
+            )
+        else:
             publish_future = self._publish_error_with_mode(
                 message,
                 user_prompt,
                 system_prompt,
                 {},
             )
-            self._complete_event_after_publish(
-                publish_future,
-                worker_start_time,
-                message,
-                latency,
-                failure_reason="unknown",
-            )
-            logger.error("VLM analysis failed [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
-                         sensor_id, message.get('category', 'N/A'),
-                         self.vlm_client.model, self.vlm_client.base_url,
-                         message.get('timestamp', 'N/A'), message.get('end', 'N/A'), e)
-            return
+
+        self._complete_event_after_publish(
+            publish_future,
+            worker_start_time,
+            message,
+            latency,
+            failure_reason=vlm_failure_reason,
+        )
+        return publish_future
+
+    def _apply_vlm_exception(
+        self,
+        exc: Exception,
+        message: Dict[str, Any],
+        storage_video_url: Optional[str],
+        latency: Dict[str, Any],
+    ) -> tuple:
+        """Classify a failed VLM call and merge the error response into the
+        message. Returns ``(failure_reason, log_label)``. Shared by the sync
+        and event_loop error paths."""
+        code, status_prefix, failure_reason, log_label = (
+            500, "Video verification could not be completed", "unknown", "VLM analysis failed",
+        )
+        for exc_type, mapped in _VLM_API_ERROR_CLASSIFICATION:
+            if isinstance(exc, exc_type):
+                code, status_prefix, failure_reason, log_label = mapped
+                break
+        root_cause = self._extract_root_cause(exc)
+        merge_info_with_response(
+            message,
+            AlertBridgeResponse(
+                vlm_response=None,
+                video_source=storage_video_url,
+                verification_response_code=code,
+                verification_response_status=f"{status_prefix}, {root_cause}",
+                verdict="verification-failed",
+                error_source=ERROR_SOURCE_VLM_API,
+            ),
+            latency=latency,
+            include_latency=self.include_latency_info,
+        )
+        return failure_reason, log_label
+
+    def _log_vlm_exception(
+        self,
+        log_label: str,
+        message: Dict[str, Any],
+        exc: Exception,
+    ) -> None:
+        logger.error("%s [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
+                     log_label, message.get('sensorId'), message.get('category', 'N/A'),
+                     self.vlm_client.model, self.vlm_client.base_url,
+                     message.get('timestamp', 'N/A'), message.get('end', 'N/A'), exc)
+
+    def _handle_vlm_exception(
+        self,
+        exc: Exception,
+        message: Dict[str, Any],
+        user_prompt: str,
+        system_prompt: Optional[str],
+        storage_video_url: Optional[str],
+        worker_start_time: float,
+        latency: Dict[str, Any],
+    ) -> None:
+        """Publish the error document and metrics for a failed VLM call."""
+        failure_reason, log_label = self._apply_vlm_exception(
+            exc, message, storage_video_url, latency
+        )
+        publish_future = self._publish_error_with_mode(
+            message,
+            user_prompt,
+            system_prompt,
+            {},
+        )
+        self._complete_event_after_publish(
+            publish_future,
+            worker_start_time,
+            message,
+            latency,
+            failure_reason=failure_reason,
+        )
+        self._log_vlm_exception(log_label, message, exc)
 
     @staticmethod
     def _extract_root_cause(exc: Exception, max_len: int = 150) -> str:
@@ -2113,164 +2273,6 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         # ``EVENTS_DROPPED{reason="unknown"}`` works for filter drops.
         return "vst_unknown"
 
-    def process_batch_vss(self, worker_id, messages):
-        """
-        Processes a batch of messages from the event bridge source.
-        :param worker_id: ID of the worker processing the batch.
-        :param messages: List of simple JSON messages.
-        """
-        try:
-            logger.info("Processing batch", extra={
-                "worker_id": worker_id,
-                "batch_size": len(messages)
-            })
-
-            if not messages:
-                logger.debug("Empty batch received", extra={"worker_id": worker_id})
-                return
-
-            # Debug logging for received messages with full payload details
-            for i, message in enumerate(messages):
-                if isinstance(message, str):
-                    logger.debug(f"Processing Alert message in JSON {i+1}/{len(messages)} - Worker {worker_id} - Payload: {message}")
-                else:
-                    logger.debug(f"Processing Alert message in dict {i+1}/{len(messages)} - Worker {worker_id} - Payload: {json.dumps(message, indent=2)}")
-
-           # Validate and build AlertRequestEntity objects (EntityValidator now handles JSON parsing)
-            alert_entities = self.entity_validator.validate_and_build(messages)
-            logger.debug("AlertRequestEntity objects built from messages", extra={
-                "worker_id": worker_id,
-                "entity_count": len(alert_entities)
-            })
-
-            # Resolve media file path via VST (when vst_id is present)
-            if alert_entities:
-                alert_entities = [self._resolve_media_path_if_needed(entity) for entity in alert_entities]
-
-            # Handle validation failures - create and send error responses
-            if len(alert_entities) != len(messages):
-                failed_count = len(messages) - len(alert_entities)
-                logger.info(f"Creating error responses for {failed_count} validation failures", extra={
-                    "worker_id": worker_id,
-                    "failed_count": failed_count,
-                    "total_messages": len(messages)
-                })
-
-                # Create error responses for failed validation messages
-                error_responses = self._create_validation_error_responses(messages, alert_entities)
-
-                # Send error responses to Redis
-                if error_responses:
-                    self._send_error_responses(error_responses, worker_id)
-
-            if not alert_entities:
-                logger.debug("No entities to process after building", extra={"worker_id": worker_id})
-                return
-
-            # Process AlertRequestEntity objects through VSS
-            entities_with_vss_results = self.vss_handler.process_video_batch(alert_entities)
-
-            # Debug: Log VSS Handler results before ResponseBuilder
-            logger.debug(f"VSS Handler completed - Worker {worker_id}: {len(entities_with_vss_results)} VSS results → ResponseBuilder")
-
-            for i, vss_result in enumerate(entities_with_vss_results):
-                if isinstance(vss_result, dict) and 'raw_vss_result' in vss_result:
-                    raw_result = vss_result['raw_vss_result']
-                    original_entity = vss_result['original_entity']
-                    entity_id = original_entity.id if hasattr(original_entity, 'id') else 'N/A'
-                    logger.debug(f"VSS Result {i} for {entity_id}: Success={raw_result.get('success', False)}, Evaluations={len(raw_result.get('evaluations', []))}, Error={raw_result.get('error') is not None}")
-
-            # Build responses using ResponseBuilder - clean single method call
-            enhanced_anomalies = self.response_builder.build_redis_responses_from_vss_results(entities_with_vss_results)
-
-            # Debug: Log ResponseBuilder results
-            logger.debug(f"ResponseBuilder completed - Worker {worker_id}: {len(entities_with_vss_results)} VSS results → {len(enhanced_anomalies)} Redis anomalies")
-
-            # Publish enhanced anomalies using new sink interface
-            incidents = []
-            for i, anomaly in enumerate(enhanced_anomalies):
-                from mdx.anomaly.stream_message import StreamMessage
-
-                # Debug: Log the JSON structure being sent to Redis
-                anomaly_json = json.dumps(anomaly)
-                logger.debug(f"Creating StreamMessage for Redis - Worker {worker_id}, Event {anomaly.get('id', 'N/A')}, Size: {len(anomaly_json)} bytes")
-
-                incident_message = StreamMessage.from_json_with_schema(
-                    anomaly_json, 'response_schema.yaml'
-                )
-                incidents.append(incident_message)
-
-            # Debug: Log Redis write operation
-            logger.debug(f"Writing {len(incidents)} incidents to Redis stream - Worker {worker_id}")
-
-            # Debug: Show complete JSON being written to Redis (for debugging)
-            if enhanced_anomalies:
-                complete_json = json.dumps(enhanced_anomalies[0], indent=2)
-                logger.debug(f"COMPLETE JSON being written to Redis for {enhanced_anomalies[0].get('id', 'N/A')}:")
-                logger.debug(complete_json)
-
-            self.sink.write(incidents)  # Fixed: Send all processed alerts to enhanced stream
-
-            logger.info("Batch processing completed", extra={
-                "worker_id": worker_id,
-                "published_count": len(incidents)
-            })
-
-            # Debug: Log successful Redis write with details
-            total_json_bytes = sum(len(json.dumps(anomaly)) for anomaly in enhanced_anomalies)
-            logger.debug(f"Successfully wrote to Redis stream - Worker {worker_id}: {len(incidents)} incidents, {total_json_bytes} total bytes")
-
-        except Exception as e:
-            logger.error("Error processing batch", extra={
-                "worker_id": worker_id,
-                "error": str(e),
-                "error_type": type(e).__name__
-            }, exc_info=True)
-
-    def _resolve_media_path_if_needed(self, entity):
-        """If entity has vst_id, resolve media path from VST and update video_path.
-        Returns the original entity on failure or when vst_id is absent.
-        """
-        try:
-            vst_id = getattr(entity, 'vst_id', None)
-            if not vst_id:
-                return entity
-
-            # Lazy init VST handler
-            if self._vst_handler is None:
-                try:
-                    from vst.its_vst_handler import ITS_VST_HANDLER
-                    self._vst_handler = ITS_VST_HANDLER(self.config)
-                except Exception as init_err:
-                    logger.error("Failed to initialize VST handler", extra={
-                        "eventId": getattr(entity, 'id', 'N/A'),
-                        "error": str(init_err)
-                    }, exc_info=True)
-                    return entity
-
-            resolved_path = self._vst_handler.get_media_file_path_by_vst_id(vst_id)
-            if not resolved_path:
-                logger.warning("VST media path not resolved; using original videoPath", extra={
-                    "eventId": getattr(entity, 'id', 'N/A'),
-                    "vst_id": vst_id
-                })
-                return entity
-
-            # Update entity immutably
-            new_entity = entity.model_copy(update={'video_path': resolved_path})
-            logger.info(
-                f"VST media path merged into entity: eventId={getattr(entity, 'id', 'N/A')}, "
-                f"vst_id={vst_id}, videoPath={resolved_path}"
-            )
-            return new_entity
-
-        except Exception as e:
-            logger.error("Error resolving VST media path", extra={
-                "eventId": getattr(entity, 'id', 'N/A'),
-                "error": str(e)
-            }, exc_info=True)
-            return entity
-
     def _create_validation_error_responses(self, original_messages, validated_entities):
         """
         Create error responses for failed validation entities.
@@ -2282,8 +2284,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         Returns:
             List of AlertResponseEntity error responses
         """
-        from entity_management.response_entity.models import AlertResponseEntity
-        from entity_management.shared import ProcessingStatus
+        from schemas.response_entity.models import AlertResponseEntity
         from datetime import datetime, timezone
         import json
 
@@ -2307,10 +2308,10 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             # If this message wasn't successfully validated, create error response
             if message_id not in validated_ids:
                 # Create error response for validation failure
-                from entity_management.response_entity.models.responses import (
+                from schemas.response_entity.models.responses import (
                     AlertResponseEntity, AlertInfo, EventInfo, VerificationInfo
                 )
-                from entity_management.shared.enums import AlertSeverity, AlertStatus
+                from schemas.shared.enums import AlertSeverity, AlertStatus
 
                 error_response = AlertResponseEntity(
                     id=message_id,
@@ -2359,7 +2360,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             worker_id: Worker ID for logging
         """
         try:
-            from mdx.anomaly.stream_message import StreamMessage
+            from mdx.stream_message import StreamMessage
             from datetime import datetime, timezone
 
             # Convert error responses to StreamMessage format
@@ -2402,7 +2403,7 @@ def start_fastapi():
     try:
         port = int(os.getenv("FASTAPI_PORT", 9080))
         logger.info(f"Starting Alert Bridge FastAPI server on port {port}...")
-        uvicorn.run("alert-agent-web.app.main:app", host="0.0.0.0", port=port)
+        uvicorn.run("web.main:app", host="0.0.0.0", port=port)
     except Exception as e:
         logger.error(f"FastAPI server failed to start: {e}")
         raise

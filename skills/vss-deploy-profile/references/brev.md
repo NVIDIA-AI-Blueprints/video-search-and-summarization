@@ -57,7 +57,7 @@ Before `docker compose up`, set the Brev secure-link overrides in the profile
 `../SKILL.md`) Step 1c/1d). **`EXTERNAL_IP` alone is not enough** — the Brev secure
 link is served over **HTTPS on 443**, but the profile `.env` ships
 `VSS_PUBLIC_HTTP_PROTOCOL=http`, `VSS_PUBLIC_WS_PROTOCOL=ws`, and
-`VSS_PUBLIC_PORT=${HAPROXY_PORT}` (7777). Leaving those at the defaults makes the
+`VSS_PUBLIC_PORT=${HAPROXY_HOST_PORT}` (7777). Leaving those at the defaults makes the
 agent emit `http://…:7777` UI/API/WS URLs from an `https://` page → the browser
 blocks them as mixed content. Set the host, protocol, and port together:
 

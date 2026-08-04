@@ -36,7 +36,7 @@ def _kv(name: str, value: str) -> dict[str, str]:
 # real allowlisted names in success-path tests keeps the tests honest about
 # what the validator actually accepts.
 APP_KEY_A = "behaviorWatermarkSec"
-APP_KEY_B = "behaviorStateTimeout"
+APP_KEY_B = "behaviorMaxPoints"
 APP_KEY_C = "in3dMode"
 SENSOR_KEY_A = "tripwireMinPoints"
 SENSOR_KEY_B = "sensorMinFrames"
@@ -462,7 +462,7 @@ class TestValidateEnvelope(unittest.TestCase):
         self.assertEqual(err, "no config to update")
 
     def test_upsert_all_with_null_config_is_accepted(self) -> None:
-        """The bootstrap-failure signal from web-api: ``upsert-all`` with
+        """The bootstrap-failure signal from video-analytics-api: ``upsert-all`` with
         ``config=null`` is legitimate (handled by ``_handle_upsert_all``)
         -- the validator must let it through."""
         msg, err = validate_envelope(self._envelope(event_type="upsert-all", config=None))

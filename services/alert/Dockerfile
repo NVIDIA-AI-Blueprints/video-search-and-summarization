@@ -48,7 +48,7 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/setuptools*
 RUN ln -s /usr/local/lib/python3.13/site-packages /python-packages
 
 # Stage 2: Production Stage - Use Distroless Python as the base image (per-platform)
-FROM --platform=$TARGETPLATFORM nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}-${TAG} AS prefinal
+FROM nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}-${TAG} AS prefinal
 ARG TARGETARCH
 
 # Set the working directory in the final stage
@@ -57,7 +57,7 @@ WORKDIR /app
 # Copy Python runtime dependencies from the build stage
 COPY --from=build /python-packages /usr/local/lib/python3.13/site-packages
 
-FROM --platform=$TARGETPLATFORM busybox:1.36 AS strip
+FROM busybox:1.36 AS strip
 ARG TARGETARCH
 
 # Copy the full root filesystem from the prefinal image and remove unwanted artifacts

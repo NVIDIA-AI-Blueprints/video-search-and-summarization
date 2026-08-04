@@ -101,10 +101,6 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "20"
-		},
-		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},
@@ -135,10 +131,6 @@
 		{
 			"name": "playbackStartUpDelaySec",
 			"value": "90"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
 		},
 		{
 			"name": "sourceType",

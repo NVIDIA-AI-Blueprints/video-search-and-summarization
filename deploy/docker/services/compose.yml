@@ -15,12 +15,38 @@
 
 include:
   - path: ./agent/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/agent/agent.env
+      - ${VSS_APPS_DIR}/services/alert/alert.env
+      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./alert/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/alert/alert.env
+      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./auto-calibration/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./infra/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/infra/infra.env
+      - ${VSS_APPS_DIR}/services/agent/agent.env
+      - ${VSS_APPS_DIR}/services/alert/alert.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./monitoring/compose.yml
   - path: ./nim/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nim.env
   - path: ./rtvi/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
   - path: ./ui/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/ui/ui.env
+      - ${VSS_APPS_DIR}/services/agent/agent.env
   - path: ./video-summarization/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/video-summarization/lvs.env
+      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
   - path: ./vios/compose.yml

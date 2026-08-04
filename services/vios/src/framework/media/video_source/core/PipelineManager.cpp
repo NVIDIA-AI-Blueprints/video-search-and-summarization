@@ -168,7 +168,7 @@ std::shared_ptr<NativeStreamProducer> PipelineManager::getNativeStreamProducer()
     return m_builder ? m_builder->getNativeStreamProducer() : nullptr;
 }
 
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 std::shared_ptr<NvIPCProducer> PipelineManager::getIPCProducer() const
 {
     return m_builder ? m_builder->getIPCProducer() : nullptr;

@@ -31,7 +31,7 @@ Environment::Environment() : Environment(m_stopRef)
 {
 }
 
-Environment::Environment(char & stop)
+Environment::Environment(EventLoopWatchVariable& stop)
         : BasicUsageEnvironment(*BasicTaskScheduler::createNew())
         , m_stop(stop)
         , m_stopRef(0)

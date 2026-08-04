@@ -18,6 +18,7 @@ import logging
 import os
 import pytest
 from pathlib import Path
+from typing import Any, Iterator
 
 from scripts.container_monitor import get_monitor, cleanup_monitor
 from scripts.nvenc_capacity import (
@@ -210,8 +211,38 @@ def api_config(config, request):
     cli_base_url = request.config.getoption("--base-url")
     if cli_base_url:
         api_conf['base_url'] = cli_base_url
-    
+
     return api_conf
+
+
+@pytest.fixture(scope="session", autouse=True)
+def ensure_streams(api_config: dict[str, Any], config: dict[str, Any]) -> Iterator[None]:
+    """Prerequisite for the whole suite: make sure NVStreamer has streams.
+
+    If NVStreamer reports no sensors, upload the sample clips baked into this
+    container (``/app/test_videos``) and trigger a VST sensor scan so VIOS
+    imports the resulting RTSP streams. Best-effort: any failure (NVStreamer
+    not deployed, no baked clips, scan error) is logged and the suite proceeds
+    -- tests that don't need live streams are unaffected.
+    """
+    try:
+        from scripts.stream_prerequisite import ensure_streams as _ensure_streams
+
+        summary = _ensure_streams(
+            api_config['base_url'],
+            api_config.get('verify_ssl', False),
+            config,
+        )
+        if summary.get('seeded'):
+            logger.info(
+                "Stream prerequisite: uploaded %d clip(s), VST scan=%s, "
+                "live_ready=%s, replay_ready=%s",
+                summary.get('uploaded', 0), summary.get('scanned'),
+                summary.get('live_ready'), summary.get('replay_ready'),
+            )
+    except Exception as exc:  # never block the session on the prerequisite
+        logger.warning("Stream prerequisite skipped: %s", exc)
+    yield
 
 
 @pytest.fixture(scope="session")

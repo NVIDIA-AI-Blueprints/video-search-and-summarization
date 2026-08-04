@@ -165,7 +165,7 @@ class TestDeserializeConfigMessage(unittest.TestCase):
 
     def test_non_dict_config_passes_through_deserializer(self) -> None:
         """``config: Any`` -- non-dict values flow through; the validator
-        returns ``failure`` downstream so web-api still gets an ack."""
+        returns ``failure`` downstream so video-analytics-api still gets an ack."""
         sm = _msg(event_type=b"upsert", body={"status": None, "config": [], "error": None})
         envelope = deserialize_config_message(sm)
         self.assertIsNotNone(envelope)
@@ -173,7 +173,7 @@ class TestDeserializeConfigMessage(unittest.TestCase):
 
     def test_body_extras_preserved_in_envelope(self) -> None:
         """Top-level keys the producer adds to the JSON body (typos,
-        contract drift, new fields web-api may add later) must survive the
+        contract drift, new fields video-analytics-api may add later) must survive the
         deserializer so ``validate_envelope`` can surface them as a
         structured failure rather than silently swallowing them here."""
         sm = _msg(
@@ -202,7 +202,7 @@ class TestDeserializeConfigMessage(unittest.TestCase):
     # ``request-config`` skip the filter (see test_all_known_event_types_accepted).
 
     def test_upsert_all_accepts_behavior_analytics_prefix(self) -> None:
-        """The bootstrap reply (web-api echoes our request-config reference-id)
+        """The bootstrap reply (video-analytics-api echoes our request-config reference-id)
         arrives as an ``upsert-all`` whose reference-id starts with
         ``behavior-analytics-``. Must be accepted."""
         sm = _msg(
@@ -257,7 +257,7 @@ class TestDeserializeConfigMessage(unittest.TestCase):
         self.assertTrue(any("unrecognized reference-id" in line for line in ctx.output))
 
     def test_upsert_video_analytics_api_prefix_ignores_source_type(self) -> None:
-        """The web-api prefix always passes; source_type does not affect it
+        """The video-analytics-api prefix always passes; source_type does not affect it
         and the reference-id is not rewritten."""
         sm = _msg(reference_id=b"video-analytics-api-abc")
         cm = deserialize_config_message(sm, source_type="kafka")
@@ -358,7 +358,7 @@ class TestUpsertHandling(_ListenerTestBase):
     def test_upsert_with_null_config_acks_failure(self) -> None:
         """An upsert with ``config=null`` is a producer error, not a no-op:
         the envelope gate rejects it with "no config to update" and the
-        listener acks ``failure`` so web-api gets a clear signal."""
+        listener acks ``failure`` so video-analytics-api gets a clear signal."""
         self.listener._dispatch(self._cm("upsert", config=None))
         self.applier.apply.assert_not_called()
         self.publisher.publish_ack.assert_called_once()

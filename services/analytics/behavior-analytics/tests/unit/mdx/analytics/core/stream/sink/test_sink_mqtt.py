@@ -173,8 +173,8 @@ class TestSinkMQTTFunctionality:
         mock_client.loop_start.assert_not_called()
         mock_client.publish.assert_called_once()
 
-    def test_write_raises_value_error_for_invalid_topic(self):
-        """Test write method raises ValueError when topic cannot be found."""
+    def test_write_skips_undefined_topic(self):
+        """An undefined topic disables that output rather than raising."""
         # Arrange
         self.mock_config.get_mqtt_topic.return_value = None
         dest_key = "invalid_key"
@@ -182,8 +182,7 @@ class TestSinkMQTTFunctionality:
         value_serializer = lambda x: str(x).encode('utf-8')
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a topic with key: invalid_key"):
-            self.sink.write(dest_key, messages, value_serializer)
+        self.sink.write(dest_key, messages, value_serializer)  # returns without publishing
 
     @patch('mdx.analytics.core.stream.sink.sink_mqtt.Client')
     def test_write_msg_basic_functionality(self, mock_client_class, mock_client):
@@ -264,8 +263,8 @@ class TestSinkMQTTFunctionality:
         mock_client.loop_start.assert_not_called()
         mock_client.publish.assert_called_once()
 
-    def test_write_msg_raises_value_error_for_invalid_topic(self):
-        """Test write_msg method raises ValueError when topic cannot be found."""
+    def test_write_msg_skips_undefined_topic(self):
+        """An undefined topic disables that output rather than raising."""
         # Arrange
         self.mock_config.get_mqtt_topic.return_value = None
         dest_key = "invalid_key"
@@ -273,8 +272,7 @@ class TestSinkMQTTFunctionality:
         key = b"test_key"
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a topic with key: invalid_key"):
-            self.sink.write_msg(dest_key, message, key)
+        self.sink.write_msg(dest_key, message, key)  # returns without publishing
 
     @pytest.mark.parametrize("qos,retain", [
         (0, False),

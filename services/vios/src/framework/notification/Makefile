@@ -41,6 +41,11 @@ PROTO_INCLUDES = -I $(PROTOS_PATH) \
 
 # Compilation flags
 CXXFLAGS = -std=c++17 -fPIC -pthread -O3 -Werror -Wall -Wno-error=varargs $(PROTO_INCLUDES)
+# This Makefile defines its own CXXFLAGS, so it must carry the cross-compile sysroot
+# too (empty for x86/SBSA native builds; the Jetson rootfs for the Orin cross build).
+ifneq ($(SYSROOT),)
+CXXFLAGS += --sysroot=$(SYSROOT)
+endif
 
 # Prevent dependency generation for protobuf files
 %.pb.cc.d: %.pb.cc

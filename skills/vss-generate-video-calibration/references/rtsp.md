@@ -7,7 +7,7 @@ For local MP4s instead, see `videos.md`. For verifying the install with the bund
 ## Mode-specific Prerequisites
 
 - **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill, else ask them to deploy VIOS.
-- **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env)). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
+- **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in `deploy/docker/industry-profiles/warehouse-operations/generated.env`). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
 - **RTSP URLs reachable from the VIOS host** — verify with the user before starting capture.
 
 The shared prerequisites (AMC microservice, Python+requests) come from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-calibration-modes) section.
@@ -22,9 +22,10 @@ VIOS_BASE_URL=""
 
 # 1a. Default port probe — standard VIOS one-click deployment listens on 30888.
 if curl -sf http://localhost:30888/vst/api/v1/sensor/list >/dev/null 2>&1; then
-  # Use HOST_IP from the warehouse-operations env (not `localhost` — the MS container can't reach host `localhost`)
-  ENV_FILE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env"
-  HOST_IP=$(grep ^HOST_IP "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+  # Use HOST_IP from the warehouse runtime env (not `localhost` — the MS container can't reach host `localhost`)
+  ENV_FILE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+  [ -f "$ENV_FILE" ] || ENV_FILE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
+  HOST_IP=$(grep ^HOST_IP "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"')
   VIOS_BASE_URL="http://${HOST_IP:-localhost}:30888"
   echo "VIOS detected at default port: $VIOS_BASE_URL"
 fi
@@ -52,7 +53,7 @@ fi
 1. Look for a VIOS setup skill: `ls skills/ | grep -i vios`. If found (e.g. `vios`), invoke it.
 2. Otherwise, ask the user to deploy VIOS and share the base URL via `AskUserQuestion`. Do **not** proceed until `${VIOS_BASE_URL}/vst/api/v1/sensor/list` returns 200.
 
-**If VIOS was detected on 30888 but the MS container env is unset**, the capture endpoint will still return 503 until `VIOS_BASE_URL` is set. The cleanest fix is to deploy alongside a `bp_wh_*` blueprint (which auto-wires it from `${VST_INTERNAL_URL}`). Otherwise set `VIOS_BASE_URL=http://<HOST_IP>:30888` in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env) and re-run `docker compose --env-file ... up -d` from `deploy/docker/`.
+**If VIOS was detected on 30888 but the MS container env is unset**, the capture endpoint will still return 503 until `VIOS_BASE_URL` is set. The cleanest fix is to deploy alongside a `bp_wh_*` blueprint (which auto-wires it from `${VST_INTERNAL_URL}`). Otherwise set `VIOS_BASE_URL=http://<HOST_IP>:30888` in `deploy/docker/industry-profiles/warehouse-operations/generated.env` and re-run `docker compose --env-file ... up -d` from `deploy/docker/`.
 
 ## Step 2 — Collect Inputs From User
 
@@ -305,7 +306,7 @@ if FOCAL_LENGTHS:
 | Issue | Fix |
 |---|---|
 | VIOS `/vst/api/v1/sensor/list` returns connection refused | VIOS isn't running. Look for the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill; if none, ask user to deploy VIOS and retry. |
-| Capture endpoint returns 503 / "VIOS not configured" | `VIOS_BASE_URL` not set in MS container env. Either deploy alongside a `bp_wh_*` blueprint (which auto-wires it), or set it in `deploy/docker/industry-profiles/warehouse-operations/.env` and re-run `docker compose --env-file ... up -d` from `deploy/docker/`. |
+| Capture endpoint returns 503 / "VIOS not configured" | `VIOS_BASE_URL` not set in MS container env. Either deploy alongside a `bp_wh_*` blueprint (which auto-wires it), or set it in `deploy/docker/industry-profiles/warehouse-operations/generated.env` and re-run `docker compose --env-file ... up -d` from `deploy/docker/`. |
 | Session stuck in `STARTING` | VIOS received the request but sensors aren't online. Check `curl ${VIOS_BASE_URL}/vst/api/v1/sensor/list` — look for `status: "online"`. Wait 20–30 s after any `sensor-ms` restart. |
 | Session stuck in `RECORDING` past `duration_seconds` | VIOS timer still running; call `POST /v1/rtsp/capture/<pid>/<sid>/stop` to end early. |
 | Ingest fails: `No clip available` | Recording window didn't overlap the VIOS timeline — sensors likely came online after capture started. Wait 30–60 s after bringing sensors online before starting a capture. |

@@ -16,25 +16,19 @@
 services:
   sensor-bp-wait-bp-configurator:
     image: busybox:1.37.0
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
-    network_mode: host
+    profiles: ["sensor-bp-wait-bp-configurator"]
     container_name: sensor-bp-wait-bp-configurator
     restart: "no"
     volumes:
       - ${VSS_APPS_DIR}/services/vios/initiator/scripts/sensor-bp-wait-bp-configurator.sh:/scripts/sensor-bp-wait-bp-configurator.sh:ro
     environment:
-      BP_CONFIGURATOR_READYZ_URL: ${BP_CONFIGURATOR_READYZ_URL:-http://127.0.0.1:5001/readyz}
+      BP_CONFIGURATOR_READYZ_URL: ${BP_CONFIGURATOR_READYZ_URL:-http://vss-configurator:5001/readyz}
       SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC: ${SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC:-300}
     command: ["/bin/sh", "/scripts/sensor-bp-wait-bp-configurator.sh"]
 
   sensor-ms:
     image: ${VST_SENSOR_IMAGE}
-    profiles:
-      - bp_developer_base_2d
-      - bp_developer_search_2d
-      - bp_developer_lvs_2d
-      - bp_developer_alerts_2d_cv
-      - bp_developer_alerts_2d_vlm
+    profiles: ["sensor-ms"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
@@ -48,12 +42,20 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+      - VST_USE_SDRC=${VST_USE_SDRC:-false}
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - RTSP_SERVER_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT:-}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure    # Restart only if the container exits with non-zero status
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
@@ -73,11 +75,7 @@ services:
 
   sensor-ms-2d:
     image: ${VST_SENSOR_IMAGE}
-    profiles:
-      - bp_wh_kafka_2d
-      - bp_wh_redis_2d
-      - bp_wh_2d
-      - bp_wh_auto_calib_2d
+    profiles: ["sensor-ms-2d"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
@@ -91,14 +89,23 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+      - VST_USE_SDRC=${VST_USE_SDRC:-false}
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - RTSP_SERVER_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT:-}
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
@@ -118,10 +125,7 @@ services:
 
   sensor-ms-3d:
     image: ${VST_SENSOR_IMAGE}
-    profiles:
-      - bp_wh_kafka_3d
-      - bp_wh_redis_3d
-      - bp_wh_auto_calib_3d
+    profiles: ["sensor-ms-3d"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
@@ -135,14 +139,23 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+      - VST_USE_SDRC=${VST_USE_SDRC:-false}
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - RTSP_SERVER_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT:-}
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
@@ -159,10 +172,7 @@ services:
 
   sensor-ms-mv3dt:
     image: ${VST_SENSOR_IMAGE}
-    profiles:
-      - bp_wh_kafka_mv3dt
-      - bp_wh_redis_mv3dt
-      - bp_wh_auto_calib_mv3dt
+    profiles: ["sensor-ms-mv3dt"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
@@ -176,14 +186,23 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+      - VST_USE_SDRC=${VST_USE_SDRC:-false}
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - RTSP_SERVER_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT:-}
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]

@@ -102,7 +102,7 @@ protected: // redefined virtual functions
 private:
   void setDoneFlagAndResetSource();
   char* fAuxSDPLine;
-  char fDoneFlag; // used when setting up "fAuxSDPLine"
+  EventLoopWatchVariable fDoneFlag{0}; // used when setting up "fAuxSDPLine"
   RTPSink* fDummyRTPSink; // ditto
   std::string m_streamName;
   std::string m_sessionId;

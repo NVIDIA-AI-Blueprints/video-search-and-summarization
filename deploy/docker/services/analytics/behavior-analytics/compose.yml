@@ -24,8 +24,7 @@
 services:
 
   vss-behavior-analytics-base:
-    image: nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1
-    network_mode: "host"
+    image: ${VSS_BEHAVIOR_ANALYTICS_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-behavior-analytics}:${VSS_BEHAVIOR_ANALYTICS_TAG:-develop-latest}
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json

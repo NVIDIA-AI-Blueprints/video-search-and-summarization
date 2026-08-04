@@ -10,15 +10,15 @@ deploy "done".
 
 **Gate 0 first — confirm a non-zero, expected container count and healthy
 container states together.** A state-only `ps --format json | jq ...` filter
-passes *vacuously* when no services started (the missing `--env-file` / unset
+passes *vacuously* when no services started (the missing env-file pair / unset
 `COMPOSE_PROFILES` failure mode — `up -d` exits 0 with "no service selected"),
 so keep the count guard in the same snippet as the state guard:
 
 ```bash
-expected=$(docker compose --env-file "$ENV_GEN" -f resolved.yml config --services | wc -l)
+expected=$(docker compose --env-file "$ENV_SRC" --env-file "$ENV_GEN" -f resolved.yml config --services | wc -l)
 actual=$(docker compose -f resolved.yml ps -q | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
-  echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file" >&2
+  echo "FAIL: expected $expected services, got $actual — re-check Step 5 env-file pair" >&2
   exit 1
 fi
 

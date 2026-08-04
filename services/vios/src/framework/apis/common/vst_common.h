@@ -38,6 +38,12 @@ using namespace nv_vms;
 namespace vst_common
 {
     string sensorStatusEventToString(SensorStatusEvent event);
+    // Maps a stored sensor type such as sensor_rtsp to the notification
+    // camera_type value rtsp; values without the sensor_ prefix pass through.
+    string sensorTypeToCameraType(const string& sensorType);
+    // Resolves the camera_type notification value for a sensor id, falling
+    // back to the parent sensor when given a stream id. Empty when unknown.
+    string cameraTypeForSensor(const string& sensorOrStreamId);
     VmsErrorCode getSensorStreamList(shared_ptr<DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response);
     VmsErrorCode getSensorStreamList(shared_ptr<DeviceManager> deviceManager, const Json::Value& req_info, Json::Value &response);
     VmsErrorCode getSensorStreamListFromDB(shared_ptr<DeviceManager> deviceManager, Json::Value &response, bool fetchFromDB = false);
@@ -54,14 +60,42 @@ namespace vst_common
     void evp_setup(int dir, EVP_CIPHER_CTX *ctx_, const EVP_CIPHER *cryptoAlgorithm_, string &key_, string &iv_);
     int evp_blocksize(EVP_CIPHER_CTX *ctx_);
     bool getSha256(const string &str, string &hashedStr);
+
+    // Hex SHA-256 of `input`, or a non-hex sentinel string on hash failure.
+    // Guaranteed to be a non-empty value that cannot be confused with the
+    // empty string used by legacy/full-file/picture rows in TEMP_VIDEO_FILES.
+    // The fallback is deterministic for the same input but is NOT
+    // cryptographic - it exists only so cache-key partitioning still holds
+    // when OpenSSL EVP fails. Logs an error on the failure path.
+    std::string computeStableHash(const std::string& input);
+
+    // Build a canonical SHA-256 cache key for the picture (/picture/url) flow.
+    // Inputs that affect rendered bytes: the raw `overlay` JSON query param
+    // (canonicalized: arrays sorted, keys serialized in sorted order so
+    // cosmetic differences do not fragment the cache), plus width/height
+    // resize hints and the `debug` flag. `configuration` is intentionally
+    // NOT hashed - no picture renderer reads it (see getCameraPicture and
+    // getCameraPictureDisconnected). When `includeOverlayAndDebug` is
+    // false, the overlay and debug params are also omitted from the hash;
+    // callers pass false when they know the disconnected-sensor renderer
+    // will run (it forces overlay off so partitioning on overlay/debug
+    // produces redundant cache rows). Returns "" when no hashable inputs
+    // are supplied so callers fall back to the legacy empty-hash lookup.
+    std::string computePictureConfigHash(const std::string& queryString,
+                                         bool includeOverlayAndDebug = true);
     string toDomainName(const string& url, const string& id);
     void addSensorToRemoteDevice(shared_ptr<SensorInfo>& sensor, std::shared_ptr<DeviceManager> deviceManager);
     void removeSensorFromRemoteDevice(const string& sensor_id);
-    void notifySensorStatusEvent(SensorStatusEvent statusEvent, shared_ptr<SensorInfo> sensor);
+    void notifySensorStatusEvent(SensorStatusEvent statusEvent, shared_ptr<SensorInfo> sensor,
+                                 string httpFileUrl = EMPTY_STRING, int64_t fileStartTimeMs = 0);
     void notifyStreamStatusEvent(SensorStatusEvent statusEvent, shared_ptr<StreamInfo> stream);
-    void notifyEvent(const SensorStatus& status, const string& sensor_url, const SensorVideoEncoderSettingsValues* encoder_values = nullptr);
+    // fileStartTimeMs is the first frame's epoch time; 0 omits the field.
+    void notifyEvent(const SensorStatus& status, const string& sensor_url,
+                     const SensorVideoEncoderSettingsValues* encoder_values = nullptr,
+                     int64_t fileStartTimeMs = 0);
+    void addStreamMetadata(Json::Value& metadata, const SensorVideoEncoderSettingsValues& encoder_values);
     int addSensorManually(shared_ptr<SensorInfo>& sensor, string& response, std::shared_ptr<DeviceManager> deviceManager);
-    VmsErrorCode getCameraPicture(shared_ptr<DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response, bool isURLRequested = false);
+    VmsErrorCode getCameraPicture(shared_ptr<DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response, bool isURLRequested = false, const string& configHash = "");
     std::vector <VideoFileInfo> getStreamerFileName(std::string url);
     void deleteWebrtcSensorDetails(shared_ptr<SensorInfo> sensor);
     int deleteWebrtcSensor(const string sensor_id, std::shared_ptr<DeviceManager> deviceManager);
@@ -71,13 +105,14 @@ namespace vst_common
     VmsErrorCode GetAllRecordTimelines(const Json::Value& req_info, Json::Value &out);
     string parseMetadataObject(map<string, float, std::less<>>& coordinates, string &obj_type,
                             double &confidence, Json::Value& curr_object, int index = 0);
-    void saveTempFileToDatabase(const string& deviceId, const string& filePath, const string& streamId, size_t fileSize, int64_t expiryTimestamp, int64_t createdTimestamp, int64_t startTimeMs = 0, const string& fileType = "");
+    void saveTempFileToDatabase(const string& deviceId, const string& filePath, const string& streamId, size_t fileSize, int64_t expiryTimestamp, int64_t createdTimestamp, int64_t startTimeMs = 0, const string& fileType = "", const string& configHash = "");
     void generateUrlResponse(Json::Value& response, const string& baseUrl, const string& tempFileName, const string& streamId, bool isReplay, const string& startTime,
                             int expiryMinutesInt, int64_t expiryTimestamp, const string& expiryISO);
     string calculateExpiryTime(int expiryMinutesInt, int64_t& expiryTimestamp, int64_t& currentTimestamp);
     bool ShouldRefreshSensorCache(const string& deviceId, size_t currentSensorCount);
     bool tryReuseCachedPictureUrl(const string& deviceId, const string& sensorId, const string& startTime,
-                                  const string& expiryMinutesStr, TempFileScheduler& scheduler, Json::Value& response);
+                                  const string& expiryMinutesStr, TempFileScheduler& scheduler, Json::Value& response,
+                                  const string& configHash = "");
     VmsErrorCode handlePictureAction(shared_ptr<DeviceManager> deviceManager, const string& deviceId,
                                      const string& sensorId, const string& queryString, bool isURLRequested,
                                      TempFileScheduler& scheduler, Json::Value& response);

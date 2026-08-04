@@ -1,0 +1,127 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "workload worker set Controller API",
+    "version": "2.6.2",
+    "description": "OpenAPI documentation for the SDRC Controller endpoints."
+  },
+  "servers": [
+    { "url": "http://localhost:4001", "description": "Local controller" }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Health check",
+        "tags": ["Controller"],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "text/plain": {
+                "schema": { "type": "string" },
+                "examples": { "ok": { "value": "\n    OK\n    " } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus metrics",
+        "tags": ["Controller"],
+        "responses": {
+          "200": {
+            "description": "Prometheus metrics in text format",
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/report": {
+      "post": {
+        "summary": "Report SDR agent status to controller",
+        "tags": ["Agents"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AgentReport" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Echo of posted payload",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    },
+    "/get_agent_data": {
+      "get": {
+        "summary": "Get current agent stream distribution",
+        "tags": ["Agents"],
+        "responses": {
+          "200": {
+            "description": "HTML view of agents/pods/streams or a message if none found",
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "type": "object", "additionalProperties": true } },
+              "text/plain": { "schema": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "/yy": {
+      "get": {
+        "summary": "Sample streaming time endpoint",
+        "tags": ["Debug"],
+        "responses": {
+          "200": {
+            "description": "Streaming response of timestamps",
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/stream2": {
+      "get": {
+        "summary": "Async timestamp stream",
+        "tags": ["Debug"],
+        "responses": {
+          "200": {
+            "description": "Streaming response of timestamps",
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/stream": {
+      "get": {
+        "summary": "Replica count stream",
+        "tags": ["Debug"],
+        "responses": {
+          "200": {
+            "description": "Streaming replica counts",
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentReport": {
+        "type": "object",
+        "properties": {
+          "service": { "type": "string", "description": "Agent IP/hostname", "example": "<AGENT_IP>" },
+          "port": { "type": "string", "description": "Agent port", "example": "4000" }
+        },
+        "required": ["service"]
+      }
+    }
+  }
+}
+

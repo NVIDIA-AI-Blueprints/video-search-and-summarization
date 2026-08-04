@@ -258,6 +258,113 @@ class TestRunAicityMtmcEvaluation:
         # Per-scene record for the only scene we drove.
         assert SCENE_NAME in results["per_scene"]
 
+    def test_out_of_gt_frame_predictions_are_ignored(self, tmp_path, _force_sequential_trackeval):
+        """Predictions on frames absent from the GT are dropped, not scored
+        as false positives.
+
+        Evaluation is scoped to the frames the GT annotates, so a
+        full-length submission judged against a truncated GT is not
+        penalised for its out-of-GT-range predictions.  The GT covers
+        frames 0-3 while the prediction covers 0-7 within a 100-frame
+        window; the extra frames 4-7 must be ignored, leaving a perfect
+        self-eval on frames 0-3 -> HOTA approaches 1.0.
+        """
+        gt_lines = [
+            _aicity_row(object_id=1, frame_id=i, x=float(i), y=0.0)
+            for i in range(4)
+        ]
+        pred_lines = [
+            _aicity_row(object_id=1, frame_id=i, x=float(i), y=0.0)
+            for i in range(8)
+        ]
+        gt = tmp_path / "gt.txt"
+        pred = tmp_path / "pred.txt"
+        _write_lines(gt, gt_lines)
+        _write_lines(pred, pred_lines)
+
+        results = run_aicity_mtmc_evaluation(
+            ground_truth_file=str(gt),
+            prediction_file=str(pred),
+            scene_id_to_name=SCENE_MAP,
+            output_dir=str(tmp_path / "out"),
+            num_cores=1,
+            num_frames_to_eval=100,  # window spans frames 4-7, but the GT lacks them
+            eval_type="bbox",
+            fps=10.0,
+            quiet=True,
+        )
+        # The 4 extra predictions (frames 4-7, no GT) are ignored, so the
+        # self-consistent frames 0-3 still yield a perfect score.
+        assert results["final"]["HOTA"] == pytest.approx(1.0, abs=0.01)
+        assert results["per_scene_object_counts"] == {SCENE_NAME: 4}
+
+    def test_partial_submission_does_not_outscore_full_submission(
+        self, tmp_path, _force_sequential_trackeval,
+    ):
+        """Regression: omitting whole warehouses must not raise the score.
+
+        Reproduces the participant report (Team Xiilab_Calix): a submission
+        covering only a subset of warehouses previously out-scored a
+        complete submission because missing warehouses were dropped from
+        the weighted mean. With the fix they are scored 0 at their full GT
+        weight, so a partial submission can no longer beat the full one and
+        can no longer reach a perfect score.
+
+        GT: three warehouses (all Person, one track each). FULL is perfect
+        on W023 but wrong on W024/W025; PARTIAL contains only W023.
+        """
+        scene_map = {
+            "23": "Warehouse_023", "24": "Warehouse_024", "25": "Warehouse_025",
+        }
+        n_frames = 6
+
+        def perfect(scene):
+            return [
+                _aicity_row(scene=scene, object_id=1, frame_id=f, x=float(f), y=0.0)
+                for f in range(n_frames)
+            ]
+
+        def wrong(scene):
+            # Same cardinality but 1000 m away -> never overlaps GT -> HOTA 0.
+            return [
+                _aicity_row(scene=scene, object_id=1, frame_id=f, x=1000.0 + f, y=0.0)
+                for f in range(n_frames)
+            ]
+
+        gt = perfect("23") + perfect("24") + perfect("25")
+        full = perfect("23") + wrong("24") + wrong("25")
+        partial = perfect("23")  # W024 + W025 omitted entirely
+
+        gt_p = tmp_path / "gt.txt"
+        full_p = tmp_path / "full.txt"
+        part_p = tmp_path / "partial.txt"
+        _write_lines(gt_p, gt)
+        _write_lines(full_p, full)
+        _write_lines(part_p, partial)
+
+        def _final_hota(pred_path, out_name):
+            res = run_aicity_mtmc_evaluation(
+                ground_truth_file=str(gt_p),
+                prediction_file=str(pred_path),
+                scene_id_to_name=scene_map,
+                output_dir=str(tmp_path / out_name),
+                num_cores=1,
+                num_frames_to_eval=n_frames,
+                eval_type="bbox",
+                fps=10.0,
+                quiet=True,
+            )
+            return res["final"]["HOTA"]
+
+        full_hota = _final_hota(full_p, "out_full")
+        partial_hota = _final_hota(part_p, "out_partial")
+
+        # The two omitted warehouses are scored 0 with full weight, so the
+        # partial submission cannot beat the full one...
+        assert partial_hota <= full_hota + 1e-9
+        # ...and cannot reach a perfect score just by dropping hard scenes.
+        assert partial_hota < 1.0 - 1e-6
+
     def test_run_with_default_output_dir_uses_tempdir(self, tmp_path, _force_sequential_trackeval):
         """Passing ``output_dir=None`` triggers the tempfile branch.
         The orchestrator should still return a valid results dict."""

@@ -95,7 +95,7 @@ class Websocket
         Websocket()
         {
             m_watchdog = make_unique<Bosma::Scheduler>(1);
-            m_watchdog->interval(WS_SERVER_WATCH_DOG_INTERVAL, [=]()
+            m_watchdog->interval(WS_SERVER_WATCH_DOG_INTERVAL, [this]()
                                   { checkPendingRequests(); });
         }
 

@@ -124,12 +124,13 @@ else
 fi
 
 # Use Python to consume with proper protobuf handling
-RESULT=$(python3 << 'PYEOF'
+RESULT=$(AB_SRC="$REPO_ROOT/src" python3 << 'PYEOF'
 import sys
 import json
 import os
 
-sys.path.insert(0, '/localhome/local-trongp/alert_agent')
+# Packages (mdx, ...) live under src/ after the src/ layout restructure.
+sys.path.insert(0, os.environ["AB_SRC"])
 
 from confluent_kafka import Consumer, KafkaError, TopicPartition, OFFSET_BEGINNING
 
@@ -176,7 +177,7 @@ try:
         # Try protobuf first (Kafka sink uses protobuf)
         decoded = False
         try:
-            from mdx.anomaly.protobuf import Incident
+            from mdx.protobuf import Incident
             incident = Incident()
             incident.ParseFromString(value)
             if incident.sensorId:

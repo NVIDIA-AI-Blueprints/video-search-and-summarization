@@ -1,0 +1,150 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Last-green developer-channel controller (I-10 of the container release flow).
+#
+# DORMANT BY DEFAULT: every job is gated on the repository variable
+# VSS_LAST_GREEN_ENABLED == 'true'. Enable it only after the GitLab
+# ci-vss-oss blocking acceptance mode (I-09) exists and posts the
+# vss-acceptance-result repository_dispatch with the payload contract
+# documented in .github/scripts/last_green.py.
+#
+# Behavior (all decision logic lives in the unit-tested last_green.py):
+#   * PASS for the exact release-set ID, with digest parity between the tested
+#     images and the release-set manifest → open a PR that advances
+#     deploy/docker/last-green.lock.json (the committed immutable lock; any
+#     moving alias is derived from it later, never written here).
+#   * FAIL → hold: the channel is untouched; the failure is surfaced in the
+#     run summary. (NVBug filing is internal tooling and is attached to the
+#     GitLab side of the flow.)
+#   * Rollback is a manual workflow_dispatch that restores the previous
+#     accepted set from the lock's bounded history.
+
+name: Last-Green Channel Controller
+
+on:
+  repository_dispatch:
+    types: [vss-acceptance-result]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "advance (needs result+release-set JSON) or rollback"
+        required: true
+        type: choice
+        options: [advance, rollback]
+      result_json:
+        description: "Acceptance-result payload (JSON, for advance)"
+        required: false
+      release_set_json:
+        description: "Release-set manifest (JSON, for advance)"
+        required: false
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: last-green-controller
+  cancel-in-progress: false
+
+jobs:
+  control:
+    name: Advance / hold the last-green channel
+    if: vars.VSS_LAST_GREEN_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          ref: develop
+
+      - name: Materialize payloads
+        id: payloads
+        env:
+          DISPATCH_RESULT: ${{ toJSON(github.event.client_payload.result) }}
+          DISPATCH_RELEASE_SET: ${{ toJSON(github.event.client_payload.release_set) }}
+          INPUT_ACTION: ${{ inputs.action }}
+          INPUT_RESULT: ${{ inputs.result_json }}
+          INPUT_RELEASE_SET: ${{ inputs.release_set_json }}
+        run: |
+          ACTION="${INPUT_ACTION:-advance}"
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          if [[ "$ACTION" == "rollback" ]]; then
+            exit 0
+          fi
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            printf '%s' "$DISPATCH_RESULT" > result.json
+            printf '%s' "$DISPATCH_RELEASE_SET" > release-set.json
+          else
+            printf '%s' "$INPUT_RESULT" > result.json
+            printf '%s' "$INPUT_RELEASE_SET" > release-set.json
+          fi
+          python3 .github/scripts/last_green.py validate-result --file result.json
+          python3 .github/scripts/release_set.py validate --file release-set.json
+
+      - name: Advance or hold
+        if: steps.payloads.outputs.action == 'advance'
+        id: advance
+        run: |
+          python3 .github/scripts/last_green.py advance \
+            --result result.json \
+            --release-set release-set.json \
+            --lock deploy/docker/last-green.lock.json \
+            --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee advance.log
+          if grep -q '^ADVANCED:' advance.log; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rollback
+        if: steps.payloads.outputs.action == 'rollback'
+        run: |
+          python3 .github/scripts/last_green.py rollback \
+            --lock deploy/docker/last-green.lock.json
+
+      - name: Open lock-update PR
+        if: >-
+          steps.payloads.outputs.action == 'rollback' ||
+          steps.advance.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet -- deploy/docker/last-green.lock.json; then
+            echo "Lock unchanged; nothing to open."
+            exit 0
+          fi
+          SET_ID="$(python3 -c 'import json;print(json.load(open("deploy/docker/last-green.lock.json"))["release_set_id"] or "none")')"
+          SHORT="${SET_ID#sha256:}"; SHORT="${SHORT:0:12}"
+          BRANCH="last-green/${SHORT}"
+          git config user.name "vss-last-green-bot"
+          git config user.email "vss-last-green-bot@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add deploy/docker/last-green.lock.json
+          git commit -s -m "chore(release): advance last-green lock to ${SET_ID}"
+          git push origin "$BRANCH"
+          BODY="$(cat <<EOF
+          Automated last-green channel update. Release set: \`${SET_ID}\`.
+          Evidence and pipeline links are recorded in the lock's acceptance block.
+          FAIL results never produce this PR; rollback PRs restore the previous accepted set.
+          EOF
+          )"
+          gh pr create \
+            --base develop \
+            --head "$BRANCH" \
+            --title "chore(release): advance last-green lock to ${SHORT}" \
+            --body "$BODY"
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Last-green controller"
+            echo "- action: ${{ steps.payloads.outputs.action }}"
+            echo '```json'
+            cat deploy/docker/last-green.lock.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

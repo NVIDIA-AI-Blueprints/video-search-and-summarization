@@ -18,6 +18,10 @@
 {{- $modeDisplay := ternary "real-time" "verification" $isRealtime }}
 {{- $vssIngress := .Values.vssIngress | default dict }}
 {{- $global := .Values.global | default dict }}
+{{- $agent := index .Values "agent" | default dict }}
+{{- $agentEnabled := default true (index $agent "enabled") }}
+{{- $vaMcpVals := index $agent "vss-va-mcp" | default dict }}
+{{- $vaMcpEnabled := and $agentEnabled (default false (index $vaMcpVals "enabled")) }}
 {{- $ingressEnabled := default false (index $vssIngress "enabled") }}
 {{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
 {{- $kibanaHost := coalesce (index $vssIngress "kibanaHost") (ternary (printf "kibana.%s" $mainHost) "" (ne $mainHost "")) }}
@@ -53,6 +57,9 @@ Profile Mode: {{ $modeDisplay }}
 {{- if ne $streamerHost "" }}
   NVStreamer HTTP:      http://{{ $streamerHost }}
 {{- end }}
+{{- if $vaMcpEnabled }}
+  VA-MCP (analytics):   http://{{ $mainHost }}/va-mcp/mcp
+{{- end }}
 {{- if not $isRealtime }}
   Alerts API:           http://{{ $mainHost }}/alert-bridge
   Video Analytics API:  http://{{ $mainHost }}/video-analytics-api
@@ -69,6 +76,9 @@ Profile Mode: {{ $modeDisplay }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 30888:30888 -n {{ .Release.Namespace }}
+{{- if $vaMcpEnabled }}
+  kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-va-mcp") }} 9901:9901 -n {{ .Release.Namespace }}
+{{- end }}
 {{- if not $isRealtime }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge") }} 9080:9080 -n {{ .Release.Namespace }}
 {{- else }}

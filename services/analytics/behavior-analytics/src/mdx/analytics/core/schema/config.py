@@ -37,6 +37,10 @@ IN_SIMULATION_MODE = "false"
 COMPACT_FRAME = "false"
 USE_OBJECT_LOCATION = "false"
 IMAGE_LOCATION_MODE = "bottom_center"
+# ROI-event detection modes (see AppConfig.roi_event_detection_mode).
+ROI_EVENT_DETECTION_MODE_COORDINATE = "coordinate"
+ROI_EVENT_DETECTION_MODE_BBOX = "bbox"
+ROI_EVENT_DETECTION_MODE = ROI_EVENT_DETECTION_MODE_COORDINATE
 
 # Default values for anomaly action config
 ANOMALY_ACTION_THRESHOLD = "0.5"
@@ -47,12 +51,12 @@ ANOMALY_CLASSES = "[]"
 
 # Default values for behavior config
 STATE_MANAGEMENT_FILTER = "[]"
-BEHAVIOR_STATE_TIMEOUT = "10"
 BEHAVIOR_STATE_VALID_INTERVAL = "6"
 BEHAVIOR_WATERMARK_SEC = "30"
 BEHAVIOR_TIME_THRESHOLD = "1970-01-01T00:00:00.000Z"
 BEHAVIOR_MAX_POINTS = "200"
 BEHAVIOR_STATE_END_TOLERANCE_SEC = "0.1"
+BEHAVIOR_EMIT_ONCE = "false"
 CLUSTER_THRESHOLD = "0.9"
 OBJECT_CONFIDENCE_THRESHOLD = "0.5"
 
@@ -1215,6 +1219,37 @@ class AppConfig(BaseModel):
 
     @computed_field
     @cached_property
+    def roi_event_detection_mode(self) -> str:
+        """
+        Get the ROI-event detection mode.
+
+        Controls how :class:`~mdx.analytics.core.transform.event.roi_event.ROIEvent` decides whether an
+        object is inside an ROI when detecting ENTRY/EXIT events:
+
+        - ``"coordinate"`` [default]: check whether the object's representative coordinate (bbox
+          bottom-center or center, per :attr:`image_location_mode`) is inside the ROI polygon.
+        - ``"bbox"``: check whether the object's bounding box overlaps the ROI polygon. Supported only for
+          image calibration, where ``object.bbox`` and the ROI polygon share image-pixel coordinates;
+          cartesian and geo calibration fall back to ``"coordinate"``.
+
+        Any unrecognized value is normalized to ``"coordinate"``.
+
+        :return str: The ROI-event detection mode (``"coordinate"`` or ``"bbox"``).
+
+        Examples::
+            >>> config = AppConfig()
+            >>> config.set_app_config("roiEventDetectionMode", "bbox")
+            >>> print(config.roi_event_detection_mode)  # "bbox"
+        """
+        mode = self.get_app_config("roiEventDetectionMode", ROI_EVENT_DETECTION_MODE)
+        # Normalize unrecognized values to the default so the getter never returns an out-of-vocabulary
+        # string (matches the silent-default convention of image_location_mode).
+        if mode not in (ROI_EVENT_DETECTION_MODE_COORDINATE, ROI_EVENT_DETECTION_MODE_BBOX):
+            return ROI_EVENT_DETECTION_MODE_COORDINATE
+        return mode
+
+    @computed_field
+    @cached_property
     def state_mgmt_filter(self) -> set[str]:
         """
         Get the object types to be filtered out in state management.
@@ -1230,15 +1265,25 @@ class AppConfig(BaseModel):
 
     @computed_field
     @cached_property
-    def behavior_state_timeout(self) -> int:
-        """Get the behavior state timeout."""
-        return int(self.get_app_config("behaviorStateTimeout", BEHAVIOR_STATE_TIMEOUT))
-
-    @computed_field
-    @cached_property
     def behavior_state_valid_interval(self) -> int:
         """Get the behavior state valid interval."""
         return int(self.get_app_config("behaviorStateValidInterval", BEHAVIOR_STATE_VALID_INTERVAL))
+
+    @computed_field
+    @cached_property
+    def behavior_emit_once(self) -> bool:
+        """
+        Whether a behavior is written once per track instead of on every batch.
+
+        When enabled, state management retains the latest behavior of a track and writes it only
+        once the track ends, which is after ``behaviorStateValidInterval`` seconds of inactivity --
+        the same gap that makes a continuation invalid, and the point at which the track's state is
+        reclaimed. Events, anomalies and incidents keep using the per-batch behaviors and are
+        unaffected.
+
+        :return bool: True when emit-once output is enabled.
+        """
+        return str_to_bool(self.get_app_config("behaviorEmitOnce", BEHAVIOR_EMIT_ONCE))
 
     @computed_field
     @cached_property

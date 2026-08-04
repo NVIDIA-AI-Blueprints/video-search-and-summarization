@@ -137,32 +137,32 @@ def verify_sensor_in_list(context, api_config):
         logger.info("  Timeline present: %s", sensor_info.get('isTimelinePresent'))
 
 
-@then('the timeline should show epoch time as start time')
-def verify_epoch_time_in_timeline(context, api_config):
-    """Verify timeline shows epoch time (1970-01-01T00:00:00.000Z)."""
+@then('the timeline should show the default start time')
+def verify_default_start_time_in_timeline(context, api_config):
+    """Verify untimestamped uploads use the default timeline start time."""
     storage_size_url = f"{api_config['base_url']}/vst/api/v1/storage/size?timelines=true"
     response = requests.get(storage_size_url, timeout=10, verify=api_config.get('verify_ssl', False))
-    
+
     assert response.status_code == 200, f"Storage size API failed: {response.status_code}"
-    
+
     size_data = response.json()
-    epoch_time = "1970-01-01T00:00:00.000Z"
-    
+    default_start_time = "2025-01-01T00:00:00.000Z"
+
     found = False
     for stream_id, stream_info in size_data.items():
         if isinstance(stream_info, dict) and 'timelines' in stream_info:
             timelines = stream_info['timelines']
             if isinstance(timelines, list):
                 for timeline in timelines:
-                    if timeline.get('startTime') == epoch_time:
+                    if timeline.get('startTime') == default_start_time:
                         found = True
-                        logger.info("Found timeline with epoch time: %s", stream_id[:30])
+                        logger.info("Found timeline with default start time: %s", stream_id[:30])
                         break
         if found:
             break
     
-    assert found, f"Expected to find timeline with startTime={epoch_time}"
-    logger.info("Timeline shows epoch time as expected")
+    assert found, f"Expected to find timeline with startTime={default_start_time}"
+    logger.info("Timeline shows the default start time as expected")
 
 
 @then('the timeline should show the provided timestamp as start time')
