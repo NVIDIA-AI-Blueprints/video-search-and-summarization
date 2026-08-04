@@ -1241,8 +1241,8 @@ for _profile in base lvs search alerts; do
       _expected_stable_keys=(MODE PERCEPTION_TAG)
       ;;
     alerts)
-      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
-      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT)
       _expected_stable_keys=()
       ;;
   esac
@@ -1589,11 +1589,23 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
   "GF_SECURITY_ADMIN_USER" "''" \
   "VST_CONFIG_PATH" "${REPO_ROOT}/deploy/docker/services/vios/configs"
 mv "${_alerts_overrides_env_backup}" "${_alerts_overrides_env}"
-if grep -Fq 'SDR_CONTROLLER_CONFIG_PATH=${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/sdrc/${MODE}' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"; then
-  echo "PASS: alerts SDR_CONTROLLER_CONFIG_PATH stays with override-layer path/mode values"
+if ! grep -Eq '^(SDR_CONTROLLER_CONFIG_PATH|SDRC_CONTROLLER_HOST_PORT|SDRC_PROXY_HOST_PORT)=' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env" \
+  && ! grep -Eq '(^|,)(sdr-controller|init-dirs|render-config|wdm-env-from-config|wait-for-redis|wait-for-docker-workloads)(,|$)' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env" \
+  && [[ ! -d "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/sdrc" ]]; then
+  echo "PASS: alerts profile has no SDRC compose services, ports, or configs"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts SDR_CONTROLLER_CONFIG_PATH should stay in overrides.env with path/mode values"
+  echo "FAIL: alerts profile should not include SDRC services, ports, or configs"
+  ((TESTS_FAILED++)) || true
+fi
+if grep -Fq '#VST_USE_SDRC=true' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  && grep -Fq '#STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  && grep -Fq '#VST_NGINX_MODE=vst-sdrc' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  && ! grep -Eq '^VST_USE_SDRC=true' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env"; then
+  echo "PASS: alerts .env keeps SDRC VST overrides commented (direct VIOS mode)"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alerts .env should comment out SDRC VST overrides for direct VIOS mode"
   ((TESTS_FAILED++)) || true
 fi
 
@@ -1836,22 +1848,18 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alerts verification follows the search profile flow: the agent registers
-# UI-managed streams with RT-CV, while SDRC only proxies VIOS stream processing.
+# Alerts verification registers UI-managed streams with RT-CV via vss-agent
+# (direct VIOS mode; no SDRC in this profile).
 _alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
 _alerts_vlm_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml"
 _alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
-_alerts_cv_sdrc_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_cv/configs/config.yml.tmpl"
-_alerts_cv_sdrc_cluster="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_cv/configs/docker_cluster_config-rtvi-cv.json.tmpl"
 if grep -q 'rtvi_cv_base_url: ${RTVI_CV_ENDPOINT}' "${_alerts_agent_config}" \
   && ! grep -q 'rtvi_cv_base_url:' "${_alerts_vlm_agent_config}" \
-  && grep -q '^RTVI_CV_ENDPOINT=http://vss-rtvi-cv:${RTVI_CV_PORT}' "${_alerts_overrides}" \
-  && ! grep -q '^docker-workload-rtvi-cv:' "${_alerts_cv_sdrc_config}" \
-  && [[ ! -e "${_alerts_cv_sdrc_cluster}" ]]; then
-  echo "PASS: alerts verification uses vss-agent instead of SDRC for RT-CV registration"
+  && grep -q '^RTVI_CV_ENDPOINT=http://vss-rtvi-cv:${RTVI_CV_PORT}' "${_alerts_overrides}"; then
+  echo "PASS: alerts verification uses vss-agent for RT-CV registration"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts verification should use vss-agent instead of SDRC for RT-CV registration"
+  echo "FAIL: alerts verification should use vss-agent for RT-CV registration"
   ((TESTS_FAILED++)) || true
 fi
 
