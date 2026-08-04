@@ -399,7 +399,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX PRO 4500 Blackwell | `RTXPRO4500` — 32 GB; see [alerts.md § RTX PRO 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
+| RTX PRO 4500 Blackwell | `RTXPRO4500BW` — 32 GB; see [alerts.md § RTX PRO 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
