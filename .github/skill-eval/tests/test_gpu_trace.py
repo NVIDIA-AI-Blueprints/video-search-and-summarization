@@ -1039,6 +1039,22 @@ class FallsBackToSsh(unittest.TestCase):
         self.assertEqual(len(argvs), 2, "ssh fallback was not attempted")
         self.assertIn("box-name", argvs[1])
 
+    def test_registered_node_uses_ssh_for_single_attempt_startup(self):
+        old = os.environ.get("BREV_REGISTERED_POOL")
+        os.environ["BREV_REGISTERED_POOL"] = "other-box, VSS-Eval-RTX-2G-VM2b"
+        try:
+            with Stub() as stub:
+                mod._remote("vss-eval-rtx-2g-VM2b", "echo hi", attempts=1)
+                argvs = stub.argvs()
+        finally:
+            if old is None:
+                os.environ.pop("BREV_REGISTERED_POOL", None)
+            else:
+                os.environ["BREV_REGISTERED_POOL"] = old
+        self.assertEqual(len(argvs), 1)
+        self.assertEqual(argvs[0][0], "-o")
+        self.assertIn("vss-eval-rtx-2g-vm2b", argvs[0])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

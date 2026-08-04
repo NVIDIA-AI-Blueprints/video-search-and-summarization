@@ -183,11 +183,23 @@ def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC,
     an ssh that forked would survive; `envs/brev_env.py::_kill_proc_group`
     already fixes this exact problem the same way for harbor.
     """
-    candidates = (
-        ["brev", "exec", instance, command],
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-         "-o", "StrictHostKeyChecking=no", instance.lower(), command],
-    )[:max(1, attempts)]
+    brev = ["brev", "exec", instance, command]
+    ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+           "-o", "StrictHostKeyChecking=no", instance.lower(), command]
+    # Sampler startup is deliberately single-attempt because it is not safe to
+    # replay after an ambiguous timeout. Registered external nodes cannot use
+    # `brev exec`, so putting brev first with attempts=1 guaranteed that both
+    # samplers collected nothing on that pool. The coordinator already carries
+    # the operator-controlled registered-node allowlists; use them to choose
+    # the one viable transport before applying the attempt cap.
+    registered = {
+        name.lower()
+        for variable in ("BREV_REGISTERED_POOL", "BREV_RTX4090_POOL")
+        for name in re.split(r"[\s,]+", os.environ.get(variable, "").strip())
+        if name
+    }
+    candidates = ((ssh, brev) if instance.lower() in registered
+                  else (brev, ssh))[:max(1, attempts)]
     deadline = time.monotonic() + timeout
     for cmd in candidates:
         remaining = deadline - time.monotonic()
