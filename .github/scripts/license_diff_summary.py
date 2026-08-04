@@ -31,6 +31,7 @@ LICENSE_ALIASES = {
     "apache 2": "apache-2.0",
     "apache 2.0": "apache-2.0",
     "apache software license": "apache-2.0",
+    "apache software": "apache-2.0",
     "apache license 2.0": "apache-2.0",
     "mit license": "mit",
     "isc license": "isc",

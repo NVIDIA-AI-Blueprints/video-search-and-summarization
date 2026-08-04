@@ -62,6 +62,17 @@ class ReviewCategoryTest(unittest.TestCase):
             )
         )
 
+    def test_classifier_derived_apache_label_does_not_create_false_drift(self) -> None:
+        self.assertIsNone(
+            summary.review_category(
+                row(
+                    "updated",
+                    old_license="Apache Software License",
+                    new_license="Apache Software",
+                )
+            )
+        )
+
     def test_license_change_requires_review(self) -> None:
         self.assertEqual(
             summary.review_category(
