@@ -27,7 +27,7 @@ matplotlib = "==3.11.0"
 pyquaternion = "==0.9.9"
 scikit-learn = "==1.9.0"
 pycocotools = "==2.0.11"
-pillow = "==12.2.0"
+pillow = "==12.3.0"
 
 # Pinned explicitly so numpy is identical across ALL install options. The
 # `eval` extra (nuscenes-devkit) caps numpy<2.0.0; without this pin the base /
