@@ -270,7 +270,7 @@ class BrevEnvironment(BaseEnvironment):
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
+            "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
         # Fail loud: this is the load-bearing artifacts wipe. A silent failure
