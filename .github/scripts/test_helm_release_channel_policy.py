@@ -26,6 +26,9 @@ HELM_VALUES = {
     "vss-behavior-analytics": [
         "deploy/helm/services/analytics/charts/behavior-analytics/values.yaml",
     ],
+    "vss-video-summarization": [
+        "deploy/helm/services/video-summarization/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -40,11 +43,17 @@ HELM_HELPERS = {
     "vss-behavior-analytics": [
         "deploy/helm/services/analytics/charts/behavior-analytics/templates/_helpers.tpl",
     ],
+    "vss-video-summarization": [
+        "deploy/helm/services/video-summarization/templates/_helpers.tpl",
+    ],
 }
 COMPOSE_FILES = {
     "vss-agent": "deploy/docker/services/agent/compose.yml",
     "vss-agent-ui": "deploy/docker/services/ui/compose.yml",
     "vss-alert-ms": "deploy/docker/services/alert/compose.yml",
+    "vss-video-summarization": (
+        "deploy/docker/services/video-summarization/compose.yml"
+    ),
 }
 
 

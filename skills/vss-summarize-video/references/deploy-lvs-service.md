@@ -2,14 +2,15 @@
 
 ## Container Image
 
-- **Image name:** `nvcr.io/nvstaging/vss-core/vss-video-summarization`
-- **Tag pattern:** `3.2.0` for x86 developer deployments. Use the matching
-  VSS release tag for branch-specific testing.
-- **Registry:** `nvcr.io`
-- **NGC pull requirements:** Pulling the LVS image requires `docker login
-  nvcr.io` using `NGC_CLI_API_KEY`.
-- **Architecture support:** x86_64 for the default developer profile; use the
-  VSS release-specific tag guidance for SBSA or Jetson/Thor targets.
+- **Image name:** `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization`
+- **Tag pattern:** `develop-latest` tracks the newest `develop` build. Use a
+  `pr-<N>-latest` or commit-stamped tag for branch-specific testing.
+- **Registry:** `ghcr.io`
+- **Pull requirements:** The package is public; authenticated pulls use a
+  GitHub token with `read:packages` rather than an NGC key.
+- **Architecture support:** the tag is a multi-arch manifest covering
+  `linux/amd64` and `linux/arm64`, so the same tag works on x86, SBSA, and
+  Jetson/Thor targets.
 
 The source-of-truth upstream service key is `lvs` in
 `services/video-summarization/docker/deploy/compose.yaml`; the default container
