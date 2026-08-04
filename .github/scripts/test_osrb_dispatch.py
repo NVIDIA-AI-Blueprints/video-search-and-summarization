@@ -74,6 +74,11 @@ class DispatchTests(unittest.TestCase):
         self.assertIn('LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}', workflow)
         self.assertIn('--run-url "$LICENSE_RUN_URL"', workflow)
 
+    def test_dispatch_does_not_choose_the_private_pipeline_code_ref(self) -> None:
+        workflow = WORKFLOW.read_text()
+        for variable in ("OSRB_CODE_REF", "OSRB_ALLOW_UNREVIEWED_CODE"):
+            self.assertNotIn(variable, workflow)
+
     def test_github_output_explains_developer_actions(self) -> None:
         guide = DEVELOPER_GUIDE.read_text()
         license_workflow = LICENSE_WORKFLOW.read_text()

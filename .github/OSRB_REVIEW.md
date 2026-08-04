@@ -26,6 +26,12 @@ against existing approval evidence. Do not merge while this check is running.
 No further OSRB action is required for the reported dependency changes.
 Normal required checks, CODEOWNERS approval, and maintainer review still apply.
 
+### The review says its verdict is provisional
+
+The reviewer ran a pre-release build of itself, which happens during rollout. Do
+not treat the verdict as final and do not merge on the strength of it. Tell a
+repository maintainer, who will confirm what the check ran against.
+
 ### OSRB Review fails or is inconclusive
 
 1. Read the automated review on the PR.

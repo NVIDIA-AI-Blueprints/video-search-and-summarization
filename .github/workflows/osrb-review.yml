@@ -93,6 +93,11 @@ jobs:
           DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
           DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
           DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
+          # A standing ref, because the private project's normal jobs are
+          # opt-out gated and a trigger against its default branch would start
+          # a full build. That ref is maintainer-protected and points at
+          # reviewed code; which code the review runs is decided entirely
+          # there, so this dispatcher must never send a code-ref override.
           DOWNSTREAM_REF: osrb-review-trigger
           DOWNSTREAM_SUBMODULE_HASH_VARIABLE: GITHUB_MIRROR_SHA
           GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
