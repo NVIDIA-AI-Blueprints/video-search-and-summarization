@@ -22,21 +22,24 @@ SDR event ──POST /api/v1/realtime/always-on──▶ Alert Bridge
 
 There is **no `/always-on/health` endpoint** — never invent one. Two signals, in preference order:
 
-1. **Config gate (zero side effects).** The feature is opt-in via `alert_agent.always_on` in the Alert Bridge `config.yaml` (default **false**). On a compose deploy, check the mounted config or the container:
+1. **Config gate (zero side effects).** The feature is opt-in via `alert_agent.always_on` in the Alert Bridge `config.yaml` (default **false**). On a **Docker** compose deploy, check the mounted config or the container (skip `docker exec` on Kubernetes — ask the operator or use the endpoint probe below):
    ```bash
-   docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/config.yaml' 2>/dev/null \
-     || grep -rn "always_on" deploy/docker/developer-profiles/dev-profile-alerts/ 2>/dev/null | grep -v sample
+   if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+     docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/config.yaml' 2>/dev/null \
+       || grep -rn "always_on" deploy/docker/developer-profiles/dev-profile-alerts/ 2>/dev/null | grep -v sample
+   fi
    ```
-2. **Endpoint probe (benign POST).** A `camera_remove` for a nonexistent camera is a no-op when enabled and returns the gate response when disabled:
+2. **Endpoint probe (benign POST).** A `camera_remove` for a nonexistent camera is a no-op when enabled and returns the gate response when disabled. Use `$AB` from the parent skill (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge`, Docker `http://${HOST_IP}:9080`):
    ```bash
-   curl -s -o /tmp/ao.json -w '%{http_code}\n' -X POST "http://${HOST_IP}:9080/api/v1/realtime/always-on" \
+   : "${AB:?Resolve AB from vss-manage-alerts Deployment prerequisite}"
+   curl -s -o /tmp/ao.json -w '%{http_code}\n' -X POST "$AB/api/v1/realtime/always-on" \
      -H 'Content-Type: application/json' \
      -d '{"source":"vst","event":{"camera_id":"00000000-0000-0000-0000-0000000000aa","change":"camera_remove"}}'
    # 503 + {"reason":"ALWAYS_ON_DISABLED"} → feature off (the default)
    # 200-range / REMOVE_* reason           → feature on (no-op for an unknown camera)
    ```
 
-Report the state you actually observed. If the user wants it enabled, describe the path (set `alert_agent.always_on: true` + provide a rules YAML + restart `alert-bridge`) — do **not** perform it.
+Report the state you actually observed. If the user wants it enabled, describe the path as information only — do **not** perform it: set `alert_agent.always_on: true`, provide always-on rules via env `ALWAYS_ON_RULES_CONFIG` or a rules YAML such as `realtime-config.yaml`, then restart `alert-bridge`.
 
 ## Response envelope & reason codes
 

@@ -179,6 +179,7 @@ and VA-MCP (path-rewrite strips the public prefix):
 | Realtime rules | `GET`/`POST`/`DELETE ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime` |
 | Realtime incidents | `GET ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime/incidents` |
 | On-demand / verifier config | `${VSS_PUBLIC_URL}/alert-bridge/api/v1/verification/...` |
+| VA-MCP health | `GET ${VSS_PUBLIC_URL}/va-mcp/health` (rewritten to `/health`; prefer over `/mcp` or `/`) |
 | VA-MCP | `${VSS_PUBLIC_URL}/va-mcp/mcp` (rewritten to `/mcp`) |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list`, … |
 | Agent OpenAPI / generate | `${AGENT_URL}/openapi.json`, `/generate` — **not** for rule CRUD |
@@ -205,7 +206,7 @@ Alerts operate skills for the docs walkthrough (real-time mode):
 
 - `vss-manage-video-io-storage` — VIOS via `${VST_API_BASE}`
 - `vss-manage-alerts` — Alert Bridge via `${ALERT_BRIDGE_URL}` (Workflows C/D; never Agent `/generate` for rules)
-- `vss-query-analytics` / report Mode B — VA-MCP via `${VA_MCP_URL}/mcp`
+- `vss-query-analytics` / report Mode B — probe `${VA_MCP_URL}/health`, then MCP via `${VA_MCP_URL}/mcp`
 
 ## Docker Compose
 

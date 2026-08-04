@@ -4,7 +4,7 @@ description: Use this skill when reading video-analytics metrics, incidents, ale
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.2.1"
+  version: "3.2.2"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -88,10 +88,12 @@ Service.
 
 This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **alerts** profile (either `verification` or `real-time` mode). Before any query:
 
-1. Probe the VA-MCP endpoint:
+1. Probe VA-MCP liveness via `/health` (Ingress rewrites
+   `${VSS_PUBLIC_URL}/va-mcp/health` → `/health` on the Service). Do **not**
+   use `GET /mcp` or the service root as the readiness check — those are not
+   reliable health routes.
    ```bash
-   curl -sf --max-time 5 "${VA_MCP_MCP}" >/dev/null 2>&1 || \
-     curl -sf --max-time 5 "${VA_MCP_URL%/}/" >/dev/null
+   curl -sf --max-time 5 "${VA_MCP_URL%/}/health" >/dev/null
    ```
 
 2. **If the probe fails**, ask the user:
@@ -123,6 +125,7 @@ SESSION_ID=$(curl -si -X POST "${VA_MCP_MCP}" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
+[ -n "$SESSION_ID" ] || { echo "VA-MCP initialize failed (no mcp-session-id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
 
 # Step 2: call the tool using the session ID in the header
 curl -s -X POST "${VA_MCP_MCP}" \
@@ -214,14 +217,15 @@ JSON-RPC 2.0 over Server-Sent Events.
 1. **Verify reachability** before any `tools/call`:
 
    ```bash
-   curl -sf --max-time 5 "${VA_MCP_MCP}" >/dev/null
+   curl -sf --max-time 5 "${VA_MCP_URL%/}/health" >/dev/null
    ```
 
    - `connection refused` → the `alerts` profile is down; redeploy.
    - `timeout` → the host is up but the MCP gateway is wedged; on Docker
      restart `vss-va-mcp` (`docker compose restart vss-va-mcp`); on
      Kubernetes report the probe failure (do not `kubectl exec`).
-   - `404` on `/mcp` → fall back to `GET ${VA_MCP_URL%/}/` for liveness.
+   - Prefer `/health` over `GET /mcp` or the service root — those are not
+     reliable readiness routes through Ingress.
 
 2. **Sessions expire.** Each `mcp-session-id` is bound to the current
    `vss-va-mcp` process. If a `tools/call` returns

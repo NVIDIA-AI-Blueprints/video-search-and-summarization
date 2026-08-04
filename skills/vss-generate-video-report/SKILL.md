@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.1"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -129,11 +129,11 @@ curl -sf --max-time 5 "${VST_API_BASE}/sensor/version" >/dev/null
 # Mode A — VLM reachable (Kubernetes public /v1, or caller-supplied / Docker host port)
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null
 
-# Mode B — VA-MCP reachable (K8s: ${VA_MCP_URL}; Docker: :9901)
-curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/" >/dev/null
+# Mode B — VA-MCP reachable via /health (K8s: ${VA_MCP_URL}/health; Docker: :9901/health)
+curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
 
 # Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
-# tools/list on ${VA_MCP_URL} (two-step JSON-RPC, see Mode C Step 1) must include
+# tools/list on ${VA_MCP_URL}/mcp (two-step JSON-RPC, see Mode C Step 1) must include
 # video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
 # hand off to /vss-build-vision-agent and do NOT proceed with Mode C.
 ```
