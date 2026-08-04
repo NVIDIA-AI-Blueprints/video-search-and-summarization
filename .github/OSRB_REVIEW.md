@@ -26,6 +26,14 @@ against existing approval evidence. Do not merge while this check is running.
 No further OSRB action is required for the reported dependency changes.
 Normal required checks, CODEOWNERS approval, and maintainer review still apply.
 
+### OSRB Review passes with notes
+
+The check is green and you can merge. A note means something worth recording
+was found that does not affect approval, most often a package listed in an
+attribution file that no code imports, or a changed container base image whose
+own OSRB record should be confirmed. Fix the attribution gap in this PR if it
+is yours to fix; otherwise raise it with the OSRB owner separately.
+
 ### The review says its verdict is provisional
 
 The reviewer ran a pre-release build of itself, which happens during rollout. Do
@@ -62,6 +70,10 @@ The overview requests attention for:
 
 The complete CSV also retains same-license version updates and removals, but
 those rows do not require OSRB re-engagement by themselves.
+
+Container images that add dependencies without editing a manifest are covered
+too. If your PR changes a Dockerfile base image or installs packages in it, the
+review evaluates those lines even when the CSV is empty.
 
 Changes in how an approved component is used can still require review even when
 its package version and license are unchanged. Examples include static instead
