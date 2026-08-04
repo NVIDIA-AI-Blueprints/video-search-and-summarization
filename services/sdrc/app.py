@@ -1797,27 +1797,40 @@ def _renew_provision_lease_until_stopped(
 ):
     """Renew the provision lease until stopped, or signal abort if ownership is lost.
 
-    When renew returns False the Redis key has expired or been stolen. Setting
-    ``lease_lost_event`` tells the in-flight add-stream worker to stop and roll
-    back so another replica cannot treat the active reservation as an orphan and
-    place the same stream again.
+    ``lease_lost_event`` is set when renew is rejected (expired/stolen) or when
+    renew keeps raising past the lease TTL. Without the TTL guard, Redis errors
+    alone leave the worker unaware while another replica acquires the expired
+    lease and places the same stream.
     """
-    interval = max(1.0, lease_ttl / 3.0)
+    interval = max(1.0, float(lease_ttl) / 3.0)
+    ttl = max(1.0, float(lease_ttl))
+    # Acquired just before this heartbeat started; Redis TTL advances even when
+    # renew calls raise and never reach EXPIRE.
+    lease_deadline = time.monotonic() + ttl
+
+    def _signal_lease_lost(reason):
+        app.logger.error(
+            "Lost provision lease while stream %s is still in flight (%s); "
+            "signaling add-stream worker to abort",
+            stream_id,
+            reason,
+        )
+        if lease_lost_event is not None:
+            lease_lost_event.set()
+
     while not stop_event.wait(interval):
         try:
             if not cfg.renewProvisionLease(stream_id, lease_owner, lease_ttl):
-                app.logger.error(
-                    "Lost provision lease while stream %s is still in flight; "
-                    "signaling add-stream worker to abort",
-                    stream_id,
-                )
-                if lease_lost_event is not None:
-                    lease_lost_event.set()
+                _signal_lease_lost("renew rejected")
                 return
+            lease_deadline = time.monotonic() + ttl
         except Exception:
             app.logger.exception(
                 "Failed to renew provision lease for stream %s", stream_id
             )
+            if time.monotonic() >= lease_deadline:
+                _signal_lease_lost("renew errors past lease TTL")
+                return
 
 
 def _finish_provision_lease(
@@ -1838,7 +1851,13 @@ def _abort_provision_after_lease_loss(
     do_workload_spec_in_thread_first=False, rollback_workload_spec=False,
     added_on_pod=False,
 ):
-    """Stop an in-flight add after lease loss: undo pod add if needed and free the slot."""
+    """Abort local commit after lease loss without clobbering a replacement attempt.
+
+    Pod delete and workload-spec rollback are scoped only by pod + stream ID, so
+    they must run only while this worker can re-acquire the provision lease. If a
+    replacement replica already holds the lease, its reservation/add for the same
+    stream must be left alone.
+    """
     app.logger.error(
         "Aborting provision for stream %s on pod %s after losing provision lease "
         "(added_on_pod=%s)",
@@ -1846,34 +1865,67 @@ def _abort_provision_after_lease_loss(
         podInfoItm.get("podName"),
         added_on_pod,
     )
-    if added_on_pod:
-        try:
-            pc.delete(podInfo=podInfoItm, configData=config_data)
-        except Exception:
-            app.logger.exception(
-                "Failed to undo pod add for stream %s after lease loss", wl_id
-            )
-    if do_workload_spec_in_thread_first or rollback_workload_spec:
-        try:
-            cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
-        except Exception:
-            app.logger.exception(
-                "Failed to rollback workload spec for stream %s after lease loss",
-                wl_id,
-            )
+    cleanup_ttl = max(
+        1, int(app.config.get("WDM_PROVISION_LEASE_SECONDS", 30))
+    )
+    cleanup_owner = str(uuid.uuid4())
+    owns_cleanup = False
     try:
-        redisMsging.message_err(
-            wlobject=wl_object_name,
-            podname=podInfoItm["podName"],
-            id=wl_id,
-            type="critical",
-            status="add_stream_failed",
+        owns_cleanup = cfg.tryAcquireProvisionLease(
+            wl_id, cleanup_owner, cleanup_ttl
         )
     except Exception:
         app.logger.exception(
-            "Failed to publish add_stream_failed after lease loss for stream %s",
+            "Failed to acquire cleanup lease for stream %s after lease loss",
             wl_id,
         )
+    if not owns_cleanup:
+        app.logger.warning(
+            "Skipping pod/workload-spec rollback for stream %s after lease loss; "
+            "another replica holds the provision lease",
+            wl_id,
+        )
+        return
+    try:
+        if added_on_pod:
+            try:
+                pc.delete(podInfo=podInfoItm, configData=config_data)
+            except Exception:
+                app.logger.exception(
+                    "Failed to undo pod add for stream %s after lease loss",
+                    wl_id,
+                )
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
+            try:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            except Exception:
+                app.logger.exception(
+                    "Failed to rollback workload spec for stream %s after "
+                    "lease loss",
+                    wl_id,
+                )
+        try:
+            redisMsging.message_err(
+                wlobject=wl_object_name,
+                podname=podInfoItm["podName"],
+                id=wl_id,
+                type="critical",
+                status="add_stream_failed",
+            )
+        except Exception:
+            app.logger.exception(
+                "Failed to publish add_stream_failed after lease loss for "
+                "stream %s",
+                wl_id,
+            )
+    finally:
+        try:
+            cfg.releaseProvisionLease(wl_id, cleanup_owner)
+        except Exception:
+            app.logger.exception(
+                "Failed to release cleanup lease for stream %s after lease loss",
+                wl_id,
+            )
 
 
 def _run_provision_add_stream_to_pod_tracked(
