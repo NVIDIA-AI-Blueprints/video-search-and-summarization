@@ -235,6 +235,24 @@ class PhaseBudgets(unittest.TestCase):
                 )
         self.assertEqual(raised.exception.code, 2)
 
+    def test_parse_args_preserves_valid_timeout_env_overrides(self):
+        required = [
+            "--dataset-root", "/tmp/data",
+            "--results-root", "/tmp/results",
+        ]
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {
+                "SKILL_EVAL_LOCK_TIMEOUT_SEC": "123",
+                "SKILL_EVAL_HARBOR_TIMEOUT_SEC": "13000",
+            },
+            clear=False,
+        ):
+            args = run_leg.parse_args(required)
+
+        self.assertEqual(args.lock_timeout_sec, 123)
+        self.assertEqual(args.harbor_timeout_sec, 13000)
+
     def test_agent_deadline_is_inherited_and_expired_values_fail_closed(self):
         with (
             mock.patch.dict(

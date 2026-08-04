@@ -839,6 +839,24 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "nemoclaw onboard --non-interactive --agent {AGENT_RUNTIME}",
             onboard_cell["source"],
         )
+        self.assertIn(
+            'onboard_cmd = "nemohermes onboard --non-interactive"',
+            onboard_cell["source"],
+        )
+        primary_onboard_assignment = next(
+            line
+            for line in onboard_cell["source"].splitlines()
+            if line.startswith("onboard_cmd = ")
+        )
+        self.assertNotIn(
+            "nemohermes onboard --fresh --non-interactive",
+            primary_onboard_assignment,
+        )
+        self.assertIn(
+            "NEMOCLAW_SANDBOX_BASE_IMAGE_REFRESH=1 "
+            "nemohermes onboard --fresh --non-interactive",
+            onboard_cell["source"],
+        )
         self.assertLess(
             ids.index("s31-code"),
             ids.index("ci-direct-container-preflight"),
@@ -961,6 +979,26 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             os.environ.pop("ANTHROPIC_API_KEY", None)
 
         self.assertEqual(redacted["outputs"][0]["text"], "token=<redacted:ANTHROPIC_API_KEY>")
+
+    def test_redacts_managed_mcp_credential_from_notebook_outputs(self):
+        credential_env = "VSS_ORCHESTRATOR_MCP_TOKEN"
+        with mock.patch.dict(
+            os.environ,
+            {
+                "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV": credential_env,
+                credential_env: "managed-mcp-secret",
+            },
+            clear=True,
+        ):
+            redacted = notebook_adapter._redact(
+                {"outputs": [{"text": "token=managed-mcp-secret"}]},
+                notebook_adapter._redaction_values(),
+            )
+
+        self.assertEqual(
+            redacted["outputs"][0]["text"],
+            f"token=<redacted:{credential_env}>",
+        )
 
     def test_redacts_generated_openclaw_bearer_token_from_notebook_outputs(self):
         redacted = notebook_adapter._redact(
@@ -1096,6 +1134,39 @@ class NotebookSetupAdapterTest(unittest.TestCase):
                 persisted,
             )
 
+    def test_managed_mcp_persists_only_credential_environment_name(self):
+        with tempfile.TemporaryDirectory() as td:
+            env_path = Path(td) / "nemoclaw.env"
+            token_path = Path(td) / "hooks_token"
+            raw_credential = "credential-must-not-be-persisted"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "NEMOCLAW_CI_ENV_OUT": str(env_path),
+                    "NEMOCLAW_HOOKS_TOKEN_FILE": str(token_path),
+                    "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV": (
+                        "VSS_ORCHESTRATOR_MCP_TOKEN"
+                    ),
+                    "VSS_ORCHESTRATOR_MCP_TOKEN": raw_credential,
+                },
+                clear=True,
+            ):
+                namespace: dict[str, object] = {}
+                exec(notebook_adapter.PARAMETER_SOURCE, namespace)
+                exec(notebook_adapter.PERSIST_SOURCE, namespace)
+            persisted = env_path.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            namespace["VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV"],
+            "VSS_ORCHESTRATOR_MCP_TOKEN",
+        )
+        self.assertIn(
+            "export VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV="
+            "VSS_ORCHESTRATOR_MCP_TOKEN\n",
+            persisted,
+        )
+        self.assertNotIn(raw_credential, persisted)
+
     def test_parameter_cell_maps_remote_runtime_env_and_derives_nemoclaw_provider(self):
         defaults = {
             "HARDWARE_PROFILE": "RTXPRO6000BW",
@@ -1137,6 +1208,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "COMPATIBLE_API_KEY",
             "NVIDIA_API_KEY",
             "VSS_ORCHESTRATOR_MCP_URL",
+            "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV",
             "VSS_ORCHESTRATOR_MCP_TYPE",
         )
         previous = {key: os.environ.get(key) for key in env_keys}
@@ -1165,6 +1237,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["VLM_NAME"], "nvidia/example-vlm")
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "streamable-http")
+        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV"], "")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9988/mcp")
         self.assertEqual(defaults["MCP_URL"], "http://127.0.0.1:9988/mcp")
 
@@ -1664,6 +1737,65 @@ class NotebookSetupAdapterTest(unittest.TestCase):
                 self.assertIn(part, brev_util_line)
             self.assertNotIn('/ "agent" / "orchestrator"', brev_util_line)
 
+    def test_source_nemoclaw_notebook_has_native_mcp_runtime_branches(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_nemoclaw.ipynb"
+            ).read_text()
+        )
+        cells = {
+            cell.get("id"): "".join(cell.get("source", ""))
+            for cell in notebook["cells"]
+        }
+        parameters = cells["e67f6da4"]
+        mcp_markdown = cells["s36-md"]
+        mcp_source = cells["s36-code"]
+
+        self.assertIn(
+            "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV = os.environ.get(",
+            parameters,
+        )
+        self.assertIn("public HTTPS DNS endpoint", mcp_markdown)
+        self.assertIn("credential variable **name**", mcp_markdown)
+
+        self.assertIn('if AGENT_RUNTIME == "hermes":', mcp_source)
+        self.assertIn("configure_hermes_mcp()", mcp_source)
+        self.assertIn('elif AGENT_RUNTIME == "openclaw":', mcp_source)
+        self.assertIn("configure_openclaw_mcp()", mcp_source)
+
+        self.assertIn(
+            'cmd = ["nemohermes", NEMOCLAW_SANDBOX_NAME, *args]',
+            mcp_source,
+        )
+        self.assertIn('"mcp", "status", "vss_orchestrator"', mcp_source)
+        self.assertIn('"--json", "--no-probe",', mcp_source)
+        self.assertIn("def classify_hermes_mcp_status(", mcp_source)
+        self.assertIn('"mcp", "add", "vss_orchestrator",', mcp_source)
+        self.assertIn('"--env", credential_env,', mcp_source)
+        self.assertIn('"shields", "down",', mcp_source)
+        self.assertIn('"shields", "up"', mcp_source)
+        self.assertIn("    finally:", mcp_source)
+        self.assertNotIn('"--env", os.environ', mcp_source)
+
+        self.assertIn(
+            'cmd = ["nemoclaw", "sandbox", "exec", '
+            'NEMOCLAW_SANDBOX_NAME, "--", *args]',
+            mcp_source,
+        )
+        self.assertIn(
+            '"mcporter", "config", "add", "vss_orchestrator"',
+            mcp_source,
+        )
+        self.assertIn(
+            '"mcporter", "config", "get", "vss_orchestrator", "--json"',
+            mcp_source,
+        )
+        compile(mcp_source, "deploy_nemoclaw.ipynb:s36-code", "exec")
+
     def test_composed_notebook_separates_host_and_sandbox_mcp_urls(self):
         manifest = json.loads(
             (
@@ -1692,6 +1824,40 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             sources["s36-code"],
         )
         self.assertNotIn("!nemoclaw sandbox mcp", sources["s36-code"])
+        self.assertIn('if AGENT_RUNTIME == "hermes":', sources["s36-code"])
+        self.assertIn(
+            'cmd = ["nemohermes", NEMOCLAW_SANDBOX_NAME, *args]',
+            sources["s36-code"],
+        )
+        self.assertIn(
+            '"mcp", "status", "vss_orchestrator"',
+            sources["s36-code"],
+        )
+        self.assertIn('"--json", "--no-probe",', sources["s36-code"])
+        self.assertIn(
+            "def classify_hermes_mcp_status(",
+            sources["s36-code"],
+        )
+        self.assertIn(
+            '"mcp", "add", "vss_orchestrator",',
+            sources["s36-code"],
+        )
+        self.assertIn('"--env", credential_env,', sources["s36-code"])
+        self.assertIn(
+            '"shields", "down",',
+            sources["s36-code"],
+        )
+        self.assertIn(
+            '"--timeout", "15m",',
+            sources["s36-code"],
+        )
+        self.assertIn('"shields", "up"', sources["s36-code"])
+        self.assertIn("    finally:", sources["s36-code"])
+        self.assertIn(
+            "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV",
+            sources["ci-parameters-1"],
+        )
+        compile(sources["s36-code"], "s36-code", "exec")
         self.assertIn(
             '"openshell", "sandbox", "exec", "--name",',
             sources["s35-code"],
@@ -1806,6 +1972,503 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             ),
             sources["s37-code"].index("!nemoclaw sandbox config set"),
         )
+
+    @staticmethod
+    def _hermes_mcp_status_absent():
+        return {
+            "server": "vss_orchestrator",
+            "agent": "hermes",
+            "warnings": [],
+            "support": {
+                "supported": True,
+                "mode": "bridge",
+                "adapter": "hermes-config",
+            },
+            "env": {"names": [], "missing": [], "ready": False},
+            "provider": {
+                "registryPresent": False,
+                "gatewayPresent": False,
+                "attached": None,
+                "credentialReady": None,
+            },
+            "policy": {
+                "registryPresent": False,
+                "gatewayPresent": False,
+            },
+            "adapter": {"registered": None},
+        }
+
+    @staticmethod
+    def _hermes_mcp_status_ready(
+        *,
+        url="https://mcp.example.com/mcp",
+        credential_env="VSS_ORCHESTRATOR_MCP_TOKEN",
+    ):
+        return {
+            "server": "vss_orchestrator",
+            "agent": "hermes",
+            "warnings": [
+                "OpenShell currently attaches this credential provider at "
+                "sandbox scope."
+            ],
+            "support": {
+                "supported": True,
+                "mode": "bridge",
+                "adapter": "hermes-config",
+            },
+            "url": url,
+            "env": {
+                "names": [credential_env],
+                "missing": [],
+                "ready": True,
+            },
+            "provider": {
+                "name": "demo-mcp-vss-orchestrator-0123456789abcdef",
+                "registryPresent": True,
+                "gatewayPresent": True,
+                "attached": True,
+                "credentialReady": True,
+            },
+            "policy": {
+                "name": "mcp-bridge-vss-orchestrator",
+                "registryPresent": True,
+                "gatewayPresent": True,
+            },
+            "adapter": {"registered": True},
+            "addedAt": "2026-08-04T00:00:00.000Z",
+        }
+
+    def test_composed_hermes_registers_absent_managed_mcp_with_shields(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_nemoclaw.ipynb"
+            ).read_text(encoding="utf-8")
+        )
+        source_cell = next(
+            cell for cell in notebook["cells"] if cell.get("id") == "s36-code"
+        )
+        source = notebook_adapter._patch_ci_cell(
+            "s36-code",
+            {
+                **source_cell,
+                "source": "".join(source_cell["source"]),
+            },
+        )["source"]
+        credential_env = "VSS_ORCHESTRATOR_MCP_TOKEN"
+        results = [
+            mock.Mock(
+                returncode=0,
+                stdout=json.dumps(self._hermes_mcp_status_absent()),
+                stderr="",
+            ),
+            mock.Mock(returncode=0, stdout="", stderr=""),
+            mock.Mock(returncode=0, stdout="", stderr=""),
+            mock.Mock(
+                returncode=0,
+                stdout=json.dumps(
+                    self._hermes_mcp_status_ready(
+                        credential_env=credential_env,
+                    )
+                ),
+                stderr="",
+            ),
+            mock.Mock(returncode=0, stdout="", stderr=""),
+        ]
+        raw_credential = "raw-bearer-must-stay-in-process-env"
+        public_address = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 443),
+        )
+        namespace = {
+            "AGENT_RUNTIME": "hermes",
+            "NEMOCLAW_SANDBOX_NAME": "demo",
+            "NEMOCLAW_GATEWAY_NAME": "nemoclaw-19080",
+            "VSS_ORCHESTRATOR_MCP_URL": "https://mcp.example.com/mcp",
+            "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV": credential_env,
+        }
+
+        with (
+            mock.patch.dict(
+                os.environ,
+                {credential_env: raw_credential},
+                clear=True,
+            ),
+            mock.patch(
+                "socket.getaddrinfo",
+                return_value=[public_address],
+            ),
+            mock.patch("subprocess.run", side_effect=results) as run,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            exec(compile(source, "s36-code", "exec"), namespace)
+
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(
+            commands,
+            [
+                [
+                    "nemohermes",
+                    "demo",
+                    "mcp",
+                    "status",
+                    "vss_orchestrator",
+                    "--json",
+                    "--no-probe",
+                ],
+                [
+                    "nemohermes",
+                    "demo",
+                    "shields",
+                    "down",
+                    "--timeout",
+                    "15m",
+                    "--reason",
+                    "MCP maintenance",
+                ],
+                [
+                    "nemohermes",
+                    "demo",
+                    "mcp",
+                    "add",
+                    "vss_orchestrator",
+                    "--url",
+                    "https://mcp.example.com/mcp",
+                    "--env",
+                    credential_env,
+                ],
+                [
+                    "nemohermes",
+                    "demo",
+                    "mcp",
+                    "status",
+                    "vss_orchestrator",
+                    "--json",
+                    "--no-probe",
+                ],
+                ["nemohermes", "demo", "shields", "up"],
+            ],
+        )
+        self.assertNotIn(raw_credential, repr(commands))
+        self.assertTrue(
+            all(
+                call.kwargs["timeout"]
+                == notebook_adapter.MANAGED_MCP_TIMEOUT_SECONDS
+                for call in run.call_args_list
+            )
+        )
+
+    def test_composed_hermes_restores_shields_when_mcp_add_fails(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_nemoclaw.ipynb"
+            ).read_text(encoding="utf-8")
+        )
+        source_cell = next(
+            cell for cell in notebook["cells"] if cell.get("id") == "s36-code"
+        )
+        source = notebook_adapter._patch_ci_cell(
+            "s36-code",
+            {
+                **source_cell,
+                "source": "".join(source_cell["source"]),
+            },
+        )["source"]
+        results = [
+            mock.Mock(
+                returncode=0,
+                stdout=json.dumps(self._hermes_mcp_status_absent()),
+                stderr="",
+            ),
+            mock.Mock(returncode=0, stdout="", stderr=""),
+            mock.Mock(returncode=1, stdout="", stderr="add failed"),
+            mock.Mock(returncode=0, stdout="", stderr=""),
+        ]
+        credential_env = "VSS_ORCHESTRATOR_MCP_TOKEN"
+        namespace = {
+            "AGENT_RUNTIME": "hermes",
+            "NEMOCLAW_SANDBOX_NAME": "demo",
+            "NEMOCLAW_GATEWAY_NAME": "nemoclaw-19080",
+            "VSS_ORCHESTRATOR_MCP_URL": "https://mcp.example.com/mcp",
+            "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV": credential_env,
+        }
+        public_address = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 443),
+        )
+
+        with (
+            mock.patch.dict(os.environ, {credential_env: "secret"}, clear=True),
+            mock.patch("socket.getaddrinfo", return_value=[public_address]),
+            mock.patch("subprocess.run", side_effect=results) as run,
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "managed MCP registration failed",
+            ),
+        ):
+            exec(compile(source, "s36-code", "exec"), namespace)
+
+        self.assertEqual(
+            run.call_args_list[-1].args[0],
+            ["nemohermes", "demo", "shields", "up"],
+        )
+
+    def test_composed_hermes_ready_managed_mcp_is_not_mutated(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_nemoclaw.ipynb"
+            ).read_text(encoding="utf-8")
+        )
+        source_cell = next(
+            cell for cell in notebook["cells"] if cell.get("id") == "s36-code"
+        )
+        source = notebook_adapter._patch_ci_cell(
+            "s36-code",
+            {
+                **source_cell,
+                "source": "".join(source_cell["source"]),
+            },
+        )["source"]
+        credential_env = "VSS_ORCHESTRATOR_MCP_TOKEN"
+        public_address = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 443),
+        )
+        namespace = {
+            "AGENT_RUNTIME": "hermes",
+            "NEMOCLAW_SANDBOX_NAME": "demo",
+            "NEMOCLAW_GATEWAY_NAME": "nemoclaw-19080",
+            "VSS_ORCHESTRATOR_MCP_URL": "https://mcp.example.com/mcp",
+            "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV": credential_env,
+        }
+
+        with (
+            mock.patch.dict(os.environ, {credential_env: "secret"}, clear=True),
+            mock.patch("socket.getaddrinfo", return_value=[public_address]),
+            mock.patch(
+                "subprocess.run",
+                return_value=mock.Mock(
+                    returncode=0,
+                    stdout=json.dumps(
+                        self._hermes_mcp_status_ready(
+                            credential_env=credential_env,
+                        )
+                    ),
+                    stderr="",
+                ),
+            ) as run,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            exec(compile(source, "s36-code", "exec"), namespace)
+
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [[
+                "nemohermes",
+                "demo",
+                "mcp",
+                "status",
+                "vss_orchestrator",
+                "--json",
+                "--no-probe",
+            ]],
+        )
+
+    def test_composed_hermes_partial_or_drifted_mcp_fails_closed(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_nemoclaw.ipynb"
+            ).read_text(encoding="utf-8")
+        )
+        source_cell = next(
+            cell for cell in notebook["cells"] if cell.get("id") == "s36-code"
+        )
+        source = notebook_adapter._patch_ci_cell(
+            "s36-code",
+            {
+                **source_cell,
+                "source": "".join(source_cell["source"]),
+            },
+        )["source"]
+        credential_env = "VSS_ORCHESTRATOR_MCP_TOKEN"
+        public_address = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 443),
+        )
+        drifted = self._hermes_mcp_status_ready(
+            url="https://other.example.com/mcp",
+            credential_env=credential_env,
+        )
+        partial = self._hermes_mcp_status_ready(
+            credential_env=credential_env,
+        )
+        partial["provider"]["gatewayPresent"] = False
+
+        for label, payload in (("drifted-url", drifted), ("partial-provider", partial)):
+            with self.subTest(label=label):
+                namespace = {
+                    "AGENT_RUNTIME": "hermes",
+                    "NEMOCLAW_SANDBOX_NAME": "demo",
+                    "NEMOCLAW_GATEWAY_NAME": "nemoclaw-19080",
+                    "VSS_ORCHESTRATOR_MCP_URL": "https://mcp.example.com/mcp",
+                    "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV": credential_env,
+                }
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {credential_env: "secret"},
+                        clear=True,
+                    ),
+                    mock.patch(
+                        "socket.getaddrinfo",
+                        return_value=[public_address],
+                    ),
+                    mock.patch(
+                        "subprocess.run",
+                        return_value=mock.Mock(
+                            returncode=0,
+                            stdout=json.dumps(payload),
+                            stderr="",
+                        ),
+                    ) as run,
+                    contextlib.redirect_stdout(io.StringIO()),
+                    self.assertRaisesRegex(
+                        RuntimeError,
+                        "partial or drifted",
+                    ),
+                ):
+                    exec(compile(source, "s36-code", "exec"), namespace)
+
+                self.assertEqual(len(run.call_args_list), 1)
+                self.assertEqual(
+                    run.call_args_list[0].args[0],
+                    [
+                        "nemohermes",
+                        "demo",
+                        "mcp",
+                        "status",
+                        "vss_orchestrator",
+                        "--json",
+                        "--no-probe",
+                    ],
+                )
+
+    def test_composed_hermes_mcp_validation_fails_before_commands(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_nemoclaw.ipynb"
+            ).read_text(encoding="utf-8")
+        )
+        source_cell = next(
+            cell for cell in notebook["cells"] if cell.get("id") == "s36-code"
+        )
+        source = notebook_adapter._patch_ci_cell(
+            "s36-code",
+            {
+                **source_cell,
+                "source": "".join(source_cell["source"]),
+            },
+        )["source"]
+        public_address = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 443),
+        )
+        private_address = (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("10.0.0.8", 443),
+        )
+        cases = (
+            (
+                "non-https",
+                "http://mcp.example.com/mcp",
+                "VSS_ORCHESTRATOR_MCP_TOKEN",
+                {"VSS_ORCHESTRATOR_MCP_TOKEN": "secret"},
+                [public_address],
+                "public HTTPS URL",
+            ),
+            (
+                "internal-hostname",
+                "https://host.openshell.internal/mcp",
+                "VSS_ORCHESTRATOR_MCP_TOKEN",
+                {"VSS_ORCHESTRATOR_MCP_TOKEN": "secret"},
+                [private_address],
+                "public DNS hostname",
+            ),
+            (
+                "private-resolution",
+                "https://mcp.example.com/mcp",
+                "VSS_ORCHESTRATOR_MCP_TOKEN",
+                {"VSS_ORCHESTRATOR_MCP_TOKEN": "secret"},
+                [private_address],
+                "resolve only to public addresses",
+            ),
+            (
+                "missing-credential",
+                "https://mcp.example.com/mcp",
+                "VSS_ORCHESTRATOR_MCP_TOKEN",
+                {},
+                [public_address],
+                "empty or missing environment variable",
+            ),
+        )
+        for name, url, credential_env, env, addresses, error in cases:
+            with (
+                self.subTest(case=name),
+                mock.patch.dict(os.environ, env, clear=True),
+                mock.patch("socket.getaddrinfo", return_value=addresses),
+                mock.patch("subprocess.run") as run,
+                contextlib.redirect_stdout(io.StringIO()),
+                self.assertRaisesRegex(RuntimeError, error),
+            ):
+                exec(
+                    compile(source, "s36-code", "exec"),
+                    {
+                        "AGENT_RUNTIME": "hermes",
+                        "NEMOCLAW_SANDBOX_NAME": "demo",
+                        "NEMOCLAW_GATEWAY_NAME": "nemoclaw-19080",
+                        "VSS_ORCHESTRATOR_MCP_URL": url,
+                        "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV": credential_env,
+                    },
+                )
+            run.assert_not_called()
 
     def test_config_preflight_patch_fails_closed_without_anchor(self):
         with self.assertRaisesRegex(
@@ -6247,11 +6910,154 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
 
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
+    def setUp(self):
+        # Scheduling tests use compressed synthetic clocks and budgets. Keep
+        # those fixtures small without weakening the production constants that
+        # main() validates before a real Harbor invocation.
+        runtime_budget_patch = mock.patch.multiple(
+            smoke_runner.worker_pool,
+            DEFAULT_HARBOR_TIMEOUT_SEC=3300,
+            MIN_HARBOR_BACKSTOP_SEC=0,
+        )
+        runtime_budget_patch.start()
+        self.addCleanup(runtime_budget_patch.stop)
+
     def test_default_smoke_profile_is_lightweight_base(self):
         self.assertEqual(smoke_runner.DEFAULT_PROFILE, "base")
         self.assertEqual(
             smoke_runner._gpu_count_from_spec("base", "RTXPRO6000BW"),
             1,
+        )
+
+    def test_harbor_command_pins_python_and_harbor_runtime(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-ask-video",
+            spec_name="base_profile_video_understanding",
+            spec_path=Path("/tmp/spec.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/task"),
+            harbor_path=Path("/tmp/harbor"),
+            task_name="rtxpro6000bw",
+            deployment_profile="base",
+        )
+        with (
+            mock.patch.object(smoke_runner, "_ensure_uvx", return_value="/usr/bin/uvx"),
+            mock.patch.dict(
+                os.environ,
+                {
+                    "ANTHROPIC_MODEL": "model",
+                    "ANTHROPIC_BASE_URL": "https://example.test/v1",
+                },
+                clear=True,
+            ),
+        ):
+            command = smoke_runner._harbor_command(
+                scenario,
+                Path("/tmp/results"),
+                "run-id",
+            )
+
+        self.assertEqual(
+            command[:7],
+            [
+                "/usr/bin/uvx",
+                "--python",
+                sys.executable,
+                "--from",
+                smoke_runner.worker_pool.HARBOR_REQUIREMENT,
+                "harbor",
+                "run",
+            ],
+        )
+
+    def test_runner_blocks_before_harbor_when_remaining_budget_is_unsafe(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-deploy-profile",
+            spec_name="base",
+            spec_path=Path("/tmp/base.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/dataset/base/rtxpro6000bw"),
+            harbor_path=Path("/tmp/dataset/base"),
+            task_name="rtxpro6000bw",
+            deployment_profile="base",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            blocked = mock.Mock()
+            harbor_command = mock.Mock(return_value=["harbor", "run"])
+            stream_command = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "underfunded-run",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "50",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner.worker_pool,
+                    "MIN_HARBOR_BACKSTOP_SEC",
+                    100,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    return_value=(
+                        "vss-eval-rtx-1g-2",
+                        smoke_runner.WorkerLock(123, object(), None),
+                    ),
+                ),
+                mock.patch.object(smoke_runner, "_release_lock"),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    harbor_command,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    stream_command,
+                ),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-deploy-profile",
+                        "--harbor-timeout",
+                        "200",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 1)
+        harbor_command.assert_not_called()
+        stream_command.assert_not_called()
+        blocked.assert_called_once()
+        self.assertIn(
+            "remaining smoke-run budget cannot safely start Harbor",
+            blocked.call_args.kwargs["reason"],
         )
 
     def test_report_adapter_receives_query_analytics_dependency(self):
@@ -9672,44 +10478,87 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         abort_event.set()
         with tempfile.TemporaryDirectory() as td:
             log_path = Path(td) / "harbor.log"
-            rc = smoke_runner._stream_command(
-                [
-                    sys.executable,
-                    "-c",
-                    "pass",
-                ],
-                timeout_s=10,
-                env=os.environ.copy(),
-                log_path=log_path,
-                abort_event=abort_event,
-            )
+            with mock.patch.object(
+                smoke_runner.worker_pool,
+                "_cancel_process_tree",
+                wraps=smoke_runner.worker_pool._cancel_process_tree,
+            ) as cancel_tree:
+                rc = smoke_runner._stream_command(
+                    [
+                        sys.executable,
+                        "-c",
+                        "pass",
+                    ],
+                    timeout_s=10,
+                    env=os.environ.copy(),
+                    log_path=log_path,
+                    abort_event=abort_event,
+                )
 
             log = log_path.read_text(encoding="utf-8")
+            registry_path = cancel_tree.call_args.args[2]
 
         self.assertEqual(rc, 125)
         self.assertIn("aborting Harbor after remote worker lock loss", log)
+        cancel_tree.assert_called_once()
+        self.assertFalse(registry_path.exists())
 
     def test_stream_command_records_timeout_before_terminating(self):
         with tempfile.TemporaryDirectory() as td:
             log_path = Path(td) / "harbor.log"
-            rc = smoke_runner._stream_command(
-                [
-                    sys.executable,
-                    "-c",
-                    "import time; time.sleep(60)",
-                ],
-                timeout_s=0,
-                env=os.environ.copy(),
-                log_path=log_path,
-            )
+            with mock.patch.object(
+                smoke_runner.worker_pool,
+                "_cancel_process_tree",
+                wraps=smoke_runner.worker_pool._cancel_process_tree,
+            ) as cancel_tree:
+                rc = smoke_runner._stream_command(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import time; time.sleep(60)",
+                    ],
+                    timeout_s=0,
+                    env=os.environ.copy(),
+                    log_path=log_path,
+                )
 
             log = log_path.read_text(encoding="utf-8")
+            registry_path = cancel_tree.call_args.args[2]
 
         self.assertEqual(rc, 124)
         self.assertIn(
             "Harbor exceeded the 0s timeout; terminating process group",
             log,
         )
+        cancel_tree.assert_called_once()
+        self.assertFalse(registry_path.exists())
+
+    def test_stream_command_propagates_and_reaps_transport_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            captured_registry = root / "registry.txt"
+            log_path = root / "harbor.log"
+            rc = smoke_runner._stream_command(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import os, pathlib, sys; "
+                        "pathlib.Path(sys.argv[1]).write_text("
+                        "os.environ['BREV_TRANSPORT_PGID_FILE'])"
+                    ),
+                    str(captured_registry),
+                ],
+                timeout_s=10,
+                env=os.environ.copy(),
+                log_path=log_path,
+            )
+
+            registry_path = Path(captured_registry.read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(registry_path.name.startswith("skill-eval-transport-pgids-"))
+        self.assertFalse(registry_path.exists())
 
     def test_completed_matrix_job_lock_is_inactive_within_current_run(self):
         owner = (
@@ -11240,12 +12089,47 @@ class NemoClawResultScopeTest(unittest.TestCase):
 
 
 class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
+    def test_nemoclaw_runner_defaults_to_safe_harbor_backstop(self):
+        previous_scratch = smoke_runner.SCRATCH_ROOT
+        validation = mock.Mock(side_effect=ValueError("stop after parse"))
+        stderr = io.StringIO()
+        try:
+            with (
+                tempfile.TemporaryDirectory() as td,
+                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(
+                    smoke_runner.worker_pool,
+                    "validate_harbor_timeout_sec",
+                    validation,
+                ),
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit),
+            ):
+                root = Path(td)
+                smoke_runner.main(
+                    [
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+        finally:
+            smoke_runner.SCRATCH_ROOT = previous_scratch
+
+        validation.assert_called_once_with(
+            smoke_runner.worker_pool.DEFAULT_HARBOR_TIMEOUT_SEC
+        )
+
     def test_skill_eval_actions_pin_public_rtsp_after_coordinator_env(self):
-        expected = (
-            "source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev\n"
-            "          set +a\n"
-            "          export RTSP_SAMPLE_URL=\"rtsp://global.stg.ga."
-            "launchpad.nvidia.com:11333/camera03\""
+        coordinator_env = (
+            "source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev"
+        )
+        rtsp_export = (
+            'export RTSP_SAMPLE_URL="rtsp://global.stg.ga.'
+            'launchpad.nvidia.com:11333/camera03"'
         )
         for relative in (
             ".github/workflows/skills-eval.yml",
@@ -11253,7 +12137,13 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         ):
             with self.subTest(workflow=relative):
                 source = (REPO_ROOT / relative).read_text(encoding="utf-8")
-                self.assertIn(expected, source)
+                env_index = source.index(coordinator_env)
+                set_index = source.index("set +a", env_index)
+                venv_index = source.index('export VIRTUAL_ENV="$skill_eval_venv_dir"', set_index)
+                rtsp_index = source.index(rtsp_export, venv_index)
+                self.assertLess(env_index, set_index)
+                self.assertLess(set_index, venv_index)
+                self.assertLess(venv_index, rtsp_index)
 
     def test_nemoclaw_workflow_exports_bounded_timeouts(self):
         source = (REPO_ROOT / ".github" / "workflows" / "skills-eval.yml").read_text(
@@ -11265,9 +12155,27 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         nemoclaw_eval_source = nemoclaw_eval_and_report_source.split(
             "\n  nemoclaw-report:", 1
         )[0]
+        nemoclaw_report_source = nemoclaw_eval_and_report_source.split(
+            "\n  nemoclaw-report:", 1
+        )[1]
         nemoclaw_job_header = nemoclaw_eval_source.split("\n    steps:", 1)[0]
 
         self.assertIn("max-parallel: 2", source)
+        for job_source in (
+            nemoclaw_plan_source,
+            nemoclaw_eval_source,
+            nemoclaw_report_source,
+        ):
+            self.assertIn("actions/setup-python@", job_source)
+            self.assertIn(
+                "python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}",
+                job_source,
+            )
+        self.assertIn('skill_eval_python="$(command -v python3)"', nemoclaw_eval_source)
+        self.assertIn(
+            '"$skill_eval_python" .github/skill-eval/nemoclaw/smoke_runner.py',
+            nemoclaw_eval_source,
+        )
         self.assertIn("nemoclaw_instance:", source)
         self.assertIn(
             "runs-on: [self-hosted, nemoclaw-ci-runner]",
@@ -11281,10 +12189,11 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             "runs-on: [self-hosted, nemoclaw-ci-runner]",
             nemoclaw_eval_source,
         )
-        self.assertIn("timeout-minutes: 180", nemoclaw_job_header)
-        self.assertNotIn("timeout-minutes: 150", nemoclaw_job_header)
+        self.assertIn("timeout-minutes: 300", nemoclaw_job_header)
+        self.assertNotIn("timeout-minutes: 180", nemoclaw_job_header)
+        self.assertIn("timeout-minutes: 270", nemoclaw_eval_source)
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=1200", source)
-        self.assertIn("export NEMOCLAW_RUN_TIMEOUT_SEC=9000", source)
+        self.assertIn("export NEMOCLAW_RUN_TIMEOUT_SEC=13260", source)
         self.assertIn(
             "export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180",
             source,
@@ -11307,7 +12216,16 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         )
         self.assertIn("NEMOCLAW_INPUT_INSTANCE:", source)
         self.assertIn('export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"', source)
-        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=7800", source)
+        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=12000", source)
+        self.assertGreater(
+            12000,
+            smoke_runner.worker_pool.MIN_HARBOR_BACKSTOP_SEC,
+        )
+        self.assertGreaterEqual(13260, 1200 + 12000)
+        self.assertLessEqual(
+            13260 + smoke_runner.worker_pool.HARBOR_SHUTDOWN_GRACE_SEC,
+            270 * 60,
+        )
         self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.97", source)
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)

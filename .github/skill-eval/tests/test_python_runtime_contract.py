@@ -13,15 +13,20 @@ SDK_REQUIREMENT = "claude-agent-sdk==0.2.128"
 
 
 def test_pr_and_daily_workflows_pin_every_python_job() -> None:
-    for relative_path in (
-        ".github/workflows/skills-eval.yml",
-        ".github/workflows/skills-eval-daily.yml",
-    ):
+    expected_setup_counts = {
+        ".github/workflows/skills-eval.yml": 5,
+        ".github/workflows/skills-eval-daily.yml": 2,
+    }
+    for relative_path, expected_setup_count in expected_setup_counts.items():
         workflow = (REPO_ROOT / relative_path).read_text()
         assert f'SKILL_EVAL_PYTHON_VERSION: "{PYTHON_VERSION}"' in workflow
-        assert workflow.count("name: Set up skill-eval Python") == 2
         assert (
-            workflow.count("python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}") == 2
+            workflow.count("name: Set up skill-eval Python")
+            == expected_setup_count
+        )
+        assert (
+            workflow.count("python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}")
+            == expected_setup_count
         )
         assert workflow.count("name: Prepare isolated agent runtime") == 1
         assert SDK_REQUIREMENT in workflow
