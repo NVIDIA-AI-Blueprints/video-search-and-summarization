@@ -15,7 +15,7 @@ A Kubernetes deployment must publish one public Ingress origin, including the
 scheme and any non-default port:
 
 ```bash
-# base profile example
+# base / lvs profile example (same main-host pattern)
 VSS_PUBLIC_URL=https://vss.example.com
 # search profile example
 VSS_PUBLIC_URL=https://vss-search.example.com
@@ -38,7 +38,8 @@ not additional operate inputs:
 | `VSS_VIOS_URL` | `${VSS_PUBLIC_URL}/vst` |
 | `VST_API_BASE` | `${VSS_VIOS_URL}/api/v1` — all VIOS `curl` targets |
 | `AGENT_URL` | `${VSS_PUBLIC_URL}` for Kubernetes operate skills |
-| `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` when the Ingress exposes RT-VLM (base Helm `vssIngress.vlm.enabled`) — OpenAI-compatible root ending in `/v1` |
+| `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` when the Ingress exposes RT-VLM (base Prefix `/v1`, or LVS Exact `/v1/models` + `/v1/chat/completions`) — OpenAI-compatible root ending in `/v1` |
+| `LVS_BACKEND_URL` / `VIDEO_SUMMARIZATION_URL` | `${VSS_PUBLIC_URL}` on Kubernetes (origin only — **no** `/v1` suffix); Docker Compose remains `http://${HOST_IP}:38111` |
 | `VSS_STREAMER_URL` | Separate streamer Ingress host (`streamer.<ip>.nip.io`); **not** under `/vst`; search (and other NvStreamer-bearing) profiles only |
 
 Do not make operate skills invent a Brev or nip.io hostname. The deployment
@@ -117,6 +118,55 @@ adds archive search and a separate NvStreamer host:
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list` |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate host, no `/vst` prefix |
 
+### LVS profile public routes
+
+Main host pattern: `vss.<ip>.nip.io` (Helm `dev-profile-lvs`) — same family as
+base, not `vss-search.*`. LVS does **not** mount a Prefix `/v1` the way base
+does. Stock Ingress uses **Exact** paths that split LVS and RT-VLM:
+
+| Capability | Public endpoint |
+|---|---|
+| LVS readiness | `GET ${VSS_PUBLIC_URL}/v1/ready` → video-summarization |
+| LVS summarize | `POST ${VSS_PUBLIC_URL}/v1/summarize` → video-summarization |
+| RT-VLM models / chat | `GET ${VSS_PUBLIC_URL}/v1/models`, `POST ${VSS_PUBLIC_URL}/v1/chat/completions` |
+| VIOS list/inspect/clips | `GET ${VST_API_BASE}/sensor/list`, storage `/url`, … |
+| Agent OpenAPI | `GET ${AGENT_URL}/openapi.json` — **Agent**, not LVS |
+
+Derive the LVS client base as the **origin only**:
+
+```bash
+# Kubernetes — append /v1/ready and /v1/summarize yourself.
+# Force the public origin; a leftover Docker LVS_BACKEND_URL must not win.
+LVS_BACKEND_URL="${VSS_PUBLIC_URL%/}"
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
+# Docker Compose (unchanged)
+# LVS_BACKEND_URL=http://${HOST_IP}:38111
+```
+
+Do **not** set `LVS_BACKEND_URL=${VSS_PUBLIC_URL}/v1` — that yields `/v1/v1/ready`.
+Do **not** probe bare `${VSS_PUBLIC_URL}/v1` as an LVS or VLM health URL on LVS;
+without a Prefix rule it falls through to the UI catch-all.
+
+**Not on stock LVS Ingress** (Docker `:38111` only): LVS `/models`, LVS
+`/openapi.json`, `/recommended_config`, `/metrics`, and the `/summarize`
+compatibility alias. Public `/openapi.json` is the Agent document — never treat
+it as the LVS schema. On Kubernetes, discover the summarize model via
+`${VSS_PUBLIC_URL}/v1/models` (RT-VLM Exact) or an explicit `VLM_NAME`, and use
+the skill's checked-in `/v1/summarize` contract when live LVS OpenAPI is not
+reachable.
+
+LVS operate skills for the docs walkthrough:
+
+- `vss-manage-video-io-storage` — VIOS via `${VST_API_BASE}`
+- `vss-summarize-video` — Exact `/v1/ready` + `/v1/summarize` on `${VSS_PUBLIC_URL}`
+- `vss-generate-video-report` Mode A — when LVS `/v1/ready` is 200, delegates to
+  `vss-summarize-video`; otherwise VLM-direct
+
+Clip URLs passed into `POST /v1/summarize` must stay as VIOS minted them (LVS
+fetches that URL). Browser/report links may still rewrite `/storage/...` under
+`/vst` using the base-profile rule. Deploy must mint media URLs the LVS pod can
+reach (typically `VST_EXTERNAL_URL` equal to the public origin).
+
 ## Docker Compose
 
 Resolve the deployment once with `vss configure`, then read the endpoints back
@@ -173,18 +223,24 @@ AGENT_URL="${VSS_PUBLIC_URL%/}"
 VSS_VIOS_URL="${AGENT_URL}/vst"
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 # Resolve VLM_ENDPOINT only with the probe-before-adopt flow above.
+# LVS client base is the origin (no /v1 suffix); ignore Docker-derived values:
+LVS_BACKEND_URL="${AGENT_URL}"
 ```
 
-The public Agent, VIOS (`/vst`), and — when the chart enables it — RT-VLM (`/v1`)
-routes are the supported operate interfaces. Operate skills do not read
-Deployments, ConfigMaps, Services, Secrets, or Helm values, and do not use
-Service DNS, NodePorts, guessed release names, or `kubectl port-forward`.
+The public Agent, VIOS (`/vst`), and — when the chart enables them — RT-VLM and
+LVS Exact `/v1/...` routes are the supported operate interfaces. Operate skills
+do not read Deployments, ConfigMaps, Services, Secrets, or Helm values, and do
+not use Service DNS, NodePorts, guessed release names, `kubectl port-forward`,
+or `kubectl`/`docker exec` into pods.
 
-Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, and RT-VLM when it is
-**not** published under `/v1`) remain agent-side dependencies. Do not expose or
-forward them merely to satisfy host-side operate checks. On the base profile,
-RT-VLM at `${VSS_PUBLIC_URL}/v1` is a supported public operate path for
-`vss-ask-video` and `vss-generate-video-report` Mode A.
+Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, LVS `/models` /
+`/openapi.json` when not published, and RT-VLM when it is **not** on Exact
+`/v1/models`) remain agent-side dependencies. Do not expose or forward them
+merely to satisfy host-side operate checks. On the base profile, RT-VLM at
+`${VSS_PUBLIC_URL}/v1` (Prefix) is a supported public operate path for
+`vss-ask-video` and `vss-generate-video-report` Mode A. On the LVS profile,
+Exact `/v1/ready` and `/v1/summarize` are the supported public operate paths for
+`vss-summarize-video`.
 
 ## Authentication boundary
 
