@@ -30,6 +30,7 @@ NEMOCLAW_CI_RTSP_INJECTION_FLAG = "NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL"
 # identity/image attestations without shortening their individual deadlines.
 DIRECT_CONTAINER_PREFLIGHT_TIMEOUT_SECONDS = 660
 SANDBOX_EXEC_TIMEOUT_SECONDS = 60
+MANAGED_MCP_TIMEOUT_SECONDS = 300
 SECRET_TEXT_PATTERNS = (
     (
         re.compile(r"(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+"),
@@ -167,6 +168,10 @@ VSS_ORCHESTRATOR_MCP_URL = os.environ.get(
     "VSS_ORCHESTRATOR_MCP_URL",
     f"{MCP_SCHEME}://{_orchestrator_host_alias}:{_orchestrator_mcp_port}/mcp",
 ).strip()
+VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV = os.environ.get(
+    "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV",
+    "",
+).strip()
 VSS_ORCHESTRATOR_MCP_TYPE = (
     os.environ.get("VSS_ORCHESTRATOR_MCP_TYPE", "streamable-http").strip()
     or "streamable-http"
@@ -261,6 +266,7 @@ _keys = [
     "OPENCLAW_MCP_URL",
     "OPENCLAW_MCP_TYPE",
     "VSS_ORCHESTRATOR_MCP_URL",
+    "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV",
     "VSS_ORCHESTRATOR_MCP_TYPE",
     "HOST_INTERNAL_ALIAS",
     "HARDWARE_PROFILE",
@@ -391,23 +397,57 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
     if cell_id == "4c91fd59":
         return _patch_docker_login_cell(cell)
     if cell_id == "s31-code":
-        onboard = "!cd ~ && nemoclaw onboard --non-interactive --agent {AGENT_RUNTIME}"
-        if onboard not in source:
-            raise ValueError("NemoClaw setup cell is missing the expected onboard command")
-        patched = deepcopy(cell)
-        patched["source"] = source.replace(
-            onboard,
-            "!cd ~ && nemoclaw onboard --fresh --non-interactive "
-            "--agent {AGENT_RUNTIME}",
+        runtime_onboard = (
+            'onboard_cmd = "nemohermes onboard --non-interactive" '
+            'if AGENT_RUNTIME == "hermes" else '
+            'f"nemoclaw onboard --non-interactive --agent {AGENT_RUNTIME}"'
         )
+        runtime_fresh = runtime_onboard.replace(
+            "nemoclaw onboard --non-interactive",
+            "nemoclaw onboard --fresh --non-interactive",
+        )
+        legacy_onboard = (
+            "!cd ~ && nemoclaw onboard --non-interactive --agent {AGENT_RUNTIME}"
+        )
+        legacy_fresh = (
+            "!cd ~ && nemoclaw onboard --fresh --non-interactive "
+            "--agent {AGENT_RUNTIME}"
+        )
+        patched = deepcopy(cell)
+        if runtime_onboard in source:
+            patched["source"] = source.replace(
+                runtime_onboard,
+                runtime_fresh,
+                1,
+            )
+        elif legacy_onboard in source:
+            patched["source"] = source.replace(
+                legacy_onboard,
+                legacy_fresh,
+                1,
+            )
+        else:
+            raise ValueError(
+                "NemoClaw setup cell is missing the expected onboard command"
+            )
         return patched
     if cell_id == "s35-code":
-        workspace_cleanup = (
+        legacy_workspace_cleanup = (
             '    !nemoclaw sandbox exec {NEMOCLAW_SANDBOX_NAME} -- sh -c '
             '"find /sandbox/.openclaw/workspace -mindepth 1 -maxdepth 1 '
             "-type d -name '*.md' -exec rm -rf '{{}}' ';'\"\n"
         )
-        if workspace_cleanup not in source:
+        runtime_workspace_cleanup = (
+            "    !openshell sandbox exec -n {NEMOCLAW_SANDBOX_NAME} -- sh -c "
+            '"mkdir -p {WORKSPACE_REMOTE_DIR} && find {WORKSPACE_REMOTE_DIR} '
+            "-mindepth 1 -maxdepth 1 -type d -name '*.md' "
+            "-exec rm -rf '{{}}' ';'\"\n"
+        )
+        if runtime_workspace_cleanup in source:
+            workspace_cleanup = runtime_workspace_cleanup
+        elif legacy_workspace_cleanup in source:
+            workspace_cleanup = legacy_workspace_cleanup
+        else:
             raise ValueError(
                 "NemoClaw workspace cell is missing the expected sandbox exec"
             )
@@ -422,10 +462,11 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
                     '            "openshell", "sandbox", "exec", "--name",',
                     "            NEMOCLAW_SANDBOX_NAME,",
                     '            "-g", NEMOCLAW_GATEWAY_NAME, "--",',
-                    '            "find", "/sandbox/.openclaw/workspace",',
-                    '            "-mindepth", "1", "-maxdepth", "1",',
-                    '            "-type", "d", "-name", "*.md",',
-                    '            "-exec", "rm", "-rf", "{}", ";",',
+                    '            "sh", "-c",',
+                    "            'mkdir -p \"$1\" && find \"$1\" '",
+                    "            '-mindepth 1 -maxdepth 1 -type d '",
+                    "            '-name \"*.md\" -exec rm -rf \"{}\" \";\"',",
+                    '            "workspace-cleanup", str(WORKSPACE_REMOTE_DIR),',
                     "        ],",
                     "        stdin=_ci_subprocess.DEVNULL,",
                     "        capture_output=True,",
@@ -468,7 +509,7 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 "NemoClaw MCP cell is missing the expected subprocess runner"
             )
-        patched["source"] = patched_source.replace(
+        patched_source = patched_source.replace(
             exec_runner,
             "\n".join(
                 [
@@ -484,10 +525,30 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             ),
             1,
         )
+        runtime_anchors = (
+            'if AGENT_RUNTIME == "hermes":',
+            'elif AGENT_RUNTIME == "openclaw":',
+            'cmd = ["nemohermes", NEMOCLAW_SANDBOX_NAME, *args]',
+            'def classify_hermes_mcp_status(',
+            '"--json", "--no-probe",',
+            '"mcp", "add", "vss_orchestrator",',
+            '"--env", credential_env,',
+            '"shields", "down",',
+            'finally:',
+        )
+        missing_runtime_anchors = [
+            anchor for anchor in runtime_anchors if anchor not in patched_source
+        ]
+        if missing_runtime_anchors:
+            raise ValueError(
+                "NemoClaw MCP cell is missing the native Hermes/OpenClaw "
+                f"runtime anchors: {missing_runtime_anchors}"
+            )
+        patched["source"] = patched_source
         return patched
     if cell_id == "s37-code":
         patched = deepcopy(cell)
-        header = (
+        legacy_header = (
             "# Only the webhook keys need config set:\n"
             "# - gateway.* is off-limits (auth tokens) — UI allowedOrigins come from\n"
             "#   CHAT_UI_URL baked at onboard (section 3.1);\n"
@@ -497,8 +558,23 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             "# the config and still exit non-zero with SUPERVISOR_UNAVAILABLE when the\n"
             "# in-sandbox supervisor is gone; recover relaunches it.\n"
         )
+        runtime_header = (
+            "# Only the webhook keys need config set:\n"
+            "# - gateway.* is off-limits (auth tokens) — UI allowedOrigins come from\n"
+            "#   CHAT_UI_URL baked at onboard (section 3.1);\n"
+            "# - workspace docs are uploaded in section 3.4.\n"
+            "# Write keys first, then restart separately. `config set --restart` can update\n"
+            "# the config and still exit non-zero with SUPERVISOR_UNAVAILABLE when the\n"
+            "# in-sandbox supervisor is gone; recover relaunches it.\n"
+        )
         config_anchor = "config_sets = []\n"
-        if header not in source or config_anchor not in source:
+        if runtime_header in source:
+            header = runtime_header
+        elif legacy_header in source:
+            header = legacy_header
+        else:
+            header = ""
+        if not header or config_anchor not in source:
             raise ValueError(
                 "NemoClaw config cell is missing the expected config anchors"
             )
@@ -518,11 +594,23 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             ),
             1,
         )
+        no_config_statuses = (
+            "No sandbox config changes needed (webhooks disabled or Hermes runtime).",
+            "No sandbox config changes needed (webhooks disabled).",
+        )
+        for old in no_config_statuses:
+            if old in patched_source:
+                patched_source = patched_source.replace(
+                    old,
+                    "No sandbox config changes needed.",
+                    1,
+                )
+                break
+        else:
+            raise ValueError(
+                "NemoClaw config cell is missing expected status text"
+            )
         status_replacements = (
-            (
-                "No sandbox config changes needed (webhooks disabled).",
-                "No sandbox config changes needed.",
-            ),
             (
                 "Restarting gateway to apply webhook config...",
                 "Restarting gateway to apply sandbox config...",
@@ -706,7 +794,14 @@ def _redaction_values() -> dict[str, str]:
         "OPENCLAW_HOOKS_TOKEN",
         "RTSP_SAMPLE_URL",
     )
-    return {key: value for key in keys if (value := os.environ.get(key))}
+    values = {key: value for key in keys if (value := os.environ.get(key))}
+    credential_env = os.environ.get(
+        "VSS_ORCHESTRATOR_MCP_CREDENTIAL_ENV",
+        "",
+    ).strip()
+    if credential_env and (credential_value := os.environ.get(credential_env)):
+        values[credential_env] = credential_value
+    return values
 
 
 def _redact(obj: Any, values: dict[str, str]) -> Any:

@@ -11,6 +11,7 @@ clear verdict.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import fcntl
 import hashlib
@@ -25,6 +26,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -2037,23 +2039,58 @@ def _stream_command(
     abort_event: threading.Event | None = None,
 ) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("w", encoding="utf-8") as log:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env=env,
-            bufsize=1,
-            start_new_session=True,
-        )
-        started = time.time()
-        last_heartbeat = started
-        assert proc.stdout is not None
-        selector = selectors.DefaultSelector()
-        selector.register(proc.stdout, selectors.EVENT_READ)
+    registry_fd, registry_name = tempfile.mkstemp(
+        prefix="skill-eval-transport-pgids-",
+    )
+    os.close(registry_fd)
+    registry_path = Path(registry_name)
+    child_env = env.copy()
+    child_env[worker_pool.TRANSPORT_PGID_REGISTRY_ENV] = str(registry_path)
+    proc: subprocess.Popen[str] | None = None
+    pgid: int | None = None
+    selector: selectors.BaseSelector | None = None
+    cleanup_started = False
+    external_signal: int | None = None
+    previous_handlers: dict[signal.Signals, object] = {}
+
+    def record_external_signal(signum, _frame):  # noqa: ANN001
+        nonlocal external_signal
+        external_signal = signum
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
         try:
+            previous_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, record_external_signal)
+        except ValueError:
+            for installed_sig, previous in previous_handlers.items():
+                with contextlib.suppress(ValueError):
+                    signal.signal(installed_sig, previous)
+            previous_handlers.clear()
+            break
+
+    try:
+        with log_path.open("w", encoding="utf-8") as log:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=REPO_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=child_env,
+                bufsize=1,
+                start_new_session=True,
+            )
+            # start_new_session=True makes the Harbor leader's PID its PGID.
+            # Preserve it even if the leader exits before a detached Brev/SSH
+            # transport so cancellation can still reap the complete tree.
+            pgid = proc.pid
+            started = time.time()
+            last_heartbeat = started
+            assert proc.stdout is not None
+            selector = selectors.DefaultSelector()
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            outcome: int | None = None
+            cancellation_reason = ""
             while True:
                 for key, _ in selector.select(timeout=1):
                     line = key.fileobj.readline()
@@ -2069,6 +2106,11 @@ def _stream_command(
                     log.write(heartbeat)
                     log.flush()
                     last_heartbeat = now
+                if external_signal is not None:
+                    signal_name = signal.Signals(external_signal).name
+                    cancellation_reason = f"external {signal_name}"
+                    outcome = 128 + external_signal
+                    break
                 if abort_event is not None and abort_event.is_set():
                     message = (
                         "[nemoclaw-ci] aborting Harbor after remote worker "
@@ -2077,13 +2119,29 @@ def _stream_command(
                     print(message, end="", flush=True)
                     log.write(message)
                     log.flush()
-                    _kill_process_group(proc, signal.SIGTERM)
-                    try:
-                        proc.wait(timeout=30)
-                    except subprocess.TimeoutExpired:
-                        _kill_process_group(proc, signal.SIGKILL)
-                    return 125
+                    cancellation_reason = "remote worker lease lost"
+                    outcome = 125
+                    break
                 if proc.poll() is not None:
+                    attached_group_live = worker_pool._process_group_exists(pgid)
+                    detached_groups = worker_pool._registered_transport_groups(
+                        registry_path
+                    )
+                    if attached_group_live or detached_groups:
+                        groups = ", ".join(map(str, detached_groups)) or "none"
+                        message = (
+                            "[nemoclaw-ci] Harbor leader exited while child "
+                            "processes remained; registered transport groups: "
+                            f"{groups}\n"
+                        )
+                        print(message, end="", flush=True)
+                        log.write(message)
+                        log.flush()
+                        cancellation_reason = (
+                            "Harbor leader exited with live child processes"
+                        )
+                        outcome = 124
+                        break
                     for rest in proc.stdout:
                         print(rest, end="", flush=True)
                         log.write(rest)
@@ -2096,23 +2154,50 @@ def _stream_command(
                     print(message, end="", flush=True)
                     log.write(message)
                     log.flush()
-                    _kill_process_group(proc, signal.SIGTERM)
-                    try:
-                        proc.wait(timeout=120)
-                    except subprocess.TimeoutExpired:
-                        _kill_process_group(proc, signal.SIGKILL)
-                    return 124
-        finally:
+                    cancellation_reason = f"outer timeout after {timeout_s}s"
+                    outcome = 124
+                    break
+
+            assert outcome is not None
+            cleanup_started = True
+            cleanup_message = (
+                f"[nemoclaw-ci] {cancellation_reason}; requesting graceful "
+                "Harbor cancellation with SIGINT\n"
+            )
+            print(cleanup_message, end="", flush=True)
+            log.write(cleanup_message)
+            log.flush()
+            # Once bounded cleanup owns the process tree, a repeated workflow
+            # signal must not skip Harbor's recovery pulls and leave remote
+            # transports behind. A later hard SIGKILL remains the CI ceiling.
+            for sig in previous_handlers:
+                signal.signal(sig, signal.SIG_IGN)
+            exited = worker_pool._cancel_process_tree(proc, pgid, registry_path)
+            if not exited:
+                warning = (
+                    "[nemoclaw-ci] Harbor tree could not be fully reaped after "
+                    "SIGKILL; preserving the primary outcome\n"
+                )
+                print(warning, end="", flush=True)
+                log.write(warning)
+                log.flush()
+            return outcome
+    finally:
+        if selector is not None:
             selector.close()
-            if proc.poll() is None:
-                _kill_process_group(proc, signal.SIGKILL)
-
-
-def _kill_process_group(proc: subprocess.Popen[str], sig: int) -> None:
-    try:
-        os.killpg(proc.pid, sig)
-    except ProcessLookupError:
-        return
+        if proc is not None and pgid is not None and not cleanup_started:
+            if (
+                worker_pool._process_group_exists(pgid)
+                or worker_pool._registered_transport_groups(registry_path)
+            ):
+                worker_pool._cancel_process_tree(proc, pgid, registry_path)
+        if proc is not None and proc.stdout is not None:
+            with contextlib.suppress(OSError):
+                proc.stdout.close()
+        for sig, previous in previous_handlers.items():
+            with contextlib.suppress(ValueError):
+                signal.signal(sig, previous)
+        registry_path.unlink(missing_ok=True)
 
 
 def _latest_reward(results_root: Path, run_id: str, *, since: float = 0.0) -> tuple[float | None, Path | None]:
@@ -3248,6 +3333,10 @@ def _harbor_command(scenario: NemoClawScenario, results_root: Path, run_id: str)
     api_base = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
     return [
         uvx,
+        "--python",
+        sys.executable,
+        "--from",
+        worker_pool.HARBOR_REQUIREMENT,
         "harbor",
         "run",
         "--environment-import-path",
@@ -3303,6 +3392,14 @@ def _ensure_uvx() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     global SCRATCH_ROOT
+    if sys.version_info[:2] != worker_pool.SKILL_EVAL_PYTHON_VERSION:
+        expected = ".".join(map(str, worker_pool.SKILL_EVAL_PYTHON_VERSION))
+        found = ".".join(map(str, sys.version_info[:2]))
+        print(
+            f"FATAL: NemoClaw skill eval requires Python {expected}.x; found {found}",
+            file=sys.stderr,
+        )
+        return 1
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skills", default=os.environ.get("MANUAL_SKILLS_FILTER", DEFAULT_SKILL))
     parser.add_argument("--spec", default=os.environ.get("NEMOCLAW_EVAL_SPEC", ""))
@@ -3311,7 +3408,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gpu-count", type=int, default=None)
     parser.add_argument("--instance", default=os.environ.get("NEMOCLAW_BREV_INSTANCE"))
     parser.add_argument("--lock-timeout", type=int, default=int(os.environ.get("NEMOCLAW_LOCK_TIMEOUT_SEC", "600")))
-    parser.add_argument("--harbor-timeout", type=int, default=int(os.environ.get("NEMOCLAW_HARBOR_TIMEOUT_SEC", "3300")))
+    parser.add_argument(
+        "--harbor-timeout",
+        type=int,
+        default=int(
+            os.environ.get(
+                "NEMOCLAW_HARBOR_TIMEOUT_SEC",
+                str(worker_pool.DEFAULT_HARBOR_TIMEOUT_SEC),
+            )
+        ),
+    )
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--results-root", default=str(DEFAULT_RESULTS_ROOT))
     parser.add_argument("--scratch-root", default=os.environ.get("NEMOCLAW_SCRATCH_ROOT", str(SCRATCH_ROOT)))
@@ -3348,6 +3454,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         _print_matrix(rows, blockers)
         return 0 if rows else 2
+
+    try:
+        worker_pool.validate_harbor_timeout_sec(args.harbor_timeout)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     run_timeout_s = max(
         1,
@@ -3534,8 +3645,6 @@ def main(argv: list[str] | None = None) -> int:
                         harbor_env["BREV_INSTANCE"] = brev_instance
                         attempt_owner_token = uuid.uuid4().hex
                         harbor_env[ATTEMPT_OWNER_ENV] = attempt_owner_token
-                        cmd = _harbor_command(scenario, results_root, run_id)
-                        print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
                         heartbeat_lost_event = (
                             worker_lock.heartbeat.lost_event
                             if worker_lock.heartbeat
@@ -3546,6 +3655,43 @@ def main(argv: list[str] | None = None) -> int:
                             args.harbor_timeout,
                             "Harbor execution",
                         )
+                        if (
+                            harbor_timeout_s
+                            <= worker_pool.MIN_HARBOR_BACKSTOP_SEC
+                        ):
+                            reason = (
+                                "remaining smoke-run budget cannot safely "
+                                "start Harbor: "
+                                f"{harbor_timeout_s}s available, must be "
+                                "greater than "
+                                f"{worker_pool.MIN_HARBOR_BACKSTOP_SEC}s"
+                            )
+                            print(
+                                f"BLOCKED: {reason}",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                            _append_blocked_summary(
+                                reason=reason,
+                                scenario=(
+                                    f"{scenario.skill}/{scenario.spec_name}/"
+                                    f"{scenario.platform}/{scenario.task_name}"
+                                ),
+                                scenario_id=(
+                                    f"{_scenario_id(scenario)}-"
+                                    "insufficient-harbor-budget"
+                                ),
+                            )
+                            executed += 1
+                            scenario_index += 1
+                            failures.append(reason)
+                            scenario_index += record_remaining_group_skips(
+                                group,
+                                group_scenario_index,
+                                "skipped because the remaining run budget "
+                                "cannot safely start Harbor",
+                            )
+                            break
                         if (
                             required_retry_harbor_budget_s
                             and harbor_timeout_s
@@ -3559,6 +3705,12 @@ def main(argv: list[str] | None = None) -> int:
                                 )
                             )
                         required_retry_harbor_budget_s = 0.0
+                        cmd = _harbor_command(scenario, results_root, run_id)
+                        print(
+                            "[nemoclaw-ci] running Harbor:",
+                            " ".join(cmd),
+                            flush=True,
+                        )
                         harbor_rc = _stream_command(
                             cmd,
                             timeout_s=harbor_timeout_s,

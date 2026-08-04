@@ -378,6 +378,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
       - name: Compute NemoClaw matrix
         id: plan
         env:
@@ -427,9 +432,10 @@ jobs:
       # deployment per worker; additional legs wait without colliding.
       max-parallel: 2
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
-    # The smoke runner owns a 150-minute shared deadline. Reserve another
-    # 30 minutes for graceful Harbor termination, reporting, and artifacts.
-    timeout-minutes: 180
+    # The smoke runner owns a 221-minute shared deadline. Reserve up to 24
+    # minutes for Harbor's INT -> TERM -> KILL recovery path, then retain
+    # another 55 minutes for verdict generation, reporting, and artifacts.
+    timeout-minutes: 300
     steps:
       - name: Initialize current-attempt result sentinel
         env:
@@ -462,6 +468,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
       - name: Prepare NemoClaw result scope
         env:
           RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
@@ -483,34 +494,40 @@ jobs:
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
         if: matrix.kind == 'eval'
-        # Leave fifteen minutes inside the job cap for verdict generation and
-        # artifact publication even if the runner itself stops responding.
-        timeout-minutes: 165
+        # Keep the shell alive through the smoke deadline and Harbor's bounded
+        # recovery path. The job cap retains another 30 minutes for verdict and
+        # artifact publication even if this step consumes its full allowance.
+        timeout-minutes: 270
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
           NEMOCLAW_INPUT_INSTANCE: ${{ inputs.nemoclaw_instance }}
         run: |
           mkdir -p "$GH_CONFIG_DIR"
+          skill_eval_python="$(command -v python3)"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          export PATH="$(dirname "$skill_eval_python"):$PATH"
+          hash -r
+          "$skill_eval_python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # Give warm GPU workers enough time to become available while keeping
           # the serialized sweep bounded.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=1200
-          # Share one 150-minute cap across discovery, every worker selection,
-          # every Harbor attempt, and all failovers. The 180-minute job retains
-          # 30 minutes for termination, reporting, and artifact upload.
-          export NEMOCLAW_RUN_TIMEOUT_SEC=9000
+          # Share one 221-minute cap across discovery, every worker selection,
+          # every Harbor attempt, and all failovers. This fits a full 20-minute
+          # lock wait plus the 200-minute Harbor backstop with scheduling
+          # jitter; graceful cancellation has its own bounded reserve above.
+          export NEMOCLAW_RUN_TIMEOUT_SEC=13260
           # Keep the shared lock timestamp fresh for older runners that still
           # use a 900-second age cutoff. Ownership is rechecked on every beat.
           export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180
           export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660
-          # The 130-minute Harbor cap covers the 27-minute setup wrapper,
-          # 55-minute shared OpenClaw/profile-readiness budget, 30-minute
-          # verifier ceiling, and 18 minutes of lifecycle overhead. Together
-          # with the 20-minute lock wait, it fits the shared run cap above.
-          export NEMOCLAW_HARBOR_TIMEOUT_SEC=7800
+          # Match the generic skill-eval contract: every Harbor phase plus its
+          # serialized artifact/log recovery fits before the outer backstop.
+          # The following 200-minute cap is strictly above that 168-minute
+          # minimum and leaves Harbor time to publish a reportable outcome.
+          export NEMOCLAW_HARBOR_TIMEOUT_SEC=12000
           export NEMOCLAW_INSTALL_REF=v0.0.97
           export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500
           export NEMOCLAW_SETUP_TIMEOUT_SEC=1620
@@ -558,7 +575,7 @@ jobs:
           # The generic Claude meta-agent is intentionally not used here
           # because prior runs fanned out unpredictably and burned the full
           # generic 12-hour slot.
-          python3 .github/skill-eval/nemoclaw/smoke_runner.py \
+          "$skill_eval_python" .github/skill-eval/nemoclaw/smoke_runner.py \
             --skills "${{ matrix.skill }}" \
             --spec "${{ matrix.spec_stem }}" \
             --platform "${{ matrix.platform }}" \
@@ -675,6 +692,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
       - name: Download per-row benchmark artifacts
         continue-on-error: true

@@ -1542,10 +1542,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--spec-stem", default=os.environ.get("EVAL_SPEC_STEM", ""))
     parser.add_argument("--platform", default=os.environ.get("EVAL_PLATFORM", ""))
     parser.add_argument("--lock-dir", default=Path("/tmp/brev"), type=Path)
-    parser.add_argument("--lock-timeout-sec", default=21000, type=int)
+    parser.add_argument(
+        "--lock-timeout-sec",
+        default=_env_int("SKILL_EVAL_LOCK_TIMEOUT_SEC", 21000),
+        type=int,
+    )
     parser.add_argument(
         "--harbor-timeout-sec",
-        default=DEFAULT_HARBOR_TIMEOUT_SEC,
+        default=_env_int(
+            "SKILL_EVAL_HARBOR_TIMEOUT_SEC",
+            DEFAULT_HARBOR_TIMEOUT_SEC,
+        ),
         type=int,
     )
     args = parser.parse_args(argv)

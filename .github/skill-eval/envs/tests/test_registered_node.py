@@ -1019,7 +1019,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(archive_commands), 1)
         self.assertIn(
-            'mv "$PROJ"/* "$ARCHIVE/"',
+            'mv "$PROJ"/* "$ARCHIVE/sessions/"',
             archive_commands[0],
         )
 
@@ -2393,8 +2393,9 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             else:
                 os.environ["NEMOCLAW_ATTEMPT_OWNER_TOKEN"] = previous_owner
 
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
         command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
         self.assertIn("NemoClaw direct Harbor launcher", command)
         self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
         self.assertIn("--launch-mode cli", command)
@@ -2510,8 +2511,9 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         finally:
             brev_env._run_brev_exec = original
 
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
         command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
         self.assertIn("/tmp/skill-eval/nemoclaw/current_prompt.md", command)
         self.assertIn("base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md", command)
         self.assertIn("--expected-skill vss-deploy-profile", command)
@@ -2560,8 +2562,9 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                     timeout_sec=123,
                 )
 
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
         command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
         self.assertIn(
             "--expected-skill vss-deploy-dense-captioning",
             command,
@@ -2607,8 +2610,9 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         finally:
             brev_env._run_brev_exec = original
 
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
         command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
         self.assertIn("NemoClaw direct Harbor launcher", command)
         self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
         self.assertNotIn("claude --verbose --print", command)
