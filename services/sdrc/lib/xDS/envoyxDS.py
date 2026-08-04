@@ -451,21 +451,3 @@ class envoyxDS:
                     i = i + 1
 
         return resp
-
-
-
-    j = e.clusterXDs(workload_config={
-        "testapp": {
-            "wl_obj_name": "sdrc-workload",
-            "enable": True
-        },
-        "testapp2": {
-            "wl_obj_name": "sdrc-example-a-workload",
-            "enable": True
-        }
-    })
-    print(json.dumps(j))
-    # lbp = envoy.Cluster.lb_policy
-    # print (envoy.LoadBalancingPolicy ())
-    e.routeXDs()
-    #print(e.getClusterPodsFromRedis ())
