@@ -22,7 +22,7 @@
         "`_builds/rt-cv-person-detection-rtdetr-harbor/override.env` exists with `FOUNDATION=search` and the full effective `COMPOSE_PROFILES`.",
         "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-search,nvstreamer-2d-fusion,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.",
         "`perception-2d-fusion` is used; `perception-2d`, `perception-alerts`, and invented replacements are absent.",
-        "`ENABLE_CRITIC=false` is effective because VLM critique was excluded.",
+        "No critique env flag (e.g. `ENABLE_CRITIC`) is introduced, since result critique is not part of the search profile.",
         "The build label does not appear in `COMPOSE_PROFILES` or any Compose `profiles` entry.",
         "`compose.yml` includes `../../deploy/docker/compose.yml`, and `patches/` is absent because the deployment changes no service definition.",
         "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and contains no copied Foundation `.env`, copied Compose project, patched tree, or generated documentation/skill bundle.",
