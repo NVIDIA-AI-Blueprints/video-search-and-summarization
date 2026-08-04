@@ -35,8 +35,9 @@ as runners in their own right.
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
     MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
-                   (all skills) — enumerates those specs instead of diffing,
-                   so the matrix fans per-(spec, platform) like a push
+                          (all skills) — enumerates those specs instead of
+                          diffing, so the matrix fans like a push
+    MANUAL_SPEC_FILTER    optional spec stem for a one-spec manual proof
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
 """
@@ -205,7 +206,25 @@ def list_changed_files() -> list[str]:
             sorted(p.name for p in (REPO_ROOT / "skills").iterdir() if p.is_dir())
             if manual == "*" else [manual]
         )
-        return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
+        specs = [entry for sk in skills for entry in specs_for_skill(sk)]
+        spec_filter = os.environ.get("MANUAL_SPEC_FILTER", "").strip()
+        if spec_filter:
+            if manual == "*":
+                raise ValueError(
+                    "MANUAL_SPEC_FILTER requires one explicit skill, not '*'"
+                )
+            if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]*", spec_filter):
+                raise ValueError(
+                    f"unsafe MANUAL_SPEC_FILTER {spec_filter!r}: expected a "
+                    "spec filename stem ([A-Za-z0-9_-])"
+                )
+            specs = [entry for entry in specs if entry[2] == spec_filter]
+            if not specs:
+                raise ValueError(
+                    f"MANUAL_SPEC_FILTER {spec_filter!r}: no matching spec "
+                    f"under skills/{manual}/evals or skills/{manual}/eval"
+                )
+        return [spec_path for spec_path, _, _ in specs]
 
     base = os.environ["PR_BASE"]
     subprocess.run(

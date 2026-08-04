@@ -39,6 +39,11 @@ on:
         required: false
         default: "*"
         type: string
+      spec:
+        description: "Optional spec filename stem when evaluating one skill (for example `base`)."
+        required: false
+        default: ""
+        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -125,6 +130,7 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          MANUAL_SPEC_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.spec || '' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------

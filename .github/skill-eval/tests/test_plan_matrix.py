@@ -445,6 +445,46 @@ class ListChangedFiles(unittest.TestCase):
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
 
+    def test_manual_spec_filter_selects_exactly_one_spec(self):
+        orig_specs = plan_matrix.specs_for_skill
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        plan_matrix.specs_for_skill = lambda _skill: [
+            ("skills/vss-deploy-profile/evals/base.json", "evals", "base"),
+            ("skills/vss-deploy-profile/evals/search.json", "evals", "search"),
+        ]
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-deploy-profile"
+        os.environ["MANUAL_SPEC_FILTER"] = "base"
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            plan_matrix.specs_for_skill = orig_specs
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            os.environ.pop("MANUAL_SPEC_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+
+        self.assertEqual(
+            files, ["skills/vss-deploy-profile/evals/base.json"]
+        )
+
+    def test_manual_spec_filter_fails_loud_when_missing(self):
+        orig_specs = plan_matrix.specs_for_skill
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        plan_matrix.specs_for_skill = lambda _skill: [
+            ("skills/vss-deploy-profile/evals/base.json", "evals", "base"),
+        ]
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-deploy-profile"
+        os.environ["MANUAL_SPEC_FILTER"] = "does-not-exist"
+        try:
+            with self.assertRaises(ValueError):
+                plan_matrix.list_changed_files()
+        finally:
+            plan_matrix.specs_for_skill = orig_specs
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            os.environ.pop("MANUAL_SPEC_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+
 
 class EmitSlugSafety(unittest.TestCase):
     def test_emit_rejects_unsafe_slug(self):
