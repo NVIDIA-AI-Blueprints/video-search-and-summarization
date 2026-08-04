@@ -34,6 +34,7 @@
 #include "stream_monitor.h"
 #include "fps_display.h"
 #include "webrtcstreamproducer.h"
+#include "webrtc_frame_timestamper.h"
 
 #include "webrtc_headers/src/common_video/include/video_frame_buffer.h"
 #include "webrtc_headers/src/api/video/video_frame_buffer.h"
@@ -44,7 +45,7 @@ using namespace std;
 struct VideoSink
 {
     VideoSink(): m_broadcaster(nullptr)  {}
-    rtc::VideoBroadcaster* m_broadcaster = nullptr;
+    webrtc::VideoBroadcaster* m_broadcaster = nullptr;
     string m_state = "NOT_PLAYING";
 };
 
@@ -80,7 +81,7 @@ class VideoWebRTCSender : public IMediaDataConsumer
         void unRefDataStructure(void *ptr);
         void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate);
         int  createPassThroughMode(string& device_id);
-        void appendWebrtcBroacaster(const std::string& peerid, rtc::VideoBroadcaster* broadcaster);
+        void appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster);
         void removeWebrtcBroacaster(const std::string& peerid);
         virtual void onFrame(FrameParams& params);
         void checkEarlyFramesAndSynchronize();
@@ -118,6 +119,7 @@ class VideoWebRTCSender : public IMediaDataConsumer
         std::mutex                      m_earlyFrameMutex;
         std::condition_variable         m_earlyFrameCv;
         std::atomic<bool>               m_isShuttingDown{false};
+        WebrtcFrameTimestamper          m_frameTimestamper;
 
 #ifdef DUMP_BITSTREAM
         int                     m_frameCount = 0;

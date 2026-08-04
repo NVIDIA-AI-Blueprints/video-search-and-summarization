@@ -69,6 +69,10 @@
 			"value": "5"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
+		},
+		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},
@@ -79,10 +83,6 @@
 		{
 			"name": "objectConfidenceThreshold",
 			"value": "0.5"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "image"
 		},
 		{
 			"name": "sourceType",

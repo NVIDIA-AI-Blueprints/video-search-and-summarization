@@ -106,6 +106,12 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
 
 	m_func["/api/v1/live/stream/add"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         string url = in.get("url", EMPTY_STRING).asString();
         string id = in.get("id", EMPTY_STRING).asString();
 
@@ -316,6 +322,12 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
     };
     m_func["/api/v1/live/stream/swap"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         VmsErrorCode ret;
         const string protocol = in.get("protocol", EMPTY_STRING).asString();
         const string startTime = in.get("startTime", EMPTY_STRING).asString();
@@ -336,6 +348,12 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
     };
     m_func["/api/v1/live/stream/stats"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         if (GET_CONFIG().enable_perf_logging == false)
         {
             LOG(error) << "Stream stats not enabled";
@@ -390,10 +408,22 @@ LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> pe
     };
     m_func["/api/v1/live/version"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         return getVersion(req_info, in, out);
     };
     m_func["/api/v1/live/help"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, out)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         return getLiveHelp(req_info, in, out);
     };
     m_func["/v1/live"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode

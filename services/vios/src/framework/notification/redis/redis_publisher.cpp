@@ -58,7 +58,7 @@ NvRedis::NvRedis()
 {
     const char* lib_path;
     // Temporary solution to load libnvds_logger in memory
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_logger.so");
     m_redisHandle = dlopen(lib_path, RTLD_LAZY);
     if (!m_redisHandle)
@@ -76,7 +76,7 @@ NvRedis::NvRedis()
         goto error;
     }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_redis_proto.so");
     m_handle_redis_proto = dlopen(lib_path, RTLD_LAZY);
     if (!m_handle_redis_proto)

@@ -29,22 +29,32 @@
 # Start with:
 #   nat mcp serve --config_file deploy/docker/scripts/vss_orchestrator_mcp_config.yml --port 9988
 #
-# Server listens at: http://localhost:9988/mcp
+# Server listens at: http://localhost:9988/mcp, or https://... when
+# ORCHESTRATOR_ENABLE_HTTPS=true (see the runner_class note below).
+
+general:
+  front_end:
+    _type: mcp
+    # TLS-capable worker. With ORCHESTRATOR_ENABLE_HTTPS=false (the default) it
+    # behaves exactly like the stock NAT worker; with true it serves HTTPS using
+    # ORCHESTRATOR_CERTFILE / ORCHESTRATOR_KEYFILE. Lives here rather than as a
+    # --runner_class CLI flag so every launcher gets the toggle.
+    runner_class: vss_agents.orchestrator.mcp_ssl_worker.SSLMCPWorker
 
 function_groups:
   vss_orchestrator:
-    mdx_data_dir: "/home/ubuntu/video-search-and-summarization/deployments/data-dir"
+    mdx_data_dir: "~/video-search-and-summarization/.mdx_data"
     # Required output directory for docker_generate artifacts.
-    output_dir: "/home/ubuntu/video-search-and-summarization/.orchestrator-artifacts"
+    output_dir: "~/video-search-and-summarization/.orchestrator-artifacts"
     # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
     _type: vss_orchestrator
     # Absolute path to the deploy/docker root. Set HOST_IP separately via env
     # overrides in the docker_generate tool call, or pre-populate the selected profile .env.
-    deployments_dir: "/home/ubuntu/video-search-and-summarization/deploy/docker"
+    deployments_dir: "~/video-search-and-summarization/deploy/docker"
     # Absolute source compose yaml path.
-    source_compose_yaml: "/home/ubuntu/video-search-and-summarization/deploy/docker/compose.yml"
+    source_compose_yaml: "~/video-search-and-summarization/deploy/docker/compose.yml"
     # Absolute source profile env path. Supports {profile}.
-    source_env: "/home/ubuntu/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-{profile}/.env"
+    source_env: "~/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-{profile}/.env"
     # VSS_DATA_DIR base directory used by orchestrator (profile .env VSS_DATA_DIR is ignored).
     mdx_data_directories:
     - data_log/analytics_cache
@@ -99,25 +109,30 @@ function_groups:
         hardware_profiles:
           H100:
           L40S:
+          RTXPRO4500BW:
+            alerts:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
+              RTVI_VLM_MAX_MODEL_LEN: "18000"
+            lvs:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
+              RTVI_VLM_MAX_MODEL_LEN: "18000"
           RTXPRO6000BW:
           OTHER:
           DGX-SPARK:
+            # Local Spark NIM has no hw-DGX-SPARK*.env for nvidia-nemotron-nano-9b-v2;
+            # force the FP8 variant that ships those files.
+            LLM_NAME: nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+            LLM_NAME_SLUG: nvidia-nemotron-nano-9b-v2-fp8
             RTVI_VLM_IMAGE_TAG: "3.2.1-sbsa"
-            PERCEPTION_TAG: "3.2.1-sbsa"
+            PERCEPTION_TAG: "3.3.0-sbsa-26.07.2"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
-            alerts.verification:
-              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
-              RTVI_VLM_MAX_MODEL_LEN: "8192"  # can raise to 16384 if VLLM_ENFORCE_EAGER=true
-              RTVI_VLLM_MAX_NUM_SEQS: "8"
-              # VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
-              # ALERT_AGENT_NUM_WORKERS: "4"
-            alerts.real-time:
-              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.3"
-              RTVI_VLM_MAX_MODEL_LEN: "8192"
-              RTVI_VLLM_MAX_NUM_SEQS: "8"
-              # VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
-              # ALERT_AGENT_NUM_WORKERS: "4"
+            # Unified alerts value, matching dev-profile.sh
+            # get_rtvi_vllm_gpu_memory_utilization (DGX-SPARK local_shared -> 0.4).
+            # The old per-mode 0.25/0.3 split was #477 bring-up tuning with no
+            # counterpart in the bash flow.
+            alerts:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
           IGX-THOR:
             VLM_NAME_SLUG: none
             VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final

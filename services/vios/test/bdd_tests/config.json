@@ -3,6 +3,14 @@
     "base_url": "http://localhost:30888",
     "verify_ssl": false
   },
+  "nvstreamer": {
+    "host": "localhost",
+    "port_base": 31000,
+    "instances": 1,
+    "upload_timestamp": "2025-01-01T00:00:00.000Z",
+    "live_ready_timeout_sec": 150,
+    "replay_ready_timeout_sec": 300
+  },
   "reporting": {
     "junit_xml": "reports/junit.xml",
     "html_report": "reports/report.html",
@@ -121,6 +129,36 @@
     "unit_tests": {
       "test_parameters": {
         "timeout": 30
+      }
+    },
+    "notification_tests": {
+      "test_parameters": {
+        "receiver": {
+          "host": "127.0.0.1",
+          "port": 18088
+        },
+        "webhook_paths": {
+          "camera_add": "/bdd/webhooks/camera/add",
+          "camera_add_unfiltered": "/bdd/webhooks/camera/add/unfiltered",
+          "camera_add_rtsp_only": "/bdd/webhooks/camera/add/rtsp-only",
+          "camera_streaming": "/bdd/webhooks/camera/streaming",
+          "camera_streaming_rtsp": "/bdd/webhooks/camera/streaming/rtsp-only",
+          "camera_remove": "/bdd/webhooks/camera/remove",
+          "camera_remove_rtsp": "/bdd/webhooks/camera/remove/rtsp-only"
+        },
+        "webhook_ids": {
+          "camera_add": "wh-001",
+          "camera_streaming": "wh-002",
+          "camera_remove": "wh-003"
+        },
+        "delivery_timeout_sec": 30,
+        "filter_absence_timeout_sec": 2,
+        "upload_timeout_sec": 60,
+        "api_timeout_sec": 30,
+        "upload_timestamp": "2025-01-01T00:00:00.000Z",
+        "rtsp_sensor": "",
+        "rtsp_streaming_timeout_sec": 90,
+        "rtsp_stream_resolve_timeout_sec": 30
       }
     },
     "performance_tests": {

@@ -60,6 +60,9 @@ rtvi_vlm:
 
 persistence:
   enabled: false
+  # Test/dev profile: allow the non-durable in-process alert-config store
+  # while persistence is disabled (otherwise startup fails readiness).
+  dev_allow_in_memory: true
 
 event_bridge:
   sourceType: "kafka"
@@ -114,14 +117,6 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   chunk_size: 1
-
-websocket:
-  enabled: false
-  consumer_group_prefix: "websocket_instance"
-  redis_consumer:
-    block_time: 1000
-    count: 1
-    reconnect_delay: 5
 
 elastic:
   enabled: true

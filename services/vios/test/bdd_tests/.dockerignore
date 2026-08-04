@@ -30,6 +30,11 @@ test-results/
 clip_*.mp4
 test_upload_*.mp4
 
+# Keep the baked sample clips: the *.mp4 rule above is root-level only, but be
+# explicit so the BDD image always contains test_videos/ regardless of future
+# changes to the rules above.
+!test_videos/
+
 # IDE
 .vscode/
 .idea/

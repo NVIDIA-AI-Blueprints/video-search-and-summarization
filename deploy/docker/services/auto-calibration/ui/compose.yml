@@ -15,19 +15,17 @@
 
 services:
   vss-auto-calibration-ui:
-    image: nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:3.2.1
+    image: ${VSS_AUTO_CALIBRATION_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui}:${VSS_AUTO_CALIBRATION_UI_TAG:-3.3.0-0}
     container_name: vss-auto-calibration-ui
-    profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
+    profiles: ["vss-auto-calibration-ui"]
 
-    # network_mode: "host"
     ports:
-      - ${VSS_AUTO_CALIBRATION_UI_PORT:-5000}:5000
+      - ${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-${VSS_AUTO_CALIBRATION_UI_PORT:-5000}}:5000
     
     # IPC settings for GPU memory sharing
     ipc: host
 
     environment:
-      - API_URL=${AUTO_CALIBRATION_MS_API_URL:-http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1}
+      - API_URL=${VSS_AUTO_CALIBRATION_MS_API_URL:-http://${EXTERNAL_IP:-${HOST_IP}}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1}
 
     restart: unless-stopped
-

@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // A subclass of "ServerMediaSession" that can be used to create a (unicast) RTSP servers that acts as a 'proxy' for
 // another (unicast or multicast) RTSP/RTP stream.
 // C++ header
@@ -121,6 +121,7 @@ public:
   virtual ~ProxyServerMediaSession();
 
   char const* url() const;
+
   char const* getBackendUrl() const;
   MediaSession* getMediaSession() { return fClientMediaSession; }
   void setFrameIdSupport (Boolean enableFrameId) { fFrameIdSupport = enableFrameId; }
@@ -152,7 +153,7 @@ protected:
 			  portNumBits tunnelOverHTTPPortNum, int verbosityLevel,
 			  int socketNumToServer,
 			  MediaTranscodingTable* transcodingTable,
-			  portNumBits initialPortNum = 6970,
+                          portNumBits initialPortNum = 6970,
 			  Boolean multiplexRTCPWithRTP = False,
 			  createNewProxyRTSPClientFunc* ourCreateNewProxyRTSPClientFunc
 			  = defaultCreateNewProxyRTSPClientFunc);

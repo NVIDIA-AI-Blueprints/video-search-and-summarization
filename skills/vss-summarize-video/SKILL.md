@@ -1,388 +1,347 @@
 ---
 name: vss-summarize-video
-description: Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for report generation or live RTSP captioning.
+description: Summarize recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning.
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.2.2"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+
+# VSS Summarize Video
+
 ## Instructions
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`.
+- Execute the five workflow stages below in order.
+- Run API commands yourself; do not tell the user to run them.
+- Use the required references at their named decision points.
 
 ## Examples
 
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-Call the VLM NIM or the video summarization microservice **directly**.
-Always run `curl` commands yourself; never instruct the user to run them.
-
-Primary video workflow query type: **"Summarize this video."** Direct video summarization API
-and service-ops requests are handled by the reference-routed sections below.
+Runnable scenarios live under `evals/`. The command implementations are in
+[`references/end-to-end-example.md`](references/end-to-end-example.md).
 
 ## Purpose
 
-Produce a single, polished narrative summary of one recorded video clip, with
-timestamped events when the LVS microservice path is reachable.
+Produce one polished narrative summary with timestamped events when LVS is
+available.
 
-**Do NOT use this skill for:**
-- Live RTSP captioning — use `vss-deploy-dense-captioning`.
-- Report generation, including incident or alert-window reports — use `vss-generate-video-report` Mode B.
-- Semantic search across the archive — use `vss-search-archive`.
+Do not use this skill for:
+
+- Live RTSP captioning: use `vss-deploy-dense-captioning`.
+- Incident or alert-window reports: use `vss-generate-video-report` Mode B.
+- Archive search: use `vss-search-archive`.
+
+## Required References
+
+Load these files only as directed:
+
+- [`references/end-to-end-example.md`](references/end-to-end-example.md): load
+  before executing the recorded-video workflow. It contains the exact
+  readiness, VIOS preparation, one-request LVS, and VLM fallback commands.
+- [`references/video-summarization-api.md`](references/video-summarization-api.md):
+  load before constructing any live LVS operation. Follow its **Runtime
+  OpenAPI Discovery** procedure on Docker. On Kubernetes, follow the K8s
+  note there — stock LVS Ingress does not publish LVS `/openapi.json`.
+- [`references/hitl-prompts.md`](references/hitl-prompts.md): load when
+  collecting LVS scenario, events, and optional objects of interest.
+- [`references/video-summarization-debugging.md`](references/video-summarization-debugging.md):
+  load only when diagnosing a failed or empty response.
+- [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md):
+  load only for deployment, configuration, logs, or service operations.
+- [`references/video-summarization-environment-variables.md`](references/video-summarization-environment-variables.md)
+  and `assets/video-summarization.env.example`: use when configuring the
+  service environment.
+- [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
+  Kubernetes `VSS_PUBLIC_URL` contract and LVS Exact `/v1` routes.
+
+## Core Invariants
+
+- Route by LVS readiness, never by video duration.
+- HTTP 200 from `/v1/ready` selects LVS. Empty response bodies do not mean
+  unavailable.
+- Once LVS is selected, do not call a VLM `/v1/chat/completions` endpoint.
+- Issue exactly one `POST /v1/summarize` per user summarize request. Never
+  retry, hedge, broaden events, or run a second backend automatically.
+- Save the complete request and response. Diagnose failures from those files,
+  service logs, and non-mutating GET requests.
+- Render `video_summary` and every returned event verbatim. Do not paraphrase,
+  truncate descriptions, add fields, or fabricate `id`.
+- Direct VLM fallback requires explicit user approval unless the original
+  request pre-authorized it.
 
 ## Prerequisites
 
-- VSS `lvs` profile running on `$HOST_IP` (port 38111) OR a reachable
-  VLM/RT-VLM endpoint as a fallback. The `vss-deploy-profile` skill brings
-  these up.
-- Network reachability from the agent host to both endpoints; clip URLs from
-  VIOS must be fetchable by the chosen backend.
-- `jq` and `curl` available on the agent host.
+- VSS `lvs` profile reachable either on Docker (`$HOST_IP:38111`) or through
+  the public Ingress (`VSS_PUBLIC_URL` with Exact `/v1/ready`).
+- `curl` and `jq` on the agent host.
+- Network reachability from the LVS service to the final VIOS clip URL (Docker:
+  from `vss-lvs`; Kubernetes: deploy must mint a URL the LVS pod can fetch).
+
+The `vss-deploy-profile` skill can deploy the profile. A remote fallback VLM
+must be able to fetch the clip URL; it generally cannot fetch localhost or
+private addresses.
 
 ## Limitations
 
-- Direct VLM fallback uses a single fixed prompt and cannot target
-  scenario/events — output quality is lower than the LVS path.
-- Remote VLM endpoints generally cannot reach `localhost`/private clip URLs.
-- One backend call per request; no parallel hedging or multi-pass summaries.
+- Direct VLM fallback cannot target LVS scenarios or events and is lower
+  quality.
+- Private VIOS URLs may be unreachable from remote VLM endpoints.
+- Each user request permits one LVS summarize POST, with no automatic retry.
+- Stock LVS Helm Ingress does not publish LVS `/models`, LVS `/openapi.json`,
+  `/recommended_config`, or `/metrics` — those remain Docker `:38111` only.
 
-## Troubleshooting
+## Endpoint resolution (Kubernetes vs Docker)
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `/v1/ready` returns 503 repeatedly | LVS service still warming up | Retry up to ~30 s as shown in *Setup*; if it never returns 200 the service may not be deployed |
-| Empty `video_summary` and `events` | Clip does not contain the requested events | Re-run with broader `scenario` or different `events` |
-| VLM returns `<think>` block | Cosmos reasoning mode | Strip everything up to `</think>` before rendering |
-| Empty stdout from `curl /v1/ready` | Service legitimately returns 200 with empty body | Always check HTTP status with `-o /dev/null -w '%{http_code}'`, never inspect the body |
+Resolve endpoints once before probing. Follow
+[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
 
-See [`references/video-summarization-debugging.md`](references/video-summarization-debugging.md) for deeper diagnostics.
+```bash
+# Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public origin.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
 
-## Reference Map
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
+  # Origin only — skill appends /v1/ready and /v1/summarize. Never …/v1 here.
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
+  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
+  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+  # Exact /v1/models and /v1/chat/completions → RT-VLM (not Prefix /v1).
+  VLM="${VSS_PUBLIC_URL}"
+else
+  DEPLOYMENT_KIND="docker"
+  LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
+  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
+  VSS_VIOS_URL="http://${HOST_IP:-localhost}:30888/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+  VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+  VLM="${VLM%/v1}"
+fi
+```
 
-Use these references only when the user asks for the relevant detail, or when
-the core workflow below needs deeper video summarization information:
-
-- **video summarization API details**: [`references/video-summarization-api.md`](references/video-summarization-api.md) for
-  `/v1/summarize`, `/summarize`, `/v1/generate_captions`,
-  `/v1/stream_summarize`, health probes, `/models`, `/recommended_config`,
-  `/metrics`, request fields, response shapes, and API gotchas.
-- **video summarization service configuration and ops**:
-  [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md) for
-  the VSS `lvs` profile, ports, required env vars, logs, status, dry-runs,
-  teardown, model/backend swaps, Elasticsearch/Neo4j/ArangoDB backend
-  selection, and service-level troubleshooting.
-- **Extended video summarization ops references**:
-  [`references/video-summarization-environment-variables.md`](references/video-summarization-environment-variables.md),
-  [`references/video-summarization-debugging.md`](references/video-summarization-debugging.md), and
-  `assets/video-summarization.env.example`.
-
-Load `video-summarization-api.md` only when you need a request field, response shape, or
-endpoint that is not already covered by the Step 2 LVS or fallback VLM
-example below, or when handling a direct video summarization API
-request. Load `video-summarization-deployment.md` only for deployment,
-configuration, or service operations.
-
-## Video Summarization API And Service Ops Requests
-
-If the user asks to call or debug video summarization endpoints directly, answer from
-[`references/video-summarization-api.md`](references/video-summarization-api.md) instead of running the
-end-to-end video summarization workflow. Examples: list video summarization models, check
-readiness, get recommended chunking config, inspect metrics, explain a 422
-response, or build a `/v1/summarize` request body.
-
-If the user asks to configure, deploy, restart, tear down, or troubleshoot the
-video summarization service, prefer the `vss-deploy-profile` skill for full VSS profile
-deployment and use [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md)
-for video summarization-specific service details.
+On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts,
+`docker exec`, or `docker inspect`. Do not append `/v1` to `LVS_BACKEND_URL`.
+Ignore Docker-derived `LVS_BACKEND_URL` / `VLM_BASE_URL` / `RTVI_VLM_BASE_URL`
+when `VSS_PUBLIC_URL` is set. Do not treat public `/openapi.json` as the LVS
+schema (that path is Agent on stock Ingress).
 
 ## Routing
 
-Decide purely from video summarization service availability (probed in
-*Setup → Availability checks* below). **Duration does not drive routing.**
+| Service | Base URL |
+|---|---|
+| LVS | `${VIDEO_SUMMARIZATION_URL}` (K8s: `${VSS_PUBLIC_URL}`; Docker: `http://${HOST_IP}:38111`) |
+| VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: public origin; Docker: `:8018`) |
+| VIOS | `${VST_API_BASE}` |
 
-| `/v1/ready` | Backend | Endpoint |
-|---|---|---|
-| HTTP 200 | LVS microservice with HITL | `POST ${LVS_BACKEND_URL}/v1/summarize` |
-| Anything else | VLM / RT-VLM with the default prompt + fallback note | `POST ${VLM_BASE_URL}/v1/chat/completions` |
+Strip a trailing `/v1` from the VLM base because this skill appends it. Do not
+scan ports or inspect configuration files to guess endpoints.
 
-Fallback message when the LVS service is unreachable — copy verbatim above the summary:
+Probe LVS `/v1/ready` using the loop in the end-to-end reference. Readiness is
+the HTTP status only: retry 503 warmup responses for about 30 seconds, and do
+not inspect the body.
 
-> ⚠ **Note:** Input video `<name>` is `<N>`s long.
-> The video summarization service is not deployed, so this summary was
-> produced by the VLM alone with a generic default prompt. Deploy the
-> `lvs` profile for higher-quality summaries with scenario/events
-> targeting.
+| LVS result | Action |
+|---|---|
+| HTTP 200 | Use LVS for every video duration. |
+| Anything else | Ask to deploy LVS or ask before using VLM fallback. |
 
-## Deployment prerequisite
+If LVS is unavailable, ask:
 
-The VSS **lvs** profile on `$HOST_IP` is the primary backend. If the
-`/v1/ready` probe (see *Setup → Availability checks*) returns anything
-other than 200 after the warmup retries, ask the user:
+> The VSS `lvs` profile isn't reachable
+> (`${VSS_PUBLIC_URL:-$HOST_IP:38111}`). Shall I deploy it now using
+> `/vss-deploy-profile -p lvs`? Reply `no` to stop here; I can use the
+> lower-quality VLM-only fallback only if you explicitly ask for it.
 
-> *"The VSS `lvs` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`? Reply `no` to summarize with the VLM-only fallback instead (lower quality, no scenario/events targeting)."*
+- Deployment approved or pre-authorized: invoke `vss-deploy-profile`, re-probe,
+  and continue only after LVS returns 200.
+- Deployment declined: ask separately whether to use VLM fallback. Stop unless
+  the user approves it.
+- Fallback pre-authorized: use the fallback without another prompt.
+- Non-interactive run: the original task is the only approval source. If it
+  pre-authorizes neither deployment nor fallback, report blocked and stop.
 
-- **Yes** → hand off to `/vss-deploy-profile`, then re-probe and continue with Step 2 (LVS + HITL).
-- **No** → go straight to **Step 2 fallback (VLM with default prompt)** and prepend the Routing fallback note. Do not ask again, and do not run scenario/events HITL.
-- **Pre-authorized to deploy autonomously** (caller said so explicitly) → skip the confirmation and invoke `/vss-deploy-profile` directly.
-- **Pre-authorized to use VLM fallback** ("skip lvs, just use the VLM") → go straight to Step 2 fallback without prompting.
+## Recorded Video Workflow
 
----
+### Stage 1: Select the Backend
 
-## Setup
+Load the end-to-end and API references. Run the LVS readiness probe before
+preparing the clip. Also probe VLM `/v1/models` so an approved fallback can be
+validated, but do not infer against it while LVS is ready.
 
-**Endpoints (defaults for a local VSS `lvs` deployment):**
+Discover model IDs from the selected service:
 
-- VLM / RT-VLM: `${VLM_BASE_URL}` — default `${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}`
-- LVS service: `${LVS_BACKEND_URL}` — default `http://${HOST_IP:-localhost}:38111`
-- VIOS: owned by `vss-manage-video-io-storage`; refer there.
+- **Docker:** honor `${VLM_NAME}` only if it matches an id from LVS `GET /models`;
+  otherwise use the sole advertised LVS id.
+- **Kubernetes:** LVS `/models` is not on Ingress. Prefer `${VLM_NAME}` when set;
+  otherwise take the sole id from Exact `GET ${VLM}/v1/models` (RT-VLM). If
+  multiple ids exist and no valid preference selects one, report them and stop.
 
-Use env vars when set (strip trailing `/v1` from the VLM base — the skill appends it). Otherwise use the defaults. If neither works, ask the user — do not scan ports or read config files to guess.
+A non-200 LVS readiness result after warmup is the only unavailability signal.
+An empty summary, empty events, missing optional fields, or empty readiness
+stdout must not trigger fallback.
 
-**Model name:** read `${VLM_NAME}` (default
-`nim_nvidia_cosmos3-nano-reasoner_bf16-final`). It must match the id RT-VLM
-`/v1/models` advertises; do not substitute the friendly
-`nvidia/cosmos3-nano-reasoner`.
+### Stage 2: Prepare the Video Through VIOS
 
-For endpoint schemas, optional fields, response envelopes, and error handling, see [`references/video-summarization-api.md`](references/video-summarization-api.md).
+Execute VIOS API operations directly as part of this workflow; do not invoke a
+separate skill. Follow **Prepare the video through VIOS** in the end-to-end
+reference (uses `${VST_API_BASE}`).
 
-**Availability checks** (run both before routing).
-**Readiness is determined by the HTTP status code only** — the LVS
-`/v1/ready` may legitimately return `200` with an empty body, so do not
-inspect the body.
+1. List sensors and reuse the exact requested recording when present.
+2. If absent and the exact local file is available, upload it through the VIOS
+   file API. For uploaded or sample media without a requested timestamp, use
+   `2025-01-01T00:00:00.000Z` so timeline resolution is deterministic.
+3. Poll the returned stream's timelines and obtain the complete minimum start
+   and maximum end time.
+4. Generate a fresh temporary MP4 URL for that full interval with audio
+   disabled. Pass that minted URL into LVS **as returned** (after stripping a
+   doubled `http://` scheme if present). Do not rewrite it for browser Ingress
+   paths before `POST /v1/summarize`.
+5. If LVS was selected, verify one-byte reachability:
+   - **Docker:** `docker exec vss-lvs` Python range probe in the reference.
+   - **Kubernetes:** bounded Range GET of the minted URL from the agent host
+     (no `docker exec` / `kubectl exec`). Deploy must mint a URL the LVS pod
+     can fetch.
 
-```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
-VLM="${VLM%/v1}"
+Require the exact recording, full timeline, and fresh clip URL before
+continuing. When the source file is available, compare VIOS timeline duration
+with source duration. An upload response or byte probe proves reachability, not
+complete media readiness.
 
-# VLM / RT-VLM: 200 on /v1/models
-vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 \
-  "$VLM/v1/models")
-[ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
+If preparation fails, stop and report the missing prerequisite. Do not choose
+an arbitrary `/tmp` video, alternate recording, local HTTP server, NvStreamer,
+or RTSP source unless the user explicitly requested that source.
 
-# Video summarization service: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
-video_sum_code=000
-for i in $(seq 1 10); do
-  video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 "$VIDEO_SUMMARIZATION_URL/v1/ready")
-  case "$video_sum_code" in
-    200) echo "video summarization OK"; break ;;
-    503) sleep 3 ;;                 # warming up; keep polling
-    *)   break ;;                   # any other code = not reachable, stop retrying
-  esac
-done
-[ "$video_sum_code" = "200" ] || echo "video summarization service not reachable (HTTP $video_sum_code)"
+Do not use the `vss-lvs` container's lightweight `curl` shim for reachability;
+it can write the entire video into tool output. Use the one-byte Python probe
+on Docker.
+
+### Stage 3: Collect LVS Settings
+
+When LVS is selected, load the HITL reference and collect `scenario`, `events`,
+and optional `objects_of_interest` before the summarize POST.
+
+When the caller explicitly says to run autonomously without prompting and asks
+for defaults or supplies no settings, use these values verbatim:
+
+```text
+scenario="activity monitoring"
+events=["notable activity"]
 ```
 
-**How to interpret the results:**
+This is the only HITL bypass. Do not infer defaults from filenames or sensor
+names. Mention defaults in the final response and offer a separate rerun with
+specific settings.
 
-- `video_sum_code = 200` → **Step 2 (LVS + HITL)** for every video.
-- `video_sum_code != 200`, `vlm_code = 200` → **Step 2 fallback (VLM)**; prepend the Routing fallback note.
-- `vlm_code != 200` → fail; at least one backend must be reachable.
-- A non-200 LVS code after the retry loop is the ONLY signal of unavailability. Empty stdout or missing JSON fields are NOT "unavailable."
+### Stage 4: Discover the Contract and Submit Once
 
----
+Prefer `POST /v1/summarize`; `/summarize` is only a Docker compatibility alias
+and is **not** on stock LVS Ingress.
 
-## Step 1 - Get the clip URL via `vss-manage-video-io-storage` (sub-task, NOT the final answer)
+- **Docker:** fetch `/openapi.json` from the same LVS instance immediately
+  before building the operation. Confirm `/v1/summarize`, inspect its live JSON
+  schema, and use that schema rather than a hardcoded copy. Discover the model
+  via LVS `GET /models`.
+- **Kubernetes:** do not fetch public `/openapi.json` (Agent) or LVS `/models`
+  (not published). Confirm the request against the checked-in summarize
+  contract in the API reference, resolve the model as in Stage 1, and POST
+  Exact `/v1/summarize` on `${VIDEO_SUMMARIZATION_URL}`.
 
-**Use the `vss-manage-video-io-storage` skill for all VIOS interactions** — it
-owns the canonical curl recipes, parameter defaults, and delete/upload flows.
-Do not fabricate URLs or hand-roll VIOS calls; they will drift.
+Build the request with the selected model, fresh VIOS URL, exact HITL values,
+`chunk_duration: 10`, and `seed: 1`. Include `objects_of_interest` only when
+provided.
 
-This step is a sub-task — do NOT end your turn here; do NOT return the clip
-URL as the final answer. From VIOS collect three values:
+Do not send `num_frames_per_second_or_fixed_frames_chunk`,
+`use_fps_for_chunking`, or deprecated `num_frames_per_chunk` in the standard
+workflow. RT-VLM owns frame sampling; remote Docker LVS configures five fixed
+frames per chunk for endpoints with that image limit.
 
-1. **`streamId`** (via `sensor/list` → `sensor/<id>/streams`, or directly from an upload response).
-2. **Timeline** - `{startTime, endTime}` (ISO 8601 UTC). `endTime - startTime` is the duration; needed only for the user-facing header (routing is driven solely by `/v1/ready`).
-3. **Temporary MP4 clip URL** — the `/storage/file/<streamId>/url` variant with `container=mp4`. Response field: `.videoUrl`. Both backends need an HTTP(S) URL they can `GET`.
+Use the one-request implementation in the end-to-end reference. Preserve its
+HTTP status and complete body in files. Keep a long client timeout (at least
+300s; Ingress allows up to 600s). After that POST:
 
-Everything else (auth, upload, `disableAudio`, expiry, etc.) lives in the
-`vss-manage-video-io-storage` skill — refer users there if VIOS fails.
+- On curl or HTTP failure, report the exact failure and saved response.
+- If `choices[0].message.content` cannot be parsed, report the exact body.
+- Never repeat the POST for diagnosis. A new POST requires a separate user
+  request.
+- If `video_summary` and `events` are empty, inspect the same response's
+  `usage.total_chunks_processed`. A positive integer confirms processing; zero
+  or missing means processing was not confirmed. Do not claim "no detections."
 
----
+### VLM Fallback for Stages 3-4
 
-## Step 2 — Primary: video summarization microservice with HITL
+Use the fallback command in the end-to-end reference only when LVS remained
+unavailable after warmup and the user explicitly approved fallback. Do not run
+LVS HITL, and never use fallback to repair or replace an LVS response.
 
-Use this path **whenever** `/v1/ready` returned 200 in Setup. Duration is irrelevant.
+Before the result, include:
 
-For advanced fields (`media_info`, `schema`, structured output, stream captioning, metrics, recommended config) see [`references/video-summarization-api.md`](references/video-summarization-api.md).
+> **Note:** Input video `<name>` is `<N>`s long. The video summarization
+> service is not deployed, so this summary was produced by the VLM alone with
+> a generic default prompt. Deploy the `lvs` profile for higher-quality
+> summaries with scenario/events targeting.
 
-### HITL: collect scenario and events first (REQUIRED — do not skip)
+If the VLM cannot fetch the VIOS URL, report that blocker instead of sending
+an inference request.
 
-Full walk-through is in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run HITL before calling the LVS service.
+### Stage 5: Present the Result
 
-**Autonomous-mode defaults.** When the caller has bypassed HITL ("run
-autonomously without prompting") AND the original query asks for
-`default`/`defaults` (or gives none), use
-`scenario="activity monitoring"` and `events=["notable activity"]`
-**verbatim** — do not infer from filename or sensor name. Note the
-defaults in the final reply and offer a re-run with more specific
-parameters. This is the ONLY supported HITL bypass; "the video is
-short" or "the user seems in a hurry" are not valid reasons.
+Start with exactly one header:
 
-Prefer `POST /v1/summarize` (3.2 GA route); `/summarize` is a compatibility alias.
-
-```bash
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
-
-# From HITL reply:
-SCENARIO='warehouse monitoring'
-EVENTS_JSON='["notable activity"]'
-OBJECTS_JSON=''  # '' to omit, else '["forklifts","pallets","workers"]'
-
-curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
-  -H "Content-Type: application/json" \
-  -d "$(jq -n --arg url "<clip_url_from_vss_manage_video_io_storage>" \
-        --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
-        --arg scenario "$SCENARIO" \
-        --argjson events "$EVENTS_JSON" \
-        --argjson objects "${OBJECTS_JSON:-null}" '{
-    url: $url,
-    model: $model,
-    scenario: $scenario,
-    events: $events,
-    chunk_duration: 10,
-    num_frames_per_second_or_fixed_frames_chunk: 20,
-    use_fps_for_chunking: false,
-    seed: 1
-  } + (if $objects == null then {} else {objects_of_interest: $objects} end)')" \
-  | jq -r '.choices[0].message.content' \
-  | jq '{video_summary, events}'
-```
-
-If both `video_summary` and `events` are empty, the clip probably doesn't contain the requested events — re-run with broader `scenario`/`events`, don't report "no content".
-
-**Tuning:** `chunk_duration` (default `10`s; `0` = single chunk),
-`num_frames_per_second_or_fixed_frames_chunk` (default `20`; meaning depends
-on `use_fps_for_chunking`), `seed` (default `1`). `num_frames_per_chunk` is
-deprecated.
-
----
-
-## Step 2 fallback — VLM direct with default prompt
-
-Use this path **only** when `/v1/ready` did not return 200 after warmup. Do NOT run HITL — the user did not opt in; you fell back because the service was missing. Prepend the Routing fallback note to the response.
-
-```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
-VLM="${VLM%/v1}"
-PROMPT='Describe in detail what is happening in this video,
-including all visible people, vehicles, equipments, objects,
-actions, and environmental conditions.
-OUTPUT REQUIREMENTS:
-[timestamp-timestamp] Description of what is happening.
-EXAMPLE:
-[0.0s-4.0s] <description of the first event>
-[4.0s-12.0s] <description of the second event>'
-
-curl -s --max-time 300 -X POST "$VLM/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d "$(jq -n \
-        --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
-        --arg text "$PROMPT" \
-        --arg url "<clip_url_from_vss_manage_video_io_storage>" \
-        '{
-          model: $model,
-          temperature: 0.0,
-          max_tokens: 1024,
-          messages: [{
-            role: "user",
-            content: [
-              {type: "text", text: $text},
-              {type: "video_url", video_url: {url: $url}}
-            ]
-          }]
-        }')" | jq -r '.choices[0].message.content'
-```
-
-**Response:** standard OpenAI chat-completion envelope. The summary is in
-`choices[0].message.content`.
-
-**Cosmos-model notes:** Cosmos models may return reasoning via
-`<think>...</think><answer>...</answer>` blocks. Omit the reasoning
-instructions if you want a plain summary. Frame sampling and pixel limits
-are applied server-side; no client-side prep is required when you pass a
-`video_url`.
-
----
-
-## End-to-end example
-
-See [`references/end-to-end-example.md`](references/end-to-end-example.md) for
-the full LVS-or-VLM-fallback script that probes `/v1/ready` and runs the
-appropriate path.
-
----
-
-## Responses
-
-- **VLM** returns an OpenAI chat-completion envelope; summary is
-  `choices[0].message.content`.
-- **LVS service** returns the same envelope but `content` is a JSON string —
-  run `jq -r '.choices[0].message.content' | jq` to reach `{video_summary, events}`.
-- **Errors** surface as HTTP non-2xx plus JSON `{error: ...}`. LVS `503` usually
-  means warmup — retry `/v1/ready`.
-
-### Presenting the output to the user
-
-Surface backend output with **minimal transformation** — do not paraphrase,
-re-voice, add emojis, or reformat. **One backend call → one rendering**: no
-parallel hedging, no duplicate headers, never call both LVS and VLM for the
-same video.
-
-**Header line.** Start with exactly one:
-
-```
+```text
 Summary of <video_name> (<duration>)
 ```
 
-`<duration>` = `Ns` for `< 60 s`, else `Mm Ss` (e.g. `3m 30s`).
+Use `Ns` below 60 seconds and `Mm Ss` otherwise.
 
-**LVS output:** render `video_summary` **verbatim** (polished, tone-controlled
-report — rewriting loses fidelity). Render each `events` entry with its
-`start_time`, `end_time`, `type`, and full `description` verbatim (table when
-the client renders one cleanly, otherwise a per-event list). You MAY add a
-one-line header and a closing offer to re-run with different parameters.
+For LVS, parse the JSON string in `choices[0].message.content` while preserving
+top-level `usage`. Render `video_summary` verbatim, followed by every event in
+service order. Preserve every returned field and the full `description`; use a
+per-event list if a table would truncate text.
 
-**VLM output:** render `choices[0].message.content` verbatim. If the model
-produced `<think>…</think><answer>…</answer>` blocks, drop the `<think>`
-block and show the answer.
+For VLM, render `choices[0].message.content` verbatim. For Cosmos output, omit
+the `<think>...</think>` block and show the answer. Do not add emojis or
+re-voice either backend's content.
 
-**Fallback warning** (when applicable) goes **above** the summary, never
-mixed into it.
+## Troubleshooting
 
-## Tips
+| Symptom | Action |
+|---|---|
+| `/v1/ready` remains 503 | Treat LVS as unavailable after the warmup loop. |
+| Readiness stdout is empty | Use the HTTP status; a 200 body may be empty. |
+| Summary and events are empty | Inspect saved `usage.total_chunks_processed`; do not retry. |
+| VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
+| K8s `/openapi.json` looks like Agent | Expected — do not use it as LVS schema. |
+| K8s `/models` 404 / HTML | Expected — use Exact `/v1/models` (RT-VLM) or `VLM_NAME`. |
 
-- **Route by service availability, not by duration.** Probe `/v1/ready` once
-  in Setup; HTTP 200 → LVS+HITL for every clip; anything else → VLM fallback.
-- **HITL is mandatory on the LVS path.** The `defaults` opt-in is the only
-  sanctioned bypass. The VLM fallback path is silent (no HITL).
-- **Readiness = HTTP 200 on `/v1/ready`. Nothing else.** Body may be empty.
-  Always use `curl -s -o /dev/null -w '%{http_code}'` — never pipe through
-  `jq`/`grep`/`head`.
-- **Delegate VIOS to `vss-manage-video-io-storage`** — it is a sub-task; the
-  final answer is the Step 2 summary, not the clip URL.
-- **`jq` twice for LVS output.** First unwraps the OpenAI envelope, second
-  parses the JSON string inside `content`.
-- **Prefer `/v1/summarize` for 3.2 GA**; `/summarize` is a compatibility alias.
-- **Use the exact VLM model id advertised by the endpoint** (default
-  `nim_nvidia_cosmos3-nano-reasoner_bf16-final`).
-- **Render output verbatim** — no paraphrasing, no reformatting, no rewriting
-  the `video_summary` or `choices[0].message.content`.
-- **One call, one render.** No parallel hedging, no double renderings.
-- **Match the image tag to the host platform.** Use `LVS_TAG=3.2.1`
-  (and `RTVI_VLM_IMAGE_TAG=3.2.1`) on x86 / Jetson Thor, and
-  `LVS_TAG=3.2.1-sbsa` (and `RTVI_VLM_IMAGE_TAG=3.2.1-sbsa`)
-  on SBSA / DGX Spark / Grace (server-class ARM64) hosts.
+Use the debugging reference for deeper diagnostics and the deployment
+reference for logs or configuration. The LVS image is a multi-arch manifest, so
+`LVS_TAG=develop-latest` is correct everywhere; NGC-hosted companions such as
+RT-VLM still need a host-matched tag (`3.2.1` on x86/Jetson Thor, `3.2.1-sbsa`
+on SBSA/DGX Spark/Grace).
+
+## Direct API and Service Operations
+
+For direct API questions such as models, readiness, recommended configuration,
+metrics, schemas, or 422 responses, use the API reference instead of the
+recorded-video workflow. On Kubernetes, only Exact `/v1/ready` and
+`/v1/summarize` are public for LVS; other LVS admin routes need Docker
+`:38111` or a chart change. For deployment, restart, teardown, backend
+selection, or service logs, prefer `vss-deploy-profile` and use the deployment
+reference.
 
 ## Cross-reference
 
-- **vss-deploy-profile** — bring up the `base` (VLM only) or `lvs` (VLM + video summarization service) profile
-- **vss-manage-video-io-storage** (VIOS API) — upload videos, list streams, get clip URLs
-- **vss-search-archive** — semantic search across the archive (different profile)
-- **vss-query-analytics** — query incidents/events from Elasticsearch
-- **video summarization API reference** — [`references/video-summarization-api.md`](references/video-summarization-api.md)
-- **video summarization service ops reference** — [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md)
+- `vss-deploy-profile`: deploy the `lvs` profile.
+- `vss-manage-video-io-storage`: general VIOS administration outside this
+  ordered workflow.
+- `vss-search-archive`: search archived video.
+- `vss-query-analytics`: query stored incidents and events.
+- `vss-generate-video-report`: Mode A delegates here when LVS `/v1/ready` is 200.
 
 bump:3

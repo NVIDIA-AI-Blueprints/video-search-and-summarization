@@ -13,7 +13,7 @@ docker compose -f compose.yml --profile nim up -d
 - kafka: Broker settings and topics for input/output events.
 - vss_agent: Optional VSS endpoints (disabled by default here).
 - vlm: NIM endpoint/model and video processing params (frames/sampling).
-- event_bridge: Source/sink via Kafka or Redis (hosts, streams, consumer).
+- event_bridge: Source/sink via Kafka (default). The `redis_source` block only carries in-process dedup/filter tuning.
 - prompt: Preference for payload-provided prompts.
 - alert_agent: Worker count and clip duration bounds.
 - websocket: Optional realtime broadcasting (disabled by default).

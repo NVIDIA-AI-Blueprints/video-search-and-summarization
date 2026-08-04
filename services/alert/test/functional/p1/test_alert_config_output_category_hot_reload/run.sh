@@ -78,8 +78,6 @@ ES_HOST="${ES_HOST:-http://127.0.0.1:9200}"
 BOOTSTRAP="${BOOTSTRAP:-127.0.0.1:9092}"
 TOPIC="${TOPIC:-mdx-incidents}"
 AB_HOST="${AB_HOST:-http://localhost:9080}"
-REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
-REDIS_PORT="${REDIS_PORT:-6379}"
 BASE="$AB_HOST/api/v1/verification/config"
 PAYLOAD="${REPO_ROOT}/test/protobuf/test_data/sample_incident.json"
 
@@ -92,33 +90,28 @@ mkdir -p "$PID_DIR"
 
 echo "=== P1: Alert Config output_category hot-reload ($RUN_ID) ==="
 
-# Snapshot the seeded ``alert_config:collision`` so the cleanup trap
-# can restore it. Without this, a phase 4 (DELETE) leaves the
-# subsequent test starting from a different baseline.
-INITIAL_REDIS_DOC="$(python3 -c "
-import json, redis
-r = redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT, decode_responses=True)
-v = r.json().get('alert_config:$ALERT_TYPE')
-print(json.dumps(v) if v else '')
-" 2>/dev/null || echo "")"
+# Snapshot the seeded config via the REST API so the cleanup trap can
+# restore it. Alert configs live in Elasticsearch now (no Redis), managed
+# through the Verification Config API.
+INITIAL_CONFIG_DOC="$(curl -sf "$BASE/$ALERT_TYPE" 2>/dev/null || echo "")"
 
 cleanup() {
     local rc=$?
-    print_status "info" "Cleaning up — restoring initial alert_config:$ALERT_TYPE"
-    if [ -n "$INITIAL_REDIS_DOC" ]; then
-        python3 -c "
-import json, redis
-r = redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT, decode_responses=True)
-doc = json.loads('''$INITIAL_REDIS_DOC''')
-r.json().set('alert_config:$ALERT_TYPE', '\$', doc)
-" 2>/dev/null || true
-    else
-        python3 -c "
-import redis
-r = redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT, decode_responses=True)
-try: r.json().delete('alert_config:$ALERT_TYPE')
-except Exception: r.delete('alert_config:$ALERT_TYPE')
-" 2>/dev/null || true
+    print_status "info" "Cleaning up — restoring initial config for $ALERT_TYPE"
+    if [ -n "$INITIAL_CONFIG_DOC" ]; then
+        # Restore the original output_category through the API.
+        local orig_cat
+        orig_cat="$(echo "$INITIAL_CONFIG_DOC" | python3 -c "
+import json, sys
+try:
+    print(json.load(sys.stdin).get('output_category') or '')
+except Exception:
+    print('')
+" 2>/dev/null || echo "")"
+        if [ -n "$orig_cat" ]; then
+            curl -sf -X PUT "$BASE/$ALERT_TYPE" -H "Content-Type: application/json" \
+                -d "{\"output_category\": \"$orig_cat\"}" >/dev/null 2>&1 || true
+        fi
     fi
     rm -f "$PID_DIR/payload_${RUN_ID}_"*.json 2>/dev/null || true
     exit $rc
@@ -213,11 +206,9 @@ phase_check() {
 print_status "wait" "Checking prerequisites"
 curl -fsS "$AB_HOST/health" >/dev/null \
     || { print_status "fail" "AB unreachable at $AB_HOST"; exit 2; }
-python3 -c "
-import redis
-redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT).ping()
-" >/dev/null 2>&1 \
-    || { print_status "fail" "Redis unreachable at $REDIS_HOST:$REDIS_PORT"; exit 2; }
+# Alert configs are served from the Verification Config API (ES-backed).
+curl -fsS "$BASE" >/dev/null \
+    || { print_status "fail" "Alert-config API unreachable at $BASE"; exit 2; }
 
 # ── 1. Phase 0 — seeded baseline ────────────────────────────────────
 phase_check "Phase 0 (seeded baseline)"             "p0" "$EXPECTED_FILE_MAPPING" || exit 1
@@ -246,5 +237,5 @@ curl -fsS -X PUT "$BASE/$ALERT_TYPE" \
     -d '{"output_category": null}' >/dev/null
 phase_check "Phase 3 (PUT null - explicit clear)"  "p3" "$ALERT_TYPE" || exit 1
 
-print_status "ok" "PASS: output_category propagates from API → Redis → published doc on every change"
+print_status "ok" "PASS: output_category propagates from API → Elasticsearch → published doc on every change"
 exit 0

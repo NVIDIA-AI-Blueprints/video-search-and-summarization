@@ -2,7 +2,7 @@
 
 Parent: [`../SKILL.md`](../SKILL.md). Run **after** [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) returns. Goal: confirm perception + fusion are running, BEV is flowing through the broker, and the user has a working browser viewing path (VST video wall).
 
-Overlay viz uses the existing VST video wall — there's no separate visualization skill for MV3DT. Whether bounding boxes actually render depends on which profile was deployed (see [`../SKILL.md` Q0](../SKILL.md#q0--profile-size-overlays-or-not)).
+Overlay viz uses the existing VST video wall — there's no separate visualization skill for MV3DT. Whether bounding boxes actually render depends on which service list was deployed (see [`../SKILL.md` Q0](../SKILL.md#q0--deployment-size-overlays-or-not)).
 
 ## Step 1 — Container health
 
@@ -13,7 +13,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}' \
 
 Expected — all the following must show `Up` (or `Up (healthy)` where a health check applies):
 
-### Always-deployed (both profiles)
+### Always deployed (both MV3DT service lists)
 
 | Container | Expected state |
 |---|---|
@@ -26,13 +26,12 @@ Expected — all the following must show `Up` (or `Up (healthy)` where a health 
 | `vss-vios-ingress` | `Up (healthy)` |
 | `vss-vios-streamprocessing` | `Up (healthy)` — records streams for the VST video wall |
 | `vss-vios-postgres` | `Up (healthy)` — VST sensor-ms backing store |
-| `vss-haproxy-ingress` | `Up` — present under MV3DT (services still reached on direct ports) |
 | `sdr-controller` | `Up` (with `sdrc-*` one-shot init helpers `Exited (0)`) |
 | `vss-configurator-mv3dt` | `Up (healthy)` |
 | `vss-vios-nvstreamer-mv3dt` | `Up` (sample/videos only — absent when feeding external RTSP) |
 | `vss-behavior-analytics-mv3dt` | `Up` (always — NOT gated by MINIMAL_PROFILE) |
 
-> `vss-auto-calibration` / `-ui` are **not** part of the MV3DT deploy (they belong to the separate `auto_calib` calibration flow). If you see them running, they're from that flow — see [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) "What this brings up".
+> `vss-auto-calibration` / `-ui` are **not** part of the MV3DT deploy (they belong to the standalone AMC or warehouse auto-calibration service lists). If you see them running, they're from that flow — see [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) "What this brings up".
 
 ### Extra under extended (`MINIMAL_PROFILE=""`)
 
@@ -45,6 +44,7 @@ Expected — all the following must show `Up` (or `Up (healthy)` where a health 
 | `vss-kibana-init-mv3dt` | `Exited (0)` — one-shot |
 | `vss-video-analytics-api-mv3dt` | `Up (healthy)` |
 | `vss-import-calibration-output-mv3dt` | `Exited (0)` — one-shot |
+| `vss-haproxy-ingress` | `Up` |
 
 If anything stays `(starting)` or `(unhealthy)` past ~15 min, jump to [`troubleshooting.md`](troubleshooting.md).
 
@@ -102,7 +102,7 @@ Confirm metadata is flowing end-to-end by watching the two topics MV3DT uses:
 
 ### Kafka path
 
-The shipped image is `confluentinc/cp-kafka:8.2.0`, which exposes `kafka-get-offsets`. The older `kafka-run-class kafka.tools.GetOffsetShell` does **not** exist in this image — `ClassNotFoundException`. Use:
+The shipped image is `confluentinc/cp-kafka:8.3.0`, which exposes `kafka-get-offsets`. The older `kafka-run-class kafka.tools.GetOffsetShell` does **not** exist in this image — `ClassNotFoundException`. Use:
 
 ```bash
 # Latest offsets — repeat after 30s, numbers must grow on both topics
@@ -135,9 +135,11 @@ If `mdx-bev` is empty but `mdx-raw` is growing: fusion isn't producing output �
 **Container health from Step 1 is not sufficient** — perception and fusion can be `Up`/`healthy` while `Active sources : 0` and the broker offsets stay flat. Do **not** report success or hand the user the URLs until every check below is green. This block ties Steps 2–4 together and adds the exact VST sensor-set check:
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_STABLE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
 NUM_STREAMS=$(grep '^NUM_STREAMS=' "$ENV_FILE" | cut -d= -f2)
-MINIMAL_PROFILE_VAL=$(grep '^MINIMAL_PROFILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"')
+MINIMAL_PROFILE_VAL=$(grep '^MINIMAL_PROFILE=' "$ENV_STABLE" | cut -d= -f2 | tr -d '"')
 VST_HOST="${HOST_IP:-localhost}"; VST_PORT="${VST_PORT:-30888}"
 CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
 
@@ -177,7 +179,7 @@ echo "mdx-raw: ${r1:-0} -> ${r2:-0}    mdx-bev: ${b1:-0} -> ${b2:-0}"
   && echo "  offsets growing on both topics" \
   || echo "  offsets NOT growing on one or both topics"
 
-# 4. Extended profile: calibration/image import must really succeed for VST overlays.
+# 4. Extended service list: calibration/image import must really succeed for VST overlays.
 #    The importer can exit 0 even when the API returned {"error":...}; inspect both logs.
 if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
   docker exec vss-video-analytics-api-mv3dt sh -lc 'touch /web-api-app/files/.amc_write_test && rm -f /web-api-app/files/.amc_write_test' \
@@ -205,7 +207,7 @@ if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
   fi
   echo "  note: http://${VST_HOST}:5601/ can return 404 because Kibana is served under /kibana"
 else
-  echo "Import check skipped under minimal profile"
+  echo "Import check skipped under the minimal service list"
 fi
 
 # 5. VST streamprocessing must be able to find calibration by runtime sensor name.
@@ -224,12 +226,12 @@ fi
 2. The VST sensor set matches the calibration cameras **exactly** (no extra, empty, or stale records).
 3. Every expected sensor reports **online**.
 4. Both `mdx-raw` and `mdx-bev` offsets grew between the two samples.
-5. Under extended profile, the video-analytics upload-dir write test passes.
-6. Under extended profile, importer logs reach `done` and neither importer nor video-analytics-api logs contain `EACCES`, permission errors, `{"error":...}`, or `Something broke`.
-7. Under extended profile, `http://<HOST_IP>:5601/kibana/app/dashboards` returns HTTP 200; bare `http://<HOST_IP>:5601/` can return 404 because Kibana is served under `/kibana`.
+5. Under the extended service list, the video-analytics upload-dir write test passes.
+6. Under the extended service list, importer logs reach `done` and neither importer nor video-analytics-api logs contain `EACCES`, permission errors, `{"error":...}`, or `Something broke`.
+7. Under the extended service list, `http://<HOST_IP>:5601/kibana/app/dashboards` returns HTTP 200; bare `http://<HOST_IP>:5601/` can return 404 because Kibana is served under `/kibana`.
 8. `vss-vios-streamprocessing` logs do not contain `No calibration data found for sensor` for the runtime camera names.
 
-If any core stream check fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. If the extended-profile import check or streamprocessing calibration lookup check fails, the deploy may process streams but overlays are not ready; fix the issue in [`troubleshooting.md`](troubleshooting.md) before reporting success. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
+If any core stream check fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. If the extended-list import check or streamprocessing calibration lookup check fails, the deploy may process streams but overlays are not ready; fix the issue in [`troubleshooting.md`](troubleshooting.md) before reporting success. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
 
 ## Step 5 — VST video wall
 
@@ -239,13 +241,13 @@ http://<HOST_IP>:30888/vst
 
 Report the `/vst` route as the launch URL. Opening the base port without `/vst` can show the default nginx landing page and is not the VST UI.
 
-Use `HOST_IP` from the `.env` (or whatever the user can actually reach from a browser — see "Browser reachability" below for cloud VMs / corp VPN).
+Use `HOST_IP` from the active `generated.env` (or whatever the user can actually reach from a browser — see "Browser reachability" below for cloud VMs / corp VPN).
 
-### Bounding-box overlays (extended profile only)
+### Bounding-box overlays (extended service list only)
 
-Overlays render only when Elasticsearch is populated with the metadata index — i.e. **`MINIMAL_PROFILE=""` (extended)**. Under minimal mode, ELK + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt` are not deployed, and VST shows raw video without overlays. This matches `vss-deploy-profile/references/warehouse.md` lines 37 / 211.
+Overlays render only when Elasticsearch is populated with the metadata index — i.e. **`MINIMAL_PROFILE=""` with the non-`_MINIMAL` MV3DT service list**. With a `_MINIMAL` list, ELK + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt` are not deployed, and VST shows raw video without overlays.
 
-If you're on minimal and the user wants overlays: tear down ([`teardown.md`](teardown.md)), set `MINIMAL_PROFILE=""`, redeploy ([`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md)).
+If you're on minimal and the user wants overlays: tear down ([`teardown.md`](teardown.md)), set `MINIMAL_PROFILE=""` in `generated.env`, change `COMPOSE_PROFILES` to the corresponding non-`_MINIMAL` MV3DT selector, and redeploy ([`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md)).
 
 In the VST UI, enable overlays via the player's options menu — by default the 3D bounding box overlay is off; toggle it on per stream.
 
@@ -316,12 +318,12 @@ If the user is on a host without these restrictions (LAN, public IP with permiss
 | Surface | URL | Notes |
 |---|---|---|
 | NvStreamer UI | `http://<HOST_IP>:31000` | Configure / inspect the RTSP server (sample / videos mode only) |
-| Auto-Calibration UI | `http://<HOST_IP>:5000` | Only if AMC was deployed via the separate `auto_calib` flow ([`calibration-workflow.md`](calibration-workflow.md)) — **not** part of the MV3DT deploy itself |
+| Auto-Calibration UI | `http://<HOST_IP>:5000` | Only if AMC was deployed through the standalone or warehouse auto-calibration service list ([`calibration-workflow.md`](calibration-workflow.md)) — **not** part of the MV3DT deploy itself |
 | VST sensor list (API) | `http://<HOST_IP>:30888/vst/api/v1/sensor/list` | `jq` it to confirm `NUM_STREAMS` sensors are registered |
 | VST MCP | `http://<HOST_IP>:8001` | Read-only diagnostics |
 | Kibana (extended only) | `http://<HOST_IP>:5601/kibana/app/dashboards` | Dashboards for `mdx-bev` and friends. Bare `:5601/` may return 404 because Kibana uses base path `/kibana`. |
 
-`vss-haproxy-ingress` does come up under MV3DT, but there's no path-based ingress routing for the MV3DT surfaces — access the services on their direct ports as listed above (the agent UI / `:7777` path routing belongs to the full `bp_wh` agents profile, not `MODE=mv3dt`).
+`vss-haproxy-ingress` comes up only with the extended MV3DT service list; the `_MINIMAL` list omits it. Use the direct service ports above for MV3DT surfaces (the agent UI routes belong to `BP_PROFILE=bp_wh`, which does not support `MODE=mv3dt`).
 
 ## When something is wrong
 

@@ -12,16 +12,16 @@
 #define API_VIDEO_CODECS_VIDEO_DECODER_FACTORY_H_
 
 #include <memory>
-#include <string>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/environment/environment.h"
+#include "api/video/resolution.h"
 #include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_decoder.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
-
-class VideoDecoder;
 
 // A factory that creates VideoDecoders.
 // NOTE: This class is still under development and may change without notice.
@@ -32,9 +32,18 @@ class RTC_EXPORT VideoDecoderFactory {
     bool is_power_efficient = false;
   };
 
+  virtual ~VideoDecoderFactory() = default;
+
   // Returns a list of supported video formats in order of preference, to use
   // for signaling etc.
   virtual std::vector<SdpVideoFormat> GetSupportedFormats() const = 0;
+
+  // TODO(crbug.com/505034803): Deprecate once all clients are switched.
+  // [[deprecated("Use the 3-parameter version instead")]]
+  virtual CodecSupport QueryCodecSupport(const SdpVideoFormat& format,
+                                         bool reference_scaling) const {
+    return QueryCodecSupport(format, reference_scaling, std::nullopt);
+  }
 
   // Query whether the specifed format is supported or not and if it will be
   // power efficient, which is currently interpreted as if there is support for
@@ -44,24 +53,21 @@ class RTC_EXPORT VideoDecoderFactory {
   // needed is if the video stream is produced with a scalability mode that has
   // a dependency between the spatial layers. See
   // https://w3c.github.io/webrtc-svc/#scalabilitymodes* for a specification of
-  // different scalabilty modes. NOTE: QueryCodecSupport is currently an
-  // experimental feature that is subject to change without notice.
-  virtual CodecSupport QueryCodecSupport(const SdpVideoFormat& format,
-                                         bool reference_scaling) const {
-    // Default implementation, query for supported formats and check if the
-    // specified format is supported. Returns false if `reference_scaling` is
-    // true.
-    CodecSupport codec_support;
-    codec_support.is_supported =
-        !reference_scaling && format.IsCodecInList(GetSupportedFormats());
-    return codec_support;
-  }
+  // different scalabilty modes.
+  // The parameter `resolution` may optionally be provided to require the format
+  // has decoding support up to the provided resolution to mark it as supported.
+  //
+  // NOTE: QueryCodecSupport is currently an experimental feature that is
+  // subject to change without notice.
+  virtual CodecSupport QueryCodecSupport(
+      const SdpVideoFormat& format,
+      bool reference_scaling,
+      std::optional<Resolution> resolution) const;
 
-  // Creates a VideoDecoder for the specified format.
-  virtual std::unique_ptr<VideoDecoder> CreateVideoDecoder(
+  // Creates a VideoDecoder for the specified `format`.
+  virtual std::unique_ptr<VideoDecoder> Create(
+      const Environment& env,
       const SdpVideoFormat& format) = 0;
-
-  virtual ~VideoDecoderFactory() {}
 };
 
 }  // namespace webrtc

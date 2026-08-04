@@ -18,7 +18,7 @@
 
 services:
   video-analytics-api:
-    image: video-analytics-api:integration-test
+    image: ${VIDEO_ANALYTICS_API_IMAGE:-video-analytics-api:integration-test}
     network_mode: "host"
     volumes:
       - $INTEGRATION_TEST_DIR/docker_compose/apps/video-analytics-api-integration-config.json:/resources/config.json:ro

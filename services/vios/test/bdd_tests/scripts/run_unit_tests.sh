@@ -20,14 +20,17 @@
 # streamprocessing-ms), producing one CSV and one JUnit XML per group under
 # reports/unit_tests/:
 #
-#   vst-sensor.xml          <- sensor_management
+#   vst-sensor.xml           <- sensor_management            (sensor-ms container)
 #   vst-streamprocessing.xml <- live_stream, replay_stream, rtsp_proxy,
 #                               storage_management, stream_recorder
-#   vst-mcp.xml             <- mcp_gateway (kept for dashboard continuity;
-#                              tests are gated by the mcp_gateway pytest
-#                              marker and skipped by default in this flow
-#                              because vst-mcp is not part of the
-#                              stream-processing compose stack)
+#                               (all run inside the streamprocessing-ms monolith)
+#   vst-ingress.xml          <- ingress (basic nginx-gateway health and routing
+#                               tests: /health, and that sensor + streamprocessing
+#                               APIs are proxied through the gateway)
+#
+# These three match the containers the stream-processing compose deploys
+# (sensor-ms, streamprocessing-ms, vst-ingress). mcp_gateway is intentionally not
+# grouped here -- vst-mcp is not part of this stack.
 #
 # Usage:
 #   ./scripts/run_unit_tests.sh [--base-url http://host:30888]
@@ -65,13 +68,15 @@ GROUP_RESULTS=()
 
 # Container groups: <junit-name>|<csv-name>|<space-separated test subdirs>
 # Update this list if the deployed container topology changes.
-GROUPS=(
+# NB: do NOT name this array GROUPS -- that is a reserved bash array (the
+# caller's group IDs) and assignments to it are ignored/error in bash 5.x.
+CONTAINER_GROUPS=(
     "vst-sensor|sensor_management|sensor_management"
-    "vst-mcp|mcp_gateway|mcp_gateway"
     "vst-streamprocessing|streamprocessing|live_stream replay_stream rtsp_proxy storage_management stream_recorder"
+    "vst-ingress|ingress|ingress"
 )
 
-for GROUP in "${GROUPS[@]}"; do
+for GROUP in "${CONTAINER_GROUPS[@]}"; do
     JUNIT_NAME="${GROUP%%|*}"
     REST="${GROUP#*|}"
     CSV_NAME="${REST%%|*}"

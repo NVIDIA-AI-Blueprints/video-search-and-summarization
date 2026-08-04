@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-vios-streamprocessing
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing
+  tag: "2.1.0-26.07.1"
   pullPolicy: IfNotPresent
 replicas: 1
 # When true: create StatefulSet named vss-vios-streamprocessing (required for SDR). When false: create Deployment (vss-alerts-vss-vios-streamprocessing).
@@ -51,9 +51,9 @@ readinessProbe:
   failureThreshold: 30
 sensorModuleEndpoint: ""
 vstIngressEndpoint: ""   # default: <Release>-vss-vios-ingress:30888/vst (host:port/path, no scheme). When global.vlmBaseUrl and global.externalHost are set, defaults to <externalHost>[:externalPort]/vst so incident URLs work for remote VLM. Override explicitly if needed.
-# Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means use Release.Name (e.g. vss-redis:6379).
+# Redis: used in notification_config.json message_broker.redis_server_env_var. Default "" means use Release.Name (e.g. vss-redis:6379).
 redisServerAddress: ""
-# Kafka / video metadata / cloud storage / MQTT: vst_config.json placeholders. Empty = release-based or Compose default.
+# Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.
 kafkaServerAddress: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
@@ -87,11 +87,6 @@ env:
   # Compose parity: services/vios/vst.env sets VST_VIDEO_STORAGE_SIZE_MB=100000 (in MB). Caps on-disk video storage before aging policy reclaims.
   - name: VST_VIDEO_STORAGE_SIZE_MB
     value: "100000"
-  # Compose parity: services/vios/streamprocessing/docker-compose.yaml sets
-  # DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1 on every streamprocessing container so
-  # DeepStream extracts a stable sensor id from RTSP source metadata.
-  - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
-    value: "1"
   # SENSOR_MODULE_ENDPOINT and VST_INGRESS_ENDPOINT are set by the template from sensorModuleEndpoint / vstIngressEndpoint (with release-based defaults)
 
 # Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH, CLIP_STORAGE_PATH. Optional PVCs for vst-data, vst-video, streamer-videos. temp-files stays EmptyDir.

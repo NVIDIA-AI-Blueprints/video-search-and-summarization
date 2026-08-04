@@ -15,28 +15,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# installing required binaries
-ARCH=$(uname -m)
-JQ_URL=""
-
-if [ "$ARCH" = "x86_64" ]; then
-    JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"
-elif [ "$ARCH" = "aarch64" ]; then
-    JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64"
-else
-    echo "Unsupported architecture: $ARCH"
+# Prefer jq baked into the image (cp-kafka 8.3+ ubi9-micro has no curl/wget).
+if [ -x /home/appuser/jqbin/jq ]; then
+    export PATH="/home/appuser/jqbin:${PATH}"
+elif ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq is required but was not found. Use the kafka-topic-init image built from Dockerfiles/kafka-health-check.Dockerfile."
     exit 1
 fi
 
-mkdir -p ~/jqbin
-curl -L -o ~/jqbin/jq "$JQ_URL"
-chmod +x ~/jqbin/jq
-
-export PATH="/home/appuser/jqbin:${PATH}"
-
 # bootstrap kafka hosts
-KAFKA_HOST=${BOOTSTRAP_HOST:-localhost}
-KAFKA_PORT=${KAFKA_PORT:-9092}
+KAFKA_HOST=${BOOTSTRAP_HOST:-kafka}
+KAFKA_PORT=${KAFKA_PORT:-29092}
 
 echo 'Waiting for Kafka to come up in order to create the kafka-topics'
 

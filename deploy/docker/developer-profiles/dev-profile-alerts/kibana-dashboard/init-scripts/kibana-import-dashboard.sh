@@ -20,13 +20,13 @@ set -e
 # KIBANA CONNECTION VARIABLES
 KB_CONNECTION_RETRY_ATTEMPTS=0
 KB_CONNECTION_MAX_ATTEMPTS=10
-KB_URL="http://localhost:5601/kibana"
+KB_URL="${KIBANA_URL:-http://kibana:5601/kibana}"
 
 
 # ES CONNECTION VARIABLES
 ES_CONNECTION_RETRY_ATTEMPTS=0
 ES_CONNECTION_MAX_ATTEMPTS=10
-ES_URL="http://localhost:9200"
+ES_URL="${ES_URL:-http://elasticsearch:9200}"
 
 #################################
 ## function: check_ES_status
@@ -80,7 +80,7 @@ exit_with_msg(){
 ##############################
 import_dashboard(){
     echo -e "Importing Dashboards"
-    curl -X POST localhost:5601/kibana/api/saved_objects/_import?overwrite=true \
+    curl -X POST "$KB_URL/api/saved_objects/_import?overwrite=true" \
     -H "kbn-xsrf: true" \
     --form file=@"/opt/mdx/its-kibana-objects.ndjson" || exit_with_msg "Curl command to import kibana dashboard failed with failed with error code $?."
 }

@@ -176,6 +176,7 @@ void SensorMonitoring::notifyEvent(const SensorStatus& status, const string& url
     event["camera_url"] = change == "camera_add" ? "" : url; // Use original URL for payload
     event["ipc_url"]    = GET_CONFIG().enable_ipc_path == true ? ipc_url : "";
     event["change"] = change;
+    event["camera_type"] = vst_common::cameraTypeForSensor(status.sensorId);
     if (status.tags.empty() == false)
     {
         event["tags"] = status.tags;

@@ -1,11 +1,13 @@
-# Sanity Drop 06 — Redis Dedup
+# Sanity Drop 06 — Dedup
 #
 # Mirrors test/functional/p1/test_redis_dedup/run.sh. Inject the SAME synthetic
-# sensor twice in quick succession (within Redis dedup TTL); assert exactly 1
+# sensor twice in quick succession (within the dedup TTL); assert exactly 1
 # doc lands in ES, not 2 (dedup fired).
 #
-# Both injects use the same id-suffix so AB's fingerprint matches and the
-# second is dropped at the Redis dedup layer.
+# Dedup is now in-process (Redis removed). Both injects use the same id-suffix
+# so AB's fingerprint matches and the second is dropped by the in-process dedup
+# layer. Because mdx-incidents is partitioned by sensorId, both land on the same
+# consumer, so a single instance sees and dedups them.
 
 PROBE="probes/assert_es_doc_count_delta.sh"
 PROBE_ENV_EXPECTED_COUNT=1

@@ -2,7 +2,7 @@
 	"network":
 	{
 		"http_port":"30000",
-		"server_domain_name":"",
+		"server_domain_name":"vss-vios-streamprocessing",
 		"stunurl_list": ["stun.l.google.com:19302","stun1.l.google.com:19302"],
 		"static_turnurl_list": [],
 		"use_coturn_auth_secret": false,
@@ -147,20 +147,6 @@
 		"picture_api_timeout_secs": 20,
 		"restore_rtsp_streams_on_startup": true
 	},
-	"notifications":
-	{
-		"enable_notification": true,
-		"enable_notification_consumer": true,
-		"use_message_broker_consumer" : "kafka",
-		"message_broker_topic_consumer": "mdx-raw",
-		"use_message_broker" : "redis",
-		"message_broker_payload_key": "sensor.id",
-		"message_broker_topic": "vst.event",
-		"message_broker_metadata_topic": "mdx-raw",
-		"redis_server_env_var": "localhost:6379",
-		"kafka_server_address": "localhost:9092",
-		"mqtt_broker_address": "tcp://172.17.0.1:1883"
-	},
 	"debug":
 	{
 		"enable_perf_logging":true,
@@ -181,7 +167,7 @@
 	},
 	"overlay":
 	{
-		"video_metadata_server": "localhost:9200/mdx-raw*",
+		"video_metadata_server": "elasticsearch:9200/mdx-raw*",
 		"video_metadata_query_batch_size_num_frames": 300,
 		"use_video_metadata_protobuf": true,
 		"enable_gem_drawing": true,

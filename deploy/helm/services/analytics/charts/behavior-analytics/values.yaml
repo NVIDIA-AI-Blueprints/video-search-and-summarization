@@ -22,8 +22,8 @@ global: {}
 replicas: 1
 
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-behavior-analytics
-  tag: "3.2.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 
 port: 8080
@@ -48,6 +48,8 @@ resourceFiles:
 
 downloadResourcesFromNgc: false
 downloadResourcesFromNgcWaitSeconds: 300
+downloadResourcesJob:
+  ttlSecondsAfterFinished: null
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"

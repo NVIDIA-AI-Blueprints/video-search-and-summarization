@@ -23,4 +23,6 @@ metadata:
 data:
   labels.txt: |
 {{ .Files.Get "files/warehouse-standalone-3d/deepstream/label/labels.txt" | nindent 4 }}
+binaryData:
+  _ov_kmeans900_v2.2.npy: {{ .Files.Get "files/warehouse-standalone-3d/anchors/_ov_kmeans900_v2.2.npy" | b64enc | quote }}
 {{- end }}

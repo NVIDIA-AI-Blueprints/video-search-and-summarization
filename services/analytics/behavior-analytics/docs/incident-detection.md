@@ -174,7 +174,7 @@ Incident(
 
 ## Data Flow
 
-```
+```text
 Raw Frames (objects) → Frame Enhancement (calculates violations & FOV metrics) → 
 Enhanced Frames → This Module (update_frames):
   1. Filter frames by time

@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-vios-sensor
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-vios-sensor
+  tag: "2.1.0-26.07.1"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -44,9 +44,9 @@ readinessProbe:
 streamProcessorEndpoint: ""   # override if needed; else derived from streamProcessorService
 streamProcessorService: "sdrc"
 vstIngressEndpoint: ""        # full URL with scheme. When global.vlmBaseUrl and global.externalHost are set, defaults to <externalScheme>://<externalHost>[:externalPort]/vst for remote VLM. Else in-cluster vst-ingress URL.
-# Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means <Release.Name>-redis:6379.
+# Redis: used in notification_config.json message_broker.redis_server_env_var. Default "" means <Release.Name>-redis:6379.
 redisServerAddress: ""
-# Kafka / video metadata / cloud storage / MQTT: vst_config.json placeholders. Empty = release-based or Compose default.
+# Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.
 kafkaServerAddress: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
@@ -75,11 +75,6 @@ env:
     value: nvcentralizedb
   - name: CENTRALIZE_DB_USERNAME
     value: vst
-  # Compose parity: services/vios/initiator/docker-compose.yaml sets
-  # DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1 on the sensor/initiator container so
-  # DeepStream extracts a stable sensor id from RTSP source metadata.
-  - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
-    value: "1"
   # STREAM_PROCESSOR_MODULE_ENDPOINT is set by the template from streamProcessorEndpoint
 
 # Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH. Optional PVCs for vst-data, vst-video.

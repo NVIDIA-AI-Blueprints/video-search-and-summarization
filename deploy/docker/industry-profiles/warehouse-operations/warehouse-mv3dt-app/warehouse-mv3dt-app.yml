@@ -20,11 +20,15 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["vss-behavior-analytics-mv3dt"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics-mv3dt
+    networks:
+      default:
+        aliases:
+          - vss-behavior-analytics
     command: python3 apps/analytics/main_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
     depends_on:
       broker-health-check:
@@ -34,7 +38,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["playback_kafka_mv3dt", "playback_redis_mv3dt"]
+    profiles: ["vss-behavior-analytics-playback-mv3dt"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_DATA_DIR/playback/warehouse_20x20_playback.txt:/opt/mdx/playback/warehouse_20x20_playback.txt
@@ -42,21 +46,19 @@ services:
     command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_20x20_playback.txt
 
   nvstreamer-mv3dt:
+    extends:
+      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      service: nvstreamer-base
     container_name: vss-vios-nvstreamer-mv3dt
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-    user: "0:0"
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     runtime: nvidia
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
-    environment:
-      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
-      - ADAPTOR=streamer
-      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-    network_mode: "host"
+    profiles: ["nvstreamer-mv3dt"]
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 2
       resources:
         reservations:
           devices:
@@ -66,6 +68,7 @@ services:
             - "${RT_CV_DEVICE_ID:-0}"
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -78,16 +81,15 @@ services:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
       network: host
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
+    profiles: ["bp-configurator-mv3dt-init"]
     container_name: vss-configurator-mv3dt-init
-    network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
       STREAM_TYPE: $STREAM_TYPE
       MAX_RETRIES: 60
       RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: localhost
-      KAFKA_PORT: 9092
+      BOOTSTRAP_HOST: ${STREAM_TYPE}
+      KAFKA_PORT: 29092
       REDIS_PORT: 6379
       KAFKA_TOPICS: '[{"name": "mdx-raw"},
         {"name": "mdx-bev"},
@@ -120,10 +122,13 @@ services:
         fi
 
   bp-configurator-mv3dt:
-    image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
+    image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.2.1}
     container_name: vss-configurator-mv3dt
-    network_mode: "host"
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
+    networks:
+      default:
+        aliases:
+          - vss-configurator
+    profiles: ["bp-configurator-mv3dt"]
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
@@ -148,19 +153,21 @@ services:
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs
       NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs
       MESSAGE_BROKER_TYPE: $STREAM_TYPE
-      WDM_REDIS_HOST: localhost
+      WDM_REDIS_HOST: redis
       WDM_REDIS_PORT: 6379
       WDM_REDIS_STREAM_NAME: vst.event
       WDM_REDIS_MSG_KEY: value
       WDM_KFK_MSG_KEY: vst.event
-      WDM_KFK_BOOTSTRAP_URL: localhost:9092
+      WDM_KFK_BOOTSTRAP_URL: kafka:29092
       WDM_KFK_TOPIC: mdx-notification
       WDM_WL_ID_FIELD: camera_id
       WDM_WL_EVENT_FIELD: event
       RECOMPUTE_BEV_CENTERS_ENABLED: true
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: true
-    env_file: ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
+    env_file:
+      - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
+      - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
     command:
       - python
       - -c
@@ -200,8 +207,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app
       dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
-    network_mode: "host"
-    profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
+    profiles: ["kibana-init-container-mv3dt"]
     container_name: vss-kibana-init-mv3dt
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/kibana-dashboard/warehouse-mv3dt-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
@@ -214,8 +220,12 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
+    profiles: ["vss-video-analytics-api-mv3dt"]
     container_name: vss-video-analytics-api-mv3dt
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -226,8 +236,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app
       dockerfile: Dockerfiles/import-calibration.Dockerfile
-    network_mode: "host"
-    profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
+    profiles: ["import-calibration-output-container-mv3dt"]
     container_name: vss-import-calibration-output-mv3dt
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
@@ -241,7 +250,7 @@ services:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: measurement-fusion
     image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0}
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["vss-rtvi-cv-bev-fusion"]
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -250,13 +259,15 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: perception
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.1}
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.2}
+    user: "0:0"
+    profiles: ["vss-rtvi-cv-mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
 
     volumes:
-      - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
-      - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/models-download.json:/opt/config/models-download.json:ro
+      - $VSS_APPS_DIR/services/rtvi/rtvi-cv/download-models.sh:/opt/scripts/download-models.sh:ro
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/:/tmp/camInfo/
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
@@ -266,7 +277,7 @@ services:
       DS_HTTP_PORT: "9000"
       BATCH_SIZE: "${NUM_STREAMS:-4}"
       MAX_BATCH_SIZE: "${NUM_STREAMS:-4}"
-      MQTT_HOST: "${MQTT_HOST:-localhost}"
+      MQTT_HOST: "${MQTT_HOST:-mosquitto}"
       MQTT_PORT: "${MQTT_PORT:-1883}"
       DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
       STREAM_TYPE: ${STREAM_TYPE}
@@ -275,6 +286,13 @@ services:
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      MODELS_MANIFEST_PATH: /opt/config/models-download.json
+      MODELS_DEST_ROOT: /opt/storage
+      STORAGE_UID: ${STORAGE_UID:-1001}
+      STORAGE_GID: ${STORAGE_GID:-1001}
+      DS_MODEL_DOWNLOAD: auto
+      DOWNLOAD_MODELS_SCRIPT: /opt/scripts/download-models.sh
     command: ["./ds-start-mv3dt.sh"]
     depends_on:
       sensor-ms-mv3dt:

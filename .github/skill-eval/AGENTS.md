@@ -308,78 +308,51 @@ The canonical harbor command is in § Harbor invocation.
    mirror sync. If every changed skill is parked, you exit BLOCKED
    without reaching step 5.
 
-5. **Pick a fleet member, lock it, and run harbor trials.** For each
-   target platform:
+5. **Run harbor trials via the leg wrapper — it picks and locks the
+   fleet box itself.** For each target platform:
 
-   a. **Select an instance from the `vss-eval-*` fleet for this
-      platform.** The harness is a worker-pool: one skill-eval agent =
-      one serial worker. Concurrency comes from multiple workflow runs
-      each grabbing a different box. Don't hardcode `vss-eval-l40s` —
-      score and pick:
+   a. **Do NOT select an instance and do NOT export `BREV_INSTANCE`.**
+      `run_leg.py` owns fleet selection: it reads the leg's hardware
+      requirements from the dataset's `task.toml` `[metadata]`
+      (`gpu_type`, `gpu_count`), snapshots `brev ls --json`, filters to
+      RUNNING `vss-eval-*` boxes whose GPU matches, and walks the
+      candidates best-first with **non-blocking** `flock` attempts —
+      claiming the first box it can actually lock. Selection and
+      reservation are one atomic step inside the wrapper, so two
+      concurrent legs fan out to different boxes instead of both
+      "choosing" the same lock-free-looking one and serialising
+      (check-then-act TOCTOU — the failure mode that motivated this).
 
-      ```bash
-      # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu_type matches
-      # the trial AND whose gpu_count >= the spec's required count.
-      # (envs/brev_env.py validates the pick post-selection; this step
-      # just narrows the field.)
-      brev ls --json > "/tmp/skill-eval/brev-snapshot-${LEG}.json"
-      # Score (PREFER an exact gpu_count match so the pool stays partitioned
-      # — don't tie up a 2-GPU box with 1-GPU work):
-      #   1. exact gpu_count match               (prefer over over-provisioned)
-      #   2. lock appears free (advisory try flock -n)  (free)
-      #   3. instance name asc                   (tiebreak)
-      # Pick the best-scoring candidate whose advisory flock -n succeeds.
-      # This is only a scoring hint; run_leg.py below is the only code that
-      # actually reserves the box. Use an
-      # OVER-provisioned box (more GPUs than required) only as a fallback,
-      # when no exact-count match is lock-free/reachable — brev_env accepts
-      # it (>= check) and start() wipes it clean before the trial. If none
-      # free, hand the best candidate to run_leg.py and let its structural
-      # lock wait arbitrate.
-      INSTANCE_NAME=<picked>
-      ```
+      Ordering inside the wrapper uses connected registered nodes first so
+      dedicated capacity is consumed before managed cloud instances. Within
+      each tier, exact name-hinted `gpu_count` matches (`*-1g*` → 1,
+      `*-2g*` → 2) sort before over-provisioned boxes;
+      `envs/brev_env.py` still validates the final pick (`gpu_count >=`
+      required) and `start()` wipes the box before the trial, so an
+      over-provisioned fallback stays safe.
+      `gpu_count = 0` specs (remote-all / GPU-independent) accept any
+      RUNNING pool box.
 
-      Resolving a candidate's gpu_count for the exact-match preference:
-      `brev ls --json` does **not** carry `gpu_count` (only `name`, `gpu`,
-      `instance_type`, `status`), so cross-reference each candidate's
-      `instance_type` against `brev search gpu --json` — the same catalog
-      `brev_env._get_instance_gpu_count_from_catalog` validates against. The
-      `vss-eval-*` fleet naming is a fallback hint (`*-1g` → 1 GPU; bare or
-      `*-2` → 2 GPU). If you can't resolve a count, just pick any
-      `gpu_type`-matching box and let `brev_env` enforce `gpu_count >=
-      required` post-selection — exact-match is a partitioning *optimisation*,
-      not a correctness gate (the box is reset either way).
+      When every candidate is held — or none is eligible — the wrapper
+      re-snapshots the fleet and retries every 60s up to its 21000s
+      budget (the pool is operator-managed; a box may come online
+      mid-run), then exits 75 with `BLOCKED: lock timeout`. You do not
+      implement any of this; you just invoke the wrapper and read its
+      `[run-leg] selected instance: <name>` line for reporting.
 
-      With fleet=1, this collapses to today's behaviour — the single
-      `vss-eval-<short>` candidate is picked and locked. With fleet>1
-      (operator manually `brev create`s `vss-eval-l40s-2`, etc.), two
-      concurrent CI runs land on different boxes naturally; the wrapper-held
-      per-box lock arbitrates within-fleet contention.
-
-      Selection priority is **hardware-hard, software-free**: the
-      candidate's `gpu_type` MUST match the platform (hard); the box's
-      deployment state is irrelevant — the trial deploys what it needs
-      in its first agent turn, so a previously-warm box and a freshly-
-      booted one are equivalent from the trial's perspective.
-
-      If no hardware-matching candidate exists, **wait** for one — the
-      pool is operator-managed and a box may come online mid-run.
-      Re-snapshot `brev ls --json` every 5 min up to the 21000s budget,
-      rescoring each time; only after the full budget elapses with zero
-      matches do you emit `BLOCKED: pool exhausted for <platform>`. This
-      pool-wait is allowed (it waits on a resource that may not yet
-      exist, bounded by the budget); it is NOT the trial-supervision
-      polling forbidden in § "No polling", which watches in-flight work
-      the synchronous harbor call already blocks on.
+      Operator override: `--instance <name>` (or an inherited
+      `BREV_INSTANCE` env var, or `brev_instance` in `task.toml`
+      `[metadata]`) pins the leg to one box, skipping pool selection but
+      keeping the lock guard. Use this only for manual debugging runs.
 
    b. **Run the structural leg wrapper**. Do not acquire or release
-      `flock` manually in a separate Bash call. `run_leg.py` opens
-      `/tmp/brev/$INSTANCE_NAME.lock`, holds that file descriptor for
-      the entire Harbor run (including all step-1..N invocations), and
-      releases it only when the wrapper exits or dies:
+      `flock` manually in a separate Bash call, and do not pass
+      `--instance` in CI. `run_leg.py` opens `/tmp/brev/<chosen>.lock`,
+      holds that file descriptor for the entire Harbor run (including
+      all step-1..N invocations), and releases it only when the wrapper
+      exits or dies:
       ```bash
-      python3 .github/skill-eval/run_leg.py \
-        --instance "$INSTANCE_NAME" \
+      "$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py \
         --dataset-root "$DS" \
         --results-root "$RES" \
         --scratch "$SCRATCH" \
@@ -387,14 +360,11 @@ The canonical harbor command is in § Harbor invocation.
         --platform "$EVAL_PLATFORM"
       ```
 
-      The wrapper's flock wait (21000s ≈ 5.8 h) sits just under the per-leg job
-      timeout (`skills-eval.yml` `timeout-minutes: 360` = 6 h), so the
-      agent always reaches the `BLOCKED: lock timeout` line before the
-      job-killer fires (the old 12 h / 43200s budget was for the
-      retired single-job sweep and would have been silently killed
-      mid-wait). If another worker holds the lock past that window,
-      fall back to step 5a and rescore — another box may have come
-      free. Final fallback: emit `BLOCKED: lock timeout` and exit.
+      The wrapper's selection/lock budget (21000s ≈ 5.8 h) sits under
+      the per-leg job timeout (`skills-eval.yml` `timeout-minutes: 840` =
+      14 h), so the agent reaches the `BLOCKED: lock timeout` line
+      before the job-killer fires. Do not wrap the call in retry loops —
+      the pool-wait and candidate rescan live inside the wrapper.
    c. The wrapper drives Harbor one trial at a time (they share GPU/ports
       on the host), exports `BREV_INSTANCE`, discovers single-step vs
       multi-step task layouts, and uses the canonical flags in
@@ -496,9 +466,10 @@ The canonical harbor command is in § Harbor invocation.
   turn, not by anything you run from this agent), and invoking
   `run_leg.py` for the structurally locked Harbor run.
   If no hardware-matching pool member exists for the trial's
-  platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
-  poll, 21000s budget, then `BLOCKED: pool exhausted for
-  <platform>`) — provisioning is the operator's job.
+  platform, `run_leg.py` waits internally (60s fleet rescan, 21000s
+  budget) and exits 75 with `BLOCKED: lock timeout`; relay that as
+  `BLOCKED: pool exhausted for <platform>` — provisioning is the
+  operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -508,7 +479,9 @@ The canonical harbor command is in § Harbor invocation.
 ## Tools you have
 
 - `Bash` — shell on the CI runner host. Has `brev`, `gh`, `docker`,
-  `uvx`, `python3`, `git`. PATH includes `/home/ubuntu/.local/bin`.
+  `uvx`, `python3`, `git`. The workflow pins `python3` to Python 3.12 in a
+  per-leg virtual environment, and `run_leg.py` pins Harbor's separate uvx
+  interpreter to the same minor version. PATH includes `/home/ubuntu/.local/bin`.
 - `Read`, `Write`, `Edit` — file ops on the workspace checkout.
   Obviously bounded by the hard rule above (no `skills/` writes).
 - `Glob`, `Grep` — search the workspace and host.
@@ -519,28 +492,46 @@ The canonical harbor command is in § Harbor invocation.
 |---|---|---|
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g-3`) | RTX PRO 6000 BW. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). |
+| `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
-Pool naming is operator-managed; the actual fleet is whatever
-`brev ls` reports matching the prefix. Don't hardcode a specific
-instance name — the fleet-selection algorithm in § 5a picks the
-candidate. **Lifecycle is the operator's job**; you only acquire
-the per-box lock through `run_leg.py` and run trials — see Hard
-rules about `brev create / start / stop / delete / reset`.
+Pool naming is operator-managed; the actual fleet is the union of managed
+instances from `brev ls --json` and connected registered nodes from
+`brev ls nodes --json` that are explicitly named in the coordinator's
+comma/space-separated `BREV_REGISTERED_POOL` allowlist. Registered-node
+JSON omits GPU metadata, so `run_leg.py` accepts only documented hardware
+prefixes (`vss-eval-rtx*`, `vss-eval-geforce-rtx4090-vm*`,
+`vss-eval-l40s*`, `vss-eval-h100*`) and fails closed for unknown GPU
+families. Don't hardcode a specific instance name —
+`run_leg.py`'s pool selection (§ 5a) picks the candidate. **Lifecycle is
+the operator's job**; the box lock and the trials both live inside
+`run_leg.py` — see Hard rules about `brev create / start / stop / delete /
+reset`.
+
+`BREV_RTX4090_POOL` is a separate, capability-routed allowlist. Its nodes
+are selected only when the skill and spec stem match the resource-proven
+matrix in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS`. This includes
+the proven ask-video, report, base/LVS/Alerts profile, summarize, alerts,
+query analytics, 2D detection, embedding, calibration, VIOS, setup, and
+standalone dense-captioning tests. Search, Warehouse, dense-captioning
+Alerts, and every 3D detection/calibration test remain on full-capability
+workers. Missing skill/spec metadata fails closed. A registered single-GPU
+node is also filtered from any task requiring two GPUs before lock
+acquisition.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** One matrix leg = one serial
-worker; concurrency comes from sibling legs each grabbing a different
-box. Pick per § 5a, then run `run_leg.py` (§ Harbor invocation). The
-wrapper exports `BREV_INSTANCE` before Harbor starts; that export is
-mandatory because BrevEnvironment no longer auto-provisions, so without
-it (or `task.toml [metadata].brev_instance`) `start()` raises before
-Harbor runs. The pool is operator-managed: never `brev create / start /
-stop / reset / delete` a member; if none matches the platform, wait per
-§ 5a and only then `BLOCKED: pool exhausted for <platform>`.
+worker; concurrency comes from sibling legs each claiming a different
+box via `run_leg.py`'s try-lock cascade (§ 5a). Just run `run_leg.py`
+(§ Harbor invocation) — it selects the box, exports `BREV_INSTANCE`
+for the claimed instance before Harbor starts (mandatory because
+BrevEnvironment no longer auto-provisions), and holds the per-box lock
+for the whole run. The pool is operator-managed: never `brev create /
+start / stop / reset / delete` a member; if none matches the platform,
+the wrapper waits out its budget and exits 75 — relay that as
+`BLOCKED: pool exhausted for <platform>`.
 
 **Name prefix is an anchored match, not a substring.** Only instances
 whose name starts with `vss-eval-` are eligible. Ignore everything else
@@ -561,26 +552,27 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
   exactly.** The check is a
   token-subset — `L4` does NOT satisfy an `L40S` task, the trial
   errors out before the agent starts with `gpu_type: want tokens
-  of 'L40S' in 'L4'`. Treat the candidate as not eligible and wait
-  for a hardware-matching pool member per § 5a — the operator
+  of 'L40S' in 'L4'`. `run_leg.py` applies the same token match at
+  selection time, so such a box is never claimed — the operator
   provisions matching capacity, not the agent.
 - **gpu_count is `>=`, not exact.** `_check_instance_matches` accepts any
   box with **at least** the spec's `gpu_count` — a 1-GPU spec runs fine on
   a 2-GPU box (2nd GPU idles); only an *under*-provisioned box is rejected.
-  **Prefer** an exact match at selection time (§ 5a scoring) so the pool
-  stays partitioned, but an over-provisioned box is a valid fallback when
-  no exact match is free/reachable. Because the `>=` check passes (rather
+  `run_leg.py` prefers registered capacity first, then exact name-hinted
+  counts within the registered/managed tier. An over-provisioned box is a
+  valid fallback when no exact match is free/reachable. Because the `>=`
+  check passes (rather
   than raising), `start()` runs `_reset_docker_runtime` on the fallback
   box, so it never inherits a prior trial's containers.
 
 ## Harbor invocation
 
 The command that drives a trial is the wrapper from § 5b. Copy this
-shape, substituting only the selected `$INSTANCE_NAME`:
+shape verbatim — no instance argument; the wrapper selects and locks
+the box itself:
 
 ```bash
-python3 .github/skill-eval/run_leg.py \
-  --instance "$INSTANCE_NAME" \
+"$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py \
   --dataset-root "$DS" \
   --results-root "$RES" \
   --scratch "$SCRATCH" \
@@ -589,7 +581,8 @@ python3 .github/skill-eval/run_leg.py \
 ```
 
 Do **not** run `uvx harbor run` directly from the agent. The wrapper
-does that inside the same process that holds `/tmp/brev/$INSTANCE_NAME.lock`.
+does that inside the same process that selected the box and holds
+`/tmp/brev/<chosen>.lock`.
 It exports `PATH`, `PYTHONPATH`, `BREV_INSTANCE`, and
 `CLAUDE_CODE_DISABLE_THINKING=1`; discovers whether `$DS` contains a
 single-step task or ordered `step-1..N` tasks; dispatches one Harbor
@@ -641,8 +634,11 @@ Notes that have burned prior runs:
 - `--max-retries 0 -n 1` means one trial, one attempt. Harbor retries
   on harness errors (not agent errors) if `--max-retries > 0`, which
   double-counts in the reward table. Keep it 0.
-- **Timeout multipliers** lift harbor's 600s defaults for cold-box
-  realities — keep them verbatim:
+- **Timeout budgets** cover cold-box realities. Every adapter-generated
+  `task.toml` MUST set `[agent] timeout_sec = 600.0`; without that explicit
+  base, Harbor treats the agent timeout as unbounded and
+  `--agent-timeout-multiplier` is a no-op. Keep the section and multipliers
+  verbatim:
   - `--environment-build-timeout-multiplier 3.0` → 1800s env start.
     Massedcompute L40S provisioning can exceed 10 min; 600s fires
     `EnvironmentStartTimeoutError` before the box is READY.
@@ -659,7 +655,7 @@ Notes that have burned prior runs:
 
 ### Wait contract — run_leg.py blocks until Harbor exits
 
-`python3 .github/skill-eval/run_leg.py ...` MUST run in the foreground
+`"$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py ...` MUST run in the foreground
 until the trial or ordered multi-step chain exits. Do NOT background it
 and poll progress (line counts, `brev exec`, etc.) — each poll burns a
 tool turn and a trial that out-runs the budget exits with no comment (a
@@ -668,9 +664,21 @@ real failure: the wrapper exits 4, see § Output requirements).
 Don't background the trial (`run_in_background`, `&`/`nohup`/`disown`):
 the harness blocks those and raises the Bash timeout cap so the long
 foreground wrapper call is not auto-backgrounded into a pollable task.
-`run_leg.py` applies a 7800s hard backstop to each internal Harbor
-subprocess. To peek at a stuck trial, do it ONCE after the wrapper
-returns, never in a loop while it is running.
+`run_leg.py` applies a 12000s (200 min) hard backstop to each internal Harbor
+subprocess: 7560s for environment build + agent setup + agent + verifier,
+2520s for four bounded artifact-transfer/recovery windows, and 1920s of
+scheduling/non-transfer teardown headroom. `brev_env.py` caps each transfer's
+active work at 600s and its total process-reap wall time at 630s, so that
+recovery term is real rather than aspirational. The normal
+3600s agent deadline should fire first; the outer backstop is emergency-only
+and requests SIGINT before bounded TERM/KILL escalation. The agent publishes a
+12-hour SDK deadline inside the 14-hour job and an earlier 11.5-hour Harbor
+deadline, reserving 30 minutes for result inspection, the PR comment, and the
+terminal marker. The wrapper reserves a full invocation plus teardown before
+taking a lock or starting each chain step and marks unstarted steps instead of
+letting the SDK or Actions kill Harbor mid-cleanup. To
+peek at a stuck trial, do it ONCE after the wrapper returns, never in a loop
+while it is running.
 
 If a trial errors out, read `$RES/<date>/<trial>/trial.log` —
 it has the harness + adapter traceback. Fix the adapter
@@ -687,50 +695,63 @@ to pick up a trial, its directory must live under
 `/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>/` as a
 **real dir (not a symlink)**, flattened — no nested `<date>/` level.
 The `<leg-slug>` keeps concurrent legs from colliding on one viewer
-entry. **Copy** (don't move) from this leg's scoped results root:
+entry.
 
-```bash
-VIEWER_JOB="/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
-mkdir -p "$VIEWER_JOB"
-cp -a "$RES/<date>/." "$VIEWER_JOB/"
-```
+**`run_leg.py` does this publish for you** (`publish_trace`), after
+every trial including timed-out ones. It copies (never moves) the
+date dir's *contents* into a pre-made job dir — the workflow's
+"Collect results" step runs *after* this agent and tars `$RES` for
+the artifact, so a `mv` would upload an artifact with no
+`result.json`. Copying keeps `$RES` intact for the collector (which
+excludes `agent/` from the public tarball) while the `_viewer` copy
+keeps `agent/` for the live Harbor Trace tab. You do not run `cp`
+yourself.
 
-`cp -a`, **not `mv`** — the workflow's "Collect results" step runs
-*after* this agent and scans + tars `$RES` for the artifact. A `mv`
-would leave `$RES` empty and the uploaded artifact would have no
-`result.json` or traces. Copying keeps `$RES` intact for the collector
-(which excludes `agent/` from the public tarball) while the `_viewer`
-copy keeps `agent/` for the live Harbor Trace tab.
+### Trace URLs — read them, never build them
 
-**Use the `mkdir -p` + `cp -a "$RES/<date>/."` (trailing `/.`) form
-above, not `cp -a "$RES/<date>" "$VIEWER_JOB"`** — the latter is not
-idempotent: on the *second* trial of a multi-step spec, `$VIEWER_JOB`
-already exists, so `cp -a <date> <existing-dir>` nests the trial as
-`$VIEWER_JOB/<date>/...` and Harbor only sees the first (top-level)
-trial. Copying the directory *contents* into a pre-made `$VIEWER_JOB`
-keeps every trial at the job's top level.
-
-Do this between trials so each new trial's traces are reachable
-via the SPA URL:
+`run_leg.py` writes one row per finished trial to
+`<results-root>/trace-urls.tsv`:
 
 ```
-https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+<include-task-name>\t<trial-dir>\t<url>
 ```
 
-**CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
-env id** (the CI runner, set by Brev in `/etc/environment` — on the
-current coordinator it's `13xh5gpe7`). It is **NOT** a per-trial
-instance id you see in `brev ls --json` (the `id` field of
-`vss-eval-*` or `harbor-*` entries). The coordinator runs
-`harbor view`; per-trial boxes do not. Mixing these up produces a
-trace URL that resolves to the wrong brevlab subdomain and 404s.
-When generating the URL, read the value from the runner env
-(`echo "$BREV_ENV_ID"`) and paste it verbatim — never substitute
-from `brev ls` output.
+and echoes `[run-leg] trace: <step> -> <url>` to the job log. **Read
+the URL from there and paste it verbatim into the comment. Never
+assemble a Harbor URL by hand.** A step with no row errored before
+producing `result.json` — report it without a trace link rather than
+inventing one.
 
-Values for `<source>` / `<agent>` / `<model>` / `<task>` come from
-`GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`;
-slashes in `<model>` and `<task>` must be URL-encoded (`%2F`).
+The URL shape is:
+
+```
+https://harbor-<COORDINATOR_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+```
+
+Two things make hand-assembly unreliable, which is why it moved into
+the wrapper:
+
+- **`<task>` is Harbor's fully-qualified `task_name`**
+  (`nvidia-vss/<dataset>-step-N`), *not* the `--include-task-name`
+  filter (`step-N`) used to select the task. A bare `step-N` matches
+  no task, and because the viewer is a client-side SPA — every route
+  returns the same HTTP 200 shell — the page renders **blank** rather
+  than 404ing. That is indistinguishable from missing trace data.
+  (Observed on PR #1254, run 30284131217: all seven step links were
+  built with the filter and every one opened empty.)
+- **`BREV_ENV_ID` is the coordinator host's env id** (the CI runner,
+  set by Brev in `/etc/environment`). It is **NOT** a per-trial
+  instance id from `brev ls --json` (the `id` field of `vss-eval-*`
+  or `harbor-*` entries). The coordinator runs `harbor view`;
+  per-trial boxes do not. `run_leg.py` reads the runner env and falls
+  back to `/etc/environment` — never substitute from `brev ls`.
+
+Every segment `run_leg.py` emits comes from the trial's own
+`result.json` (`source`, `agent_info.name`,
+`agent_info.model_info.provider|name`, `task_name`), so the link
+cannot drift from what the viewer indexes, and it is produced even
+when `harbor-view.service` is down. To inspect the index by hand:
+`GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`.
 
 ### Per-trial trajectory isolation
 
@@ -881,13 +902,15 @@ separate; don't conflate the two.
 
 ## Failure modes
 
-- **Harbor trial times out / crashes.** Record it as failed with
-  `NonZeroAgentExitCodeError` in the comment. The verifier may still
-  have run; include the reward if present.
+- **Harbor trial times out / crashes.** Record it as failed with Harbor's
+  actual exception (for example `AgentTimeoutError`) in the comment. The
+  verifier may still have run; include the reward if present. If no Claude
+  session JSONL exists, the environment provider preserves a bounded tail of
+  `/logs/agent/claude-code.txt` as the fallback agent artifact.
 - **Pool exhausted for the trial's platform.** `brev ls` shows zero
-  RUNNING+READY `^vss-eval-*` boxes whose `gpu_type` matches. Wait
-  per § 5a (5-min `brev ls` poll, up to 21000s budget). If no
-  matching candidate appears within the window, emit
+  RUNNING `^vss-eval-*` boxes whose `gpu_type` matches. `run_leg.py`
+  waits internally (60s fleet rescan, up to its 21000s budget) and
+  exits 75 with `BLOCKED: lock timeout`; relay that as
   `BLOCKED: pool exhausted for <platform>` and exit. Do NOT
   `brev create`, `brev start`, or `brev reset` — the operator
   provisions capacity, not the agent.
@@ -917,7 +940,8 @@ loop. Two leg kinds:
   dataset, lock a box matching `$EVAL_PLATFORM` (§ 5a), run harbor for
   that platform (§ Harbor invocation), and post the **one** comment for
   this spec (§ Result comment format). Never touch another spec, skill,
-  or platform. End with `DONE:` (after the comment) or `BLOCKED:`.
+  or platform. End with `DONE: N/N specs passed; ...` (after the comment) or
+  `BLOCKED:`.
 
 - **`EVAL_KIND=missing_adapter`** — `EVAL_SKILL` has eval specs but no
   `adapters/<skill>/generate.py`. The plan collapsed the skill's specs
@@ -960,13 +984,14 @@ the PR-driven path.
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
 - **Mandatory final marker.** Your last printed line MUST start with
-  either `DONE:` or `BLOCKED:`. The Python wrapper checks for this
-  and **fails the workflow with exit code 4** if neither appears —
-  so a workflow that "completed successfully" but didn't reach a
-  verdict is treated as a real failure (it isn't a green ✓ anymore).
+  either `DONE:` or `BLOCKED:`. A `DONE:` marker MUST report a positive
+  complete count as `DONE: N/N specs passed; ...`. The Python wrapper fails
+  malformed markers with exit code 4 and completed partial/zero-pass outcomes
+  with exit code 5. Neither a missing verdict nor a reported eval failure can
+  produce a green check.
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
-    - `DONE: 2/3 specs passed; 1 spec failed (vss-deploy-dense-captioning/step-2 reward=0.83)`
+    - `DONE: 0/1 specs passed; timeout` (valid syntax, failing exit code 5)
     - `BLOCKED: anthropic rate limit after 3 retries`
     - `BLOCKED: lock timeout on vss-eval-l40s`
   If you ran trials, you MUST also have posted the per-spec result before

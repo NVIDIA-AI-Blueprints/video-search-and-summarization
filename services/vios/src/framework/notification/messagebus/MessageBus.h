@@ -45,7 +45,7 @@ public:
         GET_DATA_CHANNEL()->registerListener(this);
         auto messageBusCleanupInterval = std::chrono::milliseconds(MESSAGE_BUS_CLEANUP_INTERVAL);
         m_watchdog = make_unique<Bosma::Scheduler>(1);
-        m_watchdog->interval(messageBusCleanupInterval, [=]()
+        m_watchdog->interval(messageBusCleanupInterval, [this]()
                             { messageBusCleanupTask(); });
     }
     ~MessageBus()

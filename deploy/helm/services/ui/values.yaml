@@ -18,8 +18,8 @@ global: {}
 serviceAccount:
   create: false
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-agent-ui
-  tag: "3.2.0"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui
+  tag: develop-latest
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -90,6 +90,8 @@ env:
     value: "false"
   - name: NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE
     value: "Generate a report for incident {incidentId} with sensor id {sensorId}."
+  - name: NEXT_PUBLIC_ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE
+    value: "Generate a verified incident report for incident {incidentId} with sensor id {sensorId}."
   - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
     value: "0"
   - name: NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB

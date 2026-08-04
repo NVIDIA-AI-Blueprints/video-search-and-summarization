@@ -22,7 +22,7 @@ import numpy as np
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import Bbox3d, Message, Coordinate, ROI, SensorInfo
 from mdx.analytics.core.schema.proto import schema_pb2 as nvSchema
-from mdx.analytics.core.transform.calibration.calibration import Calibration
+from mdx.analytics.core.transform.calibration.calibration_g import CalibrationG
 from mdx.analytics.core.transform.calibration.calibration_base import CalibrationBase, CalibrationType
 from mdx.analytics.core.transform.calibration.calibration_e import CalibrationE
 from mdx.analytics.core.transform.calibration.calibration_i import CalibrationI
@@ -121,7 +121,7 @@ class DynamicCalibration(CalibrationBase):
             self._calibrator = CalibrationE(self.config, calibration_path)
         elif cal_type == CalibrationType.GEO:
             logger.info(f"Creating Calibration for {cal_type.value} type")
-            self._calibrator = Calibration(self.config, calibration_path)
+            self._calibrator = CalibrationG(self.config, calibration_path)
         else:  # CalibrationType.IMAGE
             logger.info(f"Creating CalibrationI for {cal_type.value} type")
             self._calibrator = CalibrationI(self.config, calibration_path)

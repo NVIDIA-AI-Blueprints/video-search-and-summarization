@@ -116,6 +116,7 @@ struct DeviceConfig
     string use_message_broker;
     bool enable_notification_consumer;
     string use_message_broker_consumer;
+    bool use_sdrc = false;
     string message_broker_topic_consumer;
     string video_metadata_server;
     bool enable_gem_drawing;
@@ -127,6 +128,7 @@ struct DeviceConfig
     string floor_map_file_path;
     string overlay_3d_sensor_name;
     string overlay_text_font_type;
+    int bbox_debug_font_size;
     int bbox_tolerance_ms;
     bool enable_overlay_skip_frame;
     std::map<std::string, std::vector<int>, std::less<>> color_map;
@@ -289,6 +291,13 @@ struct DeviceConfig
     int mega_simulation_delay_max_ms;
     string mega_simulation_base_time;
     int default_file_expiry_minutes;
+    // When true, the temp-file lookup in tryReuseCachedTempFile (video URL
+    // flow) and tryReuseCachedPictureUrl (picture URL flow) is bypassed -
+    // every request regenerates a fresh file. Inserts and DB tracking still
+    // happen so cleanup/expiry continue to work. Defaults to false so
+    // caching remains on; useful in dev/debug deployments where the caller
+    // wants to bypass the cache without re-rolling the cache key.
+    bool disable_url_caching;
     string ingress_endpoint;
     bool use_webrtc_hw_dec;
     bool recorder_enable_frame_drop;

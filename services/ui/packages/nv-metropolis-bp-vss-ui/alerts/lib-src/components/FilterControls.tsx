@@ -8,7 +8,6 @@
  * - Time window selector with predefined options and custom time input capability
  * - Sensor filter dropdown to filter alerts by sensor
  * - Alert type filter dropdown to filter by alert classification
- * - Alert triggered filter dropdown to filter by trigger status
  * - Refresh button with loading state indicator
  * 
  * The component is fully theme-aware and supports both dark and light modes.
@@ -188,26 +187,6 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
           .filter(type => type && type.trim() !== '')
           .map(type => (
             <option key={type} value={type}>{type}</option>
-          ))}
-      </select>
-
-      {/* Alert Triggered Filter */}
-      <select 
-        data-testid="alert-triggered-select"
-        className={`${selectClass} min-w-[180px]`}
-        onChange={(e) => {
-          const value = e.target.value;
-          if (value) {
-            onAddFilter('alertTriggered', value);
-          }
-          e.target.value = '';
-        }}
-      >
-        <option value="">Alert Triggered...</option>
-        {uniqueValues.byVlmVerified[vlmVerified ? 'enabled' : 'disabled'].alertTriggered
-          .filter(triggered => triggered && triggered.trim() !== '')
-          .map(triggered => (
-            <option key={triggered} value={triggered}>{triggered}</option>
           ))}
       </select>
 

@@ -175,8 +175,8 @@ void NvFileServerMediaSubsession::frameSourceEventChange(eFrameSourceEvent sourc
     {
         case SourceEventEOF:
         {
-            RTPSink const *rtpSink = nullptr;
-            RTCPInstance const *rtcp = nullptr;
+            RTPSink *rtpSink = nullptr;
+            RTCPInstance *rtcp = nullptr;
             bool isSeekable = GET_CONFIG().nv_streamer_seekable;
             if (m_url_params.find("seekable=true") != string::npos)
             {

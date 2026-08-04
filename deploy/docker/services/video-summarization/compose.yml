@@ -15,12 +15,14 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1}
+    image: ${CONTAINER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-video-summarization:${VSS_CONTAINER_TAG:-develop-latest}}
     container_name: vss-lvs
 
-    profiles: ["bp_developer_lvs_2d"]
+    profiles: ["lvs-server"]
 
-    network_mode: host
+    ports:
+      - ${BACKEND_HOST_PORT:-38111}:${BACKEND_PORT:-38111}
+      - ${LVS_MCP_HOST_PORT:-38112}:${LVS_MCP_PORT:-38112}
 
     # Volume mounts
     volumes:
@@ -29,16 +31,17 @@ services:
       # Optional: Mount model cache directory if MODEL_ROOT_DIR is set
       - ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
 
-    # Environment variables from .env file plus config path
+    # Environment variables for the LVS container.
     environment:
       # Config file path - points to mounted config.yaml
       - CA_RAG_CONFIG=/app/config.yaml
 
       # Database configuration
-      - MILVUS_DB_HOST=${MILVUS_DB_HOST}
-      - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT}
-      - ES_HOST=${ES_HOST}
-      - ES_PORT=${ES_PORT}
+      - MILVUS_DB_HOST=${MILVUS_DB_HOST:-}
+      - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT:-}
+      - ES_HOST=${ES_HOST:-elasticsearch}
+      - ES_PORT=${ES_PORT:-9200}
+      - ES_TRANSPORT_PORT=${ES_TRANSPORT_PORT:-9300}
       - GRAPH_DB_HOST=graph-db
       - GRAPH_DB_USERNAME=neo4j
       - GRAPH_DB_PASSWORD=${GRAPH_DB_PASSWORD}
@@ -55,33 +58,40 @@ services:
       - MINIO_PASSWORD=${MINIO_PASSWORD}
 
       # LLM configuration
-      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
-      - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
+      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME:-${LLM_NAME:-}}
+      - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://vss-llm-nim:8000}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
-      - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
+      - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://rtvi-vlm:8000}/v1/
+      - VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME=${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-${VLM_NAME:-}}
+      - VLM_MODEL_TO_USE=${VLM_MODEL_TO_USE:-openai-compat}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration
-      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE}
-      - LVS_EMB_MODEL_NAME=${LVS_EMB_MODEL_NAME}
-      - LVS_EMB_BASE_URL=${LVS_EMB_BASE_URL}
+      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE:-false}
+      - LVS_EMB_MODEL_NAME=${LVS_EMB_MODEL_NAME:-}
+      - LVS_EMB_BASE_URL=${LVS_EMB_BASE_URL:-}
 
       # Port configuration
       - BACKEND_PORT=${BACKEND_PORT:-38111}
       - LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
 
+      # GPU configuration
+      - GPU_DEVICES=${GPU_DEVICES:-0}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-${GPU_DEVICES:-0}}
+      - NUM_GPUS=${NUM_GPUS:-1}
+
       # Model cache directory
       - MODEL_ROOT_DIR=${MODEL_ROOT_DIR:-/tmp/model_cache}
 
       # NGC model cache directory
-      - NGC_MODEL_CACHE=${MODEL_ROOT_DIR:-/tmp/model_cache}
+      - NGC_MODEL_CACHE=${NGC_MODEL_CACHE:-${MODEL_ROOT_DIR:-/tmp/model_cache}}
 
       # Default Save Events to Elasticsearch
       - LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=${LVS_DISABLE_DB_RESET_ON_REQUEST_DONE:-true}
 
       # Kafka integration (consume captions / publish structured summaries)
       - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       - KAFKA_STRUCTURED_SUMMARY_TOPIC=${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
 
       # LLM-based merging of overlapping/duplicate events in the structured summary
@@ -89,23 +99,21 @@ services:
 
       # Feature flags
       - DISABLE_CA_RAG=false
+      - DISABLE_GUARDRAILS=${DISABLE_GUARDRAILS:-true}
       - ENABLE_AUDIO=${ENABLE_AUDIO:-false}
       - ENABLE_DENSE_CAPTION=false
+      - ENABLE_VIA_HEALTH_EVAL=${ENABLE_VIA_HEALTH_EVAL:-false}
       # The LVS HTTP API is sufficient for the developer profile. Keep MCP opt-in
-      # to avoid host-port collisions when using host networking.
+      # to avoid host-port collisions in multi-profile deployments.
       - LVS_ENABLE_MCP=${LVS_ENABLE_MCP:-false}
-      - VSS_LOG_LEVEL=INFO
+      - VSS_LOG_LEVEL=${VSS_LOG_LEVEL:-INFO}
       - VLM_SYSTEM_PROMPT=""
 
       # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
-      - RTVI_VLM_URL=${RTVI_VLM_URL:-}
+      - RTVI_VLM_URL=${RTVI_VLM_BASE_URL:-}
       - RTVI_VLM_URL_PASSTHROUGH=true
 
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-
-    # Alternative: Load all variables from .env file
-    env_file:
-      - $VSS_APPS_DIR/services/video-summarization/.env
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-38111}/v1/ready"]

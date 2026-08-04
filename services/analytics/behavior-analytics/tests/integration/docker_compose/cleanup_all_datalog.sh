@@ -18,7 +18,7 @@
 
 # Use sudo only when not root and sudo is available (CI often runs as root with no sudo)
 run_rm() {
-  if [ "$(id -u)" -eq 0 ] || ! command -v sudo >/dev/null 2>&1; then
+  if [[ "$(id -u)" -eq 0 ]] || ! command -v sudo >/dev/null 2>&1; then
     rm "$@"
   else
     sudo rm "$@"
@@ -27,39 +27,39 @@ run_rm() {
 
 echo "Cleaning up DIR: $MDX_DATA_DIR"
 
-if [ -d "$MDX_DATA_DIR/data_log/zookeeper/data/" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/zookeeper/data/" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/zookeeper/data/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/zookeeper/log/" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/zookeeper/log/" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/zookeeper/log/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/kafka/" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/kafka/" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/kafka/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/elastic/" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/elastic/" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/elastic/data/*
     run_rm -rf $MDX_DATA_DIR/data_log/elastic/logs/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/tmp/" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/tmp/" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/tmp/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/redis/data" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/redis/data" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/redis/data/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/redis/log" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/redis/log" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/redis/log/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/emqx/data" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/emqx/data" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/emqx/data/*
 fi
 
-if [ -d "$MDX_DATA_DIR/data_log/emqx/log" ]; then
+if [[ -d "$MDX_DATA_DIR/data_log/emqx/log" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/emqx/log/*
 fi

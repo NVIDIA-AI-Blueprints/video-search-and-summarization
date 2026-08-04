@@ -48,7 +48,7 @@ spec:
     - name: NIM_MODEL_PROFILE
       value: {{ .Values.nimModelProfile | quote }}
     {{- end }}
-    {{- range $key := (.Values.envConfigMapKeys | default (list "NIM_KVCACHE_PERCENT" "NIM_DISABLE_MM_PREPROCESSOR_CACHE")) }}
+    {{- range $key := (.Values.envConfigMapKeys | default (list "NIM_GPU_MEMORY_UTILIZATION" "NIM_DISABLE_MM_PREPROCESSOR_CACHE")) }}
     - name: {{ $key }}
       valueFrom:
         configMapKeyRef:

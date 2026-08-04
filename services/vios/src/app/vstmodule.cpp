@@ -233,7 +233,7 @@ int ModuleLoader::loadRtspServerLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvrtspserver.so");
     m_handleRtspServer = dlopen(lib_path, RTLD_LAZY);
     if (!m_handleRtspServer)
@@ -283,7 +283,7 @@ int ModuleLoader::loadStreamRecorderLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstreamrecorder.so");
     m_handleStreamRecorder = dlopen(lib_path, RTLD_LAZY);
     if (!m_handleStreamRecorder)
@@ -332,7 +332,7 @@ int ModuleLoader::loadStorageManagementLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstoragemanagement.so");
     m_handleStorageManagement = dlopen(lib_path, RTLD_LAZY);
     if (!m_handleStorageManagement)
@@ -381,7 +381,7 @@ int ModuleLoader::loadPeerConnectionManagerLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvwebrtc_streamer.so");
     m_handlePeerConnectionManager = dlopen(lib_path, RTLD_LAZY);
     if (!m_handlePeerConnectionManager)
@@ -430,7 +430,7 @@ int ModuleLoader::loadPeerConnectionLiveLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvpeerconnection_live.so");
     m_handlePeerConnectionLiveManager = dlopen(lib_path, RTLD_LAZY);
     if (!m_handlePeerConnectionLiveManager)
@@ -479,7 +479,7 @@ int ModuleLoader::loadPeerConnectionReplayLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvpeerconnection_replay.so");
     m_handlePeerConnectionReplayManager = dlopen(lib_path, RTLD_LAZY);
     if (!m_handlePeerConnectionReplayManager)
@@ -528,7 +528,7 @@ int ModuleLoader::loadStreamBridgeLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstreambridge.so");
     m_handleStreamBridge = dlopen(lib_path, RTLD_LAZY);
     if (!m_handleStreamBridge)
@@ -577,7 +577,7 @@ int ModuleLoader::loadSensorManagementLib()
 {
     int ret = 0;
     const char* lib_path;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvsensormanagement.so");
     m_handleSensorManagement = dlopen(lib_path, RTLD_LAZY);
     if (!m_handleSensorManagement)

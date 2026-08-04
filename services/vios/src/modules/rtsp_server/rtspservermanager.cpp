@@ -746,11 +746,38 @@ VmsErrorCode RtspServerManager::handleStreamDelete(const std::string &streamId, 
     }
 
     VmsErrorCode eventResult = VmsErrorCode::NoError;
+    bool proxyTornDownByEvent = false;
     if (!streamUrl.empty() && parentSensorType != std::string(SENSOR_TYPE_FILE))
     {
         StreamEncParam details;
         eventResult = StreamEventManager::getInstance().sendEventBlocking(
             streamUrl, STREAM_STATUS_REMOVED, details);
+        /* The STREAM_STATUS_REMOVED path (RtspStreamStatusCallback -> removeStream)
+         * synchronously tears down the RTSP proxy for this stream. */
+        proxyTornDownByEvent = true;
+    }
+
+    /* Tear down the RTSP proxy here only if the STREAM_STATUS_REMOVED path above
+     * did NOT run. That path is skipped when the stream never reached STREAMING
+     * (the back-end DESCRIBE never succeeded, e.g. a cold or unreachable source):
+     * sdpReady/registerStreamAsync never ran, so the stream is absent from the
+     * device-manager stream list and streamUrl is empty. Without this, removeProxy
+     * is never invoked and the ProxyServerMediaSession (with its self-rescheduling
+     * ProxyRTSPClient) is orphaned and keeps contacting the source forever. The
+     * guard ensures removeProxy runs exactly once - no redundant call on the
+     * normal (streaming) delete path. */
+    if (!proxyTornDownByEvent && deviceManager->needRtspServer)
+    {
+        int lbResult = m_lb.removeStream(streamId);
+        if (lbResult != 0)
+        {
+            /* Surface (do not silently swallow) a proxy-teardown failure - e.g.
+             * deleteProxy timing out in the load balancer - so it is not masked
+             * as success. Mirrors removeStream()'s handling of the same call. */
+            LOG(error) << "Failed to remove RTSP proxy for never-streamed stream id: "
+                       << streamId << endl;
+            eventResult = VmsErrorCode::VMSInternalError;
+        }
     }
 
     // For SENSOR_TYPE_FILE, remove the uploaded file from disk before the

@@ -163,7 +163,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
   docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
   ```
   - Report what you see — do not ask the user to run docker ps.
-  - **Reporting the access URL:** never give a raw `<HOST_IP>:<port>` (e.g. `:3000`) — that's an internal port, unreachable from a browser on Brev. Read the deployed public origin from the running stack — `docker inspect vss-agent` → `VSS_AGENT_EXTERNAL_URL` (already `proto://host:port`) — and report the UI as `<origin>/`. On Brev this is the `https://7777-<id>.brevlab.com` secure link. Full mapping: `vss-deploy-profile` skill `references/base.md` (Endpoints) / `references/brev.md`.
+  - **Reporting the access URL:** never give a raw `<HOST_IP>:<port>` (e.g. `:3000`) — that's an internal port, unreachable from a browser on Brev. Read the deployed public origin from the running stack — `docker inspect vss-agent` → `VSS_AGENT_EXTERNAL_URL` (already `proto://host:port`) — and report the UI as `<origin>/`. On Brev this is the `https://7777-<id>.apps.run.brev.nvidia.com` secure link. Full mapping: `vss-deploy-profile` skill `references/base.md` (Endpoints) / `references/brev.md`.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 

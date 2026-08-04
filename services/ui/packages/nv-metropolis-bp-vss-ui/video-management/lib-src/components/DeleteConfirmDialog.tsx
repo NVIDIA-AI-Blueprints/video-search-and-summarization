@@ -13,6 +13,8 @@ interface DeleteConfirmDialogProps {
   isOpen: boolean;
   streams: StreamInfo[];
   isDeleting: boolean;
+  /** Set when the previous attempt failed; the dialog stays open so the user can retry. */
+  error?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
   /** `contained` = overlay only the nearest positioned ancestor (Video Management pane). Default `viewport` = full window. */
@@ -26,24 +28,28 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   isOpen,
   streams,
   isDeleting,
+  error = null,
   onCancel,
   onConfirm,
   overlay = 'viewport',
 }) => {
-  // Snapshot the streams prop at the moment the dialog opens. The parent may
-  // clear its `selectedStreams` set during the delete flow (after the API
-  // resolves but before refetch finishes), which would make `streams` go empty
-  // mid-confirm and cause the preview list to vanish while the dialog is still
-  // visible. Snapshotting keeps the displayed list stable for the dialog's
-  // entire open lifetime.
+  // Freeze the preview list for the duration of a delete. The parent clears its
+  // `selectedStreams` set once the API resolves, which would otherwise make the
+  // list vanish while the dialog is still visible. Once the attempt settles the
+  // list tracks the selection again, so a retry after a partial failure shows
+  // only the items that are actually left to delete.
   const [snapshot, setSnapshot] = useState<StreamInfo[]>(streams);
+  // Collapsed by default so large selections don't blow out dialog height;
+  // "+ N more" expands so the user can verify every item before confirming
+  // (NVBug 6242161).
+  const [listExpanded, setListExpanded] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      setSnapshot(streams);
-    }
-    // Intentionally only re-snapshot on open transition, not on every streams change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (isOpen && !isDeleting) setSnapshot(streams);
+  }, [isOpen, isDeleting, streams]);
+
+  useEffect(() => {
+    if (isOpen) setListExpanded(false);
   }, [isOpen]);
 
   useEffect(() => {
@@ -60,9 +66,11 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   if (!isOpen) return null;
 
   const count = snapshot.length;
-
-  const previewNames = snapshot.slice(0, MAX_NAMES_PREVIEW).map((s) => s.name);
-  const remaining = Math.max(0, count - previewNames.length);
+  const allNames = snapshot.map((s) => s.name);
+  const remaining = Math.max(0, count - MAX_NAMES_PREVIEW);
+  const visibleNames = listExpanded || remaining === 0
+    ? allNames
+    : allNames.slice(0, MAX_NAMES_PREVIEW);
 
   const handleBackdropClick = () => {
     if (!isDeleting) onCancel();
@@ -126,10 +134,12 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
             Are you sure you want to delete the following?
           </p>
 
-          {previewNames.length > 0 && (
+          {visibleNames.length > 0 && (
+            // Fixed max height whether collapsed or expanded so "+ N more" only
+            // reveals more rows via scroll instead of growing the dialog (NVBug 6242161).
             <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-neutral-900 max-h-40 overflow-auto">
               <ul className="m-0 p-0 list-none text-sm text-gray-700 dark:text-gray-300 divide-y divide-gray-200 dark:divide-gray-700">
-                {previewNames.map((name, idx) => (
+                {visibleNames.map((name, idx) => (
                   <li
                     key={`${name}-${idx}`}
                     className="px-3 py-2 flex items-center gap-2 min-h-9 leading-5"
@@ -141,12 +151,43 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
                     <span className="truncate" title={name}>{name}</span>
                   </li>
                 ))}
-                {remaining > 0 && (
-                  <li className="px-3 py-2 min-h-9 flex items-center text-xs text-gray-500 dark:text-gray-400 italic leading-5">
-                    + {remaining} more
+                {remaining > 0 && !listExpanded && (
+                  <li className="px-3 py-2 min-h-9 flex items-center leading-5">
+                    <button
+                      type="button"
+                      onClick={() => setListExpanded(true)}
+                      data-testid="delete-confirm-show-more"
+                      className="text-xs italic text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 rounded"
+                      aria-expanded="false"
+                    >
+                      + {remaining} more
+                    </button>
+                  </li>
+                )}
+                {remaining > 0 && listExpanded && (
+                  <li className="sticky bottom-0 px-3 py-2 min-h-9 flex items-center leading-5 bg-gray-50 dark:bg-neutral-900 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      type="button"
+                      onClick={() => setListExpanded(false)}
+                      data-testid="delete-confirm-show-less"
+                      className="text-xs italic text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 rounded"
+                      aria-expanded="true"
+                    >
+                      Show less
+                    </button>
                   </li>
                 )}
               </ul>
+            </div>
+          )}
+
+          {error && (
+            <div
+              role="alert"
+              data-testid="delete-confirm-error"
+              className="max-h-24 overflow-auto rounded p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+            >
+              <p className="text-sm text-red-600 dark:text-red-400 break-words whitespace-pre-wrap">{error}</p>
             </div>
           )}
         </div>
@@ -185,7 +226,7 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
                 <path d="M12 2a10 10 0 0 1 10 10" strokeOpacity="1" />
               </svg>
             )}
-            {isDeleting ? 'Deleting...' : 'Confirm'}
+            {isDeleting ? 'Deleting...' : error ? 'Retry' : 'Confirm'}
           </button>
         </div>
       </div>

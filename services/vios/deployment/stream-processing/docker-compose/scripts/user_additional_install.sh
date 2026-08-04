@@ -193,6 +193,7 @@ for attempt in $(seq 1 $MAX_RETRIES); do
   if apt-get install --reinstall -y ${APT_OPTS} \
       gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
       libvo-aacenc0 libfaad2 libswresample-dev libswresample4 libavutil-dev libavutil58 \
+      libswscale7 libpostproc57 \
       libavcodec-dev libavcodec60 libavformat-dev libavformat60 libavfilter-dev libavfilter9 \
       libde265-dev libde265-0 libx265-199 libx264-164 libmpeg2encpp-2.1-0 libmpeg2-4 \
       libmpg123-0 libbs2b0 libreadline8 libcdio19 libdca0 libdvdnav4 libmjpegutils-2.1-0 \

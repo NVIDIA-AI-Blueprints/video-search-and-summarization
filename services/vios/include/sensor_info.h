@@ -93,7 +93,7 @@ struct Resolution
     string height;
 
     void operator=(const string& value);
-    bool operator==(const Resolution& res);
+    bool operator==(const Resolution& res) const;
     bool empty() const;
     string getString() const;
     int getPixels() const;

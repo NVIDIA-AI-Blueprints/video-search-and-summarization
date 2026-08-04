@@ -10,7 +10,7 @@ For end-user docs (HTTP API, video-analytics-api integration, message envelopes 
 
 ## Quick mental model
 
-```
+```text
 video analytics api  -- upsert -->  mdx-notification  -- broadcast -->  behavior-analytics replicas
                                                                               |
                                                                               v
@@ -44,7 +44,7 @@ When you add a class that reads `self.config.X`, decide which of these patterns 
 Store the `AppConfig` reference, read values **inside method bodies** at call time:
 
 ```python
-class StateMgmtBase:
+class StateMgmt:
     def __init__(self, config: AppConfig, calibration: CalibrationBase) -> None:
         self.config = config             # reference, not value
 
@@ -61,8 +61,8 @@ Pass values into a sub-object that's reconstructed on every call:
 
 ```python
 class StateMgmt:
-    def _create_trajectory(self, ...) -> TrajectoryE:
-        return TrajectoryE(
+    def _create_trajectory(self, ...) -> Trajectory:
+        return Trajectory(
             smooth_window_size=self.config.traj_smooth_window_size,  # value passed in
             ...
         )
@@ -120,7 +120,7 @@ Test that a mutation followed by `config.invalidate_caches()` causes the next re
 
 ## Wire format
 
-```
+```text
 topic:    mdx-notification
 key:      "behavior-analytics-config"            # filters dynamic-config from calibration on the same topic
 headers:
@@ -142,7 +142,7 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 
 ## Flow A — operator update
 
-```
+```text
  user        video analytics api      mdx-notification         behavior-analytics (×N)
   │ POST /config   │                       │                         │
   ├───────────────▶│                       │                         │
@@ -167,7 +167,7 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 
 ## Flow B — replica bootstrap
 
-```
+```text
  behavior-analytics            mdx-notification         video analytics api    DB
       │ start, load disk baseline   │                  │                  │
       │ publish request-config      │                  │                  │
@@ -196,7 +196,7 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 
 ## Component map
 
-```
+```text
 src/mdx/analytics/core/transform/config/
 ├── config_validator.py        # Stateless validation: shape -> scope -> allowlist -> per-key value
 ├── config_value_validators.py # Per-key value-rule registry (type / range / enum / Pydantic-JSON)
@@ -215,7 +215,7 @@ Workers are separate processes (multiprocessing). Each has its own `AppConfig` a
 - **Main**: a single `ConfigListener` consumes `mdx-notification`, validates, atomically writes a file into `CONFIG_DIR`, applies on its local `AppConfig`, and acks.
 - **Each worker**: a `ConfigFileMonitor` watches `CONFIG_DIR` and applies the same file via its own `ConfigApplier`.
 
-This keeps Kafka consumer count at one per main process (multi-replica fan-out still works because each main has a unique `_config_replica_tag = uuid.uuid4().hex` Kafka group suffix) while every worker still picks up updates without going across the wire.
+This keeps Kafka consumer count at one per main process (multi-replica fan-out still works because each main has a unique `_config_listener_replica_tag = uuid.uuid4().hex` Kafka group suffix) while every worker still picks up updates without going across the wire.
 
 ---
 
@@ -275,6 +275,6 @@ Aim for 100% line + branch coverage on new code under `transform/config/`. The s
 
 ## Where to find canonical examples
 
-- Read-at-use consumer: `src/mdx/analytics/core/stream/state/behavior/state_management_base.py` (just stores the `AppConfig` reference; reads at use-time).
-- Per-call value-capture: `src/mdx/analytics/core/stream/state/behavior/state_management_e.py::_create_trajectory` (passes values into a per-call sub-object).
+- Read-at-use consumer: `src/mdx/analytics/core/stream/state/behavior/state_management.py` (just stores the `AppConfig` reference; reads at use-time).
+- Per-call value-capture: `src/mdx/analytics/core/stream/state/behavior/state_management.py::_create_trajectory` (passes values into a per-call sub-object).
 - Captured-at-`__init__` (restart-required) consumers: `src/mdx/analytics/core/transform/detection/collision_detection.py`, `src/mdx/analytics/core/utils/space_utilization.py::SpaceAnalyzer`, `src/mdx/analytics/core/stream/state/video_embedding/downsampling/`. Their config keys are intentionally absent from the validator's allowlist.

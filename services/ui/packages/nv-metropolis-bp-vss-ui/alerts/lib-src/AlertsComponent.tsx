@@ -210,6 +210,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   const defaultMaxResults = alertsData?.maxResults ?? 100;
   const defaultPageSize = alertsData?.pageSize ?? 20;
   const alertReportPromptTemplate = alertsData?.alertReportPromptTemplate;
+  const vlmVerifiedAlertReportPromptTemplate = alertsData?.vlmVerifiedAlertReportPromptTemplate;
   const mediaWithObjectsBbox = alertsData?.mediaWithObjectsBbox ?? false;
 
   const [pageSize, setPageSize] = useSessionState('alertsTabPageSize', defaultPageSize, parseIntRange(1, 500));
@@ -456,7 +457,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         />
 
         {/* Active Filter Tags */}
-        {(activeFilters.sensors.size > 0 || activeFilters.alertTypes.size > 0 || activeFilters.alertTriggered.size > 0) && (
+        {(activeFilters.sensors.size > 0 || activeFilters.alertTypes.size > 0) && (
           <div className="flex items-center gap-2 flex-wrap mt-2">
             {Array.from(activeFilters.sensors).map(filter => (
               <FilterTag
@@ -477,16 +478,6 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
                 onRemove={removeFilter}
               />
             ))}
-
-            {Array.from(activeFilters.alertTriggered).map(filter => (
-              <FilterTag
-                key={`alertTriggered-${filter}`}
-                type="alertTriggered"
-                filter={filter}
-                colors={getFilterColors('alertTriggered', isDark)}
-                onRemove={removeFilter}
-              />
-            ))}
           </div>
         )}
       </div>
@@ -504,6 +495,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           loadingAlertId={loadingAlertId}
           onRefresh={refetch}
           alertReportPromptTemplate={alertReportPromptTemplate}
+          vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+          vlmVerified={vlmVerified}
           vstApiUrl={vstApiUrl}
           sensorMap={sensorMap}
           showObjectsBbox={mediaWithObjectsBbox}

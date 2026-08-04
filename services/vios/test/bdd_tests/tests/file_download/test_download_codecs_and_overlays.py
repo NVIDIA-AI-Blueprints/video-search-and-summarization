@@ -287,12 +287,21 @@ def overlay_check(context):
 
 @given('the host has no NVENC available')
 def need_no_nvenc(context):
-    """Skip unless the runner has NO NVIDIA hardware encoder available."""
-    nvidia_dev = any(Path('/dev').glob('nvidia*'))
-    if nvidia_dev:
-        pytest.skip(
-            "Test requires a host WITHOUT NVENC; nvidia* devices are present."
-        )
+    """Skip unless the host has NO NVIDIA hardware encoder (NVENC).
+
+    The previous check skipped whenever any ``/dev/nvidia*`` node existed, which
+    wrongly skipped on the Jetson Orin Nano — it has ``nvidia*`` nodes but its
+    NVENC is fused off, so it is exactly the SW-fallback host this test targets.
+    Detect NVENC specifically: on Jetson it is exposed as ``/dev/nvhost-msenc``;
+    on discrete fall back to the presence of any ``nvidia*`` node.
+    """
+    is_tegra = Path('/etc/nv_tegra_release').exists()
+    if is_tegra:
+        has_nvenc = Path('/dev/nvhost-msenc').exists()
+    else:
+        has_nvenc = any(Path('/dev').glob('nvidia*'))
+    if has_nvenc:
+        pytest.skip("Test requires a host WITHOUT NVENC (hardware encoder present).")
 
 
 @given('a test video has been uploaded for transcode tests')

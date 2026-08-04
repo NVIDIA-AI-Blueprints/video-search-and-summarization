@@ -33,7 +33,7 @@ spec:
         app.kubernetes.io/name: vss-vios-sensor
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
-        checksum/config: {{ list (.Files.Get "configs/vst_config.json") (.Files.Get "configs/adaptor_config.json") (.Files.Get "configs/vst_storage.json") (.Files.Get "configs/rtsp_streams.json") | join "" | sha256sum }}
+        checksum/config: {{ list (.Files.Get "configs/vst_config.json") (.Files.Get "configs/notification_config.json") (.Files.Get "configs/adaptor_config.json") (.Files.Get "configs/vst_storage.json") (.Files.Get "configs/rtsp_streams.json") | join "" | sha256sum }}
     spec:
       {{- with .Values.securityContext }}
       securityContext:
@@ -74,12 +74,39 @@ spec:
                   name: {{ include "vss-vios-sensor.postgresCmName" . }}
                   key: CENTRALIZE_DB_PASSWORD
             {{- end }}
+            {{- /* VIOS-only SDRC toggle. global.vios.useSdrc (default false =
+                   direct). `dig` respects an explicit false, unlike `default`.
+                   The binary reads VST_USE_SDRC to choose whether sensor-MS
+                   publishes camera_proxy events for SDR (true) or registers the
+                   RTSP proxy itself (false).
+                   VST_ENABLE_NOTIFICATION is INDEPENDENT of SDRC: it defaults to
+                   useSdrc but can be set on its own via global.vios.enableNotification,
+                   matching docker's ${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}. */}}
+            {{- $g := .Values.global | default dict }}
+            {{- $useSdrc := dig "vios" "useSdrc" false $g }}
+            {{- $enableNotif := dig "vios" "enableNotification" $useSdrc $g }}
+            {{- /* STREAM_PROCESSOR_MODULE_ENDPOINT follows VST_USE_SDRC, mirroring
+                   docker-compose: SDRC -> sdr-controller:10000 (WDM/Envoy listener),
+                   direct -> vss-vios-streamprocessing:30001 (streamprocessing service).
+                   An explicit .Values.streamProcessorEndpoint still overrides both. */}}
             {{- $streamProcessorService := default "sdrc" .Values.streamProcessorService }}
-            {{- $streamProcessorServiceName := ternary "sdrc-controller" $streamProcessorService (eq $streamProcessorService "sdrc") }}
+            {{- $sdrcName := ternary "sdrc-controller" $streamProcessorService (eq $streamProcessorService "sdrc") }}
+            {{- $sdrcEndpoint := printf "http://%s:10000" (include "vss-vios-sensor.peerHost" (dict "root" . "short" $sdrcName)) }}
+            {{- $spEndpoint := printf "http://%s:30001" (include "vss-vios-sensor.peerHost" (dict "root" . "short" "vss-vios-streamprocessing")) }}
+            {{- $streamProcessorModuleEndpoint := .Values.streamProcessorEndpoint | default (ternary $sdrcEndpoint $spEndpoint $useSdrc) }}
             - name: STREAM_PROCESSOR_MODULE_ENDPOINT
-              value: {{ or .Values.streamProcessorEndpoint (printf "http://%s:5003" (include "vss-vios-sensor.peerHost" (dict "root" . "short" $streamProcessorServiceName))) | quote }}
+              value: {{ $streamProcessorModuleEndpoint | quote }}
+            {{- /* Docker parity: sensor-ms sets RTSP_SERVER_MODULE_ENDPOINT to the
+                   same value as STREAM_PROCESSOR_MODULE_ENDPOINT (see
+                   deploy/docker/services/vios/initiator/docker-compose.yaml). */}}
+            - name: RTSP_SERVER_MODULE_ENDPOINT
+              value: {{ $streamProcessorModuleEndpoint | quote }}
             - name: VST_INGRESS_ENDPOINT
               value: {{ include "vss-vios-sensor.vstIngressEndpointUrl" . | quote }}
+            - name: VST_USE_SDRC
+              value: {{ $useSdrc | quote }}
+            - name: VST_ENABLE_NOTIFICATION
+              value: {{ $enableNotif | quote }}
           volumeMounts:
             - name: configs
               mountPath: /home/vst/vst_release/configs

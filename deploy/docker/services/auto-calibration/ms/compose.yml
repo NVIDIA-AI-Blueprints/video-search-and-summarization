@@ -15,11 +15,12 @@
 
 services:
   vss-auto-calibration:
-    image: nvcr.io/nvidia/vss-core/vss-auto-calibration:3.2.1
+    image: ${VSS_AUTO_CALIBRATION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration}:${VSS_AUTO_CALIBRATION_TAG:-3.3.0-0}
 
     container_name: vss-auto-calibration
-    profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
-    network_mode: "host"
+    profiles: ["vss-auto-calibration"]
+    ports:
+      - ${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}:${VSS_AUTO_CALIBRATION_PORT:-8010}
     
     # GPU support
     runtime: nvidia
@@ -35,7 +36,7 @@ services:
    
     environment:
       - VGGT_MODEL_PATH=${VGGT_MODEL_PATH:-/tmp/vggt_model/vggt_1B_commercial.pt}
-      - VIOS_BASE_URL=${VIOS_BASE_URL:-}
+      - VIOS_BASE_URL=${VIOS_BASE_URL:-${VST_INTERNAL_URL:-http://vst-ingress:${VST_PORT:-30888}}}
     
     # Volume mounts
     volumes:
@@ -61,4 +62,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 1000s
-

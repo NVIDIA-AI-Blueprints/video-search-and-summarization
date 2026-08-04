@@ -25,7 +25,7 @@
 
 using namespace std;
 
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
 static void
 DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaque)
 {
@@ -63,7 +63,7 @@ void NvKafka::deleteInstance()
 
 NvKafka::NvKafka()
         : m_error(false)
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
         , m_kafkaHandle(nullptr)
         , rd_kafka_conf_new(nullptr)
         , rd_kafka_conf_set(nullptr)
@@ -75,7 +75,7 @@ NvKafka::NvKafka()
         , m_producer(nullptr)
 #endif
 {
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     m_kafkaHandle = dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY);
     if (!m_kafkaHandle)
     {
@@ -154,7 +154,7 @@ NvKafka::~NvKafka()
 {
     LOG(info) << " ::~NvKafka" << endl;
     stopMessageProcessing();
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     if (m_kafkaHandle)
     {
         dlclose(m_kafkaHandle);
@@ -164,7 +164,7 @@ NvKafka::~NvKafka()
 
 void NvKafka::kafka_init()
 {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     LOG(error) << "Kafka not integrated for Jetson device" << endl;
 #else
     rd_kafka_conf_t *conf; /* Temporary configuration object */
@@ -233,7 +233,7 @@ bool NvKafka::sendToKafka(std::string& payload)
         return false;
     }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     LOG(error) << "Kafka not integrated for Jetson device" << endl;
 #else
     rd_kafka_resp_err_t err;

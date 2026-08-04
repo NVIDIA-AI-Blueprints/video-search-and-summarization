@@ -1,0 +1,372 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+  storageClass: ""
+  useReleaseNamePrefix: false
+  # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
+  vios:
+    useSdrc: true
+
+bp-configurator:
+  enabled: true
+  name: bp-configurator-mv3dt
+  data:
+    enabled: true
+    mountPath: /opt/data
+    seedConfigMapName: vss-behavior-analytics-resources
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-configurator
+    tag: "3.2.1"
+    pullPolicy: IfNotPresent
+  init:
+    enabled: true
+    streamType: kafka
+    kafkaHost: kafka-kafka
+    kafkaPort: "9092"
+    redisHost: redis
+    redisPort: "6379"
+  env:
+    - name: SENSOR_INFO_SOURCE
+      value: nvstreamer
+    - name: ENABLE_PROFILE_CONFIGURATOR
+      value: "false"
+    - name: ENABLE_SENSOR_CONFIGURATOR
+      value: "true"
+    - name: ENABLE_REDIS_DUPLICATOR_THREAD
+      value: "false"
+    - name: CALL_SENSOR_ADD_API
+      value: "false"
+    - name: NUM_STREAMS
+      value: "4"
+    - name: MODE
+      value: mv3dt
+    - name: LOG_LEVEL
+      value: INFO
+    - name: NVSTREAMER_STREAMS_ENDPOINT
+      value: http://vss-vios-nvstreamer:31000/api/v1/sensor/streams
+    - name: NVSTREAMER_SENSOR_STATUS_ENDPOINT
+      value: http://vss-vios-nvstreamer:31000/api/v1/sensor/status
+    - name: VST_CAMERA_ADD_ENDPOINT
+      value: http://vss-vios-ingress:30888/vst/api/v1/sensor/add
+    - name: CALIBRATION_MODE
+      value: mount
+    - name: CALIBRATION_DIR_MOUNT_PATH
+      value: /opt/data
+    - name: CALIBRATION_FILE_NAME
+      value: calibration.json
+    - name: PORT
+      value: "5001"
+    - name: DS_CONFIG_DIR
+      value: /opt/warehouse/deepstream/configs
+    - name: NVSTREAMER_CONFIG_DIR
+      value: /opt/warehouse/nvstreamer/configs
+    - name: MESSAGE_BROKER_TYPE
+      value: kafka
+    - name: WDM_REDIS_HOST
+      value: redis
+    - name: WDM_REDIS_PORT
+      value: "6379"
+    - name: WDM_REDIS_STREAM_NAME
+      value: vst.event
+    - name: WDM_REDIS_MSG_KEY
+      value: sensor.id
+    - name: WDM_KFK_MSG_KEY
+      value: vst.event
+    - name: WDM_KFK_BOOTSTRAP_URL
+      value: kafka-kafka:9092
+    - name: WDM_KFK_TOPIC
+      value: mdx-notification
+    - name: WDM_WL_ID_FIELD
+      value: camera_id
+    - name: WDM_WL_EVENT_FIELD
+      value: event
+    - name: RECOMPUTE_BEV_CENTERS_ENABLED
+      value: "true"
+    - name: CHECK_SENSOR_IN_CALIBRATION_FILE
+      value: "true"
+    - name: SEND_CONFIG_TO_SDR
+      value: "true"
+    - name: ENABLE_CALIBRATION_PROCESS
+      value: "true"
+
+calibration-import:
+  enabled: true
+  name: import-calibration-output-mv3dt
+  apiUrl: http://vss-video-analytics-api:8081
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images
+  requireCalibration: true
+  requireImages: true
+
+warehouse:
+  mode: mv3dt
+  behaviorAnalytics:
+    calibrationFile: files/behavior-analytics/calibration.json
+
+vios:
+  enabled: true
+  vstStorage:
+    createSharedPvcs: true
+    accessMode: ReadWriteOnce
+    vstData:
+      size: 10Gi
+      storageClass: ""
+    vstVideo:
+      size: 20Gi
+      storageClass: ""
+    streamerVideos:
+      size: 20Gi
+      storageClass: ""
+  vss-vios-postgres:
+    enabled: true
+  vss-vios-envoy-proxy:
+    enabled: false
+  vss-vios-sdr:
+    enabled: false
+  vss-vios-sensor:
+    enabled: true
+    streamProcessorService: sdrc
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+  vss-vios-streamprocessing:
+    enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+      streamerVideos: { enabled: true, create: false, existingClaim: "" }
+  vss-vios-ingress:
+    enabled: true
+  vss-vios-nvstreamer:
+    enabled: true
+
+infra:
+  enabled: true
+  phoenix:
+    enabled: false
+  redis:
+    enabled: true
+    persistence:
+      storageClass: ""
+      size: 5Gi
+  mosquitto:
+    enabled: true
+    image:
+      repository: docker.io/library/eclipse-mosquitto
+      tag: "2"
+      pullPolicy: IfNotPresent
+    port: 1883
+    service:
+      type: ClusterIP
+  sdrc:
+    enabled: true
+    configFilePath: configs/sdrc/config.yml
+    config:
+      configMapName: sdrc-config
+      key: config.yml
+      mountPath: /config.yml
+  elasticsearch:
+    enabled: true
+    persistence:
+      data:
+        size: 10Gi
+      logs:
+        size: 5Gi
+      storageClass: ""
+    init:
+      enabled: true
+      env:
+        ELASTICSEARCH_ILM_MIN_AGE: 4h
+        ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: "1536"
+        ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: "768"
+  kibana:
+    enabled: true
+    init:
+      enabled: true
+      objectsBundle: warehouse-mv3dt
+  kafka:
+    enabled: true
+    topicJob:
+      enabled: true
+    persistence:
+      storageClass: ""
+      size: 50Gi
+  logstash:
+    enabled: true
+  vss-broker-health-check:
+    enabled: true
+    kafkaHost: ""
+    kafkaPort: "9092"
+    redisHost: ""
+    redisPort: "6379"
+
+analytics:
+  enabled: true
+  vss-video-analytics-api:
+    enabled: true
+    kafkaBrokers: ""
+    elasticsearchNode: ""
+    storage:
+      size: 5Gi
+      storageClass: ""
+    waitForDependencies:
+      enabled: true
+  vss-behavior-analytics:
+    enabled: true
+    fullnameOverride: vss-behavior-analytics
+    replicas: 1
+    command:
+      - python3
+      - apps/analytics/main_analytics_3d_app.py
+      - --config
+      - /resources/vss-behavior-analytics-config.json
+      - --calibration
+      - /resources/calibration.json
+    resourceFiles:
+      calibration:
+        enabled: true
+        mountPath: /resources/calibration.json
+    config:
+      kafkaConfigJson: |
+        {
+          "kafka": {
+            "brokers": "kafka-kafka:9092",
+            "topics": [
+              {"name": "raw", "value": "mdx-bev"},
+              {"name": "behavior", "value": "mdx-behavior"},
+              {"name": "frames", "value": "mdx-frames"},
+              {"name": "notification", "value": "mdx-notification"},
+              {"name": "spaceUtilization", "value": "mdx-space-utilization"},
+              {"name": "events", "value": "mdx-events"},
+              {"name": "incidents", "value": "mdx-incidents"}
+            ],
+            "consumer": {
+              "autoOffsetReset": "latest",
+              "enableAutoCommit": false,
+              "maxPollIntervalMs": 900000,
+              "maxPartitionFetchBytes": 10485760,
+              "fetchMaxBytes": 104857600,
+              "maxPollRecords": 10000,
+              "timeout": 0.01
+            },
+            "producer": {"lingerMs": 0},
+            "group": "mdx-spatial-analytics-3d-app"
+          },
+          "redisStream": {
+            "host": "redis",
+            "port": 6379,
+            "streams": [
+              {"name": "raw", "value": "mdx-bev"},
+              {"name": "behavior", "value": "mdx-behavior"},
+              {"name": "frames", "value": "mdx-frames"},
+              {"name": "notification", "value": "mdx-notification"},
+              {"name": "spaceUtilization", "value": "mdx-space-utilization"},
+              {"name": "events", "value": "mdx-events"},
+              {"name": "incidents", "value": "mdx-incidents"}
+            ],
+            "consumer": {"readCount": 200, "readBlockMs": 100},
+            "producer": {"maxLen": 10000},
+            "group": "mdx-spatial-analytics-3d-app"
+          },
+          "sensors": [
+            {
+              "id": "default",
+              "configs": [
+                {"name": "proximityDetectionEnable", "value": "true"},
+                {"name": "proximityDetectionThreshold", "value": "2"},
+                {"name": "proximityDetectionCenterClasses", "value": "[\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\"]"},
+                {"name": "proximityDetectionSurroundingClasses", "value": "[\"Person\"]"}
+              ]
+            }
+          ],
+          "app": [
+            {"name": "spaceAnalyticsIntervalSec", "value": "1.0"},
+            {"name": "spaceAnalyticsGridSize", "value": "0.2"},
+            {"name": "spaceAnalyticsUnsafeSize", "value": "0.5"},
+            {"name": "spaceAnalyticsTargetClasses", "value": "[\"Box\", \"Pallet\"]"},
+            {"name": "spaceAnalyticsUseGA", "value": "false"},
+            {"name": "spaceAnalyticsPopulationSizeGA", "value": "100"},
+            {"name": "spaceAnalyticsNumGenerationsGA", "value": "100"},
+            {"name": "behaviorEmitOnce", "value": "false"},
+            {"name": "behaviorWatermarkSec", "value": "30"},
+            {"name": "behaviorMaxPoints", "value": "100"},
+            {"name": "in3dMode", "value": "true"},
+            {"name": "playbackLoop", "value": "10000"},
+            {"name": "compactFrame", "value": "true"},
+            {"name": "stateManagementFilter", "value": "[\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\",\"Person\",\"NovaCarter\",\"Transporter\",\"Forklift\"]"},
+            {"name": "playbackStartUpDelaySec", "value": "90"},
+            {"name": "sourceType", "value": "kafka"},
+            {"name": "sinkType", "value": "kafka"},
+            {"name": "numWorkersForBehaviorCreation", "value": "1"},
+            {"name": "numWorkersForFrameEnhancement", "value": "1"},
+            {"name": "numWorkersForSpaceEstimation", "value": "0"}
+          ]
+        }
+    imagePullSecrets:
+      - name: ngc-docker-reg-secret
+
+rtvi:
+  enabled: true
+  vss-rtvi-cv:
+    enabled: true
+    profileMode: standalone-mv3dt
+    replicas: 1
+    otelServiceName: rtvi-cv-mv3dt
+    image:
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
+      tag: "3.3.0-26.07.2"
+      pullPolicy: IfNotPresent
+    httpPort: 9000
+    streamType: kafka
+    deepstreamEnableSensorIdExtraction: "0"
+    downloadNgcAppData: true
+    downloadModelsFromNgc: true
+    ngcApiKeySecretName: ngc-api
+    ngcApiKeySecretKey: NGC_CLI_API_KEY
+    ngcAppDataOrg: nvidia
+    ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    ngcModelsToDownload:
+      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
+      - model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0
+        org: nvidia
+        sourcePath: bodypose3dnet_accuracy.onnx
+        destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx
+    kafka:
+      bootstrapServers: ""
+    standaloneWarehouse:
+      streamType: kafka
+      mv3dt:
+        instanceId: "0"
+        batchSize: "4"
+        maxBatchSize: "4"
+        mqttPort: "1883"
+        redisPort: "6379"
+        fusion:
+          enabled: true
+          image:
+            repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
+            tag: "3.2.0"
+            pullPolicy: IfNotPresent
+          rawTopic: mdx-raw
+          fusedTopic: mdx-bev
+          sensorTimeoutMs: "100"
+          maxExpectedSensors: "4"
+          bufferDurationS: "2.0"
+    persistence:
+      storageClass: ""
+      models:
+        size: 100Gi
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1

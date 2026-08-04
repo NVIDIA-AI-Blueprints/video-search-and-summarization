@@ -26,18 +26,16 @@
 #include <linux/videodev2.h>
 #include "v4l2_nv_extensions.h"
 
-#ifndef JETSON_PLATFORM
 #include <cuda.h>
 #include <cuda_runtime_api.h>
-#endif
 #include "nvbufwrapper.h"
 
-#ifdef JETSON_PLATFORM
 inline constexpr const char* ENCODER_DEV = "/dev/nvidia0";
-inline constexpr const char* ENCODER_DEV_ALT = "/dev/v4l2-nvenc";
-#else
-inline constexpr const char* ENCODER_DEV = "/dev/nvidia0";
-#endif
+// Jetson/Orin NVENC is a V4L2 M2M device, NOT the GPU node. Used at runtime when
+// isJetsonPlatform(): the modern node (R39/JetPack7) is /dev/v4l2-nvenc, with the
+// legacy Tegra node (/dev/nvhost-msenc, JetPack5/6) as a fallback.
+inline constexpr const char* ENCODER_DEV_ALT    = "/dev/v4l2-nvenc";
+inline constexpr const char* ENCODER_DEV_LEGACY = "/dev/nvhost-msenc";
 
 #ifndef MAX_PLANES
 #define MAX_PLANES 3
@@ -153,12 +151,11 @@ class NvVideoEncoder {
   struct v4l2Planes_ *capturePlane = nullptr;
   struct v4l2Planes_ *outputPlane = nullptr;
 
-#ifndef JETSON_PLATFORM
+  // Discrete-GPU (Thor/SBSA/x86) CUDA context, used only when !isJetsonPlatform().
   CUdevice    cuDevice = 0; // Device on which this instance is associated.
   CUcontext   cuContext = nullptr; // Cuda context for this instance
-#else
+  // Jetson/Orin encoder gpu flag, used only when isJetsonPlatform().
   bool gpu_enabled = false;
-#endif
 
   //Initialize V4L2 planes
   void InitPlane(struct v4l2Planes_ *currentPlane);

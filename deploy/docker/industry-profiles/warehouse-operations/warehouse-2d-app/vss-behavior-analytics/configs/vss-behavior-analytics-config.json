@@ -1,6 +1,6 @@
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"topics": [
 			{
 				"name": "raw",
@@ -42,7 +42,7 @@
 		"group": "mdx-spatial-analytics-2d-app"
 	},
 	"redisStream": {
-		"host": "localhost",
+		"host": "redis",
 		"port": 6379,
 		"streams": [
 			{
@@ -108,12 +108,12 @@
 	],
 	"app": [
 		{
-			"name": "behaviorWatermarkSec",
-			"value": "30"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
+			"name": "behaviorWatermarkSec",
+			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",

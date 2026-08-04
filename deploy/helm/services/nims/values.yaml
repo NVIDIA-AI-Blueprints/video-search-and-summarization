@@ -61,9 +61,7 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.7"
-      NIM_GPU_MEMORY_UTILIZATION: "0.7"
-      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
+      NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
@@ -82,9 +80,7 @@ gpuProfiles:
       NIM_MAX_NUM_SEQS: "4"
       MAX_JOBS: "4"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.8"
       NIM_GPU_MEMORY_UTILIZATION: "0.8"
-      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.8"
       NIM_MAX_MODEL_LEN: "32768"
       NIM_MAX_NUM_SEQS: "4"
       MAX_JOBS: "4"
@@ -105,9 +101,7 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.7"
-      NIM_GPU_MEMORY_UTILIZATION: "0.7"
-      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
+      NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
@@ -278,9 +272,7 @@ cosmos3:
   # Imported from <cosmos3-fullname>-nim-env ConfigMap into NIMService.spec.env.
   # Missing keys are ignored (optional: true).
   envConfigMapKeys:
-    - NIM_KVCACHE_PERCENT
     - NIM_GPU_MEMORY_UTILIZATION
-    - NIM_PASSTHROUGH_ARGS
     - NIM_MAX_MODEL_LEN
     - NIM_MAX_NUM_SEQS
     - MAX_JOBS

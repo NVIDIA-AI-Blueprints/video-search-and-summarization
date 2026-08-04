@@ -35,7 +35,7 @@
       "query": "I want to deploy the full warehouse blueprint with agents and bbox overlays. Which skill \u2014 be specific.",
       "checks": [
         "The agent routes to `vss-deploy-profile` (and its `references/warehouse.md`), NOT to `vss-deploy-detection-tracking-3d`. The 3D skill is for MV3DT-only deployments without agents / LLM / VLM; the full warehouse blueprint is the umbrella skill's territory. If the agent picks `vss-deploy-detection-tracking-3d` for this query, that's a false-positive routing match and the check fails.",
-        "The agent's response references `vss-deploy-profile`, `warehouse.md`, `bp_wh` (the agents profile, not `bp_wh_kafka` / `bp_wh_redis`), or `warehouse blueprint`. Mentioning only MV3DT-specific terms (`mv3dt`, `bp_wh_kafka_mv3dt`, `bev fusion`) without acknowledging the umbrella skill suggests the agent missed the routing nuance.",
+        "The agent's response references `vss-deploy-profile`, `warehouse.md`, `BP_PROFILE=bp_wh` (the agents variant, not `bp_wh_kafka` / `bp_wh_redis`), or `warehouse blueprint`. Mentioning only MV3DT-specific terms (`mv3dt`, `COMPOSE_PROFILES_WH_KAFKA_MV3DT`, `bev fusion`) without acknowledging the umbrella skill suggests the agent missed the routing nuance.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },

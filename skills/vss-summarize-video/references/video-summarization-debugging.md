@@ -31,11 +31,11 @@ Common causes:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `400 BadParameters: No such model` | `VLM_NAME` does not match RT-VLM `/v1/models`. | Copy the advertised id into `VLM_NAME` and recreate `vss-lvs` / `vss-agent`. |
+| `400 BadParameters: No such model` | The request used an id not advertised by the serving endpoint. | Query LVS `/models` or RT-VLM `/v1/models` before POST and use an advertised id. |
 | `/v1/ready` returns 503 | LLM, RT-VLM, ES, or another dependency is warming/unreachable. | Check dependency logs and endpoint URLs. |
 | `curl` to the video summarization service works on host but not in an agent sandbox | Network namespace or sandbox visibility differs. | Use host-visible shell/deployment context. |
-| Summarize returns 503 | The video summarization service is busy processing another file. | Wait and retry. |
-| Empty or weak event output | Scenario/events too narrow or no matching content. | Re-run with broader events or scenario. |
+| Summarize returns 503 | The video summarization service is busy processing another file. | In an interactive ops/debug session, wait and retry as a separate user-approved request. In the summarize workflow, do not retry automatically. |
+| Empty or weak event output | Scenario/events too narrow or no matching content. | Report the exact LVS response and offer a separate rerun with broader events or scenario. Do not broaden events automatically. |
 
 ## Model Id Mismatch
 
@@ -45,13 +45,9 @@ The default `lvs` profile routes VLM calls through RT-VLM. Verify:
 curl -sf "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'
 ```
 
-For the default integrated Cosmos Reason3 Nano BF16 path, `VLM_NAME` should be:
-
-```text
-nim_nvidia_cosmos3-nano-reasoner_bf16-final
-```
-
-Do not use `nvidia/cosmos3-nano-reasoner` unless the endpoint advertises that id.
+Treat the returned id as authoritative. Image tags and deployment modes can
+change the advertised id, so do not rely on a hardcoded friendly or NIM profile
+name.
 
 ## Kafka / Logstash Path
 
@@ -88,8 +84,8 @@ Rules:
 
 - `model`, `scenario`, and `events` are required for `/v1/summarize`.
 - `additionalProperties: false` means extra fields can fail validation.
-- Prefer `num_frames_per_second_or_fixed_frames_chunk` and
-  `use_fps_for_chunking`; `num_frames_per_chunk` is deprecated.
+- Omit frame sampling fields in the standard workflow so RT-VLM uses its
+  model-specific deployment default. `num_frames_per_chunk` is deprecated.
 - `schema` is a JSON schema serialized as a string, not a nested object.
 
 ## Logs

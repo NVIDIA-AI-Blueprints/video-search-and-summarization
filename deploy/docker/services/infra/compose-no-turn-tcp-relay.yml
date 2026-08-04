@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Optional overlay for CI or local smoke tests that do not need TCP relay
+# candidates from the bundled TURN server. Keep the TURN listener on TCP/UDP,
+# but publish only the UDP relay range.
+
+services:
+  turnserver:
+    ports: !override
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/udp
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/tcp
+      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/udp

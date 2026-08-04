@@ -22,7 +22,7 @@ docker-compose services.
 Usage:
     python3 oneclick_dc_deployment.py [ACTION] [--target TARGET] [OPTIONS]
 
-Actions:  deploy (default) | stop | config-only
+Actions:  deploy (default) | stop | recreate | config-only | preflight-sysctl
 Targets:  vios (default)   | nvstreamer | all
 
 Run with --help for full usage details.
@@ -160,7 +160,21 @@ class DeploymentConfig:
         self.pull_always = False
         self.existing_vst_deployment = False
         self.existing_nvstreamer_deployment = False
+        # When True (--no-sdrc), deploy VST in DIRECT mode: rewrite the
+        # SDRC-default compose.env back to VST_USE_SDRC=false / NGINX_MODE=vst /
+        # no sdrc compose profile / stream-processor reached directly on :30001.
+        self.no_sdrc = False
         self.tag_overrides: Dict[str, str] = {}
+        # Full-image overrides (key: env var name, value: complete image reference
+        # without the tag, e.g. "vios/vst-sensor"). Used when a local dev build
+        # has a registry/name that differs from the shipped nvcr.io reference;
+        # the matching --*-tag override usually accompanies it to pin the tag.
+        self.image_overrides: Dict[str, str] = {}
+        # Skip host sysctl tuning entirely. Useful for unattended/agent deploys
+        # without passwordless sudo. The script also auto-skips with a warning
+        # when stdin is not a TTY and sudo would prompt — this flag silences
+        # that case explicitly.
+        self.skip_sysctl = False
         self.image_registry: str = ""
         self.nvstreamer_image: str = ""
 
@@ -449,6 +463,12 @@ VST_CONTAINERS = [
     "redis-server",
     "sensor-ms",
     "streamprocessing-ms-1",
+    # SDRC mode services (gated behind --profile sdrc)
+    "sdr-controller",
+    "sdrc-init-dirs",
+    "sdrc-render-config",
+    # Legacy sdr+envoy names (kept so stop/cleanup still works on old deploys
+    # that pre-date the SDRC refactor; harmless when containers are absent).
     "sdr-streamprocessing",
     "envoy-streamprocessing",
     "prometheus",
@@ -593,15 +613,40 @@ class ConfigurationManager:
             'VST_VOLUME': f"{self.config.vst_volume} ### change me",
         }
 
-        # Apply registry/org and tag overrides for stream-processing service images
+        # Apply registry/org, tag, and full-image overrides for the stream-processing
+        # service images. Three knobs from --image-registry, --*-tag, --*-image:
+        #
+        #   --image-registry <org>     swap only the registry/org prefix, keep basename + tag
+        #   --*-tag <tag>              swap only the tag, keep registry + basename
+        #   --*-image <ref>            replace the whole image reference (no basename swap);
+        #                              should be paired with --*-tag, otherwise the compose.env
+        #                              tag (often :latest for local builds) is reused — which
+        #                              Docker will try to pull and most likely fail on.
         vst_image_vars = ['VST_STREAM_PROCESSOR_IMAGE', 'VST_SENSOR_IMAGE']
         for image_var in vst_image_vars:
+            full_image = self.config.image_overrides.get(image_var, "")
             org = self.config.image_registry
             tag = self.config.tag_overrides.get(image_var, "")
-            if not org and not tag:
+            if not full_image and not org and not tag:
                 continue
             current_image = self._read_env_value(self.config.main_compose_env, image_var)
-            new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
+            if full_image:
+                # Verbatim replace (org_is_prefix=False) so a complete dev image ref
+                # like "vios/vst-sensor" wins over the compose.env's basename swap.
+                new_image = self._retarget_image(current_image, org=full_image, tag=tag, org_is_prefix=False)
+                if not tag:
+                    tag_flag = {
+                        'VST_STREAM_PROCESSOR_IMAGE': '--streamprocessor-tag',
+                        'VST_SENSOR_IMAGE': '--sensor-tag',
+                    }.get(image_var, 'the matching --*-tag flag')
+                    Logger.warning(
+                        f"{image_var}: image override '{full_image}' was given without a paired tag; "
+                        f"falling back to the compose.env tag -> {new_image}. Local builds default to "
+                        f"':latest', so this reference may not exist locally and Docker will try to pull it. "
+                        f"Pass {tag_flag} to pin the tag explicitly."
+                    )
+            else:
+                new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
             if new_image:
                 updates[image_var] = new_image
                 Logger.info(f"Applying image override: {image_var} = {new_image}")
@@ -611,6 +656,39 @@ class ConfigurationManager:
                 )
 
         self._update_env_file(self.config.main_compose_env, updates)
+
+        # --no-sdrc: switch the DEPLOYMENT MODE TOGGLE block to DIRECT by
+        # commenting the SDRC block and uncommenting the DIRECT block — a clean
+        # block toggle, not an in-place value rewrite. This keeps compose.env
+        # consistent: the active block's header matches its values and there is
+        # no stale/duplicate block. Default (no flag) leaves the shipped SDRC
+        # block untouched.
+        if self.config.no_sdrc:
+            if not self._set_deployment_mode(self.config.main_compose_env, sdrc=False):
+                # Toggle markers not found — fall back to in-place key rewrite.
+                self._update_env_file(self.config.main_compose_env, {
+                    'VST_USE_SDRC': 'false',
+                    'NGINX_MODE': 'vst',
+                    'COMPOSE_PROFILES': '',
+                    'STREAM_PROCESSOR_MODULE_ENDPOINT': 'http://${HOST_IP}:30001',
+                })
+            # Verify the change actually took effect. If the toggle block had a
+            # non-standard format (renamed headers, spaces around '='), both the
+            # block toggle and the key fallback can miss — refuse to deploy in
+            # the wrong mode rather than silently coming up as SDRC.
+            applied = (self._read_env_value(
+                self.config.main_compose_env, 'VST_USE_SDRC') or '').strip().lower()
+            if applied != 'false':
+                Logger.error(
+                    "--no-sdrc requested but VST_USE_SDRC did not become 'false' "
+                    f"(read {applied!r}). The compose.env DEPLOYMENT MODE TOGGLE block "
+                    "likely has a non-standard format (renamed headers, or spaces "
+                    "around '='). Restore the shipped toggle-block format or set the "
+                    "direct values manually, then re-run. Refusing to deploy in the "
+                    "wrong mode."
+                )
+                sys.exit(2)
+            Logger.info("VIOS deployment mode set to direct (--no-sdrc)")
 
         if self.config.customize_rtsp_ports:
             rtsp_updates = {}
@@ -678,6 +756,85 @@ class ConfigurationManager:
                         f.write(line)
         except Exception as e:
             Logger.error(f"Failed to update {env_file}: {e}")
+
+    def _set_deployment_mode(self, env_file: Path, sdrc: bool) -> bool:
+        """Toggle the DEPLOYMENT MODE TOGGLE block in compose.env cleanly.
+
+        Comments out the unused block and uncomments the active one (instead of
+        rewriting values in place), so the active block's header matches its
+        values and there is no stale/duplicate block left behind.
+
+        Returns True if the toggle block was found and rewritten; False if the
+        markers were not found (caller can fall back to an in-place key rewrite).
+        """
+        if not env_file.exists():
+            Logger.error(f"Environment file not found: {env_file}")
+            return False
+        try:
+            with open(env_file, 'r') as f:
+                lines = f.readlines()
+        except OSError as e:
+            Logger.error(f"Failed to read {env_file}: {e}")
+            return False
+
+        # The block runs from the "---------- DIRECT MODE ... ----------" header
+        # down to (but not including) the next "######" section border.
+        # Lenient locators: tolerate changes to dash/hash counts and leading
+        # whitespace. The descriptive "# DIRECT MODE :" prose line has no dashes,
+        # so requiring dashes keeps us on the actual block header (not the prose).
+        start = next(
+            (i for i, ln in enumerate(lines)
+             if 'DIRECT MODE' in ln and '---' in ln),
+            None,
+        )
+        if start is None:
+            return False
+        end = next(
+            (i for i in range(start + 1, len(lines))
+             if lines[i].lstrip().startswith('###')),
+            None,
+        )
+        if end is None:
+            return False
+
+        if sdrc:
+            block = [
+                "# ---------- DIRECT MODE (uncomment below to use this mode) ----------",
+                "#VST_USE_SDRC=false",
+                "#NGINX_MODE=vst",
+                "#STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:30001",
+                "",
+                "",
+                "# ---------- SDRC MODE (default) ----------",
+                "VST_USE_SDRC=true",
+                "COMPOSE_PROFILES=sdrc",
+                "NGINX_MODE=vst-sdrc",
+                "STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:10000",
+            ]
+        else:
+            block = [
+                "# ---------- DIRECT MODE (default) ----------",
+                "VST_USE_SDRC=false",
+                "NGINX_MODE=vst",
+                "STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:30001",
+                "",
+                "",
+                "# ---------- SDRC MODE (uncomment below to use this mode) ----------",
+                "#VST_USE_SDRC=true",
+                "#COMPOSE_PROFILES=sdrc",
+                "#NGINX_MODE=vst-sdrc",
+                "#STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:10000",
+            ]
+        # Preserve one blank line before the closing "######" border.
+        new_region = [ln + "\n" for ln in block] + ["\n"]
+        new_lines = lines[:start] + new_region + lines[end:]
+        try:
+            with open(env_file, 'w') as f:
+                f.writelines(new_lines)
+        except OSError as e:
+            Logger.error(f"Failed to update {env_file}: {e}")
+            return False
+        return True
 
 
 class InteractiveConfiguration:
@@ -1298,6 +1455,35 @@ class DeploymentManager:
         except Exception:  # noqa: BLE001
             return None
 
+    # Sysctl tuning targets — single source of truth.
+    # Order matters for the preflight subcommand: scalars first, then triplets.
+    SYSCTL_KEYS_SCALAR = ("net.core.rmem_max", "net.core.wmem_max")
+    SYSCTL_KEYS_TRIPLET = ("net.ipv4.tcp_rmem", "net.ipv4.tcp_wmem")
+    SYSCTL_TRIPLET_TARGET = "4096 2000000 6291456"
+
+    def _sysctl_targets(self):
+        """Return ``(scalar_target, triplet_target)`` for the current host.
+
+        Scalar target is downgraded to 1 MB when host memory is constrained
+        (`_validate_memory_availability()` returns False) so the script
+        doesn't try to grow the kernel buffer past what the host can spare.
+        """
+        if self._validate_memory_availability():
+            scalar_target = "2000000"
+        else:
+            scalar_target = "1000000"
+        return scalar_target, self.SYSCTL_TRIPLET_TARGET
+
+    def _read_current_sysctls(self):
+        """Return ``dict[key] = current_str_or_None`` for the four tuned
+        keys. Centralized so ``configure_network_buffers`` and the
+        ``preflight-sysctl`` subcommand can't drift.
+        """
+        return {
+            k: self._read_sysctl(k)
+            for k in (*self.SYSCTL_KEYS_SCALAR, *self.SYSCTL_KEYS_TRIPLET)
+        }
+
     def configure_network_buffers(self):
         """Apply host-level sysctl tuning needed for high-throughput streaming.
 
@@ -1312,15 +1498,26 @@ class DeploymentManager:
         script exit -- the user can re-tune manually (e.g. `sysctl -w
         net.core.rmem_max=212992`) if they want the pre-deploy defaults
         back.
+
+        Skipped entirely when --skip-sysctl is passed OR every value is
+        already at/above the target (idempotent re-deploys). Skipped with a
+        warning (not a hang) when stdin is non-TTY and sudo would prompt.
         """
+        if self.config.skip_sysctl:
+            Logger.info(
+                "Skipping network buffer tuning (--skip-sysctl). "
+                "Containers will still come up; throughput may be lower "
+                "under load if the host buffers are unset."
+            )
+            return
+
         Logger.info("Configuring network buffer sizes for high-throughput streaming...")
 
-        # Read current values once (used both for the log below and the
-        # "don't downgrade" guard further down).
-        current_rmem_max = self._read_sysctl("net.core.rmem_max")
-        current_wmem_max = self._read_sysctl("net.core.wmem_max")
-        current_tcp_rmem = self._read_sysctl("net.ipv4.tcp_rmem")
-        current_tcp_wmem = self._read_sysctl("net.ipv4.tcp_wmem")
+        current = self._read_current_sysctls()
+        current_rmem_max = current["net.core.rmem_max"]
+        current_wmem_max = current["net.core.wmem_max"]
+        current_tcp_rmem = current["net.ipv4.tcp_rmem"]
+        current_tcp_wmem = current["net.ipv4.tcp_wmem"]
 
         Logger.info(
             f"Current values:\n"
@@ -1330,44 +1527,51 @@ class DeploymentManager:
             f"  net.ipv4.tcp_wmem  = {current_tcp_wmem}"
         )
 
-        # Pick conservative target buffers if memory is constrained
-        if self._validate_memory_availability():
-            new_rmem_max = "2000000"
-            new_wmem_max = "2000000"
-        else:
-            new_rmem_max = "1000000"
-            new_wmem_max = "1000000"
-        new_tcp_rmem = "4096 2000000 6291456"
-        new_tcp_wmem = "4096 2000000 6291456"
-
-        def _needs_bump(current: Optional[str], target: str, key: str) -> bool:
-            """True iff we should apply sysctl key=target.
-
-            Skips when current >= target so we never downgrade a host that
-            an admin has already pre-tuned beyond our defaults.
-            """
-            if current is None:
-                return True  # couldn't read current; play it safe and set
-            try:
-                if int(current) >= int(target):
-                    Logger.info(
-                        f"Skipping {key}: current ({current}) is already "
-                        f">= target ({target})"
-                    )
-                    return False
-            except ValueError:
-                pass  # non-integer current; just set
-            return True
+        new_rmem_max, new_tcp_rmem = self._sysctl_targets()
+        new_wmem_max = new_rmem_max
+        new_tcp_wmem = new_tcp_rmem
 
         commands = []
-        if _needs_bump(current_rmem_max, new_rmem_max, "net.core.rmem_max"):
+        if self._scalar_needs_bump(current_rmem_max, new_rmem_max, "net.core.rmem_max"):
             commands.append(f"sudo sysctl -w net.core.rmem_max={new_rmem_max}")
-        if _needs_bump(current_wmem_max, new_wmem_max, "net.core.wmem_max"):
+        if self._scalar_needs_bump(current_wmem_max, new_wmem_max, "net.core.wmem_max"):
             commands.append(f"sudo sysctl -w net.core.wmem_max={new_wmem_max}")
-        # tcp_rmem / tcp_wmem are "min default max" triplets; "don't
-        # downgrade" comparison semantics are non-trivial, so always apply.
-        commands.append(f"sudo sysctl -w net.ipv4.tcp_rmem='{new_tcp_rmem}'")
-        commands.append(f"sudo sysctl -w net.ipv4.tcp_wmem='{new_tcp_wmem}'")
+        if self._triplet_needs_bump(current_tcp_rmem, new_tcp_rmem, "net.ipv4.tcp_rmem"):
+            commands.append(f"sudo sysctl -w net.ipv4.tcp_rmem='{new_tcp_rmem}'")
+        if self._triplet_needs_bump(current_tcp_wmem, new_tcp_wmem, "net.ipv4.tcp_wmem"):
+            commands.append(f"sudo sysctl -w net.ipv4.tcp_wmem='{new_tcp_wmem}'")
+
+        # Idempotent fast path: every key already meets/exceeds the target.
+        # No sudo prompt at all on a re-deploy. Common case for any host that
+        # has previously had VIOS deployed.
+        if not commands:
+            Logger.success(
+                "Network buffers already meet targets; no sysctl changes needed"
+            )
+            return
+
+        # If we ARE about to invoke sudo, decide whether that's safe. In
+        # non-interactive contexts (agent runs, CI, piped-stdin) we'd hang on
+        # the password prompt forever. Fail-soft: log a clear warning + skip
+        # the sysctl tuning, but let the deploy continue (containers come up
+        # fine, throughput may be degraded under load).
+        if not sys.stdin.isatty():
+            if not self._sudo_is_passwordless():
+                Logger.warning(
+                    f"Stdin is not a TTY and passwordless sudo is unavailable. "
+                    f"Skipping {len(commands)} pending sysctl tuning command(s) to "
+                    f"avoid hanging on a password prompt. Apply manually with the "
+                    f"commands logged below, OR re-run interactively, OR pass "
+                    f"--skip-sysctl to silence this warning."
+                )
+                for cmd in commands:
+                    Logger.info(f"  (skipped) {cmd}")
+                return
+        else:
+            Logger.warning(
+                f"Applying {len(commands)} sysctl change(s) via sudo "
+                f"(may prompt for password). Pass --skip-sysctl to skip."
+            )
 
         all_ok = True
         for cmd in commands:
@@ -1384,6 +1588,151 @@ class DeploymentManager:
                 "One or more sysctl settings failed. Continuing deployment, "
                 "but high-throughput streaming may be degraded."
             )
+
+    @staticmethod
+    def _scalar_needs_bump(current: Optional[str], target: str, key: str, *,
+                           log: bool = True) -> bool:
+        """True iff we should apply a scalar sysctl key=target.
+
+        Skips when current >= target so we never downgrade a host that an
+        admin has already pre-tuned beyond our defaults. ``log=False`` is
+        used by the preflight subcommand which wants pure data.
+        """
+        if current is None:
+            return True  # couldn't read current; play it safe and set
+        try:
+            if int(current) >= int(target):
+                if log:
+                    Logger.info(
+                        f"Skipping {key}: current ({current}) is already "
+                        f">= target ({target})"
+                    )
+                return False
+        except ValueError:
+            pass  # non-integer current; just set
+        return True
+
+    @staticmethod
+    def _triplet_needs_bump(current: Optional[str], target: str, key: str, *,
+                            log: bool = True) -> bool:
+        """True iff a "min default max" sysctl triplet falls short of target.
+
+        Compares each of the three fields. Skips only when ALL three of
+        current are >= the corresponding target field. On parse failure,
+        errs on the side of setting.
+        """
+        if not current:
+            return True
+        try:
+            cur = [int(x) for x in current.split()]
+            tgt = [int(x) for x in target.split()]
+            if len(cur) != 3 or len(tgt) != 3:
+                return True
+            if all(c >= t for c, t in zip(cur, tgt)):
+                if log:
+                    Logger.info(
+                        f"Skipping {key}: current ({current}) is already "
+                        f">= target ({target})"
+                    )
+                return False
+        except ValueError:
+            pass
+        return True
+
+    def preflight_sysctl(self) -> int:
+        """Static, no-shell-required pre-flight probe for the deploy agent.
+
+        Prints exactly one machine-parseable line to stdout, then exits.
+        This replaces a multi-line ``sysctl … && sudo -n true …`` shell
+        snippet that the docs used to recommend — Claude Code / similar
+        agents couldn't statically analyze that, so they prompted for
+        approval on every run.
+
+        Output format (single line, space-separated key=value pairs):
+
+            SYSCTL_PREFLIGHT status=<S> rmem_max=<n> wmem_max=<n>
+              tcp_rmem="<triplet>" tcp_wmem="<triplet>"
+              rmem_max_target=<n> tcp_target="<triplet>" sudo=<S>
+
+        ``status`` is one of:
+          - ``skip``            : all four already meet/exceed target;
+                                  the deploy would no-op the sysctl block.
+                                  Agent SHOULD pass ``--skip-sysctl`` for
+                                  cleaner logs but it's purely cosmetic.
+          - ``passwordless``    : tuning is needed AND `sudo -n` succeeds;
+                                  agent can run deploy normally.
+          - ``needs_password``  : tuning is needed AND `sudo` would prompt;
+                                  agent should either get the user's
+                                  consent + run interactively, or pass
+                                  ``--skip-sysctl``.
+
+        Exit code is always 0 (this is a probe, not a fail condition);
+        consumers should branch on ``status``.
+        """
+        current = self._read_current_sysctls()
+        scalar_target, triplet_target = self._sysctl_targets()
+
+        needs_tune = False
+        for k in self.SYSCTL_KEYS_SCALAR:
+            if self._scalar_needs_bump(current[k], scalar_target, k, log=False):
+                needs_tune = True
+        for k in self.SYSCTL_KEYS_TRIPLET:
+            if self._triplet_needs_bump(current[k], triplet_target, k, log=False):
+                needs_tune = True
+
+        if not needs_tune:
+            status = "skip"
+            sudo_state = "unneeded"
+        elif self._sudo_is_passwordless():
+            status = "passwordless"
+            sudo_state = "passwordless"
+        else:
+            status = "needs_password"
+            sudo_state = "interactive"
+
+        def _norm_triplet(v):
+            """Collapse whitespace in a triplet so output is one clean
+            single-spaced "min default max" inside double quotes. `sysctl
+            -n net.ipv4.tcp_rmem` returns tab-separated fields which would
+            otherwise leak into the structured output."""
+            if v is None:
+                return '"unknown"'
+            return '"' + " ".join(str(v).split()) + '"'
+
+        parts = [
+            "SYSCTL_PREFLIGHT",
+            f"status={status}",
+            f"rmem_max={current['net.core.rmem_max'] or 'unknown'}",
+            f"wmem_max={current['net.core.wmem_max'] or 'unknown'}",
+            f"tcp_rmem={_norm_triplet(current['net.ipv4.tcp_rmem'])}",
+            f"tcp_wmem={_norm_triplet(current['net.ipv4.tcp_wmem'])}",
+            f"rmem_max_target={scalar_target}",
+            f"tcp_target={_norm_triplet(triplet_target)}",
+            f"sudo={sudo_state}",
+        ]
+        print(" ".join(parts))
+        return 0
+
+    @staticmethod
+    def _sudo_is_passwordless() -> bool:
+        """Probe whether `sudo` is usable without a password right now.
+
+        `sudo -n true` exits 0 when sudo is configured for passwordless use
+        OR when a recent credential cache entry is still valid; non-zero
+        otherwise. We use this only to decide whether running `sudo sysctl`
+        further down would hang. Bounded by a short timeout so a stuck PAM
+        helper cannot wedge the script.
+        """
+        try:
+            subprocess.run(
+                ["sudo", "-n", "true"],
+                check=True,
+                capture_output=True,
+                timeout=3,
+            )
+            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            return False
 
     def detect_existing_deployments(self) -> bool:
         Logger.info("Detecting existing Docker Compose deployments...")
@@ -1708,6 +2057,311 @@ class DeploymentManager:
         else:
             Logger.success(f"VST Docker healthchecks: all healthy in {elapsed_s:.1f}s")
 
+    def recreate_services(self, services: List[str], *, pull: bool) -> None:
+        """Recreate one or more individual containers without touching the rest.
+
+        Use case: a single image (e.g. ``vst-sensor:latest``) was rebuilt and
+        you want to swap just that container in-place. A full ``deploy``
+        would restart all 8 containers and re-run health checks for ~60s
+        even when only sensor-ms actually changed.
+
+        Mechanics:
+          - Each service is mapped to its owning compose file (VST main or
+            NVStreamer) via ``_compose_for_service``. Mixed lists are fine —
+            we just split them into per-compose groups.
+          - We use ``up -d --no-deps --force-recreate <svc>``: ``--no-deps``
+            is the crucial bit — it stops compose from "helpfully" also
+            recreating every dependency the recreated service is wired to.
+          - Image overrides (``--sensor-image``, ``--sensor-tag``, etc.)
+            still flow through ``update_main_compose_env()`` so the new
+            container picks up the right image. ``pull=True`` adds an
+            explicit ``compose pull <svc>`` first; without it, we rely on
+            the image already being present locally (the common case after
+            a local ``./build.sh container`` rebuild).
+
+        ``services`` validation happens against ``compose config --services``
+        for each compose file before any container is recreated — so a typo
+        fails fast with a clear "available services: …" hint instead of a
+        cryptic compose error mid-rollout.
+        """
+        if not services:
+            Logger.error("recreate: no service names supplied")
+            sys.exit(1)
+
+        # Expand user-friendly aliases ("sensor" -> "sensor-ms", "nvstreamer"
+        # -> all running nvstreamer-N, etc.) BEFORE the compose-routing /
+        # validation step. See _resolve_service_aliases for the alias table.
+        resolved = self._resolve_service_aliases(services)
+        if not resolved:
+            sys.exit(1)
+
+        groups = self._group_services_by_compose(resolved)
+        if not groups:
+            sys.exit(1)
+
+        # Apply any --sensor-image / --sensor-tag / --streamprocessor-* / etc.
+        # overrides into compose.env BEFORE compose reads the env file. This
+        # is the same path deploy uses — keeps the two flows in sync.
+        if self._has_image_overrides():
+            Logger.info("Applying image overrides to compose.env before recreate...")
+            self.config_manager.update_main_compose_env()
+
+        total = sum(len(svcs) for svcs in groups.values())
+        Logger.info(f"Recreating {total} container(s) without touching the rest of the stack...")
+
+        for compose_dir, svc_list in groups.items():
+            compose_base_cmd = (
+                "docker compose -f docker-compose.yaml --env-file ./compose.env"
+            )
+            joined = " ".join(shlex.quote(s) for s in svc_list)
+
+            if pull:
+                Logger.info(f"Pulling images for: {', '.join(svc_list)}")
+                SystemUtils.run_command(
+                    f"{compose_base_cmd} pull {joined}",
+                    cwd=str(compose_dir), check=False,
+                )
+
+            Logger.info(f"Recreating: {', '.join(svc_list)} (in {compose_dir.name}/)")
+            t0 = time.monotonic()
+            SystemUtils.run_command(
+                f"{compose_base_cmd} up -d --no-deps --force-recreate {joined}",
+                cwd=str(compose_dir),
+            )
+            elapsed = time.monotonic() - t0
+            Logger.success(f"Recreated {len(svc_list)} container(s) in {elapsed:.1f}s")
+
+            self._wait_for_named_containers_healthy(svc_list, timeout_s=180)
+
+    def _has_image_overrides(self) -> bool:
+        """True if any --sensor-image / --sensor-tag / --streamprocessor-* /
+        --nvstreamer-* / --image-registry / --all-tag flag was passed via
+        ``apply_command_line_overrides``. Used to skip the relatively
+        expensive ``update_main_compose_env`` pass when the user is just
+        recreating a container with no image change.
+
+        Backed by four collections populated in ``apply_command_line_overrides``:
+          - ``config.tag_overrides``   : env-var → new tag
+          - ``config.image_overrides`` : env-var → new image repo
+          - ``config.image_registry``  : scalar registry prefix
+          - ``config.nvstreamer_image``: scalar nvstreamer repo
+        """
+        return bool(
+            getattr(self.config, 'tag_overrides', None)
+            or getattr(self.config, 'image_overrides', None)
+            or getattr(self.config, 'image_registry', "")
+            or getattr(self.config, 'nvstreamer_image', "")
+        )
+
+    # Service-name → compose-dir attribute mapping. Services not in this
+    # map fall through to the VST compose by default; the validation step
+    # in _group_services_by_compose catches genuinely unknown names.
+    _NVSTREAMER_SERVICE_PREFIXES = ("nvstreamer-",)
+
+    # User-friendly aliases for `recreate`. Each value is a regex matched
+    # against the live `compose config --services` output, so multi-instance
+    # services (nvstreamer-1..N, streamprocessing-ms-1..N) expand to whatever
+    # instances are actually defined in the user's COMPOSE_PROFILES.
+    # Direct service names (e.g. "sensor-ms", "nvstreamer-1") are always
+    # honored as-is — aliases only kick in when the name isn't a real
+    # compose service.
+    _SERVICE_PATTERN_ALIASES: Dict[str, str] = {
+        "sensor":           r"^sensor-ms$",
+        "ingress":          r"^vst-ingress$",
+        "nginx":            r"^vst-ingress$",
+        "db":               r"^centralizedb$",
+        "postgres":         r"^centralizedb$",
+        "sdr":              r"^sdr-",
+        "envoy":            r"^envoy-",
+        "nvstreamer":       r"^nvstreamer-\d+$",
+        "streamer":         r"^nvstreamer-\d+$",
+        "streamprocessing": r"^streamprocessing-ms-",
+        "stream-processor": r"^streamprocessing-ms-",
+        "streamprocessor":  r"^streamprocessing-ms-",
+    }
+
+    def _all_compose_services(self) -> Dict[str, Path]:
+        """Return ``{service_name: owning_compose_dir}`` for every service
+        defined across both compose files. Used by alias expansion so we
+        can match the alias regex against the real, currently-defined
+        services (including profile-gated instances).
+
+        Returns an empty dict if neither compose can be read.
+        """
+        out: Dict[str, Path] = {}
+        for compose_dir in (self.config.vst_compose_dir, self.config.nvstreamer_compose_dir):
+            services = self._list_compose_services(compose_dir)
+            if services:
+                for s in services:
+                    # First write wins — a service name should never appear
+                    # in both compose files, but if it did the VST one is
+                    # checked first and would take precedence.
+                    out.setdefault(s, compose_dir)
+        return out
+
+    def _resolve_service_aliases(self, names: List[str]) -> List[str]:
+        """Expand user-friendly aliases to actual compose service names.
+
+        Resolution per input name:
+          1. Exact match against a real compose service → keep as-is.
+          2. Lowercased match against an alias key in
+             ``_SERVICE_PATTERN_ALIASES`` → expand to all services whose
+             names match the alias regex.
+          3. Neither → pass through unchanged; the downstream validator
+             in ``_group_services_by_compose`` will then surface a clear
+             "available services: …" error.
+
+        Order is preserved; duplicates are dropped. Logs every alias
+        expansion so the user can see what was actually targeted (e.g.
+        ``Alias 'nvstreamer' -> nvstreamer-1, nvstreamer-2``).
+        """
+        all_services = self._all_compose_services()
+        resolved: List[str] = []
+        seen: Set[str] = set()
+
+        def _add(s: str) -> None:
+            if s not in seen:
+                resolved.append(s)
+                seen.add(s)
+
+        for raw in names:
+            if raw in all_services:
+                _add(raw)
+                continue
+            pattern = self._SERVICE_PATTERN_ALIASES.get(raw.lower())
+            if pattern:
+                matches = sorted(s for s in all_services if re.match(pattern, s))
+                if not matches:
+                    Logger.warning(
+                        f"Alias {raw!r} matched no services in either compose file "
+                        f"(check COMPOSE_PROFILES if multi-instance)"
+                    )
+                    continue
+                Logger.info(f"Alias {raw!r} -> {', '.join(matches)}")
+                for m in matches:
+                    _add(m)
+                continue
+            # Unknown name — pass through; validation will reject with a
+            # helpful "available services" list.
+            _add(raw)
+        return resolved
+
+    def _compose_for_service(self, service: str) -> Path:
+        """Return the compose dir that owns ``service``.
+
+        NVStreamer instances are named ``nvstreamer-1`` … ``nvstreamer-5``
+        and live in the nvstreamer compose. Everything else (sensor-ms,
+        streamprocessing-ms-*, vst-ingress, centralizedb, redis-server,
+        sdr-*, envoy-*, monitoring services) lives in the VST compose.
+        """
+        if any(service.startswith(p) for p in self._NVSTREAMER_SERVICE_PREFIXES):
+            return self.config.nvstreamer_compose_dir
+        return self.config.vst_compose_dir
+
+    def _group_services_by_compose(self, services: List[str]) -> "dict[Path, List[str]]":
+        """Group ``services`` by owning compose dir, validating against
+        ``compose config --services`` for each compose so unknown names
+        fail fast.
+        """
+        groups: "dict[Path, List[str]]" = {}
+        for svc in services:
+            groups.setdefault(self._compose_for_service(svc), []).append(svc)
+
+        valid = True
+        for compose_dir, requested in groups.items():
+            known = self._list_compose_services(compose_dir)
+            if known is None:
+                Logger.error(
+                    f"Could not list services from compose in {compose_dir} — "
+                    f"is the docker daemon running and the compose file readable?"
+                )
+                valid = False
+                continue
+            unknown = [s for s in requested if s not in known]
+            if unknown:
+                Logger.error(
+                    f"Unknown service(s) for {compose_dir.name}: {', '.join(unknown)}"
+                )
+                Logger.info(f"Available services in {compose_dir.name}: {', '.join(sorted(known))}")
+                valid = False
+        if not valid:
+            return {}
+        return groups
+
+    @staticmethod
+    def _list_compose_services(compose_dir: Path) -> Optional[Set[str]]:
+        """Return the set of service names defined in the compose file at
+        ``compose_dir/docker-compose.yaml``. None on error.
+
+        Uses ``compose config --services`` so we honor the same env-file
+        + include + profile rules a real ``compose up`` would.
+        """
+        result = SystemUtils.run_command(
+            "docker compose -f docker-compose.yaml --env-file ./compose.env config --services",
+            cwd=str(compose_dir),
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+    def _wait_for_named_containers_healthy(
+        self, names: List[str], *, timeout_s: int = 180, poll_interval_s: int = 2,
+    ) -> None:
+        """Wait until each container in ``names`` is healthy or has no
+        healthcheck. Scoped to specific container names (vs the
+        compose-wide ``_wait_for_compose_services_healthy``) because a
+        single-service recreate shouldn't get stuck waiting on unrelated
+        containers that were already healthy before this call.
+        """
+        start = time.monotonic()
+        last_log_t = 0.0
+        pending = list(names)
+        while pending:
+            still_pending = []
+            for name in pending:
+                state = self._inspect_health(name)
+                if state in ("healthy", "no-healthcheck", "not-found"):
+                    if state == "not-found":
+                        Logger.warning(f"Container '{name}' not running after recreate")
+                    continue
+                still_pending.append(name)
+            pending = still_pending
+            if not pending:
+                Logger.success(f"All recreated container(s) healthy in {time.monotonic() - start:.1f}s")
+                return
+            elapsed = time.monotonic() - start
+            if elapsed >= timeout_s:
+                Logger.warning(
+                    f"Timed out waiting for healthchecks ({int(elapsed)}s). "
+                    f"Still pending: {', '.join(pending)}"
+                )
+                return
+            if elapsed - last_log_t >= 10:
+                Logger.info(f"Waiting for health: {', '.join(pending)}")
+                last_log_t = elapsed
+            time.sleep(poll_interval_s)
+
+    @staticmethod
+    def _inspect_health(container_name: str) -> str:
+        """Return ``healthy`` | ``unhealthy`` | ``starting`` | ``no-healthcheck``
+        | ``not-found`` for a single container. Bounded by a short timeout
+        so a wedged docker daemon can't hang the recreate flow.
+        """
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format",
+                 "{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}",
+                 container_name],
+                check=True, capture_output=True, text=True, timeout=5,
+            )
+            return (result.stdout.strip() or "no-healthcheck")
+        except subprocess.CalledProcessError:
+            return "not-found"
+        except subprocess.TimeoutExpired:
+            return "unhealthy"
+
     def _resolve_vst_volume_path(self) -> str:
         """Resolve VST_VOLUME from runtime config / compose.env / default."""
         if self.config.vst_volume:
@@ -1724,10 +2378,10 @@ class DeploymentManager:
         PGDATA was switched from a host bind mount
         (``${VST_VOLUME}/postgres/db``) to a Docker-managed named
         volume (``pg_data``) so the postgres entrypoint's chown to
-        uid 70 works under rootless Docker. The host ``sudo rm -rf``
-        in ``remove_vst_volume`` no longer wipes PGDATA, so we run
-        ``docker compose down -v`` against the same compose file to
-        let compose remove the project-prefixed named volume
+        uid 70 works under rootless Docker. The host bind-mount
+        cleanup in ``remove_vst_volume`` no longer wipes PGDATA, so
+        we run ``docker compose down -v`` against the same compose
+        file to let compose remove the project-prefixed named volume
         (e.g. ``docker-compose_pg_data``). Idempotent: succeeds even
         if the volume doesn't exist yet.
         """
@@ -1789,27 +2443,104 @@ class DeploymentManager:
             Logger.info("VST volume directory removal cancelled by user")
             return
 
-        try:
-            SystemUtils.run_command(f"sudo rm -rf {vst_volume_path}")
-            Logger.success(f"Removed: {vst_volume_path}")
-        except subprocess.CalledProcessError as e:
-            Logger.error(f"Failed to remove VST volume directory: {e}")
+        # Delegated to the docker-based cleanup helper — see _rm_rf_path()
+        # for rationale (root-owned bind-mount files; avoids host sudo).
+        self._rm_rf_path(vst_volume_path, label="VST volume directory")
         # Host bind-mount dirs are wiped above; PGDATA now lives in a
         # Docker-managed named volume, so additionally remove that.
         self._remove_postgres_named_volume()
 
-    def _rm_rf_path(self, path: Path, *, label: str) -> None:
-        """`sudo rm -rf` a path with consistent log output.
+    def _rm_rf_path(self, path, *, label: str) -> None:
+        """Remove a (possibly root-owned) path without invoking host sudo.
 
-        The path is shell-quoted to defend against shell metacharacters in
-        operator-supplied paths (e.g. legacy env-file values).
+        Files inside bind-mounted VST data trees are owned by root because the
+        sensor / stream-processor / centralizedb containers all run as root
+        inside (``user: "0:0"``). A host-side ``rm`` from the non-root deploy
+        user gets EPERM on those files.
+
+        We delegate the rm to a throwaway Docker container — the container
+        process runs as root inside, so it can unlink any file the original
+        container created. The host user only needs docker-group membership
+        (already required for the rest of the deploy). No host sudo prompt,
+        no agent-mode hang.
+
+        Picks the cleanup image via ``_get_cleanup_image()`` (alpine /
+        ubuntu / NGINX_IMAGE fallback chain). The full ``docker run`` command
+        is logged before execution so users/audit can see exactly what
+        privileges are being exercised.
+
+        Accepts ``path`` as either ``Path`` or ``str``; the VST_VOLUME path
+        is sourced from ``_resolve_vst_volume_path()`` which returns ``str``,
+        while NVStreamer cleanup callers pass ``Path``. Normalize here so
+        ``.exists()`` / ``.parent`` work in both cases.
         """
-        quoted = shlex.quote(str(path))
+        path = Path(path)
+        if not path.exists():
+            return
+        if not path.parent.exists():
+            Logger.warning(f"Cannot clean {label} ({path}): parent dir missing")
+            return
+
+        image = self._get_cleanup_image()
+        parent_q = shlex.quote(str(path.parent))
+        image_q = shlex.quote(image)
+        # The path.name is interpolated INSIDE the shell command, so quote it
+        # against operator-supplied paths with shell metacharacters.
+        inner = shlex.quote(f"rm -rf -- /parent/{path.name}")
+        cmd = f"docker run --rm -v {parent_q}:/parent {image_q} sh -c {inner}"
+        Logger.info(f"Cleanup container: {cmd}")
         try:
-            SystemUtils.run_command(f"sudo rm -rf -- {quoted}")
+            SystemUtils.run_command(cmd)
             Logger.success(f"Removed: {path}")
         except subprocess.CalledProcessError as e:
             Logger.error(f"Failed to remove {label} ({path}): {e}")
+
+    def _get_cleanup_image(self) -> str:
+        """Pick an image for the throwaway cleanup container.
+
+        Order of preference (most logical first, falling back to most
+        reliably-cached):
+
+          1. ``alpine:3``      — minimal generic base; semantic fit for "rm"
+          2. ``ubuntu:24.04``  — matches the base of NVIDIA VIOS images
+                                 (see ``deployment/scaling/ingress/Dockerfile``),
+                                 often cached on dev hosts that have run VIOS
+          3. ``NGINX_IMAGE``   — read from compose.env (``nvcr.io/.../vss-vios-ingress``);
+                                 always cached after a VIOS deploy, lives on
+                                 nvcr.io so falling back here avoids a Docker
+                                 Hub anonymous-pull when alpine/ubuntu aren't
+                                 on disk
+
+        If none of the three are cached, returns ``alpine:3`` and lets Docker
+        trigger a one-time pull — smallest first-time experience.
+        """
+        for img in ("alpine:3", "ubuntu:24.04"):
+            if self._image_is_cached(img):
+                return img
+        nginx = self.config_manager._read_env_value(
+            self.config.main_compose_env, "NGINX_IMAGE",
+        )
+        if nginx and self._image_is_cached(nginx):
+            return nginx
+        return "alpine:3"
+
+    @staticmethod
+    def _image_is_cached(image_ref: str) -> bool:
+        """Return True if ``image_ref`` is present in the local Docker image
+        store, False on any kind of lookup failure (missing image, no daemon,
+        timeout). Used by ``_get_cleanup_image`` to avoid Docker Hub pulls
+        when a suitable image is already on disk.
+        """
+        if not image_ref:
+            return False
+        try:
+            subprocess.run(
+                ["docker", "image", "inspect", image_ref],
+                check=True, capture_output=True, timeout=5,
+            )
+            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            return False
 
     def _remove_nvstreamer_state_root(self) -> None:
         """Remove the script-managed vst_data tree (always safe to wipe)."""
@@ -1953,7 +2684,8 @@ class DeploymentManager:
         Logger.success("Cleanup completed")
         print()
         print("Note: To completely reset VST data, you may also want to:")
-        print("  sudo rm -rf <VST_VOLUME_PATH>/*")
+        print("  python3 oneclick_dc_deployment.py stop --clean")
+        print("  (uses a throwaway Docker container to remove root-owned files; no sudo needed)")
 
     def display_full_access_urls(self):
         active = self.config_manager.get_active_nvstreamer_instances()
@@ -2049,9 +2781,30 @@ USAGE:
     --target flag. Both forms are equivalent.
 
 ACTIONS (default: deploy):
-    deploy          Deploy services
-    stop            Stop and cleanup services
-    config-only     Only update environment files
+    deploy            Deploy services
+    stop              Stop and cleanup services
+    recreate          Recreate one or more individual containers in-place
+                      (uses `docker compose up --no-deps --force-recreate`).
+                      Skips healthchecks for the rest of the stack — only the
+                      named containers are restarted. Examples:
+                        recreate sensor                      # alias -> sensor-ms
+                        recreate nvstreamer                  # alias -> all nvstreamer-N
+                        recreate streamprocessing            # alias -> all streamprocessing-ms-N
+                        recreate sensor-ms                   # direct service name also works
+                        recreate sensor streamprocessing     # mixed: any combination
+                        recreate nvstreamer-1 --pull-always  # specific instance + pull
+                        recreate sensor --sensor-tag latest  # swap image then recreate
+                      Available aliases: sensor, streamprocessing/stream-processor,
+                      nvstreamer/streamer, ingress/nginx, db/postgres, sdr, envoy.
+                      Direct service names always work too. Pair with
+                      --pull-always to fetch a fresh image first; pair with
+                      --sensor-tag/--sensor-image/etc. to swap the image
+                      reference before recreating.
+    config-only       Only update environment files
+    preflight-sysctl  Print a single-line probe of host network-buffer
+                      sysctls + sudo state. Used by deploy agents to
+                      decide whether to pass --skip-sysctl. Never
+                      invokes `sudo` (only `sudo -n true`).
 
 TARGETS (--target, default: vst):
     vst             VST stream-processing stack (docker-compose)
@@ -2071,6 +2824,10 @@ DEPLOYMENT OPTIONS:
                         - stop nvstreamer --clean  -> remove NVStreamer videos directory
                         - stop --clean             -> remove both
     --pull-always       Pull latest Docker images before deployment
+    --skip-sysctl       Skip host sysctl network-buffer tuning entirely
+                        (avoids sudo prompt; throughput may be lower under load).
+                        The script also auto-skips with a warning if stdin is
+                        not a TTY and sudo would prompt.
     --help              Show this help message
 
 CONFIGURATION OVERRIDES:
@@ -2087,6 +2844,10 @@ CONFIGURATION OVERRIDES:
     --instances N            Number of NVStreamer instances to deploy (1-5).
                              Rewrites COMPOSE_PROFILES accordingly.
                              ('--instance N' is also accepted)
+    --no-sdrc                Deploy VST in DIRECT mode (no SDR controller).
+                             Overrides the SDRC default in compose.env
+                             (VST_USE_SDRC=false, NGINX_MODE=vst,
+                             stream-processor on :30001, sdrc profile cleared).
 
 IMAGE TAG OVERRIDES:
     --all-tag TAG            Override tag for stream-processor + sensor images
@@ -2097,6 +2858,8 @@ IMAGE TAG OVERRIDES:
 IMAGE REGISTRY / REPOSITORY OVERRIDES:
     --image-registry REGISTRY   Override the registry/org prefix for VST service images (keeps name and tag), e.g. vios -> vios/vst-sensor:<tag>
     --nvstreamer-image REPO     Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
+    --streamprocessor-image REF Override the stream-processor image with a complete reference (e.g. vios/vst-streamprocessing); pair with --streamprocessor-tag
+    --sensor-image REF          Override the sensor image with a complete reference (e.g. vios/vst-sensor); pair with --sensor-tag
 
 EXAMPLES:
     # Deploy stream-processing stack only (default target).
@@ -2173,7 +2936,15 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
             f"(COMPOSE_PROFILES will become nvstreamer-1..nvstreamer-{args.instances})"
         )
 
+    if args.no_sdrc:
+        config.no_sdrc = True
+        Logger.info(
+            "Using --no-sdrc: VST will deploy in DIRECT mode (SDR controller "
+            "disabled; compose.env rewritten to direct-mode values)"
+        )
+
     config.tag_overrides = {}
+    config.image_overrides = {}
 
     config.image_registry = args.image_registry or ""
     config.nvstreamer_image = args.nvstreamer_image or ""
@@ -2195,6 +2966,13 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
     if args.nvstreamer_tag:
         config.tag_overrides['NVSTREAMER_IMAGE'] = args.nvstreamer_tag
         Logger.info(f"Using command line NVStreamer tag override: {args.nvstreamer_tag}")
+
+    if args.streamprocessor_image:
+        config.image_overrides['VST_STREAM_PROCESSOR_IMAGE'] = args.streamprocessor_image
+        Logger.info(f"Using command line stream-processor image override: {args.streamprocessor_image}")
+    if args.sensor_image:
+        config.image_overrides['VST_SENSOR_IMAGE'] = args.sensor_image
+        Logger.info(f"Using command line sensor image override: {args.sensor_image}")
 
 
 def nvstreamer_deploy(deployment_manager: DeploymentManager, config: DeploymentConfig):
@@ -2332,17 +3110,23 @@ def main():
 
     parser.add_argument(
         'action', nargs='?', default='deploy',
-        choices=['deploy', 'stop', 'config-only'],
+        choices=['deploy', 'stop', 'recreate', 'config-only', 'preflight-sysctl'],
         help='Action to perform (default: deploy)',
     )
-    # Allow target as a second positional (e.g. `deploy vst`,
-    # `deploy nvstreamer`) in addition to the --target flag below.
+    # Action-dependent positional(s):
+    #   deploy / stop: optional single target (vst|vios|nvstreamer|all)
+    #   recreate    : one or more service names (sensor-ms, nvstreamer-1, ...)
+    # Choices are intentionally NOT enforced here — they vary per action and
+    # we validate manually below for clearer error messages.
     parser.add_argument(
         'target_pos', nargs='?', default=None,
-        # 'vios' is accepted as a backwards-compat alias for 'vst'.
-        choices=['vst', 'vios', 'nvstreamer', 'all'],
-        help='Deployment target as a positional (alternative to --target)',
-        metavar='TARGET',
+        help='Deployment target for deploy/stop (vst|vios|nvstreamer|all), OR first service name for `recreate`',
+        metavar='TARGET_OR_SERVICE',
+    )
+    parser.add_argument(
+        'extra_services', nargs='*', default=[],
+        help='Additional service names for `recreate` (e.g. `recreate sensor-ms streamprocessing-ms-1`)',
+        metavar='SERVICE',
     )
     parser.add_argument(
         '--target', default='vst',
@@ -2366,6 +3150,11 @@ def main():
                              'cleans both.')
     parser.add_argument('--pull-always', action='store_true',
                         help='Pull latest Docker images before deployment')
+    parser.add_argument('--skip-sysctl', action='store_true',
+                        help='Skip host network buffer (sysctl) tuning. Useful '
+                             'for unattended / agent deploys without passwordless '
+                             'sudo. The script also auto-skips with a warning when '
+                             'stdin is not a TTY and sudo would prompt.')
 
     parser.add_argument('--host', type=str, help='Override host IP address')
     parser.add_argument('--config-path', type=str, help='Override VST config path')
@@ -2384,6 +3173,13 @@ def main():
              'Rewrites COMPOSE_PROFILES in nvstreamer/compose.env to '
              'nvstreamer-1,...,nvstreamer-N',
     )
+    parser.add_argument(
+        '--no-sdrc', action='store_true',
+        help='Deploy VST in DIRECT mode (no SDR controller). Overrides the '
+             'SDRC default by rewriting compose.env: VST_USE_SDRC=false, '
+             'NGINX_MODE=vst, STREAM_PROCESSOR_MODULE_ENDPOINT=:30001, and '
+             'clears COMPOSE_PROFILES so the sdrc subgraph is skipped.',
+    )
 
     parser.add_argument('--all-tag', type=str,
                         help='Override tag for stream-processor + sensor images')
@@ -2399,6 +3195,10 @@ def main():
                         help='Override registry/org prefix for VST service images, keeping name and tag (e.g. vios -> vios/vst-sensor:<tag>)')
     parser.add_argument('--nvstreamer-image', type=str,
                         help='Override the NVStreamer image repository, keeping the tag (e.g. nvstreamer or my-registry/nvstreamer)')
+    parser.add_argument('--streamprocessor-image', type=str,
+                        help='Override the stream-processor image with a complete reference (e.g. vios/vst-streamprocessing); pair with --streamprocessor-tag')
+    parser.add_argument('--sensor-image', type=str,
+                        help='Override the sensor image with a complete reference (e.g. vios/vst-sensor); pair with --sensor-tag')
 
     parser.add_argument('--help', action='store_true', help='Show this help message')
 
@@ -2409,14 +3209,39 @@ def main():
         return
 
     action = args.action
-    # Positional target (e.g. `deploy vst`) takes precedence over --target.
-    explicit_target_given = args.target_pos is not None or any(
-        arg == '--target' or arg.startswith('--target=') for arg in sys.argv
-    )
-    target = args.target_pos if args.target_pos is not None else args.target
-    # Treat 'vios' as an alias for 'vst' (kept for backwards compatibility).
-    if target == 'vios':
-        target = 'vst'
+
+    # For `recreate`, all positional args are service names — `target_pos`
+    # is just the first one, and `extra_services` carries the rest. Skip
+    # target normalization in that case.
+    if action == 'recreate':
+        services_arg = []
+        if args.target_pos is not None:
+            services_arg.append(args.target_pos)
+        services_arg.extend(args.extra_services)
+        target = None
+        explicit_target_given = False
+    else:
+        # Positional target (e.g. `deploy vst`) takes precedence over --target.
+        explicit_target_given = args.target_pos is not None or any(
+            arg == '--target' or arg.startswith('--target=') for arg in sys.argv
+        )
+        target = args.target_pos if args.target_pos is not None else args.target
+        # Treat 'vios' as an alias for 'vst' (kept for backwards compatibility).
+        if target == 'vios':
+            target = 'vst'
+        # Validate target manually (argparse choices were dropped to free
+        # the positional for `recreate`).
+        if target not in ('vst', 'nvstreamer', 'all'):
+            Logger.error(
+                f"Invalid target {target!r}. Must be one of: vst, vios, nvstreamer, all"
+            )
+            sys.exit(2)
+        if args.extra_services:
+            Logger.error(
+                f"Unexpected extra positional args for `{action}`: {' '.join(args.extra_services)}. "
+                f"Only `recreate` accepts multiple positional args."
+            )
+            sys.exit(2)
 
     config = DeploymentConfig()
     config.with_monitoring = args.with_monitoring
@@ -2424,10 +3249,37 @@ def main():
     config.auto_mode = not args.interactive
     config.fresh_start = args.fresh_start
     config.pull_always = args.pull_always
+    config.skip_sysctl = args.skip_sysctl
 
     apply_command_line_overrides(config, args)
 
     deployment_manager = DeploymentManager(config)
+
+    if action == 'preflight-sysctl':
+        # Static one-line probe for deploy agents / CI. No shell required
+        # on the caller side; see DeploymentManager.preflight_sysctl
+        # docstring for the output contract.
+        sys.exit(deployment_manager.preflight_sysctl())
+
+    if action == 'recreate':
+        # Surgical per-container recreate (skips healthchecks for the rest
+        # of the stack). See DeploymentManager.recreate_services docstring
+        # for the why & how.
+        if not services_arg:
+            Logger.error(
+                "recreate requires at least one service name or alias.\n"
+                "  Aliases: sensor, streamprocessing, nvstreamer, ingress,\n"
+                "           db, sdr, envoy (direct service names also work)\n"
+                "  Examples:\n"
+                "    python3 oneclick_dc_deployment.py recreate sensor\n"
+                "    python3 oneclick_dc_deployment.py recreate nvstreamer\n"
+                "    python3 oneclick_dc_deployment.py recreate sensor streamprocessing\n"
+                "    python3 oneclick_dc_deployment.py recreate sensor --pull-always\n"
+                "    python3 oneclick_dc_deployment.py recreate sensor --sensor-tag latest"
+            )
+            sys.exit(2)
+        deployment_manager.recreate_services(services_arg, pull=args.pull_always)
+        return
 
     if action == 'stop':
         # Bare `stop` with no target stops everything; an explicit target

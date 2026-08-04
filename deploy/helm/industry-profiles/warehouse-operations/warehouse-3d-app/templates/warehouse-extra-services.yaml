@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $warehouse := .Values.warehouse | default dict }}
+{{- $mode := $warehouse.mode | default "warehouse" }}
+{{- $ds := $warehouse.dsConfigurator | default dict }}
+{{- if ($ds.enabled | default false) }}
+{{- $image := $ds.image | default dict }}
+{{- $dsName := $ds.name | default (printf "ds-configurator-%s" $mode) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $dsName }}
+  labels:
+    app.kubernetes.io/name: {{ $dsName }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ds-configurator
+spec:
+  replicas: {{ $ds.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $dsName }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: ds-configurator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $dsName }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: ds-configurator
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: prepare-ds-config
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              cp /source-config/config.yaml /opt/data/ds-configurator/config.yaml
+              if [ -f /source-calibration/calibration.json ]; then
+                cp /source-calibration/calibration.json /opt/data/ds-configurator/calibration.json
+              fi
+              touch /opt/data/ds-configurator/config.csv
+          volumeMounts:
+            - name: ds-config
+              mountPath: /opt/data/ds-configurator
+            - name: source-config
+              mountPath: /source-config
+              readOnly: true
+            - name: source-calibration
+              mountPath: /source-calibration
+              readOnly: true
+      containers:
+        - name: ds-configurator
+          image: "{{ required "warehouse.dsConfigurator.image.repository is required" $image.repository }}:{{ required "warehouse.dsConfigurator.image.tag is required" $image.tag }}"
+          imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ $ds.port | default 9003 }}
+              protocol: TCP
+          env:
+            {{- range ($ds.env | default list) }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: ds-config
+              mountPath: /opt/data/ds-configurator
+      volumes:
+        - name: ds-config
+          emptyDir: {}
+        - name: source-config
+          configMap:
+            name: {{ required "warehouse.dsConfigurator.configMapName is required" $ds.configMapName }}
+        - name: source-calibration
+          configMap:
+            name: {{ required "warehouse.dsConfigurator.calibrationConfigMapName is required" $ds.calibrationConfigMapName }}
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $dsName }}
+  labels:
+    app.kubernetes.io/name: {{ $dsName }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ds-configurator
+spec:
+  type: {{ $ds.serviceType | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ $ds.port | default 9003 }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ $dsName }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ds-configurator
+---
+{{- end }}

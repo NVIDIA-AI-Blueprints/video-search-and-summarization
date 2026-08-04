@@ -76,21 +76,22 @@ NvLLOverlay::NvLLOverlay (const std::string& consumer_name, const std::string& u
         search_end = m_endTime;
     }
 
-#ifdef JETSON_PLATFORM
-    Resolution resolution;
-    resolution = GET_CONFIG().webrtc_out_default_resolution;
-    if (!resolution.empty() || NvHwDetection::getInstance()->m_useNvV4l2Enc == false)
+    if (isJetsonPlatform())
     {
-        m_width = WIDTH_480p, m_height = HEIGHT_480p;
-        if (!resolution.empty())
+        Resolution resolution;
+        resolution = GET_CONFIG().webrtc_out_default_resolution;
+        if (!resolution.empty() || NvHwDetection::getInstance()->m_useNvV4l2Enc == false)
         {
-            m_width = stringToInt(resolution.width, WIDTH_480p);
-            // Replace with nearest multiple of 8 - Bug 4561987
-            m_width = ((m_width + 7) >> 3) << 3;
-            m_height = stringToInt(resolution.height, HEIGHT_480p);
+            m_width = WIDTH_480p, m_height = HEIGHT_480p;
+            if (!resolution.empty())
+            {
+                m_width = stringToInt(resolution.width, WIDTH_480p);
+                // Replace with nearest multiple of 8 - Bug 4561987
+                m_width = ((m_width + 7) >> 3) << 3;
+                m_height = stringToInt(resolution.height, HEIGHT_480p);
+            }
         }
     }
-#endif
     for (int i = 0; i < OUTPUT_PLANE_NUM_BUFFERS; i++)
     {
         m_cpuPtr[i] = nullptr;
@@ -138,6 +139,31 @@ NvLLOverlay::NvLLOverlay (const std::string& consumer_name, const std::string& u
     m_overlay->setProximityAnimation(m_overlayParams.m_proximityAnimation);
     m_overlay->setColorCode(m_overlayParams.m_colorCode);
     m_overlay->setEnableGodsEyeView(m_overlayParams.m_enableGodsEyeView);
+
+    if (m_imageCapture)
+    {
+        // Image capture emits a single frame, which can be drawn before the
+        // async setOriginalFrameSize() propagates the decoder resolution through
+        // the Transform -> Overlay chain. Seed the source resolution up-front so
+        // bbox coordinates (which are in the source resolution) scale 1:1.
+        // Otherwise m_sourceWidth stays 0 and interpolateCoordinate() defaults it
+        // to 1080p, shrinking boxes to ~1/3 and clustering them at the top-left.
+        int srcW = m_width;
+        int srcH = m_height;
+        const auto itW = m_opts.find("source_width");
+        const auto itH = m_opts.find("source_height");
+        if (itW != m_opts.end())
+        {
+            srcW = stringToInt(itW->second, m_width);
+        }
+        if (itH != m_opts.end())
+        {
+            srcH = stringToInt(itH->second, m_height);
+        }
+        m_overlay->updateSourceResolution(srcW, srcH);
+        LOG(info) << "Image capture: seeded overlay source resolution = "
+                  << srcW << "x" << srcH << endl;
+    }
 
     LOG(info) << "Creating m_overlay " << m_overlay << endl;
 
@@ -257,11 +283,11 @@ void NvLLOverlay::setOptions(const std::map<std::string, std::string, std::less<
     }
     if ( opts.find("overlayThickness") != opts.end() )
     {
-        m_overlayParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), DEFAULT_BBOX_WIDTH);
+        m_overlayParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), getDefaultBboxWidth());
     }
     else if ( opts.find("bboxThickness") != opts.end() )
     {
-        m_overlayParams.m_bboxThickness = stringToInt(opts.at("bboxThickness"), DEFAULT_BBOX_WIDTH);
+        m_overlayParams.m_bboxThickness = stringToInt(opts.at("bboxThickness"), getDefaultBboxWidth());
     }
     if ( opts.find("bboxDebug") != opts.end() )
     {
@@ -270,6 +296,10 @@ void NvLLOverlay::setOptions(const std::map<std::string, std::string, std::less<
     else if ( opts.find("overlayDebug") != opts.end() )
     {
         m_overlayParams.m_bboxDebug = opts.at("overlayDebug") == "true" ? true: false;
+    }
+    if ( opts.find("overlayDebugFontSize") != opts.end() && !opts.at("overlayDebugFontSize").empty() )
+    {
+        m_overlayParams.m_bboxDebugFontSize = stringToInt(opts.at("overlayDebugFontSize"), 0);
     }
     if ( opts.find("bboxShowObjId") != opts.end() )
     {
@@ -438,17 +468,29 @@ void NvLLOverlay::setOriginalFrameSize(int w, int h)
     {
         m_overlay->updateSourceResolution(w, h);
     }
-#ifdef JETSON_PLATFORM
-    /* Update the overlay resolution when out-resolution is not specified and enc is present */
-    Resolution resolution;
-    resolution = GET_CONFIG().webrtc_out_default_resolution;
-    if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+    if (m_imageCapture)
     {
-        m_width = w;
-        m_height = h;
-        setOverlayResolution(m_width, m_height);
+        // Image capture is a single frame, and the resolution propagated here
+        // during pipeline setup can be the decoder's pre-detection default
+        // (e.g. 1920x1080) - the real decoded resolution is detected later and
+        // is not re-propagated before the one frame is drawn. That scales the
+        // ES bbox coordinates (already in source resolution) by
+        // draw/1920 ~= 1/3, shrinking boxes to the top-left. Re-apply the known
+        // source resolution so bbox coordinates map 1:1.
+        m_overlay->updateSourceResolution(m_width, m_height);
     }
-#endif
+    if (isJetsonPlatform())
+    {
+        /* Update the overlay resolution when out-resolution is not specified and enc is present */
+        Resolution resolution;
+        resolution = GET_CONFIG().webrtc_out_default_resolution;
+        if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+        {
+            m_width = w;
+            m_height = h;
+            setOverlayResolution(m_width, m_height);
+        }
+    }
 }
 
 void NvLLOverlay::setIPCMeta ()
@@ -621,9 +663,7 @@ void NvLLOverlay::doDrawTask()
         GstMetaUnion meta_union;
         int64_t pts = 0;
         bool is_drc = false;
-#ifndef JETSON_PLATFORM
         void *data_ptr = nullptr;
-#endif
         bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
 
         {
@@ -662,8 +702,7 @@ void NvLLOverlay::doDrawTask()
                 }
             }
 
-#ifndef JETSON_PLATFORM
-            if (is_sw_mode)
+            if (!isJetsonPlatform() && is_sw_mode)
             {
                 is_drc = m_width != m_prevWidth || m_height != m_prevHeight;
                 if (is_drc)
@@ -672,7 +711,6 @@ void NvLLOverlay::doDrawTask()
                 }
             }
             else
-#endif
             {
 
                 if (sink_frame->m_sample)
@@ -682,13 +720,11 @@ void NvLLOverlay::doDrawTask()
                 else
                 {
                     NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, (void **)&ip_surf);
-#ifdef JETSON_PLATFORM
-                    if (m_isIPCMeta)
+                    if (isJetsonPlatform() && m_isIPCMeta)
                     {
                         meta_union.ipcMeta = (GstNvIpcMeta*)sink_frame->meta;
                     }
                     else
-#endif
                     {
                         meta_union.vstMeta = (GstNvVstMeta*)sink_frame->meta;
                     }
@@ -734,13 +770,11 @@ void NvLLOverlay::doDrawTask()
                     }
                 }
                 LOG(info) << "Allocating surfaces of resolution = " << m_width << " x " << m_height << endl;
-#ifndef JETSON_PLATFORM
-                if (is_sw_mode)
+                if (!isJetsonPlatform() && is_sw_mode)
                 {
                     m_surfacePool->allocateSurfaces(OUTPUT_PLANE_NUM_BUFFERS, m_width, m_height, false);
                 }
                 else
-#endif
                 {
                     m_surfacePool->allocateSurfaces(OUTPUT_PLANE_NUM_BUFFERS, ip_surf->surfaceList[0].width,
                                                     ip_surf->surfaceList[0].height, true,
@@ -755,8 +789,7 @@ void NvLLOverlay::doDrawTask()
             index = fd_index_pair.second;
             if (fd_index_pair.first > 0 || is_sw_mode)
             {
-#ifndef JETSON_PLATFORM
-                if (is_sw_mode)
+                if (!isJetsonPlatform() && is_sw_mode)
                 {
                     if (index < 0)
                     {
@@ -770,15 +803,17 @@ void NvLLOverlay::doDrawTask()
                     memcpy((void *)m_cpuPtr[index], sink_frame->m_map.data, sink_frame->m_map.size);
                 }
                 else
-#endif
                 {
                     NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, (void **)&dst_surf);
                     NvBufWrapper::getInstance()->NvBufSurfaceCopy (ip_surf, dst_surf);
                 }
                 if (sink_frame->m_gstBuffer)
                 {
-#ifdef JETSON_PLATFORM
-                    if (GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
+                    // IPC-meta path is aarch64-only (GST_NV_IPC_META_GET ->
+                    // gst_nv_ipc_meta_api_get_type, defined only in the aarch64
+                    // libnvdsgst_ipcmeta); compile-gate it out on x86.
+#ifdef AARCH64_PLATFORM
+                    if (isJetsonPlatform() && GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
                         meta_union.ipcMeta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
@@ -792,19 +827,15 @@ void NvLLOverlay::doDrawTask()
                 }
 
                 // Perform overlay using GPU/CPU based on config
-#ifndef JETSON_PLATFORM
-                if (is_sw_mode)
+                if (!isJetsonPlatform() && is_sw_mode)
                 {
                     data_ptr = (void *)m_cpuPtr[index];
                     ret = m_overlay->doDraw(data_ptr, &meta_union, pts);
                 }
                 else
                 {
-#endif
                     ret = m_overlay->doDraw((void *)dst_surf, &meta_union, pts);
-#ifndef JETSON_PLATFORM
                 }
-#endif
 
                 if (ret == false)
                 {
@@ -1071,6 +1102,12 @@ bool NvLLOverlay::streamSettings(const std::unordered_map<std::string, std::stri
     {
         m_overlayParams.m_bboxDebug = (it->second == "true") ? true : false;
         m_overlay->setBboxDebug(m_overlayParams.m_bboxDebug);
+    }
+    it = opts.find("overlayDebugFontSize");
+    if (it != opts.end() && !it->second.empty())
+    {
+        m_overlayParams.m_bboxDebugFontSize = stringToInt(it->second, 0);
+        m_overlay->setBboxDebugFontSize(m_overlayParams.m_bboxDebugFontSize);
     }
     it = opts.find("bboxShowObjId");
     if (it != opts.end() && !it->second.empty())

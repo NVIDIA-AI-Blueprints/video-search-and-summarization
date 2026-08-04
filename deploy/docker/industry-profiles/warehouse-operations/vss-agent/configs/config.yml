@@ -101,7 +101,7 @@ functions:
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     template_path: ${VSS_AGENT_TEMPLATE_PATH}
     template_name: ${VSS_AGENT_TEMPLATE_NAME}
-    agent_version: ${VSS_AGENT_VERSION}
+    agent_version: ${VSS_AGENT_VERSION:-dev}
     llm_name: llm
     video_understanding_tool: video_understanding
     picture_url_tool: vst_picture_url
@@ -293,6 +293,7 @@ workflow:
     - sensor_id: The sensor ID (REQUIRED)
     - start_time: Start of time range (datetime, REQUIRED)
     - end_time: End of time range (datetime, REQUIRED)
+    - vlm_verified: true only if the current message asks for verified/VLM verified incidents; otherwise omit
 
     Example tool call:
     {{
@@ -319,12 +320,13 @@ workflow:
        (look for the last incident entry)
     4. Extract the sensor_id that was used in the
        previous query
-    5. Calculate new time range:
+    5. Do NOT reuse vlm_verified from prior turns; set it only from the current message (see PARAMETER EXTRACTION)
+    6. Calculate new time range:
        - start_time = timestamp of LAST shown incident
          (this ensures continuity)
        - end_time = current time OR the original end_time
          if it was a historical query
-    6. Call multi_report_agent with these parameters
+    7. Call multi_report_agent with these parameters
 
     === USE report_agent WHEN: ===
     - User wants a DETAILED/COMPREHENSIVE report for
@@ -340,6 +342,7 @@ workflow:
     - incident_id: Specific incident ID (optional - if not provided, gets last incident)
     - start_time: Start of time range (optional, for finding last incident)
     - end_time: End of time range (optional, for finding last incident)
+    - vlm_verified: true when the current message asks for a verified/VLM verified incident report; otherwise omit
 
     Example tool call:
     {{
@@ -359,6 +362,7 @@ workflow:
     CRITICAL: If a report for the same incident has already been generated from previous interactions AND the user did not request a new report for the same incident, return the answer with the EXACT URLs from conversation history - DO NOT call report_agent, DO NOT modify any parts of the URLs.
 
     PARAMETER EXTRACTION:
+    - vlm_verified (current query only): Set vlm_verified=true when the **current** user message explicitly asks for "verified" or "VLM verified" incidents or reports (e.g. "Generate a verified incident report for incident X"). If the current message does not mention verified, omit vlm_verified (do not pass true or false; use default). Never inherit vlm_verified from prior turns — e.g. after a verified-incidents request, "list all incidents" means regular incidents (omit vlm_verified).
     - If sensor_id is not provided AND there is no previous query context, use vst_sensor_list to show available sensors and ask user to choose
     - Parse time expressions like "last 5 minutes", "yesterday", "between 2pm-3pm" into ISO timestamps
     - Extract max_incidents from phrases like "last 5", "show 10", etc.

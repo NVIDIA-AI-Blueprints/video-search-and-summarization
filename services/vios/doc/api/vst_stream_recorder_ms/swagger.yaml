@@ -653,7 +653,7 @@ components:
         recording_status:
           type: string
           enum:
-            - off
+            - "off"
             - schedule
             - user
             - event
@@ -677,7 +677,7 @@ components:
         recordingStatus:
           type: string
           enum:
-            - off
+            - "off"
             - schedule
             - user
             - event

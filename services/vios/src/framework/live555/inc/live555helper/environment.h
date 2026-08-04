@@ -33,7 +33,7 @@ class Environment : public BasicUsageEnvironment
 {
 	public:
 		Environment();
-		Environment(char& stop);
+		Environment(EventLoopWatchVariable& stop);
 		virtual ~Environment();
 	
 	
@@ -41,7 +41,7 @@ class Environment : public BasicUsageEnvironment
 		void stop();
 		void useSocketPoll(bool use_poll);
 	protected:
-		char& m_stop;		
-		char  m_stopRef;		
+		EventLoopWatchVariable& m_stop;
+		EventLoopWatchVariable  m_stopRef;
 };
 

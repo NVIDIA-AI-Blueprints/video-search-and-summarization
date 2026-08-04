@@ -18,15 +18,15 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-alert-verification
-  tag: "3.2.0"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms
+  tag: develop-latest
   pullPolicy: IfNotPresent
 replicas: 1
 
 # Parameterized from parent / profile. In K8s use service names. Leave "" for release-based defaults.
+# Redis has been removed from Alert MS: dedup/filter state is in-process
+# and durable state (verdict protection, alert configs) lives in Elasticsearch.
 kafkaBootstrapServers: ""
-redisHost: ""
-redisPort: "6379"
 elasticHosts: ""
 vlmBaseUrl: ""
 vlmName: "nvidia/cosmos3-nano-reasoner"
@@ -61,18 +61,17 @@ resources: {}
 nodeSelector: {}
 tolerations: []
 
-# Block the main container until Kafka, Redis, and Elasticsearch accept TCP (avoids
+# Block the main container until Kafka and Elasticsearch accept TCP (avoids
 # startup crashes when alert-bridge runs before infra stack services are listening).
+# Redis is no longer a dependency of Alert MS.
 waitForDependencies:
   enabled: false
   image:
-    repository: busybox
+    repository: docker.io/library/busybox
     tag: "1.37.0"
     pullPolicy: IfNotPresent
   kafkaHost: ""
   kafkaPort: "9092"
-  redisHost: ""
-  redisPort: "6379"
   elasticsearchHost: ""
   elasticsearchPort: "9200"
   maxRetries: "90"

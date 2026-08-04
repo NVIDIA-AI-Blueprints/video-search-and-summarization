@@ -480,11 +480,14 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.enable_silent_audio_in_udp_input = data.get("enable_silent_audio_in_udp_input", false).asBool();
         m_vmsConfig.enable_udp_input_dump = data.get("enable_udp_input_dump", false).asBool();
         m_vmsConfig.webrtc_out_default_resolution = data.get("webrtc_out_default_resolution", "").asString();
-#ifdef JETSON_PLATFORM
-        m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
-#else
-        m_vmsConfig.enable_ipc_path = false;
-#endif
+        if (isJetsonPlatform())
+        {
+            m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
+        }
+        else
+        {
+            m_vmsConfig.enable_ipc_path = false;
+        }
         m_vmsConfig.ipc_src_buffer_timestamp_copy  = data.get("ipc_src_buffer_timestamp_copy", true).asBool();
         m_vmsConfig.ipc_src_connection_attempts    = data.get("ipc_src_connection_attempts", 5).asInt();
         m_vmsConfig.ipc_src_connection_interval_us = data.get("ipc_src_connection_interval_us", 1000000).asInt();
@@ -502,6 +505,17 @@ VmsConfigManager::VmsConfigManager()
         {
             m_vmsConfig.default_file_expiry_minutes = stringToInt(string(default_file_expiry_minutes_env), DEFAULT_FILE_EXPIRY_MINUTES);
         }
+
+        // Operator-facing kill switch for /url cache reuse. When true the
+        // server still tracks generated files in TEMP_VIDEO_FILES (so
+        // expiry/cleanup keep working) but bypasses the lookup step and
+        // regenerates on every call. Defaults off so production keeps the
+        // cache speedup; useful for debug deployments where the operator
+        // wants every /url and /picture/url request to hit the pipeline.
+        // The DISABLE_URL_CACHING env override is applied unconditionally
+        // below (outside this branch) so it still works when the config
+        // file omits the "data" section.
+        m_vmsConfig.disable_url_caching = data.get("disable_url_caching", false).asBool();
         m_vmsConfig.ingress_endpoint = data.get("ingress_endpoint", "").asString();
         char *default_ingress_endpoint = getenv("VST_INGRESS_ENDPOINT");
         if (default_ingress_endpoint != nullptr)
@@ -678,6 +692,17 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.audio_codecs.push_back(DEFAULT_AUDIO_CODEC);
     }
 
+    // DISABLE_URL_CACHING env override - applied unconditionally so it
+    // works even when the config file omits the "data" section. The
+    // baseline value comes from either data.get("disable_url_caching",
+    // false) above when "data" was present, or the DeviceConfig
+    // constructor default (false) when it wasn't.
+    if (const char* disableUrlCachingEnv = getenv("DISABLE_URL_CACHING"))
+    {
+        const std::string v(disableUrlCachingEnv);
+        m_vmsConfig.disable_url_caching = (v == "1" || v == "true" || v == "TRUE" || v == "True");
+    }
+
     Json::Value gpu_indices = data.get("gpu_indices", Json::nullValue);
     if(gpu_indices != Json::nullValue && gpu_indices.isArray())
     {
@@ -692,7 +717,9 @@ VmsConfigManager::VmsConfigManager()
         g_gpuIndex = m_vmsConfig.gpu_indices[0];  // Currenlty only first gpu index is supported
     }
 
-    Json::Value notifications = config.get("notifications", Json::nullValue);
+    // message_broker config now lives in the dedicated notification_config.json.
+    Json::Value notificationConfig = loadNotificationConfig(NOTIFICATION_CONFIG_FILE);
+    Json::Value notifications = notificationConfig.get("message_broker", Json::nullValue);
     if (notifications != Json::nullValue)
     {
         m_vmsConfig.enable_notification = notifications.get("enable_notification", true).asBool();
@@ -765,6 +792,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.use_camera_groups = overlay.get("use_camera_groups", false).asBool();
         m_vmsConfig.enable_recentering = overlay.get("enable_recentering", false).asBool();
         m_vmsConfig.overlay_text_font_type = overlay.get("overlay_text_font_type", DEFAULT_CUOSD_FONT_TYPE).asString();
+        m_vmsConfig.bbox_debug_font_size = overlay.get("bbox_debug_font_size", 0).asInt();
         m_vmsConfig.bbox_tolerance_ms = overlay.get("bbox_tolerance_ms", 0).asInt();
         m_vmsConfig.enable_overlay_skip_frame = overlay.get("enable_overlay_skip_frame", false).asBool();
         m_vmsConfig.halo_safety_udp_port = overlay.get("halo_safety_udp_port", -1).asInt();
@@ -894,6 +922,25 @@ VmsConfigManager::VmsConfigManager()
     else
     {
         m_vmsConfig.module_endpoints[ModuleLiveStream] = LIVE_STREAM_MODULE_DEFAULT_ENDPOINT;
+    }
+
+    /* VST_USE_SDRC toggles between the direct (sensor-MS posts to
+       stream-processor REST API; default, no SDR/Envoy in the data path) and
+       scaled (SDR + Envoy route stream-bound APIs) deployment topologies. */
+    char *use_sdrc_env = getenv("VST_USE_SDRC");
+    if (use_sdrc_env != nullptr)
+    {
+        string val(use_sdrc_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.use_sdrc = (val == "true" || val == "1" || val == "yes");
+    }
+
+    char *enable_notif_env = getenv("VST_ENABLE_NOTIFICATION");
+    if (enable_notif_env != nullptr)
+    {
+        string val(enable_notif_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.enable_notification = (val == "true" || val == "1" || val == "yes");
     }
 
     // Observability configuration

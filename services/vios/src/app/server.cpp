@@ -66,7 +66,7 @@ void signal_handler( int signal_num )
 
 int VmsServer::startGLoop()
 {
-    m_gmainLoopTask = async::spawn([=]
+    m_gmainLoopTask = async::spawn([this]
     {
         m_gmainLoop.run();
         LOG(info) << "Exiting from Main GLoop...." << endl;
@@ -363,14 +363,17 @@ void VmsServer::checkLibsSanity ()
 {
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
     NvBufWrapper::getInstance();
-#ifdef JETSON_PLATFORM
-    if (!GET_OSD_INSTANCE()->isError())
+    if (isJetsonPlatform())
     {
-        GET_OSD_INSTANCE()->osd_global_init();
+        if (!GET_OSD_INSTANCE()->isError())
+        {
+            GET_OSD_INSTANCE()->osd_global_init();
+        }
     }
-#else
-    CudaLoader::getInstance();
-#endif
+    else
+    {
+        CudaLoader::getInstance();
+    }
 #endif
 }
 
@@ -429,7 +432,7 @@ void VmsServer::handleRestAPIs()
         return VmsErrorCode::NoError;
     };
 
-    m_func["/api/version"] = [=](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
+    m_func["/api/version"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &out, struct mg_connection *conn) -> VmsErrorCode
     {
         out["type"] =  m_deviceManager->getDeviceType();
         if(m_deviceManager->getDeviceType() == TYPE_VST)
@@ -488,12 +491,13 @@ VmsServer::~VmsServer()
     DecoderPool::getInstance()->removeStreams();
     VideoSenderPool::getInstance()->removeStreams();
     UdpClientPool::getInstance()->clear();
-#ifdef JETSON_PLATFORM
-    if (!GET_OSD_INSTANCE()->isError())
+    if (isJetsonPlatform())
     {
-        GET_OSD_INSTANCE()->osd_global_destroy();
+        if (!GET_OSD_INSTANCE()->isError())
+        {
+            GET_OSD_INSTANCE()->osd_global_destroy();
+        }
     }
-#endif
 #endif
 
 #ifdef USE_GRPC_SERVER
@@ -519,12 +523,13 @@ VmsServer::~VmsServer()
     m_moduleLoader->deInitialize();
 
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
-#ifdef JETSON_PLATFORM
-    if (!GET_OSD_INSTANCE()->isError())
+    if (isJetsonPlatform())
     {
-        GET_OSD_INSTANCE()->osd_global_destroy();
+        if (!GET_OSD_INSTANCE()->isError())
+        {
+            GET_OSD_INSTANCE()->osd_global_destroy();
+        }
     }
-#endif
 #endif
     LOG(info) << "Exited VMS Server" << endl;
   } catch (const std::exception& e) {

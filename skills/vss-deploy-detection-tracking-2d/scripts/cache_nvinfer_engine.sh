@@ -20,9 +20,9 @@
 #
 # Example:
 #   cache_nvinfer_engine.sh \
-#       --onnx /opt/storage/resources/vss-warehouse-app-data_v.../models/mtmc/rtdetr_warehouse_v1.0.1.fp16.onnx \
+#       --onnx /opt/storage/resources/rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx \
 #       --batch 4
-#   # -> $ENGINE_CACHE_DIR/rtdetr_warehouse_v1.0.1.fp16.onnx_b4.engine
+#   # -> $ENGINE_CACHE_DIR/rtdetr_warehouse_v1.0.2.fp16.onnx_b4.engine
 #
 # What it does:
 #   1. Computes DS auto-build path: <ONNX>_b<N>_gpu<G>_fp<P>.engine

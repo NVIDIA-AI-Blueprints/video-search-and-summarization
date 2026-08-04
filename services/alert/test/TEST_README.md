@@ -1,26 +1,44 @@
 # Testing the Alert Agent with VSS Integration
 
+## Directory Layout
+
+Tests are grouped by type so unit tests stay isolated from the rest:
+
+| Path | Type | How to run |
+|------|------|------------|
+| `test/unit/` | Fast, mocked **unit tests** (pytest) | `pytest test/unit` |
+| `test/functional/` | Functional P1 suite (simulators) | `cd test/functional/p1 && ./run_p1.sh` |
+| `test/e2e/` | End-to-end pipeline tests | `pytest test/e2e` |
+| `test/latency/` | Performance / latency tooling + its unit test | `pytest test/latency` |
+| `test/sanity/` | Deployment sanity checks (shell) | `ES_HOST=... test/sanity/run_sanity.sh` |
+| `test/protobuf/`, `test/sim_scripts/` | Shared tooling (producers, simulators) — used by functional/e2e, not pytest tests | — |
+| `test/test_lite/` | Manual local integration helpers (Kafka/MinIO) | see below |
+
 ## Prerequisites
 
 1. Make sure you have test video files available
 2. Make sure your VSS agent is running and configured in `config.yaml`
 3. Ensure Python dependencies are installed
 
+For Kafka and on-demand Prometheus latency/counter reports, see
+[`latency/README.md`](latency/README.md). The report includes a separate
+On-Demand API section for `alert_bridge_ondemand_*` metrics.
+
 ## Quick Start
 
-### Using Docker Compose Profiles
+### Using Docker Compose
 
 ```bash
-# Default: Run with Redis (no profile needed)
+# Default: Kafka source/sink, no Redis required
 docker compose -f deploy_docker-compose.yml up -d
 
-# Alternative: Run with Kafka (requires --profile kafka)
-docker compose -f deploy_docker-compose.yml --profile kafka up -d
-
-# Note: Update config.yaml to match your choice:
-# - For Redis (default): sourceType: "redisStream", sinkType: "redisStream"
-# - For Kafka: sourceType: "kafka", sinkType: "kafka"
+# config.yaml defaults: sourceType: "kafka", sinkType: "kafka"
 ```
+
+> Redis has been removed entirely. Dedup / filter state is in-process and
+> durable state (verdict protection, alert configs) lives in Elasticsearch.
+> Ingestion is over Kafka (or the HTTP API); there is no Redis Streams
+> transport.
 
 ### Testing with Kafka
 
@@ -38,27 +56,6 @@ python3 enhance_alert_with_vlm.py --config config.yaml
 # 4. Send test messages (in another terminal)
 cd test/test_lite/kafka
 python3 send_payload.py
-
-# 5. Verify responses
-python3 verify_responses.py
-```
-
-### Testing with Redis
-
-```bash
-# 1. Start Redis server
-docker compose -f test_docker-compose.yml up -d redis
-
-# 2. Setup Redis streams (first time only)
-cd test/test_lite/redis
-python3 setup_streams.py
-
-# 3. Start the alert agent (in a new terminal)
-python3 enhance_alert_with_vlm.py --config config.yaml
-
-# 4. Send test messages (in another terminal)
-cd test/test_lite/redis
-python3 send_payload.py 1  # or 2, 3 for different payloads
 
 # 5. Verify responses
 python3 verify_responses.py
@@ -113,7 +110,7 @@ python3 send_direct_media_payload.py /path/to/media_folder
 
 ```bash
 # Run all Direct Media URL tests
-pytest test/test_direct_media_url.py -v
+pytest test/unit/test_direct_media_url.py -v
 ```
 
 ### Supported Media Formats

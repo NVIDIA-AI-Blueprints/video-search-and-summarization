@@ -22,21 +22,31 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
-VIA_SRC_DIR=$(realpath $1)
-OUT_DIR=$(realpath $2)
-SCRIPT_DIR=$(dirname $(realpath $0))
+# Quote all path expansions: Jenkins workspaces can contain spaces
+# (e.g. "LVS Github Pipeline"). Unquoted < $FILE_LIST then becomes an
+# ambiguous redirect after word-splitting.
+VIA_SRC_DIR=$(realpath "$1")
+OUT_DIR=$(realpath "$2")
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
 
 FILE_LIST="$SCRIPT_DIR/package_file_list.txt"
+
+if [[ ! -f "$FILE_LIST" ]]; then
+    echo "Error: package file list not found: $FILE_LIST" >&2
+    exit 1
+fi
 
 while read -r file; do
     if [[ $file = \#* ]] ; then
         continue
     fi
+    # Skip blank lines
+    [[ -z "$file" ]] && continue
     SRC_FILE="$VIA_SRC_DIR/$file"
     DEST_FILE="$OUT_DIR/via-engine/$file"
-    DEST_DIR=$(dirname $DEST_FILE)
+    DEST_DIR=$(dirname "$DEST_FILE")
     mkdir -p "$DEST_DIR"
     cp -v "$SRC_FILE" "$DEST_FILE"
-done < $FILE_LIST
+done < "$FILE_LIST"
 
 cp -v "$VIA_SRC_DIR/via_client_cli.py" "$OUT_DIR"

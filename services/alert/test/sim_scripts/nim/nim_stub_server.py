@@ -15,8 +15,9 @@
 # limitations under the License.
 
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
+import threading
 import time
 
 DEFAULT_CR2_RESPONSE = (
@@ -26,6 +27,51 @@ DEFAULT_CR2_RESPONSE = (
     "The evidence suggests a collision event occurred at this location.</think>\n\n"
     "YES"
 )
+
+
+class _StubState:
+    """Thread-safe request counters plus a response gate.
+
+    While the gate is closed, chat requests are held open (up to a max hold
+    timeout) so tests can assert concurrency deterministically via /stub/stats.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.in_flight = 0
+        self.peak_in_flight = 0
+        self.total_requests = 0
+        self.gate = threading.Event()
+        self.gate.set()
+
+    def enter(self):
+        with self._lock:
+            self.in_flight += 1
+            self.total_requests += 1
+            self.peak_in_flight = max(self.peak_in_flight, self.in_flight)
+
+    def leave(self):
+        with self._lock:
+            self.in_flight -= 1
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "in_flight": self.in_flight,
+                "peak_in_flight": self.peak_in_flight,
+                "total_requests": self.total_requests,
+                "gate_open": self.gate.is_set(),
+            }
+
+    def reset(self):
+        with self._lock:
+            self.in_flight = 0
+            self.peak_in_flight = 0
+            self.total_requests = 0
+        self.gate.set()
+
+
+STATE = _StubState()
 
 
 class NIMStubHandler(BaseHTTPRequestHandler):
@@ -55,13 +101,26 @@ class NIMStubHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             return 0.0
 
+    @staticmethod
+    def _get_gate_max_hold_seconds() -> float:
+        try:
+            return max(1.0, float(os.getenv("NIM_STUB_GATE_MAX_HOLD_SECONDS", "120")))
+        except (TypeError, ValueError):
+            return 120.0
+
     def do_GET(self):
-        if "/health" in self.path:
+        if self.path.startswith("/stub/stats"):
+            self._send_json(200, STATE.snapshot())
+        elif "/health" in self.path:
             self._send_json(200, {"status": "ready"})
         else:
             self._send_json(200, {"status": "ok"})
 
     def do_POST(self):
+        if self.path.startswith("/stub/"):
+            self._handle_control()
+            return
+
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length).decode('utf-8') if length else '{}'
         try:
@@ -91,9 +150,16 @@ class NIMStubHandler(BaseHTTPRequestHandler):
         if prompt_texts:
             print(f"NIM_PROMPT: {json.dumps(prompt_texts)}", flush=True)
 
-        response_delay = self._get_response_delay_seconds()
-        if response_delay > 0:
-            time.sleep(response_delay)
+        STATE.enter()
+        try:
+            if not STATE.gate.is_set():
+                STATE.gate.wait(timeout=self._get_gate_max_hold_seconds())
+
+            response_delay = self._get_response_delay_seconds()
+            if response_delay > 0:
+                time.sleep(response_delay)
+        finally:
+            STATE.leave()
 
         resp = {
             "id": data.get("id", "nim-stub-id"),
@@ -117,13 +183,26 @@ class NIMStubHandler(BaseHTTPRequestHandler):
         }
         self._send_json(200, resp)
 
+    def _handle_control(self):
+        if self.path.startswith("/stub/gate/close"):
+            STATE.gate.clear()
+            self._send_json(200, {"gate_open": False})
+        elif self.path.startswith("/stub/gate/open"):
+            STATE.gate.set()
+            self._send_json(200, {"gate_open": True})
+        elif self.path.startswith("/stub/reset"):
+            STATE.reset()
+            self._send_json(200, STATE.snapshot())
+        else:
+            self._send_json(404, {"error": f"unknown control path: {self.path}"})
+
+
 def main():
     port = int(os.getenv("NIM_STUB_PORT", "18081"))
-    server = HTTPServer(("0.0.0.0", port), NIMStubHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), NIMStubHandler)
+    server.daemon_threads = True
     print(f"NIM stub server listening on :{port}")
     server.serve_forever()
 
 if __name__ == "__main__":
     main()
-
-

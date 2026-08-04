@@ -1,6 +1,6 @@
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"topics": [
 			{
 				"name": "raw",
@@ -13,6 +13,10 @@
 			{
 				"name": "incidents",
 				"value": "mdx-incidents"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
 			}
 		],
 		"consumer": {
@@ -54,6 +58,18 @@
 		{
 			"name": "numWorkersForIncidentGeneration",
 			"value": "2"
+		},
+		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "0"
+		},
+		{
+			"name": "numWorkersForEmbedFiltering",
+			"value": "0"
 		},
 		{
 			"name": "fovCountViolationIncidentEnable",

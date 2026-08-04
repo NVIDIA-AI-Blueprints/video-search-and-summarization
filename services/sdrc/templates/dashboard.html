@@ -1,0 +1,1719 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDRC Workloads Dashboard</title>
+  <style>
+    /* Theme aligned with yaml-editor / One Dark code editor style */
+    :root {
+      --bg: #282c34;
+      --card: #21252b;
+      --border: #3e4451;
+      --text: #abb2bf;
+      --text-muted: #5c6370;
+      --up: #98c379;
+      --down: #e06c75;
+      --link: #61afef;
+      --editor-bg: #282c34;
+      --key: #e5c07b;
+      --string: #98c379;
+      --number: #d19a66;
+      --bool: #56b6c2;
+      --null: #5c6370;
+      --comment: #5c6370;
+      --punctuation: #abb2bf;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem 2rem;
+      line-height: 1.5;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem 0;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+    .workloads {
+      display: grid;
+      gap: 1rem;
+      max-width: 48rem;
+    }
+    .workload {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .workload .status {
+      flex-shrink: 0;
+      width: 0.75rem;
+      height: 0.75rem;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .workload .status.up { background: var(--up); }
+    .workload .status.down { background: var(--down); }
+    .workload .status.disabled { background: var(--text-muted); }
+    .workload .info { flex: 1; min-width: 0; }
+    .workload .name-row { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex-wrap: wrap; }
+    .workload .name { font-weight: 600; }
+    .workload .name .name-plain { color: var(--text); }
+    .workload .wl-name { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.15rem; }
+    .lifecycle-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 1.25rem;
+      padding: 0 0.4rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .lifecycle-badge.http-header { border-color: var(--link); color: var(--link); }
+    .lifecycle-badge.message-bus { border-color: var(--text-muted); color: var(--text-muted); }
+    .workload a {
+      color: var(--link);
+      text-decoration: none;
+    }
+    .workload a:hover { text-decoration: underline; }
+    .workload .status-text {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-left: 0.5rem;
+    }
+    .workload .sensor-count {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-left: 0.5rem;
+      min-width: 5rem;
+    }
+    .workload .sensor-count.clickable {
+      color: var(--link);
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .workload .sensor-count.clickable:hover {
+      text-decoration: none;
+    }
+    .workload .pod-count {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-left: 0.5rem;
+      min-width: 4rem;
+    }
+    .workload .pod-count.clickable {
+      color: var(--link);
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .workload .pod-count.clickable:hover {
+      text-decoration: none;
+    }
+    .workload .cache-link {
+      font-size: 0.8rem;
+      margin-left: 0.25rem;
+    }
+    .workload .cache-link a { color: var(--link); }
+    .workload .add-wrap { margin-left: 0.25rem; }
+    .workload .add-btn {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      background: var(--link);
+      color: var(--bg);
+      border: 1px solid var(--link);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .workload .add-btn:hover { opacity: 0.9; }
+    .workload .reset-wrap {
+      margin-left: 0.25rem;
+    }
+    .workload .reset-btn {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      background: var(--border);
+      color: var(--text);
+      border: 1px solid var(--text-muted);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .workload .reset-btn:hover:not(:disabled) {
+      background: var(--text-muted);
+    }
+    .workload .reset-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .config {
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(40, 44, 52, 0.85);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .modal-overlay.visible {
+      display: flex;
+    }
+    .modal-window {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      max-width: 28rem;
+      width: 100%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-title { font-weight: 600; font-size: 1rem; margin: 0; }
+    .modal-close {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    .modal-close:hover { background: var(--border); }
+    .modal-body {
+      padding: 1rem 1.25rem;
+      overflow: auto;
+    }
+    .modal-body .sensor-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .modal-body .sensor-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid var(--border);
+      font-family: ui-monospace, monospace;
+      font-size: 0.9rem;
+    }
+    .modal-body .sensor-list li:last-child { border-bottom: none; }
+    .modal-body .sensor-list .sensor-id { flex: 1; min-width: 0; word-break: break-all; }
+    .modal-body .sensor-list .sensor-row-actions {
+      display: flex;
+      flex-shrink: 0;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .modal-body .sensor-list .sensor-ws-test-btn,
+    .modal-body .sensor-list .sensor-reprovision-btn {
+      font-size: 0.75rem;
+      padding: 0.2rem 0.45rem;
+      background: transparent;
+      color: var(--link);
+      border: 1px solid var(--link);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .modal-body .sensor-list .sensor-ws-test-btn:hover:not(:disabled),
+    .modal-body .sensor-list .sensor-reprovision-btn:hover:not(:disabled) {
+      background: rgba(97, 175, 239, 0.15);
+    }
+    .modal-body .sensor-list .sensor-ws-test-btn:disabled,
+    .modal-body .sensor-list .sensor-reprovision-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .modal-body .sensor-list .sensor-delete-btn {
+      flex-shrink: 0;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.4rem;
+      background: transparent;
+      color: var(--down);
+      border: 1px solid var(--down);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .modal-body .sensor-list .sensor-delete-btn:hover:not(:disabled) { background: var(--down); color: var(--card); }
+    .modal-body .sensor-list .sensor-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .modal-body .pod-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .modal-body .pod-list li {
+      display: block;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .modal-body .pod-list li:last-child { border-bottom: none; }
+    .modal-body .pod-list .pod-row-header {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      cursor: pointer;
+      user-select: none;
+      word-break: normal;
+      white-space: normal;
+    }
+    .modal-body .pod-list .pod-row-header:hover { color: var(--link); }
+    .modal-body .pod-list .pod-chevron {
+      flex-shrink: 0;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      transition: transform 0.15s ease;
+    }
+    .modal-body .pod-list .pod-chevron.expanded { transform: rotate(90deg); }
+    .modal-body .pod-list .pod-name { flex: 1; }
+    .modal-body .pod-list .pod-stream-ids-wrap {
+      display: none;
+      margin-top: 0.35rem;
+      margin-left: 1.25rem;
+    }
+    .modal-body .pod-list .pod-stream-ids-wrap.expanded { display: block; }
+    .modal-body .pod-list .pod-stream-ids {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      word-break: break-all;
+    }
+    .modal-body .pod-list .pod-stream-id-line {
+      display: block;
+      margin-bottom: 0.15rem;
+    }
+    .modal-body .pod-list .pod-stream-id-line:last-child { margin-bottom: 0; }
+    .modal-body .sensor-loading { color: var(--text-muted); }
+    .modal-body .sensor-error { color: var(--down); }
+    .modal-body .cache-json {
+      font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      white-space: pre;
+      word-break: break-word;
+      max-height: 60vh;
+      overflow: auto;
+      background: var(--editor-bg);
+      color: var(--text);
+      padding: 1rem 1.25rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      margin: 0;
+      tab-size: 2;
+    }
+    .modal-body .cache-json .json-key { color: var(--key); }
+    .modal-body .cache-json .json-string { color: var(--string); }
+    .modal-body .cache-json .json-number { color: var(--number); }
+    .modal-body .cache-json .json-bool { color: var(--bool); }
+    .modal-body .cache-json .json-null { color: var(--null); }
+    .modal-body .cache-meta {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+      padding: 0.5rem 0;
+    }
+    .clusterxds-link-wrap { margin-top: 1rem; margin-bottom: 0; }
+    .config-yml-link-wrap { margin-top: 0.5rem; margin-bottom: 0; }
+    .global-add-link-wrap { margin-top: 0.5rem; margin-bottom: 0; }
+    .global-add-transport-row { margin-bottom: 0.75rem; font-size: 0.9rem; }
+    .global-add-transport-row label { margin-right: 1rem; cursor: pointer; }
+    .global-add-transport-row input { margin-right: 0.35rem; vertical-align: middle; }
+    .global-add-transport-note { font-size: 0.9rem; color: var(--text-muted); margin: 0 0 0.75rem 0; }
+    .clusterxds-link { color: var(--link); text-decoration: none; font-size: 0.9rem; }
+    .clusterxds-link:hover { text-decoration: underline; }
+    .modal-body .config-yml-path { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+    .modal-body .config-yml-content {
+      font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      white-space: pre;
+      word-break: break-word;
+      max-height: 60vh;
+      overflow: auto;
+      background: var(--editor-bg);
+      color: var(--text);
+      padding: 1rem 1.25rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      margin: 0;
+    }
+    .modal-body .config-yml-content .yaml-key { color: var(--key); }
+    .modal-body .config-yml-content .yaml-string { color: var(--string); }
+    .modal-body .config-yml-content .yaml-number { color: var(--number); }
+    .modal-body .config-yml-content .yaml-bool { color: var(--bool); }
+    .modal-body .config-yml-content .yaml-null { color: var(--null); }
+    .modal-body .config-yml-content .yaml-comment { color: var(--comment); font-style: italic; }
+    .add-workload-select { width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; background: var(--card); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.9rem; }
+    .add-workload-payload { width: 100%; min-height: 12rem; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--editor-bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: ui-monospace, monospace; font-size: 0.8125rem; line-height: 1.4; resize: vertical; box-sizing: border-box; }
+    .lifecycle-summary {
+      margin: 0.6rem 0 0.75rem;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      overflow-wrap: anywhere;
+    }
+    .lifecycle-warning {
+      margin: 0 0 0.75rem;
+      color: var(--key);
+      font-size: 0.8rem;
+      overflow-wrap: anywhere;
+    }
+    .add-workload-msg { font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.5rem; }
+    .add-workload-msg.success { color: var(--up); }
+    .add-workload-msg.error { color: var(--down); }
+    .add-workload-btn { padding: 0.4rem 0.75rem; background: var(--link); color: var(--bg); border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    .add-workload-btn:hover:not(:disabled) { opacity: 0.9; }
+    .add-workload-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <h1>SDRC Workloads Dashboard</h1>
+  <p class="subtitle">Workload processing services — status refreshed every <strong id="interval">{{ health_interval_seconds }}</strong>s</p>
+  <div class="workloads">
+    {% for w in workloads %}
+    <div class="workload"
+      data-wl="{{ w.wl_obj_name }}"
+      data-enabled="{{ 'true' if w.enabled else 'false' }}"
+      data-cluster-type="{{ w.cluster_type }}"
+      data-lifecycle-mode="{{ w.lifecycle.mode }}"
+      data-lifecycle-stream-id-header="{{ w.lifecycle.stream_id_header }}"
+      data-lifecycle-add-path="{{ w.lifecycle.add_path }}"
+      data-lifecycle-add-method="{{ w.lifecycle.add_method }}"
+      data-lifecycle-delete-path="{{ w.lifecycle.delete_path }}"
+      data-lifecycle-delete-method="{{ w.lifecycle.delete_method }}"
+      data-lifecycle-reprovision-path="{{ w.lifecycle.reprovision_path }}"
+      data-lifecycle-reprovision-method="{{ w.lifecycle.reprovision_method }}"
+      data-lifecycle-id-field="{{ w.lifecycle.id_field }}"
+      data-lifecycle-reprovision-change-id="{{ w.lifecycle.reprovision_change_id }}"
+      data-lifecycle-binding-warning="{{ w.lifecycle.binding_warning }}">
+      <span class="status {% if not w.enabled %}disabled{% endif %}" id="status-{{ w.wl_obj_name }}" title="{% if w.enabled %}Checking…{% else %}Disabled{% endif %}"></span>
+      <div class="info">
+        <div class="name-row">
+          <div class="name">{% if w.enabled %}<a href="{{ w.main_url }}">{{ w.name }}</a>{% else %}<span class="name-plain">{{ w.name }}</span>{% endif %}</div>
+          <span class="lifecycle-badge {{ w.lifecycle.mode }}">{{ w.lifecycle.mode }}</span>
+        </div>
+        <div class="wl-name">{{ w.wl_obj_name }} · {{ w.main_url }}</div>
+      </div>
+      <span class="status-text" id="text-{{ w.wl_obj_name }}">{% if w.enabled %}—{% else %}Disabled{% endif %}</span>
+      <span class="sensor-count" id="sensor-{{ w.wl_obj_name }}">{% if w.enabled %}—{% else %}—{% endif %}</span>
+      <span class="pod-count" id="pod-{{ w.wl_obj_name }}">{% if w.enabled %}—{% else %}—{% endif %}</span>
+      {% if w.enabled %}
+      <span class="cache-link" id="cache-wrap-{{ w.wl_obj_name }}" style="display:none">
+        <a href="#" data-wl="{{ w.wl_obj_name }}" class="cache-data-link">Cache</a>
+      </span>
+      <span class="add-wrap" id="add-wrap-{{ w.wl_obj_name }}" style="display:none">
+        <button type="button" class="add-btn" id="add-btn-{{ w.wl_obj_name }}" data-wl="{{ w.wl_obj_name }}">Send Message</button>
+      </span>
+      <span class="reset-wrap" id="reset-wrap-{{ w.wl_obj_name }}" style="display:none">
+        <button type="button" class="reset-btn" id="reset-btn-{{ w.wl_obj_name }}" data-reset-url="{{ w.main_url }}reset">Reset</button>
+      </span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="clusterxds-link-wrap">
+    <a href="#" id="clusterxds-link" class="clusterxds-link">View clusterXDS output</a>
+  </p>
+  <p class="config">Health check interval: <span id="config-interval">{{ health_interval_seconds }}</span>s (configurable via DASHBOARD_HEALTH_INTERVAL_SECONDS)</p>
+  <p class="config-yml-link-wrap">
+    <a href="#" id="config-yml-link" class="clusterxds-link">View config.yml</a>
+  </p>
+  <p class="global-add-link-wrap">
+    <a href="#" id="global-add-link" class="clusterxds-link">Global message send (Redis stream or Kafka topic)</a>
+  </p>
+  <p class="global-add-link-wrap">
+    <a href="#" id="route-mapping-link" class="clusterxds-link">View route mappings</a>
+  </p>
+
+  <div class="modal-overlay" id="sensor-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-title">Sensor IDs</h2>
+        <button type="button" class="modal-close" id="modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <ul class="sensor-list" id="modal-sensor-list"></ul>
+        <p class="sensor-loading" id="modal-loading" style="display:none">Loading…</p>
+        <p class="sensor-error" id="modal-error" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="ws-test-result-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="ws-test-result-title" style="max-width: 36rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="ws-test-result-title">WebSocket test</h2>
+        <button type="button" class="modal-close" id="ws-test-result-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <pre class="cache-json" id="ws-test-result-body" style="max-height: 50vh; margin: 0;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="pod-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="pod-modal-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="pod-modal-title">Pods</h2>
+        <button type="button" class="modal-close" id="pod-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <ul class="pod-list" id="pod-modal-list"></ul>
+        <p class="sensor-loading" id="pod-modal-loading" style="display:none">Loading…</p>
+        <p class="sensor-error" id="pod-modal-error" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="cache-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="cache-modal-title" style="max-width: 42rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="cache-modal-title">Redis cache</h2>
+        <button type="button" class="modal-close" id="cache-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <p class="cache-meta" id="cache-meta"></p>
+        <pre class="cache-json" id="cache-json"></pre>
+        <p class="sensor-loading" id="cache-loading" style="display:none">Loading…</p>
+        <p class="sensor-error" id="cache-error" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="clusterxds-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="clusterxds-modal-title" style="max-width: 42rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="clusterxds-modal-title">clusterXDS output</h2>
+        <button type="button" class="modal-close" id="clusterxds-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <pre class="cache-json" id="clusterxds-json"></pre>
+        <p class="sensor-loading" id="clusterxds-loading" style="display:none">Loading…</p>
+        <p class="sensor-error" id="clusterxds-error" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="config-yml-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="config-yml-modal-title" style="max-width: 42rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="config-yml-modal-title">config.yml</h2>
+        <button type="button" class="modal-close" id="config-yml-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-yml-path" id="config-yml-path"></p>
+        <pre class="config-yml-content" id="config-yml-content"></pre>
+        <p class="sensor-loading" id="config-yml-loading" style="display:none">Loading…</p>
+        <p class="sensor-error" id="config-yml-error" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="route-mapping-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="route-mapping-modal-title" style="max-width: 42rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="route-mapping-modal-title">Route mappings</h2>
+        <button type="button" class="modal-close" id="route-mapping-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <pre class="cache-json" id="route-mapping-json"></pre>
+        <p class="sensor-loading" id="route-mapping-loading" style="display:none">Loading…</p>
+        <p class="sensor-error" id="route-mapping-error" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="add-workload-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="add-workload-modal-title" style="max-width: 42rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="add-workload-modal-title">Add workload</h2>
+        <button type="button" class="modal-close" id="add-workload-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <label for="add-workload-target" style="display:block; margin-bottom: 0.25rem; font-size: 0.9rem;">Target workload</label>
+        <select id="add-workload-target" class="add-workload-select"></select>
+        <div id="add-workload-lifecycle-summary" class="lifecycle-summary"></div>
+        <div id="add-workload-lifecycle-warning" class="lifecycle-warning" style="display:none"></div>
+        <div id="add-workload-stream-id-row" style="display:none; margin-bottom: 0.75rem;">
+          <label id="add-workload-stream-id-label" for="add-workload-stream-id" style="display:block; margin-bottom: 0.25rem; font-size: 0.9rem;">Stream ID header value</label>
+          <input id="add-workload-stream-id" class="add-workload-select" type="text" autocomplete="off">
+        </div>
+        <label for="add-workload-payload" style="display:block; margin-bottom: 0.25rem; font-size: 0.9rem;">Payload (JSON)</label>
+        <textarea id="add-workload-payload" class="add-workload-payload" spellcheck="false"></textarea>
+        <div style="display:flex; align-items: center; gap: 0.75rem;">
+          <button type="button" id="add-workload-submit" class="add-workload-btn">Send Message</button>
+          <span id="add-workload-msg" class="add-workload-msg"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="global-add-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="global-add-modal-title" style="max-width: 42rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="global-add-modal-title">Global add</h2>
+        <button type="button" class="modal-close" id="global-add-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        {% if global_add_redis_available and global_add_kafka_available %}
+        <div class="global-add-transport-row" id="global-add-transport-row" role="group" aria-label="Message transport">
+          <span style="display:block; margin-bottom: 0.35rem;">Transport</span>
+          <label><input type="radio" name="global-add-transport" value="redis" checked> Redis stream</label>
+          <label><input type="radio" name="global-add-transport" value="kafka"> Kafka topic</label>
+        </div>
+        {% elif global_add_redis_available %}
+        <p class="global-add-transport-note" id="global-add-transport-note">Sending via <strong>Redis</strong> stream.</p>
+        {% elif global_add_kafka_available %}
+        <p class="global-add-transport-note" id="global-add-transport-note">Sending via <strong>Kafka</strong> topic.</p>
+        {% else %}
+        <p class="global-add-transport-note" id="global-add-transport-note" style="color: var(--down);">Global add is not configured for Redis or Kafka.</p>
+        {% endif %}
+        <label for="global-add-payload" style="display:block; margin-bottom: 0.25rem; font-size: 0.9rem;">Payload (JSON)</label>
+        <textarea id="global-add-payload" class="add-workload-payload" spellcheck="false"></textarea>
+        <div style="display:flex; align-items: center; gap: 0.75rem;">
+          <button type="button" id="global-add-submit" class="add-workload-btn">Send</button>
+          <span id="global-add-msg" class="add-workload-msg"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const healthIntervalSeconds = {{ health_interval_seconds }};
+    const healthUrl = '{{ health_api_url }}';
+    const globalAddRedisAvailable = {{ global_add_redis_available | tojson }};
+    const globalAddKafkaAvailable = {{ global_add_kafka_available | tojson }};
+    /** Path to a workload app route via run_workloads proxy (Flask ``/sdrc/<wl>/...``). */
+    function sdrcWorkloadUrl(wlObjName, pathAfterWl) {
+      var p = pathAfterWl == null ? '' : String(pathAfterWl);
+      if (p.charAt(0) === '/') p = p.slice(1);
+      return '/sdrc/' + encodeURIComponent(wlObjName) + (p ? '/' + p : '/');
+    }
+    /** Default fetch for dashboard API: CORS mode + optional override header (allowed by Envoy/Flask ACAH). */
+    function dashboardFetch(input, init) {
+      init = init || {};
+      var headers = {};
+      if (init.headers && typeof init.headers === 'object') {
+        for (var k in init.headers) {
+          if (Object.prototype.hasOwnProperty.call(init.headers, k)) headers[k] = init.headers[k];
+        }
+      }
+      headers['X-SDRC-Dashboard-CORS-Override'] = '1';
+      return fetch(input, Object.assign({
+        mode: 'cors',
+        credentials: 'same-origin',
+        cache: 'no-store'
+      }, init, { headers: headers }));
+    }
+
+    function updateStatuses() {
+      dashboardFetch(healthUrl)
+        .then(r => r.json())
+        .then(data => {
+          document.querySelectorAll('.workload[data-enabled="true"]').forEach(el => {
+            const wl = el.dataset.wl;
+            const dot = document.getElementById('status-' + wl);
+            const text = document.getElementById('text-' + wl);
+            const sensorEl = document.getElementById('sensor-' + wl);
+            const podEl = document.getElementById('pod-' + wl);
+            if (!dot || !text) return;
+            const info = data[wl];
+            if (!info) return;
+            const resetWrap = document.getElementById('reset-wrap-' + wl);
+            if (info.status === 'up') {
+              dot.className = 'status up';
+              text.textContent = 'Up';
+              if (sensorEl) {
+                sensorEl.textContent = typeof info.sensor_count === 'number' ? info.sensor_count + ' sensor id(s)' : '—';
+                sensorEl.classList.toggle('clickable', typeof info.sensor_count === 'number');
+              }
+              if (podEl) {
+                podEl.textContent = typeof info.pod_count === 'number' ? info.pod_count + ' pod(s)' : '—';
+                podEl.classList.toggle('clickable', typeof info.pod_count === 'number');
+              }
+              if (resetWrap) resetWrap.style.display = '';
+              const cacheWrap = document.getElementById('cache-wrap-' + wl);
+              if (cacheWrap) cacheWrap.style.display = '';
+              const addWrap = document.getElementById('add-wrap-' + wl);
+              if (addWrap) addWrap.style.display = '';
+            } else {
+              dot.className = 'status down';
+              text.textContent = info.error || 'Down';
+              if (sensorEl) { sensorEl.textContent = '—'; sensorEl.classList.remove('clickable'); }
+              if (podEl) { podEl.textContent = '—'; podEl.classList.remove('clickable'); }
+              if (resetWrap) resetWrap.style.display = 'none';
+              const cacheWrap = document.getElementById('cache-wrap-' + wl);
+              if (cacheWrap) cacheWrap.style.display = 'none';
+              const addWrap = document.getElementById('add-wrap-' + wl);
+              if (addWrap) addWrap.style.display = 'none';
+            }
+          });
+        })
+        .catch(() => {
+          document.querySelectorAll('.workload[data-enabled="true"]').forEach(el => {
+            const wl = el.dataset.wl;
+            const dot = document.getElementById('status-' + wl);
+            const text = document.getElementById('text-' + wl);
+            const sensorEl = document.getElementById('sensor-' + wl);
+            const podEl = document.getElementById('pod-' + wl);
+            if (dot) dot.className = 'status down';
+            if (text) text.textContent = 'Check failed';
+            if (sensorEl) { sensorEl.textContent = '—'; sensorEl.classList.remove('clickable'); }
+            if (podEl) { podEl.textContent = '—'; podEl.classList.remove('clickable'); }
+            const resetWrap = document.getElementById('reset-wrap-' + wl);
+            if (resetWrap) resetWrap.style.display = 'none';
+            const cacheWrap = document.getElementById('cache-wrap-' + wl);
+            if (cacheWrap) cacheWrap.style.display = 'none';
+            const addWrap = document.getElementById('add-wrap-' + wl);
+            if (addWrap) addWrap.style.display = 'none';
+          });
+        });
+    }
+
+    const modal = document.getElementById('sensor-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalList = document.getElementById('modal-sensor-list');
+    const modalLoading = document.getElementById('modal-loading');
+    const modalError = document.getElementById('modal-error');
+    const modalClose = document.getElementById('modal-close');
+    const wsTestResultModal = document.getElementById('ws-test-result-modal');
+    const wsTestResultBody = document.getElementById('ws-test-result-body');
+    const wsTestResultClose = document.getElementById('ws-test-result-close');
+
+    function openWsTestResultModal(payload) {
+      wsTestResultBody.textContent = typeof payload === 'string'
+        ? payload
+        : JSON.stringify(payload, null, 2);
+      wsTestResultModal.classList.add('visible');
+      wsTestResultModal.setAttribute('aria-hidden', 'false');
+    }
+    function closeWsTestResultModal() {
+      wsTestResultModal.classList.remove('visible');
+      wsTestResultModal.setAttribute('aria-hidden', 'true');
+    }
+    function getDashboardEnvoyWsHelloBase() {
+      var hostPort = (typeof window !== 'undefined' && window.location.hostname)
+        ? (window.location.hostname + ':19000')
+        : 'localhost:19000';
+      var proto = (typeof window !== 'undefined' && window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+      return proto + '//' + hostPort + '/hello';
+    }
+    function buildDashboardWsHelloUrl(streamId, wl) {
+      var base = getDashboardEnvoyWsHelloBase();
+      try {
+        var u = new URL(base);
+        u.searchParams.set('x-stream-id', streamId);
+        u.searchParams.set('x-wl-object-name', wl);
+        return u.toString();
+      } catch (e) {
+        return base + '?x-stream-id=' + encodeURIComponent(streamId) +
+          '&x-wl-object-name=' + encodeURIComponent(wl);
+      }
+    }
+    function runDashboardWsHelloTest(streamId, wl, onDone) {
+      var url = buildDashboardWsHelloUrl(streamId, wl);
+      var ws;
+      var done = false;
+      var timeoutMs = 20000;
+      var t = setTimeout(function() {
+        if (done) return;
+        done = true;
+        try { if (ws) ws.close(); } catch (e) {}
+        openWsTestResultModal({
+          ok: false,
+          error: 'Timeout waiting for a message',
+          url: url,
+          stream_id: streamId,
+          wl_object_name: wl,
+          note: 'Stream id and workload are sent as query params; Envoy Lua maps them to X-WL-OBJECT-NAME and x-stream-id for logs/routing.'
+        });
+        if (typeof onDone === 'function') onDone();
+      }, timeoutMs);
+      function finish(payload) {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        openWsTestResultModal(payload);
+        try { if (ws) ws.close(); } catch (e) {}
+        if (typeof onDone === 'function') onDone();
+      }
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        clearTimeout(t);
+        openWsTestResultModal({ ok: false, error: String(e), url: url, stream_id: streamId, wl_object_name: wl });
+        if (typeof onDone === 'function') onDone();
+        return;
+      }
+      ws.onopen = function() {
+        ws.send('Hello Server');
+      };
+      ws.onmessage = function(ev) {
+        var recv = typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data);
+        finish({
+          ok: true,
+          url: url,
+          stream_id: streamId,
+          wl_object_name: wl,
+          sent: 'Hello Server',
+          received: recv,
+          note: 'Query params x-stream-id and x-wl-object-name are copied to request headers by Envoy Lua (envoy_config_xds_test.yaml).'
+        });
+      };
+      // Do not call finish() from onerror: it often runs before onclose and hides the real close code (e.g. 1006).
+      ws.onerror = function() { /* rely on onclose + timeout */ };
+      ws.onclose = function(ev) {
+        if (done) return;
+        if (ev.wasClean) return;
+        var httpsPage = (typeof window !== 'undefined' && window.location.protocol === 'https:');
+        var hints = [
+          'Close code ' + ev.code + (ev.reason ? ': ' + ev.reason : '') + ' (1006 = TCP failed / TLS mismatch / reset before upgrade).',
+          'Confirm Envoy listener port is published (e.g. docker -p 19000:9000) and this browser can reach the host:port.',
+          'Listener rds.route_config_name must match xDS RouteConfiguration name {wl_obj_name}_route (restart run_workloads + Envoy after lib/xDS changes).',
+          'Envoy Lua needs Redis from inside the container (WDM_WL_REDIS_*); stream id must exist in Redis hash ' + wl + ' for upstream-cluster to be set.',
+          'CDS must include <pod>-websocket clusters (HTTP/1.1); testapp websocket port in config.yml WDM_TARGET_PORT_MAPPING.websocket (e.g. 5050).',
+          'If Redis/Lua never sets upstream-cluster, set env WDM_ENVOY_FALLBACK_CLUSTER to a CDS name such as <pod>-websocket and restart run_workloads.'
+        ];
+        if (httpsPage) {
+          hints.push('Page is HTTPS → dashboard uses wss:// on :19000; Envoy must terminate TLS there or use HTTP for the dashboard.');
+        }
+        finish({
+          ok: false,
+          error: 'WebSocket handshake failed (close code ' + ev.code + (ev.reason ? ': ' + ev.reason : '') + ').',
+          close_code: ev.code,
+          close_reason: ev.reason || null,
+          url: url,
+          stream_id: streamId,
+          wl_object_name: wl,
+          hint_https: httpsPage,
+          hint_same_host: 'Uses window.location.hostname:19000 when possible so Origin matches the dashboard host.',
+          troubleshoot: hints
+        });
+      };
+    }
+    wsTestResultClose.addEventListener('click', closeWsTestResultModal);
+    wsTestResultModal.addEventListener('click', function(e) {
+      if (e.target === wsTestResultModal) closeWsTestResultModal();
+    });
+
+    function openSensorModal(wlObjName, workloadName) {
+      modal.dataset.wlObjName = wlObjName;
+      modalTitle.textContent = 'Sensor IDs — ' + (workloadName || wlObjName);
+      modalList.innerHTML = '';
+      modalList.style.display = 'none';
+      modalError.style.display = 'none';
+      modalLoading.style.display = 'block';
+      modal.classList.add('visible');
+      modal.setAttribute('aria-hidden', 'false');
+      const url = sdrcWorkloadUrl(wlObjName, 'current_distributed_streams_name_id_url');
+      dashboardFetch(url)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('Request failed')))
+        .then(data => {
+          modalLoading.style.display = 'none';
+          const ids = typeof data === 'object' && data !== null ? Object.keys(data) : [];
+          ids.sort();
+          ids.forEach(id => {
+            const li = document.createElement('li');
+            const idSpan = document.createElement('span');
+            idSpan.className = 'sensor-id';
+            idSpan.textContent = id;
+            const actions = document.createElement('div');
+            actions.className = 'sensor-row-actions';
+            const wsBtn = document.createElement('button');
+            wsBtn.type = 'button';
+            wsBtn.className = 'sensor-ws-test-btn';
+            wsBtn.textContent = 'Test WS';
+            wsBtn.title = 'WebSocket to Envoy :19000/hello (ws or wss like the page); query params for routing; CORS headers from Envoy Lua';
+            wsBtn.dataset.streamId = id;
+            const reprovisionBtn = document.createElement('button');
+            reprovisionBtn.type = 'button';
+            reprovisionBtn.className = 'sensor-reprovision-btn';
+            reprovisionBtn.textContent = 'Reprovision';
+            reprovisionBtn.dataset.streamId = id;
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'sensor-delete-btn';
+            delBtn.textContent = 'Delete';
+            delBtn.dataset.streamId = id;
+            actions.appendChild(wsBtn);
+            actions.appendChild(reprovisionBtn);
+            actions.appendChild(delBtn);
+            li.appendChild(idSpan);
+            li.appendChild(actions);
+            modalList.appendChild(li);
+          });
+          modalList.style.display = ids.length ? 'block' : 'none';
+          if (ids.length === 0) {
+            modalError.textContent = 'No sensor IDs.';
+            modalError.style.display = 'block';
+          }
+        })
+        .catch(err => {
+          modalLoading.style.display = 'none';
+          modalError.textContent = err.message || 'Failed to load sensor IDs.';
+          modalError.style.display = 'block';
+        });
+    }
+
+    function closeSensorModal() {
+      modal.classList.remove('visible');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    modalClose.addEventListener('click', closeSensorModal);
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closeSensorModal();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Escape') return;
+      if (wsTestResultModal.classList.contains('visible')) closeWsTestResultModal();
+      else if (modal.classList.contains('visible')) closeSensorModal();
+      else if (cacheModal.classList.contains('visible')) closeCacheModal();
+      else if (clusterxdsModal.classList.contains('visible')) closeClusterxdsModal();
+      else if (configYmlModal.classList.contains('visible')) closeConfigYmlModal();
+      else if (addWorkloadModal.classList.contains('visible')) closeAddWorkloadModal();
+      else if (document.getElementById('global-add-modal').classList.contains('visible')) closeGlobalAddModal();
+      else if (document.getElementById('pod-modal').classList.contains('visible')) closePodModal();
+    });
+
+    const podModal = document.getElementById('pod-modal');
+    const podModalTitle = document.getElementById('pod-modal-title');
+    const podModalList = document.getElementById('pod-modal-list');
+    const podModalLoading = document.getElementById('pod-modal-loading');
+    const podModalError = document.getElementById('pod-modal-error');
+    const podModalClose = document.getElementById('pod-modal-close');
+
+    function formatPodPhaseLabel(phase, clusterType) {
+      if (!phase) return '';
+      var p = String(phase).trim();
+      if ((clusterType || '').toLowerCase() === 'docker' && p.toLowerCase() === 'running') {
+        return 'Up';
+      }
+      return p;
+    }
+
+    function openPodModal(wlObjName, workloadName, clusterType) {
+      podModalTitle.textContent = 'Pods — ' + (workloadName || wlObjName);
+      podModalList.innerHTML = '';
+      podModalList.style.display = 'none';
+      podModalError.style.display = 'none';
+      podModalLoading.style.display = 'block';
+      podModal.classList.add('visible');
+      podModal.setAttribute('aria-hidden', 'false');
+      const url = sdrcWorkloadUrl(wlObjName, 'pod_list');
+      dashboardFetch(url)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('Request failed')))
+        .then(data => {
+          podModalLoading.style.display = 'none';
+          const pods = Array.isArray(data.pods) ? data.pods : [];
+          pods.forEach(p => {
+            const li = document.createElement('li');
+            const streamIds = Array.isArray(p.stream_ids) ? p.stream_ids : [];
+            const header = document.createElement('div');
+            header.className = 'pod-row-header';
+            const chevron = document.createElement('span');
+            chevron.className = 'pod-chevron';
+            chevron.textContent = '▶';
+            chevron.setAttribute('aria-hidden', 'true');
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'pod-name';
+            var phaseDisp = formatPodPhaseLabel(p.phase, clusterType);
+            nameSpan.textContent = (p.podName || '') + (phaseDisp ? ' (' + phaseDisp + ')' : '') + (streamIds.length > 0 ? ' — ' + streamIds.length + ' stream ID(s)' : '');
+            header.appendChild(chevron);
+            header.appendChild(nameSpan);
+            li.appendChild(header);
+            const wrap = document.createElement('div');
+            wrap.className = 'pod-stream-ids-wrap';
+            const streamEl = document.createElement('div');
+            streamEl.className = 'pod-stream-ids';
+            if (streamIds.length > 0) {
+              streamIds.forEach(function(id) {
+                const line = document.createElement('div');
+                line.className = 'pod-stream-id-line';
+                line.textContent = id;
+                streamEl.appendChild(line);
+              });
+            } else {
+              streamEl.textContent = 'No stream IDs';
+            }
+            wrap.appendChild(streamEl);
+            li.appendChild(wrap);
+            wrap.classList.add('expanded');
+            chevron.classList.add('expanded');
+            header.addEventListener('click', function() {
+              const expanded = wrap.classList.toggle('expanded');
+              chevron.classList.toggle('expanded', expanded);
+            });
+            podModalList.appendChild(li);
+          });
+          podModalList.style.display = pods.length ? 'block' : 'none';
+          if (pods.length === 0) {
+            podModalError.textContent = 'No pods.';
+            podModalError.style.display = 'block';
+          }
+        })
+        .catch(err => {
+          podModalLoading.style.display = 'none';
+          podModalError.textContent = err.message || 'Failed to load pod list.';
+          podModalError.style.display = 'block';
+        });
+    }
+
+    function closePodModal() {
+      podModal.classList.remove('visible');
+      podModal.setAttribute('aria-hidden', 'true');
+    }
+
+    podModalClose.addEventListener('click', closePodModal);
+    podModal.addEventListener('click', function(e) {
+      if (e.target === podModal) closePodModal();
+    });
+
+    const cacheModal = document.getElementById('cache-modal');
+    const cacheModalTitle = document.getElementById('cache-modal-title');
+    const cacheMeta = document.getElementById('cache-meta');
+    const cacheJson = document.getElementById('cache-json');
+    const cacheLoading = document.getElementById('cache-loading');
+    const cacheError = document.getElementById('cache-error');
+    const cacheModalClose = document.getElementById('cache-modal-close');
+
+    function escapeHtml(t) {
+      return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function prettyPrintJsonHtml(obj) {
+      const raw = JSON.stringify(obj, null, 2);
+      let html = '';
+      let i = 0;
+      const len = raw.length;
+      const stack = [];
+      let expectKey = false;
+      while (i < len) {
+        const c = raw[i];
+        if (c === '"') {
+          let end = i + 1;
+          while (end < len) {
+            if (raw[end] === '\\') { end += 2; continue; }
+            if (raw[end] === '"') break;
+            end++;
+          }
+          const segment = raw.slice(i, end + 1);
+          const isKey = expectKey && stack.length > 0 && stack[stack.length - 1] === 'object';
+          html += '<span class="' + (isKey ? 'json-key' : 'json-string') + '">' + escapeHtml(segment) + '</span>';
+          i = end + 1;
+          if (isKey) expectKey = false;
+          continue;
+        }
+        if (/[-0-9]/.test(c)) {
+          let end = i;
+          while (end < len && /[-0-9.eE+]/.test(raw[end])) end++;
+          html += '<span class="json-number">' + escapeHtml(raw.slice(i, end)) + '</span>';
+          i = end;
+          expectKey = false;
+          continue;
+        }
+        if (raw.substr(i, 4) === 'true')  { html += '<span class="json-bool">true</span>';  i += 4; expectKey = false; continue; }
+        if (raw.substr(i, 5) === 'false') { html += '<span class="json-bool">false</span>'; i += 5; expectKey = false; continue; }
+        if (raw.substr(i, 4) === 'null')  { html += '<span class="json-null">null</span>';  i += 4; expectKey = false; continue; }
+        if (c === '{') { stack.push('object'); expectKey = true; }
+        else if (c === '[') { stack.push('array'); expectKey = true; }
+        else if (c === '}' || c === ']') { stack.pop(); expectKey = false; }
+        else if (c === ',') { expectKey = stack.length > 0 && stack[stack.length - 1] === 'object'; }
+        else if (c === ':') { expectKey = false; }
+        html += escapeHtml(c);
+        i++;
+      }
+      return html;
+    }
+
+    function openCacheModal(wlObjName, workloadName) {
+      cacheModalTitle.textContent = 'Redis cache — ' + (workloadName || wlObjName);
+      cacheMeta.textContent = '';
+      cacheJson.textContent = '';
+      cacheJson.style.display = 'none';
+      cacheError.style.display = 'none';
+      cacheLoading.style.display = 'block';
+      cacheModal.classList.add('visible');
+      cacheModal.setAttribute('aria-hidden', 'false');
+      const url = sdrcWorkloadUrl(wlObjName, 'redis_cache_data');
+      dashboardFetch(url)
+        .then(r => r.json().then(data => {
+          if (!r.ok) throw new Error(data.error || 'Request failed');
+          return data;
+        }))
+        .then(data => {
+          cacheLoading.style.display = 'none';
+          const objName = data.cache_object != null ? data.cache_object : '';
+          cacheMeta.textContent = 'WDM_REDIS_CACHE_OBJECT: ' + (objName || '(not set)');
+          cacheJson.innerHTML = prettyPrintJsonHtml(data.data);
+          cacheJson.style.display = 'block';
+        })
+        .catch(err => {
+          cacheLoading.style.display = 'none';
+          cacheError.textContent = err.message || 'Failed to load cache data.';
+          cacheError.style.display = 'block';
+        });
+    }
+
+    function closeCacheModal() {
+      cacheModal.classList.remove('visible');
+      cacheModal.setAttribute('aria-hidden', 'true');
+    }
+
+    cacheModalClose.addEventListener('click', closeCacheModal);
+    cacheModal.addEventListener('click', function(e) {
+      if (e.target === cacheModal) closeCacheModal();
+    });
+
+    const clusterxdsModal = document.getElementById('clusterxds-modal');
+    const clusterxdsJson = document.getElementById('clusterxds-json');
+    const clusterxdsLoading = document.getElementById('clusterxds-loading');
+    const clusterxdsError = document.getElementById('clusterxds-error');
+    const clusterxdsModalClose = document.getElementById('clusterxds-modal-close');
+
+    function openClusterxdsModal() {
+      clusterxdsJson.textContent = '';
+      clusterxdsJson.style.display = 'none';
+      clusterxdsError.style.display = 'none';
+      clusterxdsLoading.style.display = 'block';
+      clusterxdsModal.classList.add('visible');
+      clusterxdsModal.setAttribute('aria-hidden', 'false');
+      dashboardFetch('/v3/discovery:clusters', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(r => r.json().then(data => {
+          if (!r.ok) throw new Error(data.error || 'Request failed');
+          return data;
+        }))
+        .then(data => {
+          clusterxdsLoading.style.display = 'none';
+          clusterxdsJson.innerHTML = prettyPrintJsonHtml(data);
+          clusterxdsJson.style.display = 'block';
+        })
+        .catch(err => {
+          clusterxdsLoading.style.display = 'none';
+          clusterxdsError.textContent = err.message || 'Failed to load clusterXDS output.';
+          clusterxdsError.style.display = 'block';
+        });
+    }
+
+    function closeClusterxdsModal() {
+      clusterxdsModal.classList.remove('visible');
+      clusterxdsModal.setAttribute('aria-hidden', 'true');
+    }
+
+    clusterxdsModalClose.addEventListener('click', closeClusterxdsModal);
+    clusterxdsModal.addEventListener('click', function(e) {
+      if (e.target === clusterxdsModal) closeClusterxdsModal();
+    });
+
+    document.getElementById('clusterxds-link').addEventListener('click', function(e) {
+      e.preventDefault();
+      openClusterxdsModal();
+    });
+
+    const configYmlModal = document.getElementById('config-yml-modal');
+    const configYmlPath = document.getElementById('config-yml-path');
+    const configYmlContent = document.getElementById('config-yml-content');
+    const configYmlLoading = document.getElementById('config-yml-loading');
+    const configYmlError = document.getElementById('config-yml-error');
+    const configYmlModalClose = document.getElementById('config-yml-modal-close');
+
+    function highlightYaml(text) {
+      if (text == null) return '';
+      const lines = String(text).split('\n');
+      const out = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#')) {
+          out.push('<span class="yaml-comment">' + escapeHtml(line) + '</span>');
+          continue;
+        }
+        const colonIdx = line.indexOf(':');
+        if (colonIdx === -1) {
+          out.push(escapeHtml(line));
+          continue;
+        }
+        const indent = line.slice(0, line.length - line.trimStart().length);
+        const keyPart = line.slice(indent.length, colonIdx);
+        const afterColon = line.slice(colonIdx + 1);
+        const rest = afterColon.trimStart();
+        const spaceAfterColon = afterColon.slice(0, afterColon.length - rest.length);
+        let valueHtml = escapeHtml(spaceAfterColon);
+        if (rest) {
+          if (/^true\b/.test(rest)) valueHtml += '<span class="yaml-bool">true</span>' + escapeHtml(rest.slice(4));
+          else if (/^false\b/.test(rest)) valueHtml += '<span class="yaml-bool">false</span>' + escapeHtml(rest.slice(5));
+          else if (/^null\b/.test(rest)) valueHtml += '<span class="yaml-null">null</span>' + escapeHtml(rest.slice(4));
+          else if (/^-?\d/.test(rest)) {
+            const numMatch = rest.match(/^-?[\d.eE+]+/);
+            const num = numMatch ? numMatch[0] : '';
+            valueHtml += '<span class="yaml-number">' + escapeHtml(num) + '</span>' + escapeHtml(rest.slice(num.length));
+          } else if ((/^['"]/).test(rest)) {
+            const q = rest[0];
+            let end = 1;
+            while (end < rest.length) {
+              if (rest[end] === '\\') { end += 2; continue; }
+              if (rest[end] === q) { end++; break; }
+              end++;
+            }
+            valueHtml += '<span class="yaml-string">' + escapeHtml(rest.slice(0, end)) + '</span>' + escapeHtml(rest.slice(end));
+          } else {
+            const wordMatch = rest.match(/^\S+/);
+            const word = wordMatch ? wordMatch[0] : '';
+            valueHtml += '<span class="yaml-string">' + escapeHtml(word) + '</span>' + escapeHtml(rest.slice(word.length));
+          }
+        }
+        out.push(escapeHtml(indent) + '<span class="yaml-key">' + escapeHtml(keyPart) + '</span>:' + valueHtml);
+      }
+      return out.join('\n');
+    }
+
+    function openConfigYmlModal() {
+      configYmlPath.textContent = '';
+      configYmlContent.textContent = '';
+      configYmlContent.style.display = 'none';
+      configYmlError.style.display = 'none';
+      configYmlLoading.style.display = 'block';
+      configYmlModal.classList.add('visible');
+      configYmlModal.setAttribute('aria-hidden', 'false');
+      dashboardFetch('/dashboard/config_yml')
+        .then(r => r.json().then(data => {
+          if (!r.ok) throw new Error(data.error || 'Request failed');
+          return data;
+        }))
+        .then(data => {
+          configYmlLoading.style.display = 'none';
+          configYmlPath.textContent = data.path || '';
+          configYmlContent.innerHTML = highlightYaml(data.content ?? '');
+          configYmlContent.style.display = 'block';
+        })
+        .catch(err => {
+          configYmlLoading.style.display = 'none';
+          configYmlError.textContent = err.message || 'Failed to load config.yml.';
+          configYmlError.style.display = 'block';
+        });
+    }
+
+    function closeConfigYmlModal() {
+      configYmlModal.classList.remove('visible');
+      configYmlModal.setAttribute('aria-hidden', 'true');
+    }
+
+    configYmlModalClose.addEventListener('click', closeConfigYmlModal);
+    configYmlModal.addEventListener('click', function(e) {
+      if (e.target === configYmlModal) closeConfigYmlModal();
+    });
+
+    document.getElementById('config-yml-link').addEventListener('click', function(e) {
+      e.preventDefault();
+      openConfigYmlModal();
+    });
+
+    const DEFAULT_ADD_PAYLOAD = {
+      alert_type: 'camera_status_change',
+      created_at: '2026-01-01T00:00:00Z',
+      event: {
+        camera_id: 'e0925d6f-9ef0-4cc4-9fc9-b5633d2cbbe1',
+        camera_name: 'webcam_stream_01',
+        camera_url: 'rtsp://127.0.0.1:30554/webrtc/e0925d6f-9ef0-4cc4-9fc9-b5633d2cbbe1',
+        change: 'camera_add'
+      },
+      source: 'vst'
+    };
+
+    function workloadLifecycleConfig(wl) {
+      const el = document.querySelector('.workload[data-wl="' + wl + '"]');
+      if (!el) return { mode: 'message-bus', streamIdHeader: 'id', addPath: '', addMethod: 'POST', deletePath: '', deleteMethod: 'DELETE', reprovisionPath: '', reprovisionMethod: 'POST', idField: 'camera_id', reprovisionChangeId: 'reprovision', bindingWarning: '' };
+      return {
+        mode: el.dataset.lifecycleMode || 'message-bus',
+        streamIdHeader: el.dataset.lifecycleStreamIdHeader || 'id',
+        addPath: el.dataset.lifecycleAddPath || '',
+        addMethod: el.dataset.lifecycleAddMethod || 'POST',
+        deletePath: el.dataset.lifecycleDeletePath || '',
+        deleteMethod: el.dataset.lifecycleDeleteMethod || 'DELETE',
+        reprovisionPath: el.dataset.lifecycleReprovisionPath || '',
+        reprovisionMethod: el.dataset.lifecycleReprovisionMethod || 'POST',
+        idField: el.dataset.lifecycleIdField || 'camera_id',
+        reprovisionChangeId: el.dataset.lifecycleReprovisionChangeId || 'reprovision',
+        bindingWarning: el.dataset.lifecycleBindingWarning || '',
+      };
+    }
+
+    function payloadStreamId(payload, idField) {
+      if (!payload || typeof payload !== 'object') return '';
+      const eventObj = payload['event'] || payload;
+      if (typeof eventObj === 'object' && eventObj !== null) {
+        const v = eventObj[idField || 'camera_id'];
+        if (v !== undefined && v !== null) return String(v).trim();
+      }
+      return '';
+    }
+
+    function lifecycleResultMessage(result) {
+      if (!result) return '';
+      if (result.text) {
+        try {
+          const d = JSON.parse(result.text);
+          return d.error || d.reason || d.status || result.text;
+        } catch (_) {
+          return result.text;
+        }
+      }
+      return String(result.status || '');
+    }
+
+    function sendLifecycleRequest(wl, action, streamId, payload) {
+      const cfg = workloadLifecycleConfig(wl);
+      if (cfg.mode === 'http-header') {
+        let path, method, headers = {};
+        if (action === 'add') { path = cfg.addPath; method = cfg.addMethod; }
+        else if (action === 'delete') { path = cfg.deletePath; method = cfg.deleteMethod; }
+        else if (action === 'reprovision') { path = cfg.reprovisionPath; method = cfg.reprovisionMethod; }
+        else { return Promise.reject(new Error('unknown lifecycle action: ' + action)); }
+        if (streamId) headers[cfg.streamIdHeader] = streamId;
+        const fetchOpts = { method, headers: Object.assign({ 'Content-Type': 'application/json' }, headers) };
+        if (payload && method !== 'GET' && method !== 'DELETE') fetchOpts.body = JSON.stringify(payload);
+        const url = '/sdrc/' + wl + path;
+        return dashboardFetch(url, fetchOpts)
+          .then(r => r.text().then(t => ({ ok: r.ok, status: r.status, text: t })));
+      } else {
+        if (action === 'delete') {
+          const url = sdrcWorkloadUrl(wl, 'remove_stream');
+          return dashboardFetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stream_id: streamId })
+          }).then(r => r.json().then(data => ({ ok: r.ok, status: r.status, text: JSON.stringify(data) })));
+        }
+        if (action === 'reprovision') {
+          return Promise.reject(new Error('reprovision not supported in message-bus mode'));
+        }
+        const url = sdrcWorkloadUrl(wl, 'apply_metadata_payload');
+        return dashboardFetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(r => r.text().then(t => ({ ok: r.ok, status: r.status, text: t })));
+      }
+    }
+
+    const routeMappingModal = document.getElementById('route-mapping-modal');
+    const routeMappingModalClose = document.getElementById('route-mapping-modal-close');
+    const routeMappingJson = document.getElementById('route-mapping-json');
+    const routeMappingLoading = document.getElementById('route-mapping-loading');
+    const routeMappingError = document.getElementById('route-mapping-error');
+
+    function openRouteMappingModal() {
+      routeMappingModal.classList.add('visible');
+      routeMappingModal.setAttribute('aria-hidden', 'false');
+      routeMappingJson.style.display = 'none';
+      routeMappingLoading.style.display = 'block';
+      routeMappingError.style.display = 'none';
+      dashboardFetch('/current_streamid_address_mapping')
+        .then(r => r.json())
+        .then(out => {
+          routeMappingLoading.style.display = 'none';
+          routeMappingJson.innerHTML = prettyPrintJsonHtml(out);
+          routeMappingJson.style.display = 'block';
+        })
+        .catch(err => {
+          routeMappingLoading.style.display = 'none';
+          routeMappingError.textContent = err.message || 'Failed to load route mappings.';
+          routeMappingError.style.display = 'block';
+        });
+    }
+
+    function closeRouteMappingModal() {
+      routeMappingModal.classList.remove('visible');
+      routeMappingModal.setAttribute('aria-hidden', 'true');
+    }
+
+    routeMappingModalClose.addEventListener('click', closeRouteMappingModal);
+    routeMappingModal.addEventListener('click', function(e) {
+      if (e.target === routeMappingModal) closeRouteMappingModal();
+    });
+    document.getElementById('route-mapping-link').addEventListener('click', function(e) {
+      e.preventDefault();
+      openRouteMappingModal();
+    });
+
+    const addWorkloadModal = document.getElementById('add-workload-modal');
+    const addWorkloadModalTitle = document.getElementById('add-workload-modal-title');
+    const addWorkloadTarget = document.getElementById('add-workload-target');
+    const addWorkloadLifecycleSummary = document.getElementById('add-workload-lifecycle-summary');
+    const addWorkloadLifecycleWarning = document.getElementById('add-workload-lifecycle-warning');
+    const addWorkloadStreamIdRow = document.getElementById('add-workload-stream-id-row');
+    const addWorkloadStreamIdLabel = document.getElementById('add-workload-stream-id-label');
+    const addWorkloadStreamId = document.getElementById('add-workload-stream-id');
+    const addWorkloadPayload = document.getElementById('add-workload-payload');
+    const addWorkloadSubmit = document.getElementById('add-workload-submit');
+    const addWorkloadMsg = document.getElementById('add-workload-msg');
+    const addWorkloadModalClose = document.getElementById('add-workload-modal-close');
+
+    function updateAddWorkloadLifecycleFields() {
+      const wl = addWorkloadTarget.value;
+      const cfg = workloadLifecycleConfig(wl);
+      const headerMode = cfg.mode === 'http-header';
+      addWorkloadStreamIdRow.style.display = headerMode ? 'block' : 'none';
+      addWorkloadModalTitle.textContent = headerMode ? 'Send HTTP lifecycle request' : 'Send message';
+      addWorkloadSubmit.textContent = headerMode ? 'Send HTTP Request' : 'Send Message';
+      addWorkloadStreamIdLabel.textContent = cfg.streamIdHeader + ' header value';
+      addWorkloadLifecycleSummary.textContent = headerMode
+        ? cfg.addMethod + ' ' + cfg.addPath + ' · ' + cfg.streamIdHeader
+        : 'message-bus · apply_metadata_payload';
+      if (cfg.bindingWarning) {
+        addWorkloadLifecycleWarning.textContent = cfg.bindingWarning;
+        addWorkloadLifecycleWarning.style.display = 'block';
+      } else {
+        addWorkloadLifecycleWarning.textContent = '';
+        addWorkloadLifecycleWarning.style.display = 'none';
+      }
+      if (headerMode && !addWorkloadStreamId.value.trim()) {
+        try {
+          const payload = JSON.parse(addWorkloadPayload.value.trim());
+          addWorkloadStreamId.value = payloadStreamId(payload, cfg.idField);
+        } catch (_err) {
+          addWorkloadStreamId.value = '';
+        }
+      }
+    }
+
+    function openAddWorkloadModal(preSelectedWl) {
+      addWorkloadTarget.innerHTML = '';
+      document.querySelectorAll('.workload[data-enabled="true"]').forEach(el => {
+        const wl = el.dataset.wl;
+        const nameEl = el.querySelector('.name a, .name .name-plain');
+        const label = nameEl ? nameEl.textContent.trim() : wl;
+        const opt = document.createElement('option');
+        opt.value = wl;
+        opt.textContent = label + ' (' + wl + ')';
+        addWorkloadTarget.appendChild(opt);
+      });
+      if (preSelectedWl) addWorkloadTarget.value = preSelectedWl;
+      addWorkloadPayload.value = JSON.stringify(DEFAULT_ADD_PAYLOAD, null, 2);
+      addWorkloadStreamId.value = '';
+      updateAddWorkloadLifecycleFields();
+      addWorkloadMsg.textContent = '';
+      addWorkloadMsg.className = 'add-workload-msg';
+      addWorkloadModal.classList.add('visible');
+      addWorkloadModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeAddWorkloadModal() {
+      addWorkloadModal.classList.remove('visible');
+      addWorkloadModal.setAttribute('aria-hidden', 'true');
+    }
+
+    addWorkloadModalClose.addEventListener('click', closeAddWorkloadModal);
+    addWorkloadTarget.addEventListener('change', updateAddWorkloadLifecycleFields);
+    addWorkloadPayload.addEventListener('input', function() {
+      if (!addWorkloadStreamId.value.trim()) updateAddWorkloadLifecycleFields();
+    });
+    addWorkloadModal.addEventListener('click', function(e) {
+      if (e.target === addWorkloadModal) closeAddWorkloadModal();
+    });
+
+    document.body.addEventListener('click', function(e) {
+      if (e.target && e.target.classList && e.target.classList.contains('add-btn')) {
+        const wl = e.target.dataset.wl;
+        openAddWorkloadModal(wl || null);
+      }
+    });
+
+    addWorkloadSubmit.addEventListener('click', function() {
+      const wl = addWorkloadTarget.value;
+      if (!wl) {
+        addWorkloadMsg.textContent = 'Select a target workload.';
+        addWorkloadMsg.className = 'add-workload-msg error';
+        return;
+      }
+      let payload;
+      try {
+        payload = JSON.parse(addWorkloadPayload.value.trim());
+      } catch (err) {
+        addWorkloadMsg.textContent = 'Invalid JSON: ' + err.message;
+        addWorkloadMsg.className = 'add-workload-msg error';
+        return;
+      }
+      addWorkloadMsg.textContent = '';
+      addWorkloadMsg.className = 'add-workload-msg';
+      addWorkloadSubmit.disabled = true;
+      const cfg = workloadLifecycleConfig(wl);
+      let streamId = addWorkloadStreamId.value.trim() || payloadStreamId(payload, cfg.idField);
+      if (cfg.mode === 'http-header' && !streamId) {
+        addWorkloadSubmit.disabled = false;
+        addWorkloadMsg.textContent = 'Stream ID header value is required for ' + cfg.streamIdHeader + '.';
+        addWorkloadMsg.className = 'add-workload-msg error';
+        return;
+      }
+      if (streamId && !addWorkloadStreamId.value.trim()) {
+        addWorkloadStreamId.value = streamId;
+      }
+      sendLifecycleRequest(wl, 'add', streamId, payload)
+        .then(result => {
+          addWorkloadSubmit.disabled = false;
+          if (result.ok) {
+            addWorkloadMsg.textContent = 'Success: ' + lifecycleResultMessage(result);
+            addWorkloadMsg.className = 'add-workload-msg success';
+            updateStatuses();
+          } else {
+            addWorkloadMsg.textContent = 'Error ' + result.status + ': ' + lifecycleResultMessage(result);
+            addWorkloadMsg.className = 'add-workload-msg error';
+          }
+        })
+        .catch(err => {
+          addWorkloadSubmit.disabled = false;
+          addWorkloadMsg.textContent = 'Request failed: ' + err.message;
+          addWorkloadMsg.className = 'add-workload-msg error';
+        });
+    });
+
+    const globalAddModal = document.getElementById('global-add-modal');
+    const globalAddPayload = document.getElementById('global-add-payload');
+    const globalAddSubmit = document.getElementById('global-add-submit');
+    const globalAddMsg = document.getElementById('global-add-msg');
+    const globalAddModalClose = document.getElementById('global-add-modal-close');
+
+    function getGlobalAddTransport() {
+      if (globalAddRedisAvailable && globalAddKafkaAvailable) {
+        var sel = document.querySelector('input[name="global-add-transport"]:checked');
+        return sel ? sel.value : 'redis';
+      }
+      if (globalAddKafkaAvailable) return 'kafka';
+      return 'redis';
+    }
+
+    function openGlobalAddModal() {
+      globalAddPayload.value = JSON.stringify(DEFAULT_ADD_PAYLOAD, null, 2);
+      globalAddMsg.textContent = '';
+      globalAddMsg.className = 'add-workload-msg';
+      globalAddSubmit.disabled = !globalAddRedisAvailable && !globalAddKafkaAvailable;
+      globalAddModal.classList.add('visible');
+      globalAddModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeGlobalAddModal() {
+      globalAddModal.classList.remove('visible');
+      globalAddModal.setAttribute('aria-hidden', 'true');
+    }
+
+    document.getElementById('global-add-link').addEventListener('click', function(e) {
+      e.preventDefault();
+      openGlobalAddModal();
+    });
+
+    globalAddModalClose.addEventListener('click', closeGlobalAddModal);
+    globalAddModal.addEventListener('click', function(e) {
+      if (e.target === globalAddModal) closeGlobalAddModal();
+    });
+
+    globalAddSubmit.addEventListener('click', function() {
+      let payload;
+      try {
+        payload = JSON.parse(globalAddPayload.value.trim());
+      } catch (err) {
+        globalAddMsg.textContent = 'Invalid JSON: ' + err.message;
+        globalAddMsg.className = 'add-workload-msg error';
+        return;
+      }
+      globalAddMsg.textContent = '';
+      globalAddMsg.className = 'add-workload-msg';
+      globalAddSubmit.disabled = true;
+      var transport = getGlobalAddTransport();
+      dashboardFetch('/dashboard/global_add?transport=' + encodeURIComponent(transport), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(r => r.json().then(data => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+          globalAddSubmit.disabled = false;
+          if (status >= 200 && status < 300) {
+            if (data.transport === 'kafka') {
+              globalAddMsg.textContent = 'Sent via Kafka. topic=' + (data.topic || '') + ' partition=' + data.partition + ' offset=' + data.offset;
+            } else {
+              globalAddMsg.textContent = 'Sent via Redis. msg_id: ' + (data.msg_id || data.stream || 'ok');
+            }
+            globalAddMsg.className = 'add-workload-msg success';
+          } else {
+            globalAddMsg.textContent = (data.error || status) + (data.detail ? ': ' + data.detail : '');
+            globalAddMsg.className = 'add-workload-msg error';
+          }
+        })
+        .catch(err => {
+          globalAddSubmit.disabled = false;
+          globalAddMsg.textContent = 'Request failed: ' + err.message;
+          globalAddMsg.className = 'add-workload-msg error';
+        });
+    });
+
+    document.body.addEventListener('click', function(e) {
+      const el = e.target;
+      if (el && el.classList && el.classList.contains('cache-data-link')) {
+        e.preventDefault();
+        const wl = el.dataset.wl;
+        if (wl) {
+          const workloadRow = el.closest('.workload');
+          const nameEl = workloadRow ? workloadRow.querySelector('.name a, .name .name-plain') : null;
+          const workloadName = nameEl ? nameEl.textContent.trim() : wl;
+          openCacheModal(wl, workloadName);
+        }
+      }
+      if (el && el.classList && el.classList.contains('sensor-count') && el.classList.contains('clickable')) {
+        const wl = el.id ? el.id.replace('sensor-', '') : '';
+        if (wl) {
+          const workloadRow = el.closest('.workload');
+          const nameEl = workloadRow ? workloadRow.querySelector('.name a, .name .name-plain') : null;
+          const workloadName = nameEl ? nameEl.textContent.trim() : wl;
+          openSensorModal(wl, workloadName);
+        }
+      }
+      if (el && el.classList && el.classList.contains('pod-count') && el.classList.contains('clickable')) {
+        const wl = el.id ? el.id.replace('pod-', '') : '';
+        if (wl) {
+          const workloadRow = el.closest('.workload');
+          const nameEl = workloadRow ? workloadRow.querySelector('.name a, .name .name-plain') : null;
+          const workloadName = nameEl ? nameEl.textContent.trim() : wl;
+          const clusterType = workloadRow && workloadRow.dataset.clusterType ? workloadRow.dataset.clusterType : '';
+          openPodModal(wl, workloadName, clusterType);
+        }
+      }
+      if (el && el.classList && el.classList.contains('sensor-ws-test-btn')) {
+        const btn = el;
+        const streamId = btn.dataset.streamId;
+        const wl = modal.dataset.wlObjName;
+        if (!streamId || !wl) return;
+        btn.disabled = true;
+        const prevLabel = btn.textContent;
+        btn.textContent = '…';
+        runDashboardWsHelloTest(streamId, wl, function() {
+          btn.disabled = false;
+          btn.textContent = prevLabel;
+        });
+      }
+      if (el && el.classList && el.classList.contains('sensor-reprovision-btn')) {
+        const btn = el;
+        const streamId = btn.dataset.streamId;
+        const wl = modal.dataset.wlObjName;
+        if (!streamId || !wl) return;
+        btn.disabled = true;
+        const prevLabel = btn.textContent;
+        btn.textContent = '...';
+        modalError.style.display = 'none';
+        sendLifecycleRequest(wl, 'reprovision', streamId, null)
+          .then(result => {
+            btn.disabled = false;
+            if (result.ok) {
+              btn.textContent = 'Queued';
+              updateStatuses();
+              setTimeout(function() {
+                if (!btn.disabled) btn.textContent = prevLabel;
+              }, 1200);
+            } else {
+              btn.textContent = prevLabel;
+              modalError.textContent = lifecycleResultMessage(result) || 'Reprovision failed';
+              modalError.style.display = 'block';
+            }
+          })
+          .catch(err => {
+            btn.disabled = false;
+            btn.textContent = prevLabel;
+            modalError.textContent = err.message || 'Reprovision request failed';
+            modalError.style.display = 'block';
+          });
+      }
+      if (el && el.classList && el.classList.contains('sensor-delete-btn')) {
+        const btn = el;
+        const streamId = btn.dataset.streamId;
+        const wl = modal.dataset.wlObjName;
+        if (!streamId || !wl) return;
+        btn.disabled = true;
+        btn.textContent = '...';
+        sendLifecycleRequest(wl, 'delete', streamId, null)
+          .then(result => {
+            if (result.ok) {
+              btn.closest('li').remove();
+              updateStatuses();
+            } else {
+              btn.disabled = false;
+              btn.textContent = 'Delete';
+              modalError.textContent = lifecycleResultMessage(result) || 'Delete failed';
+              modalError.style.display = 'block';
+            }
+          })
+          .catch(err => {
+            btn.disabled = false;
+            btn.textContent = 'Delete';
+            modalError.textContent = err.message || 'Delete request failed';
+            modalError.style.display = 'block';
+          });
+      }
+    });
+
+    document.querySelectorAll('.reset-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const url = this.dataset.resetUrl;
+        if (!url) return;
+        const wl = this.id.replace('reset-btn-', '');
+        this.disabled = true;
+        const label = this.textContent;
+        this.textContent = 'Resetting…';
+        dashboardFetch(url, { method: 'GET' })
+          .then(r => {
+            if (r.ok) {
+              this.textContent = 'Done';
+              setTimeout(() => { this.textContent = label; this.disabled = false; }, 2000);
+              updateStatuses();
+            } else {
+              this.textContent = 'Failed';
+              setTimeout(() => { this.textContent = label; this.disabled = false; }, 2000);
+            }
+          })
+          .catch(() => {
+            this.textContent = 'Failed';
+            setTimeout(() => { this.textContent = label; this.disabled = false; }, 2000);
+          });
+      });
+    });
+
+    updateStatuses();
+    setInterval(updateStatuses, healthIntervalSeconds * 1000);
+  </script>
+</body>
+</html>

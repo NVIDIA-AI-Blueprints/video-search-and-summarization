@@ -55,6 +55,7 @@ k8s-workload-rtvi-cv:
   WDM_WL_OBJECT_NAME: vss-rtvi-cv
   WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-cg
   WDM_REDIS_CACHE_OBJECT: rtvi-cv-data
+  WDM_INITIALIZE_FROM_VST: false
   WDM_XDS_USE_POD_DNS: true
   WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
@@ -67,3 +68,7 @@ k8s-workload-rtvi-cv:
   WDM_MAX_REPLICAS: 1
   WDM_WL_CONFIG_PORT: "9010"
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 15000
+  WDM_WL_ADD_URL: /api/v1/stream/add
+  WDM_WL_DELETE_URL: /api/v1/stream/remove
+  WDM_WL_CHANGE_ID_ADD: camera_streaming
+  WDM_WL_CHANGE_ID_DEL: camera_remove

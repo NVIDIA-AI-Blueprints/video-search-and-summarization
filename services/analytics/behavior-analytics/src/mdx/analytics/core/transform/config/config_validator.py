@@ -120,9 +120,9 @@ ALLOWED_SECTIONS: frozenset[str] = frozenset({"app", "sensors"})
 
 ALLOWED_APP_KEYS: frozenset[str] = frozenset({
     # Behavior / object processing
+    "behaviorEmitOnce",
     "behaviorMaxPoints",
     "behaviorStateEndToleranceSec",
-    "behaviorStateTimeout",
     "behaviorStateValidInterval",
     "behaviorTimeThreshold",
     "behaviorWatermarkSec",
@@ -133,8 +133,11 @@ ALLOWED_APP_KEYS: frozenset[str] = frozenset({
     "incidentObjectTtl",
     "stateManagementFilter",
     "imageLocationMode",
-    # ``coordinateSystem`` deliberately excluded -- only referenced by tests
-    # and obsolete batch scripts in production code paths.
+    "roiEventDetectionMode",
+    # ``coordinateSystem`` deliberately excluded -- deprecated no-op key, not
+    # read by any production code path (coordinate handling is driven by
+    # ``in3dMode`` + calibration type). Kept out of the allowlist so it is
+    # rejected if ever sent via a dynamic-config update.
     "in3dMode",
     "advancedOverlay",
     "inSimulationMode",
