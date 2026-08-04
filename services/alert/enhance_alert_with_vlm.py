@@ -308,22 +308,22 @@ class AnomalyEnhancer(
         # routing it through the per-service guardrail wrappers.
         self.async_io_enabled = self.pipeline_mode == PIPELINE_MODE_THREAD_BRIDGE
         event_loop_mode = self.pipeline_mode == PIPELINE_MODE_EVENT_LOOP
-        if event_loop_mode and any(
-            bool(async_io_cfg.get(key, False))
-            for key in ('vst_enabled', 'elastic_enabled', 'redis_enabled', 'dedup_enabled')
-        ):
+        # thread_bridge is one path: VST lookup, Elastic sink publishing and
+        # dedup state all hand off to the async runtime together. Toggling
+        # them individually produced eight variants of a single mode, each
+        # with its own fallback behaviour to reason about and test, and every
+        # deployment that actually runs thread_bridge enables all three.
+        superseded_switches = sorted(
+            key
+            for key in ('vst_enabled', 'elastic_enabled', 'dedup_enabled', 'redis_enabled')
+            if key in async_io_cfg
+        )
+        if superseded_switches:
             logger.warning(
-                "Per-service async_io flags are ignored in event_loop mode; "
-                "all external I/O runs on the pipeline event loop"
+                "alert_agent.async_io per-service switches no longer take effect (%s): "
+                "external I/O follows the pipeline mode",
+                ", ".join(superseded_switches),
             )
-        self.async_vst_enabled = bool(async_io_cfg.get('vst_enabled', False)) and self.async_io_enabled
-        self.async_elastic_enabled = bool(async_io_cfg.get('elastic_enabled', False)) and self.async_io_enabled
-        # ``dedup_enabled`` is the current key; ``redis_enabled`` is the
-        # deprecated legacy name (kept for back-compat). This flag controls
-        # async submission of the in-process dedup/state operations.
-        self.async_redis_enabled = bool(
-            async_io_cfg.get('dedup_enabled', async_io_cfg.get('redis_enabled', False))
-        ) and self.async_io_enabled
         external_timeout = async_io_cfg.get('external_timeout_seconds', 30)
         try:
             self.async_external_timeout_seconds = max(1.0, float(external_timeout))
@@ -331,21 +331,10 @@ class AnomalyEnhancer(
             self.async_external_timeout_seconds = 30.0
         logger.info("Pipeline mode is %s", self.pipeline_mode)
         logger.info(
-            "Async external I/O guardrail is %s",
+            "Async external I/O (VST, Elastic sink, dedup state) is %s "
+            "(timeout=%.1fs)",
             "enabled" if self.async_io_enabled else "disabled",
-        )
-        logger.info(
-            "Async VST mode is %s (timeout=%.1fs)",
-            "enabled" if self.async_vst_enabled else "disabled",
             self.async_external_timeout_seconds,
-        )
-        logger.info(
-            "Async Elastic sink mode is %s",
-            "enabled" if self.async_elastic_enabled else "disabled",
-        )
-        logger.info(
-            "Async dedup-state mode is %s",
-            "enabled" if self.async_redis_enabled else "disabled",
         )
         # Lazy-initialized VST handler for media path resolution
         self._vst_handler = None
@@ -742,10 +731,101 @@ class AnomalyEnhancer(
 
         return rate_limit_filtered
 
+    def _resolve_chunk_size(self) -> int:
+        chunk_size = self.config.get("alert_agent", {}).get("chunk_size", 1)
+        if not isinstance(chunk_size, int) or chunk_size <= 0:
+            return 1
+        return chunk_size
+
+    def _schedule_sub_batch(
+        self,
+        worker_pool: Optional[ThreadPoolExecutor],
+        sub_batch: List[Dict[str, Any]],
+        message_type: str,
+        batch: Dict[str, Any],
+    ) -> None:
+        """Hand one sub-batch to the mode's executor, or run it inline.
+
+        ``worker_assigned_at`` is stamped at the moment the sub-batch is
+        accepted for processing, so ``WORKER_QUEUE_WAIT_DURATION`` keeps one
+        meaning in every mode: "kafka_consumed -> accepted for processing".
+        """
+        if worker_pool is None:
+            # Async modes dispatch each message onward and return, so there is
+            # nothing to run on a separate thread. Backpressure still applies:
+            # the dispatch semaphore blocks inside ``process_batch_vlm``, which
+            # stalls this consume loop exactly as the worker queue used to.
+            # ``process_batch_vlm`` swallows its own exceptions, so running it
+            # here cannot break the loop.
+            self.process_batch_vlm(
+                0,
+                sub_batch,
+                message_type,
+                batch.get("kafka_consumed_at"),
+                batch.get("kafka_published_at"),
+                datetime.now(timezone.utc).isoformat(),
+            )
+            return
+
+        worker_id = None
+        while worker_id is None:
+            try:
+                worker_id = self.worker_queue.get(timeout=5)
+            except Empty:
+                logger.debug("All workers busy. Waiting to schedule next sub-batch...")
+
+        future: Future = worker_pool.submit(
+            self.process_batch_vlm,
+            worker_id,
+            sub_batch,
+            message_type,
+            batch.get("kafka_consumed_at"),
+            batch.get("kafka_published_at"),
+            datetime.now(timezone.utc).isoformat(),
+        )
+        future.add_done_callback(
+            lambda _f, released_id=worker_id: self.worker_queue.put(released_id)
+        )
+
+    def _run_consume_loop(self, worker_pool: Optional[ThreadPoolExecutor]) -> None:
+        """Poll the source and schedule every sub-batch until interrupted."""
+        chunk_size = self._resolve_chunk_size()
+
+        while True:
+            try:
+                raw_messages = self.source.read_data()
+
+                if self._webhook_forwarder is not None:
+                    self._webhook_forwarder.poll_and_forward()
+
+                if not raw_messages:
+                    continue
+
+                # Batches already normalized by source: [{'kind','messages'}, ...]
+                for batch in raw_messages:
+                    batch_messages = batch.get("messages")
+                    if not batch_messages:
+                        continue
+
+                    batch_kind = (batch.get("kind") or "").lower()
+                    message_type = "Incident" if batch_kind == "incident" else "Behavior"
+
+                    for start in range(0, len(batch_messages), chunk_size):
+                        sub_batch = batch_messages[start : start + chunk_size]
+                        if sub_batch:
+                            self._schedule_sub_batch(
+                                worker_pool, sub_batch, message_type, batch
+                            )
+
+            except Empty:
+                logger.debug("All workers busy, waiting for availability")
+                time.sleep(1)
+
     def process_anomalies(self):
         dispatch_executor: Optional[ThreadPoolExecutor] = None
+        worker_pool: Optional[ThreadPoolExecutor] = None
         try:
-            if self.async_io_enabled:
+            if self.pipeline_mode == PIPELINE_MODE_THREAD_BRIDGE:
                 dispatch_executor = ThreadPoolExecutor(
                     max_workers=self.async_dispatch_workers,
                     thread_name_prefix="ab-vlm-dispatch",
@@ -764,112 +844,21 @@ class AnomalyEnhancer(
                     self.max_vst_concurrent,
                 )
 
-            with ThreadPoolExecutor(max_workers=self.num_workers, thread_name_prefix="ab-vlm-worker") as executor:
-                # Populate the worker queue with worker slots
+            # The batch worker pool belongs to sync mode alone, where
+            # per-message processing blocks and thread count is the only
+            # source of parallelism. Both async modes hand each message to
+            # their own dispatcher and return immediately, so passing them
+            # through this pool first cost a thread hop and a second queue
+            # without raising any concurrency limit.
+            if self.pipeline_mode == PIPELINE_MODE_SYNC:
+                worker_pool = ThreadPoolExecutor(
+                    max_workers=self.num_workers,
+                    thread_name_prefix="ab-vlm-worker",
+                )
                 for worker_id in range(self.num_workers):
                     self.worker_queue.put(worker_id)
 
-                # Read chunk_size from config (default = 2)
-                # Use alert_agent namespace to match existing config structure
-                chunk_size = self.config.get("alert_agent", {}).get("chunk_size", 1)
-                if not isinstance(chunk_size, int) or chunk_size <= 0:
-                    chunk_size = 2
-
-                while True:
-                    try:
-                        # Read data from source
-                        # logger.info("Reading data from source.")
-                        #Decoding as is
-                        raw_messages = self.source.read_data()
-
-                        if self._webhook_forwarder is not None:
-                            self._webhook_forwarder.poll_and_forward()
-
-                        # logger.debug("Source read completed", extra={
-                        #     "message_count": len(raw_messages),
-                        #     "source_type": self.source_type
-                        # })
-
-                        if not raw_messages:
-                            #logger.debug("No anomalies to process, waiting for new data")
-                            # No batches to schedule; loop and poll again
-                            continue
-
-                        # Batches already normalized by source: [{'kind','messages'}, ...]
-                        batches = raw_messages
-                        for batch in batches:
-                            batch_messages = batch.get("messages")
-                            if not batch_messages:
-                                continue
-
-                            # logger.debug("Scheduling batch with %d messages", len(batch_messages))
-
-                            # Split each batch into smaller sub-batches to improve concurrency
-                            # but keep existing process_batch_* signature (list of messages).
-                            for start in range(0, len(batch_messages), chunk_size):
-                                sub_batch_messages = batch_messages[start : start + chunk_size]
-                                if not sub_batch_messages:
-                                    continue
-
-                                # Block until a worker slot is available; log periodically while waiting
-                                batch_worker_id = None
-                                while batch_worker_id is None:
-                                    try:
-                                        batch_worker_id = self.worker_queue.get(timeout=5)
-                                    except Empty:
-                                        logger.debug(
-                                            "All workers busy. Waiting to schedule next sub-batch..."
-                                        )
-                                        continue
-
-                                # C24: stamp worker_assigned_at **here**, at the
-                                # batch-scheduler dequeue — NOT inside
-                                # ``_process_single_message``. In async-dispatch
-                                # mode the per-message processing runs on a
-                                # separate executor and the prior stamp-location
-                                # included the dispatch-queue wait, making
-                                # ``WORKER_QUEUE_WAIT_DURATION`` mean different
-                                # things depending on the config flag. Stamping
-                                # at the outermost queue exit gives sync and
-                                # async modes a consistent definition:
-                                # "kafka_consumed → batch worker assigned".
-                                batch_worker_assigned_at = datetime.now(timezone.utc).isoformat()
-
-                                # Decide which processing path to use
-                                # logger.debug(
-                                #     "Assigning sub-batch of %d messages to worker %s",
-                                #     len(sub_batch_messages),
-                                #     str(batch_worker_id),
-                                # )
-                                batch_kind = (batch.get("kind") or "").lower()
-                                batch_message_type = (
-                                    "Incident"
-                                    if batch_kind == "incident"
-                                    else "Behavior"
-                                )
-                                future: Future = executor.submit(
-                                    self.process_batch_vlm,
-                                    batch_worker_id,
-                                    sub_batch_messages,
-                                    batch_message_type,
-                                    batch.get("kafka_consumed_at"),
-                                    batch.get("kafka_published_at"),
-                                    batch_worker_assigned_at,
-                                )
-
-                                # When the sub-batch is done, release the worker slot back to the pool
-                                future.add_done_callback(
-                                    lambda _f, worker_id=batch_worker_id: self.worker_queue.put(
-                                        worker_id
-                                    )
-                                )
-
-                    except Empty:
-                        # This except block is kept for compatibility, though in practice
-                        # Empty is handled above when worker_queue times out.
-                        logger.debug("All workers busy, waiting for availability")
-                        time.sleep(1)
-
+            self._run_consume_loop(worker_pool)
 
         except KeyboardInterrupt:
             logger.info("Process interrupted by user, shutting down gracefully")
@@ -879,6 +868,10 @@ class AnomalyEnhancer(
                 "error_type": type(e).__name__
             }, exc_info=True)
         finally:
+            # Drain the worker pool before the dispatch pool: sync-mode workers
+            # can still be feeding it.
+            if worker_pool is not None:
+                worker_pool.shutdown(wait=True)
             if dispatch_executor is not None:
                 dispatch_executor.shutdown(wait=True)
             self._message_dispatch_executor = None
@@ -2137,7 +2130,7 @@ class AnomalyEnhancer(
     ):
         """Fire ``record_event_complete`` once the sink publish finishes (C23).
 
-        In sync sink mode (``async_elastic_enabled=False``), the publish
+        In sync sink mode (``async_io_enabled=False``), the publish
         already completed inline and ``publish_future`` is ``None`` —
         we fire the recorder immediately so ``elasticReadyAt`` reflects
         the true wall-clock when the sink write returned (same as the
@@ -2150,7 +2143,7 @@ class AnomalyEnhancer(
         *actually finishes* — closing the C23 undercount where
         ``E2E_DURATION`` previously excluded the async-sink queue and
         ES-write time, and silently shortened by a variable amount the
-        moment the ``async_elastic_enabled`` flag flipped.
+        moment the ``async_io_enabled`` flag flipped.
 
         The closure captures ``message`` and ``latency`` by reference.
         The async sink thread reads from a deep-copy of ``message``

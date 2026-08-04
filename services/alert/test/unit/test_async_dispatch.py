@@ -118,7 +118,7 @@ class TestAsyncDispatchDoneCallback:
 class TestAsyncExternalIOMode:
     def test_get_video_stream_url_uses_async_runtime_when_enabled(self):
         stub = type("VSTStub", (), {})()
-        stub.async_vst_enabled = True
+        stub.async_io_enabled = True
         stub.async_vlm_runtime = Mock()
         stub.async_external_timeout_seconds = 5.0
         stub._vst_handler = Mock()

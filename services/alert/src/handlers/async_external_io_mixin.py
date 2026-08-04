@@ -36,7 +36,7 @@ logger = get_logger(__name__)
 class AsyncExternalIOMixin:
     def _is_async_redis_mode_enabled(self) -> bool:
         return (
-            self.async_redis_enabled
+            self.async_io_enabled
             and self.async_vlm_runtime is not None
             and self.redis_handler is not None
         )
@@ -170,7 +170,7 @@ class AsyncExternalIOMixin:
 
     def _is_async_elastic_sink_mode_enabled(self) -> bool:
         return (
-            self.async_elastic_enabled
+            self.async_io_enabled
             and self.async_vlm_runtime is not None
             and self._vlm_sink_type == "elastic"
         )
@@ -445,7 +445,7 @@ class AsyncExternalIOMixin:
         **kwargs,
     ):
         sync_started_at = time.time()
-        if self.async_vst_enabled and self.async_vlm_runtime is not None:
+        if self.async_io_enabled and self.async_vlm_runtime is not None:
             async_started_at = time.time()
             future = self.async_vlm_runtime.submit_to_thread(
                 self._vst_handler.get_video_stream_url,
