@@ -31,7 +31,8 @@ The helpers assume the Option B schema contract:
 * Default verification path → emits ``info["reasoning"]`` via
   :class:`schemas.vlm_responses.VLMResponse`.
 * Pluggable-parser path → emits ``info["vlm_response"]`` (JSON-serialized
-  parser output) with ``info["verdict"] = ""``.
+  parser output) and maps a Yes/No parser ``verdict`` to the established
+  confirmed/rejected value in ``info["verdict"]``.
 
 The two schemas are disjoint by construction: a given message either
 runs through the default path or the pluggable path, never both.
@@ -120,7 +121,7 @@ def apply_pluggable_parser_output(
     Shape produced (conceptual; nvschema alignment stringifies on wire):
 
         info["vlm_response"] = json.dumps(parsed)
-        info["verdict"]      = ""
+        info["verdict"]      = "confirmed" | "rejected" | ""
         info["videoSource"]  = video_source
         info["verificationResponseCode"]   = 200
         info["verificationResponseStatus"] = "OK"
@@ -143,11 +144,15 @@ def apply_pluggable_parser_output(
     )
     info = message.get("info") or {}
     info["vlm_response"] = safe_json_dumps_parser_output(parsed)
-    # Pluggable parsers do not emit a binary verdict, so the contract is
-    # always ``verdict=""`` (nvschema alignment None→"" stringification). We
-    # overwrite unconditionally so stale verdicts from retries or upstream
-    # pollution do not leak through.
-    info["verdict"] = ""
+    # Preserve the parser's raw Yes/No value in vlm_response, while restoring
+    # the canonical verdict contract used by the pre-pluggable parser UI and
+    # API filters.
+    verdict = parsed.get("verdict")
+    normalized_verdict = verdict.strip().lower() if isinstance(verdict, str) else ""
+    info["verdict"] = {
+        "yes": "confirmed",
+        "no": "rejected",
+    }.get(normalized_verdict, "")
     message["info"] = info
 
 

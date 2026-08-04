@@ -207,18 +207,51 @@ const VERDICT_FALLBACK_LIGHT = 'text-gray-700 bg-gray-50 border-gray-200';
 
 type VlmVerdictCellProps = Readonly<{ alert: AlertData; isDark: boolean }>;
 
+function parseStructuredVerdict(vlmResponse: unknown): string {
+  if (typeof vlmResponse !== 'string' || !vlmResponse.trim()) {
+    return '';
+  }
+  try {
+    const parsed: unknown = JSON.parse(vlmResponse);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as { verdict?: unknown }).verdict === 'string'
+    ) {
+      return (parsed as { verdict: string }).verdict.trim();
+    }
+  } catch {
+    // Malformed structured output falls through to N/A.
+  }
+  return '';
+}
+
+function canonicalizeVerdict(verdict: unknown): string {
+  if (typeof verdict !== 'string') {
+    return '';
+  }
+  const normalized = verdict.trim().toLowerCase();
+  if (normalized === 'yes') return VLM_VERDICT.CONFIRMED;
+  if (normalized === 'no') return VLM_VERDICT.REJECTED;
+  return normalized;
+}
+
 function VlmVerdictCell({ alert, isDark }: VlmVerdictCellProps) {
-  const verdict = alert.metadata?.analyticsModule?.info?.verdict || alert.metadata?.info?.verdict;
+  const verdict = canonicalizeVerdict(
+    alert.metadata?.info?.verdict ||
+      parseStructuredVerdict(alert.metadata?.info?.vlm_response) ||
+      alert.metadata?.analyticsModule?.info?.verdict,
+  );
   if (!verdict) {
     return <>N/A</>;
   }
 
   const styles = isDark ? VERDICT_STYLES_DARK : VERDICT_STYLES_LIGHT;
   const fallback = isDark ? VERDICT_FALLBACK_DARK : VERDICT_FALLBACK_LIGHT;
-  const style = styles[verdict] ?? fallback;
+  const style = styles[verdict.toLowerCase()] ?? fallback;
 
   const displayText = verdict
-    .split('-')
+    .split(/[-_]/)
     .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 

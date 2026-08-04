@@ -498,6 +498,7 @@ class ITS_VST_HANDLER:
         objects_ids: Optional[List] = None,
         remove_overlay: bool = False,
         alert_type_anchor: Optional[str] = None,
+        show_object_id: Optional[bool] = None,
     ) -> Tuple[str, Dict[str, str], Dict, int, str, str]:
         """Build the storage video-URL request. Pure CPU — shared by the sync
         and async transports. Returns
@@ -529,7 +530,11 @@ class ITS_VST_HANDLER:
                 "bbox": {
                     "showAll": False,
                     "objectId": objects_ids,
-                    "showObjId": self.overlay_config["showObjId"],
+                    "showObjId": (
+                        self.overlay_config["showObjId"]
+                        if show_object_id is None
+                        else show_object_id
+                    ),
                     "objIdPosition": self.overlay_config["objIdPosition"],
                 },
                 "color": self.overlay_config["color"],
@@ -586,6 +591,7 @@ class ITS_VST_HANDLER:
         remove_overlay: bool = False,
         latency: Optional[Dict[str, float]] = None,
         alert_type_anchor: Optional[str] = None,
+        show_object_id: Optional[bool] = None,
     ) -> str:
         """Async mirror of ``get_video_stream_url`` — same request building,
         window math and error taxonomy, httpx transport instead of requests.
@@ -600,7 +606,7 @@ class ITS_VST_HANDLER:
             url, headers, params, timeout, effective_start_time, effective_end_time = (
                 self._build_video_url_request(
                     stream_id, start_time, end_time,
-                    objects_ids, remove_overlay, alert_type_anchor,
+                    objects_ids, remove_overlay, alert_type_anchor, show_object_id,
                 )
             )
 
@@ -686,6 +692,7 @@ class ITS_VST_HANDLER:
         remove_overlay: bool = False,
         latency: Optional[Dict[str, float]] = None,
         alert_type_anchor: Optional[str] = None,
+        show_object_id: Optional[bool] = None,
     ) -> str:
         '''
         Get the video stream url from the VST API.
@@ -711,7 +718,7 @@ class ITS_VST_HANDLER:
             url, headers, params, timeout, effective_start_time, effective_end_time = (
                 self._build_video_url_request(
                     stream_id, start_time, end_time,
-                    objects_ids, remove_overlay, alert_type_anchor,
+                    objects_ids, remove_overlay, alert_type_anchor, show_object_id,
                 )
             )
 

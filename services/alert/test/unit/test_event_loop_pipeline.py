@@ -356,6 +356,269 @@ def _timeout_error():
 
 
 class TestModeParity:
+    def test_primary_bbox_without_id_is_analyzed_while_full_overlay_is_published(self):
+        sync_seen = {}
+        sync_enhancer = _build_parity_enhancer("sync")
+        sync_enhancer.config = {"vst_config": {"primary_bbox_for_vlm": True}}
+        def _fake_sync_vst(sensor_id, start, end, **kwargs):
+            if kwargs.get("show_object_id") is False:
+                sync_seen["target_start"] = start
+                sync_seen["target_object_ids"] = kwargs["objects_ids"]
+            return (
+                (
+                    "http://video/target.mp4"
+                    if kwargs.get("show_object_id") is False
+                    else "http://video/overlay.mp4"
+                ),
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:10Z",
+            )
+
+        sync_enhancer._get_video_stream_url_with_mode = _fake_sync_vst
+        sync_enhancer._transform_video_urls = lambda url: (
+            f"vlm:{url}",
+            f"storage:{url}",
+        )
+        sync_enhancer.validate_video_url = (
+            lambda url: sync_seen.setdefault("validated", url) is not None
+        )
+
+        def _sync_analyze(url, *args, **kwargs):
+            sync_seen["analyzed"] = url
+            return SimpleNamespace(content="YES")
+
+        sync_enhancer._analyze_video_url_with_mode = _sync_analyze
+        sync_message = _make_message(10)
+        sync_message["info"] = {"primaryObjectId": "primary-10"}
+        sync_enhancer._process_single_message(0, sync_message)
+
+        runtime = AsyncVLMRuntime({}, io_workers=4)
+        async_seen = {}
+
+        async def _async_analyze(url, *args, **kwargs):
+            async_seen["analyzed"] = url
+            return SimpleNamespace(content="YES")
+
+        runtime.analyze_video_url_async = _async_analyze
+        async_enhancer = _build_parity_enhancer("event_loop", runtime=runtime)
+        async_enhancer.config = {"vst_config": {"primary_bbox_for_vlm": True}}
+        async_enhancer._transform_video_urls = lambda url: (
+            f"vlm:{url}",
+            f"storage:{url}",
+        )
+
+        async def _fake_clean_vst(http_client, sensor_id, start, end, **kwargs):
+            if kwargs.get("show_object_id") is False:
+                async_seen["target_start"] = start
+                async_seen["target_object_ids"] = kwargs["objects_ids"]
+            return (
+                (
+                    "http://video/target.mp4"
+                    if kwargs.get("show_object_id") is False
+                    else "http://video/overlay.mp4"
+                ),
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:10Z",
+            )
+
+        async_enhancer._vst_handler = SimpleNamespace(
+            get_video_stream_url_async=_fake_clean_vst
+        )
+
+        async def _validate_clean(url, **kwargs):
+            async_seen["validated"] = url
+            return True
+
+        async_enhancer._validate_video_url_async = _validate_clean
+        async_message = _make_message(10)
+        async_message["info"] = {"primaryObjectId": "primary-10"}
+        try:
+            runtime.submit_coroutine(
+                async_enhancer._process_single_message_async(0, async_message)
+            ).result(timeout=30)
+        finally:
+            runtime.stop()
+
+        assert sync_seen == {
+            "target_start": "2026-01-01T00:00:01Z",
+            "target_object_ids": ["primary-10"],
+            "validated": "http://video/target.mp4",
+            "analyzed": "vlm:http://video/target.mp4",
+        }
+        assert async_seen == sync_seen
+        assert (
+            sync_enhancer.captured["published"][0]["info"]["videoSource"]
+            == "storage:http://video/overlay.mp4"
+        )
+        assert (
+            async_enhancer.captured["published"][0]["info"]["videoSource"]
+            == "storage:http://video/overlay.mp4"
+        )
+
+    def test_primary_bbox_failure_falls_back_to_full_overlay_clip(self):
+        sync_seen = {}
+        sync_enhancer = _build_parity_enhancer("sync")
+        sync_enhancer.config = {"vst_config": {"primary_bbox_for_vlm": True}}
+
+        def _fake_sync_vst(sensor_id, start, end, **kwargs):
+            if kwargs.get("show_object_id") is False:
+                raise RuntimeError("target clip unavailable")
+            return (
+                "http://video/overlay.mp4",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:10Z",
+            )
+
+        sync_enhancer._get_video_stream_url_with_mode = _fake_sync_vst
+        sync_enhancer._transform_video_urls = lambda url: (
+            f"vlm:{url}",
+            f"storage:{url}",
+        )
+
+        def _sync_analyze(url, *args, **kwargs):
+            sync_seen["analyzed"] = url
+            return SimpleNamespace(content="YES")
+
+        sync_enhancer._analyze_video_url_with_mode = _sync_analyze
+        sync_message = _make_message(11)
+        sync_message["info"] = {"primaryObjectId": "primary-11"}
+        sync_enhancer._process_single_message(0, sync_message)
+
+        runtime = AsyncVLMRuntime({}, io_workers=4)
+        async_seen = {}
+
+        async def _async_analyze(url, *args, **kwargs):
+            async_seen["analyzed"] = url
+            return SimpleNamespace(content="YES")
+
+        runtime.analyze_video_url_async = _async_analyze
+        async_enhancer = _build_parity_enhancer("event_loop", runtime=runtime)
+        async_enhancer.config = {"vst_config": {"primary_bbox_for_vlm": True}}
+        async_enhancer._transform_video_urls = lambda url: (
+            f"vlm:{url}",
+            f"storage:{url}",
+        )
+
+        async def _fake_async_vst(http_client, sensor_id, start, end, **kwargs):
+            if kwargs.get("show_object_id") is False:
+                raise RuntimeError("target clip unavailable")
+            return (
+                "http://video/overlay.mp4",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:10Z",
+            )
+
+        async_enhancer._vst_handler = SimpleNamespace(
+            get_video_stream_url_async=_fake_async_vst
+        )
+        async_message = _make_message(11)
+        async_message["info"] = {"primaryObjectId": "primary-11"}
+        try:
+            runtime.submit_coroutine(
+                async_enhancer._process_single_message_async(0, async_message)
+            ).result(timeout=30)
+        finally:
+            runtime.stop()
+
+        assert sync_seen["analyzed"] == "vlm:http://video/overlay.mp4"
+        assert async_seen == sync_seen
+        assert (
+            sync_enhancer.captured["published"][0]["info"]["videoSource"]
+            == "storage:http://video/overlay.mp4"
+        )
+        assert (
+            async_enhancer.captured["published"][0]["info"]["videoSource"]
+            == "storage:http://video/overlay.mp4"
+        )
+
+    def test_primary_bbox_validation_failure_falls_back_to_full_overlay_clip(self):
+        sync_seen = {"validated": []}
+        sync_enhancer = _build_parity_enhancer("sync")
+        sync_enhancer.config = {"vst_config": {"primary_bbox_for_vlm": True}}
+        sync_enhancer._get_video_stream_url_with_mode = (
+            lambda sensor_id, start, end, **kwargs: (
+                (
+                    "http://video/target.mp4"
+                    if kwargs.get("show_object_id") is False
+                    else "http://video/overlay.mp4"
+                ),
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:10Z",
+            )
+        )
+        sync_enhancer._transform_video_urls = lambda url: (
+            f"vlm:{url}",
+            f"storage:{url}",
+        )
+
+        def _validate_sync(url):
+            sync_seen["validated"].append(url)
+            return url == "http://video/overlay.mp4"
+
+        sync_enhancer.validate_video_url = _validate_sync
+
+        def _analyze_sync(url, *args, **kwargs):
+            sync_seen["analyzed"] = url
+            return SimpleNamespace(content="YES")
+
+        sync_enhancer._analyze_video_url_with_mode = _analyze_sync
+        sync_message = _make_message(12)
+        sync_message["info"] = {"primaryObjectId": "primary-12"}
+        sync_enhancer._process_single_message(0, sync_message)
+
+        runtime = AsyncVLMRuntime({}, io_workers=4)
+        async_seen = {"validated": []}
+
+        async def _analyze_async(url, *args, **kwargs):
+            async_seen["analyzed"] = url
+            return SimpleNamespace(content="YES")
+
+        runtime.analyze_video_url_async = _analyze_async
+        async_enhancer = _build_parity_enhancer("event_loop", runtime=runtime)
+        async_enhancer.config = {"vst_config": {"primary_bbox_for_vlm": True}}
+        async_enhancer._transform_video_urls = lambda url: (
+            f"vlm:{url}",
+            f"storage:{url}",
+        )
+
+        async def _fake_async_vst(http_client, sensor_id, start, end, **kwargs):
+            return (
+                (
+                    "http://video/target.mp4"
+                    if kwargs.get("show_object_id") is False
+                    else "http://video/overlay.mp4"
+                ),
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:10Z",
+            )
+
+        async_enhancer._vst_handler = SimpleNamespace(
+            get_video_stream_url_async=_fake_async_vst
+        )
+
+        async def _validate_async(url, **kwargs):
+            async_seen["validated"].append(url)
+            return url == "http://video/overlay.mp4"
+
+        async_enhancer._validate_video_url_async = _validate_async
+        async_message = _make_message(12)
+        async_message["info"] = {"primaryObjectId": "primary-12"}
+        try:
+            runtime.submit_coroutine(
+                async_enhancer._process_single_message_async(0, async_message)
+            ).result(timeout=30)
+        finally:
+            runtime.stop()
+
+        assert sync_seen == {
+            "validated": [
+                "http://video/target.mp4",
+                "http://video/overlay.mp4",
+            ],
+            "analyzed": "vlm:http://video/overlay.mp4",
+        }
+        assert async_seen == sync_seen
+
     def test_success_payload_matches_between_sync_and_event_loop(self):
         sync_enhancer = _build_parity_enhancer("sync")
         sync_message = _make_message(1)

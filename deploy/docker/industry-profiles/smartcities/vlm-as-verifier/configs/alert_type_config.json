@@ -1,31 +1,26 @@
 {
-    "version": "1.0",
-    "alerts": [
-      {
-        "alert_type": "collision",
-        "output_verdict_description": {
-          "confirmed": "Collision detected",
-          "rejected": "No collision detected"
-        },
-        "prompts": {
-          "system": "You are a helpful assistant.",
-          "user": "Focus on vehicles {info.primaryObjectId} and vehicle list {objectIds}. Identify if there is a moment in the video where both vehicles occupy the same space simultaneously, indicating physical contact. Did vehicles {info.primaryObjectId} and vehicle from the list {objectIds} collide? Your final answer should be either Yes or No."
-        }
-      },
-      {
-        "alert_type": "Stop Anomaly Module",
-        "prompts": {
-          "system": "You are a helpful assistant.",
-          "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal stopping behavior or a stop anomaly.\n\n- Normal Stop: A worker, vehicle, or machinery stops briefly as part of expected operational behavior.\n- Stop Anomaly: A worker, vehicle, or machinery stops unexpectedly, in an unsafe location, or for an abnormal duration.\n\nIs there a stop anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
-        }
-      },
-      {
-        "alert_type": "Movement Anomaly Module",
-        "prompts": {
-          "system": "You are a helpful assistant.",
-          "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal movement or an abnormal movement anomaly.\n\n- Normal Movement: Movement follows expected speed, direction, and path patterns.\n- Movement Anomaly: Sudden or unusual motion patterns such as abrupt speed spikes, sharp direction changes, or deviations from usual routes.\n\nIs there a movement anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
-        }
+  "version": "1.0",
+  "alerts": [
+    {
+      "alert_type": "collision",
+      "prompts": {
+        "system": "You are a smart-cities collision analysis system. Follow the output format requested by the prompt you are given exactly, with no markdown, code fences, or extra text.",
+        "user": "Focus on vehicle {info.primaryObjectId} and related object list {objectIds}. Verify whether the video shows a vehicle collision event involving vehicle {info.primaryObjectId}, then assess collision evidence, traffic or safety impact, and recommended response.\n\nReturn exactly one valid JSON object with these fields:\n- verdict: MUST be \"Yes\" when a collision is visible or \"No\" when no collision is visible\n- description: MUST be exactly one templated sentence: \"Confirmed collision between [vehicle color] [vehicle type] [vehicle id] and [vehicle color] [vehicle type] [vehicle id]\" or \"Rejected collision between [vehicle color] [vehicle type] [vehicle id] and [vehicle color] [vehicle type] [vehicle id]\". Use Confirmed for visible collisions and Rejected for no collision. Always attempt to classify each vehicle. Vehicle color must be white, black, red, orange, yellow, green, blue, or purple. Vehicle type must be one of sedan, SUV, pickup truck, van, minivan, bus, semi-truck, taxi, ambulance, or fire truck.\n- risk_level: one of \"low\", \"medium\", \"high\", or \"critical\", based on collision severity, blocked lanes, pedestrian exposure, traffic disruption, and emergency-response urgency\n- recommended_action: what should be done next, such as dispatch responders, review additional camera angles, clear blocked lanes, or continue monitoring\n\nResponse Requirements: Use double quotes around every key and string value. Do not use YAML-style key-value lines, lists, arrays, markdown fences, commentary, or additional fields. NEVER say unknown; always attempt to give a value. Output only the JSON object.\n\nExample:\n{{\"verdict\":\"Yes\",\"description\":\"Confirmed collision between orange sedan 118 and black SUV 92\",\"risk_level\":\"low\",\"recommended_action\":\"Continue monitoring for any changes in traffic flow\"}}\n\nIf no collision is visible, set verdict to \"No\" and use the Rejected description template."
       }
-    ]
-  }
-  
+    },
+    {
+      "alert_type": "Stop Anomaly Module",
+      "prompts": {
+        "system": "You are a smart-cities video analysis system. Return only the JSON object requested by the prompt, with no markdown, code fences, or extra text.",
+        "user": "Determine whether the video shows normal stopping behavior or a stop anomaly. A stop anomaly is an unexpected stop, a stop in an unsafe location, or a stop of abnormal duration.\n\nReturn exactly one JSON object with string fields verdict, description, risk_level, and recommended_action. verdict MUST be \"Yes\" when a stop anomaly is visible or \"No\" for normal stopping behavior. risk_level MUST be one of \"low\", \"medium\", \"high\", or \"critical\". Populate every field and output no additional fields.\n\nExample:\n{{\"verdict\":\"Yes\",\"description\":\"A vehicle remains stopped in an active traffic lane for an abnormal duration\",\"risk_level\":\"high\",\"recommended_action\":\"Review the incident and dispatch traffic support if the lane remains blocked\"}}"
+      }
+    },
+    {
+      "alert_type": "Movement Anomaly Module",
+      "prompts": {
+        "system": "You are a smart-cities video analysis system. Return only the JSON object requested by the prompt, with no markdown, code fences, or extra text.",
+        "user": "Determine whether the video shows normal movement or a movement anomaly. A movement anomaly includes abrupt speed changes, sharp direction changes, or deviation from an expected route.\n\nReturn exactly one JSON object with string fields verdict, description, risk_level, and recommended_action. verdict MUST be \"Yes\" when a movement anomaly is visible or \"No\" for normal movement. risk_level MUST be one of \"low\", \"medium\", \"high\", or \"critical\". Populate every field and output no additional fields.\n\nExample:\n{{\"verdict\":\"Yes\",\"description\":\"A vehicle abruptly changes direction and departs from the expected traffic path\",\"risk_level\":\"medium\",\"recommended_action\":\"Review adjacent camera views and continue monitoring the vehicle\"}}"
+      }
+    }
+  ]
+}
