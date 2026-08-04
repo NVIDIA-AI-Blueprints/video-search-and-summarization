@@ -71,7 +71,7 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 | **Video Summarization** | Time-windowed video summaries | `lvs` |
 | **Search** | Object and video embeddings + agentic search | `search` |
 
-> **Four-option limit.** `AskUserQuestion` shows at most **four** options per single-select, so Q2a must stay at the four developer profiles above. The `alerts` profile's two modes are **not** separate top-level rows (that would be a fifth option and get silently dropped); they are chosen in a follow-up, **Q2a-mode**, below.
+> **Four-option limit.** `AskUserQuestion` shows at most **four** options per question (single- or multi-select), so Q2a must stay at the four developer profiles above. The `alerts` profile's two modes are **not** separate top-level rows (that would be a fifth option and get silently dropped); they are chosen in a follow-up, **Q2a-mode**, below. More generally, **any** question that needs more than four choices must **not** use the `AskUserQuestion` widget — present the options inline in the conversation and collect a typed reply instead (see **Q2b**, which does this for the capability multi-select).
 
 **Q2a-mode — only when the user picks Alerts (single-select): "Which alerts mode?"** The `alerts` developer profile ships two modes, selected by its `MODE` knob; each has its own checked-in `COMPOSE_PROFILES` set in `dev-profile-alerts/overrides.env`, so both are still stock deployments (no delta):
 
@@ -88,7 +88,7 @@ These are **predefined developer profiles**, so the skill does **not** compute a
 
 For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Video I/O + storage (VIOS) is always included** — every profile needs it — along with the shared `redis` cache peer that ships with the Foundation; present these as informational, not as choices. The **ELK + Kafka message bus / indexing stack is _not_ unconditional**: it is added only when a selected capability is Kafka-backed or Elasticsearch-indexed (see the note under the table), so a dense-captioning-only build keeps the smallest delta. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
 
-Offer the user **exactly** the capabilities in the table below. Each row's owner contract, canonical service-profile key(s), and closest Foundation profile are fixed — do not invent options or keys outside it.
+Offer the user **exactly** the capabilities in the table below. Each row's owner contract, canonical service-profile key(s), and closest Foundation profile are fixed — do not invent options or keys outside it. Because this list can exceed four rows and `AskUserQuestion` caps a question at four options, **do not pose Q2b through the `AskUserQuestion` widget** — present this table in the conversation and have the user reply with the capabilities they want (by name or number; multiple allowed). Fall back to an `AskUserQuestion` multi-select only when four or fewer capabilities remain offerable.
 
 | Option (shown to user) | Owner contract (`references/services/`) | Canonical service-profile key(s) | Closest Foundation | Peer notes |
 |---|---|---|---|---|
