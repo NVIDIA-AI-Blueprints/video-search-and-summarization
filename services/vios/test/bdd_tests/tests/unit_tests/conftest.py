@@ -17,15 +17,12 @@
 Shared fixtures for unit tests (API tests) across all VST microservices.
 """
 import logging
-from urllib.parse import urlparse
 
 import pytest
 
 from .unit_test_utils import UnitTestContext
 
 logger = logging.getLogger(__name__)
-
-MCP_DEFAULT_PORT = 8001
 
 
 @pytest.fixture(scope="function")
@@ -38,24 +35,7 @@ def context():
 
 @pytest.fixture(scope="session")
 def unit_test_params(config):
-    """Get unit test parameters from config.
-
-    If mcp_url is not explicitly set, it is derived from api.base_url
-    by extracting the host and using port 8001 with the /mcp path.
-    """
-    params = config.get("tests", {}).get("unit_tests", {}).get("test_parameters", {
+    """Get unit test parameters from config."""
+    return config.get("tests", {}).get("unit_tests", {}).get("test_parameters", {
         "timeout": 30,
     })
-
-    mcp_url = params.get("mcp_url", "")
-    needs_derive = not mcp_url or "<change-to-your-host>" in mcp_url
-
-    if needs_derive:
-        base_url = config.get("api", {}).get("base_url", "")
-        if base_url:
-            parsed = urlparse(base_url)
-            host = parsed.hostname or "localhost"
-            params["mcp_url"] = f"http://{host}:{MCP_DEFAULT_PORT}/mcp"
-            logger.info("Derived mcp_url from api.base_url: %s", params["mcp_url"])
-
-    return params

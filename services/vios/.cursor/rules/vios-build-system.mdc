@@ -54,7 +54,6 @@ When the user asks to build, deploy, stop, or redeploy -- run the commands immed
 - `./build.sh container tag=mytag module=sensor` -- custom image tag
 - `./build.sh container nvstreamer` -- build NVStreamer container
 - `./build.sh container ingress` -- build ingress container
-- `./build.sh container mcp` -- build MCP gateway container
 - `./build.sh toolchain` -- build the compile toolchain only (auto-invoked otherwise); `arch=arm64` for aarch64
 - `./build.sh toolchain push=1 toolchain-image=<registry>/vios-build:<tag>` -- build + push toolchain (ask the user for the registry if not given; default tag would push to Docker Hub)
 - `./build.sh base-container [push=1 image-registry=<registry>]` -- build (and optionally push) the runtime base image only

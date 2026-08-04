@@ -343,7 +343,7 @@ If health check returns non-200 or containers show `Restarting` status, go to `g
 
 ## Step 4b — Sync config.json with resolved BASE_URL
 
-Update `test/bdd_tests/config.json` so the MCP URL derivation uses the correct host. The file defaults to `localhost:30888` which causes all MCP gateway tests to fail.
+Update `test/bdd_tests/config.json` so tests target the correct host. The file defaults to `localhost:30888`, which causes tests to run against the wrong endpoint.
 
 ```bash
 python3 - <<EOF
