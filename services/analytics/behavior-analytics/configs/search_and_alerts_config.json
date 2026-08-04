@@ -1,6 +1,6 @@
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"group": "mdx-search-and-alerts-app",
 		"consumer": {
 			"autoOffsetReset": "latest",
@@ -112,7 +112,7 @@
 		},
 		{
 			"name": "fovCountViolationIncidentObjectType",
-			"value": "person"
+			"value": "Person"
 		},
 
 		{

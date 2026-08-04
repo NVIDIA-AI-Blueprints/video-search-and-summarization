@@ -15,8 +15,26 @@
 - Use `elasticsearch-init-container` with `elasticsearch`.
 - Use `kafka-topic-init-container` and `broker-health-check` with Kafka-backed
   capability owners.
-- Use exactly the dashboard initializer matching the selected Foundation.
+- `logstash` is the **sole** bridge from Kafka topics to Elasticsearch. No other
+  selected service writes Kafka events into ES indices. A build that publishes to
+  Kafka and stores in Elasticsearch must include `logstash`; omitting it leaves
+  the requested ES storage permanently empty.
 - `logstash` requires the broker and the profile's selected `STREAM_TYPE`.
+- When the selected Foundation ships `kibana` and a `kibana-init-container-*`
+  key, retain both in any delta that stores data in Elasticsearch — they are the
+  browse surface for that data and are not pruned by forward closure. They are
+  **not** part of the Agent/UI tier, so a headless build (no agent/UI) still
+  retains them; do not drop them as "UI". Do not add `kibana` to a Foundation
+  that does not ship it.
+- The mounted initializer must seed one data view per Elasticsearch index family
+  this build writes; decide from the build's active ES write paths, not the
+  Foundation name, before picking one:
+  - Families of a **single** capability → the single-profile initializer covering them.
+  - Families spanning **more than one** → keep the Foundation's one initializer and
+    patch it to mount the bundle whose data views are their **union** (the shipped
+    merged bundle in Sources), replacing the single-capability bundle it imports.
+  Never add a second initializer or mount two bundles: the shared `mdx-raw-*`/
+  `mdx-behavior-*` views would duplicate and collide on the default-view singleton.
 - `redis` may be used without the full ELK/Kafka set when it is only a cache.
 
 ## Configuration knobs
@@ -35,6 +53,7 @@
 
 - `deploy/docker/services/infra/compose.yml`
 - `deploy/docker/services/infra/elk/`
+- `deploy/docker/services/infra/elk/kibana/configs/search-and-alerts-kibana-objects.ndjson`
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-lvs/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/compose.yml`

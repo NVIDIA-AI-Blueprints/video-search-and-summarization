@@ -46,6 +46,12 @@ that one resolved key in `_builds/<name>/override.env` — the NGC CLI and VSS e
 `NGC_CLI_API_KEY`; NIM / RT-VLM containers read `NGC_API_KEY`. Do not leave only
 one set.
 
+Set the key **before** generating `resolved.yml`. If either key changes after
+`resolved.yml` exists, regenerate it (re-run `docker compose … config`): the
+deploy reads only the self-contained `resolved.yml` and passes no `--env-file`,
+so a key baked as `''` cannot be fixed by a shell export or an env file at
+`docker compose up`.
+
 This token probe is not sufficient for local NIM / RT-VLM deployments. It
 proves the key authenticates, but it does not prove that the key's org/team can
 access the selected `nvcr.io/...` images or `ngc:...` model repositories. After

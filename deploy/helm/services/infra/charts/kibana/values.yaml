@@ -44,7 +44,7 @@ init:
   enabled: false
   # Empty: inherits kibana.nodeSelector from the Job template coalesce.
   nodeSelector: {}
-  # Selects packaged NDJSON under configs/objects/{alerts,search,lvs,warehouse-2d,warehouse-3d,warehouse-mv3dt}.ndjson
+  # Selects packaged NDJSON under configs/objects/{alerts,search,lvs,search-and-alerts,warehouse-2d,warehouse-3d,warehouse-mv3dt}.ndjson
   objectsBundle: ""
   image:
     repository: docker.io/library/alpine

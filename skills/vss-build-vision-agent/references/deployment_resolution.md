@@ -212,6 +212,27 @@ are created by ingestion — re-run `vss configure` after ingesting, or the
 recorded index list stays empty. Direct Elasticsearch and RTVI probes are valid
 Docker readiness checks; they are not Kubernetes operate prerequisites.
 
+### Read vs write path resolution (headless)
+
+The two runtime paths resolve endpoints by **different** mechanisms, and the
+asymmetry is deliberate — each matches the vantage it runs from:
+
+- **Read / query → `vss configure`** against the build origin (the block above).
+  The search CLI takes no endpoints, so ingress-routed URLs for VST, Elasticsearch,
+  RT-Embed, and RT-CV all come from the recorded config. There is **no
+  ingress-less read path**: a build must front the operate route-set (see
+  `services/ingress.md`) to be queryable from the host CLI.
+- **Write / provision → loopback host ports**, *not* `vss configure`. The caller
+  reads the consumer ports from the build's `resolved.yml` `ports:` mappings
+  (`http://localhost:<port>`; stock deploys fall back to profile defaults) and
+  hands them to `vss-manage-video-io-storage` `provision-vios-source.md`. Loopback
+  covers RT-VLM natively and keeps RT-Embed's live SSE stream off the proxy hop.
+  `vss configure` records **ingress URLs, not loopback ports**, so nothing on the
+  write path consumes the recorded config — the two mechanisms do not overlap.
+- **RT-VLM is loopback-only** on both paths: it has no ingress route
+  (`vss configure` records no entry), so it is always the host port
+  (`http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}`).
+
 ## Kubernetes consumer contract (no port-forward)
 
 Operate skills require `VSS_PUBLIC_URL` and use the consumer-derived variables
