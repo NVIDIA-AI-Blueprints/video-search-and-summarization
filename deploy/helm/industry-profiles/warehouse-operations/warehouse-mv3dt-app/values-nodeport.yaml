@@ -14,11 +14,10 @@
 # limitations under the License.
 
 # values-nodeport.yaml
-# Exposes the UIs on node ports instead of the HAProxy Ingress. No ingress
-# controller required.
+# Exposes VST and supporting services as NodePorts for direct node access.
 #
-#   helm install wh ./warehouse-mv3dt-app -n <namespace> \
-#     -f warehouse-mv3dt-app/values-nodeport.yaml
+#   helm install wh ./<profile> -n <namespace> \
+#     -f <profile>/values-nodeport.yaml \
 #
 # Then, with <NODE_IP> being any cluster node:
 #   VST         http://<NODE_IP>:30888/vst/

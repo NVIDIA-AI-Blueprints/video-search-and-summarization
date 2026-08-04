@@ -12,8 +12,15 @@ Override `rtvi.vss-rtvi-cv.ngcAppDataResourceVersion` and `vios.vss-vios-nvstrea
 
 ## Web UIs
 
-`vssIngress.enabled` (on by default) renders one `Ingress` routing every UI under
-a single host, matching the `vss-haproxy-ingress` service in the compose profiles.
+`global.vssIngress.enabled` (off by default) renders one `Ingress` routing every UI
+under a single host, matching the `vss-haproxy-ingress` service in the compose
+profiles. The top-level `vssIngress.*` block holds config only (host, ports,
+ingressClassName); it is not the enable gate.
+
+`global.externalHost` drives all browser-reachable URLs (VST endpoint, analytics
+address, incident links). `vssIngress.host` controls only the Ingress
+`spec.rules[].host` for Kubernetes routing. Set both if they differ; omit
+`vssIngress.host` to match any hostname.
 
 ### Prerequisite: HAProxy ingress controller
 
@@ -47,6 +54,9 @@ helm dependency update deploy/helm/industry-profiles/warehouse-operations/wareho
 
 helm install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app \
   -n <namespace> --create-namespace \
+  --set global.vssIngress.enabled=true \
+  --set global.externalHost=<NODE_IP> \
+  --set global.externalPort=8080 \
   --set monitoring.grafana.rootUrl=http://<NODE_IP>:8080/grafana \
   --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>:8080/kibana
 ```
@@ -94,8 +104,8 @@ helm install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
 
-It sets `global.vssIngress.enabled` and `vssIngress.enabled` to false and clears
-the path prefixes, since each app then owns the root of its own port.
+It sets `global.vssIngress.enabled` to false and clears the path prefixes, since
+each app then owns the root of its own port.
 
 ## Monitoring
 

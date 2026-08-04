@@ -18,7 +18,8 @@
 # the ingressClassName below. Leave host empty to match any hostname, so the
 # node IP works with no DNS.
 {{- $vi := .Values.vssIngress | default dict }}
-{{- if default false (index $vi "enabled") }}
+{{- $globalVi := index (.Values.global | default dict) "vssIngress" | default dict }}
+{{- if default false (index $globalVi "enabled") }}
 {{- $host := coalesce (index $vi "host") (index (.Values.global | default dict) "externalHost") "" }}
 {{- $vios := .Values.vios | default dict }}
 {{- $nvstreamerEnabled := default false (dig "vss-vios-nvstreamer" "enabled" false $vios) }}
@@ -50,6 +51,13 @@ metadata:
       /streamer/(.*) /\1
 {{- end }}
       /storage/(.*) /vst/storage/\1
+    # Normalize //vst/ double-slash produced by the VST UI when served under a
+    # /vst/ subpath. replace-path fires before use_backend; re-setting txn.path
+    # and txn.path_match lets the router find the vss-vios-ingress backend.
+    haproxy.org/frontend-config-snippet: |
+      http-request replace-path ^//vst(/.*)?$ /vst\1
+      http-request set-var(txn.path) path
+      http-request set-var(txn.path_match) var(txn.host_match),concat(,txn.path,),map_beg(/etc/haproxy/maps/path-prefix.map) if !{ var(txn.path_match) -m found }
 spec:
   ingressClassName: {{ index $vi "ingressClassName" | default "haproxy" | quote }}
   rules:

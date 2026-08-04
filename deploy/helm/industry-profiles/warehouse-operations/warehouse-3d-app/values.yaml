@@ -2,22 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 global:
-  # Ingress on by default, as in dev-profile-search and the compose profiles.
-  # Clusters without an ingress controller use values-nodeport.yaml instead.
+  # Enable vssIngress for HAProxy path-based routing. Use values-nodeport.yaml for
+  # direct node access (VST on NodePort 30888).
   vssIngress:
-    enabled: true
-  # Matches VST_USE_SDRC=true in the warehouse compose .env. Also flips
-  # VST_ENABLE_NOTIFICATION, without which VST never publishes vst.event and
-  # SDRC has no streams to hand the DS pipeline.
+    enabled: false
+  # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
   vios:
     useSdrc: true
   imagePullSecrets:
     - name: ngc-docker-reg-secret
   storageClass: ""
   useReleaseNamePrefix: false
-  # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
-  vios:
-    useSdrc: true
   externalHost: ""
   externalPort: ""
 
@@ -85,7 +80,7 @@ bp-configurator:
     - name: WDM_REDIS_STREAM_NAME
       value: vst.event
     - name: WDM_REDIS_MSG_KEY
-      value: sensor.id
+      value: value
     - name: WDM_KFK_MSG_KEY
       value: vst.event
     - name: WDM_KFK_BOOTSTRAP_URL
@@ -193,6 +188,8 @@ vios:
     # nginx-vst-sdrc.conf in the compose profiles. Sensor stays on
     # vss-vios-sensor:30000 either way.
     streamprocessingUpstream: "sdrc-controller:10000"
+    service:
+      type: ClusterIP
   vss-vios-nvstreamer:
     enabled: true
     # Keep in step with bp-configurator NUM_STREAMS.
@@ -443,12 +440,11 @@ cameraInfo:
     #   group_id: dock
     #   region: north
 
-# HAProxy Ingress, mirroring the vss-haproxy-ingress compose service.
-# Requires a cluster-wide HAProxy ingress controller (IngressClass below).
-# Off by default: set host (or global.externalHost) and flip enabled.
+# Optional HAProxy path-based ingress (requires a cluster-wide HAProxy ingress
+# controller). Off by default. Use values-nodeport.yaml to expose VST on NodePort 30888.
+# To enable: --set global.vssIngress.enabled=true --set global.externalHost=<HOST>
 vssIngress:
-  # Mirrors global.vssIngress.enabled; values-nodeport.yaml turns both off.
-  enabled: true
+  enabled: false
   resourceName: ""
   ingressClassName: haproxy
   host: ""

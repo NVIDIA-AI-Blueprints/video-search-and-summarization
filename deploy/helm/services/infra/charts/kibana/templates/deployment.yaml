@@ -80,7 +80,7 @@ spec:
             {{- $gk := index $g "kibanaPublicUrl" | default "" | trim }}
             {{- $eh := index $g "externalHost" | default "" | trim }}
             {{- $es := index $g "externalScheme" | default "http" }}
-            {{- $ep := index $g "externalPort" | default "" | trim }}
+            {{- $ep := index $g "externalPort" | default "" | toString | trim }}
             {{- if and (eq $gk "") (ne $eh "") }}
             {{- $kibHost := printf "kibana.%s" $eh }}
             {{- if ne $ep "" }}

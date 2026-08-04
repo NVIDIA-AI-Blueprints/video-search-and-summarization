@@ -64,7 +64,7 @@
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $eh := index $g "externalHost" | default "" | trim }}
-{{- $ep := index $g "externalPort" | default "" | trim }}
+{{- $ep := index $g "externalPort" | default "" | toString | trim }}
 {{- $es := index $g "externalScheme" | default "http" }}
 {{- $explicit := trim (default "" .Values.vstIngressEndpoint) }}
 {{- if ne $explicit "" }}
