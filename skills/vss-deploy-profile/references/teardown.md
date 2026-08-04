@@ -83,10 +83,11 @@ docker network rm "${project}_default" 2>/dev/null || true
 
 # `down` (no -v) also leaves every named volume. Remove the stale DATA volumes
 # that poison a fresh deploy — ES indices, Kafka offsets, Postgres, logstash
-# libs, nvstreamer recordings — while KEEPING model caches (rtvi-*, *_cache).
-# Names are <project>_<vol>; match the selected project plus known stale data volumes.
+# libs — while KEEPING model caches (rtvi-*, *_cache).
+# Names are <project>_<vol>; filter to the selected project and match on the volume-name suffix.
 docker volume ls -q \
-  | grep -E "^${project}[-_](elastic-(data|logs)|kafka|logstash-libs|nvstreamer-(data|videos))$|(${project}[-_])?(phoenix-data|vios_pg_data)$" \
+  --filter "label=com.docker.compose.project=${project}" \
+  | grep -E '(elastic-(data|logs)|kafka-data|logstash-libs|phoenix-data|vios_pg_data)$' \
   | xargs -r docker volume rm
 ```
 
