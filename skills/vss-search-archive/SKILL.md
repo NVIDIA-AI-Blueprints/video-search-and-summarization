@@ -392,6 +392,13 @@ verification. Never port-forward Elasticsearch for this check.
    # sources; add one entry per source to scope to several. Each becomes a repeated
    # --video-source. Set --source-type to the source's partition (video_file | rtsp).
    VIDEO_SOURCES=( )   # e.g. ( "$SENSOR_ID" ) or ( "$NAME_A" "$NAME_B" )
+   # Scoping is mandatory when step 2 matched a source; empty is valid ONLY for an
+   # explicitly unrestricted request — never let an unpopulated array silently drop it.
+   : "${SOURCE_SCOPED:?set true when step 2 resolved a source, false only for an explicitly unrestricted search}"
+   if [ "${SOURCE_SCOPED}" = "true" ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
+     echo "Step 2 required a source scope but VIDEO_SOURCES is empty; refusing an unrestricted search" >&2
+     exit 1
+   fi
    SEARCH_COMMAND=(
      uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev
      vss search run "${SEARCH_PATH}"

@@ -120,7 +120,7 @@ needs no URL. There is no live proxy on this path.
 **Live (RTSP).** Register the RTSP URL — an external camera as-is, or a local file
 served as synthetic RTSP by NvStreamer (stage it into
 `${VSS_DATA_DIR}/videos/<build>/`, then **read** the generated URL from
-`GET http://localhost:<nvstreamer-port>/vst/api/v1/sensor/<stem>/streams` `.[0].url`,
+`GET http://localhost:<nvstreamer-port>/api/v1/sensor/<stem>/streams` `.[0].url`,
 never construct it):
 
 ```bash
