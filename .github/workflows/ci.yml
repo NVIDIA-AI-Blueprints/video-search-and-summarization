@@ -430,6 +430,7 @@ jobs:
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
+          uv run --no-sync python ../../.github/scripts/test_license_diff_summary.py
           rm -rf dist
           uv build --package nvidia-vss-core
           uv build --package nvidia-vss-cli

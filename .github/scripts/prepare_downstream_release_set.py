@@ -8,6 +8,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -77,12 +78,32 @@ def has_ghcr_build_entries(release_set: dict) -> bool:
     )
 
 
+def candidate_container_tag(release_set: dict) -> str:
+    """Return the shared immutable GHCR tag published for this release set."""
+    source = release_set.get("source") or {}
+    commit = str(source.get("commit") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("release-set source commit must be a 40-hex SHA")
+
+    ref = str(source.get("ref") or "")
+    if ref == "develop":
+        prefix = "develop"
+    elif match := re.fullmatch(r"pull-request/(\d+)", ref):
+        prefix = f"pr-{match.group(1)}"
+    else:
+        raise ValueError(
+            f"release-set source ref {ref!r} does not publish a shared candidate tag"
+        )
+    return f"{prefix}-{commit[:12]}"
+
+
 def downstream_variables(release_set: dict) -> dict[str, str]:
     encoded = base64.b64encode(
         (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
     ).decode()
     return {
         "BUILD_TYPE": "ghcr-acceptance",
+        "VSS_CONTAINER_TAG": candidate_container_tag(release_set),
         "VSS_RELEASE_SET_ID": release_set["release_set_id"],
         "VSS_RELEASE_SET_B64": encoded,
     }

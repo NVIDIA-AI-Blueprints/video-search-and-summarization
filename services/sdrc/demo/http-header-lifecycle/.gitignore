@@ -1,0 +1,4 @@
+.generated/
+docker/.generated/
+helm/charts/
+helm/Chart.lock
