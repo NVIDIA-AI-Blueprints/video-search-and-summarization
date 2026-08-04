@@ -31,8 +31,7 @@
 #                               sensor/live/storage version + list probes)
 #
 # These four match the containers the stream-processing compose typically
-# deploys (sensor-ms, streamprocessing-ms, vst-ingress, nvstreamer). mcp_gateway
-# is intentionally not grouped here -- vst-mcp is not part of this stack.
+# deploys (sensor-ms, streamprocessing-ms, vst-ingress, nvstreamer).
 #
 # Usage:
 #   ./scripts/run_unit_tests.sh [--base-url http://host:30888]
