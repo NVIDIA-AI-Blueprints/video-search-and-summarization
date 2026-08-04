@@ -277,7 +277,25 @@ def _system_metrics(csv_path: Path, sidecar: dict[str, Any]) -> list[dict]:
     for row, timestamp_us in zip(rows, raw_times):
         if timestamp_us is None:
             continue
+        # The sampler's first row primes /proc/stat and therefore carries
+        # five CPU percentages set to zero. Treating that as a measurement
+        # says the host is simultaneously 0% busy and 0% idle, and skews every
+        # short trace. Keep that row's instantaneous load/memory values, but
+        # omit CPU percentages until a real counter delta exists.
+        try:
+            cpu_total = sum(float(row[column]) for column in (
+                "cpu_user_pct", "cpu_system_pct", "cpu_iowait_pct",
+                "cpu_idle_pct", "cpu_steal_pct",
+            ))
+        except (KeyError, ValueError):
+            cpu_total = None
         for column, name in mapping.items():
+            if (
+                name.startswith("cpu.")
+                and cpu_total is not None
+                and cpu_total < 50.0
+            ):
+                continue
             try:
                 value = float(row[column])
             except (KeyError, ValueError):

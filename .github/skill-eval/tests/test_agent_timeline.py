@@ -214,6 +214,27 @@ class Sanitization(unittest.TestCase):
             )
         self.assertEqual(metrics[0]["timestamp_us"], 1_785_618_000_000_000)
 
+    def test_system_priming_row_does_not_report_impossible_zero_cpu(self):
+        with tempfile.TemporaryDirectory() as td:
+            csv_path = Path(td) / "system.csv"
+            csv_path.write_text(
+                "timestamp_ns,cpu_count,cpu_user_pct,cpu_system_pct,"
+                "cpu_iowait_pct,cpu_idle_pct,cpu_steal_pct,load_1m,load_5m,"
+                "load_15m,mem_used_mib,mem_available_mib,mem_total_mib,"
+                "swap_used_mib,swap_total_mib\n"
+                "1785621600000000000,16,0,0,0,0,0,1,2,3,100,900,1000,0,0\n"
+                "1785621610000000000,16,20,5,1,74,0,1,2,3,110,890,1000,0,0\n"
+            )
+            metrics = mod._system_metrics(
+                csv_path, {"started_at": 1_785_618_000.0}
+            )
+        cpu = [metric for metric in metrics if metric["name"].startswith("cpu.")]
+        memory = [metric for metric in metrics if metric["name"] == "memory.used"]
+        self.assertEqual(len(cpu), 5)
+        self.assertEqual({metric["timestamp_us"] for metric in cpu},
+                         {1_785_618_010_000_000})
+        self.assertEqual(len(memory), 2)
+
     def test_metadata_is_field_allowlisted_not_merely_redacted(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
