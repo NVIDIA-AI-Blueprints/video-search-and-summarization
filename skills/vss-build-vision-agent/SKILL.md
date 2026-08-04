@@ -57,7 +57,7 @@ Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until 
 
 **Q1 — Starting point.** *"How would you like to start?"*
 
-- **Deploy a pre-built workflow** *(recommended for a first run / quickstart)* — a ready-made, validated VSS developer profile. Fastest path to a running system; no composition needed. Deploys as-is; you can customize it afterward.
+- **Deploy a pre-built workflow** *(recommended for a first run / quickstart)* — Choose from a ready-made, validated VSS developer profile. Fastest path to a running system; no composition needed. Deploys as-is; you can customize it afterward.
 - **Build a custom configuration** — pick the specific vision capabilities you need and let the skill compose the smallest delta overlay for them.
 
 ### Mode: Pre-built workflow (quickstart)
@@ -66,10 +66,13 @@ The recommended first-run path. Deploys a validated upstream developer profile *
 
 | Option | Capability | Profile |
 |---|---|---|
-| **Base** | Streaming + on-demand dense captioning | `base` |
-| **Alerts** | VLM real-time alerting on top of base | `alerts` |
+| **Base** | VLM dense captioning and Q&A | `base` |
+| **Alerts** | VLM real-time alerting | `alerts` (`2d_vlm`) |
+| **Alert Verification** | Object detection with analytics and VLM event contextualization | `alerts` (`2d_cv`) |
 | **Video Summarization** | Time-windowed video summaries | `lvs` |
-| **Search** | Detection + embeddings + agentic search | `search` |
+| **Search** | Object and video embeddings + agentic search | `search` |
+
+> **Alerts vs. Alert Verification.** Both are modes of the single `alerts` developer profile, selected by the profile's `MODE` knob: `2d_vlm` (continuous RT-VLM inspection + real-time alert APIs) vs `2d_cv` (RT-CV detection + behavior analytics + VLM verification + incidents). Each has its own checked-in `COMPOSE_PROFILES` set in `dev-profile-alerts/overrides.env`, so selecting the mode is still a stock deployment, not a delta.
 
 These are **predefined developer profiles**, so the skill does **not** compute a delta and does **not** create a `_build`. It: (1) maps the selection to the profile above; (2) runs the applicable prerequisite / credential / NGC checks (`references/prerequisites.md`, `references/credentials.md`, `references/ngc.md`); (3) deploys the profile **as-is** in **Stock mode** (per the Routing table) against the unmodified `deploy/docker/` tree; (4) runs the profile's readiness checks (`references/readiness.md`) and reports; (5) **offers to customize**.
 
