@@ -399,7 +399,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
+| RTX PRO 4500 Blackwell | `RTXPRO4500` — 32 GB; see [alerts.md § RTX PRO 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -826,7 +826,7 @@ SAMPLE_VIDEO_DATASET="<dataset-name>"
 NUM_STREAMS=<3|4>
 
 # --- Hardware ---
-# Valid: H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK
+# Valid: H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO4500BW, IGX-THOR, DGX-SPARK
 HARDWARE_PROFILE=H100
 
 # GPU device IDs (defaults shown — change only if you need a non-default layout)
