@@ -1853,8 +1853,17 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
     app.logger.info("Provision Stream Redis")
     obj = redisMsging.getIdPodMapping(wl_id)
     wobj = cfg.getworkLoadSpecById(wl_id)
-    if obj is not None and wobj is not None and len(wobj) > 0:
-        app.logger.info("%s is already provisioned", wl_id)
+    if wobj is not None and len(wobj) > 0:
+        # Spec entry means placed or in-flight reserved (async add may not have
+        # written the route mapping yet). Do not reserve or add-stream again.
+        if obj is not None:
+            app.logger.info("%s is already provisioned", wl_id)
+        else:
+            app.logger.info(
+                "%s has workload-spec entry without route mapping — skipping "
+                "re-add (in-flight reservation or orphan; wait for add/rollback)",
+                wl_id,
+            )
         return
 
     ignore_regex = app.config["WDM_WL_NAME_IGNORE_REGEX"]
@@ -1955,14 +1964,10 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                         podInfoItm["podName"],
                         wl_id,
                     )
-                    podMapping = redisMsging.getIdPodMapping(wl_id)
-                    podDnsMapping = redisMsging.getIdPodPodDnsMapping(
-                        podInfoItm["podName"]
-                    )
-                    if podDnsMapping is None or podMapping is None:
-                        cfg.deleteFromWorkLoadSpec(
-                            podInfoItm["podName"], wl_id
-                        )
+                    # Do not delete workload-spec entries just because route
+                    # mappings are briefly absent: an async provision may have
+                    # reserved the slot before writing mappings. Failed adds roll
+                    # the reservation back on their own failure paths.
                     spec_count = cfg.getSpecCount(podInfoItm["podName"])
                     if spec_count >= threshold:
                         continue
@@ -1988,9 +1993,19 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                         cand_pod, cand_count, cand_wl_spec = _select_pod_from_candidates(
                             candidates, assigning_method
                         )
-                        if cfg.tryReserveWorkLoadSpec(
+                        reserve_result = cfg.tryReserveWorkLoadSpec(
                             cand_pod["podName"], originalJson, threshold
-                        ):
+                        )
+                        if reserve_result == "already_held":
+                            # Stream id already on this pod (in-flight or placed).
+                            # Do not re-run add-stream provision.
+                            app.logger.info(
+                                "stream_updates - %s stream %s already held on "
+                                "pod=%s — skipping re-add",
+                                wl_object_name, wl_id, cand_pod["podName"],
+                            )
+                            return True
+                        if reserve_result:
                             selected_pod = cand_pod
                             selected_wl_spec = cand_wl_spec
                             app.logger.info(

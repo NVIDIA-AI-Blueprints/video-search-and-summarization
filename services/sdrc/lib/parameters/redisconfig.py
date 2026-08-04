@@ -351,21 +351,28 @@ class redisconfig:
     def deleteFromWorkLoadSpec(self, pod_name, id):
         logger.info("delete Workload Spec {} {}".format(pod_name, id))
         try:
-            if self.wl_spec is None or pod_name not in self.wl_spec:
-                logger.info("{} not found".format(pod_name))
-                return
-            else:
-                logger.info("{} found id: {}".format(pod_name, id))
-            current = self.wl_spec.get(pod_name)
-            d = self._decode_wl_spec_field(current)
-            o = list(
-                filter(
-                    lambda itm: itm[self.even_obj][self.id_field] != id, d
-                )
-            )
-            new_value = json.dumps(o, indent=4)
+            # Read-modify-write under the same lock as reserve/add so a concurrent
+            # append is not wiped by an hset built from a stale in-memory cache.
             with self._workload_spec_lock_hold():
-                self.redis_connection.hset(self.wl_spec_obj, pod_name, new_value)
+                raw = self.redis_connection.hget(self.wl_spec_obj, pod_name)
+                if raw is None:
+                    logger.info("{} not found".format(pod_name))
+                else:
+                    logger.info("{} found id: {}".format(pod_name, id))
+                    streams = self._decode_wl_spec_field(raw)
+                    kept = [
+                        itm
+                        for itm in streams
+                        if not (
+                            isinstance(itm, dict)
+                            and itm.get(self.even_obj, {}).get(self.id_field) == id
+                        )
+                    ]
+                    self.redis_connection.hset(
+                        self.wl_spec_obj,
+                        pod_name,
+                        json.dumps(kept, indent=4),
+                    )
             self._loadWorkLoadSpec()
         except Exception as e:
             logger.info("error in deleteFromWorkLoadSpec: " + str(e))
@@ -382,20 +389,39 @@ class redisconfig:
         The capacity check and the append share one hold of the workload-spec lock and
         read from Redis rather than the in-process cache, so a placement decision cannot
         interleave with another add for the same pod (including from another replica).
-        Returns True when the slot was reserved, False when the pod is already full.
+
+        Returns:
+            True: a new slot was reserved on this pod.
+            False: the pod is already at threshold (try another candidate).
+            "already_held": this stream id is already present on this pod — do not
+                append again and do not re-run add-stream provision.
         """
         reserved = self._append_stream_locked(
             pod_name, originalData, threshold=threshold
         )
         self._loadWorkLoadSpec()
-        if not reserved:
+        if reserved is False:
             logger.info(
                 "Reservation refused: pod %s already holds %s stream(s) (wl_spec_obj=%s)",
                 pod_name,
                 threshold,
                 self.wl_spec_obj,
             )
+        elif reserved == "already_held":
+            logger.info(
+                "Reservation skipped: stream already present on pod %s (wl_spec_obj=%s)",
+                pod_name,
+                self.wl_spec_obj,
+            )
         return reserved
+
+    def _stream_id_from_entry(self, entry):
+        if not isinstance(entry, dict):
+            return None
+        event = entry.get(self.even_obj)
+        if not isinstance(event, dict):
+            return None
+        return event.get(self.id_field)
 
     def _append_stream_locked(self, pod_name, originalData, threshold=None):
         """Read-modify-write one pod field inside the workload-spec lock.
@@ -403,12 +429,20 @@ class redisconfig:
         Reading the field under the same lock that guards the write is what makes
         concurrent adds to the same pod safe; reading self.wl_spec beforehand loses
         updates when two adds interleave.
+
+        Returns True on append, False when threshold blocks the write, or
+        ``"already_held"`` when the stream id is already on this pod (no duplicate).
         """
         entry = json.loads(json.dumps(originalData))
+        stream_id = self._stream_id_from_entry(entry)
         with self._workload_spec_lock_hold():
             streams = self._decode_wl_spec_field(
                 self.redis_connection.hget(self.wl_spec_obj, pod_name)
             )
+            if stream_id is not None:
+                for existing in streams:
+                    if self._stream_id_from_entry(existing) == stream_id:
+                        return "already_held"
             if threshold is not None and len(streams) >= threshold:
                 return False
             streams.append(entry)
