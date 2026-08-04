@@ -217,11 +217,21 @@ spec:
             - name: RTVI_RTSP_RECONNECTION_WINDOW
               value: {{ .Values.rtspReconnectionWindow | quote }}
             - name: ASSET_DOWNLOAD_CONNECT_TIMEOUT
-              value: "10"
+              value: {{ .Values.assetDownloadConnectTimeout | default "10" | quote }}
             - name: ASSET_DOWNLOAD_TOTAL_TIMEOUT
-              value: "300"
+              value: {{ .Values.assetDownloadTotalTimeout | default "300" | quote }}
             - name: ASSET_DOWNLOAD_MAX_FILE_SIZE_GB
               value: {{ .Values.assetDownloadMaxFileSizeGb | default 8 | quote }}
+            - name: ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS
+              value: {{ .Values.assetDownloadSslSkipVerifyDomains | default "" | quote }}
+            - name: ASSET_DOWNLOAD_MAX_REDIRECTS
+              value: {{ .Values.assetDownloadMaxRedirects | default "0" | quote }}
+            - name: FILE_URL_ALLOWED_DIRS
+              value: {{ .Values.fileUrlAllowedDirs | default "" | quote }}
+            - name: MAX_ASSET_STORAGE_SIZE_GB
+              value: {{ .Values.maxAssetStorageSizeGb | default "" | quote }}
+            - name: ASSET_MAX_AGE_HOURS
+              value: {{ .Values.assetMaxAgeHours | default "0" | quote }}
             - name: ERROR_MESSAGE_TOPIC
               value: "vision-embed-errors"
           startupProbe:

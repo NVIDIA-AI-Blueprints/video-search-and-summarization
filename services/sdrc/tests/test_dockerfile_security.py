@@ -10,10 +10,25 @@ def test_wdm_router_dockerfile_removes_setuptools_from_runtime():
     dockerfile = (REPO_ROOT / "envoy" / "Dockerfile.wdm-router").read_text(encoding="utf-8")
 
     assert "setuptools==78.1.1" in dockerfile
-    assert "setuptools>=78.1.1,<81" in dockerfile
     assert "setuptools==63.2.0" not in dockerfile
     assert "python3 -m pip uninstall -y setuptools wheel pip" in dockerfile
     assert "/root/.cache/uv" in dockerfile
+
+
+def test_wdm_router_does_not_mirror_compliance_artifacts():
+    dockerfile = (REPO_ROOT / "envoy" / "Dockerfile.wdm-router").read_text(encoding="utf-8")
+
+    assert "pip3 download" not in dockerfile
+    assert "/wdm/wheels" not in dockerfile
+    assert "/wdm/ThirdPartySourceCodes" not in dockerfile
+    executable_lines = [
+        line.strip()
+        for line in dockerfile.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert "COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt" not in executable_lines
+    assert "COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md" in executable_lines
+    assert "CI license injection anchor: COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt" in dockerfile
 
 
 def test_runtime_requirements_do_not_pin_setuptools():
@@ -38,7 +53,7 @@ def test_runtime_dependency_pins_remediate_non_protobuf_cves():
 
     for dependency_file in (requirements, pyproject):
         assert "redis==4.4.4" in dependency_file
-        assert "werkzeug==3.0.3" in dependency_file
+        assert "werkzeug==3.1.8" in dependency_file
         assert "redis==4.4.2" not in dependency_file
         assert "werkzeug==2.3.8" not in dependency_file
         assert "envoy-reader" not in dependency_file

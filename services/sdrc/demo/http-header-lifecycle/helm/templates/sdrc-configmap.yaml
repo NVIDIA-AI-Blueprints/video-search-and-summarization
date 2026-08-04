@@ -1,0 +1,20 @@
+# yamllint disable-file
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $infra := index .Values "infra" | default dict }}
+{{- $sdrc := index $infra "sdrc" | default dict }}
+{{- $config := index $sdrc "config" | default dict }}
+{{- if and (index $infra "enabled" | default false) (index $sdrc "enabled" | default false) }}
+{{- $configPath := index $sdrc "configFilePath" | default "configs/sdrc/config.yml" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ required "infra.sdrc.config.configMapName is required" (index $config "configMapName") }}
+  labels:
+    app.kubernetes.io/name: sdrc
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  {{ index $config "key" | default "config.yml" }}: |
+{{ required (printf "%s is required when infra.sdrc.enabled=true" $configPath) (tpl (.Files.Get $configPath) .) | nindent 4 }}
+{{- end }}

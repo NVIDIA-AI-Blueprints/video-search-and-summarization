@@ -32,21 +32,12 @@ services:
         condition: service_completed_successfully
 
   nvstreamer-alerts:
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
-    user: "0:0"
+    extends:
+      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      service: nvstreamer-base
     profiles: ["nvstreamer-alerts"]
-    entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst" ]
-    environment:
-      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
-      - ADAPTOR=streamer
-      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 2
     container_name: vss-vios-nvstreamer
     networks:
       default:

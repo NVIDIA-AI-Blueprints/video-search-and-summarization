@@ -27,7 +27,8 @@
 # Dedicated /sdrc listener port: --sdrc-direct-listener-port, else WDM_SDRC_DIRECT_LISTENER_PORT if set and non-empty, else 8010.
 # Static clusters: xds_cluster (REST CDS), sdrc_direct (/sdrc on workload listeners; :{{ sdrc_direct_listener_port }} when no upstream-cluster),
 # and one headerless_service_<slug> per workload with NOHEADERTARGETROUTE=true (endpoints from that workload's HEADERLESS_SERVICE_ENDPOINTS).
-# /sdrc → sdrc_direct (no upstream-cluster required; wl_obj prefix_rewrite). Other paths require upstream-cluster (Lua) → CDS; else 503.
+# Configured HTTP lifecycle paths and /sdrc → sdrc_direct (no upstream-cluster required; wl_obj prefix_rewrite).
+# Other paths require upstream-cluster (Lua) → CDS; else 503.
 #
 # Per-listener Lua (envoy_xds_mw.lua.j2): X-WL-OBJECT-NAME defaults to that workload's wl_obj_name from config.yml.
 
@@ -114,6 +115,28 @@ static_resources:
                     - name: {{ wl.vhost_name }}
                       domains: ["*"]
                       routes:
+{% for route in wl.lifecycle_routes %}
+                        - name: {{ route.route_name }}
+                          match:
+                            safe_regex:
+                              google_re2: {}
+                              regex: {{ route.path_regex | tojson }}
+                            headers:
+                              - name: ":method"
+                                exact_match: {{ route.method | tojson }}
+                          route:
+                            cluster: sdrc_direct
+                            timeout: {{ wl.envoy_route_timeout }}
+                            regex_rewrite:
+                              pattern:
+                                google_re2: {}
+                                regex: {{ route.path_regex | tojson }}
+                              substitution: {{ route.rewrite_path | tojson }}
+                          typed_per_filter_config:
+                            envoy.filters.http.grpc_http1_reverse_bridge:
+                              "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_http1_reverse_bridge.v3.FilterConfigPerRoute
+                              disabled: true
+{% endfor %}
                         - match:
                             prefix: "/sdrc"
                           route:

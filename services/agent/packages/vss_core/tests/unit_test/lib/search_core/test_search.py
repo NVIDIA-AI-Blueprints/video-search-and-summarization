@@ -469,7 +469,9 @@ class TestInputValidation:
 class TestTopKOverflow:
     @pytest.mark.asyncio
     async def test_embed_path_high_top_k_does_not_error_and_clamps_overfetch(self):
-        # Search sends the requested limit directly.
+        # Merging is on, so the fetch is doubled for headroom and then clamped
+        # to the downstream bound -- 750 -> 1500 -> 1000 -- which is what stops
+        # the doubling from tripping the `le=1000` field constraint.
         embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", similarity=0.8)])])
         out = await _run(
             SearchInput(query="q", source_type="video_file", top_k=750),
@@ -478,7 +480,42 @@ class TestTopKOverflow:
         )
         assert len(out.data) == 1
         sent = json.loads(embed.calls[0])
-        assert sent["params"]["top_k"] == "750"
+        assert sent["params"]["top_k"] == "1000"
+
+    @pytest.mark.asyncio
+    async def test_merging_adjacent_windows_still_returns_top_k(self):
+        """Asking for N results returns N even when every window is adjacent.
+
+        Merging runs after retrieval, so fetching exactly ``top_k`` guaranteed
+        a short result set: ten contiguous 5s windows collapse to five. Against
+        a live deployment this made ``--top-k 10`` return 7.
+        """
+        # Five pairs, each pair adjacent and separated from the next by a gap,
+        # so merging halves ten hits into exactly five results.
+        items = []
+        for pair in range(5):
+            base = pair * 20
+            for offset in (0, 5):
+                start = base + offset
+                items.append(
+                    _embed_item(
+                        video_name="v1",
+                        similarity=0.9 - len(items) * 0.01,
+                        start=f"2025-01-01T00:00:{start:02d}Z",
+                        end=f"2025-01-01T00:00:{start + 5:02d}Z",
+                    )
+                )
+        embed = _FakeEmbed([_embed_output(items)])
+        out = await _run(
+            SearchInput(query="q", source_type="video_file", top_k=5),
+            embed_search=embed,
+            config=_config(),
+        )
+
+        # Fetching exactly 5 would leave 3 results after merging; fetching 10
+        # leaves 5. The doubled request is what makes the count survive.
+        assert json.loads(embed.calls[0])["params"]["top_k"] == "10"
+        assert len(out.data) == 5
 
     def test_coerce_embed_payload_maps_validation_error(self):
         with pytest.raises(InvalidInputError):
