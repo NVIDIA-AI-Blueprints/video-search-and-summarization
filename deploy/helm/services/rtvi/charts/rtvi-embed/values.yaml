@@ -65,6 +65,11 @@ redisPort: "6379"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
 modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
 modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+remoteEmbedEndpoint: ""
+remoteEmbedEndpointModelName: "nvidia/cosmos-embed1"
+remoteEmbedEndpointApiKey: ""
+remoteEmbedEndpointTimeoutSec: "300"
+remoteEmbedEndpointBatchSize: "64"
 logLevel: "INFO"
 enableOtelMonitoring: false
 enableRedisErrorMessages: false
