@@ -354,12 +354,17 @@ verification. Never port-forward Elasticsearch for this check.
    - If the source is absent, do not test or invoke the search CLI; clarification
      is the final action for that request.
 
-   Carry forward both the matched source's `sensorId` and its name, then pass the one
-   the CLI actually matches for the chosen path and source type: for **`video_file`**,
-   the `sensorId` for `embed`/`fusion` and the name for `attribute`/`object`; for
-   **`rtsp`**, the name for every path. The CLI does no name↔id translation — embed
-   keys on the `sensorId`, behavior and raw on the name — so the wrong identifier
+   Carry forward the matched source's `sensorId` and its name. Which to pass is
+   **mode-dependent, not source-type-dependent**: `embed`/`fusion` take the **`sensorId`**
+   (the embed index keys on it; `fusion` reverse-resolves it to the name for its attribute
+   leg); `attribute`/`object` take the **name** (behavior/raw key on the name) — for both
+   `video_file` and `rtsp`. The CLI does no name↔id translation, so the wrong identifier
    silently returns nothing.
+
+   `--source-type` is a **separate axis**: it picks the index/date partition, not the
+   identifier — `video_file` = the uploaded-file index (`2025-01-01` timeline), `rtsp` = the
+   live dated indices. Query a **live stream with `--source-type rtsp`**; `video_file` reads
+   the upload partition and silently returns zero even with the right `--video-source`.
 
 3. Preserve the requested object/action, source, time bounds, result limit, and
    attributes as explicit CLI fields. Pick the path: `--query` only →
@@ -374,16 +379,18 @@ verification. Never port-forward Elasticsearch for this check.
    `run fusion --query "person in a red jacket running" --attribute "red jacket"`.
 4. Run the search. The CLI matches `--video-source` **literally** against the index
    and does **no** name↔id resolution against VST, so pass the identifier resolved in
-   step 2 for the chosen path and source type. See [CLI usage](references/cli_usage.md)
+   step 2 for the chosen path, and set `--source-type` to the source's partition
+   (`video_file` for uploads, `rtsp` for live streams). See [CLI usage](references/cli_usage.md)
    for the full flag reference. Put the complete invocation in a `SEARCH_COMMAND` array,
    then capture and validate its exact stdout:
 
    ```bash
    : "${SEARCH_PATH:?set embed|attribute|fusion|object}"
    TOP_K="${TOP_K:-3}"
-   # VIDEO_SOURCES: identifiers resolved in step 2 — sensorId(s) for embed/fusion on
-   # video_file, name(s) otherwise. Leave EMPTY to search across all sources; add one
-   # entry per source to scope to several. Each becomes a repeated --video-source.
+   # VIDEO_SOURCES: identifiers resolved in step 2 — sensorId(s) for embed/fusion,
+   # name(s) for attribute/object (both source types). Leave EMPTY to search across all
+   # sources; add one entry per source to scope to several. Each becomes a repeated
+   # --video-source. Set --source-type to the source's partition (video_file | rtsp).
    VIDEO_SOURCES=( )   # e.g. ( "$SENSOR_ID" ) or ( "$NAME_A" "$NAME_B" )
    SEARCH_COMMAND=(
      uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev
@@ -692,16 +699,18 @@ VSS="uv run --project ${VSS_REPO_ROOT}/services/agent --no-dev vss"
 # One-time, after any deployment change
 ${VSS} configure --base-url "${VSS_ORIGIN}"
 
-# Embed: text matched against video-chunk embeddings. For video_file, --video-source
-# is the source's sensorId (embed keys on it); for rtsp it is the name. See step 2.
+# Embed: text matched against video-chunk embeddings. --video-source is the source's
+# sensorId for both video_file and rtsp (the embed index keys on it). Set --source-type
+# to the source's partition: video_file (uploads) or rtsp (live streams). See step 2.
 ${VSS} search run embed \
-  --query "red forklift near a loading bay" --video-source "<sensorId>" --top-k 3 --raw
+  --query "red forklift near a loading bay" --video-source "<sensorId>" \
+  --source-type video_file --top-k 3 --raw
 
-# Fusion: the same retrieval, re-ranked by attribute evidence (embed leg keys on the
-# same sensorId as `embed`)
+# Fusion: the same retrieval, re-ranked by attribute evidence. Pass the sensorId (the
+# embed leg keys on it; fusion reverse-resolves it to the name for the attribute leg).
 ${VSS} search run fusion \
   --query "person climbing a ladder" --attribute "white jacket" \
-  --video-source "<sensorId>" --top-k 3 --raw
+  --video-source "<sensorId>" --source-type video_file --top-k 3 --raw
 ```
 
 `run attribute` and `run object` take `--attribute` / `--object-id` in place of
