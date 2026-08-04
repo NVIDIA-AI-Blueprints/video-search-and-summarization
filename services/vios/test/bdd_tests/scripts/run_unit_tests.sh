@@ -29,8 +29,7 @@
 #                               APIs are proxied through the gateway)
 #
 # These three match the containers the stream-processing compose deploys
-# (sensor-ms, streamprocessing-ms, vst-ingress). mcp_gateway is intentionally not
-# grouped here -- vst-mcp is not part of this stack.
+# (sensor-ms, streamprocessing-ms, vst-ingress).
 #
 # Usage:
 #   ./scripts/run_unit_tests.sh [--base-url http://host:30888]

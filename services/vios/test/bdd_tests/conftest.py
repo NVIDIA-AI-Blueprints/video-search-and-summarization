@@ -264,20 +264,12 @@ def perf_iterations(request, config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Reorder tests and skip mcp_gateway tests unless explicitly selected.
-
-    MCP gateway tests require the vios-mcp container which is not always
-    deployed.  They are skipped by default and can be included with:
-        pytest -m mcp_gateway
-    """
-    # Skip mcp_gateway tests unless the user explicitly selected them via -m
+    """Reorder tests and skip opt-in tests unless explicitly selected."""
     markexpr = config.getoption("-m", default="")
-    run_mcp = "mcp_gateway" in markexpr
     run_longrun = "longrun" in markexpr
     run_iptables = "needs_iptables" in markexpr
     run_bbox = "needs_bbox_metadata" in markexpr
 
-    skip_mcp = pytest.mark.skip(reason="MCP gateway tests skipped by default (use -m mcp_gateway)")
     skip_longrun = pytest.mark.skip(reason="Long-running test skipped by default (use -m longrun)")
     skip_iptables = pytest.mark.skip(reason="Test requires iptables/privileged runner (use -m needs_iptables)")
     skip_bbox = pytest.mark.skip(reason="Test requires stored bbox metadata (use -m needs_bbox_metadata)")
@@ -291,8 +283,6 @@ def pytest_collection_modifyitems(config, items):
     rest = []
 
     for item in items:
-        if not run_mcp and item.get_closest_marker("mcp_gateway"):
-            item.add_marker(skip_mcp)
         if not run_longrun and item.get_closest_marker("longrun"):
             item.add_marker(skip_longrun)
         if not run_iptables and item.get_closest_marker("needs_iptables"):

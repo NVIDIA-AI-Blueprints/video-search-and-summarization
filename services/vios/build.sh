@@ -31,7 +31,6 @@ INGRESS=0
 NVSTREAMER_INGRESS=0
 NVSTREAMER=0
 VSTMONOLITH=0
-MCP=0
 NO_CACHE=0
 BASE_IMAGE=0
 BASE_TAG=""
@@ -117,7 +116,6 @@ show_help() {
     echo "  streamprocessing-app Build k8s based streamprocessing-app (sensor, streamprocessing, postgres, ingress)"
     echo "  ingress            Build ingress container needed for scaling-app"
     echo "  nvstreamer-ingress Build nvstreamer ingress container for scaling-app"
-    echo "  mcp                Build MCP (Model Context Protocol) gateway container"
     echo "  clean              clean the earlier builds, similar to 'make clean'"
     echo "  debug              debug build"
     echo "  tests              build and run unit tests (optionally with module=<module>)"
@@ -143,7 +141,6 @@ show_help() {
     echo "  ./build.sh container module=sensor,rtspserver,recorder,livestream,replaystream,storage,streambridge,streamprocessing push=1"
     echo "  ./build.sh container ingress push=1"
     echo "  ./build.sh container nvstreamer-ingress push=1"
-    echo "  ./build.sh container mcp push=1"
     echo "  ./build.sh container module=streamprocessing push=1"
     echo ""
     echo "  # Orin/Jetson build the same unified aarch64 image (alias for arch=aarch64):"
@@ -180,7 +177,6 @@ show_help() {
     echo "  ./build.sh container nvstreamer push=1"
     echo "  ./build.sh container vst-monolith push=1"
     echo "  ./build.sh container vst-monolith no-cache"
-    echo "  ./build.sh container mcp push=1"
     echo ""
     echo "Base Image Strategy (default for faster builds):"
     echo "  ./build.sh base-container base-tag=<base-tag> push=1   # Build and push base image with specific tag"
@@ -295,7 +291,6 @@ while [[ "$#" -gt 0 ]]; do
         nvstreamer) NVSTREAMER=1;;
         ingress) INGRESS=1;;
         nvstreamer-ingress) NVSTREAMER_INGRESS=1;;
-        mcp) MCP=1;;
         clean) CLEAN=1;;
         debug) DEBUG=1;;
         tests) TESTS=1;;
@@ -365,7 +360,6 @@ echo "STREAMPROCESSING-APP=$STREAMPROCESSINGAPP"
 echo "NVSTREAMER-APP=$NVSTREAMERAPP"
 echo "NVSTREAMER-INGRESS=$NVSTREAMER_INGRESS"
 echo "NVSTREAMER=$NVSTREAMER"
-echo "MCP=$MCP"
 echo "VSTMONOLITH=$VSTMONOLITH"
 echo "NO_CACHE=$NO_CACHE"
 echo "BASE_IMAGE=$BASE_IMAGE"
@@ -385,7 +379,6 @@ declare -A DEFAULT_TAGS=(
     [streamprocessing]="latest"
     [ingress]="latest"
     [nvstreamer-ingress]="latest"
-    [mcp]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
     [vst-base]="2.1.0-runtime-26.07.1"
@@ -1583,8 +1576,7 @@ fi
 # Base image is only needed when actually building module containers.
 # build_base_image / clean / package / default-compile do not need it.
 if [[ $CONTAINER -eq 1 ]] && [[ $BASE_IMAGE -eq 0 ]] \
-   && [[ $INGRESS -eq 0 ]] && [[ $NVSTREAMER_INGRESS -eq 0 ]] \
-   && [[ $MCP -eq 0 ]]; then
+   && [[ $INGRESS -eq 0 ]] && [[ $NVSTREAMER_INGRESS -eq 0 ]]; then
     ensure_base_image
 fi
 
@@ -1677,21 +1669,6 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
             else
                 docker buildx build -t $imagename --load .
             fi
-            cd - || exit 1
-            exit 0
-        fi
-
-        if [[ $MCP -eq 1 ]]; then
-            echo "Build MCP container"
-            if [[ -n "$TAG" ]]; then
-                imagename="$IMAGE_REGISTRY/vst-mcp:${TAG}"
-            else
-                TAG=${DEFAULT_TAGS[mcp]:-"latest"}
-                imagename="$IMAGE_REGISTRY/vst-mcp:${TAG}"
-            fi
-            cd mcp/ || exit 1
-            echo "Building Docker image: $imagename"
-            docker buildx build --platform linux/amd64,linux/arm64 -t $imagename --push .
             cd - || exit 1
             exit 0
         fi

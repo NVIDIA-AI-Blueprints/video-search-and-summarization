@@ -197,24 +197,6 @@ If SDR logs show `wl_d is None` for a sensor event, SDR received a `camera_add`/
 
 ## BDD Test Issues
 
-### MCP gateway tests all fail with `ConnectError` to `localhost:8001`
-
-`test/bdd_tests/config.json` has `api.base_url` pointing to `localhost:30888`. The MCP URL is derived from this at fixture setup, so it resolves to `localhost:8001` instead of the real host.
-
-The deploy and test skills now auto-sync this file. If it still happens, run manually:
-```bash
-python3 - <<EOF
-import json
-with open("test/bdd_tests/config.json") as f:
-    config = json.load(f)
-config["api"]["base_url"] = "<BASE_URL>"
-with open("test/bdd_tests/config.json", "w") as f:
-    json.dump(config, f, indent=2)
-EOF
-```
-
----
-
 ### All tests fail with `ConnectionRefusedError`
 
 VIOS is not reachable from the test runner.

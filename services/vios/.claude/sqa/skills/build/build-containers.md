@@ -31,8 +31,6 @@ Which modules to build depends on the deployment target:
 
 > **`--target all` deploys NVStreamer + stream-processor** — the same containers as the default target plus NVStreamer. Use this flag when you want to be explicit about deploying both services together.
 
-`mcp` is never built — it takes too long and the pre-built image is used at deploy time.
-
 `streambridge` is unused and never built.
 
 ---
@@ -131,8 +129,6 @@ cd <PROJECT_ROOT>
 # Ingress is another container (skip ingress entirely for nvstreamer-only target)
 ./build.sh container ingress
 ```
-
-> **Do not build the MCP container** — `./build.sh container mcp` is intentionally skipped. It takes too long and the pre-built image is used instead.
 
 ---
 
