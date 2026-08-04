@@ -159,7 +159,7 @@ class Config(object):
         os.environ["WDM_WL_ASSIGNING_METHOD"].strip().lower()
         if "WDM_WL_ASSIGNING_METHOD" in os.environ
         and os.environ["WDM_WL_ASSIGNING_METHOD"].strip() != ""
-        else "lru_round_robin"
+        else "sequential"
     )
 
     WDM_CONFIG_URL = (
