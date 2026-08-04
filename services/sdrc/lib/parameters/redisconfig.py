@@ -351,24 +351,46 @@ class redisconfig:
     def deleteFromWorkLoadSpec(self, pod_name, id):
         logger.info("delete Workload Spec {} {}".format(pod_name, id))
         try:
-            if self.wl_spec is None or pod_name not in self.wl_spec:
-                logger.info("{} not found".format(pod_name))
-                return
-            else:
-                logger.info("{} found id: {}".format(pod_name, id))
-            current = self.wl_spec.get(pod_name)
-            d = self._decode_wl_spec_field(current)
-            o = list(
-                filter(
-                    lambda itm: itm[self.even_obj][self.id_field] != id, d
-                )
-            )
-            new_value = json.dumps(o, indent=4)
             with self._workload_spec_lock_hold():
-                self.redis_connection.hset(self.wl_spec_obj, pod_name, new_value)
+                current = self.redis_connection.hget(self.wl_spec_obj, pod_name)
+                if current is None:
+                    logger.info("{} not found".format(pod_name))
+                    return
+                logger.info("{} found id: {}".format(pod_name, id))
+                streams = self._decode_wl_spec_field(current)
+                remaining = list(
+                    filter(
+                        lambda itm: itm[self.even_obj][self.id_field] != id,
+                        streams,
+                    )
+                )
+                self.redis_connection.hset(
+                    self.wl_spec_obj, pod_name, json.dumps(remaining, indent=4)
+                )
             self._loadWorkLoadSpec()
         except Exception as e:
             logger.info("error in deleteFromWorkLoadSpec: " + str(e))
+
+    def tryReserveWorkLoadSpec(self, pod_name, originalData, threshold):
+        """Atomically append a stream when the pod still has capacity."""
+        stream_id = originalData[self.even_obj][self.id_field]
+        with self._workload_spec_lock_hold():
+            current = self.redis_connection.hget(self.wl_spec_obj, pod_name)
+            streams = self._decode_wl_spec_field(current)
+            if any(
+                stream.get(self.even_obj, {}).get(self.id_field) == stream_id
+                for stream in streams
+                if isinstance(stream, dict)
+            ):
+                return "already_held"
+            if len(streams) >= threshold:
+                return False
+            streams.append(copy.deepcopy(originalData))
+            self.redis_connection.hset(
+                self.wl_spec_obj, pod_name, json.dumps(streams, indent=4)
+            )
+        self._loadWorkLoadSpec()
+        return True
 
     def addWorkLoadSpec(self, pod_name, spec_data, originalData):
         logger.info("add Workload Spec {}".format(pod_name))
