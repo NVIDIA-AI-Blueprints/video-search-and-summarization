@@ -308,6 +308,13 @@ Then verify:
   resolved empty is a blocker: set it and re-resolve, never deploy the empty
   value, since a baked `''` cannot be supplied at deploy time. Keys the mode
   does not require (for example `HF_TOKEN` off edge) may be empty.
+  `validate_resolved_yml.py` enforces this — it fails when `nvcr.io/`/`ngc:`
+  artifacts are present but `NGC_API_KEY`/`NGC_CLI_API_KEY` resolve empty; pass
+  `--required-secret KEY` for other mode-required keys.
+- With an NGC key the non-empty check is necessary but not sufficient: run the
+  `credentials.md` Artifact Entitlement Probes against the exact baked `nvcr.io/`
+  images and `ngc:` paths. A `401`/`403`/missing-repo result is a blocker — a
+  Validate gate on every build, deploy or not.
 - `resolved.yml` contains no stock sentinels such as
   `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
