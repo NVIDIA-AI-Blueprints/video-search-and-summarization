@@ -3,6 +3,11 @@ Feature: VST BBox Overlay Rendering
   replay pictures, and downloaded clips, and that classType filtering is
   case-insensitive.
 
+  # GAP-051 uses a Redis nv.Frame publisher (scripts/overlay/live_publisher.py).
+  # VIOS must have enable_notification_consumer=true and
+  # use_message_broker_consumer=redis with a matching topic (see config.json
+  # tests.bbox_overlay_tests). GAP-050/052 still need stored metadata.
+
   # BDD-GAP-050
   @needs_bbox_metadata
   Scenario Outline: classType filter is case-insensitive
