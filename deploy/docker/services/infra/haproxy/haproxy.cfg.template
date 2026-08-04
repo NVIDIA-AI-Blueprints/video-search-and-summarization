@@ -83,6 +83,26 @@ backend bk_alert_bridge_strip
     server s1 "${ALERT_BRIDGE_SERVICE_HOST}:${ALERT_BRIDGE_PORT}" check resolvers docker init-addr none
 
 # Strip /phoenix like Phoenix examples/reverse-proxy (Traefik stripPrefix); keep PHOENIX_HOST_ROOT_PATH in sync.
+backend bk_elasticsearch_strip
+    http-request replace-path ^/elasticsearch/(.*) /\1
+    http-request replace-path ^/elasticsearch$ /
+    server s1 "${ELASTICSEARCH_SERVICE_HOST}:${ELASTICSEARCH_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_embed_strip
+    http-request replace-path ^/rtvi-embed/(.*) /\1
+    http-request replace-path ^/rtvi-embed$ /
+    server s1 "${RTVI_EMBED_SERVICE_HOST}:${RTVI_EMBED_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_cv_strip
+    http-request replace-path ^/rtvi-cv/(.*) /\1
+    http-request replace-path ^/rtvi-cv$ /
+    server s1 "${RTVI_CV_SERVICE_HOST}:${RTVI_CV_SERVICE_PORT}" check resolvers docker init-addr none
+
+backend bk_rtvi_vlm_strip
+    http-request replace-path ^/rtvi-vlm/(.*) /\1
+    http-request replace-path ^/rtvi-vlm$ /
+    server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
+
 backend bk_phoenix_strip
     http-request replace-path ^/phoenix/(.*) /\1
     http-request replace-path ^/phoenix$ /
@@ -141,6 +161,43 @@ frontend fe_http
     acl p_kibana path /kibana
     acl p_kibana path_beg /kibana/
     use_backend bk_kibana if h_main p_kibana
+
+    # Elasticsearch, method- and path-restricted at the edge. The CLI needs
+    # query access to resolve searches through one origin; it does not need to
+    # administer the cluster, and exposing that through a public ingress would
+    # be a far larger grant than the use case requires.
+    #
+    # Not read-only: the rules below stop PUT/DELETE, cluster-admin paths and
+    # the two-segment mutating operations, but POST is allowed, so
+    # POST /_bulk, /_reindex, /_scripts/<id> and /<index>/_doc still reach ES.
+    # Closing that means deny-by-default with an allowlist of the handful of
+    # operations the CLI uses, not another entry on the denylist.
+    acl p_elasticsearch path /elasticsearch
+    acl p_elasticsearch path_beg /elasticsearch/
+    acl es_read_method method GET HEAD POST OPTIONS
+    acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
+    acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method
+    http-request deny status 403 if h_main p_elasticsearch es_admin_path
+    http-request deny status 403 if h_main p_elasticsearch es_mutating_op
+    use_backend bk_elasticsearch_strip if h_main p_elasticsearch
+
+    # RT-Embed, mounted at the service name so it matches its sibling
+    # /rtvi-cv and the Helm chart, which already calls it rtvi-embed.
+    acl p_rtvi_embed path /rtvi-embed
+    acl p_rtvi_embed path_beg /rtvi-embed/
+    use_backend bk_rtvi_embed_strip if h_main p_rtvi_embed
+
+    acl p_rtvi_cv path /rtvi-cv
+    acl p_rtvi_cv path_beg /rtvi-cv/
+    use_backend bk_rtvi_cv_strip if h_main p_rtvi_cv
+
+    # RT-VLM, mounted at its service name like its two siblings. Profiles that
+    # do not run rtvi-vlm leave the backend DOWN, so the route answers 503 and
+    # `vss configure` records it absent rather than present-but-broken.
+    acl p_rtvi_vlm path /rtvi-vlm
+    acl p_rtvi_vlm path_beg /rtvi-vlm/
+    use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
 
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/
