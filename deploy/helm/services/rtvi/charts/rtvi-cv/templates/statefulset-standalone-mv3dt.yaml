@@ -269,14 +269,7 @@ spec:
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
-        - name: runtime-storage
-          {{- $rs := (.Values.persistence | default dict).runtimeStorage | default dict }}
-          {{- if $rs.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ $rs.existingClaim | default (printf "%s-runtime-storage" (include "vss-rtvi-cv.fullname" .)) }}
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
+
         - name: generated
           emptyDir: {}
         - name: startup-script
