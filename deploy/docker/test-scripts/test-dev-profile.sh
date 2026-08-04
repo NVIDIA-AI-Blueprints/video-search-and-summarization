@@ -2060,6 +2060,58 @@ else
   echo "SKIP: down dry-run honors custom COMPOSE_PROJECT_NAME (base overrides.env not found)"
 fi
 
+# --- Positive: dry-run down tears down each distinct COMPOSE_PROJECT_NAME from generated.env files ---
+_multi_project_specs=("base:vss-base-test" "lvs:vss-base-test" "alerts:vss-alerts-test")
+_multi_project_backups=()
+_multi_project_created=()
+for _multi_project_spec in "${_multi_project_specs[@]}"; do
+  _multi_project_profile="${_multi_project_spec%%:*}"
+  _multi_project_name="${_multi_project_spec#*:}"
+  _multi_project_generated="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_multi_project_profile}/generated.env"
+  if [[ -f "${_multi_project_generated}" ]]; then
+    _multi_project_backup="$(mktemp)"
+    cp "${_multi_project_generated}" "${_multi_project_backup}"
+    CLEANUP_RESTORES+=("${_multi_project_backup}|${_multi_project_generated}")
+    _multi_project_backups+=("${_multi_project_backup}|${_multi_project_generated}")
+  else
+    _multi_project_created+=("${_multi_project_generated}")
+  fi
+  printf 'COMPOSE_PROJECT_NAME=%s\n' "${_multi_project_name}" > "${_multi_project_generated}"
+done
+
+out_file="$(mktemp)"
+err_file="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" down --dry-run > "${out_file}" 2> "${err_file}"
+exit_code=$?
+set -e
+for _multi_project_restore in "${_multi_project_backups[@]}"; do
+  IFS='|' read -r _multi_project_backup _multi_project_generated <<< "${_multi_project_restore}"
+  [[ -f "${_multi_project_backup}" ]] && mv "${_multi_project_backup}" "${_multi_project_generated}"
+done
+for _multi_project_generated in "${_multi_project_created[@]}"; do
+  rm -f "${_multi_project_generated}"
+done
+if [[ ${exit_code} -eq 124 ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (timed out after ${TEST_TIMEOUT}s)"
+  ((TESTS_FAILED++)) || true
+elif [[ ${exit_code} -ne 0 ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (expected exit 0, got ${exit_code})"
+  cat "${out_file}" "${err_file}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+elif [[ "$(grep -Fc '[DRY-RUN] docker compose -p vss-base-test down -v --remove-orphans' "${out_file}")" != "1" ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (vss-base-test not torn down exactly once)"
+  ((TESTS_FAILED++)) || true
+elif [[ "$(grep -Fc '[DRY-RUN] docker compose -p vss-alerts-test down -v --remove-orphans' "${out_file}")" != "1" ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (vss-alerts-test not torn down exactly once)"
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: down dry-run tears down each distinct generated COMPOSE_PROJECT_NAME"
+  ((TESTS_PASSED++)) || true
+fi
+rm -f "${out_file}" "${err_file}"
+
 # --- Positive: warehouse down dry-run honors COMPOSE_PROJECT_NAME from env files ---
 _warehouse_project_overrides="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
 _warehouse_project_generated="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/generated.env"
