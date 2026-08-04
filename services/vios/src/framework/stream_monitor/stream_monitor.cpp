@@ -940,9 +940,19 @@ public:
             {
                 if (m_streamingStarted == false)
                 {
-                    StreamEncParam details;
-                    details.codec = codec;
-                    StreamMonitor::getInstance()->sendStatusEvent(m_uri, STREAM_STATUS_STREAMING, details);
+                    /* With RTSP proxy, registerStreamAsync already posts STREAMING
+                     * before addStream(); emitting again only duplicates recorder /
+                     * RtspStreamStatusCallback work. Keep this path for WebRTC-only
+                     * (needRtspServer == false), where StreamMonitor is the source. */
+                    std::shared_ptr<DeviceManager> deviceManager =
+                        ModuleLoader::getInstance()->getDeviceManagerObject();
+                    if (deviceManager && deviceManager->needRtspServer == false)
+                    {
+                        StreamEncParam details;
+                        details.codec = codec;
+                        StreamMonitor::getInstance()->sendStatusEvent(
+                            m_uri, STREAM_STATUS_STREAMING, details);
+                    }
                     m_streamingStarted = true;
                 }
                 if ((m_ptsFromServer >= 0 && GET_CONFIG().enable_mega_simulation) || m_currentFrameId != -1)

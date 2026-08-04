@@ -107,21 +107,15 @@ namespace
             }
         }
 
-        // Update stream to STREAMING status
+        // STREAMING: for RTSP proxy, registerStreamAsync already set status and
+        // persisted before sendEvent(), so this is usually an early-out.
+        // Fallback below remains for needRtspServer == false (StreamMonitor emits
+        // STREAMING); codec/resolution DB updates come from StreamMonitor's
+        // metadata task, not from this callback.
         for (auto const& stream : streamList)
         {
             if (stream->live_proxy_url == url)
             {
-                if (!details.codec.empty())
-                {
-                    SensorVideoEncoderSettingsValues& enc_values = stream->getvideoEncoderValues();
-                    enc_values.encoding = details.codec;
-                    stream->updateVideoEncoderValues(enc_values, /*updateDB=*/false);
-                    LOG(info) << "RtspStreamStatusListener: Updated codec for stream: "
-                              << stream->name << ", id: " << stream->id
-                              << ", codec: " << details.codec << endl;
-                }
-
                 if (stream->getErrorStatus().first == StreamStatus::STREAM_STATUS_STREAMING)
                 {
                     LOG(info) << "RtspStreamStatusListener: stream "
