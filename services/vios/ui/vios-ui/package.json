@@ -53,7 +53,7 @@
     "moment-timezone": "^0.5.46",
     "notistack": "^3.0.2",
     "react": "^18.3.1",
-    "react-apexcharts": "1.7.0",
+    "react-apexcharts": "^1.9.0",
     "react-compound-slider": "^3.4.0",
     "react-dom": "^18.3.1",
     "react-konva": "^18.2.10",
