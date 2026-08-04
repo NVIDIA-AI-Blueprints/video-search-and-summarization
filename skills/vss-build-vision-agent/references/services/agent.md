@@ -33,10 +33,12 @@ a peer, nothing else reaches the agent, so the whole owner (and the LLM peer onl
 `vss-agent` required) is pruned as unreachable. "Headless" is just the explicit
 name for that pruning, not a separate trigger.
 
-Web UI (`vss-ui`) and tracing (`phoenix`) are independently gated: each is
-reached only by an explicit Web-UI or tracing request, carries no capability
-another service needs, and is never retained merely because `vss-agent` is
-present. Prune either unless itself requested.
+Video-analytics MCP (`vss-va-mcp`), Web UI (`vss-ui`), and tracing (`phoenix`)
+are independently gated: each is reached only by an explicit request for that
+surface, carries no capability another owner needs, and is never retained merely
+because `vss-agent` — or a Foundation that ships it — is present. Prune each
+unless itself requested. The video-analytics MCP is an agent-tier tool surface;
+browsing or operating analytics is served elsewhere and does not reach it.
 
 ## Required peers
 
