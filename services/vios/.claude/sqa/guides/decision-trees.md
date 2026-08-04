@@ -72,9 +72,6 @@ What changed or what needs to be verified?
 ├─ Recording jobs, schedules, retention
 │   └─ tests/unit_tests/stream_recorder/
 │
-├─ MCP gateway / tool integration
-│   └─ tests/unit_tests/mcp_gateway/
-│
 ├─ File upload to VIOS
 │   └─ tests/file_upload/
 │
