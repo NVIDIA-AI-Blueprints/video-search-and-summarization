@@ -110,12 +110,15 @@ PUT http://localhost:<vios-port>/vst/api/v1/storage/file/<filename>?timestamp=20
 ```
 
 `timestamp` anchors the storage timeline (see the date rule). A bare upload stores
-bytes only — no detections or embeddings. URL-taking consumers (RT-CV, RT-Embed) take
-the VIOS `/storage/file/<streamId>` **HTTP** URL (read the timeline first per the date
-rule; params in `integrate-vios-service.md`) — never a filesystem path or `file://`:
-RT-Embed gates `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by default), and RT-CV
-consumes over HTTP too. RT-VLM instead takes the file via `/v1/files` (Step 2), so it
-needs no URL. There is no live proxy on this path.
+bytes only — no detections or embeddings. The URL-taking consumers (RT-Embed, RT-VLM) take
+the VIOS `/storage/file/<streamId>` **HTTP** URL (read the timeline first per the date rule;
+params in `integrate-vios-service.md`): both accept `http`/`https`/`file` but gate `file://`
+behind `FILE_URL_ALLOWED_DIRS` (unset by default), so the HTTP URL is the reliable path.
+RT-VLM takes that URL directly (Step 2) — no pre-upload — or registers it via `/v1/files`.
+**RT-CV is different:** its `camera_url` takes `file://` resolved *inside the RT-CV container*
+or `rtsp://`, not a VIOS HTTP URL — so drive it from the RTSP/live origin, or from a `file://`
+path only when the build mounts the stored bytes into the RT-CV container. There is no live
+proxy on this path.
 
 **Live (RTSP).** Register the RTSP URL — an external camera as-is, or a local file
 served as synthetic RTSP by NvStreamer (stage it into
