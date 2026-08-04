@@ -41,7 +41,7 @@ metadata:
 
 ## Entry Mode (Step 0)
 
-Before routing, detect the **entry mode** — one of three: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (profile catalog, Foundation selection, delta composition, resolution, and deployment); the mode only determines where the flow enters. **Pre-built workflow** is a true fast path — it deploys a validated developer profile as-is in Stock mode with **no delta and no `_build`** — while **Custom build** is a guided front door onto Delta mode.
+Before routing, detect the **entry mode** — one of three: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (profile catalog, Foundation selection, delta composition, resolution, and deployment); the mode only determines where the flow enters. **Pre-built workflow** is a fast path — it deploys a validated developer profile's authoritative service set unchanged in Stock mode (**no capability delta**), still producing a minimal stock `_builds/<name>/` for the shared validate -> deploy -> readiness -> teardown lifecycle — while **Custom build** is a guided front door onto Delta mode.
 
 ### Step 0.0 — Entry-mode detection
 
@@ -62,25 +62,31 @@ Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until 
 
 ### Mode: Pre-built workflow (quickstart)
 
-The recommended first-run path. Deploys a validated upstream developer profile **as-is** via **Stock mode** — no delta, **no `_build`**, no invented flag, and no compose patching. Ask **Q2a (single-select): "Which pre-built workflow do you want to deploy?"** and map the choice to the developer profile:
+The recommended first-run path. Deploys a validated developer profile via **Stock mode** — it keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (**no delta**: no added or removed profile keys, no new service composes), then writes and deploys the standard stock `_builds/<name>/` artifacts like any other build (Steps 5-9). Ask **Q2a (single-select): "Which pre-built workflow do you want to deploy?"** and map the choice to the developer profile:
 
 | Option | Capability | Profile |
 |---|---|---|
 | **Base** | VLM dense captioning and Q&A | `base` |
-| **Alerts** | VLM real-time alerting | `alerts` (`2d_vlm`) |
-| **Alert Verification** | Object detection with analytics and VLM event contextualization | `alerts` (`2d_cv`) |
+| **Alerts** | VLM real-time alerting or alert verification | `alerts` (mode picked in Q2a-mode) |
 | **Video Summarization** | Time-windowed video summaries | `lvs` |
 | **Search** | Object and video embeddings + agentic search | `search` |
 
-> **Alerts vs. Alert Verification.** Both are modes of the single `alerts` developer profile, selected by the profile's `MODE` knob: `2d_vlm` (continuous RT-VLM inspection + real-time alert APIs) vs `2d_cv` (RT-CV detection + behavior analytics + VLM verification + incidents). Each has its own checked-in `COMPOSE_PROFILES` set in `dev-profile-alerts/overrides.env`, so selecting the mode is still a stock deployment, not a delta.
+> **Four-option limit.** `AskUserQuestion` shows at most **four** options per single-select, so Q2a must stay at the four developer profiles above. The `alerts` profile's two modes are **not** separate top-level rows (that would be a fifth option and get silently dropped); they are chosen in a follow-up, **Q2a-mode**, below.
 
-These are **predefined developer profiles**, so the skill does **not** compute a delta and does **not** create a `_build`. It: (1) maps the selection to the profile above; (2) runs the applicable prerequisite / credential / NGC checks (`references/prerequisites.md`, `references/credentials.md`, `references/ngc.md`); (3) deploys the profile **as-is** in **Stock mode** (per the Routing table) against the unmodified `deploy/docker/` tree; (4) runs the profile's readiness checks (`references/readiness.md`) and reports; (5) **offers to customize**.
+**Q2a-mode — only when the user picks Alerts (single-select): "Which alerts mode?"** The `alerts` developer profile ships two modes, selected by its `MODE` knob; each has its own checked-in `COMPOSE_PROFILES` set in `dev-profile-alerts/overrides.env`, so both are still stock deployments (no delta):
 
-**Customize a pre-built workflow → seed a Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** for a delta (the profile itself is never modified — it is only the baseline). This is the **only** way the pre-built mode produces a `_build`: the user must explicitly choose to customize.
+| Option | Capability | Mode |
+|---|---|---|
+| **Real-time alerting** | Continuous RT-VLM inspection + real-time alert APIs | `2d_vlm` |
+| **Alert verification** | Object detection with analytics and VLM event contextualization (RT-CV detection + behavior analytics + VLM verification + incidents) | `2d_cv` |
+
+These are **predefined developer profiles**, so the skill does **not** compute a capability delta — it keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (Step 5, exact stock match) — but it still follows the shared build lifecycle. It: (1) maps the selection to the profile above (and, for Alerts, sets the profile `MODE` per Q2a-mode); (2) runs the applicable prerequisite / credential / NGC checks (`references/prerequisites.md`, `references/credentials.md`, `references/ngc.md`); (3) writes the stock `_builds/<name>/` (`override.env`, `compose.yml`, `resolved.yml`) and validates it (Steps 7-8); (4) deploys the validated `_builds/<name>/resolved.yml` in **Stock mode** and runs the profile's readiness checks (`references/readiness.md` / `references/deployment.md`), then reports; (5) **offers to customize**. Teardown follows `references/teardown.md` against the same `_builds/<name>/`.
+
+**Customize a pre-built workflow → Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** and computing a **capability delta** on top of it (the profile itself is never modified — it is only the baseline). The stock build becomes a **Delta build**: the same `_builds/<name>/` machinery now carries the added/removed profile keys and any changed knobs.
 
 ### Mode: Custom build (guided)
 
-For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Foundational services — video I/O + storage and message bus + indexing — are always included**; present them as informational, not as choices. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
+For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Video I/O + storage (VIOS) is always included** — every profile needs it — along with the shared `redis` cache peer that ships with the Foundation; present these as informational, not as choices. The **ELK + Kafka message bus / indexing stack is _not_ unconditional**: it is added only when a selected capability is Kafka-backed or Elasticsearch-indexed (see the note under the table), so a dense-captioning-only build keeps the smallest delta. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
 
 Offer the user **exactly** the capabilities in the table below. Each row's owner contract, canonical service-profile key(s), and closest Foundation profile are fixed — do not invent options or keys outside it.
 
@@ -92,7 +98,7 @@ Offer the user **exactly** the capabilities in the table below. Each row's owner
 | **Real-time alerting / verification** — VLM-verified incidents | `alerts.md` | `alert-bridge`, `vss-va-mcp`, `vss-video-analytics-api-alerts` | `alerts` | Real-time needs RT-VLM; CV-verification needs RT-CV + Behavior Analytics |
 | **Video summarization** — time-windowed summaries on demand | `lvs.md` | `lvs-server` | `lvs` | Requires Agent + one reachable LLM + one VLM/RT-VLM |
 
-**Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) and ELK + Kafka + Redis message bus + indexing (`elk.md`). **Added automatically, never offered directly:** the LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends — activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
+**Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`), plus the shared `redis` cache peer that ships with the Foundation. **Added conditionally, never offered directly:** the **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka **only** when `RTVI_VLM_KAFKA_ENABLED=true`. A dense-captioning-only build on `base` therefore adds **no** ELK/Kafka, preserving the smallest-delta contract. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
 
 Rules for the multi-select:
 - **Offer exactly the table rows** whose owner contract exists under `references/services/` (all rows are present on this branch); show any pending capability disabled with a short "not yet available" note. **Never offer a foundational or model-backend owner as a choice** — do **not** silently offer a capability the skill cannot resolve.
@@ -103,7 +109,7 @@ After Q2b, the selected capabilities **are** the required-capability set. Select
 
 ## Steps
 
-1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow deploys a named profile as-is in Stock mode.
+1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow keeps a named profile's authoritative service set unchanged (Stock mode).
 2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all four current profiles and select exactly one Foundation; ask only when two are equally plausible. Read `references/edge.md` for DGX Spark or Thor.
 3. Before resolution or deployment, run the applicable checks from `references/prerequisites.md`, `references/credentials.md`, and `references/ngc.md`. Read the environment and Brev references when applicable.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
