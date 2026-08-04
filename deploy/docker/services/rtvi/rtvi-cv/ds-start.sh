@@ -93,19 +93,181 @@ ensure_models_from_manifest() {
     bash "$script"
 }
 
+# Append DeepStream samples/<subdir> dirs under both the deepstream/ entry
+# point and any versioned deepstream-N.M/ tree (same layout split as Tracker).
+# Caller passes a nameref array name; keeps failures in-process under set -e.
+append_deepstream_sample_dirs() {
+    local subdir="$1"
+    local -n _dirs_ref="$2"
+    local canonical="/opt/nvidia/deepstream/deepstream/samples/${subdir}"
+    local d canonical_real other_real
+
+    _dirs_ref+=("$canonical")
+    canonical_real="$(readlink -f "$canonical" 2>/dev/null || true)"
+
+    shopt -s nullglob
+    for d in /opt/nvidia/deepstream/deepstream-[0-9]*/samples/"${subdir}"; do
+        [[ -d "$d" ]] || continue
+        other_real="$(readlink -f "$d" 2>/dev/null || true)"
+        # Deduplicate only when both resolve to the same path; empty readlink
+        # results must not look like a match.
+        if [[ -n "$canonical_real" && -n "$other_real" && "$canonical_real" == "$other_real" ]]; then
+            continue
+        fi
+        _dirs_ref+=("$d")
+    done
+    shopt -u nullglob
+}
+
+# Option A: after the privilege drop the app is STORAGE_UID, but several
+# image-owned DeepStream paths remain unwritable (streams HTTP download dir,
+# Tracker engine dir, app cwd) and HOME still points at /root. Prepare those
+# once here — same contract as download-models.sh / setup-tracker-reid.sh.
+prepare_runtime_user_environment() {
+    local uid="${STORAGE_UID:-1001}"
+    local gid="${STORAGE_GID:-1001}"
+    local runtime_home="${RTVI_CV_RUNTIME_HOME:-/tmp/rtvi-cv-home}"
+    local -a runtime_dirs=()
+    local d
+
+    # Redirect HOME/cache before setpriv so the dropped process inherits them
+    # (setpriv does not rewrite HOME). Avoids dconf/GStreamer writes under /root.
+    mkdir -p "${runtime_home}/.cache/gstreamer-1.0"
+    export HOME="${runtime_home}"
+    export XDG_CACHE_HOME="${runtime_home}/.cache"
+    export GST_REGISTRY="${runtime_home}/.cache/gstreamer-1.0/registry.bin"
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "##### Skipping runtime dir ownership (not root); HOME=${HOME} #####"
+        return 0
+    fi
+
+    chown -R "${uid}:${gid}" "${runtime_home}"
+
+    # Non-recursive: streams accumulates downloaded videos; only the dir must
+    # be writable so fopen(..., "wb") for HTTP_DOWNLOAD_DIR succeeds.
+    append_deepstream_sample_dirs streams runtime_dirs
+    append_deepstream_sample_dirs models/Tracker runtime_dirs
+    runtime_dirs+=("${DS_APP_DIR}")
+    for d in "${runtime_dirs[@]}"; do
+        [[ -n "$d" ]] || continue
+        install -d -m 0755 "$d"
+        chown "${uid}:${gid}" "$d"
+        echo "##### Prepared runtime-writable dir ${d} -> ${uid}:${gid} #####"
+    done
+}
+
+# Supplementary groups the runtime user needs for GPU access. Tegra ships
+# /dev/nvmap and /dev/nvhost-* group-restricted, so --clear-groups costs the
+# app CUDA entirely (NvRmMemInitNvmap "Permission denied" -> cudaErrorNoDevice).
+# gids are read off the injected nodes — names/numbers differ across L4T/SBSA/x86.
+# A supplementary gid 0 is legitimate: group access to a root:root 0660 node
+# without granting uid 0.
+collect_gpu_device_gids() {
+    local -n _gids_ref="$1"
+    local node gid seen=" "
+
+    shopt -s nullglob
+    for node in /dev/nvmap /dev/nvhost-* /dev/nvgpu/*/* /dev/nvsciipc* \
+                /dev/nvidia[0-9]* /dev/nvidiactl /dev/nvidia-uvm*; do
+        [[ -c "$node" || -b "$node" ]] || continue
+        gid="$(stat -c '%g' "$node" 2>/dev/null || true)"
+        [[ -n "$gid" ]] || continue
+        if [[ "$seen" == *" ${gid} "* ]]; then
+            continue
+        fi
+        seen+="${gid} "
+        _gids_ref+=("$gid")
+    done
+    shopt -u nullglob
+}
+
+# Confirm the dropped identity can open the GPU device nodes. Used to decide
+# between --clear-groups (x86 / world-accessible) and --groups (Tegra).
+# Quiet on failure — the caller logs once when neither drop path works.
+runtime_user_can_reach_gpu() {
+    local -a priv_opts=("$@")
+    local node
+
+    for node in /dev/nvmap /dev/nvidiactl; do
+        [[ -c "$node" ]] || continue
+        if ! setpriv "${priv_opts[@]}" -- test -r "$node" ||
+           ! setpriv "${priv_opts[@]}" -- test -w "$node"; then
+            return 1
+        fi
+    done
+    return 0
+}
+
 # Drop to STORAGE_UID/GID before exec'ing the perception binary (Option A).
+# Prefer --clear-groups (prior x86 path). Only grant device groups when that
+# leaves the GPU unreachable. RTVI_CV_PRIVILEGE_DROP: auto (default; fall back
+# to root if neither drop works), force (exit 1 instead), off (never drop).
+# Override via env / overrides.env — no compose wiring required.
 exec_as_runtime_user() {
     local uid="${STORAGE_UID:-1001}"
     local gid="${STORAGE_GID:-1001}"
+    local mode="${RTVI_CV_PRIVILEGE_DROP:-auto}"
+    local groups_csv="" g node
+    local -a gpu_gids=() priv_opts=() supp_opts=()
+
+    prepare_runtime_user_environment
     if [[ "$(id -u)" -ne 0 ]]; then
         exec "$@"
     fi
-    echo "##### Dropping privileges to ${uid}:${gid} before application exec #####"
-    if command -v setpriv >/dev/null 2>&1; then
-        exec setpriv --reuid="$uid" --regid="$gid" --clear-groups -- "$@"
+    if [[ "$mode" == "off" ]]; then
+        echo "##### RTVI_CV_PRIVILEGE_DROP=off; running the application as root #####"
+        exec "$@"
     fi
+
+    collect_gpu_device_gids gpu_gids
+    if [[ ${#gpu_gids[@]} -gt 0 ]]; then
+        groups_csv="$(IFS=,; echo "${gpu_gids[*]}")"
+    fi
+
+    if command -v setpriv >/dev/null 2>&1; then
+        # Path 1: identical to pre-Tegra Option A. Succeeds on x86/SBSA where
+        # /dev/nvidia* is typically world-accessible.
+        priv_opts=(--reuid="$uid" --regid="$gid" --clear-groups)
+        if runtime_user_can_reach_gpu "${priv_opts[@]}"; then
+            echo "##### Dropping privileges to ${uid}:${gid} before application exec #####"
+            exec setpriv "${priv_opts[@]}" -- "$@"
+        fi
+
+        # Path 2: Tegra — grant the gids that own the injected device nodes.
+        if [[ -n "$groups_csv" ]]; then
+            priv_opts=(--reuid="$uid" --regid="$gid" --groups "$groups_csv")
+            if runtime_user_can_reach_gpu "${priv_opts[@]}"; then
+                echo "##### Dropping privileges to ${uid}:${gid} (GPU groups: ${groups_csv}) before application exec #####"
+                exec setpriv "${priv_opts[@]}" -- "$@"
+            fi
+        fi
+
+        if [[ "$mode" == "force" ]]; then
+            echo "ERROR: RTVI_CV_PRIVILEGE_DROP=force but ${uid}:${gid} cannot access the GPU devices" >&2
+            for node in /dev/nvmap /dev/nvidiactl; do
+                [[ -c "$node" ]] && ls -ld "$node" >&2 || true
+            done
+            exit 1
+        fi
+        echo "##### WARNING: ${uid}:${gid} cannot access the GPU devices; running as root instead. #####" >&2
+        echo "#####          Files written to mounted volumes will be root-owned. #####" >&2
+        for node in /dev/nvmap /dev/nvidiactl; do
+            [[ -c "$node" ]] && ls -ld "$node" >&2 || true
+        done
+        exec "$@"
+    fi
+
+    # Fallbacks when setpriv is absent. runuser can take -G; gosu cannot.
+    echo "##### Dropping privileges to ${uid}:${gid} before application exec #####"
     if command -v runuser >/dev/null 2>&1; then
-        exec runuser -u "#${uid}" -g "#${gid}" -- "$@"
+        if [[ ${#gpu_gids[@]} -eq 0 ]]; then
+            exec runuser -u "#${uid}" -g "#${gid}" -- "$@"
+        fi
+        for g in "${gpu_gids[@]}"; do
+            supp_opts+=(-G "$g")
+        done
+        exec runuser -u "#${uid}" -g "#${gid}" "${supp_opts[@]}" -- "$@"
     fi
     if command -v gosu >/dev/null 2>&1; then
         exec gosu "${uid}:${gid}" "$@"
@@ -206,9 +368,11 @@ start_rtdetr_gdino()
     mkdir -p "${ENGINES_DIR}/gdino" "${ENGINES_DIR}/rtdetr-its"
     GDINO_TRT_PLAN="${ENGINES_DIR}/gdino/model_gdino_trt.plan"
 
-    require_file "models/rtdetr-its/resnet50_market1501.etlt" "Required tracker artifact missing from image/models volume."
-    cp models/rtdetr-its/resnet50_market1501.etlt \
-       /opt/nvidia/deepstream/deepstream/samples/models/Tracker/resnet50_market1501.etlt
+    local reid_src="${DS_APP_DIR}/models/rtdetr-its/resnet50_market1501.etlt"
+    require_file "$reid_src" "Required tracker artifact missing from image/models volume."
+    ENGINE_CACHE_DIR="${ENGINE_CACHE_DIR:-/opt/engines}"
+    export ENGINE_CACHE_DIR STORAGE_UID STORAGE_GID
+    bash "${SETUP_TRACKER_REID_SCRIPT:-/opt/scripts/setup-tracker-reid.sh}" --src "$reid_src"
 
     if [[ "${MODEL_NAME_2D:-}" == "GDINO" ]]; then
         require_file "/opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx" "GDINO ONNX model must be available in shared storage."
