@@ -241,7 +241,7 @@ Some scenarios are opt-in via pytest markers. They are tagged in the feature fil
 |---|---|---|---|
 | `longrun` | Yes | Stress / long-run tests with 30 min – 2 h wall-clock | `pytest -m longrun` |
 | `needs_iptables` | Yes | Tests that require iptables / privileged Docker (e.g. WebRTC network-break simulation) | `pytest -m needs_iptables` |
-| `needs_bbox_metadata` | Yes | Live bbox overlay (GAP-051) via Redis protobuf publisher + live picture; GAP-050/052 still need stored metadata | `pytest -m needs_bbox_metadata` |
+| `needs_bbox_metadata` | Yes | Live bbox overlay via Redis protobuf publisher (live picture + live WebRTC); GAP-050/052 still need stored metadata | `pytest -m needs_bbox_metadata` |
 
 ### Examples
 
@@ -258,14 +258,14 @@ poetry run pytest -m "longrun or not longrun" tests/
 # Run the WebRTC network-break test on a privileged runner:
 poetry run pytest -m needs_iptables tests/webrtc/
 
-# Live-picture bbox overlay (GAP-051): publishes nv.Frame protobuf to Redis.
+# Live bbox overlay: Redis nv.Frame protobuf → live picture + live WebRTC.
 # Requires VIOS enable_notification_consumer=true,
 # use_message_broker_consumer=redis, topic matching test_parameters.topic,
-# an active live stream, and redis+protobuf poetry deps (+ ffmpeg/ffprobe).
-# Optional stream_id; empty => first /live/streams entry.
+# an active live stream, and redis+protobuf+aiortc deps (+ ffmpeg/ffprobe).
+# Protobuf sensorId must match camera name; empty stream_id prefers H264 /
+# warehouse_sample when auto-picking.
 poetry run pytest -m needs_bbox_metadata tests/webrtc/test_bbox_overlay.py -k "live"
 ```
-
 ### Long-running tests (`@longrun`)
 
 | Scenario | Wall-clock |
@@ -279,9 +279,10 @@ poetry run pytest -m needs_bbox_metadata tests/webrtc/test_bbox_overlay.py -k "l
 
 A few markers also require a value in `config.json` to be meaningful:
 
-- `needs_bbox_metadata` — GAP-051 (live picture) publishes protobuf to Redis itself;
+- `needs_bbox_metadata` — live picture + live WebRTC publish protobuf to Redis;
   set `tests.bbox_overlay_tests.test_parameters` (`redis_host`/`topic`/`stream_id`) to
-  match the VIOS consumer. GAP-050/052 still need stored replay metadata.
+  match the VIOS consumer. Protobuf `sensorId` must match the camera **name**.
+  GAP-050/052 still need stored replay metadata.
 - Continuous-recording tests under `unit_tests/stream_recorder/continuous_recording.feature` — set `tests.continuous_recording_tests.test_parameters.alwaysOn_sensor_id` to the sensorId of an always-on RTSP sensor in the deployment. If missing, the scenarios skip with guidance.
 
 ## Test Categories

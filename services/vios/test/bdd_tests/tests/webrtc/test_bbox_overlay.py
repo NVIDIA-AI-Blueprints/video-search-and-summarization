@@ -16,22 +16,23 @@
 """
 BDD tests for VST bbox overlay rendering.
 
-Covers BDD-GAP-050, BDD-GAP-051, BDD-GAP-052.
+Covers BDD-GAP-050, BDD-GAP-051 (live picture + live WebRTC), BDD-GAP-052.
 
-GAP-051 (live picture) publishes ``nv.Frame`` protobuf to a Redis stream so the
-VIOS notification consumer (DsProtoParser → LiveMetadataStore) can feed the
-overlay draw path. Requires:
+Live scenarios publish ``nv.Frame`` protobuf to a Redis stream so the VIOS
+notification consumer (DsProtoParser → LiveMetadataStore) can feed the overlay
+draw path. Requires:
 
   * VIOS with enable_notification_consumer=true and
     use_message_broker_consumer=redis (topic must match config)
   * An active live RTSP stream (sensorId == published sensorId)
   * Redis reachable from the BDD host
-  * ``poetry`` deps: redis, protobuf; host tools: ffmpeg/ffprobe
+  * ``poetry`` deps: redis, protobuf, aiortc; host tools: ffmpeg/ffprobe
 
 GAP-050 / GAP-052 remain stubs (stored / replay metadata paths).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
@@ -48,6 +49,10 @@ from tests.webrtc.bbox_overlay_assert import (
     assert_live_box_border,
     jpeg_to_rgb,
     scale_box,
+)
+from tests.webrtc.webrtc_overlay_capture import (
+    capture_live_webrtc_overlay_frames,
+    sample_first_middle_last,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,12 +78,19 @@ _DEFAULTS = {
     "expected_rgb": [255, 0, 0],
     "rgb_tol": 55,
     "timeout": 30,
+    # WebRTC live overlay sampling (first / middle / last of collected frames).
+    "webrtc_warmup_frames": 10,
+    "webrtc_collect_frames": 30,
+    "webrtc_min_passing_samples": 2,
+    "webrtc_min_border": 80,
+    "webrtc_signaling_timeout": 60,
 }
 
 
 class BBoxContext:
     def __init__(self):
         self.stream_id = None
+        self.sensor_name = None
         self.filter_value = None
         self.last_picture = None
         self.params = dict(_DEFAULTS)
@@ -90,6 +102,7 @@ class BBoxContext:
         self.jpeg_h = None
         self.base_url = None
         self.verify_ssl = False
+        self.webrtc_frames = None  # list[(rgb, w, h)]
 
 
 @pytest.fixture
@@ -115,22 +128,57 @@ def _load_params(config) -> dict:
     return params
 
 
-def _resolve_live_stream_id(ctx: BBoxContext, api_config: dict) -> str:
-    if ctx.stream_id:
-        return ctx.stream_id
-    configured = (ctx.params.get("stream_id") or ctx.params.get("bbox_stream_id") or "").strip()
-    if configured:
-        return configured
+def _resolve_live_stream(ctx: BBoxContext, api_config: dict) -> tuple[str, str]:
+    """Return ``(stream_id, sensor_name)`` for API vs Redis metadata matching.
+
+    LiveMetadataStore filters on the camera *name* (``sensorID`` / overlay
+    match log), which can differ from the ``/live/streams`` map key / UUID.
+    Prefer an H264 stream when auto-picking so WebRTC decode is reliable.
+    """
     streams = fetch_streams(
         api_config["base_url"],
         ENDPOINTS_LIVE["streams"],
         ctx.params.get("timeout", 30),
         api_config.get("verify_ssl", False),
     )
+    entries = []
     for stream_obj in streams:
-        if isinstance(stream_obj, dict) and stream_obj:
-            return next(iter(stream_obj.keys()))
-    pytest.skip("No live streams available for bbox overlay live-picture test")
+        if not isinstance(stream_obj, dict) or not stream_obj:
+            continue
+        for sid, arr in stream_obj.items():
+            meta = {}
+            name = sid
+            if isinstance(arr, list) and arr and isinstance(arr[0], dict):
+                name = arr[0].get("name") or arr[0].get("streamId") or sid
+                meta = arr[0].get("metadata") or {}
+            codec = str(meta.get("codec") or "").upper()
+            entries.append((sid, name, codec))
+
+    configured = (ctx.stream_id or ctx.params.get("stream_id")
+                  or ctx.params.get("bbox_stream_id") or "").strip()
+    if configured:
+        for sid, name, _codec in entries:
+            if configured in (sid, name):
+                return sid, name
+        # Configured id not listed yet — treat as both API id and sensor name.
+        return configured, configured
+
+    # Prefer known-good H264 warehouse sample, then any H264, else first stream.
+    for sid, name, codec in entries:
+        if name == "warehouse_sample" or sid == "warehouse_sample":
+            return sid, name
+    for sid, name, codec in entries:
+        if codec == "H264":
+            return sid, name
+    if entries:
+        sid, name, _codec = entries[0]
+        return sid, name
+    pytest.skip("No live streams available for bbox overlay live test")
+
+
+def _resolve_live_stream_id(ctx: BBoxContext, api_config: dict) -> str:
+    sid, _name = _resolve_live_stream(ctx, api_config)
+    return sid
 
 
 @given('the VST API is configured for bbox overlay tests')
@@ -159,10 +207,13 @@ def need_classtype_metadata(context, class_type):
 @given('an active stream has live bbox metadata')
 def need_live_bbox_metadata(context, api_config):
     """Start Redis nv.Frame publisher keyed to an active live stream."""
-    context.stream_id = _resolve_live_stream_id(context, api_config)
+    stream_id, sensor_name = _resolve_live_stream(context, api_config)
+    context.stream_id = stream_id
+    context.sensor_name = sensor_name
     params = context.params
     spec = LiveBoxSpec(
-        sensor_id=context.stream_id,
+        # Overlay LiveMetadataStore matches protobuf sensorId to camera *name*.
+        sensor_id=sensor_name,
         width=int(params["width"]),
         height=int(params["height"]),
         obj_type=params.get("obj_type", "BddOverlayTest"),
@@ -193,8 +244,9 @@ def need_live_bbox_metadata(context, api_config):
     context.pub_thread.start()
     time.sleep(float(params["warmup_s"]))
     logger.info(
-        "Redis bbox publisher started sensor=%s topic=%s host=%s:%s",
-        context.stream_id, params["topic"], params["redis_host"], params["redis_port"],
+        "Redis bbox publisher started api_stream=%s sensor=%s topic=%s host=%s:%s",
+        context.stream_id, sensor_name, params["topic"],
+        params["redis_host"], params["redis_port"],
     )
 
 
@@ -251,6 +303,23 @@ def live_picture_overlay(context, tmp_path):
         raise last_err
 
 
+@when('a live WebRTC stream is started with overlay enabled')
+def live_webrtc_overlay(context):
+    assert context.stream_id, "stream_id not set"
+    params = context.params
+    context.webrtc_frames = asyncio.run(
+        capture_live_webrtc_overlay_frames(
+            context.base_url,
+            context.stream_id,
+            collect_frames=int(params.get("webrtc_collect_frames", 30)),
+            warmup_frames=int(params.get("webrtc_warmup_frames", 10)),
+            signaling_timeout=float(params.get("webrtc_signaling_timeout", 60)),
+            overlay_color=params.get("overlay_color", "red"),
+            overlay_thickness=int(params.get("overlay_thickness", 11)),
+        )
+    )
+
+
 @when('the replay picture is requested with overlay=true')
 def replay_picture_overlay(context):
     pass
@@ -259,6 +328,11 @@ def replay_picture_overlay(context):
 @then('the overlay is rendered for the filter')
 def overlay_rendered(context):
     pass
+
+
+def _expected_target(params) -> tuple:
+    rgb = params.get("expected_rgb", [255, 0, 0])
+    return (int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
 
 @then('the JPEG contains a region of the expected bbox color')
@@ -274,14 +348,48 @@ def jpeg_has_bbox_color(context):
         context.jpeg_w,
         context.jpeg_h,
     )
-    rgb = params.get("expected_rgb", [255, 0, 0])
-    target = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
     assert_live_box_border(
         context.rgb,
         context.jpeg_w,
         context.jpeg_h,
         box,
-        target_rgb=target,
+        target_rgb=_expected_target(params),
         min_border=int(params.get("min_border", 200)),
         tol=int(params.get("rgb_tol", 55)),
+    )
+
+
+@then('sampled WebRTC frames contain a region of the expected bbox color')
+def webrtc_frames_have_bbox_color(context):
+    assert context.webrtc_frames, "no WebRTC RGB frames captured"
+    assert context.spec is not None, "no LiveBoxSpec"
+    params = context.params
+    target = _expected_target(params)
+    min_border = int(params.get("webrtc_min_border", params.get("min_border", 80)))
+    tol = int(params.get("rgb_tol", 55))
+    min_pass = int(params.get("webrtc_min_passing_samples", 2))
+    src_box = context.spec.pixel_box()
+    src_w, src_h = int(params["width"]), int(params["height"])
+
+    samples = sample_first_middle_last(context.webrtc_frames)
+    passed = []
+    failures = []
+    for idx, (rgb, w, h) in samples:
+        box = scale_box(src_box, src_w, src_h, w, h)
+        try:
+            assert_live_box_border(
+                rgb, w, h, box, target_rgb=target, min_border=min_border, tol=tol,
+            )
+            passed.append(idx)
+        except AssertionError as exc:
+            failures.append((idx, str(exc)))
+            logger.warning("WebRTC sample frame[%d] bbox assert failed: %s", idx, exc)
+
+    assert len(passed) >= min_pass, (
+        f"bbox overlay not found on enough WebRTC samples: passed={passed} "
+        f"need>={min_pass}; failures={failures}"
+    )
+    logger.info(
+        "WebRTC overlay bbox OK on %d/%d samples (indices=%s)",
+        len(passed), len(samples), passed,
     )

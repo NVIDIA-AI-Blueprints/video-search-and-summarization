@@ -125,7 +125,12 @@
         "overlay_thickness": 11,
         "expected_rgb": [255, 0, 0],
         "rgb_tol": 55,
-        "timeout": 30
+        "timeout": 30,
+        "webrtc_warmup_frames": 10,
+        "webrtc_collect_frames": 30,
+        "webrtc_min_passing_samples": 2,
+        "webrtc_min_border": 80,
+        "webrtc_signaling_timeout": 60
       }
     },
     "file_upload_tests": {

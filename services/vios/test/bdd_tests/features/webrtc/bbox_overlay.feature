@@ -30,6 +30,14 @@ Feature: VST BBox Overlay Rendering
     When the live picture is requested with overlay=true
     Then the JPEG contains a region of the expected bbox color
 
+  # Same Redis protobuf publisher as GAP-051; assert first/middle/last WebRTC frames.
+  @needs_bbox_metadata
+  Scenario: BBox renders on the live WebRTC stream
+    Given the VST API is configured for bbox overlay tests
+    And an active stream has live bbox metadata
+    When a live WebRTC stream is started with overlay enabled
+    Then sampled WebRTC frames contain a region of the expected bbox color
+
   # BDD-GAP-052
   @needs_bbox_metadata
   Scenario: BBox renders on recorded-stream playback
