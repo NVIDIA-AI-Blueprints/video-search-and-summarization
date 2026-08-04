@@ -1,13 +1,15 @@
 # Helm example
 
-This Helm testapp deploys SDRC, Redis, and RTVI-CV for HTTP-header lifecycle
+This Helm testapp deploys SDRC, Redis, RTVI-CV, and the VIOS/VST services
+needed to generate RTSP streams from uploaded videos for HTTP-header lifecycle
 testing. It reuses the repository's existing Helm charts and keeps only the
 example SDRC workload config in this directory.
 
 ## What This Uses
 
-- `deploy/helm/services/infra`: Redis and SDRC.
+- `deploy/helm/services/infra`: Redis, Kafka, and SDRC.
 - `deploy/helm/services/rtvi`: RTVI-CV.
+- `deploy/helm/services/vios`: VST sensor, streamprocessing, ingress, postgres, and nvstreamer.
 - `helm/configs/sdrc/config.yml`: local HTTP-header lifecycle workload config.
 
 The SDRC chart exposes an extra workload listener Service port for
@@ -20,8 +22,9 @@ HTTP methods are defined in `helm/configs/sdrc/config.yml`; this example uses
 
 - Kubernetes cluster with GPU nodes and NVIDIA device plugin.
 - `helm` v3 and `kubectl` configured for the target cluster.
-- Access to the SDRC and RTVI-CV images configured by the reused charts. The
-  default SDRC image in `values.yaml` is `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10`;
+- Access to the SDRC, RTVI-CV, and VIOS images configured by the reused
+  charts. The default SDRC image in `values.yaml` is
+  `nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.3.3-test-2026-08-03`;
   override it if your cluster pulls from another registry.
 - Warehouse app data for RTVI-CV. The easiest fresh install path is to let the
   chart download the NGC warehouse data bundle after you create the NGC secrets.
@@ -72,8 +75,9 @@ helm upgrade --install "$RELEASE" "$CHART_DIR" \
   --set-string rtvi.vss-rtvi-cv.ngcAppDataResourceVersion=<vss-warehouse-app-data-resource>
 ```
 
-If your SDRC image is not available as `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10`, add
-image overrides to the install command:
+If your SDRC image is not available as
+`nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.3.3-test-2026-08-03`,
+add image overrides to the install command:
 
 ```bash
   --set infra.sdrc.image.repository=<registry>/sdr-mw-l \
@@ -100,11 +104,15 @@ helm upgrade --install "$RELEASE" "$CHART_DIR" \
 
 ## Validate
 
-Wait for SDRC and RTVI-CV:
+Wait for SDRC, RTVI-CV, and VIOS/VST services:
 
 ```bash
 kubectl rollout status deployment/sdrc -n "$NAMESPACE" --timeout=300s
 kubectl rollout status statefulset/vss-rtvi-cv -n "$NAMESPACE" --timeout=600s
+kubectl rollout status deployment/vss-vios-sensor -n "$NAMESPACE" --timeout=300s
+kubectl rollout status statefulset/vss-vios-streamprocessing -n "$NAMESPACE" --timeout=300s
+kubectl rollout status deployment/vss-vios-ingress -n "$NAMESPACE" --timeout=300s
+kubectl rollout status deployment/vss-vios-nvstreamer -n "$NAMESPACE" --timeout=300s
 ```
 
 Confirm the SDRC Service exposes both the UI/API NodePort and the
@@ -137,6 +145,53 @@ kubectl port-forward svc/sdrc-controller 10001:10001 -n "$NAMESPACE"
 kubectl port-forward svc/sdrc-controller 5003:5003 -n "$NAMESPACE"
 ```
 
+## Generate RTSP Streams With NVStreamer
+
+The chart also deploys VIOS/VST and nvstreamer so you can generate an RTSP URL
+from a local video and use that URL in the SDRC add-stream curl request. You can
+get an RTSP stream in either of these ways:
+
+- Manually upload a video to nvstreamer with the curl command below.
+- Skip nvstreamer and set `RTSP_URL` to any working RTSP stream that RTVI-CV can
+  reach from inside Kubernetes.
+
+For the Docker Compose demo, you can also place videos under `$VSS_DATA_DIR/videos`
+because that host path is mounted into nvstreamer.
+
+Forward nvstreamer in a separate terminal:
+
+```bash
+kubectl port-forward svc/vss-vios-nvstreamer 31000:31000 -n "$NAMESPACE"
+```
+
+Upload a local video file to nvstreamer:
+
+```bash
+export VIDEO_FILE=/path/to/sample.mp4
+export STREAM_ID=camera-001
+
+curl --location --request POST "http://localhost:31000/api/v1/storage/file" \
+  --form "metadata={\"streamName\":\"${STREAM_ID}\",\"streamId\":\"${STREAM_ID}\"};type=application/json" \
+  --form "mediaFile=@${VIDEO_FILE};type=video/mp4"
+```
+
+List generated streams and pick the RTSP URL for `camera-001`:
+
+```bash
+curl -s "http://localhost:31000/api/v1/sensor/streams"
+```
+
+Set `RTSP_URL` to the generated stream URL before running the SDRC add curl:
+
+```bash
+export RTSP_URL='rtsp://vss-vios-streamprocessing:30554/live/camera-001'
+```
+
+Use the in-cluster service DNS name in `RTSP_URL` because RTVI-CV reads the
+stream from inside Kubernetes. If your nvstreamer response uses a localhost or
+node address, replace the host with `vss-vios-streamprocessing` and keep the
+same stream path.
+
 ## Exercise Lifecycle
 
 These commands use the RTVI-CV lifecycle NodePort from `values.yaml`: service
@@ -149,26 +204,29 @@ If you use the optional port-forward fallback instead, replace
 
 Add a stream:
 
-Note: replace the sample `camera_url` with a valid, reachable RTSP stream for
-your environment. If the RTSP stream is not working, RTVI-CV may accept the
-lifecycle request but you will not see FPS for that stream.
+Note: set `RTSP_URL` to a valid, reachable RTSP stream before running this
+command. You can use the nvstreamer flow above to generate one from a video. If
+the RTSP stream is not working, RTVI-CV may accept the lifecycle request but
+you will not see FPS for that stream.
 
 ```bash
 curl --location --request POST "http://$NODE_IP:31001/api/v1/stream/add" \
   --header 'streamid: camera-001' \
   --header 'Content-Type: application/json' \
-  --data '{
-    "alert_type": "camera_status_change",
-    "created_at": "2026-01-01T00:00:00Z",
-    "event": {
-      "camera_id": "camera-001",
-      "camera_name": "Dock Camera 1",
-      "camera_url": "rtsp://vss-vios-streamprocessing:30554/webrtc/camera-001",
-      "change": "camera_add",
-      "metadata": {"site": "warehouse-a"}
-    },
-    "source": "vst"
-  }'
+  --data @- <<EOF
+{
+  "alert_type": "camera_status_change",
+  "created_at": "2026-01-01T00:00:00Z",
+  "event": {
+    "camera_id": "camera-001",
+    "camera_name": "Dock Camera 1",
+    "camera_url": "$RTSP_URL",
+    "change": "camera_add",
+    "metadata": {"site": "warehouse-a"}
+  },
+  "source": "vst"
+}
+EOF
 ```
 
 Reprovision the same stream. This intentionally uses the configured add path
@@ -223,7 +281,8 @@ kubectl delete namespace "$NAMESPACE"
 ## Troubleshooting
 
 - `helm dependency build` fails: run it from a checkout that has
-  `deploy/helm/services/infra` and `deploy/helm/services/rtvi` present.
+  `deploy/helm/services/infra`, `deploy/helm/services/rtvi`, and
+  `deploy/helm/services/vios` present.
 - RTVI-CV waits for app data: either create the NGC secrets and install with
   `downloadNgcAppData=true`, or pre-populate the models PVC.
 - `$NODE_IP:31001` does not respond: verify `kubectl get svc sdrc-controller`
@@ -239,6 +298,9 @@ kubectl delete namespace "$NAMESPACE"
 - SDRC UI is not reachable on `$NODE_IP:30003`: verify the Service shows
   node port `30003`, or start the optional `5003:5003` port-forward and use
   `http://localhost:5003`.
+- nvstreamer upload or stream listing fails: verify
+  `kubectl get pods -n "$NAMESPACE" | grep vss-vios` shows the VIOS pods
+  ready and keep the `31000:31000` port-forward running.
 
 ## SPDX
 

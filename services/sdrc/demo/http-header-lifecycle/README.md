@@ -18,6 +18,19 @@ and reprovision paths and methods are read from each example's `config.yml`;
 the curl commands below intentionally use those configured paths instead of
 hardcoded SDRC defaults.
 
+## RTSP Stream Sources
+
+For the add-stream request, `camera_url` must point to a valid RTSP stream that
+the target workload can reach. You can use one of these approaches:
+
+- Docker Compose demo: add video files under `$VSS_DATA_DIR/videos` and use
+  nvstreamer to expose them as RTSP streams.
+- Docker Compose or Helm demo: manually upload a video to nvstreamer and use the
+  generated RTSP URL.
+- Either demo: provide your own working RTSP URL directly.
+
+See `docker/README.md` or `helm/README.md` for the exact nvstreamer commands.
+
 ## Lifecycle Requests
 
 Run these commands after either example is up and `localhost:10001` reaches the

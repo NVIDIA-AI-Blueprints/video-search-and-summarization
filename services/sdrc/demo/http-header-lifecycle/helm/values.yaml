@@ -3,6 +3,46 @@
 
 global:
   useReleaseNamePrefix: false
+  # Enable VIOS/VST services to generate RTSP streams from uploaded videos.
+  vios:
+    useSdrc: true
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+vios:
+  enabled: true
+  vstStorage:
+    createSharedPvcs: true
+    accessMode: ReadWriteOnce
+    vstData:
+      size: 10Gi
+      storageClass: ""
+    vstVideo:
+      size: 20Gi
+      storageClass: ""
+    streamerVideos:
+      size: 20Gi
+      storageClass: ""
+  vss-vios-postgres:
+    enabled: true
+  vss-vios-sensor:
+    enabled: true
+    streamProcessorService: sdrc
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+  vss-vios-streamprocessing:
+    enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+      streamerVideos: { enabled: true, create: false, existingClaim: "" }
+  vss-vios-ingress:
+    enabled: true
+  vss-vios-nvstreamer:
+    enabled: true
 
 infra:
   enabled: true
@@ -48,10 +88,11 @@ infra:
           targetPort: 10001
           nodePort: 31001
     image:
-      repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-      tag: 3.0.0-prd.10
+      repository: nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l
+      tag: 3.3.3-test-2026-08-03
       pullPolicy: IfNotPresent
-
+    imagePullSecrets:
+      - name: ngc-docker-reg-secret
 rtvi:
   enabled: true
   vss-rtvi-cv:
