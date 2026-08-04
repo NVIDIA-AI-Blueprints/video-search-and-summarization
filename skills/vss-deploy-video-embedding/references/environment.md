@@ -50,6 +50,11 @@ Several host-side variables map to differently named container variables. The Co
 | `MODEL_PATH` | Model source URI for first-boot download. | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` |
 | `MODEL_IMPLEMENTATION_PATH` | In-container path to the model implementation. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` |
 | `MODEL_REPOSITORY_SCRIPT_PATH` | Script that builds the Triton model repository. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py` |
+| `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, RT-Embed uses the remote CE1 backend. | (empty) |
+| `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | CE1 NIM deployment/model id. | `nvidia/cosmos-embed1` |
+| `REMOTE_EMBED_ENDPOINT_API_KEY` | Optional bearer token for the CE1 NIM endpoint. | (empty) |
+| `REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC` | Request timeout for CE1 NIM calls. | `300` |
+| `REMOTE_EMBED_ENDPOINT_BATCH_SIZE` | Maximum batch size used by the CE1 NIM client wrapper. | `64` |
 | `VLM_BATCH_SIZE` | Inference batch size. | (unset) |
 | `INSTALL_PROPRIETARY_CODECS` | Install proprietary codecs at startup. | `false` |
 | `FORCE_SW_AV1_DECODER` | Force software AV1 decoding. | (unset) |
@@ -72,6 +77,7 @@ The following are credentials. Set them through `.env`, a secrets manager, or yo
 - `NVIDIA_API_KEY`
 - `HF_TOKEN`
 - `REDIS_PASSWORD`
+- `REMOTE_EMBED_ENDPOINT_API_KEY`
 
 ## Volume / Bind Variables
 

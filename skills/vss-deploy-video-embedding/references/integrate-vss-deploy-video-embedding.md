@@ -76,6 +76,11 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `MODEL_PATH` | Model source URI used at first boot. | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
 | `MODEL_IMPLEMENTATION_PATH` | In-container path to the model implementation. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `MODEL_REPOSITORY_SCRIPT_PATH` | Script that builds the Triton model repository. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py` | No |
+| `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, RT-Embed uses the remote CE1 backend. | (empty) | No |
+| `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | CE1 NIM deployment/model id. | `nvidia/cosmos-embed1` | No |
+| `REMOTE_EMBED_ENDPOINT_API_KEY` | Optional bearer token for the CE1 NIM endpoint. | (empty) | No |
+| `REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC` | Request timeout for CE1 NIM calls. | `300` | No |
+| `REMOTE_EMBED_ENDPOINT_BATCH_SIZE` | Maximum batch size used by the CE1 NIM client wrapper. | `64` | No |
 | `NGC_API_KEY` | NGC API key for asset downloads. | (empty) | Yes for first boot |
 | `NVIDIA_API_KEY` | NVIDIA API key for downstream calls. | `NOAPIKEYSET` | Yes if downstream calls require it |
 | `HF_TOKEN` | Hugging Face token used during model download. | (empty) | No; recommended to avoid Hugging Face 429 rate limits |
