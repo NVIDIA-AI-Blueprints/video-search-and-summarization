@@ -11,14 +11,17 @@
 #ifndef RTC_BASE_WEAK_PTR_H_
 #define RTC_BASE_WEAK_PTR_H_
 
-#include <memory>
+#include <cstddef>
 #include <utility>
 
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
-#include "rtc_base/ref_count.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/system/rtc_export.h"
+#include "rtc_base/thread_annotations.h"
+#include "rtc_base/weak_ptr.h"
 
 // The implementation is borrowed from chromium except that it does not
 // implement SupportsWeakPtr.
@@ -84,7 +87,7 @@
 // the correct thread to enforce that other WeakPtr objects will enforce they
 // are used on the desired thread.
 
-namespace rtc {
+namespace webrtc {
 
 namespace internal {
 
@@ -92,25 +95,28 @@ class WeakReference {
  public:
   // Although Flag is bound to a specific sequence, it may be
   // deleted from another via base::WeakPtr::~WeakPtr().
-  class Flag : public RefCountInterface {
+  class Flag {
    public:
-    Flag();
+    Flag() = default;
 
     void Invalidate();
     bool IsValid() const;
 
    private:
-    friend class RefCountedObject<Flag>;
+    friend class FinalRefCountedObject<Flag>;
 
-    ~Flag() override;
+    ~Flag() = default;
 
-    RTC_NO_UNIQUE_ADDRESS ::webrtc::SequenceChecker checker_{
+    RTC_NO_UNIQUE_ADDRESS SequenceChecker checker_{
         webrtc::SequenceChecker::kDetached};
-    bool is_valid_;
+    bool is_valid_ RTC_GUARDED_BY(checker_) = true;
   };
 
+  // `RefCountedFlag` is the reference counted (shared), non-virtual, flag type.
+  using RefCountedFlag = FinalRefCountedObject<Flag>;
+
   WeakReference();
-  explicit WeakReference(const Flag* flag);
+  explicit WeakReference(const RefCountedFlag* flag);
   ~WeakReference();
 
   WeakReference(WeakReference&& other);
@@ -121,10 +127,10 @@ class WeakReference {
   bool is_valid() const;
 
  private:
-  scoped_refptr<const Flag> flag_;
+  scoped_refptr<const RefCountedFlag> flag_;
 };
 
-class WeakReferenceOwner {
+class RTC_EXPORT WeakReferenceOwner {
  public:
   WeakReferenceOwner();
   ~WeakReferenceOwner();
@@ -136,7 +142,7 @@ class WeakReferenceOwner {
   void Invalidate();
 
  private:
-  mutable scoped_refptr<RefCountedObject<WeakReference::Flag>> flag_;
+  mutable scoped_refptr<WeakReference::RefCountedFlag> flag_;
 };
 
 // This class simplifies the implementation of WeakPtr's type conversion
@@ -271,6 +277,7 @@ class WeakPtrFactory {
   T* ptr_;
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_WEAK_PTR_H_

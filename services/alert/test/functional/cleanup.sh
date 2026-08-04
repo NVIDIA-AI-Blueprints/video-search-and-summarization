@@ -134,26 +134,16 @@ if docker ps -q -f name="$KAFKA_DEFAULT" | grep -q .; then
     print_status "ok" "Default Kafka container stopped"
 fi
 
-# Stop Redis container
-if [ -f "$PID_DIR/redis_container" ]; then
-    REDIS_CONTAINER=$(cat "$PID_DIR/redis_container")
-    if docker ps -q -f name="$REDIS_CONTAINER" | grep -q .; then
-        print_status "wait" "Stopping Redis container..."
-        docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
-        print_status "ok" "Redis container stopped"
-    else
-        print_status "ok" "Redis container already stopped"
+# Redis removed from Alert MS — best-effort cleanup of any leftover Redis
+# test container from older runs, but none is started anymore.
+for legacy_redis in "$(cat "$PID_DIR/redis_container" 2>/dev/null)" "alert-agent-redis-test"; do
+    [ -n "$legacy_redis" ] || continue
+    if docker ps -q -f name="$legacy_redis" | grep -q .; then
+        docker rm -f "$legacy_redis" >/dev/null 2>&1 || true
+        print_status "ok" "Removed leftover Redis container ($legacy_redis)"
     fi
-    rm -f "$PID_DIR/redis_container"
-fi
-
-# Also try the default Redis container name
-REDIS_DEFAULT="alert-agent-redis-test"
-if docker ps -q -f name="$REDIS_DEFAULT" | grep -q .; then
-    print_status "wait" "Stopping default Redis container..."
-    docker rm -f "$REDIS_DEFAULT" >/dev/null 2>&1 || true
-    print_status "ok" "Default Redis container stopped"
-fi
+done
+rm -f "$PID_DIR/redis_container" 2>/dev/null || true
 
 # Clean up PID directory
 if [ -d "$PID_DIR" ]; then

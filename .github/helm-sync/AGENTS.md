@@ -138,6 +138,22 @@ repo evolves.
    | new Dockerfile (new service) | new `templates/<svc>-deployment.yaml` + values entry |
    | NIM / GPU resource hints | `resources.limits.nvidia.com/gpu` + tolerations / nodeSelector |
 
+   **Shared managed-image channel.** Images classified with `"ghcr_build": true`
+   in `deploy/docker/container-inventory.json` use the same defaults in Docker
+   Compose and Helm:
+
+   - Both deployment paths default to
+     `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
+   - Helm resolves the managed image prefix and tag from
+     `global.container_prefix` and `global.container_tag` when set. QA uses
+     those two values to select a promoted NGC staging drop without editing
+     individual subcharts.
+   - Treat a Helm chart that retains an immutable
+     `nvcr.io/nvstaging/vss-core/*` default, ignores either global override, or
+     hard-codes a managed image in an umbrella profile as drift.
+   - Continue to flag every other semantic difference, including container
+     env, ports, mounts, commands, probes, resources, and topology.
+
    For each docker-side change, decide one of:
    - **already synced** — the helm-side change matches semantically.
      Don't second-guess wording differences (e.g. helm uses

@@ -22,25 +22,31 @@
 #include "perfetto/base/thread_utils.h"
 #include "perfetto/protozero/message_handle.h"
 #include "perfetto/protozero/scattered_heap_buffer.h"
-#include "perfetto/tracing/internal/compile_time_hash.h"
+#include "perfetto/tracing/internal/fnv1a.h"
 #include "perfetto/tracing/internal/tracing_muxer.h"
 #include "perfetto/tracing/platform.h"
-#include "protos/perfetto/trace/trace_packet.pbzero.h"
-#include "protos/perfetto/trace/track_event/counter_descriptor.gen.h"
-#include "protos/perfetto/trace/track_event/counter_descriptor.pbzero.h"
-#include "protos/perfetto/trace/track_event/track_descriptor.gen.h"
-#include "protos/perfetto/trace/track_event/track_descriptor.pbzero.h"
+#include "perfetto/tracing/string_helpers.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/counter_descriptor.gen.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/counter_descriptor.pbzero.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/process_descriptor.gen.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/process_descriptor.pbzero.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/thread_descriptor.gen.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/thread_descriptor.pbzero.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/track_descriptor.gen.h"  // IWYU pragma: export
+#include "protos/perfetto/trace/track_event/track_descriptor.pbzero.h"  // IWYU pragma: export
 
 #include <stdint.h>
 #include <map>
 #include <mutex>
+#include <optional>
 
 namespace perfetto {
 namespace internal {
 class TrackRegistry;
-}
-class Flow;
-class TerminatingFlow;
+template <class T>
+class FlowImpl;
+}  // namespace internal
 
 // Track events are recorded on a timeline track, which maintains the relative
 // time ordering of all events on that track. Each thread has its own default
@@ -120,11 +126,7 @@ struct PERFETTO_EXPORT_COMPONENT Track {
   // Construct a track using |ptr| as identifier within thread-scope.
   // Shorthand for `Track::FromPointer(ptr, ThreadTrack::Current())`
   // Usage: TRACE_EVENT_BEGIN("...", "...", perfetto::Track::ThreadScoped(this))
-  static Track ThreadScoped(
-      const void* ptr,
-      Track parent = MakeThreadTrack(base::GetThreadId())) {
-    return Track::FromPointer(ptr, parent);
-  }
+  static Track ThreadScoped(const void* ptr, Track parent = Track());
 
  protected:
   constexpr Track(uint64_t uuid_, uint64_t parent_uuid_)
@@ -140,15 +142,13 @@ struct PERFETTO_EXPORT_COMPONENT Track {
   static Track MakeProcessTrack() { return Track(process_uuid, Track()); }
 
   static constexpr inline uint64_t CompileTimeHash(const char* string) {
-    return internal::CompileTimeHash()
-        .Update(string, static_cast<size_t>(base::StrEnd(string) - string))
-        .digest();
+    return internal::Fnv1a(string);
   }
 
  private:
   friend class internal::TrackRegistry;
-  friend class Flow;
-  friend class TerminatingFlow;
+  template <class T>
+  friend class internal::FlowImpl;
   static uint64_t process_uuid;
 };
 
@@ -193,6 +193,123 @@ struct PERFETTO_EXPORT_COMPONENT ThreadTrack : public Track {
             disallow_merging_with_system_tracks_) {}
 };
 
+// A track that's identified by an explcit name, id and its parent.
+class PERFETTO_EXPORT_COMPONENT NamedTrack : public Track {
+  // A random value mixed into named track uuids to avoid collisions with
+  // other types of tracks.
+  static constexpr uint64_t kNamedTrackMagic = 0xCD571EC5EAD37024ul;
+
+ public:
+  // `name` is hashed to get a uuid identifying the track. Optionally specify
+  // `id` to differentiate between multiple tracks with the same `name` and
+  // `parent`.
+  NamedTrack(DynamicString name,
+             uint64_t id = 0,
+             Track parent = MakeProcessTrack())
+      : Track(id ^ internal::Fnv1a(name.value, name.length) ^ kNamedTrackMagic,
+              parent),
+        static_name_(nullptr),
+        dynamic_name_(name) {}
+
+  constexpr NamedTrack(StaticString name,
+                       uint64_t id = 0,
+                       Track parent = MakeProcessTrack())
+      : Track(id ^ internal::Fnv1a(name.value) ^ kNamedTrackMagic, parent),
+        static_name_(name) {}
+
+  // Construct a track using `name` and `ptr` as identifier.
+  template <class TrackEventName>
+  static NamedTrack FromPointer(TrackEventName&& name,
+                                const void* ptr,
+                                Track parent = MakeProcessTrack()) {
+    // Using pointers as global TrackIds isn't supported as pointers are
+    // per-proccess and the same pointer value can be used in different
+    // processes. If you hit this check but are providing no |parent| track,
+    // verify that Tracing::Initialize() was called for the current process.
+    PERFETTO_DCHECK(parent.uuid != Track().uuid);
+
+    return NamedTrack(std::forward<TrackEventName>(name),
+                      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr)),
+                      parent);
+  }
+
+  // Construct a track using `name` and `id` as identifier within thread-scope.
+  // Shorthand for `Track::NamedTrack("name", id, ThreadTrack::Current())`
+  // Usage: TRACE_EVENT_BEGIN("...", "...",
+  // perfetto::NamedTrack::ThreadScoped("rendering"))
+  template <class TrackEventName>
+  static NamedTrack ThreadScoped(TrackEventName&& name,
+                                 uint64_t id = 0,
+                                 Track parent = Track()) {
+    if (parent.uuid == 0)
+      return NamedTrack(std::forward<TrackEventName>(name), id,
+                        ThreadTrack::Current());
+    return NamedTrack(std::forward<TrackEventName>(name), id, parent);
+  }
+
+  // Same as above using `name` and `ptr` as identifier within thread-scope.
+  template <class TrackEventName>
+  static NamedTrack ThreadScoped(TrackEventName&& name,
+                                 const void* ptr,
+                                 Track parent = Track()) {
+    if (parent.uuid == 0) {
+      return NamedTrack::FromPointer(std::forward<TrackEventName>(name), ptr,
+                                     ThreadTrack::Current());
+    }
+    return NamedTrack::FromPointer(std::forward<TrackEventName>(name), ptr,
+                                   parent);
+  }
+
+  template <class TrackEventName>
+  static NamedTrack Global(TrackEventName&& name, uint64_t id = 0) {
+    return NamedTrack(std::forward<TrackEventName>(name), id, Track());
+  }
+
+  constexpr NamedTrack disable_sibling_merge() const {
+    return NamedTrack(
+        *this,
+        perfetto::protos::gen::TrackDescriptor::SIBLING_MERGE_BEHAVIOR_NONE,
+        nullptr, std::nullopt);
+  }
+  constexpr NamedTrack set_sibling_merge_key(const char* key) {
+    return NamedTrack(*this,
+                      perfetto::protos::gen::TrackDescriptor::
+                          SIBLING_MERGE_BEHAVIOR_BY_SIBLING_MERGE_KEY,
+                      key, std::nullopt);
+  }
+  constexpr NamedTrack set_sibling_merge_key(uint64_t key) {
+    return NamedTrack(*this,
+                      perfetto::protos::gen::TrackDescriptor::
+                          SIBLING_MERGE_BEHAVIOR_BY_SIBLING_MERGE_KEY,
+                      nullptr, key);
+  }
+
+  void Serialize(protos::pbzero::TrackDescriptor*) const;
+  protos::gen::TrackDescriptor Serialize() const;
+
+ private:
+  constexpr NamedTrack(
+      const NamedTrack& other,
+      perfetto::protos::gen::TrackDescriptor::SiblingMergeBehavior
+          sibling_merge_behavior,
+      const char* sibling_merge_key,
+      std::optional<uint64_t> sibling_merge_key_int)
+      : Track(other),
+        static_name_(other.static_name_),
+        dynamic_name_(other.dynamic_name_),
+        sibling_merge_behavior_(sibling_merge_behavior),
+        sibling_merge_key_(sibling_merge_key),
+        sibling_merge_key_int_(std::move(sibling_merge_key_int)) {}
+
+  StaticString static_name_;
+  DynamicString dynamic_name_;
+  perfetto::protos::gen::TrackDescriptor::SiblingMergeBehavior
+      sibling_merge_behavior_{perfetto::protos::gen::TrackDescriptor::
+                                  SIBLING_MERGE_BEHAVIOR_UNSPECIFIED};
+  const char* sibling_merge_key_{nullptr};
+  std::optional<uint64_t> sibling_merge_key_int_ = std::nullopt;
+};
+
 // A track for recording counter values with the TRACE_COUNTER macro. Counter
 // tracks can optionally be given units and other metadata. See
 // /protos/perfetto/trace/track_event/counter_descriptor.proto for details.
@@ -206,72 +323,117 @@ class PERFETTO_EXPORT_COMPONENT CounterTrack : public Track {
   using CounterType =
       perfetto::protos::gen::CounterDescriptor::BuiltinCounterType;
 
-  // |name| must be a string with static lifetime.
-  constexpr explicit CounterTrack(const char* name,
+  // |name| must outlive this object.
+  constexpr explicit CounterTrack(StaticString name,
                                   Track parent = MakeProcessTrack())
-      : Track(CompileTimeHash(name) ^ kCounterMagic, parent),
-        name_(name),
-        category_(nullptr) {}
+      : CounterTrack(
+            name,
+            0u,
+            perfetto::protos::pbzero::CounterDescriptor::UNIT_UNSPECIFIED,
+            nullptr,
+            parent) {}
+
+  constexpr explicit CounterTrack(StaticString name,
+                                  uint64_t id,
+                                  Track parent = MakeProcessTrack())
+      : CounterTrack(
+            name,
+            id,
+            perfetto::protos::pbzero::CounterDescriptor::UNIT_UNSPECIFIED,
+            nullptr,
+            parent) {}
+
+  explicit CounterTrack(DynamicString name, Track parent = MakeProcessTrack())
+      : CounterTrack(
+            name,
+            0u,
+            perfetto::protos::pbzero::CounterDescriptor::UNIT_UNSPECIFIED,
+            nullptr,
+            parent) {}
+
+  explicit CounterTrack(DynamicString name,
+                        uint64_t id,
+                        Track parent = MakeProcessTrack())
+      : CounterTrack(
+            name,
+            id,
+            perfetto::protos::pbzero::CounterDescriptor::UNIT_UNSPECIFIED,
+            nullptr,
+            parent) {}
 
   // |unit_name| is a free-form description of the unit used by this counter. It
-  // must have static lifetime.
-  constexpr CounterTrack(const char* name,
+  // must outlive this object.
+  template <class TrackEventName>
+  constexpr CounterTrack(TrackEventName&& name,
                          const char* unit_name,
                          Track parent = MakeProcessTrack())
-      : Track(CompileTimeHash(name) ^ kCounterMagic, parent),
-        name_(name),
-        category_(nullptr),
-        unit_name_(unit_name) {}
+      : CounterTrack(
+            std::forward<TrackEventName>(name),
+            0u,
+            perfetto::protos::pbzero::CounterDescriptor::UNIT_UNSPECIFIED,
+            unit_name,
+            parent) {}
 
-  constexpr CounterTrack(const char* name,
+  template <class TrackEventName>
+  constexpr CounterTrack(TrackEventName&& name,
                          Unit unit,
                          Track parent = MakeProcessTrack())
-      : Track(CompileTimeHash(name) ^ kCounterMagic, parent),
-        name_(name),
-        category_(nullptr),
-        unit_(unit) {}
+      : CounterTrack(std::forward<TrackEventName>(name),
+                     0u,
+                     unit,
+                     nullptr,
+                     parent) {}
 
-  static constexpr CounterTrack Global(const char* name,
+  template <class TrackEventName>
+  static constexpr CounterTrack Global(TrackEventName&& name,
                                        const char* unit_name) {
-    return CounterTrack(name, unit_name, Track());
+    return CounterTrack(std::forward<TrackEventName>(name), unit_name, Track());
   }
 
-  static constexpr CounterTrack Global(const char* name, Unit unit) {
-    return CounterTrack(name, unit, Track());
+  template <class TrackEventName>
+  static constexpr CounterTrack Global(TrackEventName&& name, Unit unit) {
+    return CounterTrack(std::forward<TrackEventName>(name), unit, Track());
   }
 
-  static constexpr CounterTrack Global(const char* name) {
-    return Global(name, nullptr);
+  template <class TrackEventName>
+  static constexpr CounterTrack Global(TrackEventName&& name) {
+    return Global(std::forward<TrackEventName>(name), nullptr);
   }
 
   constexpr CounterTrack set_unit(Unit unit) const {
-    return CounterTrack(uuid, parent_uuid, name_, category_, unit, unit_name_,
-                        unit_multiplier_, is_incremental_, type_);
+    return CounterTrack(uuid, parent_uuid, static_name_, dynamic_name_,
+                        category_, unit, unit_name_, unit_multiplier_,
+                        is_incremental_, type_);
   }
 
   constexpr CounterTrack set_type(CounterType type) const {
-    return CounterTrack(uuid, parent_uuid, name_, category_, unit_, unit_name_,
-                        unit_multiplier_, is_incremental_, type);
+    return CounterTrack(uuid, parent_uuid, static_name_, dynamic_name_,
+                        category_, unit_, unit_name_, unit_multiplier_,
+                        is_incremental_, type);
   }
 
   constexpr CounterTrack set_unit_name(const char* unit_name) const {
-    return CounterTrack(uuid, parent_uuid, name_, category_, unit_, unit_name,
-                        unit_multiplier_, is_incremental_, type_);
+    return CounterTrack(uuid, parent_uuid, static_name_, dynamic_name_,
+                        category_, unit_, unit_name, unit_multiplier_,
+                        is_incremental_, type_);
   }
 
   constexpr CounterTrack set_unit_multiplier(int64_t unit_multiplier) const {
-    return CounterTrack(uuid, parent_uuid, name_, category_, unit_, unit_name_,
-                        unit_multiplier, is_incremental_, type_);
+    return CounterTrack(uuid, parent_uuid, static_name_, dynamic_name_,
+                        category_, unit_, unit_name_, unit_multiplier,
+                        is_incremental_, type_);
   }
 
   constexpr CounterTrack set_category(const char* category) const {
-    return CounterTrack(uuid, parent_uuid, name_, category, unit_, unit_name_,
-                        unit_multiplier_, is_incremental_, type_);
+    return CounterTrack(uuid, parent_uuid, static_name_, dynamic_name_,
+                        category, unit_, unit_name_, unit_multiplier_,
+                        is_incremental_, type_);
   }
 
   constexpr CounterTrack set_is_incremental(bool is_incremental = true) const {
-    return CounterTrack(uuid, parent_uuid, name_, category_, unit_, unit_name_,
-                        unit_multiplier_, is_incremental, type_);
+    return CounterTrack(uuid, parent_uuid, static_name_, dynamic_name_,
+                        category_, unit_, unit_name_, unit_multiplier_,
+                        is_incremental, type_);
   }
 
   constexpr bool is_incremental() const { return is_incremental_; }
@@ -280,9 +442,32 @@ class PERFETTO_EXPORT_COMPONENT CounterTrack : public Track {
   protos::gen::TrackDescriptor Serialize() const;
 
  private:
+  constexpr CounterTrack(StaticString name,
+                         uint64_t id,
+                         Unit unit,
+                         const char* unit_name,
+                         Track parent)
+      : Track(id ^ internal::Fnv1a(name.value) ^ kCounterMagic, parent),
+        static_name_(name),
+        category_(nullptr),
+        unit_(unit),
+        unit_name_(unit_name) {}
+  CounterTrack(DynamicString name,
+               uint64_t id,
+               Unit unit,
+               const char* unit_name,
+               Track parent)
+      : Track(id ^ internal::Fnv1a(name.value, name.length) ^ kCounterMagic,
+              parent),
+        static_name_(nullptr),
+        dynamic_name_(name),
+        category_(nullptr),
+        unit_(unit),
+        unit_name_(unit_name) {}
   constexpr CounterTrack(uint64_t uuid_,
                          uint64_t parent_uuid_,
-                         const char* name,
+                         StaticString static_name,
+                         DynamicString dynamic_name,
                          const char* category,
                          Unit unit,
                          const char* unit_name,
@@ -290,7 +475,8 @@ class PERFETTO_EXPORT_COMPONENT CounterTrack : public Track {
                          bool is_incremental,
                          CounterType type)
       : Track(uuid_, parent_uuid_),
-        name_(name),
+        static_name_(static_name),
+        dynamic_name_(dynamic_name),
         category_(category),
         unit_(unit),
         unit_name_(unit_name),
@@ -298,7 +484,8 @@ class PERFETTO_EXPORT_COMPONENT CounterTrack : public Track {
         is_incremental_(is_incremental),
         type_(type) {}
 
-  const char* const name_;
+  StaticString static_name_;
+  DynamicString dynamic_name_;
   const char* const category_;
   Unit unit_ = perfetto::protos::pbzero::CounterDescriptor::UNIT_UNSPECIFIED;
   const char* const unit_name_ = nullptr;
@@ -323,27 +510,21 @@ namespace internal {
 class PERFETTO_EXPORT_COMPONENT TrackRegistry {
  public:
   using SerializedTrackDescriptor = std::string;
+  struct TrackInfo {
+    SerializedTrackDescriptor desc;
+    uint64_t parent_uuid = 0;
+  };
 
   TrackRegistry();
   ~TrackRegistry();
 
-  static void InitializeInstance();
+  static void InitializeInstance(
+      std::optional<uint64_t> process_uuid = std::nullopt);
   static void ResetForTesting();
+  static uint64_t ComputeProcessUuid();
   static TrackRegistry* Get() { return instance_; }
 
   void EraseTrack(Track);
-
-  // Store metadata for |track| in the registry. |fill_function| is called
-  // synchronously to record additional properties for the track.
-  template <typename TrackType>
-  void UpdateTrack(
-      const TrackType& track,
-      std::function<void(protos::pbzero::TrackDescriptor*)> fill_function) {
-    UpdateTrackImpl(track, [&](protos::pbzero::TrackDescriptor* desc) {
-      track.Serialize(desc);
-      fill_function(desc);
-    });
-  }
 
   // This variant lets the user supply a serialized track descriptor directly.
   void UpdateTrack(Track, const std::string& serialized_desc);
@@ -351,29 +532,40 @@ class PERFETTO_EXPORT_COMPONENT TrackRegistry {
   // If |track| exists in the registry, write out the serialized track
   // descriptor for it into |packet|. Otherwise just the ephemeral track object
   // is serialized without any additional metadata.
+  //
+  // Returns the parent track uuid.
   template <typename TrackType>
-  void SerializeTrack(
+  uint64_t SerializeTrack(
       const TrackType& track,
       protozero::MessageHandle<protos::pbzero::TracePacket> packet) {
     // If the track has extra metadata (recorded with UpdateTrack), it will be
     // found in the registry. To minimize the time the lock is held, make a copy
     // of the data held in the registry and write it outside the lock.
-    std::string desc_copy;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      const auto& it = tracks_.find(track.uuid);
-      if (it != tracks_.end()) {
-        desc_copy = it->second;
-        PERFETTO_DCHECK(!desc_copy.empty());
-      }
-    }
-    if (!desc_copy.empty()) {
-      WriteTrackDescriptor(std::move(desc_copy), std::move(packet));
+    auto track_info = FindTrackInfo(track.uuid);
+    if (track_info) {
+      WriteTrackDescriptor(std::move(track_info->desc), std::move(packet));
+      return track_info->parent_uuid;
     } else {
       // Otherwise we just write the basic descriptor for this type of track
       // (e.g., just uuid, no name).
       track.Serialize(packet->set_track_descriptor());
+      return track.parent_uuid;
     }
+  }
+
+  // If saved in the registry, returns the serialize track descriptor and parent
+  // uuid for `uuid`.
+  std::optional<TrackInfo> FindTrackInfo(uint64_t uuid) {
+    std::optional<TrackInfo> track_info;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto it = tracks_.find(uuid);
+      if (it != tracks_.end()) {
+        track_info = it->second;
+        PERFETTO_DCHECK(!track_info->desc.empty());
+      }
+    }
+    return track_info;
   }
 
   static void WriteTrackDescriptor(
@@ -381,12 +573,8 @@ class PERFETTO_EXPORT_COMPONENT TrackRegistry {
       protozero::MessageHandle<protos::pbzero::TracePacket> packet);
 
  private:
-  void UpdateTrackImpl(
-      Track,
-      std::function<void(protos::pbzero::TrackDescriptor*)> fill_function);
-
   std::mutex mutex_;
-  std::map<uint64_t /* uuid */, SerializedTrackDescriptor> tracks_;
+  std::map<uint64_t /* uuid */, TrackInfo> tracks_;
 
   static TrackRegistry* instance_;
 };

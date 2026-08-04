@@ -22,6 +22,8 @@
 #include <mutex>
 #include <queue>
 #include <tuple>
+#include <utility>
+#include <vector>
 
 #include "logger.h"
 #include "network_utils.h"
@@ -171,4 +173,24 @@ public:
 
     static void getBboxPositionStreamer(BBoxMetaData& outData);
     static void getBboxPosition(BBoxMetaData& outData);
+
+    /*
+     * Single-shot range query used by the download prefetch path. Returns up to
+     * `size` metadata hits for the window [startIso, endIso], sorted ascending,
+     * WITHOUT touching any shared queue. Safe to call concurrently (each call is
+     * independent), which lets the prefetch fan out across time-sliced windows
+     * in parallel. Does not paginate: choose `size`/window so the slice stays
+     * under the Elasticsearch max_result_window.
+     *
+     * Returns {reachable, hits}. `reachable` is true when Elasticsearch answered
+     * the query (even with zero hits) and false when the server could not be
+     * reached / returned no valid response - the prefetch uses this to tell
+     * "empty because idle" (keep waiting for later data) apart from "empty
+     * because ES is down" (stop blocking per frame).
+     */
+    static std::pair<bool, std::vector<Json::Value>> fetchRangeHits(
+                                                   const std::string& sensorId,
+                                                   const std::string& startIso,
+                                                   const std::string& endIso,
+                                                   int size);
 };

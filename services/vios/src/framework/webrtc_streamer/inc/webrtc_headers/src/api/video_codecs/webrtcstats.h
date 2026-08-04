@@ -36,6 +36,7 @@
 #include <jsoncpp/json/json.h>
 #include <condition_variable>
 #include <chrono>
+#include "rtc_base/system/rtc_export.h"
 
 struct WebrtcLatencyStats
 {
@@ -69,7 +70,7 @@ class WebrtcCodecStats : public WebrtcLatencyStats
         ~WebrtcCodecStats() {}
         void startProcessing();
         void finishProcessing();
-        void clearQueue();
+        RTC_EXPORT void clearQueue();
         void printWebrtcTotalStats();
         void printWebrtcFrameStats();
         void setLatency(int64_t latency);

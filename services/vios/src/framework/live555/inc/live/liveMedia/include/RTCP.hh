@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // RTCP
 // C++ header
 
@@ -59,7 +59,7 @@ public:
 				 RTPSource* source,
 				 Boolean isSSMTransmitter = False,
 				 SRTPCryptographicContext* crypto = NULL,
-         Boolean useExternalNtpTime = False);
+                                 Boolean useExternalNtpTime = False);
 
   static Boolean lookupByName(UsageEnvironment& env, char const* instanceName,
                               RTCPInstance*& resultInstance);
@@ -146,7 +146,7 @@ protected:
 	       RTPSink* sink, RTPSource* source,
 	       Boolean isSSMTransmitter,
 	       SRTPCryptographicContext* crypto,
-         Boolean useExternalNtpTime = False);
+               Boolean useExternalNtpTime = False);
       // called only by createNew()
   virtual ~RTCPInstance();
 

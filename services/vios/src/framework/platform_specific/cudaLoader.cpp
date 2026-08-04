@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-#ifndef JETSON_PLATFORM
 #include "cudaLoader.h"
 #include <dlfcn.h>
 #include "logger.h"
@@ -48,18 +47,63 @@ CudaLoader::CudaLoader()
         , m_handleCuda(nullptr)
         , m_handleCudart(nullptr)
 {
-#if defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
-    m_handleCuda = dlopen("/usr/lib/aarch64-linux-gnu/libcuda.so", RTLD_LAZY);
-    m_handleCudart = dlopen("/usr/local/cuda-13.0/targets/sbsa-linux/lib/libcudart.so.13", RTLD_LAZY);
-#else
-    m_handleCuda = dlopen("libcuda.so", RTLD_LAZY);
-    m_handleCudart = dlopen("/usr/local/cuda-13.0/targets/x86_64-linux/lib/libcudart.so.13", RTLD_LAZY);
+    // The driver library is injected by the container runtime, and where it
+    // lands depends on the host stack: the Jetson CSV mounts used to place it
+    // in /usr/lib/<triplet>, while CDI injection (JetPack 7.2 / R39 OpenRM)
+    // mounts it under /opt/nvidia/l4t-gpu-libs/openrm and only registers it in
+    // the ld cache. Resolve the soname first so any of those layouts works, and
+    // keep the absolute paths as a fallback for images with no ld cache entry.
+    static const char* const cudaCandidates[] = {
+        "libcuda.so.1",
+        "libcuda.so",
+#ifdef AARCH64_PLATFORM
+        "/opt/nvidia/l4t-gpu-libs/openrm/libcuda.so.1",
+        "/usr/lib/aarch64-linux-gnu/nvidia/libcuda.so.1",
+        "/usr/lib/aarch64-linux-gnu/libcuda.so",
 #endif
+    };
+    // Version-agnostic cudart lookup: try the bare soname first (resolved via
+    // ldconfig / LD_LIBRARY_PATH), then the /usr/local/cuda symlink, then a
+    // pinned minor version. This lets any CUDA 13.x runtime base work (13.0,
+    // 13.2, future 13.x) without hardcoding a minor-version path.
+#ifdef AARCH64_PLATFORM
+    static const char* const cudartCandidates[] = {
+        "libcudart.so.13",
+        "/usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13",
+        "/usr/local/cuda-13.2/targets/sbsa-linux/lib/libcudart.so.13",
+    };
+#else
+    static const char* const cudartCandidates[] = {
+        "libcudart.so.13",
+        "/usr/local/cuda/targets/x86_64-linux/lib/libcudart.so.13",
+        "/usr/local/cuda-13.2/targets/x86_64-linux/lib/libcudart.so.13",
+    };
+#endif
+    for (const char* cand : cudaCandidates)
+    {
+        m_handleCuda = dlopen(cand, RTLD_LAZY);
+        if (m_handleCuda)
+        {
+            break;
+        }
+        LOG(info) << "libcuda not found at " << cand << ": " << dlerror() << endl;
+    }
+    for (const char* cand : cudartCandidates)
+    {
+        m_handleCudart = dlopen(cand, RTLD_LAZY);
+        if (m_handleCudart)
+        {
+            break;
+        }
+        LOG(info) << "libcudart not found at " << cand << ": " << dlerror() << endl;
+    }
     if (!m_handleCuda || !m_handleCudart)
     {
         if (g_isGpuPresent)
         {
-            LOG(error) << "Error loading the CUDA libraries" << endl;
+            LOG(error) << "Error loading the CUDA libraries (libcuda: "
+                       << (m_handleCuda ? "ok" : "missing") << ", libcudart: "
+                       << (m_handleCudart ? "ok" : "missing") << ")" << endl;
             m_error = true;
             throw std::runtime_error("An exception occurred, error loading the CUDA libraries");
         }
@@ -95,4 +139,3 @@ CudaLoader::~CudaLoader()
         dlclose(m_handleCudart);
     }
 }
-#endif

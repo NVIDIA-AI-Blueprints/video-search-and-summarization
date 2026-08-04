@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  imagePullSecrets: []
+  useReleaseNamePrefix: false
+
+enabled: false
+
+nameOverride: ""
+fullnameOverride: ""
+name: ""
+useReleaseNamePrefix: null
+
+image:
+  repository: docker.io/library/alpine
+  tag: "3.24.1"
+  pullPolicy: IfNotPresent
+
+apiUrl: http://vss-video-analytics-api:8081
+calibrationFile: /tmp/calibration-import/calibration.json
+calibrationSourceType: ""
+calibrationFileSource: ""
+imagesDir: /tmp/calibration-import/images
+imageSourceType: ""
+imageMetadataFileSource: ""
+imageBaseSource: ""
+appDataMarkerFile: ""
+maxRetries: 120
+sleepSeconds: 2
+requireCalibration: false
+requireImages: false
+
+scripts:
+  existingConfigMap: ""
+  mountPath: /opt/scripts
+
+dataPvcClaimName: ""
+dataMountPath: /opt/vss
+
+ngcOrg: ""
+ngcTeam: ""
+ngcApiKeySecretName: ""
+ngcApiKeySecretKey: NGC_CLI_API_KEY
+
+awsAccessKeyID: ""
+awsSecretAccessKey: ""
+awsRegion: ""
+awsEndpointUrl: ""
+
+storageRestUrl: ""
+storageAuthorization: ""
+
+extraEnv: []
+
+ttlSecondsAfterFinished: null
+backoffLimit: 5
+restartPolicy: OnFailure
+
+resources: {}
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

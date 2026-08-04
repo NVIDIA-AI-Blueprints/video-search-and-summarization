@@ -31,6 +31,9 @@ interface MetadataSectionProps {
   data: Record<string, any>;
   isDark: boolean;
   alertReportPromptTemplate?: string;
+  vlmVerifiedAlertReportPromptTemplate?: string;
+  /** When true, use the VLM verified report prompt template. */
+  vlmVerified?: boolean;
   /** When set, "Generate Report" sends the resolved template to the app chat (e.g. VSS sidebar). */
   submitChatMessage?: (message: string) => void;
 }
@@ -42,6 +45,8 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
   data, 
   isDark,
   alertReportPromptTemplate,
+  vlmVerifiedAlertReportPromptTemplate,
+  vlmVerified = false,
   submitChatMessage,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -51,10 +56,14 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
   
   const isEmpty = !data || Object.keys(data).length === 0;
 
+  const activeReportPromptTemplate = vlmVerified
+    ? vlmVerifiedAlertReportPromptTemplate || alertReportPromptTemplate
+    : alertReportPromptTemplate;
+
   const shouldShowGenerateReport =
     Boolean(submitChatMessage) &&
-    alertReportPromptTemplate &&
-    alertReportPromptTemplate.trim() !== '' &&
+    activeReportPromptTemplate &&
+    activeReportPromptTemplate.trim() !== '' &&
     alertId &&
     sensor &&
     !alertId.startsWith('alert-');
@@ -62,10 +71,10 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
   const formattedPrompt = useMemo(() => {
     if (!shouldShowGenerateReport) return '';
     
-    return (alertReportPromptTemplate || '')
+    return (activeReportPromptTemplate || '')
       .replace(/{incidentId}/g, alertId)
       .replace(/{sensorId}/g, sensor);
-  }, [shouldShowGenerateReport, alertReportPromptTemplate, alertId, sensor]);
+  }, [shouldShowGenerateReport, activeReportPromptTemplate, alertId, sensor]);
 
   const handleGenerateReport = () => {
     if (!submitChatMessage || !formattedPrompt.trim()) return;

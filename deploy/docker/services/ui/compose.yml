@@ -16,11 +16,11 @@
 services:
 
   vss-ui:
-    image: nvcr.io/nvidia/vss-core/vss-agent-ui:3.2.0
-    profiles: ["bp_wh_2d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: ${VSS_AGENT_UI_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent-ui}:${VSS_CONTAINER_TAG:-${VSS_AGENT_UI_TAG:-develop-latest}}
+    profiles: ["vss-ui"]
     container_name: vss-agent-ui
     ports:
-      - 3000:3000
+      - ${VSS_UI_HOST_PORT:-3000}:3000
     restart: always
     depends_on:
       vss-agent:
@@ -89,6 +89,7 @@ services:
       NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS: 1000
       NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT: ${NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT:-false}
       NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE: "Generate a report for incident {incidentId} with sensor id {sensorId}."
+      NEXT_PUBLIC_ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE: "Generate a verified incident report for incident {incidentId} with sensor id {sensorId}."
       # Max search time limit (0 = unlimited, or use: 10m, 2h, 3d, 1w, 2M, 1y)
       NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT: 0
       NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX: ${NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX:-false}

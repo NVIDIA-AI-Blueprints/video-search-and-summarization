@@ -40,7 +40,7 @@ VSS Agent provides composable tools and agents for video understanding:
 | `tests/unit_test/` | Unit tests (mirrors source tree) |
 | `stubs/` | Mypy type stubs for third-party libraries |
 | `docker/` | Dockerfile and build scripts |
-| `3rdparty/` | Third-party source (FFmpeg, included for LGPL compliance) |
+| `3rdparty/` | Third-party source retained in the repository; not copied into the container image |
 
 ## Prerequisites
 
@@ -67,8 +67,19 @@ Install `uv` and create the virtual environment. If Python 3.13 is not present o
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv --python 3.13
-uv sync
+uv sync --extra agent
 source .venv/bin/activate
+```
+
+The project ships three install profiles, smallest to largest: `nvidia-vss`
+(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `vss` console
+script name; the script itself ships with the base wheel), and
+`nvidia-vss[agent]` (the full NAT-based agent application). `uv sync` without
+`--extra agent` gives the
+NAT-free base environment used by the host CLI:
+
+```bash
+uv run --no-dev vss --help
 ```
 
 ### Docker
@@ -209,13 +220,15 @@ or are only needed for specific features.
 
 ## Proprietary multimedia codecs
 
-The pre-built VSS Agent container image **does not bundle `opencv-python-headless`**.
-That wheel ships FFmpeg libraries that contain **patent-encumbered codecs** (H.264, H.265,
-and variants), which NVIDIA cannot redistribute. Following the VST team's approach, **all
-FFmpeg/codec libraries are removed while building the container** (`libav*`, `libswscale`,
-`libswresample`, `libpostproc`, `libx264/5`, ...), and an installation script reinstalls
-them at runtime only when the operator opts in. A build-time guard in the Dockerfile and a
-CI job (`.github/scripts/check_no_patented_codecs.py`) fail the build if any such library
+The pre-built VSS Agent container image **does not bundle `opencv-python-headless`, any
+FFmpeg binary, or any FFmpeg source archive**. The OpenCV wheel ships FFmpeg libraries
+that contain **patent-encumbered codecs** (H.264, H.265, and variants), which NVIDIA
+cannot redistribute. Following the VST team's approach, **all FFmpeg/codec libraries are
+removed while building the container** (`libav*`, `libswscale`, `libswresample`,
+`libpostproc`, `libx264/5`, ...), and the repository's FFmpeg source archive is not copied
+into any image stage. An installation script reinstalls OpenCV and its bundled libraries
+at runtime only when the operator opts in. A build-time guard in the Dockerfile and a CI
+job (`.github/scripts/check_no_patented_codecs.py`) fail the build if any such library
 leaks into the image. Tools that decode video (video understanding/captioning, frame
 timestamp, S3 picture URL) therefore fail with a clear error in the default image and
 require opting in to the proprietary codecs.
@@ -262,7 +275,7 @@ uv run pytest tests/unit_test/ --cov=src/vss_agents --cov-report=term-missing -v
 ## Contributing
 
 1. Fork the repository and create a feature branch.
-2. Install dev dependencies: `uv sync --group dev`
+2. Install dev dependencies: `uv sync --group dev --extra agent`
 3. Install pre-commit hooks: `pre-commit install`
    Hooks include [gitleaks](https://github.com/gitleaks/gitleaks) for secret scanning,
    installed automatically as a Go binary via the pre-commit framework.

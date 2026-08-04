@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // A RTP source for a simple RTP payload format that
 //     - doesn't have any special headers following the RTP header
 //       (if necessary, the "offset" parameter can be used to specify a

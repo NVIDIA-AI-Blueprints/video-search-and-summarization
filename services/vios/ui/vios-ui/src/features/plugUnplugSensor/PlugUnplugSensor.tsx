@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useCallback, useState } from 'react';
 import { Card, CardHeader, CardActions, CardContent, Typography, Stack, Divider, Box } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
@@ -55,7 +56,7 @@ const PlugUnplugSensor: React.FC = () => {
                 );
                 successCount++;
             } catch (error) {
-                console.log('Failed to plug sensor', error);
+                LOG.info('Failed to plug sensor', error);
                 errorCount++;
             }
         }
@@ -94,7 +95,7 @@ const PlugUnplugSensor: React.FC = () => {
                 );
                 successCount++;
             } catch (error) {
-                console.log('Failed to unplug sensor', error);
+                LOG.info('Failed to unplug sensor', error);
                 errorCount++;
             }
         }

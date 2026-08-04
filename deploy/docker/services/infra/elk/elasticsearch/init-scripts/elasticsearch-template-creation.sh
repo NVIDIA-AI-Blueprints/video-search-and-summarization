@@ -20,10 +20,11 @@ set -euo pipefail
 # ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
 ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS="${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS:-0}"
 ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"
-ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://localhost:9200}"
+ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://elasticsearch:9200}"
 
-BP_PROFILE=${BP_PROFILE:-}
-echo "BP_PROFILE: ${BP_PROFILE}"
+# Master switch: create kNN-searchable dense_vector fields in mdx-behavior-* / mdx-raw-* templates
+ELASTICSEARCH_ENABLE_EMBEDDINGS=${ELASTICSEARCH_ENABLE_EMBEDDINGS:-false}
+echo "ELASTICSEARCH_ENABLE_EMBEDDINGS: ${ELASTICSEARCH_ENABLE_EMBEDDINGS}"
 
 # Embedding dimensions for Elasticsearch dense_vector
 ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM:-1536}
@@ -129,7 +130,7 @@ setup_elasticsearch_templates(){
         }
       }'
 
-    if [[ "${BP_PROFILE:-}" == "bp_developer_search" ]]; then
+    if [[ "${ELASTICSEARCH_ENABLE_EMBEDDINGS}" == "true" ]]; then
       create_index_template "mdx_behavior_template" '{
           "index_patterns": ["mdx-behavior-*"],
           "priority": 502,
@@ -169,7 +170,7 @@ setup_elasticsearch_templates(){
             }
           }
         }'
-      echo "Successfully created index template: mdx_behavior_template for bp_developer_search"
+      echo "Successfully created index template: mdx_behavior_template with dense_vector embeddings"
     else
       create_index_template "mdx_behavior_template" '{
         "index_patterns": ["mdx-behavior-*"],
@@ -446,7 +447,7 @@ setup_elasticsearch_templates(){
       }'
 
 #   if rawDataSchema is in json format then comment the following template
-    if [[ "${BP_PROFILE:-}" == "bp_developer_search" ]]; then
+    if [[ "${ELASTICSEARCH_ENABLE_EMBEDDINGS}" == "true" ]]; then
       create_index_template "mdx_raw_template" '{
           "index_patterns": ["mdx-raw-*"],
           "priority": 512,
@@ -479,7 +480,7 @@ setup_elasticsearch_templates(){
             }
           }
         }'
-        echo "Successfully created index template: mdx_raw_template for bp_developer_search"
+        echo "Successfully created index template: mdx_raw_template with dense_vector embeddings"
     else
       create_index_template "mdx_raw_template" '{
         "index_patterns": ["mdx-raw-*"],

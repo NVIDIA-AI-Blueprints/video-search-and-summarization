@@ -255,6 +255,44 @@ class TestAmrStateMgmt(unittest.TestCase):
         self.assertEqual(result[0].id, 'AMR001')
         self.assertEqual(result[0].mute, True)  # restricted_state = not False = True
 
+    def test_multi_restricted_type_violation_not_cleared_by_other_type(self):
+        """A real violation on one restricted type must not be cleared by a count=0 placeholder
+        of another restricted type in the same ROI. update_roi_info now emits one entry per
+        restricted type, so the per-roi.id state must OR the violations rather than last-write-win."""
+        self.calibration.roi_restricted_types.return_value = {
+            'roi1': ['AMR', 'Person']
+        }
+
+        # roi1 has a violating AMR entry AND a clear (count=0) Person placeholder entry.
+        frame = self.create_frame(
+            "sensor1",
+            int(datetime(2025, 1, 2, 12, tzinfo=timezone.utc).timestamp()),
+            objects=[
+                {'id': 'obj1', 'info': {'ocrId': 'AMR001'}}
+            ],
+            rois=[
+                {
+                    'id': 'roi1',
+                    'type': 'AMR',
+                    'objectIds': ['obj1'],
+                    'info': {'restrictedAreaViolation': 'true'}
+                },
+                {
+                    'id': 'roi1',
+                    'type': 'Person',
+                    'objectIds': [],
+                    'info': {'restrictedAreaViolation': 'false'}
+                }
+            ]
+        )
+
+        result = self.amr_mgmt.update_amr_states("sensor1", [frame])
+        # AMR is violating -> mute must flip to False; the Person 'false' placeholder must NOT
+        # clear it (which the old roi.id-keyed last-write-wins logic would have done).
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].id, 'AMR001')
+        self.assertEqual(result[0].mute, False)
+
     def test_multiple_amrs_in_same_roi(self):
         """Test handling multiple AMRs in the same ROI."""
         # Setup calibration mock

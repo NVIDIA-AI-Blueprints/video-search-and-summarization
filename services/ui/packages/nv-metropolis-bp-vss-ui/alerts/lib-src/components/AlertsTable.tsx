@@ -130,6 +130,8 @@ interface AlertsTableProps {
   loadingAlertId?: string | null;
   onRefresh: () => void;
   alertReportPromptTemplate?: string;
+  vlmVerifiedAlertReportPromptTemplate?: string;
+  vlmVerified?: boolean;
   vstApiUrl?: string;
   sensorMap?: Map<string, string>;
   showObjectsBbox?: boolean;
@@ -370,6 +372,8 @@ type AlertTableBodyRowProps = Readonly<{
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
+  vlmVerifiedAlertReportPromptTemplate?: string;
+  vlmVerified?: boolean;
   submitChatMessage?: (message: string) => void;
   tdTextClass: string;
   toggleRow: (id: string) => void;
@@ -389,6 +393,8 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
+  vlmVerifiedAlertReportPromptTemplate,
+  vlmVerified = false,
   submitChatMessage,
   tdTextClass,
   toggleRow,
@@ -450,22 +456,6 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
             {alert.alertType ? alert.alertType : 'N/A'}
           </Button>
         </td>
-        <td className="py-3 px-4 text-sm">
-          {alert.alertTriggered ? (
-            <Button
-              kind="tertiary"
-              onClick={() => {
-                if (!activeFilters.alertTriggered.has(alert.alertTriggered)) {
-                  onAddFilter('alertTriggered', alert.alertTriggered);
-                }
-              }}
-            >
-              {alert.alertTriggered}
-            </Button>
-          ) : (
-            <span className={isDark ? 'text-neutral-300' : 'text-gray-600'}>N/A</span>
-          )}
-        </td>
         <td className={tdTextClass}>
           <VlmVerdictCell alert={alert} isDark={isDark} />
         </td>
@@ -488,7 +478,7 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
         <tr data-testid="alert-row-expanded" className={isDark ? 'bg-black border-b border-neutral-700' : 'bg-gray-100 border-b border-gray-200'}>
           <td></td>
           <td></td>
-          <td colSpan={8} className="py-4 pr-4">
+          <td colSpan={7} className="py-4 pr-4">
             <div className="space-y-4">
               <MetadataSection
                 alertId={alert.id}
@@ -497,6 +487,8 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
                 data={alert.metadata}
                 isDark={isDark}
                 alertReportPromptTemplate={alertReportPromptTemplate}
+                vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+                vlmVerified={vlmVerified}
                 submitChatMessage={submitChatMessage}
               />
             </div>
@@ -536,6 +528,8 @@ type AlertsTableContentProps = Readonly<{
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
+  vlmVerifiedAlertReportPromptTemplate?: string;
+  vlmVerified?: boolean;
   submitChatMessage?: (message: string) => void;
   toggleRow: (id: string) => void;
   onAddFilter: (type: FilterType, value: string) => void;
@@ -577,6 +571,8 @@ function AlertsTableContent({
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
+  vlmVerifiedAlertReportPromptTemplate,
+  vlmVerified = false,
   submitChatMessage,
   toggleRow,
   onAddFilter,
@@ -782,7 +778,6 @@ function AlertsTableContent({
             </th>
             <th className={thClass}>Sensor</th>
             <th className={thClass}>Alert Type</th>
-            <th className={thClass}>Alert Triggered</th>
             <th className={thClass}>VLM Verdict</th>
             <th className={thClass}>Alert Description</th>
             <th className={`${thClass} w-8`}></th>
@@ -805,6 +800,8 @@ function AlertsTableContent({
                 sensorMap={sensorMap}
                 showObjectsBbox={showObjectsBbox}
                 alertReportPromptTemplate={alertReportPromptTemplate}
+                vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+                vlmVerified={vlmVerified}
                 submitChatMessage={submitChatMessage}
                 tdTextClass={tdTextClass}
                 toggleRow={toggleRow}
@@ -843,6 +840,8 @@ export function AlertsTable({
   loadingAlertId,
   onRefresh,
   alertReportPromptTemplate,
+  vlmVerifiedAlertReportPromptTemplate,
+  vlmVerified = false,
   vstApiUrl,
   sensorMap,
   showObjectsBbox = false,
@@ -1018,6 +1017,8 @@ export function AlertsTable({
       sensorMap={sensorMap}
       showObjectsBbox={showObjectsBbox}
       alertReportPromptTemplate={alertReportPromptTemplate}
+      vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+      vlmVerified={vlmVerified}
       submitChatMessage={submitChatMessage}
       toggleRow={toggleRow}
       onAddFilter={onAddFilter}

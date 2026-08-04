@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+docker-workload:
+  wl_obj_name: sdrc-example-app-1
+  port: 4000
+  enable: true
+  WDM_CONSUMER_GRP_ID: consumer-grp-id-workload-w
+  WDM_REDIS_CACHE_OBJECT: sdrc-example-app-1-data
+  WDM_TARGET_PORT_MAPPING: '{"default": 6000}'
+  WDM_XDS_USE_POD_DNS: false
+  WDM_XDS_USE_IP_ADDRESS: true
+#  WDM_REAPPLY_ON_WL_RESTART: true
+  WDM_CLUSTER_TYPE: docker
+  WDM_CLUSTER_CONTAINER_NAMES: '["sdrc-example-app-1"]'
+  WDM_KFK_BOOTSTRAP_URL: "<KAFKA_HOST>:<KAFKA_PORT>"
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: <REDIS_HOST>
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_WL_ADD_URL: /add
+  WDM_WL_CHANGE_ID_ADD: camera_add
+  WDM_WL_DELETE_URL: /delete
+  WDM_WL_THRESHOLD: 3
+  WDM_CONTROLLER_REPROVISION: true
+  WDM_RESET_ON_WLOBJ_CRASH: false
+  WDM_MS_LISTENER_PORT: 9000
+
+k8s-workerset1:
+  wl_obj_name: sdrc-example-testapp
+  port: 4001
+  enable: true
+  WDM_CONSUMER_GRP_ID: consumer-grp-id-workload-a
+  WDM_REDIS_CACHE_OBJECT: sdrc-example-a-data
+  # websocket must be the Flask-Sock (or WS) port — not gRPC (50052) or Envoy gets 502 protocol error upstream
+  WDM_TARGET_PORT_MAPPING: '{"default": 5000, "grpc": 50051, "websocket": 5050}'
+  WDM_XDS_USE_POD_DNS: false
+  WDM_XDS_USE_IP_ADDRESS: true
+  #WDM_REAPPLY_ON_WL_RESTART: true
+  WDM_CLUSTER_TYPE: k8s
+  WDM_KFK_BOOTSTRAP_URL: "<KAFKA_HOST>:<KAFKA_PORT>"
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: <REDIS_HOST>
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_WL_ADD_URL: /add
+  WDM_WL_CHANGE_ID_ADD: camera_add
+  WDM_WL_DELETE_URL: /delete
+  WDM_WL_THRESHOLD: 3
+  WDM_CONTROLLER_REPROVISION: true
+  WDM_RESET_ON_WLOBJ_CRASH: false
+  WDM_MS_LISTENER_PORT: 9001
+
+k8s-workerset2:
+  wl_obj_name: sdrc-example-a-testapp
+  port: 4002
+  enable: false
+  WDM_CONSUMER_GRP_ID: consumer-grp-id-workload-b
+  WDM_REDIS_CACHE_OBJECT: sdrc-example-b-data
+  # websocket must be the Flask-Sock (or WS) port — not gRPC (50052) or Envoy gets 502 protocol error upstream
+  WDM_TARGET_PORT_MAPPING: '{"default": 5000, "grpc": 50051, "websocket": 5050}'
+  WDM_XDS_USE_POD_DNS: false
+  WDM_XDS_USE_IP_ADDRESS: true
+  #WDM_REAPPLY_ON_WL_RESTART: true
+  WDM_CLUSTER_TYPE: k8s
+  WDM_KFK_BOOTSTRAP_URL: "<KAFKA_HOST>:<KAFKA_PORT>"
+  #WDM_CLUSTER_TYPE: docker
+  #WDM_CLUSTER_CONTAINER_NAMES: '["sdrc-example-app-1"]'
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: <REDIS_HOST>
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_WL_ADD_URL: /add
+  WDM_WL_CHANGE_ID_ADD: camera_streaming
+  WDM_WL_DELETE_URL: /delete
+  WDM_WL_CHANGE_ID_DEL: camera_remove
+  WDM_WL_THRESHOLD: 3
+  WDM_CONTROLLER_REPROVISION: true
+  WDM_RESET_ON_WLOBJ_CRASH: false
+  WDM_MS_LISTENER_PORT: 9002
+
+
+workload-c:
+  wl_obj_name: sdrc-example-c
+  port: 4003
+  enable: false
+  WDM_CONSUMER_GRP_ID: consumer-grp-id-workload-c
+  WDM_REDIS_CACHE_OBJECT: sdrc-example-c-data

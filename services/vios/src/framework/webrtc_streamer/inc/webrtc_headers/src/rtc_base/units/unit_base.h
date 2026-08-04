@@ -10,10 +10,9 @@
 #ifndef RTC_BASE_UNITS_UNIT_BASE_H_
 #define RTC_BASE_UNITS_UNIT_BASE_H_
 
-#include <stdint.h>
-
-#include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <type_traits>
 
@@ -99,7 +98,7 @@ class UnitBase {
       RTC_DCHECK_GE(value, 0);
     RTC_DCHECK_GT(value, MinusInfinityVal());
     RTC_DCHECK_LT(value, PlusInfinityVal());
-    return Unit_T(rtc::dchecked_cast<int64_t>(value));
+    return Unit_T(dchecked_cast<int64_t>(value));
   }
   template <typename T,
             typename std::enable_if<std::is_floating_point<T>::value>::type* =
@@ -110,8 +109,7 @@ class UnitBase {
     } else if (value == -std::numeric_limits<T>::infinity()) {
       return MinusInfinity();
     } else {
-      RTC_DCHECK(!std::isnan(value));
-      return FromValue(rtc::dchecked_cast<int64_t>(value));
+      return FromValue(dchecked_cast<int64_t>(value));
     }
   }
 
@@ -123,7 +121,7 @@ class UnitBase {
       RTC_DCHECK_GE(value, 0);
     RTC_DCHECK_GT(value, MinusInfinityVal() / denominator);
     RTC_DCHECK_LT(value, PlusInfinityVal() / denominator);
-    return Unit_T(rtc::dchecked_cast<int64_t>(value * denominator));
+    return Unit_T(dchecked_cast<int64_t>(value * denominator));
   }
   template <typename T,
             typename std::enable_if<std::is_floating_point<T>::value>::type* =
@@ -136,7 +134,7 @@ class UnitBase {
   constexpr typename std::enable_if<std::is_integral<T>::value, T>::type
   ToValue() const {
     RTC_DCHECK(IsFinite());
-    return rtc::dchecked_cast<T>(value_);
+    return dchecked_cast<T>(value_);
   }
   template <typename T>
   constexpr typename std::enable_if<std::is_floating_point<T>::value, T>::type
@@ -154,7 +152,7 @@ class UnitBase {
   constexpr typename std::enable_if<std::is_integral<T>::value, T>::type
   ToFraction() const {
     RTC_DCHECK(IsFinite());
-    return rtc::dchecked_cast<T>(DivideRoundToNearest(value_, Denominator));
+    return dchecked_cast<T>(DivideRoundToNearest(value_, Denominator));
   }
   template <int64_t Denominator, typename T>
   constexpr typename std::enable_if<std::is_floating_point<T>::value, T>::type
@@ -173,7 +171,7 @@ class UnitBase {
   ToMultiple() const {
     RTC_DCHECK_GE(ToValue(), std::numeric_limits<T>::min() / Factor);
     RTC_DCHECK_LE(ToValue(), std::numeric_limits<T>::max() / Factor);
-    return rtc::dchecked_cast<T>(ToValue() * Factor);
+    return dchecked_cast<T>(ToValue() * Factor);
   }
   template <int64_t Factor, typename T>
   constexpr typename std::enable_if<std::is_floating_point<T>::value, T>::type
@@ -208,13 +206,6 @@ class UnitBase {
 template <class Unit_T>
 class RelativeUnit : public UnitBase<Unit_T> {
  public:
-  constexpr Unit_T Clamped(Unit_T min_value, Unit_T max_value) const {
-    return std::max(min_value,
-                    std::min(UnitBase<Unit_T>::AsSubClassRef(), max_value));
-  }
-  constexpr void Clamp(Unit_T min_value, Unit_T max_value) {
-    *this = Clamped(min_value, max_value);
-  }
   constexpr Unit_T operator+(const Unit_T other) const {
     if (this->IsPlusInfinity() || other.IsPlusInfinity()) {
       RTC_DCHECK(!this->IsMinusInfinity());
@@ -276,6 +267,7 @@ class RelativeUnit : public UnitBase<Unit_T> {
 
  protected:
   using UnitBase<Unit_T>::UnitBase;
+  constexpr RelativeUnit() : UnitBase<Unit_T>(0) {}
 };
 
 template <class Unit_T>

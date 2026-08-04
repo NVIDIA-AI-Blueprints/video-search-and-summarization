@@ -15,10 +15,10 @@ Two specs ship with the skill:
                              DEPLOY trial first in the same execution
                              group)
 
-Both specs target `L40S` with mode `standalone`. Each spec's `expects`
-list contains multiple steps; the adapter emits a `step-<N>/` subdir
-per step so Harbor's dispatch loop runs them in order with
-skip-on-prior-fail.
+The current CI specs target `RTXPRO6000BW` with mode `standalone`. Each
+spec's `expects` list contains multiple steps; the adapter emits a
+`step-<N>/` subdir per step so Harbor's dispatch loop runs them in order
+with skip-on-prior-fail.
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-2d/generate.py \\
@@ -36,16 +36,17 @@ import sys
 from pathlib import Path
 
 PLATFORMS: dict[str, dict] = {
-    "H100": {"short_name": "h100", "gpu_type": "H100", "min_vram_per_gpu": 80, "brev_search": "H100"},
-    "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S"},
+    "H100": {"short_name": "h100", "gpu_type": "H100", "min_vram_per_gpu": 80, "brev_search": "H100", "gpu_count": 2},
+    "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S", "gpu_count": 2},
     "RTXPRO6000BW": {
         "short_name": "rtxpro6000bw",
         "gpu_type": "RTX PRO 6000",
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
+        "gpu_count": 2,
     },
-    "DGX-SPARK": {"short_name": "spark", "gpu_type": "GB10", "min_vram_per_gpu": 96, "brev_search": "GB10"},
-    "IGX-THOR": {"short_name": "thor", "gpu_type": "Thor", "min_vram_per_gpu": 64, "brev_search": "Thor"},
+    "DGX-SPARK": {"short_name": "spark", "gpu_type": "GB10", "min_vram_per_gpu": 96, "brev_search": "GB10", "gpu_count": 1},
+    "IGX-THOR": {"short_name": "thor", "gpu_type": "Thor", "min_vram_per_gpu": 64, "brev_search": "Thor", "gpu_count": 1},
 }
 
 DEFAULT_PLATFORM = "L40S"
@@ -217,6 +218,14 @@ def generate_task(
     rendered_spec = _substitute_spec(spec, platform, mode)
     dataset_group = kind
 
+    # gpu_count: prefer spec's resources.platforms[platform].gpu_count if
+    # declared, else fall back to the PLATFORMS dict default. This keeps
+    # the dataset aligned with the operator-provisioned pool (e.g.
+    # RTXPRO6000BW pool members are 2-GPU g7e.12xlarge today).
+    spec_platforms = (spec.get("resources") or {}).get("platforms") or {}
+    spec_plat_cfg = spec_platforms.get(platform) or {}
+    gpu_count = int(spec_plat_cfg.get("gpu_count", pspec.get("gpu_count", 1)))
+
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
         step_dir = output_root / dataset_group / f"{platform_short}-{mode}"
         if len(expects) > 1:
@@ -244,6 +253,9 @@ def generate_task(
             f'description = "RTVI-CV {kind} query {idx}/{len(expects)} on {platform}/{mode}"',
             f'keywords = ["vss-deploy-detection-tracking-2d", "rtvi-cv", "{dataset_group}", "{platform}", "{mode}"]',
             "",
+            "[agent]",
+            "timeout_sec = 600.0",
+            "",
             "[environment]",
             'skills_dir = "/skills"',
             "",
@@ -259,7 +271,7 @@ def generate_task(
             f'mode = "{mode}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
-            "gpu_count = 1",
+            f"gpu_count = {gpu_count}",
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             "min_root_disk_gb = 60",
             f"step_index = {idx}",

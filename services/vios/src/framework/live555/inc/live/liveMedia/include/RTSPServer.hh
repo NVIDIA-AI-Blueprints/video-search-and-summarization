@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // A RTSP server
 // C++ header
 
@@ -131,16 +131,11 @@ protected:
       // used to implement "RTSPClientConnection::handleCmd_REGISTER()"
 
   virtual UserAuthenticationDatabase* getAuthenticationDatabaseForCommand(char const* cmdName);
-  virtual Boolean specialClientAccessCheck(int clientSocket,
-					   struct sockaddr_storage const& clientAddr,
-					   char const* urlSuffix);
-      // a hook that allows subclassed servers to do server-specific access checking
-      // on each client (e.g., based on client IP address), without using digest authentication.
   virtual Boolean specialClientUserAccessCheck(int clientSocket,
 					       struct sockaddr_storage const& clientAddr,
 					       char const* urlSuffix, char const *username);
-      // another hook that allows subclassed servers to do server-specific access checking
-      // - this time after normal digest authentication has already taken place (and would otherwise allow access).
+      // a hook that allows subclassed servers to do server-specific access checking - after
+      // normal digest authentication has already taken place (and would otherwise allow access).
       // (This test can only be used to further restrict access, not to grant additional access.)
   virtual void specialHandlingOfAuthenticationFailure(int clientSocket,
 						      struct sockaddr_storage const& clientAddr,
@@ -219,7 +214,7 @@ public: // should be protected, but some old compilers complain otherwise
     void closeSocketsRTSP();
     static void handleAlternativeRequestByte(void*, u_int8_t requestByte);
     void handleAlternativeRequestByte1(u_int8_t requestByte);
-    Boolean authenticationOK(char const* cmdName, char const* urlSuffix, char const* fullRequestStr);
+    virtual Boolean authenticationOK(char const* cmdName, char const* urlSuffix, char const* fullRequestStr);
     void changeClientInputSocket(int newSocketNum, ServerTLSState const* newTLSState,
 				 unsigned char const* extraData, unsigned extraDataSize);
       // used to implement RTSP-over-HTTP tunneling
@@ -267,11 +262,11 @@ public: // should be protected, but some old compilers complain otherwise
 					 char const* urlPreSuffix, char const* urlSuffix,
 					 char const* fullRequestStr);
     virtual void handleCmd_TEARDOWN(RTSPClientConnection* ourClientConnection,
-				    ServerMediaSubsession* subsession);
+				    ServerMediaSubsession* subsession, char const* fullRequestStr);
     virtual void handleCmd_PLAY(RTSPClientConnection* ourClientConnection,
 				ServerMediaSubsession* subsession, char const* fullRequestStr);
     virtual void handleCmd_PAUSE(RTSPClientConnection* ourClientConnection,
-				 ServerMediaSubsession* subsession);
+				 ServerMediaSubsession* subsession, char const* fullRequestStr);
     virtual void handleCmd_GET_PARAMETER(RTSPClientConnection* ourClientConnection,
 					 ServerMediaSubsession* subsession, char const* fullRequestStr);
     virtual void handleCmd_SET_PARAMETER(RTSPClientConnection* ourClientConnection,

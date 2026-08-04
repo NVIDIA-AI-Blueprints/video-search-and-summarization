@@ -24,41 +24,6 @@ metadata:
     app.kubernetes.io/name: vss-rtvi-cv
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
-  ds-start.sh: |
-    #!/bin/bash
-    if [[ $MODEL_TYPE == "cnn" ]]; then
-          echo "##### $MODEL_TYPE models will be used. #####"
-          echo "##### Copying onnx-files to DS docker volume for preserving PVCs... #####"
-          if ls /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/mtmc/*.onnx 1>/dev/null 2>&1; then
-            cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/mtmc/*.onnx /opt/storage/
-          else
-            echo "No local onnx models found, checking /opt/storage for existing models..."
-            ls -la /opt/storage/*.onnx 2>/dev/null || echo "WARNING: No onnx models found in /opt/storage - models will be downloaded on first inference"
-          fi
-
-          echo -e "\nds pgie configs\n"
-          cat ds-pgie-config.yml
-
-          if [ "$STREAM_TYPE" = "kafka" ]; then
-              echo "Running metropolis_perception_app with kafka configuration..."
-              echo -e "\nds main configs\n"
-              cat ds-main-config.txt
-              ./metropolis_perception_app -c ds-main-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
-          elif [ "$STREAM_TYPE" = "redis" ]; then
-              echo "Running metropolis_perception_app with redis configuration..."
-              echo -e "\nds main configs\n"
-              cat ds-main-redis-config.txt
-              ./metropolis_perception_app -c ds-main-redis-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
-          else
-              echo "STREAM_TYPE not set or invalid. Defaulting to kafka configuration..."
-              echo -e "\nds main configs\n"
-              cat ds-main-config.txt
-              ./metropolis_perception_app -c ds-main-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
-          fi
-    else
-        echo "##### Invalid value $MODEL_TYPE for MODEL_TYPE variable. Valid values are: 'cnn'. #####"
-    fi
-
   ds-detector-labels.txt: |
     Person
     Agility_Digit_Humanoid

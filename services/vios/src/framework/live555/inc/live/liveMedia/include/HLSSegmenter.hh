@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // A media sink that takes - as input - a MPEG Transport Stream, and outputs a series
 // of MPEG Transport Stream files, each representing a segment of the input stream,
 // suitable for HLS (Apple's "HTTP Live Streaming").

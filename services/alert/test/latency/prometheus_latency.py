@@ -14,6 +14,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Query Prometheus AND Elasticsearch for Alert Agent latency metrics and print
+# side-by-side summary tables.
+#
+# Usage:
+#   python3 prometheus_latency.py <duration> <prometheus_host> [options]
+#
+# Examples:
+#   python3 prometheus_latency.py 30m localhost
+#   python3 prometheus_latency.py 1h 10.128.34.61 --es-host 10.128.34.61
+#   python3 prometheus_latency.py 2h 10.128.34.61 --prom-port 9090 --es-host 10.128.34.61 --es-port 9200
+#   python3 prometheus_latency.py 30m localhost --csv-file latency_summary.csv
+#
+# Per-sensor report mode (requires alert_agent.metrics.per_sensor_labels=true
+# on the alert-agent side):
+#   python3 prometheus_latency.py 1h localhost --per-sensor
+#   python3 prometheus_latency.py 1h localhost --sensor-id cam-42
+#   python3 prometheus_latency.py 1h localhost --sensor-id 'camera/hall-west:stream0'
+#
+# Exit codes:
+#   0   success — at least one section (Prometheus or ES) produced output,
+#       even if the window contained no events.
+#   2   CLI argument error (bad ``<duration>`` format).
+#   3   one or more query endpoints were unreachable / returned an error.
+#       CI and operator tooling should treat this as "report may be
+#       incomplete, do not trust its contents".
+
 import argparse
 import csv
 import json
@@ -65,6 +91,11 @@ def fmt_val(v: Optional[float]) -> str:
     if v < 1.0:
         return f"{int(v * 1000):>6}ms"
     return f"{v:>7.2f}s"
+
+
+def fmt_csv_val(v: Optional[float]) -> str:
+    """CSV cell equivalent of ``fmt_val`` without terminal padding."""
+    return fmt_val(v).strip()
 
 
 W = 100
@@ -193,6 +224,7 @@ def run_prometheus(
     window: str,
     now_str: str,
     sensor_id: Optional[str] = None,
+    csv_rows: Optional[List[List[str]]] = None,
 ) -> bool:
     """Print the Prometheus latency report.
 
@@ -215,6 +247,7 @@ def run_prometheus(
             "upstream": "alert_bridge_upstream_duration_by_sensor_seconds",
             "kafka_lag": "alert_bridge_kafka_lag_duration_by_sensor_seconds",
             "queue_wait": "alert_bridge_worker_queue_wait_duration_by_sensor_seconds",
+            "start_wait": "alert_bridge_worker_start_wait_duration_by_sensor_seconds",
             "vst": "alert_bridge_vst_duration_by_sensor_seconds",
             "video_len": "alert_bridge_video_length_by_sensor_seconds",
             "vlm": "alert_bridge_vlm_duration_by_sensor_seconds",
@@ -233,6 +266,7 @@ def run_prometheus(
             "upstream": "alert_bridge_upstream_duration_seconds",
             "kafka_lag": "alert_bridge_kafka_lag_duration_seconds",
             "queue_wait": "alert_bridge_worker_queue_wait_duration_seconds",
+            "start_wait": "alert_bridge_worker_start_wait_duration_seconds",
             "vst": "alert_bridge_vst_duration_seconds",
             "video_len": "alert_bridge_video_length_seconds",
             "vlm": "alert_bridge_vlm_duration_seconds",
@@ -254,6 +288,7 @@ def run_prometheus(
         upstream = prom_fetch_row(base_url, histogram_metrics["upstream"], window, sensor_filter)
         kafka_lag = prom_fetch_row(base_url, histogram_metrics["kafka_lag"], window, sensor_filter)
         queue_wait = prom_fetch_row(base_url, histogram_metrics["queue_wait"], window, sensor_filter)
+        start_wait = prom_fetch_row(base_url, histogram_metrics["start_wait"], window, sensor_filter)
         vst = prom_fetch_row(base_url, histogram_metrics["vst"], window, sensor_filter)
         video_len = prom_fetch_row(base_url, histogram_metrics["video_len"], window, sensor_filter)
         vlm = prom_fetch_row(base_url, histogram_metrics["vlm"], window, sensor_filter)
@@ -370,6 +405,74 @@ def run_prometheus(
             base_url, counter_metrics["failures"], window,
             _labels('reason="unknown"', sensor_filter),
         )
+
+        # On-demand metrics intentionally have no sensorId label: request
+        # payloads are arbitrary HTTP input, and adding them to the Kafka
+        # metric family would break its reconciliation invariants. Show this
+        # aggregate section only for the aggregate report.
+        ondemand = None
+        if not sensor_id:
+            ondemand = {
+                "vlm": prom_fetch_row(
+                    base_url,
+                    "alert_bridge_ondemand_vlm_duration_seconds",
+                    window,
+                ),
+                "processing": prom_fetch_row(
+                    base_url,
+                    "alert_bridge_ondemand_processing_seconds",
+                    window,
+                ),
+                "e2e": prom_fetch_row(
+                    base_url,
+                    "alert_bridge_ondemand_e2e_duration_seconds",
+                    window,
+                ),
+                "requests": {
+                    outcome: prom_counter(
+                        base_url,
+                        "alert_bridge_ondemand_requests_total",
+                        window,
+                        f'outcome="{outcome}"',
+                    )
+                    for outcome in (
+                        "accepted",
+                        "unknown_category",
+                        "invalid_request",
+                        "unknown",
+                    )
+                },
+                "events": {
+                    verdict: prom_counter(
+                        base_url,
+                        "alert_bridge_ondemand_events_total",
+                        window,
+                        f'verdict="{verdict}"',
+                    )
+                    for verdict in (
+                        "confirmed",
+                        "rejected",
+                        "verification-failed",
+                        "unknown",
+                    )
+                },
+                "failures": {
+                    reason: prom_counter(
+                        base_url,
+                        "alert_bridge_ondemand_verification_failures_total",
+                        window,
+                        f'reason="{reason}"',
+                    )
+                    for reason in (
+                        "media_download",
+                        "vlm_api",
+                        "vlm_schema",
+                        "pluggable_parser",
+                        "background_exception",
+                        "unknown",
+                    )
+                },
+            }
     except PromQueryError as exc:
         print(f"\nERROR: Prometheus query failed mid-report: {exc}", file=sys.stderr)
         print("       Partial Prometheus results suppressed; exit code will reflect the failure.", file=sys.stderr)
@@ -391,18 +494,40 @@ def run_prometheus(
     print(f"  Source: {base_url}")
     print("=" * W)
     print(f"  {'Metric':<28} {'Avg':>8} {'p50':>8} {'p90':>8} {'p99':>8}   Count")
+    prom_rows = [
+        ("Upstream (CV+Analytics)", upstream),
+        ("Kafka Consumer Lag", kafka_lag),
+        ("Worker Queue Wait", queue_wait),
+        ("Worker Start Wait", start_wait),
+        ("VST Fetch", vst),
+        ("Video Clip Length", video_len),
+        ("VLM Inference", vlm),
+        ("Worker Processing", worker),
+        ("E2E (event end→ready)", e2e),
+    ]
     print("-" * W)
-    print_prom_row("Upstream (CV+Analytics)",  *upstream)
-    print_prom_row("Kafka Consumer Lag",       *kafka_lag)
-    print_prom_row("Worker Queue Wait",        *queue_wait)
-    print("-" * W)
-    print_prom_row("VST Fetch",                *vst)
-    print_prom_row("Video Clip Length",        *video_len)
-    print_prom_row("VLM Inference",            *vlm)
-    print_prom_row("Worker Processing",        *worker)
-    print("-" * W)
-    print_prom_row("E2E (event end→ready)",    *e2e)
+    for idx, (name, row) in enumerate(prom_rows):
+        if idx in (4, 8):
+            print("-" * W)
+        print_prom_row(name, *row)
     print("=" * W)
+
+    if csv_rows is not None:
+        section = "Prometheus"
+        if sensor_id:
+            section = f"Prometheus sensorId={sensor_id}"
+        for name, row in prom_rows:
+            avg_v, p50_v, p90_v, p99_v, count = row
+            csv_rows.append([
+                section,
+                name,
+                fmt_csv_val(avg_v),
+                fmt_csv_val(p50_v),
+                fmt_csv_val(p90_v),
+                fmt_csv_val(p99_v),
+                "",
+                str(count),
+            ])
 
     conf_pct = f"{100*confirmed/total_ev:.1f}%" if total_ev else "N/A"
     rej_pct  = f"{100*rejected/total_ev:.1f}%"  if total_ev else "N/A"
@@ -492,10 +617,50 @@ def run_prometheus(
             pct = "  N/A"
         print(f"    {reason:<24} {count:<6} ({pct:>6})  {desc}")
 
+    if ondemand is not None:
+        request_counts = ondemand["requests"]
+        events = ondemand["events"]
+        failures = ondemand["failures"]
+        request_total = sum(request_counts.values())
+        event_total = sum(events.values())
+        failure_total = sum(failures.values())
+
+        print()
+        print("=" * W)
+        print(f"  ON-DEMAND API  |  Last {window}")
+        print("=" * W)
+        print(f"  {'Metric':<28} {'Avg':>8} {'p50':>8} {'p90':>8} {'p99':>8}   Count")
+        print("-" * W)
+        print_prom_row("VLM Inference", *ondemand["vlm"])
+        print_prom_row("Background Processing", *ondemand["processing"])
+        print_prom_row("Request → Publish", *ondemand["e2e"])
+
+        print()
+        print(f"  Requests [total: {request_total}]")
+        for outcome in ("accepted", "unknown_category", "invalid_request", "unknown"):
+            print(f"    {outcome:<24} {request_counts[outcome]}")
+
+        print()
+        print(f"  Completed events [total: {event_total}]")
+        for verdict in ("confirmed", "rejected", "verification-failed", "unknown"):
+            print(f"    {verdict:<24} {events[verdict]}")
+
+        print()
+        print(f"  Verification failures [total: {failure_total}]")
+        for reason in (
+            "media_download",
+            "vlm_api",
+            "vlm_schema",
+            "pluggable_parser",
+            "background_exception",
+            "unknown",
+        ):
+            print(f"    {reason:<24} {failures[reason]}")
+
     no_data = [n for n, row in [("VLM", vlm), ("VST", vst), ("E2E", e2e)] if row[4] == 0]
     if no_data:
         print()
-        print(f"  NOTE: No data for: {', '.join(no_data)}")
+        print(f"  NOTE: No Kafka pipeline data for: {', '.join(no_data)}")
         if sensor_id:
             print(f"        Either this sensor had no events in the last {window},")
             print(f"        or alert_agent.metrics.per_sensor_labels is not enabled.")
@@ -578,7 +743,13 @@ def print_es_row(name: str, arr: List[float]) -> None:
     )
 
 
-def run_elasticsearch(es_host: str, es_port: int, duration: str, now_str: str) -> bool:
+def run_elasticsearch(
+    es_host: str,
+    es_port: int,
+    duration: str,
+    now_str: str,
+    csv_rows: Optional[List[List[str]]] = None,
+) -> bool:
     """Print the Elasticsearch latency report.
 
     Returns ``True`` iff the endpoint responded with HTTP 200 and the
@@ -644,8 +815,6 @@ def run_elasticsearch(es_host: str, es_port: int, duration: str, now_str: str) -
 
     idx_ends, kafka_lags, upstreams, vsts, vlms = [], [], [], [], []
     skipped = 0
-    csv_rows = []
-
     for h in hits:
         try:
             src = h.get("_source") or {}
@@ -687,15 +856,6 @@ def run_elasticsearch(es_host: str, es_port: int, duration: str, now_str: str) -
             if idx_end is not None and idx_end < 0:
                 idx_end = None
 
-            csv_rows.append([
-                len(csv_rows) + 1,
-                _fmt_csv(upstream),
-                _fmt_csv(kafka_lag),
-                _fmt_csv(vst_dur),
-                _fmt_csv(vlm_dur),
-                _fmt_csv(idx_end),
-            ])
-
             if upstream is not None:
                 upstreams.append(upstream)
             if kafka_lag is not None:
@@ -716,14 +876,6 @@ def run_elasticsearch(es_host: str, es_port: int, duration: str, now_str: str) -
         print("\n  [ES] No usable rows after filtering/parsing.")
         return True
 
-    # Write CSV
-    csv_file = f"alert_bridge_latency_es_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    with open(csv_file, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["#", "Upstream (CV+Analytics)", "AB Consumer Lag",
-                    "VST Fetch", "VLM Inference", "Idx-End(E2E)"])
-        w.writerows(csv_rows)
-
     print()
     print("=" * W)
     print(f"  ELASTICSEARCH — Alert Verification Latency  |  Last {duration}  |  {now_str}")
@@ -731,25 +883,44 @@ def run_elasticsearch(es_host: str, es_port: int, duration: str, now_str: str) -
     print("=" * W)
     print(f"  {'Metric':<28} {'Avg':>8} {'p50':>8} {'p90':>8} {'p99':>8} {'Max':>8}   Count")
     print("-" * W)
-    print_es_row("Upstream (CV+Analytics)", upstreams)
-    print_es_row("AB Consumer Lag",        kafka_lags)
-    print_es_row("VST Fetch",              vsts)
-    print_es_row("VLM Inference",          vlms)
-    print("-" * W)
-    print_es_row("Idx-End(E2E)",           idx_ends)
+    es_rows = [
+        ("Upstream (CV+Analytics)", upstreams),
+        ("AB Consumer Lag", kafka_lags),
+        ("VST Fetch", vsts),
+        ("VLM Inference", vlms),
+        ("Idx-End(E2E)", idx_ends),
+    ]
+    for idx, (name, values) in enumerate(es_rows):
+        if idx == 4:
+            print("-" * W)
+        print_es_row(name, values)
     print("=" * W)
-    print(f"  CSV: {csv_file}")
+
+    if csv_rows is not None:
+        for name, values in es_rows:
+            if values:
+                sorted_values = sorted(values)
+                avg_v = list_avg(sorted_values)
+                p50_v = percentile(sorted_values, 0.50)
+                p90_v = percentile(sorted_values, 0.90)
+                p99_v = percentile(sorted_values, 0.99)
+                max_v = max(sorted_values)
+                count = len(values)
+            else:
+                avg_v = p50_v = p90_v = p99_v = max_v = None
+                count = 0
+            csv_rows.append([
+                "Elasticsearch",
+                name,
+                fmt_csv_val(avg_v),
+                fmt_csv_val(p50_v),
+                fmt_csv_val(p90_v),
+                fmt_csv_val(p99_v),
+                fmt_csv_val(max_v),
+                str(count),
+            ])
 
     return True
-
-
-def _fmt_csv(v: Optional[float]) -> str:
-    """Human-readable duration for CSV cells."""
-    if v is None:
-        return "N/A"
-    if v < 1.0:
-        return f"{int(v * 1000)}ms"
-    return f"{v:.2f}s"
 
 
 # ── Per-sensor breakdown (C21, --per-sensor flag) ─────────────────────────────
@@ -1020,9 +1191,10 @@ def main() -> None:
         epilog=(
             "Examples:\n"
             "  python3 prometheus_latency.py 30m localhost\n"
-            "  python3 prometheus_latency.py 1h localhost --es-host localhost\n"
-            "  python3 prometheus_latency.py 2h localhost --prom-port 9090 "
-            "--es-host localhost --es-port 9200"
+            "  python3 prometheus_latency.py 1h 10.128.34.61 --es-host 10.128.34.61\n"
+            "  python3 prometheus_latency.py 2h 10.128.34.61 --prom-port 9090 "
+            "--es-host 10.128.34.61 --es-port 9200\n"
+            "  python3 prometheus_latency.py 30m localhost --csv-file latency_summary.csv"
         ),
     )
     parser.add_argument("duration",
@@ -1044,9 +1216,14 @@ def main() -> None:
                         help=("Restrict the Prometheus latency and counter report to "
                               "a single sensor. Requires "
                               "alert_agent.metrics.per_sensor_labels=true on the "
-                              "alert-agent. Examples:\n"
+                              "alert-agent. The aggregate On-Demand API section is "
+                              "omitted because its metrics have no sensorId label. "
+                              "Examples:\n"
                               "  --sensor-id cam-42\n"
                               "  --sensor-id 'camera/hall-west:stream0'"))
+    parser.add_argument("--csv-file", default=None,
+                        help=("Write the printed latency summary table rows to this "
+                              "CSV file. No CSV is created unless this flag is set."))
     args = parser.parse_args()
 
     try:
@@ -1057,12 +1234,19 @@ def main() -> None:
 
     now_str  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     prom_url = f"http://{args.prometheus_host}:{args.prom_port}"
+    csv_rows: Optional[List[List[str]]] = [] if args.csv_file else None
 
     # Run every requested section to completion before deciding an exit
     # code, so a failing Prometheus query does not suppress the ES report
     # (and vice versa). Each helper prints its own status / errors; we
     # only aggregate their success flags here.
-    prom_ok = run_prometheus(prom_url, args.duration, now_str, sensor_id=args.sensor_id)
+    prom_ok = run_prometheus(
+        prom_url,
+        args.duration,
+        now_str,
+        sensor_id=args.sensor_id,
+        csv_rows=csv_rows,
+    )
     if prom_ok:
         # ``--sensor-id`` makes the main Prometheus report sensor-specific,
         # so do not also print the all-sensors table.
@@ -1075,9 +1259,26 @@ def main() -> None:
         print("  [ES] Skipped because --sensor-id uses Prometheus per-sensor metrics.")
         print("       Elasticsearch may not contain every processed event.")
     elif args.es_host:
-        es_ok = run_elasticsearch(args.es_host, args.es_port, args.duration, now_str)
+        es_ok = run_elasticsearch(
+            args.es_host,
+            args.es_port,
+            args.duration,
+            now_str,
+            csv_rows=csv_rows,
+        )
 
     print()
+
+    if args.csv_file and csv_rows:
+        with open(args.csv_file, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["Section", "Metric", "Avg", "p50", "p90", "p99", "Max", "Count"])
+            w.writerows(csv_rows)
+        print(f"  CSV: {args.csv_file}")
+
+    print()
+    print("  E2E = Upstream + Kafka Lag + Worker Queue Wait + Worker Start Wait + Worker Processing.")
+    print("  Worker Processing = VST Fetch + VLM attempt(s) + other processing/sink time.")
 
     if not (prom_ok and es_ok):
         # CI / operator tooling needs a visible signal when any section

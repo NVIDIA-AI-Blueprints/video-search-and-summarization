@@ -186,10 +186,6 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "60"
-		},
-		{
 			"name": "behaviorStateValidInterval",
 			"value": "20"
 		},
@@ -204,10 +200,6 @@
 		{
 			"name": "clusterThreshold",
 			"value": "0.9"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "geo"
 		},
 		{
 			"name": "sourceType",

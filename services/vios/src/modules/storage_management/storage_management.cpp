@@ -64,8 +64,6 @@ using namespace std;
 using namespace nv_vms;
 
 
-constexpr const char* STORAGE_MANAGEMENT_VERSION = "0.0.1";
-
 #define CONVERT_KBPS_TO_GBPERDAY(v) ((v/1024.0) * 60.0 * 60.0 * 24)/(8 * 1024.0);
 constexpr int DEFAULT_BITRATE = 5120;
 
@@ -1253,8 +1251,8 @@ VmsErrorCode StorageManagement::checkStorageCapacity(const Json::Value & req_inf
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     vector<string> fileList;
@@ -1298,7 +1296,7 @@ VmsErrorCode StorageManagement::getStorageConfiguration(const Json::Value & req_
     }
     else
     {
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
         ret = VmsErrorCode::MethodNotAllowedError;
     }
     return ret;
@@ -1306,7 +1304,10 @@ VmsErrorCode StorageManagement::getStorageConfiguration(const Json::Value & req_
 
 VmsErrorCode StorageManagement::getVersion(string& version)
 {
-    version = STORAGE_MANAGEMENT_VERSION;
+    // Report the build/release version injected by the Makefile (-DVST_VERSION),
+    // matching the Sensor MS and other microservices, instead of a hardcoded
+    // placeholder. See bug 6303142.
+    version = VST_VERSION;
     return VmsErrorCode::NoError;
 }
 
@@ -2003,8 +2004,8 @@ VmsErrorCode StorageManagement::getUsedStorageSize(const Json::Value& req_info, 
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     int streamCount = 0;
@@ -2155,6 +2156,17 @@ VmsErrorCode StorageManagement::deleteFilesByTime(const Json::Value& req_info, J
         return VmsErrorCode::InvalidParameterError;
     }
 
+    /* Reject a reversed range: startTime must be earlier than or equal to endTime.
+       Wildcards ('*' -> startTime=-1 / endTime=int64 max) never trip this check. */
+    if(startTime > endTime)
+    {
+        LOG(error) << "deleteFilesByTime invalid time range: startTime " << start_time
+                   << " is later than endTime " << end_time << endl;
+        SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response,
+                       "startTime must be earlier than or equal to endTime")
+        return VmsErrorCode::InvalidParameterError;
+    }
+
     if(deleteFilesByTime(stream_id, startTime, endTime, spaceSaved) != 0)
     {
         SET_VMS_ERROR(VmsErrorCode::VMSInternalError, response)
@@ -2204,8 +2216,8 @@ VmsErrorCode StorageManagement::updateStorageSize(const Json::Value& req_info, c
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     vector<string> fileList;
@@ -2254,8 +2266,8 @@ VmsErrorCode StorageManagement::doAging(const Json::Value& req_info, const Json:
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     vector<string> fileList;
@@ -2287,8 +2299,20 @@ VmsErrorCode StorageManagement::addOrRemoveFileInProtectList(const Json::Value& 
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
+    }
+
+    // Defense in depth: Json::Value::get()/find() throw Json::LogicError (uncaught
+    // -> SIGABRT, crashing the service) when invoked on a non-object such as an
+    // array body. The schema validator should already have rejected such bodies,
+    // but guard the handler too so a malformed body can never abort the process
+    // (bug 6217188).
+    if (!in.isObject())
+    {
+        LOG(error) << "Request body must be a JSON object with a 'filePath' field" << endl;
+        SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response, "Request body must be a JSON object with a 'filePath' field");
+        return VmsErrorCode::InvalidParameterError;
     }
 
     vector<string> fileList;
@@ -2385,8 +2409,8 @@ VmsErrorCode StorageManagement::deleteFilesByNames(const Json::Value& req_info, 
     if (!(iequals(request_method, "delete")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     string id;
@@ -2733,8 +2757,8 @@ VmsErrorCode StorageManagement::getStorageInfo(const Json::Value& req_info, Json
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     DeviceConfig config = GET_CONFIG();
@@ -2774,8 +2798,8 @@ VmsErrorCode StorageManagement::getProtectedFiles(const Json::Value& req_info, J
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     {
@@ -3056,8 +3080,8 @@ VmsErrorCode StorageManagement::importFileFromCloud(const Json::Value& req_info,
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     // Check max sensors limit
@@ -3322,8 +3346,8 @@ VmsErrorCode StorageManagement::listCloudFiles(const Json::Value& req_info, cons
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     // Parse query parameters
@@ -3620,8 +3644,8 @@ VmsErrorCode StorageManagement::listLocalFiles(const Json::Value& req_info, cons
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     // Parse query parameters (both are optional)
@@ -3865,8 +3889,15 @@ StorageManagement::tryFindFullFileMatch(const std::string& sensorId,
 {
     FullFileMatch m;
 
-    // Any form of processing disqualifies the fast path.
-    if (transcode == "full" || enableOverlay == "true")
+    // Any form of processing disqualifies the fast path. The full-file path
+    // returns a raw symlink of the stored recording, so it can only be served
+    // when the response bytes would be identical to the source. The previous
+    // gate caught transcode=full and overlay but missed transcode=gop
+    // (keyframe re-spacing changes bytes), disableAudio=true (audio strip),
+    // and uselibav=true (libav muxer can produce a different byte stream
+    // than the recorder's mp4mux output).
+    if (transcode != "none" || enableOverlay == "true" ||
+        disableAudio == "true" || uselibav == "true")
     {
         return m;
     }
@@ -4080,7 +4111,11 @@ StorageManagement::generateFullFileUrl(const FullFileMatch& match,
     // We look up by the FILE's actual [start, start+duration] (matching
     // what we wrote in the DB) so callers passing slightly different
     // requested ranges still hit the same cached entry.
+    //
+    // Skipped entirely when disable_url_caching is set: every /url call
+    // creates a fresh symlink so the caller never reuses prior output.
     // -----------------------------------------------------------------
+    if (!GET_CONFIG().disable_url_caching)
     {
         const int64_t fileStartMs = static_cast<int64_t>(match.startTimeMs);
         const int64_t fileEndMs   = fileStartMs + static_cast<int64_t>(match.durationMs);
@@ -4247,6 +4282,54 @@ StorageManagement::generateFullFileUrl(const FullFileMatch& match,
               << " -> " << match.filePath
               << " expiry=" << expiryMinutesInt << "min" << endl;
     return VmsErrorCode::NoError;
+}
+
+std::string StorageManagement::generateUploadedFullFileUrl(const std::string& sensorId)
+{
+    if (sensorId.empty() || !m_deviceManager)
+    {
+        LOG(error) << "[FULL_FILE] Cannot generate uploaded-file URL without a sensor ID and device manager" << endl;
+        return EMPTY_STRING;
+    }
+
+    const std::shared_ptr<SensorInfo> sensor = m_deviceManager->getSensorInfo(sensorId);
+    if (!sensor || sensor->location.empty())
+    {
+        LOG(error) << "[FULL_FILE] Uploaded file path is unavailable for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    if (!::isFileExist(sensor->location))
+    {
+        LOG(error) << "[FULL_FILE] Uploaded file is missing for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    const std::string extension = getFileExtension(sensor->location);
+    if (extension.empty() || extension == ".")
+    {
+        LOG(error) << "[FULL_FILE] Uploaded file has no container extension for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    FullFileMatch match;
+    match.eligible = true;
+    match.filePath = sensor->location;
+    match.container = extension.front() == '.' ? extension.substr(1) : extension;
+    match.startTimeMs = getFileTimestamp(sensor->location);
+
+    VideoGenerationParam params;
+    params.streamId = sensorId;
+
+    Json::Value response;
+    const VmsErrorCode result = generateFullFileUrl(match, params, response);
+    if (result != VmsErrorCode::NoError)
+    {
+        LOG(error) << "[FULL_FILE] Failed to generate uploaded-file URL for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    return response.get("videoUrl", EMPTY_STRING).asString();
 }
 
 void StorageManagement::cleanupExpiredFile(const std::string& filePath)

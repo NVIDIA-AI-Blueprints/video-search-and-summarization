@@ -11,7 +11,9 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: kibana-init
 spec:
-  ttlSecondsAfterFinished: 600
+  {{- with .Values.init.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   backoffLimit: {{ .Values.init.backoffLimit }}
   template:
     metadata:

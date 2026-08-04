@@ -20,13 +20,16 @@ sets ``INSTALL_PROPRIETARY_CODECS=true``, this wrapper installs OpenCV/FFmpeg on
 the operator's machine (see ``install_proprietary_codecs.py``), puts it on
 ``PYTHONPATH``, and then hands off to the real ``nat`` entrypoint via ``execv``
 (so signal handling / PID 1 semantics are preserved). Otherwise it execs ``nat``
-directly with negligible overhead.
+directly with negligible overhead. It also supplies the conventional placeholder
+API key required by OpenAI-compatible clients when a local endpoint does not use
+authentication.
 """
 
 import os
 import sys
 
 NAT_BIN = "/vss-agent/.venv/bin/nat"
+_OPENAI_COMPAT_API_KEY = "NOAPIKEYSET"
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
@@ -34,7 +37,17 @@ def _truthy(value: str | None) -> bool:
     return value is not None and value.strip().lower() in _TRUTHY
 
 
+def _ensure_openai_api_key() -> None:
+    # NAT eagerly constructs every declared OpenAI-compatible client. Newer
+    # OpenAI SDKs reject an empty key even when the selected local RTVI/vLLM
+    # endpoint does not authenticate. Preserve operator-provided credentials.
+    if not os.environ.get("OPENAI_API_KEY", "").strip():
+        os.environ["OPENAI_API_KEY"] = _OPENAI_COMPAT_API_KEY
+
+
 def main() -> None:
+    _ensure_openai_api_key()
+
     if _truthy(os.environ.get("INSTALL_PROPRIETARY_CODECS")):
         # Imported lazily; this script's own directory is on sys.path[0].
         import install_proprietary_codecs

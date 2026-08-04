@@ -10,7 +10,6 @@ pydantic>=2.0.0
 h11>=0.16.0
 Flask>=3.0.0
 Werkzeug==3.0.3 
-redis[hiredis,json]>=6.0.0
 fastapi>=0.68.0
 uvicorn[standard]>=0.15.0
 openai>=1.30.0

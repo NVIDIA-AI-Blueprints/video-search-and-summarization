@@ -16,7 +16,7 @@
 
 from mdx.analytics.core.constants import TripwireDirection
 from mdx.analytics.core.schema.config import AppConfig
-from mdx.analytics.core.schema.models import Line, Point2D, Tripwire
+from mdx.analytics.core.schema.models import Bbox, Line, Point2D, Tripwire
 from mdx.analytics.core.transform.calibration.calibration_base import CalibrationBase
 from mdx.analytics.core.transform.event.base_event import BaseEvent
 from mdx.analytics.core.utils.distance_util import intersect
@@ -64,18 +64,21 @@ class TripwireEvent(BaseEvent[Tripwire]):
         """
         super().__init__(config, calibration, TripwireDirection, "tripwire", "TripEvent")
 
-    def _check_point(self, point: Point2D, sensor_id: str, obj_id: str) -> bool:
+    def _is_inside(
+        self, point: Point2D, sensor_id: str, obj_id: str, bbox: Bbox | None = None
+    ) -> bool:
         """
         Check if a point is on the in-direction side of a tripwire.
 
         :param Point2D point: The point to check
         :param str sensor_id: ID of the sensor associated with the tripwire
         :param str obj_id: ID of the tripwire to check against
+        :param Bbox | None bbox: Unused; accepted to match the :class:`BaseEvent` interface.
         :return bool: True if the point is on the tripwire, False otherwise
 
         Examples::
             >>> point = Point2D(x=1.0, y=1.0)
-            >>> is_on_tripwire = tripwire_detector._check_point(point, "sensor1", "tripwire1")
+            >>> is_on_tripwire = tripwire_detector._is_inside(point, "sensor1", "tripwire1")
             >>> print(f"Point is {'on' if is_on_tripwire else 'not on'} tripwire")
         """
         return self.calibration.point_in_tripwire(point, sensor_id, obj_id)
@@ -95,7 +98,9 @@ class TripwireEvent(BaseEvent[Tripwire]):
         """
         return list(self.calibration.sensor_map[sensor_id].tripwires.values())
 
-    def _intersect(self, trip: list[Point2D], sensor_id: str, obj_id: str) -> bool:
+    def _crosses(
+        self, trip: list[Point2D], sensor_id: str, obj_id: str, bboxes: list[Bbox] | None = None
+    ) -> bool:
         """
         Check if a trajectory intersects with a tripwire by checking if the line
         formed by the start and end points of the trajectory intersects with the tripwire.
@@ -103,11 +108,12 @@ class TripwireEvent(BaseEvent[Tripwire]):
         :param list[Point2D] trip: The trajectory to check
         :param str sensor_id: ID of the sensor associated with the tripwire
         :param str obj_id: ID of the tripwire to check against
+        :param list[Bbox] | None bboxes: Unused; accepted to match the :class:`BaseEvent` interface.
         :return bool: True if the trajectory intersects with the tripwire, False otherwise
 
         Examples::
             >>> trip = [Point2D(x=1.0, y=1.0), Point2D(x=2.0, y=2.0)]
-            >>> intersects = tripwire_detector._intersect(trip, "sensor1", "tripwire1")
+            >>> intersects = tripwire_detector._crosses(trip, "sensor1", "tripwire1")
             >>> print(f"Trajectory {'intersects' if intersects else 'does not intersect'} tripwire")
         """
         wires = self.calibration.sensor_map[sensor_id].tripwires[obj_id].wires

@@ -14,21 +14,25 @@
 // This file contains classes for dealing with the STUN protocol, as specified
 // in RFC 5389, and its descendants.
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
+#include "absl/base/macros.h"
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "rtc_base/byte_buffer.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/ip_address.h"
+#include "rtc_base/net_helpers.h"
 #include "rtc_base/socket_address.h"
+#include "rtc_base/span_helpers.h"
 
-namespace cricket {
+namespace webrtc {
 
 // These are the types of STUN messages defined in RFC 5389.
 enum StunMessageType : uint16_t {
@@ -91,13 +95,17 @@ enum StunAddressFamily {
 
 // These are the types of STUN error codes defined in RFC 5389.
 enum StunErrorCode {
+  // Not an actual error from RFC 5389 and not emitted via icecandidateerror.
+  STUN_ERROR_NOT_AN_ERROR = 0,
   STUN_ERROR_TRY_ALTERNATE = 300,
   STUN_ERROR_BAD_REQUEST = 400,
   STUN_ERROR_UNAUTHORIZED = 401,
   STUN_ERROR_UNKNOWN_ATTRIBUTE = 420,
   STUN_ERROR_STALE_NONCE = 438,
   STUN_ERROR_SERVER_ERROR = 500,
-  STUN_ERROR_GLOBAL_FAILURE = 600
+  STUN_ERROR_GLOBAL_FAILURE = 600,
+  // https://w3c.github.io/webrtc-pc/#dom-rtcpeerconnectioniceerrorevent-errorcode
+  STUN_ERROR_SERVER_NOT_REACHABLE = 701,
 };
 
 // Strings for the error codes above.
@@ -249,12 +257,21 @@ class StunMessage {
 
   // Verify that a buffer has stun magic cookie and one of the specified
   // methods. Note that it does not check for the existance of FINGERPRINT.
-  static bool IsStunMethod(rtc::ArrayView<int> methods,
+  static bool IsStunMethod(std::span<int> methods,
+                           std::span<const uint8_t> data);
+  ABSL_DEPRECATE_AND_INLINE()
+  static bool IsStunMethod(std::span<int> methods,
                            const char* data,
-                           size_t size);
+                           size_t size) {
+    return IsStunMethod(methods, AsUint8Span(std::span(data, size)));
+  }
 
   // Verifies that a given buffer is STUN by checking for a correct FINGERPRINT.
-  static bool ValidateFingerprint(const char* data, size_t size);
+  static bool ValidateFingerprint(std::span<const uint8_t> data);
+  ABSL_DEPRECATE_AND_INLINE()
+  static bool ValidateFingerprint(const char* data, size_t size) {
+    return ValidateFingerprint(AsUint8Span(std::span(data, size)));
+  }
 
   // Generates a new 12 byte (RFC5389) transaction id.
   static std::string GenerateTransactionId();
@@ -264,11 +281,11 @@ class StunMessage {
 
   // Parses the STUN packet in the given buffer and records it here. The
   // return value indicates whether this was successful.
-  bool Read(rtc::ByteBufferReader* buf);
+  bool Read(ByteBufferReader* buf);
 
   // Writes this object into a STUN packet. The return value indicates whether
   // this was successful.
-  bool Write(rtc::ByteBufferWriter* buf) const;
+  bool Write(ByteBufferWriter* buf) const;
 
   // Creates an empty message. Overridable by derived classes.
   virtual StunMessage* CreateNew() const;
@@ -288,27 +305,29 @@ class StunMessage {
   bool EqualAttributes(const StunMessage* other,
                        std::function<bool(int type)> attribute_type_mask) const;
 
-  // Validates that a STUN message in byte buffer form
-  // has a correct MESSAGE-INTEGRITY value.
-  // These functions are not recommended and will be deprecated; use
-  // ValidateMessageIntegrity(password) on the parsed form instead.
-  [[deprecated("Use member function")]] static bool ValidateMessageIntegrity(
-      const char* data,
-      size_t size,
-      const std::string& password);
-  [[deprecated("Use member function")]] static bool ValidateMessageIntegrity32(
-      const char* data,
-      size_t size,
-      const std::string& password);
-
   // Expose raw-buffer ValidateMessageIntegrity function for testing.
+  static bool ValidateMessageIntegrityForTesting(const std::string& password,
+                                                 std::span<const uint8_t> data);
+  ABSL_DEPRECATE_AND_INLINE()
   static bool ValidateMessageIntegrityForTesting(const char* data,
                                                  size_t size,
-                                                 const std::string& password);
+                                                 const std::string& password) {
+    return ValidateMessageIntegrityForTesting(
+        password, AsUint8Span(std::span(data, size)));
+  }
+
   // Expose raw-buffer ValidateMessageIntegrity function for testing.
-  static bool ValidateMessageIntegrity32ForTesting(const char* data,
-                                                   size_t size,
-                                                   const std::string& password);
+  static bool ValidateMessageIntegrity32ForTesting(
+      const std::string& password,
+      std::span<const uint8_t> data);
+  ABSL_DEPRECATE_AND_INLINE()
+  static bool ValidateMessageIntegrity32ForTesting(
+      const char* data,
+      size_t size,
+      const std::string& password) {
+    return ValidateMessageIntegrity32ForTesting(
+        password, AsUint8Span(std::span(data, size)));
+  }
 
  protected:
   // Verifies that the given attribute is allowed for this message.
@@ -325,8 +344,7 @@ class StunMessage {
                                  absl::string_view key);
   static bool ValidateMessageIntegrityOfType(int mi_attr_type,
                                              size_t mi_attr_size,
-                                             const char* data,
-                                             size_t size,
+                                             std::span<const uint8_t> data,
                                              const std::string& password);
 
   uint16_t type_ = STUN_INVALID_MESSAGE_TYPE;
@@ -335,7 +353,7 @@ class StunMessage {
   uint32_t reduced_transaction_id_ = 0;
   uint32_t stun_magic_cookie_ = kStunMagicCookie;
   // The original buffer for messages created by Read().
-  std::string buffer_;
+  std::vector<uint8_t> buffer_;
   IntegrityStatus integrity_ = IntegrityStatus::kNotSet;
   std::string password_;
 };
@@ -352,15 +370,15 @@ class StunAttribute {
   virtual StunAttributeValueType value_type() const = 0;
 
   // Only XorAddressAttribute needs this so far.
-  virtual void SetOwner(StunMessage* owner) {}
+  virtual void SetOwner(StunMessage* /* owner */) {}
 
   // Reads the body (not the type or length) for this type of attribute from
   // the given buffer.  Return value is true if successful.
-  virtual bool Read(rtc::ByteBufferReader* buf) = 0;
+  virtual bool Read(ByteBufferReader* buf) = 0;
 
   // Writes the body (not the type or length) to the given buffer.  Return
   // value is true if successful.
-  virtual bool Write(rtc::ByteBufferWriter* buf) const = 0;
+  virtual bool Write(ByteBufferWriter* buf) const = 0;
 
   // Creates an attribute object with the given type and smallest length.
   static StunAttribute* Create(StunAttributeValueType value_type,
@@ -384,8 +402,8 @@ class StunAttribute {
  protected:
   StunAttribute(uint16_t type, uint16_t length);
   void SetLength(uint16_t length) { length_ = length; }
-  void WritePadding(rtc::ByteBufferWriter* buf) const;
-  void ConsumePadding(rtc::ByteBufferReader* buf) const;
+  void WritePadding(ByteBufferWriter* buf) const;
+  void ConsumePadding(ByteBufferReader* buf) const;
 
  private:
   uint16_t type_;
@@ -398,7 +416,7 @@ class StunAddressAttribute : public StunAttribute {
   static const uint16_t SIZE_UNDEF = 0;
   static const uint16_t SIZE_IP4 = 8;
   static const uint16_t SIZE_IP6 = 20;
-  StunAddressAttribute(uint16_t type, const rtc::SocketAddress& addr);
+  StunAddressAttribute(uint16_t type, const SocketAddress& addr);
   StunAddressAttribute(uint16_t type, uint16_t length);
 
   StunAttributeValueType value_type() const override;
@@ -413,22 +431,22 @@ class StunAddressAttribute : public StunAttribute {
     return STUN_ADDRESS_UNDEF;
   }
 
-  const rtc::SocketAddress& GetAddress() const { return address_; }
-  const rtc::IPAddress& ipaddr() const { return address_.ipaddr(); }
+  const SocketAddress& GetAddress() const { return address_; }
+  const IPAddress& ipaddr() const { return address_.ipaddr(); }
   uint16_t port() const { return address_.port(); }
 
-  void SetAddress(const rtc::SocketAddress& addr) {
+  void SetAddress(const SocketAddress& addr) {
     address_ = addr;
     EnsureAddressLength();
   }
-  void SetIP(const rtc::IPAddress& ip) {
+  void SetIP(const IPAddress& ip) {
     address_.SetIP(ip);
     EnsureAddressLength();
   }
   void SetPort(uint16_t port) { address_.SetPort(port); }
 
-  bool Read(rtc::ByteBufferReader* buf) override;
-  bool Write(rtc::ByteBufferWriter* buf) const override;
+  bool Read(ByteBufferReader* buf) override;
+  bool Write(ByteBufferWriter* buf) const override;
 
  private:
   void EnsureAddressLength() {
@@ -447,7 +465,7 @@ class StunAddressAttribute : public StunAttribute {
       }
     }
   }
-  rtc::SocketAddress address_;
+  SocketAddress address_;
 };
 
 // Implements STUN attributes that record an Internet address. When encoded
@@ -455,16 +473,16 @@ class StunAddressAttribute : public StunAttribute {
 // transaction ID of the message.
 class StunXorAddressAttribute : public StunAddressAttribute {
  public:
-  StunXorAddressAttribute(uint16_t type, const rtc::SocketAddress& addr);
+  StunXorAddressAttribute(uint16_t type, const SocketAddress& addr);
   StunXorAddressAttribute(uint16_t type, uint16_t length, StunMessage* owner);
 
   StunAttributeValueType value_type() const override;
   void SetOwner(StunMessage* owner) override;
-  bool Read(rtc::ByteBufferReader* buf) override;
-  bool Write(rtc::ByteBufferWriter* buf) const override;
+  bool Read(ByteBufferReader* buf) override;
+  bool Write(ByteBufferWriter* buf) const override;
 
  private:
-  rtc::IPAddress GetXoredIP() const;
+  IPAddress GetXoredIP() const;
   StunMessage* owner_;
 };
 
@@ -483,8 +501,8 @@ class StunUInt32Attribute : public StunAttribute {
   bool GetBit(size_t index) const;
   void SetBit(size_t index, bool value);
 
-  bool Read(rtc::ByteBufferReader* buf) override;
-  bool Write(rtc::ByteBufferWriter* buf) const override;
+  bool Read(ByteBufferReader* buf) override;
+  bool Write(ByteBufferWriter* buf) const override;
 
  private:
   uint32_t bits_;
@@ -501,8 +519,8 @@ class StunUInt64Attribute : public StunAttribute {
   uint64_t value() const { return bits_; }
   void SetValue(uint64_t bits) { bits_ = bits; }
 
-  bool Read(rtc::ByteBufferReader* buf) override;
-  bool Write(rtc::ByteBufferWriter* buf) const override;
+  bool Read(ByteBufferReader* buf) override;
+  bool Write(ByteBufferWriter* buf) const override;
 
  private:
   uint64_t bits_;
@@ -513,34 +531,49 @@ class StunByteStringAttribute : public StunAttribute {
  public:
   explicit StunByteStringAttribute(uint16_t type);
   StunByteStringAttribute(uint16_t type, absl::string_view str);
-  StunByteStringAttribute(uint16_t type, const void* bytes, size_t length);
+  StunByteStringAttribute(uint16_t type, std::span<const uint8_t> bytes);
+  ABSL_DEPRECATE_AND_INLINE()
+  StunByteStringAttribute(uint16_t type, const void* bytes, size_t length)
+      : StunByteStringAttribute(
+            type,
+            AsUint8Span(std::span(static_cast<const char*>(bytes), length))) {}
+  StunByteStringAttribute(uint16_t type, const std::vector<uint32_t>& values);
   StunByteStringAttribute(uint16_t type, uint16_t length);
   ~StunByteStringAttribute() override;
 
   StunAttributeValueType value_type() const override;
 
-  const char* bytes() const { return bytes_; }
+  [[deprecated("Use array_view")]] const char* bytes() const {
+    return reinterpret_cast<const char*>(bytes_);
+  }
+  // Returns the attribute value as a string.
+  // Use this for attributes that are text or text-compatible.
   absl::string_view string_view() const {
-    return absl::string_view(bytes_, length());
+    return absl::string_view(reinterpret_cast<const char*>(bytes_), length());
   }
+  // Returns the attribute value as an uint8_t view.
+  // Use this function for values that are not text.
+  std::span<uint8_t> array_view() const { return std::span(bytes_, length()); }
 
-  [[deprecated]] std::string GetString() const {
-    return std::string(bytes_, length());
+  std::optional<std::vector<uint32_t>> GetUInt32Vector() const;
+
+  void CopyBytes(std::span<const uint8_t> bytes);
+  ABSL_DEPRECATE_AND_INLINE()
+  void CopyBytes(const void* bytes, size_t length) {
+    CopyBytes(AsUint8Span(std::span(static_cast<const char*>(bytes), length)));
   }
-
-  void CopyBytes(const void* bytes, size_t length);
   void CopyBytes(absl::string_view bytes);
 
   uint8_t GetByte(size_t index) const;
   void SetByte(size_t index, uint8_t value);
 
-  bool Read(rtc::ByteBufferReader* buf) override;
-  bool Write(rtc::ByteBufferWriter* buf) const override;
+  bool Read(ByteBufferReader* buf) override;
+  bool Write(ByteBufferWriter* buf) const override;
 
  private:
-  void SetBytes(char* bytes, size_t length);
+  void SetBytes(uint8_t* bytes, size_t length);
 
-  char* bytes_;
+  uint8_t* bytes_;
 };
 
 // Implements STUN attributes that record an error code.
@@ -565,8 +598,8 @@ class StunErrorCodeAttribute : public StunAttribute {
   void SetNumber(uint8_t number) { number_ = number; }
   void SetReason(const std::string& reason);
 
-  bool Read(rtc::ByteBufferReader* buf) override;
-  bool Write(rtc::ByteBufferWriter* buf) const override;
+  bool Read(ByteBufferReader* buf) override;
+  bool Write(ByteBufferWriter* buf) const override;
 
  private:
   uint8_t class_;
@@ -588,8 +621,8 @@ class StunUInt16ListAttribute : public StunAttribute {
   void AddType(uint16_t value);
   void AddTypeAtIndex(uint16_t index, uint16_t value);
 
-  bool Read(rtc::ByteBufferReader* buf) override;
-  bool Write(rtc::ByteBufferWriter* buf) const override;
+  bool Read(ByteBufferReader* buf) override;
+  bool Write(ByteBufferWriter* buf) const override;
 
  private:
   std::vector<uint16_t>* attr_types_;
@@ -634,46 +667,7 @@ bool ComputeStunCredentialHash(const std::string& username,
 // a buffer will created in the method.
 std::unique_ptr<StunAttribute> CopyStunAttribute(
     const StunAttribute& attribute,
-    rtc::ByteBufferWriter* tmp_buffer_ptr = 0);
-
-// TODO(?): Move the TURN/ICE stuff below out to separate files.
-extern const char TURN_MAGIC_COOKIE_VALUE[4];
-
-// "GTURN" STUN methods.
-// TODO(?): Rename these methods to GTURN_ to make it clear they aren't
-// part of standard STUN/TURN.
-enum RelayMessageType {
-  // For now, using the same defs from TurnMessageType below.
-  // STUN_ALLOCATE_REQUEST              = 0x0003,
-  // STUN_ALLOCATE_RESPONSE             = 0x0103,
-  // STUN_ALLOCATE_ERROR_RESPONSE       = 0x0113,
-  STUN_SEND_REQUEST = 0x0004,
-  STUN_SEND_RESPONSE = 0x0104,
-  STUN_SEND_ERROR_RESPONSE = 0x0114,
-  STUN_DATA_INDICATION = 0x0115,
-};
-
-// "GTURN"-specific STUN attributes.
-// TODO(?): Rename these attributes to GTURN_ to avoid conflicts.
-enum RelayAttributeType {
-  STUN_ATTR_LIFETIME = 0x000d,             // UInt32
-  STUN_ATTR_MAGIC_COOKIE = 0x000f,         // ByteString, 4 bytes
-  STUN_ATTR_BANDWIDTH = 0x0010,            // UInt32
-  STUN_ATTR_DESTINATION_ADDRESS = 0x0011,  // Address
-  STUN_ATTR_SOURCE_ADDRESS2 = 0x0012,      // Address
-  STUN_ATTR_DATA = 0x0013,                 // ByteString
-  STUN_ATTR_OPTIONS = 0x8001,              // UInt32
-};
-
-// A "GTURN" STUN message.
-class RelayMessage : public StunMessage {
- public:
-  using StunMessage::StunMessage;
-
- protected:
-  StunAttributeValueType GetAttributeValueType(int type) const override;
-  StunMessage* CreateNew() const override;
-};
+    ByteBufferWriter* tmp_buffer_ptr = 0);
 
 // Defined in TURN RFC 5766.
 enum TurnMessageType : uint16_t {
@@ -694,19 +688,15 @@ enum TurnMessageType : uint16_t {
 };
 
 enum TurnAttributeType {
-  STUN_ATTR_CHANNEL_NUMBER = 0x000C,    // UInt32
-  STUN_ATTR_TURN_LIFETIME = 0x000d,     // UInt32
-  STUN_ATTR_XOR_PEER_ADDRESS = 0x0012,  // XorAddress
-  // TODO(mallinath) - Uncomment after RelayAttributes are renamed.
-  // STUN_ATTR_DATA                     = 0x0013,  // ByteString
+  STUN_ATTR_CHANNEL_NUMBER = 0x000C,       // UInt32
+  STUN_ATTR_LIFETIME = 0x000d,             // UInt32
+  STUN_ATTR_XOR_PEER_ADDRESS = 0x0012,     // XorAddress
+  STUN_ATTR_DATA = 0x0013,                 // ByteString
   STUN_ATTR_XOR_RELAYED_ADDRESS = 0x0016,  // XorAddress
   STUN_ATTR_EVEN_PORT = 0x0018,            // ByteString, 1 byte.
   STUN_ATTR_REQUESTED_TRANSPORT = 0x0019,  // UInt32
   STUN_ATTR_DONT_FRAGMENT = 0x001A,        // No content, Length = 0
   STUN_ATTR_RESERVATION_TOKEN = 0x0022,    // ByteString, 8 bytes.
-  // TODO(mallinath) - Rename STUN_ATTR_TURN_LIFETIME to STUN_ATTR_LIFETIME and
-  // STUN_ATTR_TURN_DATA to STUN_ATTR_DATA. Also rename RelayMessage attributes
-  // by appending G to attribute name.
 };
 
 // RFC 5766-defined errors.
@@ -717,7 +707,8 @@ enum TurnErrorType {
   STUN_ERROR_UNSUPPORTED_PROTOCOL = 442
 };
 
-extern const int SERVER_NOT_REACHABLE_ERROR;
+[[deprecated("Use STUN_ERROR_SERVER_NOT_REACHABLE")]] extern const int
+    SERVER_NOT_REACHABLE_ERROR;
 
 extern const char STUN_ERROR_REASON_FORBIDDEN[];
 extern const char STUN_ERROR_REASON_ALLOCATION_MISMATCH[];
@@ -762,6 +753,9 @@ enum IceAttributeType {
   STUN_ATTR_GOOG_DELTA_SYNC_REQ = 0xC05E,  // Not yet implemented.
   // MESSAGE-INTEGRITY truncated to 32-bit.
   STUN_ATTR_GOOG_MESSAGE_INTEGRITY_32 = 0xC060,
+  // Experimental: piggybacking the DTLS handshake in STUN.
+  STUN_ATTR_META_DTLS_IN_STUN = 0xC070,
+  STUN_ATTR_META_DTLS_IN_STUN_ACK = 0xC071,
 };
 
 // When adding new attributes to STUN_ATTR_GOOG_MISC_INFO
@@ -794,6 +788,7 @@ class IceMessage : public StunMessage {
   StunMessage* CreateNew() const override;
 };
 
-}  // namespace cricket
+}  //  namespace webrtc
+
 
 #endif  // API_TRANSPORT_STUN_H_

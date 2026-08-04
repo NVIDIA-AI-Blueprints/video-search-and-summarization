@@ -31,7 +31,7 @@ Use Playwright browser tools to navigate, inspect, and interact with the VIOS we
 3. **Resolve NVStreamer instances** — read ports from the nvstreamer compose.env:
 
 ```bash
-grep "NVIOSREAMER_HTTP_PORT" <PROJECT_ROOT>/deployment/scaling/docker-compose/nvstreamer/compose.env \
+grep "^NVSTREAMER_HTTP_PORT_" <PROJECT_ROOT>/services/vios/deployment/stream-processing/docker-compose/nvstreamer/compose.env \
   | sort | awk -F'=' '{print $2}'
 # e.g. 31000, 31001, 31002, 31003, 31004
 ```
@@ -64,7 +64,7 @@ Check network requests filtered to `/api/` — flag any 4xx/5xx (404 on `streamb
 For each running NVStreamer instance, derive its URL:
 ```
 HOST = <host extracted from BASE_URL>
-NVStreamer-N URL = http://<HOST>:<NVIOSREAMER_HTTP_PORT_N>/#/dashboard
+NVStreamer-N URL = http://<HOST>:<NVSTREAMER_HTTP_PORT_N>/#/dashboard
 ```
 
 For each instance:
@@ -111,13 +111,13 @@ For each failure include: URL, what was visible, console errors if any.
 | VIOS Live streams | `<BASE_URL>/vios/#/live-streams` |
 | VIOS Recordings | `<BASE_URL>/vios/#/recordings` |
 | VIOS Settings | `<BASE_URL>/vios/#/settings` |
-| NVStreamer-N | `http://<HOST>:<NVIOSREAMER_HTTP_PORT_N>/#/dashboard` |
+| NVStreamer-N | `http://<HOST>:<NVSTREAMER_HTTP_PORT_N>/#/dashboard` |
 
 ---
 
 ## Notes
 
 - The VIOS UI is a single-page application — always use `browser_wait_for` after navigation to let Vue/React render.
-- NVStreamer ports are defined in `deployment/scaling/docker-compose/nvstreamer/compose.env` as `NVIOSREAMER_HTTP_PORT_1` through `NVIOSREAMER_HTTP_PORT_N`.
+- NVStreamer ports are defined in `services/vios/deployment/stream-processing/docker-compose/nvstreamer/compose.env` as `NVSTREAMER_HTTP_PORT_1` through `NVSTREAMER_HTTP_PORT_N`.
 - If a NVStreamer container is not running, skip that instance and note it in the report — do not mark as FAIL.
 - Screenshots are the primary evidence — take one per instance at each significant state change.

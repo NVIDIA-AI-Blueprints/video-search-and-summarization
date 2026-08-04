@@ -49,7 +49,25 @@ export default defineConfig({
   ],
   base: './',
   server: {
-    host: '0.0.0.0'
+    host: '0.0.0.0',
+    // Optional dev proxy: when developing the UI against a remote VIOS deployment, set the
+    // VITE_BACKEND env var (e.g. `VITE_BACKEND=http://<host>:30888 npm run dev`) and point the
+    // config endpoints at the dev origin (empty string). API + WebSocket calls are then proxied
+    // same-origin to the backend, avoiding CORS. The ingress serves UI and API under /vst, so the
+    // path is prefixed accordingly. Defaults to localhost when VITE_BACKEND is unset.
+    proxy: (() => {
+      const target = process.env.VITE_BACKEND || 'http://localhost:30888';
+      const opts = { target, changeOrigin: true, secure: false, ws: true, rewrite: (p: string) => `/vst${p}` };
+      return {
+        '/api': opts,
+        '/sensor': opts,
+        '/storage': opts,
+        '/record': opts,
+        '/live': opts,
+        '/streambridge': opts,
+        '/replay': opts,
+      };
+    })(),
   },
   build: {
     outDir: 'dist',

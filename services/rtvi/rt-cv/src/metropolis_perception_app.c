@@ -156,10 +156,11 @@ static gboolean playback_utc = FALSE;
 static gboolean print_version = FALSE;
 static gboolean show_bbox_text = FALSE;
 static gboolean force_tcp = TRUE;
-static gboolean print_dependencies_version = FALSE;
 static gboolean quit = FALSE;
 static gboolean use_tracker_reid = FALSE;
 static gboolean show_sensor_id = FALSE;
+#define MAX_SENSOR_CACHE 1024
+static gchar *g_last_sensor_str[MAX_SENSOR_CACHE] = { NULL };
 static guint tracker_reid_store_age = 0;
 static gint return_value = 0;
 static guint num_instances;
@@ -199,11 +200,9 @@ static gint target_class = 0;
 /** @} imported from deepstream-app as is */
 GOptionEntry entries[] = {
     {"version", 'v', 0, G_OPTION_ARG_NONE, &print_version,
-     "Print DeepStreamSDK version", NULL},
+     "Print metropolis_perception_app version", NULL},
     {"tiledtext", 0, 0, G_OPTION_ARG_NONE, &show_bbox_text,
      "Display Bounding box labels in tiled mode", NULL},
-    {"version-all", 0, 0, G_OPTION_ARG_NONE, &print_dependencies_version,
-     "Print DeepStreamSDK and dependencies version", NULL},
     {"cfg-file", 'c', 0, G_OPTION_ARG_FILENAME_ARRAY, &cfg_files,
      "Set the config file", NULL},
     {"override-cfg-file", 'o', 0, G_OPTION_ARG_FILENAME_ARRAY,
@@ -771,6 +770,9 @@ static void generate_event_msg_meta(AppCtx *appCtx, gpointer data,
     //     "this stream [%d:%s] was added using REST API; we have Sensor
     //     Info\n", sensorInfo->source_id, sensorInfo->sensor_id);
     meta->sensorStr = g_strdup(sensorInfo->sensor_name);
+    if (stream_id < MAX_SENSOR_CACHE) { g_free(g_last_sensor_str[stream_id]); g_last_sensor_str[stream_id] = g_strdup(sensorInfo->sensor_name); }
+  } else if (stream_id < MAX_SENSOR_CACHE && g_last_sensor_str[stream_id]) {
+    meta->sensorStr = g_strdup(g_last_sensor_str[stream_id]);
   }
 
   (void)ts_generated;
@@ -885,6 +887,9 @@ generate_event_msg_meta_dummy (AppCtx * appCtx, gpointer data, gint stream_id,
     LOGD("this stream [%d:%s] was added using REST API; we have Sensor Info\n",
         sensorInfo->source_id, sensorInfo->sensor_id);
     meta->sensorStr = g_strdup (sensorInfo->sensor_id);
+    if (stream_id < MAX_SENSOR_CACHE) { g_free(g_last_sensor_str[stream_id]); g_last_sensor_str[stream_id] = g_strdup(sensorInfo->sensor_id); }
+  } else if (stream_id < MAX_SENSOR_CACHE && g_last_sensor_str[stream_id]) {
+    meta->sensorStr = g_strdup(g_last_sensor_str[stream_id]);
   }
   (void) ts_generated;
 }
@@ -1226,7 +1231,7 @@ static void bbox_generated_probe_after_analytics(AppCtx *appCtx, GstBuffer *buf,
           }
         }
       }
-      if(appCtx->config.dummy_payload && (valid_class_id == 0))
+      if(appCtx->config.dummy_payload && (frame_meta->num_obj_meta == 0))
       {
           NvDsEventMsgMeta *msg_meta =
             (NvDsEventMsgMeta *) g_malloc0 (sizeof (NvDsEventMsgMeta));
@@ -2050,7 +2055,18 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  snprintf(versionString, sizeof(versionString), "%s:%s", IMAGE_PATH, IMAGE_TAG);
+  /* Allow the printed image registry/tag to be overridden at runtime via the
+   * REGISTRY/TAG environment variables, so updating the printout does not
+   * require recompiling the app. Fall back to the build-time macros. */
+  const char *image_path = getenv("REGISTRY");
+  const char *image_tag = getenv("TAG");
+  if (!image_path || image_path[0] == '\0') {
+    image_path = IMAGE_PATH;
+  }
+  if (!image_tag || image_tag[0] == '\0') {
+    image_tag = IMAGE_TAG;
+  }
+  snprintf(versionString, sizeof(versionString), "%s:%s", image_path, image_tag);
   if (log_level >= LOG_LVL_INFO) {
     g_print("Starting Perception Application Image %s\n", versionString);
     g_print("Tiled text: %d\n", show_bbox_text);
@@ -2068,14 +2084,13 @@ int main(int argc, char *argv[]) {
   }
 
   if (print_version) {
-    g_print("deepstream-test5-app version %d.%d.%d\n", NVDS_APP_VERSION_MAJOR,
-            NVDS_APP_VERSION_MINOR, NVDS_APP_VERSION_MICRO);
-    return 0;
-  }
-
-  if (print_dependencies_version) {
-    g_print("deepstream-test5-app version %d.%d.%d\n", NVDS_APP_VERSION_MAJOR,
-            NVDS_APP_VERSION_MINOR, NVDS_APP_VERSION_MICRO);
+    /* Print only the semantic version (e.g. "3.3.0") from the image tag,
+     * stripping any build/date suffix (e.g. "3.3.0-26.07.1" -> "3.3.0").
+     * g_strsplit always yields a non-NULL first element for a non-NULL
+     * input, so parts[0] holds the segment before the first '-'. */
+    gchar **parts = g_strsplit(image_tag, "-", 2);
+    g_print("metropolis_perception_app version %s\n", parts[0]);
+    g_strfreev(parts);
     return 0;
   }
 

@@ -1,6 +1,6 @@
 {
     "vss-rtvi-cv": {
-      "provisioning_address": "localhost:9000",
+      "provisioning_address": "vss-rtvi-cv:9000",
       "process_type": "docker"
     }
 }

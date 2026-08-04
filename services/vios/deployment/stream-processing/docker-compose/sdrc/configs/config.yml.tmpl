@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# SDRC workload definition for VIOS standalone (stream-processing).
+# Rendered at startup by sdrc/render-config.sh, which expands the HOST_IP /
+# NUM_STREAMS / NUM_SENSORS placeholders below from the host environment.
+# All other tokens stay verbatim so sdr-mw-l reads them as YAML.
+
+docker-workload-streamprocessing:
+  wl_obj_name: streamprocessing-ms-1
+  port: 4003
+  enable: true
+  WDM_CONSUMER_GRP_ID: sdr-streamprocessing-cg
+  WDM_REDIS_CACHE_OBJECT: streamprocessing-data
+  WDM_XDS_USE_POD_DNS: false
+  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_REDIS_MSG_KEY: vst_events
+  REDIS_MSG_KEY: vst_events
+  WDM_CLUSTER_TYPE: docker
+  WDM_CLUSTER_CONTAINER_NAMES: '["streamprocessing-ms-1"]'
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: ${HOST_IP}
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_WL_ADD_URL: /api/v1/proxy/stream/add
+  WDM_WL_DELETE_URL: /api/v1/proxy/stream/
+  WDM_WL_CHANGE_ID_ADD: camera_proxy
+  WDM_WL_CHANGE_ID_DEL: camera_remove
+  WDM_WL_HEALTH_CHECK_URL: /api/v1/proxy/configuration
+  WDM_WL_THRESHOLD: ${NUM_STREAMS}
+  WDM_CONTROLLER_REPROVISION: true
+  WDM_RESET_ON_WLOBJ_CRASH: false
+  WDM_CLEAR_DATA_WL: true
+  WDM_KFK_ENABLE: false
+  WDM_MSG_TOPIC: vst_events
+  WDM_DS_SWAP_ID_NAME: false
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 500
+  WDM_DISABLE_WERKZEUG_LOGGING: true
+  WDM_WL_OBJECT_NAME: streamprocessing-ms-1
+  VST_STREAMS_ENDPOINT: http://localhost:30000/api/v1/sensor/streams
+  VST_STATUS_ENDPOINT: http://localhost:30000/api/v1/sensor/status
+  OTEL_SDK_DISABLED: true
+  OTEL_SERVICE_NAME: SDR_AGENT
+  WDM_WL_NAME_IGNORE_REGEX: ""
+  WDM_TARGET_PORT_MAPPING: "{\"streamprocessing-ms-1\": 30001}"
+  ENVOY_ROUTE_HEADER: "streamid"
+  WDM_MS_LISTENER_PORT: 10000
+  NOHEADERTARGETROUTE: true
+  HEADERLESS_SERVICE_ENDPOINTS: "[\"${HOST_IP}:30001\"]"
+  WDM_WL_REDIS_MSG_FIELD: value
+  WDM_MSG_KEY: vst_events
+  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json

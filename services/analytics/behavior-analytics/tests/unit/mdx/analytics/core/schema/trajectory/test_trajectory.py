@@ -20,162 +20,284 @@ from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
 
 
 @pytest.fixture
-def sample_geo_trajectory():
-    """Create a sample geo trajectory for testing"""
+def sample_trajectory():
+    """Create a sample trajectory for testing"""
     points = [
-        Coordinate(x=-122.4194, y=37.7749, z=0.0),  # San Francisco
-        Coordinate(x=-122.3321, y=37.8085, z=0.0),  # Oakland
-        Coordinate(x=-122.2711, y=37.8044, z=0.0),  # Berkeley
+        Coordinate(x=0.0, y=0.0, z=0.0),
+        Coordinate(x=1.0, y=1.0, z=0.0),
+        Coordinate(x=2.0, y=2.0, z=0.0),
+        Coordinate(x=3.0, y=3.0, z=0.0),
     ]
     start_time = datetime(2024, 1, 1, 12, 0, 0)
-    end_time = start_time + timedelta(seconds=1800)  # 30 minutes
+    end_time = start_time + timedelta(seconds=30)
     return Trajectory(
-        id="test_geo_trajectory",
+        id="test_trajectory",
         start=start_time,
         end=end_time,
         points=points,
-        enable_geo=True
     )
 
 
-def test_geo_distance_calculation(sample_geo_trajectory):
-    """Test geo distance calculations using haversine formula"""
-    # Distance should be calculated using haversine formula when geo is enabled
-    assert sample_geo_trajectory.distance > 0
-    assert sample_geo_trajectory.distance < 100000  # Should be less than 100km for SF to Berkeley
-
-
-def test_geo_bearing_calculation(sample_geo_trajectory):
-    """Test geo bearing calculations"""
-    # Bearing should be calculated using geo coordinates
-    bearing = sample_geo_trajectory.bearing
-    assert 0 <= bearing <= 360
-    # For SF to Berkeley, bearing should be roughly northeast
-    assert 0 < bearing < 90
-
-
-def test_direction_modes():
-    """Test different direction modes for geo trajectories"""
+def test_head_last():
+    """Test head and last point getters"""
     points = [
-        Coordinate(x=-122.4194, y=37.7749, z=0.0),  # San Francisco
-        Coordinate(x=-122.2711, y=37.8044, z=0.0),  # Berkeley
+        Coordinate(x=1.0, y=1.0, z=0.0),
+        Coordinate(x=2.0, y=2.0, z=0.0),
     ]
-    start_time = datetime(2024, 1, 1, 12, 0, 0)
-    end_time = start_time + timedelta(seconds=1800)
-
-    # Test mode 0 (4 directions)
-    traj_4dir = Trajectory(
-        id="test_4dir",
-        start=start_time,
-        end=end_time,
+    start = datetime.now()
+    end = datetime.now()
+    traj = Trajectory(
+        id="test",
+        start=start,
+        end=end,
         points=points,
-        enable_geo=True,
-        direction_mode=0,
-        timestamps=[start_time, end_time]
     )
-    assert traj_4dir.direction in ["N", "E", "S", "W"]
 
-    # Test mode 1 (8 directions)
-    traj_8dir = Trajectory(
-        id="test_8dir",
-        start=start_time,
-        end=end_time,
-        points=points,
-        enable_geo=True,
-        direction_mode=1,
-        timestamps=[start_time, end_time]
-    )
-    assert traj_8dir.direction in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-
-    # Test mode 2 (16 directions)
-    traj_16dir = Trajectory(
-        id="test_16dir",
-        start=start_time,
-        end=end_time,
-        points=points,
-        enable_geo=True,
-        direction_mode=2,
-        timestamps=[start_time, end_time]
-    )
-    assert traj_16dir.direction in [
-        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-        "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"
-    ]
+    assert traj.head == points[0]
+    assert traj.last == points[-1]
 
 
-def test_direction_based_clustering():
-    """Test direction-based clustering modes"""
+def test_smooth_trajectory(sample_trajectory):
+    """Test trajectory smoothing"""
+    smoothed = sample_trajectory.smooth_trajectory
+    assert len(smoothed) == len(sample_trajectory.points)
+    # Since points are linear, smoothed points should be similar
+    assert abs(smoothed[1].x - sample_trajectory.points[1].x) < 0.1
+
+
+def test_distance_calculations(sample_trajectory):
+    """Test distance calculations"""
+    # Linear distance should be less than or equal to total distance
+    assert sample_trajectory.linear_distance <= sample_trajectory.distance
+    assert sample_trajectory.distance > 0
+
+
+def test_speed_calculations(sample_trajectory):
+    """Test speed calculations"""
+    assert sample_trajectory.speed > 0
+    assert len(sample_trajectory.speed_over_time) > 0
+
+
+def test_bearing_and_direction():
+    """Test bearing and direction calculations"""
+    # Test right direction (0 degrees)
     points = [
-        Coordinate(x=-122.4194, y=37.7749, z=0.0),  # San Francisco
-        Coordinate(x=-122.2711, y=37.8044, z=0.0),  # Berkeley
+        Coordinate(x=0.0, y=0.0, z=0.0),
+        Coordinate(x=1.0, y=0.0, z=0.0),
     ]
-    start_time = datetime(2024, 1, 1, 12, 0, 0)
-    end_time = start_time + timedelta(seconds=1800)
-
-    # Test mode 0 (4 clusters)
-    traj_4cluster = Trajectory(
-        id="test_4cluster",
-        start=start_time,
-        end=end_time,
+    start = datetime.now()
+    end = datetime.now()
+    traj = Trajectory(
+        id="test",
+        start=start,
+        end=end,
         points=points,
-        enable_geo=True,
-        direction_based_cluster_mode=0,
-        timestamps=[start_time, end_time]
     )
-    assert 0 <= traj_4cluster.direction_based_cluster_index < 4
+    assert traj.direction == "Right"
+    assert abs(traj.bearing - 0) < 0.1
 
-    # Test mode 1 (8 clusters)
-    traj_8cluster = Trajectory(
-        id="test_8cluster",
-        start=start_time,
-        end=end_time,
+
+def test_time_interval(sample_trajectory):
+    """Test time interval calculation"""
+    assert sample_trajectory.time_interval == 30.0  # 30 seconds from fixture
+
+
+def test_geo_location(sample_trajectory):
+    """Test geo location conversions"""
+    geo_loc = sample_trajectory.geo_location
+    assert geo_loc.type == "linestring"
+    assert len(geo_loc.coordinates) == len(sample_trajectory.points)
+
+
+def test_empty_trajectory():
+    """Test handling of minimal trajectory"""
+    points = [Coordinate(x=0.0, y=0.0, z=0.0)]
+    start = datetime.now()
+    end = datetime.now()
+    traj = Trajectory(
+        id="test",
+        start=start,
+        end=end,
         points=points,
-        enable_geo=True,
-        direction_based_cluster_mode=1,
-        timestamps=[start_time, end_time]
     )
-    assert 0 <= traj_8cluster.direction_based_cluster_index < 8
+    assert traj.linear_distance == 0
+    assert traj.speed == 0
 
 
-def test_geo_str_representation(sample_geo_trajectory):
-    """Test string representation of geo trajectory"""
-    str_repr = str(sample_geo_trajectory)
-    assert sample_geo_trajectory.id in str_repr
+def test_str_representation(sample_trajectory):
+    """Test string representation"""
+    str_repr = str(sample_trajectory)
+    assert sample_trajectory.id in str_repr
     assert "mph" in str_repr
     assert "meters" in str_repr
-    assert sample_geo_trajectory.direction in str_repr
 
 
-def test_geo_vs_euclidean():
-    """Test differences between geo and euclidean calculations"""
+def test_complex_trajectory():
+    """Test trajectory with complex movement patterns"""
+    # Create a trajectory with varying speeds and directions
     points = [
-        Coordinate(x=-122.4194, y=37.7749, z=0.0),  # San Francisco
-        Coordinate(x=-122.2711, y=37.8044, z=0.0),  # Berkeley
+        Coordinate(x=0.0, y=0.0, z=0.0),
+        Coordinate(x=1.0, y=0.0, z=0.0),  # Right
+        Coordinate(x=1.0, y=1.0, z=0.0),  # Up
+        Coordinate(x=0.0, y=1.0, z=0.0),  # Left
+        Coordinate(x=0.0, y=0.0, z=0.0),  # Down
     ]
     start_time = datetime(2024, 1, 1, 12, 0, 0)
-    end_time = start_time + timedelta(seconds=1800)
-
-    # Geo trajectory
-    geo_traj = Trajectory(
-        id="geo",
+    end_time = start_time + timedelta(seconds=40)
+    traj = Trajectory(
+        id="complex_trajectory",
         start=start_time,
         end=end_time,
         points=points,
-        enable_geo=True,
-        timestamps=[start_time, end_time]
     )
+    # Test distance calculations
+    assert traj.linear_distance == 0  # Linear distance should be less than actual path
 
-    # Euclidean trajectory
-    euclid_traj = Trajectory(
-        id="euclid",
+    # Test direction changes
+    assert traj.direction in ["Right", "Up", "Left", "Down"]
+
+
+def test_high_speed_trajectory():
+    """Test trajectory with high speed movement"""
+    points = [
+        Coordinate(x=0.0, y=0.0, z=0.0),
+        Coordinate(x=1000.0, y=1000.0, z=0.0),  # Large movement
+    ]
+    start_time = datetime(2024, 1, 1, 12, 0, 0)
+    end_time = start_time + timedelta(seconds=1)  # Very short time interval
+    traj = Trajectory(
+        id="high_speed_trajectory",
         start=start_time,
         end=end_time,
         points=points,
-        enable_geo=False,
-        timestamps=[start_time, end_time]
     )
 
-    # Distances should be different
-    assert geo_traj.distance != euclid_traj.distance
-    # Geo distance should be larger (actual ground distance)
-    assert geo_traj.distance > euclid_traj.distance
+    assert traj.speed > 0
+    assert traj.distance > 0
+    assert traj.time_interval == 1.0
+
+
+def test_vertical_movement():
+    """Test trajectory with vertical movement"""
+    points = [
+        Coordinate(x=0.0, y=1, z=0.0),
+        Coordinate(x=0.0, y=2, z=10.0),
+        Coordinate(x=0.0, y=3, z=20.0),
+    ]
+    start_time = datetime(2024, 1, 1, 12, 0, 0)
+    end_time = start_time + timedelta(seconds=20)
+    traj = Trajectory(
+        id="vertical_trajectory",
+        start=start_time,
+        end=end_time,
+        points=points,
+    )
+
+    assert traj.distance > 0
+    assert traj.speed > 0
+    assert traj.direction == "Up"  # Should detect vertical movement
+
+
+def test_equality_comparison():
+    """Test trajectory equality comparison"""
+    points1 = [Coordinate(x=0.0, y=0.0, z=0.0), Coordinate(x=1.0, y=1.0, z=0.0)]
+    points2 = [Coordinate(x=0.0, y=0.0, z=0.0), Coordinate(x=1.0, y=1.0, z=0.0)]
+    start_time = datetime(2024, 1, 1, 12, 0, 0)
+    end_time = start_time + timedelta(seconds=10)
+
+    traj1 = Trajectory(id="test1", start=start_time, end=end_time, points=points1)
+    traj2 = Trajectory(id="test1", start=start_time, end=end_time, points=points2)
+    traj3 = Trajectory(id="test2", start=start_time, end=end_time, points=points1)
+
+    assert traj1 == traj2  # Same points and timing
+    assert traj1 != traj3  # Different IDs
+
+
+class TestCalibrationTypeUnits:
+    """
+    Speed units must follow the coordinate system, not the class.
+
+    CalibrationI produces raw pixel coordinates -- bbox centre, explicitly without perspective
+    correction -- so an image-space rate is pixels per second. Applying the m/s to mph factor to it
+    yields a meaningless number, which is what happened before ``speed`` and ``speed_over_time``
+    were gated the way ``bearing`` already was.
+    """
+
+    def _trajectory(self, calibration_type):
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        points = [Coordinate(x=100.0, y=200.0, z=0.0), Coordinate(x=200.0, y=200.0, z=0.0)]
+        start = datetime(2025, 3, 1, 12, 0, 0)
+        kwargs = dict(
+            id="t", start=start, end=start + timedelta(seconds=2), points=points,
+            smooth_min_points=3, smooth_window_size=3, distance_stride=1, speed_segment_size=3,
+        )
+        return Trajectory(**kwargs, calibration_type=calibration_type) if calibration_type else kwargs
+
+    def test_image_speed_is_pixels_per_second(self):
+        """100 px covered in 2 s reads as 50, not 50 scaled by an m/s constant."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        assert self._trajectory(CalibrationType.IMAGE).speed == pytest.approx(50.0)
+
+    def test_cartesian_speed_still_converts_to_mph(self):
+        """Metric coordinates keep the m/s to mph conversion."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        from mdx.analytics.core.utils.distance_util import MPS_TO_MPH
+        assert self._trajectory(CalibrationType.CARTESIAN).speed == pytest.approx(50.0 * MPS_TO_MPH)
+
+    def test_image_falls_through_to_the_raw_computation(self):
+        """In image coordinates every gated member returns the raw value, unconverted."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+
+        image = self._trajectory(CalibrationType.IMAGE)
+
+        assert image.speed == image._raw_speed()
+        assert image.speed_over_time == image._raw_speed_over_time()
+        assert image.bearing == image._raw_bearing()
+
+    def test_geographic_coordinates_are_rejected_by_every_override(self):
+        """Geo belongs to TrajectoryG; Trajectory refuses it consistently, not only in bearing."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        geo = self._trajectory(CalibrationType.GEO)
+
+        for attribute in ("speed", "speed_over_time", "bearing"):
+            with pytest.raises(ValueError, match="does not support geographic"):
+                getattr(geo, attribute)
+
+    def test_short_cartesian_track_is_not_converted_twice(self):
+        """A track too short to segment must report the same speed in both members.
+
+        ``_raw_speed_over_time`` falls back to a single whole-track value when there are fewer than
+        ``smooth_min_points`` points -- the common case for short tracks. Reading the public ``speed``
+        for that fallback returns an already-converted value, which ``speed_over_time`` then converts
+        again, reporting an m/s-to-mph factor more than the truth.
+        """
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+        from mdx.analytics.core.utils.distance_util import MPS_TO_MPH
+
+        cartesian = self._trajectory(CalibrationType.CARTESIAN)
+
+        # Two points, well under smooth_min_points, so the fallback branch is the one under test.
+        assert len(cartesian.smooth_trajectory) < cartesian.smooth_min_points
+        assert cartesian.speed_over_time == pytest.approx([50.0 * MPS_TO_MPH])
+        assert cartesian.speed_over_time == pytest.approx([cartesian.speed])
+
+    def test_zero_interval_cartesian_is_not_converted_twice(self):
+        """The zero-duration fallback goes through the same path and must also stay single-converted."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+
+        start = datetime(2025, 3, 1, 12, 0, 0)
+        instant = Trajectory(
+            id="t", start=start, end=start, calibration_type=CalibrationType.CARTESIAN,
+            points=[Coordinate(x=0.0, y=0.0, z=0.0), Coordinate(x=1.0, y=0.0, z=0.0)],
+        )
+
+        assert instant.time_interval == 0
+        assert instant.speed_over_time == pytest.approx([instant.speed])
+
+    def test_str_names_the_unit_of_the_coordinate_system(self):
+        """The units in __str__ follow calibration_type, since one class now serves both."""
+        from mdx.analytics.core.transform.calibration.calibration_base import CalibrationType
+
+        assert "mph" in str(self._trajectory(CalibrationType.CARTESIAN))
+        assert "px/s" in str(self._trajectory(CalibrationType.IMAGE))
+        assert "mph" not in str(self._trajectory(CalibrationType.IMAGE))

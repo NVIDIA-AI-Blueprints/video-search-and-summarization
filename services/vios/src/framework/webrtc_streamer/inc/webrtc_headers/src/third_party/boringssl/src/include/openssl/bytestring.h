@@ -1,21 +1,21 @@
-/* Copyright (c) 2014, Google Inc.
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
- * SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
- * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
- * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
+// Copyright 2014 The BoringSSL Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #ifndef OPENSSL_HEADER_BYTESTRING_H
 #define OPENSSL_HEADER_BYTESTRING_H
 
-#include <openssl/base.h>
+#include <openssl/base.h>   // IWYU pragma: export
 
 #include <openssl/span.h>
 #include <time.h>
@@ -45,9 +45,7 @@ struct cbs_st {
   // Allow implicit conversions to and from bssl::Span<const uint8_t>.
   cbs_st(bssl::Span<const uint8_t> span)
       : data(span.data()), len(span.size()) {}
-  operator bssl::Span<const uint8_t>() const {
-    return bssl::MakeConstSpan(data, len);
-  }
+  operator bssl::Span<const uint8_t>() const { return bssl::Span(data, len); }
 
   // Defining any constructors requires we explicitly default the others.
   cbs_st() = default;
@@ -58,17 +56,20 @@ struct cbs_st {
 
 // CBS_init sets |cbs| to point to |data|. It does not take ownership of
 // |data|.
-OPENSSL_EXPORT void CBS_init(CBS *cbs, const uint8_t *data, size_t len);
+OPENSSL_INLINE void CBS_init(CBS *cbs, const uint8_t *data, size_t len) {
+  cbs->data = data;
+  cbs->len = len;
+}
 
 // CBS_skip advances |cbs| by |len| bytes. It returns one on success and zero
 // otherwise.
 OPENSSL_EXPORT int CBS_skip(CBS *cbs, size_t len);
 
 // CBS_data returns a pointer to the contents of |cbs|.
-OPENSSL_EXPORT const uint8_t *CBS_data(const CBS *cbs);
+OPENSSL_INLINE const uint8_t *CBS_data(const CBS *cbs) { return cbs->data; }
 
 // CBS_len returns the number of bytes remaining in |cbs|.
-OPENSSL_EXPORT size_t CBS_len(const CBS *cbs);
+OPENSSL_INLINE size_t CBS_len(const CBS *cbs) { return cbs->len; }
 
 // CBS_stow copies the current contents of |cbs| into |*out_ptr| and
 // |*out_len|. If |*out_ptr| is not NULL, the contents are freed with
@@ -160,6 +161,20 @@ OPENSSL_EXPORT int CBS_get_u24_length_prefixed(CBS *cbs, CBS *out);
 // one. Otherwise, it returns zero and leaves |cbs| unmodified.
 OPENSSL_EXPORT int CBS_get_until_first(CBS *cbs, CBS *out, uint8_t c);
 
+// CBS_get_until_first_of finds the first byte in |cbs| matching one of the
+// characters in |chars|, which is a NUL-terminated C string. If found, it sets
+// |*out| to the text before the match, advances |cbs| over it, and returns one.
+// Otherwise, it returns zero and leaves |cbs| unmodified.
+OPENSSL_EXPORT int CBS_get_until_first_of(CBS *cbs, CBS *out,
+                                          const char *chars);
+
+// CBS_get_until_first_not_of finds the first byte in |cbs| that does not match
+// any of the characters in |chars|, which is a NUL-terminated C string. If
+// found, it sets |*out| to the text before the match, advances |cbs| over it,
+// and returns one. Otherwise, it returns zero and leaves |cbs| unmodified.
+OPENSSL_EXPORT int CBS_get_until_first_not_of(CBS *cbs, CBS *out,
+                                              const char *chars);
+
 // CBS_get_u64_decimal reads a decimal integer from |cbs| and writes it to
 // |*out|. It stops reading at the end of the string, or the first non-digit
 // character. It returns one on success and zero on error. This function behaves
@@ -174,7 +189,7 @@ OPENSSL_EXPORT int CBS_get_u64_decimal(CBS *cbs, uint64_t *out);
 // compiler, the following functions act on tag-length-value elements in the
 // serialization itself. Thus the caller is responsible for looping over a
 // SEQUENCE, branching on CHOICEs or OPTIONAL fields, checking for trailing
-// data, and handling explict vs. implicit tagging.
+// data, and handling explicit vs. implicit tagging.
 //
 // Tags are represented as |CBS_ASN1_TAG| values in memory. The upper few bits
 // store the class and constructed bit, and the remaining bits store the tag
@@ -291,10 +306,27 @@ OPENSSL_EXPORT int CBS_get_any_ber_asn1_element(CBS *cbs, CBS *out,
 // in 64 bits.
 OPENSSL_EXPORT int CBS_get_asn1_uint64(CBS *cbs, uint64_t *out);
 
+// CBS_get_asn1_uint64_with_tag gets an ASN.1 INTEGER from |cbs| using
+// |CBS_get_asn1| and sets |*out| to its value. |tag| is used to handle to
+// handle implicitly tagged INTEGER fields. It returns one on success and zero
+// on error, where error includes the integer being negative, or too large to
+// represent in 64 bits.
+OPENSSL_EXPORT int CBS_get_asn1_uint64_with_tag(CBS *cbs, uint64_t *out,
+                                                CBS_ASN1_TAG tag);
+
+
 // CBS_get_asn1_int64 gets an ASN.1 INTEGER from |cbs| using |CBS_get_asn1|
 // and sets |*out| to its value. It returns one on success and zero on error,
 // where error includes the integer being too large to represent in 64 bits.
 OPENSSL_EXPORT int CBS_get_asn1_int64(CBS *cbs, int64_t *out);
+
+// CBS_get_asn1_int64_with_tag gets an ASN.1 INTEGER from |cbs| using
+// |CBS_get_asn1| and sets |*out| to its value. |tag| is used to handle to
+// handle implicitly tagged INTEGER fields. It returns one on success and zero
+// on error, where error includes the integer being too large to represent in 64
+// bits.
+OPENSSL_EXPORT int CBS_get_asn1_int64_with_tag(CBS *cbs, int64_t *out,
+                                               CBS_ASN1_TAG tag);
 
 // CBS_get_asn1_bool gets an ASN.1 BOOLEAN from |cbs| and sets |*out| to zero
 // or one based on its value. It returns one on success or zero on error.
@@ -371,6 +403,22 @@ OPENSSL_EXPORT int CBS_is_valid_asn1_oid(const CBS *cbs);
 // OID components are too large.
 OPENSSL_EXPORT char *CBS_asn1_oid_to_text(const CBS *cbs);
 
+// CBS_is_valid_asn1_relative_oid returns one if |cbs| is a valid DER-encoded
+// ASN.1 RELATIVE-OID contents (not including the element framing) and zero
+// otherwise. This function tolerates arbitrarily large OID components.
+//
+// (This is actually the same as |CBS_is_valid_asn1_oid|, but is also exposed
+// under the relative_oid name for API symmetry.)
+OPENSSL_EXPORT int CBS_is_valid_asn1_relative_oid(const CBS *cbs);
+
+// CBS_asn1_relative_oid_to_text interprets |cbs| as DER-encoded ASN.1
+// RELATIVE-OID contents (not including the element framing) and returns the
+// ASCII representation (e.g., "32473.1") in a newly-allocated string, or NULL
+// on failure. The caller must release the result with |OPENSSL_free|.
+//
+// This function may fail if |cbs| is an invalid RELATIVE-OID, or if any
+// OID components are too large.
+OPENSSL_EXPORT char *CBS_asn1_relative_oid_to_text(const CBS *cbs);
 
 // CBS_parse_generalized_time returns one if |cbs| is a valid DER-encoded, ASN.1
 // GeneralizedTime body within the limitations imposed by RFC 5280, or zero
@@ -493,7 +541,7 @@ OPENSSL_EXPORT int CBB_flush(CBB *cbb);
 //
 // To avoid unfinalized length prefixes, it is a fatal error to call this on a
 // CBB with any active children.
-OPENSSL_EXPORT const uint8_t *CBB_data(const CBB *cbb);
+OPENSSL_EXPORT uint8_t *CBB_data(const CBB *cbb);
 
 // CBB_len returns the number of bytes written to |cbb|. It does not flush
 // |cbb|.
@@ -579,9 +627,19 @@ OPENSSL_EXPORT int CBB_add_u64(CBB *cbb, uint64_t value);
 // It returns one on success and zero otherwise.
 OPENSSL_EXPORT int CBB_add_u64le(CBB *cbb, uint64_t value);
 
+// CBB_discard discards the last |len| bytes written to |cbb|. The process will
+// abort if |cbb| has an unflushed child, or its length is smaller than |len|.
+OPENSSL_EXPORT void CBB_discard(CBB *cbb, size_t len);
+
 // CBB_discard_child discards the current unflushed child of |cbb|. Neither the
 // child's contents nor the length prefix will be included in the output.
 OPENSSL_EXPORT void CBB_discard_child(CBB *cbb);
+
+// CBB_add_asn1_element adds an ASN.1 element with the specified tag and
+// contents. It returns one on success and zero on error. This is a convenience
+// function over |CBB_add_asn1| when the data is already available.
+OPENSSL_EXPORT int CBB_add_asn1_element(CBB *cbb, CBS_ASN1_TAG tag,
+                                        const uint8_t *data, size_t data_len);
 
 // CBB_add_asn1_uint64 writes an ASN.1 INTEGER into |cbb| using |CBB_add_asn1|
 // and writes |value| in its contents. It returns one on success and zero on
@@ -617,13 +675,29 @@ OPENSSL_EXPORT int CBB_add_asn1_bool(CBB *cbb, int value);
 // CBB_add_asn1_oid_from_text decodes |len| bytes from |text| as an ASCII OID
 // representation, e.g. "1.2.840.113554.4.1.72585", and writes the DER-encoded
 // contents to |cbb|. It returns one on success and zero on malloc failure or if
-// |text| was invalid. It does not include the OBJECT IDENTIFER framing, only
+// |text| was invalid. It does not include the OBJECT IDENTIFIER framing, only
 // the element's contents.
 //
 // This function considers OID strings with components which do not fit in a
 // |uint64_t| to be invalid.
 OPENSSL_EXPORT int CBB_add_asn1_oid_from_text(CBB *cbb, const char *text,
                                               size_t len);
+
+// CBB_add_asn1_relative_oid_from_text decodes |len| bytes from |text| as an
+// ASCII RELATIVE-OID representation, e.g. "32473.1", and writes the
+// DER-encoded contents to |cbb|. It returns one on success and zero on malloc
+// failure or if |text| was invalid. It does not include any framing, only the
+// element's contents.
+//
+// This function considers OID strings with components which do not fit in a
+// |uint64_t| to be invalid.
+OPENSSL_EXPORT int CBB_add_asn1_relative_oid_from_text(CBB *cbb,
+                                                       const char *text,
+                                                       size_t len);
+
+// CBB_add_asn1_oid_component appends a single OID component to |cbb|.
+// It returns one on success and zero on error.
+OPENSSL_EXPORT int CBB_add_asn1_oid_component(CBB *cbb, uint64_t value);
 
 // CBB_flush_asn1_set_of calls |CBB_flush| on |cbb| and then reorders the
 // contents for a DER-encoded ASN.1 SET OF type. It returns one on success and
@@ -633,6 +707,33 @@ OPENSSL_EXPORT int CBB_add_asn1_oid_from_text(CBB *cbb, const char *text,
 //
 // Note a SET type has a slightly different ordering than a SET OF.
 OPENSSL_EXPORT int CBB_flush_asn1_set_of(CBB *cbb);
+
+
+// Unicode utilities.
+//
+// These functions consider noncharacters (see section 23.7 from Unicode 15.0.0)
+// to be invalid code points and will treat them as an error condition.
+
+// The following functions read one Unicode code point from |cbs| with the
+// corresponding encoding and store it in |*out|. They return one on success and
+// zero on error.
+OPENSSL_EXPORT int CBS_get_utf8(CBS *cbs, uint32_t *out);
+OPENSSL_EXPORT int CBS_get_latin1(CBS *cbs, uint32_t *out);
+OPENSSL_EXPORT int CBS_get_ucs2_be(CBS *cbs, uint32_t *out);
+OPENSSL_EXPORT int CBS_get_utf32_be(CBS *cbs, uint32_t *out);
+
+// CBB_get_utf8_len returns the number of bytes needed to represent |u| in
+// UTF-8.
+OPENSSL_EXPORT size_t CBB_get_utf8_len(uint32_t u);
+
+// The following functions encode |u| to |cbb| with the corresponding
+// encoding. They return one on success and zero on error. Error conditions
+// include |u| being an invalid code point, or |u| being unencodable in the
+// specified encoding.
+OPENSSL_EXPORT int CBB_add_utf8(CBB *cbb, uint32_t u);
+OPENSSL_EXPORT int CBB_add_latin1(CBB *cbb, uint32_t u);
+OPENSSL_EXPORT int CBB_add_ucs2_be(CBB *cbb, uint32_t u);
+OPENSSL_EXPORT int CBB_add_utf32_be(CBB *cbb, uint32_t u);
 
 
 #if defined(__cplusplus)

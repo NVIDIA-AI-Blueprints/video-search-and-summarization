@@ -22,8 +22,8 @@ echo " Kafka health check service started..."
 # Configuration with defaults
 MAX_RETRIES=${MAX_RETRIES:-60}                        # Max retries for broker and topics
 RETRY_INTERVAL=${RETRY_INTERVAL:-2}                   # Seconds between retries
-KAFKA_HOST=${BOOTSTRAP_HOST:-localhost}
-KAFKA_PORT=${KAFKA_PORT:-9092}
+KAFKA_HOST=${BOOTSTRAP_HOST:-kafka}
+KAFKA_PORT=${KAFKA_PORT:-29092}
 
 echo "Configuration:"
 echo "  MAX_RETRIES: $MAX_RETRIES ($(($MAX_RETRIES * $RETRY_INTERVAL))s timeout)"

@@ -95,25 +95,8 @@ phase_setup() {
     cd "$REPO_ROOT"
 
     # --- Redis ---
-    print_status "wait" "Checking Redis on :6379..."
-    if check_port 127.0.0.1 6379; then
-        print_status "ok" "Redis already running on :6379"
-    else
-        print_status "wait" "Starting Redis container..."
-        docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
-        docker run -d \
-            --name "$REDIS_CONTAINER" \
-            -p 6379:6379 \
-            redis/redis-stack-server:7.2.0-v9 >/dev/null
-        echo "$REDIS_CONTAINER" > "$PID_DIR/redis_container"
-        print_status "wait" "Waiting for Redis..."
-        if wait_for_service "redis" "check_port 127.0.0.1 6379" 30; then
-            print_status "ok" "Redis ready"
-        else
-            print_status "fail" "Redis failed to start"
-            exit 1
-        fi
-    fi
+    # Removed: Alert MS no longer depends on Redis. Dedup/filter state is
+    # in-process; durable state (verdict protection, alert configs) is in ES.
 
     # --- Kafka ---
     print_status "wait" "Checking Kafka on :9092..."
@@ -158,7 +141,29 @@ phase_setup() {
             --replication-factor 1 \
             2>/dev/null || true
     done
-    print_status "ok" "Kafka topics ready"
+    # Multi-partition incident topic for test_multi_consumer_dedup: lets >1
+    # Alert MS instance in one consumer group co-consume disjoint partitions,
+    # exercising the in-process-dedup partition-key contract. Created here (once,
+    # before any consumer subscribes) so it never gets auto-created with 1
+    # partition. Other tests ignore it.
+    docker exec "$KAFKA_CONTAINER" kafka-topics --create \
+        --bootstrap-server localhost:9092 \
+        --topic mdx-incidents-mc \
+        --partitions 2 \
+        --replication-factor 1 \
+        --if-not-exists 2>/dev/null || true
+    # Verify the topic really has 2 partitions. A topic that pre-exists with 1
+    # partition (or a creation that silently failed above) would make
+    # test_multi_consumer_dedup run against the wrong topology and pass/fail for
+    # the wrong reasons — fail the setup early instead.
+    mc_parts=$(docker exec "$KAFKA_CONTAINER" kafka-topics --describe \
+        --bootstrap-server localhost:9092 --topic mdx-incidents-mc 2>/dev/null \
+        | grep -cE "Partition: [0-9]+" || true)
+    if [ "${mc_parts:-0}" != "2" ]; then
+        print_status "fail" "mdx-incidents-mc must have exactly 2 partitions, found ${mc_parts:-0}"
+        exit 1
+    fi
+    print_status "ok" "Kafka topics ready (mdx-incidents-mc: 2 partitions verified)"
 
     # --- Simulators ---
     print_status "wait" "Starting simulators..."
@@ -298,16 +303,18 @@ start_alert_bridge() {
 # ─── Reset state between tests ────────────────────────────────────────────────
 
 reset_test_state() {
-    # Flush Redis — clears dedup keys, verdict protection markers
-    docker exec "$REDIS_CONTAINER" redis-cli FLUSHALL >/dev/null 2>&1 || true
+    # Dedup keys and the rate-limit window are in-process now; they reset
+    # automatically because each test starts a fresh Alert Bridge process.
+    # Confirmed-verdict protection markers moved to Elasticsearch — clear
+    # that index so protection state does not leak across tests.
+    curl -sf -X DELETE "$ES_HOST/ab-confirmed-verdicts" >/dev/null 2>&1 || true
     # Clear ES sim — delete today's index so tests start with zero documents
     local today
     today=$(date -u +%Y-%m-%d)
     curl -sf -X DELETE "$ES_HOST/mdx-vlm-incidents-$today" >/dev/null 2>&1 || true
     curl -sf -X DELETE "$ES_HOST/mdx-vlm-alerts-$today" >/dev/null 2>&1 || true
     # Clear persistence layer indices — otherwise alert configs written
-    # by previous tests leak across runs via ES, bypassing the Redis
-    # FLUSHALL above (the alert-config ES hydration made ES the source of truth).
+    # by previous tests leak across runs (ES is the source of truth).
     curl -sf -X DELETE "$ES_HOST/ab-alert_configs" >/dev/null 2>&1 || true
 }
 
@@ -441,17 +448,7 @@ phase_cleanup() {
         docker rm -f "$KAFKA_CONTAINER" >/dev/null 2>&1 || true
     fi
 
-    # Stop Redis
-    if [ -f "$PID_DIR/redis_container" ]; then
-        local rc
-        rc=$(cat "$PID_DIR/redis_container")
-        docker rm -f "$rc" >/dev/null 2>&1 || true
-        rm -f "$PID_DIR/redis_container"
-        print_status "ok" "Redis container stopped"
-    fi
-    if docker ps -q -f name="$REDIS_CONTAINER" | grep -q .; then
-        docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
-    fi
+    # Redis removed — nothing to stop.
 
     # Clean up PID dir
     rm -f "$PID_DIR"/*.log "$PID_DIR"/*.json "$PID_DIR"/*.pid 2>/dev/null || true

@@ -179,6 +179,10 @@
 			"value": "[\"Vehicle\"]"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
+		},
+		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},
@@ -193,10 +197,6 @@
 		{
 			"name": "clusterThreshold",
 			"value": "0.9"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "geo"
 		},
 		{
 			"name": "sourceType",

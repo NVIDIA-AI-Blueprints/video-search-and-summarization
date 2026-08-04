@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Warn-first tracking-reference check: nudges PR authors to reference a
+# JIRA issue (VIA-<n>) or NVBug so QA drop release notes can attribute
+# the change. Non-blocking by design (the job always succeeds) — PRs
+# without a reference get a `needs-tracking-ref` label and a bot comment.
+# Flip to a required check once compliance is healthy.
+#
+# Uses pull_request_target so the bot can label/comment on fork PRs.
+# SECURITY: only the BASE ref is checked out and no PR code is executed —
+# the script reads PR metadata via the REST API only. Keep it that way.
+
+name: Tracking Ref Check
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check for JIRA/NVBugs reference
+    # Bot PRs (helm-sync, copy-pr-bot, dependabot, …) are exempt.
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Base ref only — never the PR head (pull_request_target runs with
+      # write permissions; executing PR code here would be a vulnerability).
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Scan PR for tracking references
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 .github/scripts/check_tracking_ref.py

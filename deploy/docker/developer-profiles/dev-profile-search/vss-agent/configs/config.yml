@@ -24,10 +24,10 @@ general:
       vst_external_url: ${VST_EXTERNAL_URL}
       # storage in place when an RTSP stream is removed.
       delete_vst_storage_on_stream_remove: false
-      rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT}
+      rtvi_embed_base_url: ${COSMOS_EMBED_ENDPOINT}
       rtvi_embed_model: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       rtvi_embed_chunk_duration: 5
-      rtvi_cv_base_url: http://${HOST_IP}:${RTVI_CV_PORT}
+      rtvi_cv_base_url: ${RTVI_CV_ENDPOINT}
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
       # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
@@ -74,7 +74,6 @@ functions:
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true  # Internal config: enable fusion reranking with attribute search
     critic_agent: critic_agent  # Optional: enables VLM verification
-    enable_critic: ${ENABLE_CRITIC:-true}
     search_max_iterations: 1
     default_max_results: 10
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
@@ -92,7 +91,6 @@ functions:
     vst_external_url: ${VST_EXTERNAL_URL}  # For browser-facing screenshot URLs in search results
     embed_confidence_threshold: 0.1  # Minimum embed score threshold. fallback to attribute-only search if low
     critic_agent: critic_agent  # Optional: enables VLM verification
-    enable_critic: ${ENABLE_CRITIC:-true}
     search_max_iterations: 1
     default_max_results: 10
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
@@ -116,7 +114,7 @@ functions:
 
   attribute_search:
     _type: attribute_search
-    rtvi_cv_endpoint: http://${HOST_IP}:${RTVI_CV_PORT}
+    rtvi_cv_endpoint: ${RTVI_CV_ENDPOINT}
     es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}  # Use same ES as embed_search
     behavior_index: mdx-behavior-2025-01-01
     frames_index: mdx-raw-2025-01-01
@@ -141,7 +139,13 @@ functions:
     reasoning: false
     video_url_tool: vst_video_clip
     time_format: offset
-    vlm_mode: ${VLM_MODE}
+    # Search always talks to the local vss-rtvi-vlm proxy (rtvi_vlm profile,
+    # base_url=RTVI_VLM_BASE_URL), even when VLM_MODE=remote. Keep the agent on the
+    # plain video_url path (send the internal VST URL, not an inlined base64 MP4/frames)
+    # so RT-VLM fetches the clip and forwards it to the remote NIM. VLM_MODE stays
+    # 'remote' at the host level for COMPOSE_PROFILES / RT-VLM's own remote-NIM config;
+    # only the agent's media framing must be local here.
+    vlm_mode: local_shared
     vst_internal_url: ${VST_INTERNAL_URL}
 
 llms:
@@ -182,12 +186,30 @@ llms:
     temperature: 0.0
     max_tokens: 4096
 
+  # VLM served locally by rtvi-vlm (FastAPI-wrapped vLLM); used by both the critic and
+  # video_understanding. Selected when VLM_MODEL_TYPE=rtvi. Must be _type: openai — the
+  # langchain-nvidia NIM client leaks verify_ssl into the request body, which rtvi-vlm
+  # rejects with 422.
+  rtvi_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${RTVI_VLM_BASE_URL}/v1
+    temperature: 0.0
+    model_kwargs:
+      extra_body:
+        num_frames_per_second_or_fixed_frames_chunk: 2
+        use_fps_for_chunking: true
+        vlm_input_width: 800
+        vlm_input_height: 448
+
 workflow:
   _type: top_agent
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   llm_reasoning: false
   max_iterations: 20
   max_history: 10
+  tool_names:
+  - video_understanding
   subagent_names:
   - search_agent
   prompt: |
@@ -235,17 +257,38 @@ workflow:
       the relevant search query instead of answering from previous search results.
 
     Conversation history guidelines:
-    - Always call search_agent for any search query, even if it looks similar
-      to a previous one. Do NOT answer search queries from conversation history.
-      This includes paraphrased queries, refined queries, queries mentioning
-      object IDs, and requests to adjust search parameters (e.g., more results,
-      different time range).
-    - For follow-up requests that adjust a previous search, re-trigger search_agent
-      using the original query from conversation history with the adjusted parameters.
-      Example:
-      - User: "find person in red shirt running"
-      - User: "narrow it down to between 1pm and 2pm"
-      - New call: query="person in red shirt running between 1pm and 2pm"
-    - Only use conversation history to answer follow-up questions about previous
-      results that do not require a new search (e.g., "what was the max similarity
-      score?", "which video had the highest match?", "show me the timestamps").
+    On a follow-up, classify the request against the most recent results in
+    history and pick ONE path:
+    - Path A — answer from history, do NOT call search_agent: the request is fully
+      satisfied by items already shown (ordinals like "the third one"/"the last
+      one", a subset of shown rows, or meta questions like timestamps/scores/count).
+    - Path B — ask a clarifying question, do NOT call search_agent: the reference
+      can't be resolved (ordinal out of range -> say how many exist; no prior
+      results to refer to).
+    - Path C — re-run search_agent with an inherited query: the user narrows,
+      filters, expands, or adds/changes a constraint, so matches may exist outside
+      the shown results. Merge the previous query plus the new constraint into ONE
+      self-contained query (e.g. prior "person assaulting" + "wearing a white shirt"
+      -> "person assaulting wearing a white shirt"; + "camera 5" -> "...on camera 5";
+      + "night shifts" -> "...during night shifts"). Never pass the bare follow-up
+      phrase (e.g. query="camera 5") alone.
+
+    Important: When unsure whether a needed item is in the previous results, prefer Path C.
+    Also use Path C when search_source_type or use_critic differs from
+    previous_request_options.
+
+    Path D — visual follow-up: if the user asks something answerable only by LOOKING at a
+    clip (appearance, clothing, counts, background, what someone/something is doing), OR the
+    message has a "[Context: [...]]" block, use video_understanding (NOT search_agent).
+
+    Pick the clip(s): use the [Context] entries if present; else the result the user names
+    (resolve against the most recent results JSON/table); else, if the message names a video,
+    use that video (whole video if no time given); else default to the top prior result and
+    tell the user which video you used. If none of these identify a video, ask which video to
+    look at.
+
+    Call video_understanding per clip: sensor_id = sensorName / the result's sensor_id / the
+    named video; start_timestamp/end_timestamp = the startOffset/endOffset from the [Context]
+    entry, or the start_offset/end_offset from the prior result JSON (the table's Start/End show
+    these same offset seconds), or omit for the whole video; user_prompt = the user's question
+    verbatim. One call per clip; answer per clip, labeled by video name.

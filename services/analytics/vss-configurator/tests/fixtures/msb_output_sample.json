@@ -1,0 +1,13 @@
+[
+  {
+    "rtspURLs": [
+      {"name": "camera-001", "url": "rtsp://host1:554/stream1"},
+      {"name": "camera-002", "url": "rtsp://host1:554/stream2"}
+    ]
+  },
+  {
+    "rtspURLs": [
+      {"name": "camera-003", "url": "rtsp://host2:554/stream1"}
+    ]
+  }
+]

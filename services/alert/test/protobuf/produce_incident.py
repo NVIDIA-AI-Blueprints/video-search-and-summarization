@@ -34,14 +34,18 @@ import os
 import sys
 from typing import Dict, Any
 
-# Ensure project root is on sys.path for 'mdx' imports when invoked as a script
+# Ensure project root is on sys.path for 'mdx' imports when invoked as a script.
+# Packages (mdx, handlers, ...) live under ``src/`` after the src/ layout
+# restructure, so ``src/`` must be on the path, not just the service root.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
+SRC_ROOT = os.path.join(REPO_ROOT, "src")
+for _p in (SRC_ROOT, REPO_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from confluent_kafka import Producer
 from google.protobuf import json_format
-from mdx.anomaly.protobuf import Incident as NvIncident
+from mdx.protobuf import Incident as NvIncident
 
 
 def load_json_payload(path: str) -> Dict[str, Any]:

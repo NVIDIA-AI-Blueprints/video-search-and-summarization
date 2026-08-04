@@ -7,9 +7,9 @@ The vss-summarize-video skill exercises the video summarization service on
 `http://localhost:38111` against a **full-remote-deployed VSS lvs profile**
 (deploy mode = `remote-all`; the agent's LLM and the VLM that the video
 summarization service calls are both served via remote launchpad endpoints,
-no local NIMs). It does
-NOT deploy VSS itself; the coordinator chains a deploy task in front and
-seeds the sample warehouse video via the vss-manage-video-io-storage skill before this trial.
+no local NIMs). The adapter does not deploy VSS or seed media outside the
+agent turn. The first chained task performs deployment and stages the exact NGC
+warehouse source file for the subsequent summarization task.
 
 Mirrors the vss-manage-video-io-storage adapter — single-task-per-platform, step-chained under
 the spec's prerequisite profile name. Default platform is L40S because
@@ -76,7 +76,16 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "setup action the trial requires. Autonomy does not relax the skill's "
+    "service contract: when a step requests summarization, invoke the "
+    "vss-summarize-video skill before constructing the request, poll "
+    "/v1/ready until the service is ready, then make exactly one POST /v1/summarize "
+    "with chunk_duration=10. "
+    "Any completed HTTP response ends the operation; do not retry it, mutate "
+    "the deployment, or call VLM/RT-VLM inference endpoints such as "
+    "/v1/chat/completions or /v1/generate_captions directly. Empty choices, "
+    "video_summary, or events are results to report, not reasons to retry. "
+    "Render video_summary and every event description verbatim and in full."
 )
 
 
@@ -102,7 +111,7 @@ def generate_test_script(step: int, spec_name: str) -> str:
 
 def generate_solve_script(platform: str) -> str:
     """Gold solution — assumes the lvs profile is already deployed and
-    a sample warehouse video is uploaded. Verifier drives the assertions."""
+    the sample warehouse source is staged locally. Verifier drives assertions."""
     return (
         "#!/bin/bash\n"
         f"# Gold solution: vss-summarize-video on {platform}\n"
@@ -171,6 +180,9 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'name = "nvidia-vss/vss-summarize-video-{profile}-{platform_short}{step_suffix}"',
             f'description = "vss-summarize-video query {idx}/{len(expects)} on {platform}"',
             f'keywords = ["vss-summarize-video", "lvs", "{profile}", "{platform}"]',
+            "",
+            "[agent]",
+            "timeout_sec = 600.0",
             "",
             "[environment]",
             'skills_dir = "/skills"',

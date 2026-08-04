@@ -216,8 +216,8 @@ class TestSinkKafkaFunctionality:
         assert mock_producer.produce.call_count == len(messages)
 
     @patch('mdx.analytics.core.stream.sink.sink_kafka.Producer')
-    def test_write_topic_not_found_error(self, mock_producer_class, mock_producer):
-        """Test write raises ValueError when topic is not found."""
+    def test_write_skips_undefined_topic(self, mock_producer_class, mock_producer):
+        """An undefined topic disables that output rather than raising."""
         # Arrange
         mock_producer_class.return_value = mock_producer
         self.mock_config.get_kafka_topic.return_value = None
@@ -227,12 +227,13 @@ class TestSinkKafkaFunctionality:
         value_serializer = lambda x: str(x).encode('utf-8')
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a kafka topic with key: nonexistent"):
-            self.sink.write(dest_key, messages, value_serializer)
+        self.sink.write(dest_key, messages, value_serializer)
+
+        mock_producer.produce.assert_not_called()
 
     @patch('mdx.analytics.core.stream.sink.sink_kafka.Producer')
-    def test_write_msg_topic_not_found_error(self, mock_producer_class, mock_producer):
-        """Test write_msg raises ValueError when topic is not found."""
+    def test_write_msg_skips_undefined_topic(self, mock_producer_class, mock_producer):
+        """An undefined topic disables that output rather than raising."""
         # Arrange
         mock_producer_class.return_value = mock_producer
         self.mock_config.get_kafka_topic.return_value = None
@@ -242,8 +243,9 @@ class TestSinkKafkaFunctionality:
         key = b"test_key"
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a kafka topic with key: nonexistent"):
-            self.sink.write_msg(dest_key, message, key)
+        self.sink.write_msg(dest_key, message, key)
+
+        mock_producer.produce.assert_not_called()
 
     @patch('mdx.analytics.core.stream.sink.sink_kafka.Producer')
     def test_producer_configuration(self, mock_producer_class, mock_producer):

@@ -165,24 +165,11 @@
 		"mega_simulation_delay_max_ms": 5000,
 		"mega_simulation_base_time": "2024-09-27T10:00:00.123456Z",
 		"default_file_expiry_minutes": 10080,
+		"disable_url_caching": false,
 		"download_files_timeout_secs": 300,
 		"picture_api_timeout_secs": 20,
 		"max_network_db_connections": 10,
 		"restore_rtsp_streams_on_startup": true
-	},
-	"notifications":
-	{
-		"enable_notification": false,
-		"enable_notification_consumer": true,
-		"use_message_broker" : "redis",
-		"use_message_broker_consumer" : "kafka",
-		"message_broker_topic": "vst_events",
-		"message_broker_topic_consumer": "",
-		"message_broker_payload_key": "sensor.id",
-		"message_broker_metadata_topic": "test",
-		"redis_server_env_var": "REDIS_SVC_SERVICE_HOST:6379",
-		"kafka_server_address": "",
-		"mqtt_broker_address": "tcp://172.17.0.1:1883"
 	},
 	"debug":
 	{
@@ -216,6 +203,7 @@
 		"enable_recentering": true,
 		"overlay_text_font_type": "DejaVuSansMono.ttf",
 		"floor_map_file_path": "/home/vst/vst_release/configs/gev.png",
+		"bbox_debug_font_size": 0,
 		"bbox_tolerance_ms": 33,
 		"enable_overlay_skip_frame": false,
 		"overlay_color_code": [ {"Person":[118,185,0,255]}, {"Agility_Digit_Humanoid":[0,113,197,255]}, {"Fourier_GR1_T2_Humanoid":[0,113,197,255]}, {"NovaCarter":[250,194,0,255]}, {"Transporter":[0,133,100,255]}, {"Forklift":[0,113,197,255]}, {"Box":[250,194,0,255]}, {"Pallet":[93,22,130,255]}, {"Crate":[94,94,94,255]},

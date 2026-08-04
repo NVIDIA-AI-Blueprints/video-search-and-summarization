@@ -15,7 +15,7 @@
 # limitations under the License.
 
 set -e
-url="${BP_CONFIGURATOR_READYZ_URL:-http://127.0.0.1:5001/readyz}"
+url="${BP_CONFIGURATOR_READYZ_URL:-http://vss-configurator:5001/readyz}"
 max="${SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC:-300}"
 echo "[sensor-bp-wait-bp-configurator] waiting for ${url} (${max} s max)"
 for _ in $(seq 1 "$max"); do

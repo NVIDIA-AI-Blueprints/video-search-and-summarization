@@ -26,9 +26,9 @@ class NvGstUDPAudioCapturer : public NvGstUDPAudioSource
 		NvGstUDPAudioCapturer(const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts);
 		virtual ~NvGstUDPAudioCapturer();
 	
-		static rtc::scoped_refptr<NvGstUDPAudioCapturer> Create(const std::string & url, const std::map<std::string, std::string, std::less<>> & opts)
+		static webrtc::scoped_refptr<NvGstUDPAudioCapturer> Create(const std::string & url, const std::map<std::string, std::string, std::less<>> & opts)
 		{
-            rtc::scoped_refptr<NvGstUDPAudioCapturer> source(new rtc::RefCountedObject<NvGstUDPAudioCapturer>(url, opts));
+            webrtc::scoped_refptr<NvGstUDPAudioCapturer> source(new webrtc::RefCountedObject<NvGstUDPAudioCapturer>(url, opts));
 		    return source;
         }
 };

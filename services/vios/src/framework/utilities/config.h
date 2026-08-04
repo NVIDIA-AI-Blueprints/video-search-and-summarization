@@ -34,6 +34,7 @@ inline constexpr const char* ONVIF_CAMERA_LIST_FILE = "configs/onvif_camera_list
 inline constexpr const char* DEVICE_DETAILS_FILE = "configs/device_details.json";
 inline constexpr const char* CAMERA_BLACK_LIST_FILE = "configs/camera_blacklist.json";
 inline constexpr const char* DEFAULT_STORAGE_CONFIG_FILE = "configs/vst_storage.json";
+inline constexpr const char* NOTIFICATION_CONFIG_FILE = "configs/notification_config.json";
 inline constexpr const char* DEFAULT_LABELS_FILE_PATH = "configs/labels.txt";
 inline constexpr const char* DEFAULT_RECORDED_VIDEO_DIR = "./vst_video/";
 inline constexpr const char* DEFAULT_VMS_DB_DIR = "./vst_data/";

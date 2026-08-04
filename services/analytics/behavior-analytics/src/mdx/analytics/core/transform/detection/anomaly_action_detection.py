@@ -57,11 +57,9 @@ class AnomalyActionDetection:
 
     Examples::
         >>> config = AppConfig()
-        >>> behavior_state_manager = StateMgmtIWithPose(config)
+        >>> behavior_state_manager = StateMgmt(config, calibration)
         >>> detector = AnomalyActionDetection(config)
-        >>> behaviors = [
-            behavior_state_manager.update_behavior(k, v) for k, v in updated_messages_map.items()
-        ]
+        >>> behaviors = behavior_state_manager.process_batch(updated_messages_map).active_behaviors
         >>> anomalies = detector.detect_batch(behaviors)
         >>> print(f"Detected {len(anomalies)} anomalies")
         >>> live_objects = behavior_state_manager.state.keys()
@@ -91,9 +89,7 @@ class AnomalyActionDetection:
         Examples::
             >>> config = AppConfig()
             >>> detector = AnomalyActionDetection(config)
-            >>> behaviors = [
-                behavior_state_manager.update_behavior(k, v) for k, v in updated_messages_map.items()
-            ]
+            >>> behaviors = behavior_state_manager.process_batch(updated_messages_map).active_behaviors
             >>> anomalies, behaviors = detector.detect_batch(behaviors, frames)
             >>> print(f"Detected {len(anomalies)} anomalies")
         """

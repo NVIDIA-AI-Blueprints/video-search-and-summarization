@@ -11,6 +11,11 @@
 #ifndef API_PRIORITY_H_
 #define API_PRIORITY_H_
 
+#include <stdint.h>
+
+#include "rtc_base/strong_alias.h"
+#include "rtc_base/system/rtc_export.h"
+
 namespace webrtc {
 
 // GENERATED_JAVA_ENUM_PACKAGE: org.webrtc
@@ -19,6 +24,13 @@ enum class Priority {
   kLow,
   kMedium,
   kHigh,
+};
+
+class RTC_EXPORT PriorityValue
+    : public StrongAlias<class PriorityValueTag, uint16_t> {
+ public:
+  explicit PriorityValue(Priority priority);
+  explicit PriorityValue(uint16_t priority) : StrongAlias(priority) {}
 };
 
 }  // namespace webrtc

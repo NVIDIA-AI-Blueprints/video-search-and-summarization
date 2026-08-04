@@ -38,16 +38,16 @@ The actual compose machinery lives in `deploy/docker/industry-profiles/warehouse
 
 Ask the user **at most four questions**, then dispatch.
 
-### Q0 — Profile size (overlays or not)
+### Q0 — Deployment size (overlays or not)
 
 Default to **extended** unless the user explicitly asks for minimal. Extended deploys ELK + `vss-video-analytics-api-mv3dt` + `vss-kibana-init-mv3dt` + `vss-import-calibration-output-mv3dt` on top of MV3DT core — these are what the VST video wall needs to render bounding-box overlays. Without them, the video wall works but shows raw streams without overlays.
 
 | User answer | `MINIMAL_PROFILE` | What you get | When to choose |
 |---|---|---|---|
 | **extended** (default) | `""` | MV3DT core + ELK + analytics API + Kibana. **Overlays work in VST video wall.** Recommended for a complete e2e experience. | "I want the full e2e experience", "I want to see bounding boxes", or no preference stated |
-| **minimal** | `"true"` | MV3DT core only. ~5 fewer containers. **No overlays in VST.** Metadata still on Kafka/Redis. | "I only need the data", "edge / Thor host", "minimum footprint" |
+| **minimal** | `"true"` | MV3DT core only. **No overlays in VST.** Metadata still on Kafka/Redis. | "I only need the data", "edge / Thor host", "minimum footprint" |
 
-> **Note on selective ELK:** there's no "minimal + ELK only" middle path in the current compose. Every `${MINIMAL_PROFILE:+_extended}`-gated service comes up together (ES, Logstash, Kibana, video-analytics-api, kibana-init, import-calibration). `bash`'s `:+` parameter expansion produces the `_extended` suffix when `MINIMAL_PROFILE` is set; extended switches the gating string back to plain `bp_wh_kafka_mv3dt` which the active compose profile already matches. Either you accept the full extended bundle or you stay minimal.
+> **Note on selective ELK:** there's no "minimal + ELK only" middle path. Extended deployments select the complete `COMPOSE_PROFILES_WH_KAFKA_MV3DT` or `COMPOSE_PROFILES_WH_REDIS_MV3DT` list. Minimal deployments select the corresponding `_MINIMAL` list, which omits Elasticsearch, Logstash, Kibana, HAProxy, video-analytics-api, and the calibration importer as a unit.
 
 ### Q1 — Data source
 
@@ -56,7 +56,7 @@ like "deploy rtvi-cv-3d" routes to this MV3DT skill (`MODE=mv3dt`), but does
 **not** imply `sample`.
 
 - **sample** — the bundled 4-camera synthetic dataset (`warehouse-4cams-20mx20m-synthetic`). Calibration ships in-tree; no AMC run needed.
-- **videos** — the user has local video files (any `*.mp4` named after their cameras). Standalone AMC (`auto_calib` profile) will run if calibration is missing.
+- **videos** — the user has local video files (any `*.mp4` named after their cameras). The standalone AMC service list (`vss-auto-calibration,vss-auto-calibration-ui`) will run if calibration is missing.
 - **rtsp** — the user has live RTSP URLs. Calibration via VIOS-driven AMC; final deploy also needs a Sensor Info File (`camera_info.json`) with those RTSP URLs.
 
 ### Q2 — Calibration coverage (skip for `sample`)
@@ -79,7 +79,7 @@ If the user supplied a calibration path themselves, validate that path instead �
 ### Q3 — Detector + dataset slug (only when Q2 triggers AMC)
 
 - `resnet` (default, fast) or `transformer` (slower, better under occlusion) — passed to the AMC `/v1/calibrate/<id>` API at Step B (see `vss-generate-video-calibration/SKILL.md:48-62`).
-- A short kebab-case dataset slug used as `SAMPLE_VIDEO_DATASET` (e.g. `customer-aisle-4cams`). This drives the calibration mount path and gets persisted in `.env`.
+- A short kebab-case dataset slug used as `SAMPLE_VIDEO_DATASET` (e.g. `customer-aisle-4cams`). This drives the calibration mount path and is written to the active `generated.env`.
 
 ### Routing table
 
@@ -112,7 +112,7 @@ NGC_CLI_API_KEY=$(awk -F'= ' '/^apikey/{print $2}' ~/.ngc/config 2>/dev/null)
 test -n "${NGC_CLI_API_KEY}" && echo "key sourced from ~/.ngc/config"
 ```
 
-Make sure the key value also lands in `industry-profiles/warehouse-operations/.env:164` (`NGC_CLI_API_KEY=...`) — compose only reads it from there at `up` time, not from your shell env.
+Make sure the key value also lands in `industry-profiles/warehouse-operations/generated.env` (`NGC_CLI_API_KEY=...`) after it is initialized from `overrides.env` — compose reads the warehouse `.env` plus `generated.env` pair at `up` time, not only your shell env.
 
 ### 3. `HARDWARE_PROFILE` slug
 
@@ -128,7 +128,7 @@ Pick from `nvidia-smi --query-gpu=name --format=csv,noheader`:
 | IGX Thor | `IGX-THOR` | 4 |
 | DGX Spark | `DGX-SPARK` | 4 |
 
-If the user's GPU is not listed here, check `industry-profiles/warehouse-operations/.env` for available `HARDWARE_PROFILE` values, then confirm the matching profile exists in `blueprint-configurator/blueprint_config.yml` before using it. Do not infer a stream count from the slug alone.
+If the user's GPU is not listed here, check `industry-profiles/warehouse-operations/overrides.env` for available `HARDWARE_PROFILE` values, then confirm the matching profile exists in `blueprint-configurator/blueprint_config.yml` before using it. Do not infer a stream count from the slug alone.
 
 **The per-GPU MV3DT cap is enforced at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and applies a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` so only `final_stream_count` `.mp4` files remain (sorted lexicographically, last N kept). If your GPU's MV3DT supported stream count (above table) is below your camera count, perception / `mdx-raw` / `mdx-bev` run with the supported stream count. Either pick a GPU with a higher supported stream count or surface the cap explicitly to the user so they're aware which streams will be processed.
 
@@ -139,12 +139,17 @@ If the user's GPU is not listed here, check `industry-profiles/warehouse-operati
 Pre-flight check before deploy:
 
 ```bash
-DATA_DIR="${VSS_DATA_DIR:?VSS_DATA_DIR not set in .env}"
+DATA_DIR="${VSS_DATA_DIR:?VSS_DATA_DIR not set in generated.env}"
 DATASET="${SAMPLE_VIDEO_DATASET:-warehouse-4cams-20mx20m-synthetic}"
 
-for sub in videos models data_log; do
+for sub in videos data_log; do
   test -d "${DATA_DIR}/${sub}" || { echo "ERROR: ${DATA_DIR}/${sub} missing"; exit 1; }
 done
+
+# RT-CV models are downloaded per-file during Compose startup. The deploy helper
+# prepares this directory and its write permissions; create it for pre-flight
+# visibility without requiring models to be pre-staged from app-data.
+mkdir -p "${DATA_DIR}/models"
 
 # For sample / videos modes — videos directory must exist
 test -d "${DATA_DIR}/videos/${DATASET}" \
@@ -190,7 +195,7 @@ setfacl -R -d -m "$ACL" "${DATA_DIR}/data_log"
 > daemon still logs a permission error after deploy, find its UID
 > (`docker inspect <container> --format '{{.Config.User}}'`) and add `-m u:<uid>:rwx` to both calls.
 
-If app-data isn't extracted yet: download via `ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<version>"` and `tar -xvf` (see [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) for tag discovery and full steps).
+If app-data isn't extracted yet: download the videos/playback/calibration bundle via `ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<version>"` and `tar -xvf` (see [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) for tag discovery and full steps). RT-DETR and BodyPose3DNet are downloaded separately by ds-start phase 0 inside the perception container.
 
 ### 5. Pre-flight (system)
 
@@ -213,10 +218,10 @@ When any deploy, calibration, or verification step fails, stop and classify the 
 | `vss-rtvi-cv-mv3dt` exits with `MqttCommunicator` "invalid node" or tracker submit failures | Camera names in videos, `calibration.json`, and `camInfo/` do not match the `Camera`, `Camera_01`, ... convention | Normalize all camera names together with [`references/configure-cameras.md`](references/configure-cameras.md) Step 0, then clear stale VST state and redeploy |
 | AMC project creation, upload, calibration, or MV3DT export fails | AutoMagicCalib service/API issue outside this MV3DT deploy path | Use [`../vss-generate-video-calibration/SKILL.md`](../vss-generate-video-calibration/SKILL.md) to deploy/debug AMC, then return to [`references/calibration-workflow.md`](references/calibration-workflow.md) after export succeeds |
 | `vss-behavior-analytics-mv3dt` restarts with calibration schema validation errors | AMC export has empty `group`, `region`, or `place` fields | Apply the placeholder patch in [`references/calibration-workflow.md`](references/calibration-workflow.md) Step 4a, or populate those fields in AMC before export |
-| Extended profile has no overlays and `vss-import-calibration-output-mv3dt` logs `imageMetadata.json not found` | AMC MV3DT export did not produce `images/Top.png` and `images/imageMetadata.json` | Synthesize both files with [`references/calibration-workflow.md`](references/calibration-workflow.md) Step 4b, then restart the one-shot importer |
-| Image pulls, model load, or first-start engine build fail | Missing / expired `NGC_CLI_API_KEY`, incorrect `VSS_DATA_DIR`, missing BodyPose3DNet files, or GPU OOM | Re-check NGC auth, confirm `${VSS_DATA_DIR}/models/mv3dt/BodyPose3DNet/`, tail `vss-rtvi-cv-mv3dt` logs, and free or change `RT_CV_DEVICE_ID` if the GPU is exhausted |
+| Extended deployment has no overlays and `vss-import-calibration-output-mv3dt` logs `imageMetadata.json not found` | AMC MV3DT export did not produce `images/Top.png` and `images/imageMetadata.json` | Synthesize both files with [`references/calibration-workflow.md`](references/calibration-workflow.md) Step 4b, then restart the one-shot importer |
+| Image pulls, model download/load, or first-start engine build fail | Missing / expired `NGC_CLI_API_KEY`, unwritable `${VSS_DATA_DIR}/models`, ds-start phase-0 download failure, or GPU OOM | Re-check NGC auth, confirm `${VSS_DATA_DIR}/models/BodyPose3DNet/bodypose3dnet_accuracy.onnx` and `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx`, inspect `vss-rtvi-cv-mv3dt` logs for phase-0 download errors, and free or change `RT_CV_DEVICE_ID` if the GPU is exhausted |
 
-Before destructive recovery (`docker compose down -v`, clearing `data_log`, deleting VST sensor state, or changing host ACLs), explain the impact and get user confirmation. Capture the failing command, relevant `.env` values, `docker compose ps`, and the last container logs before making state-reset changes.
+Before destructive recovery (`docker compose down -v`, clearing `data_log`, deleting VST sensor state, or changing host ACLs), explain the impact and get user confirmation. Capture the failing command, relevant values from `.env` plus `generated.env`, `docker compose ps`, and the last container logs before making state-reset changes.
 
 ## How it fits together
 
@@ -227,7 +232,7 @@ SKILL.md (this file — Q0/Q1/Q2/Q3 routing)
   │                     └─ fetches /v1/result/{project_id}/mv3dt_result?result_type=amc (plus vggt when refinement is enabled)
   │                     └─ lands calibration files at warehouse-mv3dt-app/calibration/sample-data/<slug>/
   ├─> configure-cameras.md (camera-name normalization, NUM_STREAMS sync, VST sensor trim)
-  └─> deploy-rtvi-cv-3d-stack.md (compose up with bp_wh_kafka_mv3dt + extended/minimal)
+  └─> deploy-rtvi-cv-3d-stack.md (compose up with the selected Kafka/Redis MV3DT service list)
         └─> verify-and-view.md (FPS, fusion_ready, mdx-bev, VST video wall + WebRTC checks)
 ```
 

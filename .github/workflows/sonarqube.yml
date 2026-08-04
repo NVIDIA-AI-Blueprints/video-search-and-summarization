@@ -35,20 +35,36 @@ jobs:
             project_key: TEGRASW_metropolis_video-search-and-summarization-agent_video-search-and-summarization
             project_name: video-search-and-summarization-agent
             sources: services/agent
-            tests: services/agent/tests
+            tests: services/agent/packages/vss_core/tests,services/agent/packages/vss_agents/tests,services/agent/packages/vss_cli/tests
+            python_version: "3.13"
+          - name: alert
+            project_key: TEGRASW_metropolis_vss-alert-verification_alert_agent
+            project_name: metropolis-vss-alert-verification
+            sources: services/alert/src
+            tests: services/alert/test/unit
             python_version: "3.13"
           - name: ui
             project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
             project_name: video-search-and-summarization-ui
             sources: services/ui
             tests: ""
-            python_version: ""
           - name: skills
             project_key: TEGRASW_metropolis_video-search-and-summarization-skills_video-search-and-summarization
             project_name: video-search-and-summarization-skills
             sources: skills
             tests: ""
-            python_version: ""
+          - name: behavior-analytics
+            project_key: TEGRASW_metropolis_vss-behavior-analytics_py-analytics-stream
+            project_name: metropolis-vss-behavior-analytics
+            sources: services/analytics/behavior-analytics/src,services/analytics/behavior-analytics/docker
+            tests: services/analytics/behavior-analytics/tests
+            python_version: "3.13"
+          - name: video-analytics-api
+            project_key: TEGRASW_metropolis_vss-video-analytics-api_mdata_web-apis
+            project_name: metropolis-vss-video-analytics-api
+            sources: services/analytics/video-analytics-api/src,services/analytics/video-analytics-api/docker
+            tests: services/analytics/video-analytics-api/test
+            node_version: "22.22.3"
 
     steps:
       - name: Checkout source
@@ -85,14 +101,9 @@ jobs:
         run: |
           exclusions="**/node_modules/**,**/.venv/**,**/__pycache__/**,**/.mypy_cache/**,**/.ruff_cache/**,**/dist/**,**/build/**,**/.next/**,**/coverage/**,**/__tests__/**,**/*.test.ts,**/*.test.tsx,**/*.test.js,**/*.test.jsx,**/*.spec.ts,**/*.spec.tsx,**/3rdparty/**"
 
-          # The agent's docker/ tree is container build/runtime glue (entrypoint,
-          # proprietary-codec installer, vulnerability cleanup) with no unit-test
-          # or coverage harness in CI. Exclude it from analysis so deployment
-          # plumbing does not drag new-code coverage or raise hotspots
-          # (urllib/zipfile in the codec installer). Application logic under
-          # services/agent/src is still fully analyzed and covered.
+          # Keep the agent's production and test scopes disjoint.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**"
           fi
 
           {
@@ -106,10 +117,7 @@ jobs:
           } > sonar-project.properties
 
           if [ -n "$SONAR_TESTS" ]; then
-            {
-              echo "sonar.tests=${SONAR_TESTS}"
-              echo "sonar.test.inclusions=${SONAR_TESTS}/**/*.py"
-            } >> sonar-project.properties
+            echo "sonar.tests=${SONAR_TESTS}" >> sonar-project.properties
           fi
 
           if [ -n "$SONAR_PYTHON_VERSION" ]; then
@@ -117,7 +125,54 @@ jobs:
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml" >> sonar-project.properties
+            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml,services/agent/coverage-lib.xml" >> sonar-project.properties
+            # Keep in sync with [tool.coverage.run] omit in
+            # services/agent/pyproject.toml. Files omitted there produce no
+            # data in coverage.xml, so without a matching exclusion Sonar
+            # counts every changed line in them as uncovered and fails the
+            # new-code coverage gate. They are still analyzed for bugs,
+            # code smells, and duplication.
+            agent_coverage_exclusions=(
+              "**/vss_core/knowledge/**"
+              "**/agents/report_agent_old.py"
+              "**/api/custom_fastapi_worker.py"
+              "**/sitecustomize.py"
+              "**/agents/top_agent.py"
+              "**/agents/report_agent.py"
+              "**/agents/multi_report_agent.py"
+              "**/video_analytics/es_client.py"
+              "**/tools/vst_files.py"
+              "**/tools/vst_download.py"
+              "**/tools/video_understanding.py"
+              "**/tools/lvs_video_understanding.py"
+              "**/tools/geolocation.py"
+              "**/tools/s3_picture_url.py"
+              "**/tools/incidents.py"
+              "**/tools/template_report_gen.py"
+              "**/tools/video_report_gen.py"
+              "**/tools/report_gen.py"
+              "**/tools/multi_incident_formatter.py"
+              "**/tools/fov_counts_with_chart.py"
+              "**/evaluators/report_evaluator/evaluate.py"
+              "**/evaluators/customized_trajectory_evaluator/evaluate.py"
+              "**/tools/evaluation_compressor.py"
+              "**/tools/code_executor/docker_backend/docker_executor.py"
+              "**/tools/code_executor/docker_backend/image_builder.py"
+            )
+            echo "sonar.coverage.exclusions=$(IFS=,; echo "${agent_coverage_exclusions[*]}")" >> sonar-project.properties
+          fi
+
+          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-alert-verification" ]; then
+            echo "sonar.python.coverage.reportPaths=services/alert/coverage.xml" >> sonar-project.properties
+          fi
+
+          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-behavior-analytics" ]; then
+            echo "sonar.python.coverage.reportPaths=services/analytics/behavior-analytics/coverage.xml" >> sonar-project.properties
+            echo "sonar.python.xunit.reportPath=services/analytics/behavior-analytics/test/coverage/test-results.xml" >> sonar-project.properties
+          fi
+
+          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-video-analytics-api" ]; then
+            echo "sonar.javascript.lcov.reportPaths=services/analytics/video-analytics-api/test/coverage/lcov.info" >> sonar-project.properties
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-skills" ]; then
@@ -140,16 +195,22 @@ jobs:
           sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
 
       - name: Install uv
-        if: matrix.name == 'agent'
+        if: matrix.python_version != null
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           version: "0.6.2"
 
       - name: Set up Python
-        if: matrix.name == 'agent'
+        if: matrix.python_version != null
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python_version }}
+
+      - name: Set up Node.js for Video Analytics API
+        if: matrix.node_version != null
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node_version }}
 
       - name: Generate agent coverage
         if: matrix.name == 'agent'
@@ -158,15 +219,76 @@ jobs:
           # The Sonar self-hosted runner cannot install system packages.
           # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
           # instead of requiring cairo headers and pkg-config on the runner.
-          uv sync --group dev --frozen --no-install-package pycairo --no-install-package rlpycairo
+          uv sync --group dev --extra agent --extra cli --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run --no-sync pytest \
-            --cov=src/vss_agents \
+            --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
+
+      - name: Generate lib coverage (NAT-free surface)
+        if: matrix.name == 'agent'
+        working-directory: services/agent
+        run: |
+          # Both packages, matching the same invocation in ci.yml. The
+          # vss_cli tests already ran here, but without --cov for its source
+          # tree none of its lines reached coverage-lib.xml, so Sonar counted
+          # every changed vss_cli line as uncovered. That stayed invisible
+          # while the package was small and surfaced as "2.9% Coverage on New
+          # Code" the first time a PR added substantially to it.
+          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test \
+            --cov=packages/vss_core/src \
+            --cov=packages/vss_cli/src \
+            --cov-report=xml:coverage-lib.xml \
+            --cov-report=term-missing \
+            -m "not slow and not integration"
+
+      - name: Install Alert MS test dependencies
+        if: matrix.name == 'alert'
+        working-directory: services/alert
+        run: |
+          uv venv --python "${{ matrix.python_version }}"
+          uv pip install --python .venv/bin/python -r requirements.txt pytest pytest-asyncio pytest-cov
+
+      - name: Generate Alert MS coverage
+        if: matrix.name == 'alert'
+        working-directory: services/alert
+        run: |
+          .venv/bin/pytest test/unit \
+            --cov=src \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Generate Behavior Analytics coverage
+        if: matrix.name == 'behavior-analytics'
+        working-directory: services/analytics/behavior-analytics
+        run: |
+          python -m pip install --upgrade pip pipenv
+          pipenv install --dev
+          mkdir -p test/coverage
+          pipenv run coverage run --source=src/mdx/analytics/core -m pytest tests/unit/ -v --junitxml=test/coverage/test-results.xml
+          pipenv run coverage xml -o coverage.xml
+          pipenv run coverage report
+
+      - name: Generate Video Analytics API coverage
+        if: matrix.name == 'video-analytics-api'
+        working-directory: services/analytics/video-analytics-api
+        run: |
+          cd src/web-api-core && npm install && cd ../..
+          cd src/app && npm install --save ../web-api-core && npm install && cd ../..
+          cd test && npm install --save ../src/web-api-core && npm install --save ../src/app && npm install && npm run ci
 
       - name: Run SonarQube scanner
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # This diagnostic never changes the scanner outcome. It only distinguishes
+      # NVIDIA SonarQube/network outages from repository-specific findings so a
+      # transient "No route to host" failure is not misrouted to code owners.
+      - name: Classify SonarQube connectivity failure
+        if: failure()
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: python3 .github/scripts/diagnose_sonarqube_failure.py

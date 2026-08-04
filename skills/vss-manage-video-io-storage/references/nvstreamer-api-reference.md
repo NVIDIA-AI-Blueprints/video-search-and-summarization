@@ -4,17 +4,38 @@ NvStreamer (`vss-vios-nvstreamer`) is the **file-to-RTSP republisher** that VIOS
 
 NvStreamer is the same `launch_vst` binary as VIOS, launched with `ADAPTOR=streamer`. It runs on `network_mode: host` and listens on its own HTTP port (default `${NVSTREAMER_HTTP_PORT:-31000}`) with an RTSP server pool on `31554–31561`. It reports `type: "streamer"` on `/version` (VIOS reports `type: "vst"`) — that's the discriminator if you're unsure which service an endpoint belongs to.
 
-> **When to call NvStreamer vs VIOS.** Use NvStreamer for: serving test/sample videos over RTSP, retrieving the auto-generated RTSP URL for an on-disk file, listing file-backed sensors, capturing frame snapshots from a file, forcing a videos-directory rescan. Use VIOS (`api-reference.md`) for: direct MP4 upload, live cameras, recording, clip download, historical playback, replay-WebRTC, and the recorder service. The two surfaces share the same path prefix (`/vst/api/v1/`) but live on different ports — point your `curl` at the right one.
+> **When to call NvStreamer vs VIOS.** Use NvStreamer for: serving test/sample videos over RTSP, retrieving the auto-generated RTSP URL for an on-disk file, listing file-backed sensors, capturing frame snapshots from a file, forcing a videos-directory rescan. Use VIOS (`api-reference.md`) for: direct MP4 upload, live cameras, recording, clip download, historical playback, replay-WebRTC, and the recorder service. The two surfaces use **different** path prefixes and live on different ports: VIOS is under `/vst/api/v1/`, NvStreamer is under `/api/v1/` (NvStreamer has NO `/vst` prefix) — point your `curl` at the right host:port AND prefix.
 
 ---
 
 ## Base URL
 
 ```
-http://<NVSTREAMER_ENDPOINT>/vst/api/v1
+http://<NVSTREAMER_ENDPOINT>/api/v1
 ```
 
-The conventional endpoint is `http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}`. A deployment may run multiple NvStreamer instances on adjacent ports (`31000`, `31001`, …); always confirm from the deployment context rather than assuming. Each instance has its own sensor list — a file uploaded to `nvstreamer-1` is not visible on `nvstreamer-2`.
+Resolve the endpoints before using this reference. NvStreamer and VIOS are
+separate origins; the VIOS handoff in the canonical workflow below needs both:
+
+```bash
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  : "${VSS_STREAMER_URL:?Provide the public NvStreamer Ingress origin for Kubernetes}"
+  NVSTREAMER_ENDPOINT="${VSS_STREAMER_URL%/}"
+  VSS_VIOS_URL="${VSS_PUBLIC_URL%/}/vst"
+else
+  NVSTREAMER_ENDPOINT="http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}"
+  VSS_VIOS_URL="http://${HOST_IP}:${VST_INGRESS_HOST_PORT:-30888}/vst"
+fi
+```
+
+Every `http://<NVSTREAMER_ENDPOINT>` placeholder below means
+`${NVSTREAMER_ENDPOINT}`. NvStreamer uses a separate Ingress host, so do not
+derive it from `VSS_PUBLIC_URL`, use an in-cluster Service, or start a
+`kubectl port-forward`. A Compose deployment may run multiple instances on
+adjacent ports (`31000`, `31001`, …); always confirm from deployment context.
+Each instance has its own sensor list — a file uploaded to `nvstreamer-1` is
+not visible on `nvstreamer-2`. Resolve `${VSS_VIOS_URL}` as above before the
+VIOS handoff in the canonical workflow.
 
 ---
 
@@ -22,7 +43,7 @@ The conventional endpoint is `http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}`.
 
 Identifier source depends on how the sensor was created:
 
-- **Auto-discovered files** (already present in the streamer videos directory at startup, or picked up via `/sensor/scan`): `sensorId == streamId == name == filename-without-extension`. Example: `warehouse_sample.mp4` → sensor `warehouse_sample`.
+- **Auto-discovered files** (already present in the streamer videos directory at startup, or picked up via `/sensor/scan`): `name == filename-without-extension`, and `streamId` follows `name`. **`sensorId`, however, may carry a `_N` uniqueifier suffix** appended by the discovery loop (e.g. `warehouse_safety_0001.mp4` → `name: "warehouse_safety_0001"` but `sensorId: "warehouse_safety_0001_0"`). **Always resolve `sensorId` from `GET /sensor/list` by matching `.name`, then query `/sensor/<sensorId>/streams` by that sensorId** — `/sensor/<stem>/streams` returns `CameraNotFoundError` when the suffix is present. (Earlier revisions claimed `sensorId == streamId == name == stem`; the `_N` suffix on `sensorId` was confirmed live 2026-06-02, IN-1 expanded eval.) Example: `warehouse_sample.mp4` → name `warehouse_sample`, sensorId `warehouse_sample_0`.
 - **PUT-uploaded files** (Section 3): the server **always assigns a fresh UUID** as `sensorId == streamId`. The `name` field still reflects the filename, but calling `/sensor/<name>/streams` for a PUT-uploaded file returns `CameraNotFoundError` — use the UUID from the PUT response.
 - **POST-uploaded files** (Section 3): the server uses the **filename-derived id** as both `sensorId` and `streamId`. The response's `sensorId` field is sometimes returned as an empty string — read `id` / `streamId` instead.
 
@@ -38,7 +59,7 @@ To list / look up sensors regardless of origin:
 ### 1. Version / Health Check
 
 ```bash
-curl -sf --connect-timeout 5 "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/version" | jq .
+curl -sf --connect-timeout 5 "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/version" | jq .
 ```
 
 Response: `{"type": "streamer", "version": "<x.y.z-yy.mm.b>"}`. The `type` field is the unique tell that you are hitting NvStreamer and not the VIOS gateway.
@@ -51,7 +72,7 @@ Other version endpoints: `/storage/version` → `{storage_management_version}`, 
 
 **List all file-backed sensors:**
 ```bash
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/list" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/list" | jq .
 ```
 Per-sensor shape on NvStreamer:
 - `type`: always `sensor_nvstream`
@@ -65,23 +86,23 @@ Per-sensor shape on NvStreamer:
 
 **Get single sensor info:**
 ```bash
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/<sensorId>/info" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/<sensorId>/info" | jq .
 ```
 Same metadata block as `/sensor/list` minus `state` and `type`. For an unknown `sensorId`, returns `null`.
 
 **Get sensor status:**
 ```bash
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/status" | jq .
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/<sensorId>/status" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/status" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/<sensorId>/status" | jq .
 ```
 `state` is always `online` for files on disk. `errorCode` is `NoError`, `errorMessage` is `No Error`.
 
 **Get RTSP stream URL for a file** (the most-called endpoint in the NvStreamer → VIOS handoff):
 ```bash
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/<sensorId>/streams" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/<sensorId>/streams" | jq .
 ```
 Each stream returns:
-- `url` — `rtsp://<host>:<rtsp-server-port>/nvstream/<absolute-container-path>`. Example: `rtsp://${HOST_IP}:31561/nvstream/${VST_CONTAINER_ROOT}/streamer_videos/warehouse_sample.mp4`.
+- `url` — `rtsp://<host>:<rtsp-server-port>/nvstream<absolute-container-path>`. The `/nvstream` prefix is joined directly to the absolute container path (which already begins with `/`), so there is a single slash between them. Example: `rtsp://${HOST_IP}:31561/nvstream${VST_CONTAINER_ROOT}/streamer_videos/warehouse_sample.mp4` → `rtsp://${HOST_IP}:31561/nvstream/home/vst/vst_release/streamer_videos/warehouse_sample.mp4`.
 - `type` — `"Rtsp"`
 - `storageLocation` — `"Local"`
 - `metadata.codec` — `"h264"` / `"h265"`; populates asynchronously (~15-30 seconds after upload)
@@ -91,9 +112,9 @@ Each stream returns:
 
 **All streams across all sensors:**
 ```bash
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/streams" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/streams" | jq .
 # To flatten the array-of-single-key-objects into a flat map:
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/streams" | jq 'add'
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/streams" | jq 'add'
 ```
 Same shape quirk as VIOS — an array of `{<sensorId>: [stream, ...]}`, not a flat map.
 
@@ -117,7 +138,7 @@ Filename in path; timestamp and sensorId as query params.
 # filename: no whitespace, supported video container
 # timestamp: ISO 8601 UTC query param (default convention: see api-reference.md § timestamp)
 # sensorId: optional — if omitted, the server generates a UUID
-curl -s -X PUT "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file/<filename>?timestamp=<timestamp>&sensorId=<sensorId>" \
+curl -s -X PUT "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/file/<filename>?timestamp=<timestamp>&sensorId=<sensorId>" \
   -H "Content-Type: application/octet-stream" \
   -H "Content-Length: <file_size_in_bytes>" \
   --upload-file /path/to/video.mp4 | jq .
@@ -128,7 +149,7 @@ Response: `{id, filename, bytes, sensorId, streamId, filePath, timestamp, create
 #### Method 2 — PUT v1 (legacy; auto-renames on conflict)
 
 ```bash
-curl -s -X PUT "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file/<filename>/<timestamp>" \
+curl -s -X PUT "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/file/<filename>/<timestamp>" \
   -H "Content-Type: application/octet-stream" \
   -H "Content-Length: <file_size_in_bytes>" \
   --upload-file /path/to/video.mp4 | jq .
@@ -143,7 +164,7 @@ Use this when the client expects a multipart upload (e.g. browser file picker) o
 ```bash
 # Single-chunk POST: omit all nvstreamer-chunk-* headers. Provide the file as a single multipart part.
 # nvstreamer-file-name: optional — if omitted, the server uses the multipart filename from the form data.
-curl -s -X POST "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file" \
+curl -s -X POST "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/file" \
   -H "nvstreamer-file-name: <filename>" \
   -F "file=@/path/to/video.mp4;type=video/mp4" | jq .
 ```
@@ -182,7 +203,7 @@ SID=<sensorId-from-response>
 
 # 2. Give the discovery cycle a few seconds, then confirm and grab the RTSP URL.
 sleep 5
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/$SID/streams" | jq '.[0].url'
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/$SID/streams" | jq '.[0].url'
 ```
 
 > **Codec/resolution/framerate metadata populates asynchronously.** Immediately after upload, `GET /sensor/<id>/streams` returns the stream entry but its `metadata` fields (`codec`, `resolution`, `framerate`, `bitrate`, `govlength`) are `null` or empty strings. The streamer probes the file in the background and fills them in within ~15-30 seconds. If you need the codec or dimensions right away, call `GET /storage/file/mediainfo?sensorId=<id>` instead — that endpoint reads media info on demand and returns populated values immediately.
@@ -200,14 +221,14 @@ Which call to use depends on whether you want to remove the in-memory sensor onl
 # Returns the JSON literal `true`.
 # WARNING: if the underlying file is still in the streamer videos directory, NvStreamer's
 # discovery loop will re-register it as a sensor within seconds.
-curl -s -X DELETE "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/<sensorId>" | jq .
+curl -s -X DELETE "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/<sensorId>" | jq .
 ```
 
 **Remove the sensor AND the on-disk file:**
 ```bash
 # Pass NO time range — for NvStreamer file sensors this deletes the physical file and removes the sensor.
 # Returns null on success.
-curl -s -X DELETE "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file/<streamId>"
+curl -s -X DELETE "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/file/<streamId>"
 ```
 
 - Use the `streamId` from the upload response (UUID for PUT uploads; filename-derived for POST uploads and auto-discovered files).
@@ -222,12 +243,12 @@ curl -s -X DELETE "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file/<streamI
 
 NvStreamer's snapshot semantics differ from VIOS because every file is a finite VOD source — there is no live wall-clock camera. **The two variants take different parameters:**
 
-**Live snapshot — keyed by `frameId`** (0-based frame index into the file):
+**Live snapshot — accepts EITHER `frameId` OR `startTime`** (`frameId` = 0-based frame index into the file; `startTime` = ISO timestamp / offset into the file — both resolve to a frame):
 ```bash
-# frameId is REQUIRED. frameId=0 returns the first frame.
-curl -s -o snapshot.jpg "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/live/stream/<streamId>/picture?frameId=<frameId>"
+# Provide EITHER frameId OR startTime (at least one is required). frameId=0 returns the first frame.
+curl -s -o snapshot.jpg "http://<NVSTREAMER_ENDPOINT>/api/v1/live/stream/<streamId>/picture?frameId=0"
 ```
-- Calling `/live/stream/<id>/picture` without `frameId` returns HTTP 500 `{"error_code": "VMSInternalError", "error_message": "Wrong time format or frameId provided"}`.
+- Calling `/live/stream/<id>/picture` with NEITHER `frameId` NOR `startTime` returns HTTP 500 `{"error_code": "VMSInternalError", "error_message": "Wrong time format or frameId provided"}` — the endpoint needs EITHER a `frameId` OR a `startTime` (the two are alternatives, not `frameId`-only).
 - Optional `width` / `height` query params resize the JPEG.
 - The `streamId` HTTP header is not required — the path parameter is sufficient. Sending the header is harmless.
 
@@ -235,7 +256,7 @@ curl -s -o snapshot.jpg "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/live/stream/<st
 ```bash
 # startTime is REQUIRED on NvStreamer's storage variant. Pick a timestamp inside the file's effective range
 # (uploaded files default to 2025-01-01T00:00:00.000Z + file duration unless a different timestamp was passed at upload).
-curl -s -o snapshot.jpg "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/stream/<streamId>/picture?startTime=<isoUTC>"
+curl -s -o snapshot.jpg "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/stream/<streamId>/picture?startTime=<isoUTC>"
 ```
 - `?frameId=<anything>` is rejected on the storage variant — every `frameId` value (including 0) returns HTTP 400 `InvalidParameterError`. Use `startTime` instead, or use the live variant if you want frame-indexed access.
 - Optional: `width`, `height`. The `streamId` HTTP header is not required.
@@ -250,14 +271,14 @@ NvStreamer exposes the storage microservice for upload + delete, but storage sta
 
 ```bash
 # Disk usage of the videos volume (megabytes).
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/info" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/info" | jq .
 
 # Per-stream + total storage usage (the per-stream block is usually empty on NvStreamer because no recordings).
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/size" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/size" | jq .
 
 # Media info (codec, container, fps, resolution, bitrate, duration) for a file-backed sensor.
 # Pass sensorId — the streamer resolves it to the local file path internally.
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file/mediainfo?sensorId=<sensorId>" | jq .
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/file/mediainfo?sensorId=<sensorId>" | jq .
 ```
 
 `GET /storage/file/list` and `GET /storage/file/<sensorId>/list` are present but return `{}` (no recorded files).
@@ -270,7 +291,7 @@ Forces NvStreamer to re-scan its videos directory and register any newly-present
 
 ```bash
 # Async — returns HTTP 200 with body `null` as soon as the scan is queued.
-curl -s -X POST "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/scan" -w "HTTP %{http_code}\n"
+curl -s -X POST "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/scan" -w "HTTP %{http_code}\n"
 ```
 
 Behavior on the streamer adaptor:
@@ -282,7 +303,7 @@ Behavior on the streamer adaptor:
 Confirm with `/sensor/list` after a short delay:
 ```bash
 sleep 2
-curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/list" | jq '.[] | {sensorId, name, location}'
+curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/list" | jq '.[] | {sensorId, name, location}'
 ```
 
 ---
@@ -291,11 +312,11 @@ curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/list" | jq '.[] | {senso
 
 The reason this reference exists in the VIOS skill: the load-bearing pattern that uses NvStreamer is **upload to NvStreamer, get RTSP URL, register with VIOS**.
 
-> **Precondition for step 4.** The handoff requires the VIOS stream-processor to be part of the active deployment. Most VSS profiles ship both (`dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles), but custom or NvStreamer-only setups may not include VIOS. **Probe `curl -sf --max-time 5 http://${HOST_IP}:30888/vst/api/v1/sensor/version` and confirm `type == "vst"` before attempting `POST /sensor/add`.** If VIOS is not present, stop at step 3 — NvStreamer's RTSP URL is already serving and can be consumed directly by any RTSP client (ffmpeg, VLC, mediamtx, custom analytic).
+> **Precondition for step 4.** The handoff requires the VIOS stream-processor to be part of the active deployment. Most VSS profiles ship both (`dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles), but custom or NvStreamer-only setups may not include VIOS. **Probe `curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version"` and confirm `type == "vst"` before attempting `POST /sensor/add`.** If VIOS is not present, stop at step 3 — NvStreamer's RTSP URL is already serving and can be consumed directly by any RTSP client (ffmpeg, VLC, mediamtx, custom analytic).
 
 1. Verify NvStreamer is reachable and is a streamer (not a VIOS gateway):
    ```bash
-   curl -sf --connect-timeout 5 "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/version" | jq -e '.type == "streamer"'
+   curl -sf --connect-timeout 5 "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/version" | jq -e '.type == "streamer"'
    ```
 2. Upload the file via PUT v2 — `sensorId` / `streamId` come back as a fresh UUID:
    ```bash
@@ -304,21 +325,21 @@ The reason this reference exists in the VIOS skill: the load-bearing pattern tha
      -H "Content-Type: application/octet-stream" \
      -H "Content-Length: $(stat -c %s "$FILE")" \
      --upload-file "$FILE" \
-     "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file/$(basename "$FILE")?timestamp=2025-01-01T00:00:00.000Z" \
+     "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/file/$(basename "$FILE")?timestamp=2025-01-01T00:00:00.000Z" \
      | jq -r '.sensorId')
    ```
 3. NvStreamer now serves the file over RTSP. Read the actual URL after the discovery cycle:
    ```bash
    sleep 5
-   URL=$(curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/$SID/streams" | jq -r '.[0].url')
+   URL=$(curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/$SID/streams" | jq -r '.[0].url')
    ```
-4. **(Only if VIOS stream-processor is part of the deployment — see precondition above.)** Register that RTSP URL with VIOS via VIOS's `POST /vst/api/v1/sensor/add` (see `api-reference.md § 6`):
+4. **(Only if VIOS stream-processor is part of the deployment — see precondition above.)** Register that RTSP URL with VIOS via VIOS's `POST /api/v1/sensor/add` on `${VSS_VIOS_URL}` (see `api-reference.md § 6`):
    ```bash
    # Confirm VIOS is up before attempting registration.
-   curl -sf --max-time 5 "http://<VST_ENDPOINT>/vst/api/v1/sensor/version" | jq -e '.type == "vst"' \
+   curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" | jq -e '.type == "vst"' \
      || { echo "VIOS stream-processor not deployed — skipping /sensor/add"; exit 0; }
 
-   curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/add" \
+   curl -s -X POST "${VSS_VIOS_URL}/api/v1/sensor/add" \
      -H "Content-Type: application/json" \
      -d "{\"sensorUrl\": \"$URL\"}" | jq .
    ```

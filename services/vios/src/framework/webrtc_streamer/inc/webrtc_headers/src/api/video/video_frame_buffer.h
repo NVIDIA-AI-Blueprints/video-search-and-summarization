@@ -11,11 +11,13 @@
 #ifndef API_VIDEO_VIDEO_FRAME_BUFFER_H_
 #define API_VIDEO_VIDEO_FRAME_BUFFER_H_
 
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string>
 
-#include "api/array_view.h"
+#include "api/ref_count.h"
 #include "api/scoped_refptr.h"
-#include "rtc_base/ref_count.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -43,9 +45,14 @@ class NV12BufferInterface;
 // correct subclass in custom video sinks. The purpose of this is to improve
 // performance by providing an optimized path without intermediate conversions.
 // Frame metadata such as rotation and timestamp are stored in
-// webrtc::VideoFrame, and not here.
-class RTC_EXPORT VideoFrameBuffer : public rtc::RefCountInterface {
+// VideoFrame, and not here.
+class RTC_EXPORT VideoFrameBuffer : public RefCountInterface {
  public:
+  class RTC_EXPORT PreparedFrameHandler : public webrtc::RefCountInterface {
+   public:
+    virtual void OnFramePrepared(size_t frame_identifier) = 0;
+  };
+
   // New frame buffer types will be added conservatively when there is an
   // opportunity to optimize the path between some pair of video source and
   // video sink.
@@ -77,7 +84,7 @@ class RTC_EXPORT VideoFrameBuffer : public rtc::RefCountInterface {
   // software encoders.
   // Conversion may fail, for example if reading the pixel data from a texture
   // fails. If the conversion fails, nullptr is returned.
-  virtual rtc::scoped_refptr<I420BufferInterface> ToI420() = 0;
+  virtual scoped_refptr<I420BufferInterface> ToI420() = 0;
 
   // GetI420() methods should return I420 buffer if conversion is trivial, i.e
   // no change for binary data is needed. Otherwise these methods should return
@@ -94,16 +101,15 @@ class RTC_EXPORT VideoFrameBuffer : public rtc::RefCountInterface {
   // especially for kNative.
   // First, the image is cropped to `crop_width` and `crop_height` and then
   // scaled to `scaled_width` and `scaled_height`.
-  virtual rtc::scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
-                                                            int offset_y,
-                                                            int crop_width,
-                                                            int crop_height,
-                                                            int scaled_width,
-                                                            int scaled_height);
+  virtual scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
+                                                       int offset_y,
+                                                       int crop_width,
+                                                       int crop_height,
+                                                       int scaled_width,
+                                                       int scaled_height);
 
   // Alias for common use case.
-  rtc::scoped_refptr<VideoFrameBuffer> Scale(int scaled_width,
-                                             int scaled_height) {
+  scoped_refptr<VideoFrameBuffer> Scale(int scaled_width, int scaled_height) {
     return CropAndScale(0, 0, width(), height(), scaled_width, scaled_height);
   }
 
@@ -122,8 +128,20 @@ class RTC_EXPORT VideoFrameBuffer : public rtc::RefCountInterface {
   // conversion for encoding with a software encoder. Returns nullptr if the
   // frame type is not supported, mapping is not possible, or if the kNative
   // frame has not implemented this method. Only callable if type() is kNative.
-  virtual rtc::scoped_refptr<VideoFrameBuffer> GetMappedFrameBuffer(
-      rtc::ArrayView<Type> types);
+  virtual scoped_refptr<VideoFrameBuffer> GetMappedFrameBuffer(
+      std::span<Type> types);
+
+  // For logging: returns a textual representation of the storage.
+  virtual std::string storage_representation() const;
+
+  // Informs the buffer about the maximum resolution for the upcoming
+  // `GetMappedBuffer()` calls.
+  //
+  virtual void PrepareMappedBufferAsync(
+      size_t width,
+      size_t height,
+      scoped_refptr<PreparedFrameHandler> handler,
+      size_t frame_identifier);
 
  protected:
   ~VideoFrameBuffer() override {}
@@ -169,7 +187,7 @@ class RTC_EXPORT I420BufferInterface : public PlanarYuv8Buffer {
   int ChromaWidth() const final;
   int ChromaHeight() const final;
 
-  rtc::scoped_refptr<I420BufferInterface> ToI420() final;
+  scoped_refptr<I420BufferInterface> ToI420() final;
   const I420BufferInterface* GetI420() const final;
 
  protected:
@@ -194,12 +212,12 @@ class I422BufferInterface : public PlanarYuv8Buffer {
   int ChromaWidth() const final;
   int ChromaHeight() const final;
 
-  rtc::scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
-                                                    int offset_y,
-                                                    int crop_width,
-                                                    int crop_height,
-                                                    int scaled_width,
-                                                    int scaled_height) override;
+  scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
+                                               int offset_y,
+                                               int crop_width,
+                                               int crop_height,
+                                               int scaled_width,
+                                               int scaled_height) override;
 
  protected:
   ~I422BufferInterface() override {}
@@ -213,19 +231,19 @@ class I444BufferInterface : public PlanarYuv8Buffer {
   int ChromaWidth() const final;
   int ChromaHeight() const final;
 
-  rtc::scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
-                                                    int offset_y,
-                                                    int crop_width,
-                                                    int crop_height,
-                                                    int scaled_width,
-                                                    int scaled_height) override;
+  scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
+                                               int offset_y,
+                                               int crop_width,
+                                               int crop_height,
+                                               int scaled_width,
+                                               int scaled_height) override;
 
  protected:
   ~I444BufferInterface() override {}
 };
 
-// This interface represents 8-bit to 16-bit color depth formats: Type::kI010 or
-// Type::kI210 .
+// This interface represents 8-bit to 16-bit color depth formats: Type::kI010,
+// Type::kI210, or Type::kI410.
 class PlanarYuv16BBuffer : public PlanarYuvBuffer {
  public:
   // Returns pointer to the pixel data for a given plane. The memory is owned by
@@ -309,16 +327,27 @@ class RTC_EXPORT NV12BufferInterface : public BiplanarYuv8Buffer {
   int ChromaWidth() const final;
   int ChromaHeight() const final;
 
-  rtc::scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
-                                                    int offset_y,
-                                                    int crop_width,
-                                                    int crop_height,
-                                                    int scaled_width,
-                                                    int scaled_height) override;
+  scoped_refptr<VideoFrameBuffer> CropAndScale(int offset_x,
+                                               int offset_y,
+                                               int crop_width,
+                                               int crop_height,
+                                               int scaled_width,
+                                               int scaled_height) override;
 
  protected:
   ~NV12BufferInterface() override {}
 };
+
+// RTC_CHECKs that common values used to calculate buffer sizes are within the
+// range of [1..std::numeric_limits<int>::max()].
+// `width` and `height` must be > 0, `stride_y` must be >= `width` whereas
+// `stride_u` and `stride_v` must be `> 0` as this is where the various yuv
+// formats differ.
+void CheckValidDimensions(int width,
+                          int height,
+                          int stride_y,
+                          int stride_u,
+                          int stride_v);
 
 }  // namespace webrtc
 

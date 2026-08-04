@@ -81,15 +81,15 @@ def run(app_cls: type[BaseApp]) -> None:
     parser.add_argument(
         "--log",
         type=validate_file_path,
-        default="configs/logging_config.json",
-        help="The input logging config file"
+        default=None,
+        help="Optional logging config file; uses the built-in logging config when omitted"
     )
 
     args = parser.parse_args()
 
-    # Resolve to absolute so spawn-mode workers (which inherit CWD but may run
-    # from a different effective root) can re-apply logging consistently.
-    args.log = os.path.abspath(args.log)
+    # Resolve a supplied config to absolute so spawn-mode workers (which inherit
+    # CWD but may run from a different effective root) can re-apply it consistently.
+    args.log = os.path.abspath(args.log) if args.log else None
 
     setup_logging(args.log)
     logger.info(f"App config file path: {args.config}")
@@ -140,7 +140,7 @@ class AppRunner:
         # each message). Same logic for the dynamic-config consumer group.
         self._calibration_replica_tag = uuid.uuid4().hex
         self._config_listener_replica_tag = uuid.uuid4().hex
-        # Stable bootstrap ref-id for this main process; web-api echoes it on
+        # Stable bootstrap ref-id for this main process; video-analytics-api echoes it on
         # the upsert-all reply so we filter out other deployments' replies.
         self._config_bootstrap_ref_id = f"behavior-analytics-{uuid.uuid4().hex}"
         self._calibration_listener = self._load_calibration_listener()

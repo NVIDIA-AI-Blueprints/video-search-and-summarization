@@ -1,0 +1,16 @@
+{
+  "downloads": [
+    {
+      "model": "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0",
+      "org": "nvidia",
+      "sourcePath": "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx",
+      "destPath": "rtdetr-its/model_epoch_035.fp16.onnx"
+    },
+    {
+      "model": "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm",
+      "org": "nvidia",
+      "sourcePath": "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx",
+      "destPath": "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+    }
+  ]
+}

@@ -13,30 +13,29 @@
 
 #include <stddef.h>
 
-#include <map>
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "api/rtp_parameters.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/system/rtc_export.h"
+#include "rtc_base/strings/string_builder.h"
+#include "rtc_base/system/rtc_export.h"  // IWYU pragma: private
 
 namespace webrtc {
 
 // SDP specification for a single audio codec.
 struct RTC_EXPORT SdpAudioFormat {
-  using Parameters = std::map<std::string, std::string>;
-
   SdpAudioFormat(const SdpAudioFormat&);
   SdpAudioFormat(SdpAudioFormat&&);
   SdpAudioFormat(absl::string_view name, int clockrate_hz, size_t num_channels);
   SdpAudioFormat(absl::string_view name,
                  int clockrate_hz,
                  size_t num_channels,
-                 const Parameters& param);
+                 const CodecParameterMap& param);
   SdpAudioFormat(absl::string_view name,
                  int clockrate_hz,
                  size_t num_channels,
-                 Parameters&& param);
+                 CodecParameterMap&& param);
   ~SdpAudioFormat();
 
   // Returns true if this format is compatible with `o`. In SDP terminology:
@@ -52,10 +51,27 @@ struct RTC_EXPORT SdpAudioFormat {
     return !(a == b);
   }
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SdpAudioFormat& saf) {
+    StringBuilder sb("{");
+    bool first = true;
+    for (const auto& [key, value] : saf.parameters) {
+      if (!first) {
+        sb << ", ";
+      }
+      first = false;
+      sb << key << ": " << value;
+    }
+    sb << "}";
+    absl::Format(
+        &sink, "{name: %s, clockrate_hz: %d, num_channels: %d, parameters: %v}",
+        saf.name, saf.clockrate_hz, saf.num_channels, sb.Release());
+  }
+
   std::string name;
   int clockrate_hz;
   size_t num_channels;
-  Parameters parameters;
+  CodecParameterMap parameters;
 };
 
 // Information about how an audio format is treated by the codec implementation.
@@ -103,6 +119,17 @@ struct AudioCodecInfo {
     return min_bitrate_bps == max_bitrate_bps;
   }
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const AudioCodecInfo& aci) {
+    absl::Format(&sink,
+                 "{sample_rate_hz: %d, num_channels: %d, default_bitrate_bps: "
+                 "%d, min_bitrate_bps: %d, max_bitrate_bps: %d, "
+                 "allow_comfort_noise: %v, supports_network_adaption: %v}",
+                 aci.sample_rate_hz, aci.num_channels, aci.default_bitrate_bps,
+                 aci.min_bitrate_bps, aci.max_bitrate_bps,
+                 aci.allow_comfort_noise, aci.supports_network_adaption);
+  }
+
   int sample_rate_hz;
   size_t num_channels;
   int default_bitrate_bps;
@@ -123,6 +150,11 @@ struct AudioCodecSpec {
   }
 
   bool operator!=(const AudioCodecSpec& b) const { return !(*this == b); }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const AudioCodecSpec& acs) {
+    absl::Format(&sink, "{format: %v, info: %v}", acs.format, acs.info);
+  }
 
   SdpAudioFormat format;
   AudioCodecInfo info;

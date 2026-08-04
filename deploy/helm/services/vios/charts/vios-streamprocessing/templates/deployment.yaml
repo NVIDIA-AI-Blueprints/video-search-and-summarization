@@ -33,7 +33,7 @@ spec:
         app.kubernetes.io/name: vss-vios-streamprocessing
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
-        checksum/config: {{ list (.Files.Get "configs/vst_config.json") (.Files.Get "configs/adaptor_config.json") (.Files.Get "configs/vst_storage.json") (.Files.Get "configs/rtsp_streams.json") | join "" | sha256sum }}
+        checksum/config: {{ list (.Files.Get "configs/vst_config.json") (.Files.Get "configs/notification_config.json") (.Files.Get "configs/adaptor_config.json") (.Files.Get "configs/vst_storage.json") (.Files.Get "configs/rtsp_streams.json") | join "" | sha256sum }}
     spec:
       {{- with .Values.securityContext }}
       securityContext:
@@ -78,6 +78,17 @@ spec:
               value: {{ .Values.sensorModuleEndpoint | default (printf "http://%s:30000" (include "vss-vios-streamprocessing.peerHost" (dict "root" . "short" "vss-vios-sensor"))) | quote }}
             - name: VST_INGRESS_ENDPOINT
               value: {{ include "vss-vios-streamprocessing.vstIngressEndpoint" . | quote }}
+            {{- /* VIOS-only SDRC toggle (global.vios.useSdrc, default false). See
+                   the vios-sensor deployment for the full rationale.
+                   VST_ENABLE_NOTIFICATION is independent (global.vios.enableNotification,
+                   defaults to useSdrc) — matches docker. */}}
+            {{- $g := .Values.global | default dict }}
+            {{- $useSdrc := dig "vios" "useSdrc" false $g }}
+            {{- $enableNotif := dig "vios" "enableNotification" $useSdrc $g }}
+            - name: VST_USE_SDRC
+              value: {{ $useSdrc | quote }}
+            - name: VST_ENABLE_NOTIFICATION
+              value: {{ $enableNotif | quote }}
           volumeMounts:
             - name: configs
               mountPath: /home/vst/vst_release/configs

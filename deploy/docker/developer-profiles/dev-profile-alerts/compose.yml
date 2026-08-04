@@ -14,37 +14,38 @@
 # limitations under the License.
 
 services:
-
   vss-behavior-analytics-alerts:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["vss-behavior-analytics-alerts"]
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
-    command: python3 apps/dev_example/main_dev_example_app.py --config /resources/vss-behavior-analytics-config.json
+    networks:
+      default:
+        aliases:
+          - vss-behavior-analytics
+    command: python3 apps/search_and_alerts/main_search_and_alerts_app.py --config /resources/vss-behavior-analytics-config.json
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
 
   nvstreamer-alerts:
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-    user: "0:0"
-    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst" ]
-    environment:
-      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
-      - ADAPTOR=streamer
-      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-    network_mode: "host"
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 2
+    extends:
+      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      service: nvstreamer-base
+    profiles: ["nvstreamer-alerts"]
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     container_name: vss-vios-nvstreamer
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
@@ -57,7 +58,7 @@ services:
   #   extends:
   #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
   #     service: perception-sdr
-  #   profiles: ["bp_developer_alerts_2d_cv"]
+  #   profiles: ["perception-sdr-alerts"]
   #   container_name: vss-rtvi-cv-sdr
   #   volumes:
   #     - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
@@ -76,15 +77,15 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["perception-alerts"]
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
       - $VSS_APPS_DIR/engines/:/opt/engines/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.json:/opt/config/models-download.json:ro
 
     environment:
-      MODEL_TYPE: ${MODEL_TYPE}
       STREAM_TYPE: ${STREAM_TYPE}
       MODEL_NAME_2D: ${MODEL_NAME_2D}
       NUM_SENSORS: ${NUM_SENSORS}
@@ -92,6 +93,8 @@ services:
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "true"
       DS_CONFIG_FILE: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/run_config-api-rtdetr-protobuf.txt
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
       kafka-topic-init-container:
         condition: service_completed_successfully
@@ -103,8 +106,7 @@ services:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
-    network_mode: "host"
-    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["kibana-init-container-alerts"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     depends_on:
@@ -115,8 +117,12 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["vss-video-analytics-api-alerts"]
     container_name: vss-video-analytics-api
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
     depends_on:
       broker-health-check:
         condition: service_completed_successfully

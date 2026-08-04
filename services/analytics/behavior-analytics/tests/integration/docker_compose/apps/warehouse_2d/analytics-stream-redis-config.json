@@ -70,10 +70,6 @@
 			"value": "30"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
-		},
-		{
 			"name": "behaviorMaxPoints",
 			"value": "200"
 		},
@@ -88,10 +84,6 @@
 		{
 			"name": "playbackStartUpDelaySec",
 			"value": "90"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
 		},
 		{
 			"name": "sourceType",

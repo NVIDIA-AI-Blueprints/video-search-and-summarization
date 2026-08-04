@@ -1,0 +1,9 @@
+---
+description: Require DCO sign-offs on repository commits
+alwaysApply: true
+---
+
+# Commit sign-off
+
+All commits created for this repository must include a DCO `Signed-off-by`
+trailer. Use `git commit --signoff`.

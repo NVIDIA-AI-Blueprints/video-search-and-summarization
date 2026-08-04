@@ -11,13 +11,15 @@
 #ifndef P2P_BASE_CONNECTION_INFO_H_
 #define P2P_BASE_CONNECTION_INFO_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/candidate.h"
 #include "api/units/timestamp.h"
 
-namespace cricket {
+namespace webrtc {
 
 // States are from RFC 5245. http://tools.ietf.org/html/rfc5245#section-5.7.4
 enum class IceCandidatePairState {
@@ -72,16 +74,17 @@ struct ConnectionInfo {
   // https://w3c.github.io/webrtc-stats/#dom-rtcicecandidatepairstats-totalroundtriptime
   uint64_t total_round_trip_time_ms;
   // https://w3c.github.io/webrtc-stats/#dom-rtcicecandidatepairstats-currentroundtriptime
-  absl::optional<uint32_t> current_round_trip_time_ms;
+  std::optional<uint32_t> current_round_trip_time_ms;
 
   // https://w3c.github.io/webrtc-stats/#dom-rtcicecandidatepairstats-lastpacketreceivedtimestamp
-  absl::optional<webrtc::Timestamp> last_data_received;
-  absl::optional<webrtc::Timestamp> last_data_sent;
+  std::optional<Timestamp> last_data_received;
+  std::optional<Timestamp> last_data_sent;
 };
 
 // Information about all the candidate pairs of a channel.
 typedef std::vector<ConnectionInfo> ConnectionInfos;
 
-}  // namespace cricket
+}  //  namespace webrtc
+
 
 #endif  // P2P_BASE_CONNECTION_INFO_H_

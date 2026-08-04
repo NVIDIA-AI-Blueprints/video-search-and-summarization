@@ -55,7 +55,7 @@ Match the user's request to a mode, then load that mode's reference for input co
 ## Prerequisites (shared across calibration modes)
 
 - AMC microservice + UI running. If not, walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first.
-- Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` → `{"code":0,...}`.
+- Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready` → `{"code":0,...}`.
 - Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5--confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
 - Python 3 with `requests` installed (each input-mode reference includes a self-healing venv fallback for direct runs).
 
@@ -118,7 +118,7 @@ Poll every 10 s. `project_info.project_state`:
 | `COMPLETED` | Finished |
 | `ERROR` | Failed — pull log via `GET /v1/amc/calibrate/<id>/log` |
 
-When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`), and the log endpoint so the user can watch progress while the run proceeds. During `RUNNING`, emit a progress line at least once a minute with elapsed time so a long run doesn't look stalled. On `ERROR`, fetch and show the last lines of `GET /v1/amc/calibrate/<id>/log` before stopping. Live logs can also be streamed via `GET /v1/calibrate/<project_id>/log/<type>/stream`.
+When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`), and the log endpoint so the user can watch progress while the run proceeds. During `RUNNING`, emit a progress line at least once a minute with elapsed time so a long run doesn't look stalled. On `ERROR`, fetch and show the last lines of `GET /v1/amc/calibrate/<id>/log` before stopping. Live logs can also be streamed via `GET /v1/calibrate/<project_id>/log/<type>/stream`.
 
 Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample).
 
@@ -135,7 +135,7 @@ Evaluation response includes `Average L2 distance(m)` and `Average reprojection 
 
 After `COMPLETED`, always give the user a way to review the result for that exact project, regardless of whether metrics exist:
 
-- **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`; open the project, then the Results page to view the overlay.
+- **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`; open the project, then the Results page to view the overlay.
 - **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
 - **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
 

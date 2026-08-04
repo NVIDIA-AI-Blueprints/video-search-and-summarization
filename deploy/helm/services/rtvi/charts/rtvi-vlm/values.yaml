@@ -55,8 +55,8 @@ kafkaBootstrapServers: ""
 waitForKafka:
   enabled: true
   image:
-    repository: confluentinc/cp-kafka
-    tag: "8.2.0"
+    repository: docker.io/confluentinc/cp-kafka
+    tag: "8.3.0"
   imagePullPolicy: IfNotPresent
   timeoutSeconds: 1200
   topics:

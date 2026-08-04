@@ -71,7 +71,7 @@ bool DsProtoParser::loadSchemaLibrary()
             return; // Already loaded
         }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         const char* libPath = m_data2d ? ABSOLUTE_LIBRARY_PATH_2D_AARCH64 : ABSOLUTE_LIBRARY_PATH_3D_AARCH64;
 #else
         const char* libPath = m_data2d ? ABSOLUTE_LIBRARY_PATH_2D_X86_64 : ABSOLUTE_LIBRARY_PATH_3D_X86_64;

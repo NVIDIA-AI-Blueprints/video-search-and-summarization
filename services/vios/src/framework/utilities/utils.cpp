@@ -19,6 +19,10 @@
 #include "logger.h"
 #include "cmdline_parser.h"
 #include "OverlayDataTypes.h"
+#include <dlfcn.h>
+#ifdef AARCH64_PLATFORM
+#include "nvbufsurface.h"
+#endif
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -81,9 +85,7 @@ bool g_isGpuPresent = false;
 int g_gpuIndex = 0;
 string g_gpuNodePath;
 string g_hostIp;
-#ifdef JETSON_PLATFORM
-bool g_isJetsonGpuMode = false;
-#endif
+bool g_useCudaDeviceMemory = false;
 
 static const std::string base64_chars =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -173,7 +175,6 @@ void insertString(string& orignal, const string& afterToken, const string& subSt
     }
 }
 
-#ifdef JETSON_PLATFORM
 bool isJetsonGpuPresent()
 {
     if (access(GPU_DEV, F_OK) == 0)
@@ -182,7 +183,64 @@ bool isJetsonGpuPresent()
     }
     return false;
 }
+
+bool isJetsonPlatform()
+{
+#ifdef AARCH64_PLATFORM
+    // Probe the underlying GPU driver once and cache the result. Orin exposes an
+    // integrated GPU behind the nvgpu driver; Thor/SBSA use the OpenRM driver.
+    // NvBufSurface symbols are not link-time bound anywhere in VIOS (they are
+    // dlopen/dlsym'd by NvBufWrapper), so resolve NvBufSurfaceGetDeviceInfo the
+    // same way here rather than calling it directly.
+    static const bool s_isJetson = []() -> bool {
+        // NOTE: this runs inside a function-local static initializer that can be
+        // reached from the VmsConfigManager constructor. Do NOT use the LOG()
+        // macro here: the logger calls VmsConfigManager::getInstance(), which
+        // would re-enter the singleton mid-construction and abort with
+        // __gnu_cxx::recursive_init_error. Use fprintf(stderr) instead — a
+        // low-level platform probe must not depend on the config/logger.
+        const char* libPath = "/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so";
+        // Loaded from /usr/lib/aarch64-linux-gnu/nvidia/: device-injected on Jetson
+        // (Orin/Thor), Dockerfile.app-symlinked from the sbsa prebuilts on discrete.
+        void* handle = dlopen(libPath, RTLD_LAZY);
+        if (!handle)
+        {
+            const char* err = dlerror();
+            fprintf(stderr, "isJetsonPlatform: unable to dlopen %s (%s); assuming non-Jetson\n",
+                    libPath, err ? err : "unknown");
+            return false;
+        }
+        using NvBufSurfaceGetDeviceInfo_t = int (*)(NvBufSurfaceDeviceInfo*);
+        auto getDeviceInfo = reinterpret_cast<NvBufSurfaceGetDeviceInfo_t>(
+            dlsym(handle, "NvBufSurfaceGetDeviceInfo"));
+        bool jetson = false;
+        if (getDeviceInfo)
+        {
+            NvBufSurfaceDeviceInfo info{};
+            if (getDeviceInfo(&info) == 0)
+            {
+                jetson = (info.driverType == NVBUF_DRIVER_TYPE_NVGPU) && info.isIntegratedGpu;
+                fprintf(stderr, "isJetsonPlatform: driverType=%d isIntegratedGpu=%d -> %s\n",
+                        static_cast<int>(info.driverType), static_cast<int>(info.isIntegratedGpu),
+                        jetson ? "Jetson/Orin" : "Thor/SBSA");
+            }
+            else
+            {
+                fprintf(stderr, "isJetsonPlatform: NvBufSurfaceGetDeviceInfo failed; assuming non-Jetson\n");
+            }
+        }
+        else
+        {
+            fprintf(stderr, "isJetsonPlatform: NvBufSurfaceGetDeviceInfo symbol not found; assuming non-Jetson\n");
+        }
+        dlclose(handle);
+        return jetson;
+    }();
+    return s_isJetson;
+#else
+    return false;
 #endif
+}
 
 bool iequals(const string& a, const string& b)
 {
@@ -330,6 +388,18 @@ Json::Value loadStorageConfig(const string& storage_config_file_path)
     Json::Value config;
     Json::Reader reader;
     std::ifstream file(storage_config_file_path.c_str());
+    if(file.good())
+    {
+        reader.parse(file, config, true);
+    }
+    return config;
+}
+
+Json::Value loadNotificationConfig(const string& notification_config_file_path)
+{
+    Json::Value config;
+    Json::Reader reader;
+    std::ifstream file(notification_config_file_path.c_str());
     if(file.good())
     {
         reader.parse(file, config, true);
@@ -2016,7 +2086,8 @@ Json::Value getSystemStats()
                             g_init_avaiable_memory - current_available_memory : 0;
 
 
-#ifdef JETSON_PLATFORM
+    if (isJetsonPlatform())
+    {
     /* Get - dma_buf_count  */
     cmd = "cat /sys/kernel/debug/nvmap/iovmm/all_allocations | grep -e '\\b100' -e '\\b200' -e '\\b300' -e '\\b400' -e '\\b1100' -e '\\b1200' -e '\\b1400' | wc -l";
     result = "";
@@ -2117,7 +2188,9 @@ Json::Value getSystemStats()
             value["tegrastats"] = tegrastats;
         }
     }
-#else
+    }
+    else
+    {
     /* Get - GPU Utilization in %,
     **     - GPU Memory Usage,
     **     - Total GPU Memory */
@@ -2216,8 +2289,7 @@ Json::Value getSystemStats()
     {
         value["cpu_usage"] = stringToInt(result, 0);
     }
-
-#endif
+    }
     return value;
 }
 
@@ -2277,7 +2349,7 @@ bool blockSensor(const string ip, string action)
 
 Json::Value vectorToJson(const std::vector<string>& vec)
 {
-	Json::Value jsonArray = Json::nullValue;
+	Json::Value jsonArray = Json::arrayValue;
 	for(auto itr : vec)
 	{
 		jsonArray.append(itr);
@@ -2608,8 +2680,23 @@ void removeWhiteSpaces(string& str)
 void detectGPU()
 {
     g_isGpuPresent = false;
-#ifdef JETSON_PLATFORM
-    g_isJetsonGpuMode = isJetsonGpuPresent();
+#ifdef AARCH64_PLATFORM
+    // g_useCudaDeviceMemory selects CUDA-device buffer memory (NVBUF_MEM_CUDA_DEVICE) and is
+    // meant only for the rare Jetson-with-discrete-GPU configuration. On Orin the
+    // INTEGRATED GPU exposes /dev/nvidia0, so the legacy isJetsonGpuPresent() probe
+    // (access("/dev/nvidia0")) misfires and would force CUDA-device memory — which is
+    // invalid for the block-linear NVMM surfaces the decoder/overlay/transform use
+    // (nvbufsurface: "Buffer Layout is invalid"). On the integrated iGPU keep the Tegra
+    // default surface memory. Only enable CUDA-device mode when there is a genuine
+    // discrete GPU alongside the iGPU (i.e. NOT the integrated one detected as Jetson).
+    if (isJetsonPlatform())
+    {
+        g_useCudaDeviceMemory = false;
+    }
+    else
+    {
+        g_useCudaDeviceMemory = isJetsonGpuPresent();
+    }
 #endif
     for (int gpuIndex = 0 ; gpuIndex < MAX_GPU_COUNT; gpuIndex++)
     {
@@ -4007,6 +4094,7 @@ void parseGlobalProperties(std::map<std::string, std::string, Compare>& opts, co
     opts["overlayOpacity"] = overlayJson.get("opacity", EMPTY_STRING).asString();
     opts["overlayDebug"] = overlayJson.get("debug", EMPTY_STRING).asString();
     opts["overlayPose"] = overlayJson.get("pose", EMPTY_STRING).asString();
+    opts["overlayDebugFontSize"] = overlayJson.get("debugFontSize", EMPTY_STRING).asString();
 
     // Parse proximityClass array
     Json::Value proximity_class_json = overlayJson.get("proximityClass", EMPTY_STRING);

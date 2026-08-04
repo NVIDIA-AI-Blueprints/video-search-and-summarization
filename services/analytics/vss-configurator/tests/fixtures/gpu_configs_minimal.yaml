@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+commons:
+  variables:
+    3d:
+      - num_cameras: "8"
+      - batch_size: "4"
+    2d:
+      - num_cameras: "4"
+
+L4:
+  3d:
+    max_streams_supported: 8
+    variables:
+      - stream_density: "min(num_cameras, max_streams_supported)"
+      - use_high_quality: "true if batch_size >= 4 else false"
+    operations:
+      - file_operation:
+          type: modify_yaml
+          file_path: /tmp/test_config.yaml
+          key: pipeline.batch_size
+          value: "${batch_size}"
+
+  2d:
+    max_streams_supported: 4
+
+H100:
+  3d:
+    max_streams_supported: 64
+    variables:
+      - batch_size: "16"
+
+default:
+  3d:
+    max_streams_supported: 4
+    variables: []

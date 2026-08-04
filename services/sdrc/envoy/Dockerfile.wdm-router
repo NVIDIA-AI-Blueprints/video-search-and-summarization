@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Multi-stage: PyInstaller sdr + sdr-mw (same as DockerFile-mw.bin), then the
+# same Envoy + Lua stack as envoy/Dockerfile.envoy-ubuntu, with /sdr and /sdr-mw
+# in the final image. Build from repository root.
+#
+#   docker build -f envoy/Dockerfile.wdm-router -t wdm-router-with-mw .
+#   docker run ... runs generate_envoy_config_xds_mw.py (see wdm-router-entrypoint.sh),
+#   then sdr-mw and Envoy.
+#   sdr-mw only: docker build -f DockerFile-mw.bin -t sdr-mw .
+#
+# At container start: mount your workload config.yml and set WDM_WORKLOADS_CONFIG to its path
+# inside the container (default /config.yml if unset). Entrypoint exits if that file is missing.
+# WDM_CONTROLLER_HOST / WDM_CONTROLLER_PORT (optional) are read by generate_envoy_config_xds_mw.py.
+###############################################################################
+
+FROM nvcr.io/nvidia/base/ubuntu:jammy-20260217 AS pybase
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Use distro python3.10 (no deadsnakes PPA — add-apt-repository hits Launchpad and can time out).
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        python3.10 \
+        python3.10-dev \
+        python3.10-distutils \
+        python3.10-venv \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - && \
+    pip3 install --no-cache-dir --timeout 120 "setuptools==78.1.1" "wheel>=0.46.2"
+
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends gawk bison gcc make && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.24 /uv /uvx /bin/
+
+ENV UV_PROJECT_ENVIRONMENT=/wdm/.venv
+ENV PATH="/wdm/.venv/bin:$PATH"
+
+WORKDIR /wdm
+
+COPY pyproject.toml uv.lock /wdm/
+COPY ./requirements.txt /wdm/requirements.txt
+# CI license injection anchor: COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
+COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md
+
+
+# Install runtime + dev (pyinstaller) deps from the lock file via uv into /wdm/.venv.
+RUN uv sync --frozen --no-install-project && \
+    rm -rf /root/.cache/uv /root/.cache/pip
+
+COPY app.py /wdm/app.py
+COPY config.py /wdm/config.py
+COPY lib /wdm/lib
+COPY entrypoint.sh /wdm/entrypoint.sh
+COPY sdr.spec /wdm/sdr.spec
+COPY run_workloads.py /wdm/run_workloads.py
+COPY sdr-mw.spec /wdm/sdr-mw.spec
+COPY templates /wdm/templates
+COPY static /wdm/static
+RUN python3 -m PyInstaller sdr.spec --clean --noconfirm && \
+    python3 -m PyInstaller sdr-mw.spec --clean --noconfirm
+RUN install -m 755 /wdm/dist/sdr /sdr && install -m 755 /wdm/dist/sdr-mw /sdr-mw
+RUN ls -la /sdr /sdr-mw
+# Drop the build venv and project tree; PyInstaller binaries are self-contained.
+RUN rm -rf /wdm
+# jinja2 + ruamel.yaml are required at container start by
+# generate_envoy_config_xds_mw.py (run via system python3, not the venv).
+RUN python3 -m pip install --no-cache-dir jinja2==3.1.4 "ruamel.yaml==0.18.6" && \
+    python3 -m pip uninstall -y setuptools wheel pip && \
+    rm -rf /root/.cache/uv /root/.cache/pip
+RUN apt-get remove gawk bison gcc make -y && \
+    apt autoremove -y
+
+#FROM nvcr.io/nvidia/base/ubuntu:22.04_20240212
+
+RUN apt-get update -y \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        gnupg \
+        curl \
+        apt-transport-https \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://apt.envoyproxy.io/signing.key | gpg --dearmor -o /etc/apt/keyrings/envoy-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/envoy-keyring.gpg] https://apt.envoyproxy.io jammy main" > /etc/apt/sources.list.d/envoy.list
+
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+        envoy \
+        lua5.2 \
+        liblua5.2-dev \
+        luajit \
+        libluajit-5.1-dev \
+        luarocks \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /usr/local/bin && \
+    ln -sf /usr/bin/envoy /usr/local/bin/envoy
+
+RUN luarocks install luasocket --lua-version=5.1 \
+    && luarocks install redis-lua --lua-version=5.1 \
+    && luarocks install lua-cjson --lua-version=5.1
+
+RUN apt remove build-essential -y
+
+RUN mkdir -p wdm /etc/envoy /opt/wdm-runtime/envoy
+# CI license injection anchor: COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
+COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md
+
+COPY ./envoy/generate_envoy_config_xds_mw.py /opt/wdm-runtime/envoy/generate_envoy_config_xds_mw.py
+COPY ./envoy/templates /opt/wdm-runtime/envoy/templates
+
+COPY envoy/wdm-router-entrypoint.sh /usr/local/bin/wdm-router-entrypoint.sh
+RUN chmod 755 /usr/local/bin/wdm-router-entrypoint.sh
+
+# sdr-mw (ROUTER_PORT, default 5002 in compose) + Envoy listener/admin
+EXPOSE 5002 9000 9901
+# Run script directly; use /bin/sh if COPY strips execute bits on some builders.
+ENTRYPOINT ["/usr/local/bin/wdm-router-entrypoint.sh"]
+CMD ["-c", "/tmp/envoy-wdm-generated.yaml"]

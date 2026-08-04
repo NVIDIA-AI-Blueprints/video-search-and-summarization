@@ -1,12 +1,7 @@
----
-name: vss-prerequisites
-description: Check VSS system prerequisites — GPU driver, Docker, NVIDIA Container Toolkit, and NGC access. Use when troubleshooting a deploy failure, after a system change, or to verify the system is ready for VSS.
----
-
 # VSS Prerequisites Check
 <a id="preflight"></a>
 
-Verifies system readiness for any VSS developer profile. For NGC CLI setup specifically, use the `ngc` skill.
+Verifies system readiness for any VSS developer profile. For NGC CLI setup specifically, see [`ngc.md`](ngc.md).
 
 ## Preflight — quick reference
 
@@ -60,7 +55,7 @@ fi
 
 ## When to Use
 
-Use this skill when:
+Use this reference when:
 
 - A VSS deploy failed and you need to diagnose why
 - User asks to verify GPU, Docker, or system setup
@@ -131,10 +126,11 @@ sudo sysctl --system
 ## Network addressing — HOST_IP / EXTERNAL_IP
 <a id="addressing"></a>
 
-VST and the NIMs bind *all* host interfaces under host networking (nginx
-`listen 30888`), so these vars don't bind anything — they only choose which host
-address clients **dial** (`VST_INGRESS_ENDPOINT=${HOST_IP}:30888/vst`,
-`VLM_BASE_URL=http://${HOST_IP}:…`; UI/report links use `EXTERNAL_IP`).
+VST and the NIMs bind their configured container ports; host-published port
+conflicts are handled through the `*_HOST_PORT` overrides. Internal VST defaults
+live in `services/vios/vst.env` (`VST_INTERNAL_URL=http://vst-ingress:30888`,
+`VST_INGRESS_ENDPOINT=vst-ingress:30888/vst`), while model URLs and UI/report
+links still use `HOST_IP` / `EXTERNAL_IP` where those clients dial the host.
 
 **`HOST_IP` — the in-cluster dial address.** Must be reachable from the docker
 bridge (VLM→VST), the host-net agent, and (since `EXTERNAL_IP` inherits it) LAN
@@ -205,7 +201,7 @@ stacks on the host), allow that one instead:
 (Same step `warehouse.md` documents for Brev; applies to any ufw-active host.)
 
 **Browser access from another machine.** The bridge rule above only lets *containers*
-reach the host — it does **not** open ports to other devices. The `HAPROXY_PORT`
+reach the host — it does **not** open ports to other devices. The `HAPROXY_HOST_PORT`
 ingress (default `7777`) reverse-proxies the UI, agent API, and VST, so a single
 allow covers all three:
 
@@ -215,7 +211,7 @@ sudo ufw allow 7777/tcp        # HAProxy ingress — fronts UI + agent + VST. Or
 sudo ufw reload
 ```
 
-`nvstreamer` is the exception — its port (`31000`, host-networked) is **not** behind
+`nvstreamer` is the exception — its host-published port (`NVSTREAMER_HTTP_HOST_PORT`, default `31000`) is **not** behind
 the ingress, so reaching its UI / RTSP directly needs its own allow:
 
 ```bash

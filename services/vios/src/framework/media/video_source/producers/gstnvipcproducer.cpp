@@ -29,6 +29,7 @@
 #include "stats.h"
 #include "nvhwdetection.h"
 #include "gstnvipcmeta.h"
+#include "utils.h"
 
 using namespace std;
 using namespace nv_vms;
@@ -377,7 +378,8 @@ FrameSize NvIPCProducer::handleDRC(const string& peerid, int targetPixels, int t
     {
         shared_ptr<VideoSinkInfo> sink = it->second;
         FrameSize source_frame_size;
-#ifdef JETSON_PLATFORM
+        if (isJetsonPlatform())
+        {
         // For any quality respect the webrtc out default resolution specified in config
         Resolution resolution;
         resolution = GET_CONFIG().webrtc_out_default_resolution;
@@ -404,7 +406,7 @@ FrameSize NvIPCProducer::handleDRC(const string& peerid, int targetPixels, int t
             }
             return sink->m_frameSize;
         }
-#endif
+        }
         if(sink->m_quality == "auto")
         {
             size_t res_index = 0;

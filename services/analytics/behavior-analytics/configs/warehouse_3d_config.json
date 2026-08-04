@@ -38,6 +38,10 @@
 			{
 				"name": "events",
 				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
 			}
 		]
 	},
@@ -102,8 +106,8 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "20"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
 			"name": "behaviorWatermarkSec",
@@ -140,10 +144,6 @@
 		{
 			"name": "stateManagementFilter",
 			"value": "[\"Agility_Digit_Humanoid\",\"Fourier_GR1_T2_Humanoid\",\"Person\", \"Nova_Carter\"]"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
 		},
 		{
 			"name": "sourceType",

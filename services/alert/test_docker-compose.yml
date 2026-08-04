@@ -38,20 +38,5 @@ services:
       timeout: 5s
       retries: 5
 
-  alert-bridge-redis:
-    image: redis/redis-stack-server:7.2.0-v9
-    container_name: alert-bridge-redis
-    ports:
-      - "6379:6379"
-    # Remove custom command to let Redis Stack load all modules automatically
-    # command: redis-server --appendonly yes --appendfsync everysec
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  redis_data:
+# Redis has been removed from the Alert MS test stack: dedup/filter state
+# is in-process and durable state lives in Elasticsearch.

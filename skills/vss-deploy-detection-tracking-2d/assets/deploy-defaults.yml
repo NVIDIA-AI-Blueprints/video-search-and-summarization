@@ -14,7 +14,7 @@
 # Per-usecase NGC assets (`model`, `videos`, `labels`, `anchor`, …) are
 # objects with two fields:
 #
-#   source : key into `ngc_resources` — which NGC asset the file lives in.
+#   source : key into `ngc_resources` — which NGC or repository asset the file lives in.
 #            Different assets in the same usecase MAY point at different
 #            resources (e.g. model in `rtdetr_model_pkg`, videos in
 #            `warehouse_videos`).
@@ -40,8 +40,8 @@
 #    Multi-arch and SBSA tags publish at different cadences — keep separate.
 # ─────────────────────────────────────────────────────────────────────────────
 docker_image:
-  multi_arch: nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1      # x86_64 dGPU + aarch64 Jetson
-  sbsa:       nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1-sbsa # SBSA (Spark, Grace-Hopper)
+  multi_arch: nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2      # x86_64 dGPU + aarch64 Jetson
+  sbsa:       nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-sbsa-26.07.2 # SBSA (Spark, Grace-Hopper)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. In-container path layout (the image is built around these).
@@ -72,6 +72,7 @@ runtime:
 #
 #    kind        : `resource` → `ngc registry resource download-version`
 #                  `model`    → `ngc registry model download-version`
+#                  `repo`     → resolve from this repository and stage locally
 #    ref         : full NGC ref `<org>/<team>/<name>:<tag>`
 #    extract_dir : directory NGC creates after extraction. Convention:
 #                  `<name>_v<tag>`; if `<tag>` already starts with `v`, the
@@ -79,12 +80,30 @@ runtime:
 # ─────────────────────────────────────────────────────────────────────────────
 ngc_resources:
 
-  # Warehouse dataset — ships RT-DETR (2D) + Sparse4D (3D) models AND
-  # both video sets. Reused by warehouse-2d and warehouse-3d.
+  # Warehouse app-data — videos and legacy companion assets. Active RT-CV
+  # model weights use the standalone model-package entries below.
   warehouse_dataset:
     kind:        resource
     ref:         nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
     extract_dir: vss-warehouse-app-data_v3.2.0
+
+  # Warehouse RT-DETR model.
+  warehouse_rtdetr_model:
+    kind:        model
+    ref:         nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+    extract_dir: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
+
+  # Warehouse Sparse4D model.
+  warehouse_sparse4d_model:
+    kind:        model
+    ref:         nvidia/tao/sparse4d_rn50:deployable_v2.2
+    extract_dir: sparse4d_rn50_vdeployable_v2.2
+
+  # Repository-owned Sparse4D companion assets (not part of the NGC model).
+  warehouse_sparse4d_repo_assets:
+    kind:        repo
+    ref:         repository
+    extract_dir: .
 
   # Smartcity videos. Detection models are SEPARATE entries below
   # Reused by smartcity-rtdetr and smartcity-gdino.
@@ -127,8 +146,8 @@ usecases:
   warehouse-2d:
     description: 2D warehouse multi-camera tracking (RT-DETR + NvDCF, 7 classes)
     model:
-      source: warehouse_dataset
-      path:   vss-warehouse-app-data/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx
+      source: warehouse_rtdetr_model
+      path:   rtdetr_warehouse_v1.0.2.fp16.onnx
     videos:
       source: warehouse_dataset
       path:   vss-warehouse-app-data/videos/nv-warehouse-4cams
@@ -141,17 +160,17 @@ usecases:
   warehouse-3d:
     description: 3D warehouse multi-camera BEV (Sparse4D, 6 classes)
     model:
-      source: warehouse_dataset
-      path:   vss-warehouse-app-data/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx
+      source: warehouse_sparse4d_model
+      path:   sparse4d_warehouse_v2.2_r50.onnx
     videos:
       source: warehouse_dataset
       path:   vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic
     labels:
-      source: warehouse_dataset
-      path:   vss-warehouse-app-data/models/sparse4d/ov/labels.txt
+      source: warehouse_sparse4d_repo_assets
+      path:   deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt
     anchor:
-      source: warehouse_dataset
-      path:   vss-warehouse-app-data/models/sparse4d/ov/_ov_kmeans900_v2.2.npy
+      source: warehouse_sparse4d_repo_assets
+      path:   deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy
     # `calibration.json` is OPTIONAL in the NGC resource. apply-config picks
     # the NGC copy if `find` discovers one, otherwise falls back to the
     # in-image default at <paths.configs>/warehouse-3d/calibration.json.
