@@ -23,19 +23,17 @@ The option surface splits the same three ways ``search`` did:
 
 Only ``run`` is implemented here. ``status``/``get``/``list`` are pure reads
 against the memory index (§6.2), so they are inherited from
-:class:`~vss_cli.group.CommandGroup` and answer from ``ctx.memory`` once the
-memory tier lands -- which is also what replaces the interim subprocess bridge
-below. There is deliberately no ``recall``: fetching one record by id *is*
-``get``, and querying recent ones *is* ``list``.
+:class:`~vss_cli.group.CommandGroup` and answer from ``ctx.memory``. There is
+deliberately no ``recall``: fetching one record by id *is* ``get``, and
+querying recent ones *is* ``list``. Persistence writes go through the in-process
+``vss_core.memory`` service (write-ahead lifecycle + ``SummaryAdapter``).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
-import os
-from pathlib import Path
 import secrets
-import subprocess
 import time
 from typing import TYPE_CHECKING
 from typing import Any
@@ -48,11 +46,13 @@ from pydantic import model_validator
 
 from . import config as config_mod
 from . import params as params_mod
+from ._jobs import JobLifecycle
 from .exits import Exit
 from .group import CommandGroup
 from .group import Context
 from .group import InvalidInput
 from .group import Result
+from .memory_access import require_memory_service
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -70,18 +70,6 @@ _JOB_DOMAIN = "summarize"
 
 #: Crockford base32, for ULID job ids.
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-
-#: Entrypoint of the unified-memory tool, relative to its checkout.
-_PERSIST_SCRIPT = "scripts/persist_summary.py"
-
-#: The memory tool reads its own configuration from these; the values come
-#: from the recorded deployment rather than from flags.
-_ENV_ES_ENDPOINT = "VSS_MEMORY_ELASTICSEARCH_ENDPOINT"
-_ENV_ES_INDEX = "VSS_MEMORY_ELASTICSEARCH_INDEX"
-_ENV_EMBED_ENDPOINT = "VSS_MEMORY_EMBEDDING_ENDPOINT"
-_ENV_EMBED_MODEL = "VSS_MEMORY_EMBEDDING_MODEL"
-_ENV_EMBED_DIMENSIONS = "VSS_MEMORY_EMBEDDING_DIMENSIONS"
-_ENV_TOKENIZER_VOCAB = "VSS_MEMORY_TOKENIZER_VOCAB_PATH"
 
 
 class SummarizeInput(BaseModel):
@@ -160,15 +148,6 @@ class SummarizeOptions(BaseModel):
         description="HTTP timeout for the (long-running) summarization request.",
     )
     memory_index: str | None = Field(None, description="Elasticsearch index for unified memory.")
-    memory_tool_dir: str | None = Field(
-        None,
-        description="Path to tools/vss-unified-memory (auto-detected from the checkout when omitted).",
-    )
-    embedding_dimensions: int | None = Field(None, ge=1, description="Embedding vector size used by the memory write.")
-    tokenizer_vocab_path: str | None = Field(
-        None,
-        description="Path to the embedding model's vocab.txt, required by the memory write.",
-    )
 
 
 def _ulid() -> str:
@@ -197,7 +176,7 @@ def _default_model(deployment: config_mod.Deployment) -> str:
 
 
 def _summary_content(completion: dict[str, Any]) -> dict[str, Any]:
-    """Map an LVS completion into the memory write's ``content`` contract.
+    """Map an LVS completion into summary text + events for the memory adapter.
 
     Structured output yields a JSON object with ``video_summary`` and
     ``events``; prose is wrapped as a summary with no events so it stays
@@ -223,100 +202,40 @@ def _summary_content(completion: dict[str, Any]) -> dict[str, Any]:
     return {"video_summary": text if isinstance(text, str) else json.dumps(text), "events": []}
 
 
-def _memory_tool_dir(options: SummarizeOptions) -> Path:
-    """Locate the unified-memory checkout, or raise with the flag that fixes it."""
-    if options.memory_tool_dir:
-        return Path(options.memory_tool_dir)
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / "tools" / "vss-unified-memory"
-        if (candidate / _PERSIST_SCRIPT).is_file():
-            return candidate
-    raise config_mod.ConfigError(
-        "could not locate tools/vss-unified-memory; pass --memory-tool-dir, or --no-persist to skip the memory write"
-    )
+def _memory_input(inputs: SummarizeInput, options: SummarizeOptions, model: str) -> Any:
+    from vss_core.memory.adapters import SummaryAdapter
 
-
-def _memory_env(deployment: config_mod.Deployment, options: SummarizeOptions) -> dict[str, str]:
-    """Configuration for the memory write, taken from the recorded deployment.
-
-    Endpoints and the embedding model are what the backends reported about
-    themselves. Only the values ``vss configure`` cannot discover -- the index
-    name, the tokenizer vocabulary -- remain caller-supplied.
-    """
-    env = dict(os.environ)
-    env[_ENV_ES_ENDPOINT] = deployment.endpoint("elasticsearch")
-    env[_ENV_EMBED_ENDPOINT] = deployment.endpoint("rt_embed")
-    embed = deployment.services.get("rt_embed")
-    if embed and embed.models:
-        env[_ENV_EMBED_MODEL] = embed.models[0]
-    for value, key in (
-        (options.memory_index, _ENV_ES_INDEX),
-        (options.embedding_dimensions, _ENV_EMBED_DIMENSIONS),
-        (options.tokenizer_vocab_path, _ENV_TOKENIZER_VOCAB),
-    ):
-        if value is not None:
-            env[key] = str(value)
-    return env
-
-
-def _persist(
-    deployment: config_mod.Deployment,
-    options: SummarizeOptions,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Write one summary to unified memory.
-
-    An interim bridge: it drives the memory tool's own entrypoint over stdin
-    JSON so the embedding and Elasticsearch dependencies stay isolated in that
-    tool's virtualenv. When ``vss_core`` ships the memory module this becomes
-    an in-process call through ``ctx.memory``, and the subprocess goes away.
-    """
-    script = _memory_tool_dir(options) / _PERSIST_SCRIPT
-    if not script.is_file():
-        raise config_mod.ConfigError(f"memory entrypoint not found: {script}")
-    try:
-        completed = subprocess.run(
-            [str(script)],
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            env=_memory_env(deployment, options),
-            check=False,
-        )
-    except OSError as error:
-        raise config_mod.ConfigError(f"failed to execute {script}: {error}") from error
-
-    stdout = completed.stdout.strip()
-    if not stdout:
-        raise RuntimeError(f"memory write produced no output (exit {completed.returncode}): {completed.stderr[:500]}")
-    try:
-        parsed = json.loads(stdout.splitlines()[-1])
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"memory write returned non-JSON output: {stdout[:500]}") from error
-    if not isinstance(parsed, dict):
-        raise RuntimeError(f"memory write returned non-object JSON: {stdout[:500]}")
-    return parsed
-
-
-def _persist_payload(
-    inputs: SummarizeInput,
-    options: SummarizeOptions,
-    completion: dict[str, Any],
-    model: str,
-) -> dict[str, Any]:
     media_ref: dict[str, Any] = {"source": options.media_source}
     if inputs.id:
         media_ref["stream_id"] = inputs.id
     if options.media_name:
         media_ref["name"] = options.media_name
-    return {
-        "completion_id": completion.get("id"),
-        "video_id": options.video_id or inputs.id,
-        "created": completion.get("created"),
-        "model": completion.get("model") or model,
-        "media_ref": media_ref,
-        "content": _summary_content(completion),
-    }
+    params = inputs.model_dump(exclude_none=True, exclude_defaults=True)
+    params["model"] = model
+    return SummaryAdapter.build_input(
+        prompt=inputs.prompt,
+        video_id=options.video_id or inputs.id,
+        media_ref=media_ref,
+        params=params,
+    )
+
+
+def _memory_output(completion: dict[str, Any], model: str) -> Any:
+    from vss_core.memory.adapters import SummaryAdapter
+
+    content = _summary_content(completion)
+    answer = content.get("video_summary")
+    events = content.get("events") if isinstance(content.get("events"), list) else []
+    return SummaryAdapter.build_output(
+        answer=str(answer) if answer is not None else None,
+        events=list(events),
+        ext={
+            "completion_id": completion.get("id"),
+            "created": completion.get("created"),
+            "model": completion.get("model") or model,
+            "video_summary": answer,
+        },
+    )
 
 
 class SummarizeGroup(CommandGroup):
@@ -336,6 +255,8 @@ class SummarizeGroup(CommandGroup):
         # library failure to an exit code by class name, so a plain
         # ConnectionError would surface as exit 1 with a traceback.
         from vss_core._foundation.errors import BackendUnreachableError
+        from vss_core.memory.adapters import SummaryAdapter
+        from vss_core.memory.models import MemoryError
 
         if not isinstance(inputs, SummarizeInput):  # pragma: no cover - the framework builds this
             raise TypeError(f"expected SummarizeInput, got {type(inputs).__name__}")
@@ -354,10 +275,34 @@ class SummarizeGroup(CommandGroup):
         request["model"] = model
 
         job_id = _mint_job_id()
+        service = None
+        lifecycle: JobLifecycle | None = None
+        if options.persist:
+            if ctx.memory is not None and getattr(ctx.memory, "service", None) is not None:
+                service = ctx.memory.service
+            else:
+                service = require_memory_service(deployment, memory_index=options.memory_index)
+            lifecycle = JobLifecycle.start(
+                group="summary",
+                adapter=SummaryAdapter(),
+                input_data=_memory_input(inputs, options, model),
+                persist=True,
+                service=service,
+                job_id=job_id,
+                write_submitted=True,
+            )
+            lifecycle.write_running()
+
         url = deployment.endpoint("agent").rstrip("/") + _SUMMARIZE_PATH
         try:
             response = httpx.post(url, json=request, timeout=float(options.request_timeout_seconds))
         except httpx.TimeoutException as error:
+            if lifecycle is not None:
+                with contextlib.suppress(Exception):
+                    lifecycle.write_terminal(
+                        status="timeout",
+                        error=MemoryError(code="timeout", message=str(error)),
+                    )
             # Exit 7 carries the job id as a correlation handle: reconcile with
             # `status` rather than re-running an hour of summarization.
             click.echo(
@@ -366,6 +311,12 @@ class SummarizeGroup(CommandGroup):
             )
             raise SystemExit(int(Exit.TIMEOUT)) from error
         except httpx.HTTPError as error:
+            if lifecycle is not None:
+                with contextlib.suppress(Exception):
+                    lifecycle.write_terminal(
+                        status="failed",
+                        error=MemoryError(code="backend_unreachable", message=str(error)),
+                    )
             raise BackendUnreachableError("lvs", f"unreachable at {url}: {error}") from error
 
         if response.status_code >= 500:
@@ -381,21 +332,25 @@ class SummarizeGroup(CommandGroup):
             raise BackendUnreachableError("lvs", "response was not a JSON object")
 
         body: dict[str, Any] = {"job_id": job_id, "summary": completion}
-        if not options.persist:
+        if not options.persist or lifecycle is None:
             return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
 
         try:
-            receipt = _persist(deployment, options, _persist_payload(inputs, options, completion, model))
+            output = _memory_output(completion, model)
+            record = lifecycle.write_terminal(status="completed", output=output)
         except (config_mod.ConfigError, RuntimeError, ValueError) as error:
             # Never lose the summary the caller already paid for: degrade to
             # partial so only the write is retried, not the whole job.
-            body["persist"] = {"status": "failed", "error": str(error)}
+            body["persist"] = {"status": "failed", "error": str(error), "persisted": False}
             return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
 
-        body["persist"] = receipt
-        # "complete" is the memory tool's terminal write status; anything else
-        # means the summary is in hand but not durably stored.
-        exit_code = Exit.SUCCESS if receipt.get("status") == "complete" else Exit.PARTIAL
+        body["persist"] = {
+            "status": "complete",
+            "persisted": lifecycle.persisted,
+            "job_id": record.job.job_id,
+            "group": record.job.group,
+        }
+        exit_code = Exit.SUCCESS if lifecycle.persisted else Exit.PARTIAL
         return Result(body=body, exit=exit_code, job_id=job_id)
 
 

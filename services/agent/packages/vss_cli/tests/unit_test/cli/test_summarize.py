@@ -19,11 +19,16 @@ import httpx
 import pytest
 
 from vss_cli import config as config_mod
+from vss_cli import memory_access
 from vss_cli import summarize_group
 from vss_cli.exits import Exit
+from vss_cli.memory_access import GroupScopedMemory
 from vss_cli.summarize_group import SUMMARIZE
 from vss_cli.summarize_group import SummarizeInput
 from vss_cli.summarize_group import SummarizeOptions
+from vss_core.memory.service import MemoryService
+from vss_core.memory.store import InMemoryStore
+from vss_core.memory.store import JobFilters
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -95,30 +100,12 @@ def _capture_post(monkeypatch: pytest.MonkeyPatch, response: Any = None) -> dict
     return seen
 
 
-def _memory_tool(tmp_path: Path) -> str:
-    """A checkout layout the persist bridge will accept."""
-    script = tmp_path / "memtool" / summarize_group._PERSIST_SCRIPT
-    script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
-    return str(tmp_path / "memtool")
-
-
-def _capture_persist(monkeypatch: pytest.MonkeyPatch, receipt: Any, returncode: int = 0) -> dict[str, Any]:
-    """Intercept the memory-tool subprocess, recording payload and environment."""
-    seen: dict[str, Any] = {}
-
-    class _Completed:
-        def __init__(self) -> None:
-            self.returncode = returncode
-            self.stdout = receipt if isinstance(receipt, str) else json.dumps(receipt)
-            self.stderr = ""
-
-    def fake_run(argv: list[str], **kwargs: Any) -> Any:
-        seen.update(argv=argv, payload=json.loads(kwargs["input"]), env=kwargs["env"])
-        return _Completed()
-
-    monkeypatch.setattr(summarize_group.subprocess, "run", fake_run)
-    return seen
+def _install_memory(monkeypatch: pytest.MonkeyPatch) -> InMemoryStore:
+    """Wire an in-process memory store through the framework Context seam."""
+    store = InMemoryStore()
+    facade = GroupScopedMemory(MemoryService(store))
+    monkeypatch.setattr(memory_access, "_TEST_MEMORY", facade)
+    return store
 
 
 def _run(*argv: str) -> Any:
@@ -134,7 +121,10 @@ def _run_via_root(*argv: str) -> int:
     """
     from vss_cli import main
 
-    return main(["summarize", "run", *argv])
+    try:
+        return main(["summarize", "run", *argv])
+    except SystemExit as exc:  # framework maps typed failures to SystemExit
+        return int(exc.code) if isinstance(exc.code, int) else 1
 
 
 # --------------------------------------------------------------------------
@@ -321,60 +311,56 @@ def test_timeout_exits_seven_and_names_the_job(
 
 def test_no_persist_skips_the_memory_write(configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch) -> None:
     _capture_post(monkeypatch)
-    seen = _capture_persist(monkeypatch, {"status": "complete"})
+    store = _install_memory(monkeypatch)
     result = _run("--id", "v1", "--no-persist")
     assert result.exit_code == 0
-    assert seen == {}
+    assert store.list_jobs(JobFilters()) == []
     assert "persist" not in json.loads(result.output)
 
 
-def test_persist_is_configured_from_the_recorded_deployment(
-    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_persist_writes_summary_records_in_process(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The memory write inherits endpoints nobody typed.
-
-    Elasticsearch, RT-Embed and the embedding model are what those services
-    reported to ``vss configure``; only the tokenizer vocabulary, which no
-    backend advertises, stays caller-supplied.
-    """
+    """Write-ahead lifecycle lands a completed summary record in unified memory."""
     _capture_post(monkeypatch)
-    seen = _capture_persist(monkeypatch, {"status": "complete", "summary_id": "summary:v1"})
-    result = _run("--id", "v1", "--memory-tool-dir", _memory_tool(tmp_path))
+    store = _install_memory(monkeypatch)
+    result = _run("--id", "v1")
     assert result.exit_code == 0, result.output
-
-    env = seen["env"]
-    assert env[summarize_group._ENV_ES_ENDPOINT] == f"{BASE_URL}/elasticsearch"
-    assert env[summarize_group._ENV_EMBED_ENDPOINT] == f"{BASE_URL}/rtvi-embed"
-    assert env[summarize_group._ENV_EMBED_MODEL] == "bge-base-en-v1.5"
-    assert seen["payload"]["video_id"] == "v1"
-    assert seen["payload"]["media_ref"]["stream_id"] == "v1"
-    assert json.loads(result.output)["persist"]["summary_id"] == "summary:v1"
+    body = json.loads(result.output)
+    assert body["persist"]["status"] == "complete"
+    assert body["persist"]["persisted"] is True
+    records = store.list_jobs(JobFilters())
+    assert len(records) == 1
+    assert records[0].job.group == "summary"
+    assert records[0].job.status == "completed"
+    assert records[0].job.job_id == body["job_id"]
+    assert records[0].input.sensors[0].id == "v1"
 
 
 def test_structured_output_becomes_summary_and_events(
-    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     structured = {"video_summary": "a forklift crosses", "events": [{"description": "forklift enters"}]}
     _capture_post(monkeypatch, _Response(_completion(structured)))
-    seen = _capture_persist(monkeypatch, {"status": "complete"})
-    assert _run("--id", "v1", "--memory-tool-dir", _memory_tool(tmp_path)).exit_code == 0
-    content = seen["payload"]["content"]
-    assert content["video_summary"] == "a forklift crosses"
-    assert content["events"] == [{"description": "forklift enters"}]
+    store = _install_memory(monkeypatch)
+    assert _run("--id", "v1").exit_code == 0
+    record = store.list_jobs(JobFilters())[0]
+    assert record.output.answer == "a forklift crosses"
+    assert record.output.ext["events"] == [{"description": "forklift enters"}]
 
 
-def test_prose_output_is_still_persistable(
-    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_prose_output_is_still_persistable(configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch) -> None:
     """Unstructured VLM output must not block the write; it stores as a summary with no events."""
     _capture_post(monkeypatch, _Response(_completion("just prose")))
-    seen = _capture_persist(monkeypatch, {"status": "complete"})
-    assert _run("--id", "v1", "--memory-tool-dir", _memory_tool(tmp_path)).exit_code == 0
-    assert seen["payload"]["content"] == {"video_summary": "just prose", "events": []}
+    store = _install_memory(monkeypatch)
+    assert _run("--id", "v1").exit_code == 0
+    record = store.list_jobs(JobFilters())[0]
+    assert record.output.answer == "just prose"
+    assert record.output.ext.get("events") in (None, [])
 
 
 def test_failed_write_is_partial_and_keeps_the_summary(
-    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Exit 6 means retry the write, not the job.
 
@@ -382,30 +368,40 @@ def test_failed_write_is_partial_and_keeps_the_summary(
     make a storage failure cost a second hour of VLM time.
     """
     _capture_post(monkeypatch)
-    _capture_persist(monkeypatch, "not json at all")
-    result = _run("--id", "v1", "--memory-tool-dir", _memory_tool(tmp_path))
+    store = _install_memory(monkeypatch)
+    real_upsert = store.upsert
+
+    def boom(record: Any) -> Any:
+        if record.job.status == "completed":
+            raise RuntimeError("disk full")
+        return real_upsert(record)
+
+    monkeypatch.setattr(store, "upsert", boom)
+    result = _run("--id", "v1")
     assert result.exit_code == int(Exit.PARTIAL), result.output
     body = json.loads(result.output)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
 
 
-def test_incomplete_write_is_partial(
-    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_missing_elasticsearch_on_persist_is_configuration_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Persist needs ES; without it the call fails when building the memory service."""
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(
+        config_mod.Deployment(
+            base_url=BASE_URL,
+            services={
+                "agent": config_mod.Service(url=f"{BASE_URL}/api"),
+                "rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["cosmos-reason"]),
+            },
+        )
+    )
     _capture_post(monkeypatch)
-    _capture_persist(monkeypatch, {"status": "degraded"})
-    result = _run("--id", "v1", "--memory-tool-dir", _memory_tool(tmp_path))
-    assert result.exit_code == int(Exit.PARTIAL), result.output
-
-
-def test_absent_memory_tool_is_partial_not_a_crash(
-    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _capture_post(monkeypatch)
-    result = _run("--id", "v1", "--memory-tool-dir", str(tmp_path / "nowhere"))
-    assert result.exit_code == int(Exit.PARTIAL), result.output
-    assert "persist" in json.loads(result.output)
+    result = _run("--id", "v1")
+    # ConfigError from require_memory_service surfaces via framework as exit 4.
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
 
 
 # --------------------------------------------------------------------------

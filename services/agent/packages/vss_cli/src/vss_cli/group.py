@@ -131,8 +131,10 @@ def _exit_for(exc: Exception) -> Exit | None:
     by_name = {
         "InvalidInputError": Exit.INVALID_INPUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
+        "MemoryNotFoundError": Exit.NOT_FOUND,
         "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,
         "ConfigurationError": Exit.CONFIGURATION,
+        "ConfigError": Exit.CONFIGURATION,
         "NoFinalResultError": Exit.PARTIAL,
     }
     for klass in type(exc).__mro__:
@@ -178,20 +180,21 @@ def _require_services(action: Action, ctx: Context) -> None:
 
 
 class MemoryUnavailable(click.ClickException):
-    """Raised by the inherited read verbs until the memory tier lands.
+    """Raised by the inherited read verbs when no memory backend is wired.
 
-    Deliberately explicit. ``status``/``get``/``list`` are memory reads by
-    definition (§6.2), and ``vss_core`` ships no memory module yet, so they
-    cannot work. Failing with a named cause beats three verbs that appear to
-    work and silently return nothing.
+    ``status``/``get``/``list`` are memory reads by definition (§6.2). When the
+    deployment has no Elasticsearch route (or none is configured yet), those
+    verbs cannot work. Failing with a named cause beats three verbs that appear
+    to work and silently return nothing.
     """
 
     exit_code = int(Exit.CONFIGURATION)
 
     def __init__(self, verb: str) -> None:
         super().__init__(
-            f"`{verb}` reads the unified memory index, which this build does not ship yet "
-            f"(vss_core has no memory module). Only `run` is available on this deployment."
+            f"`{verb}` reads the unified memory index, which needs a configured "
+            f"elasticsearch route (run `vss configure --base-url <origin>`). "
+            f"Only `run` is available without memory."
         )
 
 
@@ -341,7 +344,15 @@ class CommandGroup(ABC):
 
         def callback(**values: Any) -> None:
             ctx = _context_from(values)
-            _emit(fn(values["job_id"], ctx), ctx)
+            try:
+                result = fn(values["job_id"], ctx)
+            except Exception as exc:
+                code = _exit_for(exc)
+                if code is None:
+                    raise
+                click.echo(f"vss: {exc}", err=True)
+                raise SystemExit(int(code)) from exc
+            _emit(result, ctx)
 
         return click.Command(
             name=verb,
@@ -361,7 +372,15 @@ class CommandGroup(ABC):
         def callback(**values: Any) -> None:
             ctx = _context_from(values)
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
-            _emit(owner.list(selected, ctx), ctx)
+            try:
+                result = owner.list(selected, ctx)
+            except Exception as exc:
+                code = _exit_for(exc)
+                if code is None:
+                    raise
+                click.echo(f"vss: {exc}", err=True)
+                raise SystemExit(int(code)) from exc
+            _emit(result, ctx)
 
         return click.Command(
             name="list",
@@ -380,7 +399,14 @@ def _context_from(values: dict[str, Any]) -> Context:
     The recorded deployment is the only source of endpoints. When none is
     recorded ``deployment`` is None, and :func:`_require_services` turns that
     into exit 4 naming the command that fixes it.
+
+    ``memory`` is populated when the deployment exposes Elasticsearch so the
+    inherited ``status``/``get``/``list`` verbs can read the ``vss-memory``
+    index. When ES is absent, ``memory`` stays ``None`` and those verbs raise
+    :class:`MemoryUnavailable` as before.
     """
+    from .memory_access import memory_from_deployment
+
     deployment: config_mod.Deployment | None
     config_error = ""
     try:
@@ -396,6 +422,7 @@ def _context_from(values: dict[str, Any]) -> Context:
         deployment=deployment,
         pretty=values.get("pretty"),
         log_level=values.get("log_level") or "WARNING",
+        memory=memory_from_deployment(deployment),
     )
 
 
