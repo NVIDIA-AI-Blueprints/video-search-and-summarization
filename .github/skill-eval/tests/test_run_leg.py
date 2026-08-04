@@ -8,6 +8,7 @@ Run:
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -264,6 +265,9 @@ class TraceUrls(unittest.TestCase):
             results_root = root / "results" / "leg" / "30284131217"
             trial = results_root / "2026-07-27__17-16-47" / "step-7__E6dBECL"
             self._write_result(trial)
+            agent_dir = trial / "agent"
+            agent_dir.mkdir()
+            (agent_dir / "trajectory.json").write_text("CANARYSECRET")
             viewer_root = root / "_viewer"
             orig_viewer = run_leg.VIEWER_ROOT
             run_leg.VIEWER_ROOT = viewer_root
@@ -278,6 +282,7 @@ class TraceUrls(unittest.TestCase):
             # Flattened: the trial sits at the job's top level, with no
             # intervening <date>/ level for the viewer to miss.
             self.assertTrue((job_dir / "step-7__E6dBECL" / "result.json").is_file())
+            self.assertFalse((job_dir / "step-7__E6dBECL" / "agent").exists())
             self.assertFalse((job_dir / "2026-07-27__17-16-47").exists())
             # Copy, not move — the workflow collector still tars results_root.
             self.assertTrue((trial / "result.json").is_file())
@@ -305,6 +310,49 @@ class TraceUrls(unittest.TestCase):
                 run_leg.publish_trace(results_root, invocation, 0.0, "leg", "1")
             )
             self.assertFalse((results_root / "trace-urls.tsv").exists())
+
+    def test_ephemeral_cleanup_removes_only_matching_task_agent_dirs(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-1",
+            chain_key="base_l40s",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            matching = root / "date" / "step-1__trial" / "agent"
+            other = root / "date" / "step-2__trial" / "agent"
+            matching.mkdir(parents=True)
+            other.mkdir(parents=True)
+
+            run_leg._remove_ephemeral_agent_data(root, invocation)
+
+            self.assertFalse(matching.exists())
+            self.assertTrue(other.exists())
+
+
+class TelemetryIsolation(unittest.TestCase):
+    def test_startup_failure_does_not_escape_or_poison_other_managers(self):
+        exited = []
+
+        @contextlib.contextmanager
+        def working():
+            try:
+                yield
+            finally:
+                exited.append(True)
+
+        @contextlib.contextmanager
+        def broken():
+            raise OSError("telemetry unavailable")
+            yield  # pragma: no cover
+
+        with contextlib.ExitStack() as stack:
+            run_leg._enter_telemetry(stack, working(), "working")
+            run_leg._enter_telemetry(stack, broken(), "broken")
+            body_ran = True
+
+        self.assertTrue(body_ran)
+        self.assertEqual(exited, [True])
 
 
 class PoolCandidates(unittest.TestCase):

@@ -161,6 +161,8 @@ def _read_capped(proc: subprocess.Popen, deadline_sec: float) -> str:
         chunks.append(chunk)
     with contextlib.suppress(Exception):
         proc.wait(timeout=max(1.0, end - time.monotonic()))
+    with contextlib.suppress(Exception):
+        proc.stdout.close()
     return "".join(chunks)
 
 
@@ -208,7 +210,18 @@ def _remote(instance: str, command: str, timeout: int = EXEC_TIMEOUT_SEC,
                 proc.communicate(timeout=10)
             continue
         except (OSError, ValueError):
+            # A failed read must not leave the transport (or a descendant ssh)
+            # alive until the remote deadline. Telemetry owns this process.
+            if proc.poll() is None:
+                with contextlib.suppress(ProcessLookupError, OSError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+                with contextlib.suppress(Exception):
+                    proc.wait(timeout=10)
             continue
+        finally:
+            with contextlib.suppress(Exception):
+                if proc.stdout is not None:
+                    proc.stdout.close()
         if proc.returncode == 0:
             # `brev exec` echoes the instance name on its own line after the
             # command output; drop it so callers get only the payload.

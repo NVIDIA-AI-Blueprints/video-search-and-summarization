@@ -681,14 +681,13 @@ The `<leg-slug>` keeps concurrent legs from colliding on one viewer
 entry.
 
 **`run_leg.py` does this publish for you** (`publish_trace`), after
-every trial including timed-out ones. It copies (never moves) the
-date dir's *contents* into a pre-made job dir — the workflow's
+every trial that produced a `result.json`. It copies (never moves) the
+date dir's sanitized contents into a pre-made job dir — the workflow's
 "Collect results" step runs *after* this agent and tars `$RES` for
 the artifact, so a `mv` would upload an artifact with no
-`result.json`. Copying keeps `$RES` intact for the collector (which
-excludes `agent/` from the public tarball) while the `_viewer` copy
-keeps `agent/` for the live Harbor Trace tab. You do not run `cp`
-yourself.
+`result.json`. Raw `agent/` directories are ephemeral inputs to the
+allowlisted hardware timeline and are excluded from both the `_viewer`
+copy and the public tarball. You do not run `cp` yourself.
 
 ### Trace URLs — read them, never build them
 

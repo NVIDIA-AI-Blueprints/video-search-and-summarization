@@ -50,6 +50,16 @@ except Exception:  # noqa: BLE001 - telemetry is never load-bearing
     # sampler must degrade to "no trace", never to a failed leg.
     gpu_trace = None
 
+try:
+    import system_trace
+except Exception:  # noqa: BLE001 - telemetry is never load-bearing
+    system_trace = None
+
+try:
+    import agent_timeline
+except Exception:  # noqa: BLE001 - reporting is never load-bearing
+    agent_timeline = None
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -691,11 +701,23 @@ def publish_trace(
     job_name = f"{leg_slug}__{run_id}__{date_dir.name}"
     viewer_job = VIEWER_ROOT / job_name
     viewer_job.mkdir(parents=True, exist_ok=True)
+    # Raw agent data is intentionally ephemeral. Remove anything retained by
+    # an older copy before refreshing this viewer job, and exclude all agent
+    # directories from the copy itself. The second guard matters when timeline
+    # generation failed before it could clean the source trial.
+    for agent_dir in viewer_job.rglob("agent"):
+        if agent_dir.is_dir():
+            shutil.rmtree(agent_dir)
     # Copy (never move) the date dir's *contents*: the workflow's "Collect
     # results" step runs after this and tars results_root for the artifact,
     # and copying the dir itself would nest a later trial under
     # <job>/<date>/ where the viewer cannot see it.
-    shutil.copytree(date_dir, viewer_job, dirs_exist_ok=True)
+    shutil.copytree(
+        date_dir,
+        viewer_job,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("agent"),
+    )
     url = trace_url(trial_dir / "result.json", job_name)
     if url:
         with (results_root / "trace-urls.tsv").open("a") as handle:
@@ -707,6 +729,39 @@ def publish_trace(
             flush=True,
         )
     return url
+
+
+def _remove_ephemeral_agent_data(
+    results_root: Path, invocation: HarborInvocation
+) -> None:
+    """Remove raw agent directories for this task before publish/archive."""
+    for agent_dir in results_root.glob(
+        f"*/{invocation.include_task_name}__*/agent"
+    ):
+        with contextlib.suppress(OSError):
+            shutil.rmtree(agent_dir)
+
+
+def _enter_telemetry(
+    stack: contextlib.ExitStack, manager: object, label: str
+) -> None:
+    """Enter an optional telemetry manager without affecting the eval."""
+    try:
+        stack.enter_context(manager)  # type: ignore[arg-type]
+    except Exception as exc:  # noqa: BLE001 - telemetry is never load-bearing
+        print(f"[run-leg] {label} startup failed: {exc!r}; leg continues", flush=True)
+
+
+def _telemetry_token(
+    run_id: str, spec_stem: str, platform: str, step: int, chain: str
+) -> str:
+    if gpu_trace is not None:
+        token_builder = getattr(gpu_trace, "_token", None)
+        if callable(token_builder):
+            return token_builder(run_id, spec_stem, platform, step, chain)
+    head = _safe_part(f"{run_id}-{spec_stem}-{platform}")[:100]
+    tail = f"-{_safe_part(chain)}" if chain else ""
+    return f"{head}{tail}-step{step}"
 
 
 def _reward_value(reward: str | None) -> float:
@@ -801,29 +856,78 @@ def run_invocations(
 
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
+        step = invocation.step_index or 1
+        chain = str(invocation.chain_key or invocation.include_task_name or "")
         # Sample the box's GPUs for exactly this harbor invocation. Per-step,
         # not per-leg: step-1 pays the cold deploy and later steps reuse it, so
         # one trace spanning both would average away the difference that
         # matters. The context manager is a no-op if tracing is disabled or the
         # box is unreachable, and it never raises.
-        if gpu_trace is not None:
-            with gpu_trace.trace(
-                instance,
-                results_root,
-                spec_stem=spec_stem,
-                platform=platform,
-                step=invocation.step_index or 1,
-                # Two chains of one leg can share a step index, and without
-                # this they wrote the same trace file and the second silently
-                # replaced the first.
-                chain=str(invocation.chain_key or invocation.include_task_name or ""),
-                declared_gpu_count=declared_gpu_count,
-                skill=os.environ.get("EVAL_SKILL", ""),
-                harbor_timeout_sec=harbor_timeout_sec,
-            ):
-                rc = run_command(cmd, env, harbor_timeout_sec)
-        else:
+        with contextlib.ExitStack() as telemetry:
+            if gpu_trace is not None:
+                _enter_telemetry(telemetry, gpu_trace.trace(
+                    instance,
+                    results_root,
+                    spec_stem=spec_stem,
+                    platform=platform,
+                    step=step,
+                    # Two chains of one leg can share a step index, and without
+                    # this they wrote the same trace file and the second silently
+                    # replaced the first.
+                    chain=chain,
+                    declared_gpu_count=declared_gpu_count,
+                    skill=os.environ.get("EVAL_SKILL", ""),
+                    harbor_timeout_sec=harbor_timeout_sec,
+                ), "GPU telemetry")
+            if system_trace is not None:
+                _enter_telemetry(telemetry, system_trace.trace(
+                    instance,
+                    results_root,
+                    spec_stem=spec_stem,
+                    platform=platform,
+                    step=step,
+                    chain=chain,
+                    skill=os.environ.get("EVAL_SKILL", ""),
+                    harbor_timeout_sec=harbor_timeout_sec,
+                ), "system telemetry")
             rc = run_command(cmd, env, harbor_timeout_sec)
+        finished_at = time.time()
+
+        # The trajectory is consumed only as an ephemeral source. The generated
+        # comparison contains allowlisted labels and aggregate numeric metrics:
+        # no messages, observations, command arguments, environments, or file
+        # contents. Failure is reporting-only and cannot change the eval verdict.
+        if agent_timeline is not None:
+            try:
+                trace_token = _telemetry_token(
+                    run_id, spec_stem, platform, step, chain
+                )
+                timeline_dir = agent_timeline.generate(
+                    results_root,
+                    include_task_name=invocation.include_task_name,
+                    trace_token=trace_token,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    metadata={
+                        "run_id": run_id,
+                        "skill": os.environ.get("EVAL_SKILL", ""),
+                        "spec_stem": spec_stem,
+                        "platform": platform,
+                        "step": step,
+                        "chain": chain,
+                        "agent": agent,
+                        "model": model,
+                        "instance": instance,
+                    },
+                )
+                if timeline_dir:
+                    print(f"[run-leg] hardware timeline: {timeline_dir}", flush=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[run-leg] timeline generation failed: {exc!r}", flush=True)
+            finally:
+                _remove_ephemeral_agent_data(results_root, invocation)
+        else:
+            _remove_ephemeral_agent_data(results_root, invocation)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
