@@ -92,7 +92,9 @@ each endpoint by the vantage that uses it:
   live proxy handed to the consumers — are host-reachable `$HOST_IP` URLs produced
   by those services: **read** them, don't build them. VIOS assigns the RTSP port
   from its pool (`30554–30564`) at registration, so only VIOS knows the exact value
-  (Step 1).
+  (Step 1). The upload equivalent is the VIOS `/storage/file/<streamId>` URL —
+  likewise consumer-reachable via `vst-ingress` / `$HOST_IP:<vst-ingress-port>`,
+  **not** loopback.
 
 ## Step 1 — register the source, then resolve its consumer URL
 
@@ -108,8 +110,11 @@ PUT http://localhost:<vios-port>/vst/api/v1/storage/file/<filename>?timestamp=20
 ```
 
 `timestamp` anchors the storage timeline (see the date rule). A bare upload stores
-bytes only — no detections or embeddings. URL-taking consumers use the VIOS storage
-URL for `<sensorId>`; RT-VLM instead takes the file via `/v1/files` (Step 2), so it
+bytes only — no detections or embeddings. URL-taking consumers (RT-CV, RT-Embed) take
+the VIOS `/storage/file/<streamId>` **HTTP** URL (read the timeline first per the date
+rule; params in `integrate-vios-service.md`) — never a filesystem path or `file://`:
+RT-Embed gates `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by default), and RT-CV
+consumes over HTTP too. RT-VLM instead takes the file via `/v1/files` (Step 2), so it
 needs no URL. There is no live proxy on this path.
 
 **Live (RTSP).** Register the RTSP URL — an external camera as-is, or a local file
