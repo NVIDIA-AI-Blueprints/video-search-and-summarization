@@ -34,7 +34,7 @@ app data path (and optional image overrides):
 ```bash
 export VSS_DATA_DIR=/path/to/vss-warehouse-app-data
 # optional:
-export SDR_MW_L_IMAGE=nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.3.3-test-2026-08-03
+export SDR_MW_L_IMAGE=nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2
 ```
 
 Optional host-port overrides, useful when a local service already uses one of

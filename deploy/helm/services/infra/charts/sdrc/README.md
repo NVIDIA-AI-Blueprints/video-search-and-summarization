@@ -48,8 +48,8 @@ dependencies:
 sdrc:
   enabled: true
   image:
-    repository: nvcr.io/nvidia/vss-core/sdr-mw-l
-    tag: 3.2.0
+    repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
+    tag: 3.3.3-2026.08.2
   imagePullSecrets:
     - name: ngc-docker-reg-secret
   service:
