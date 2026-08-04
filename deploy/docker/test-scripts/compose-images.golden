@@ -31,7 +31,7 @@ deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
-deploy/docker/services/infra/sdrc/docker-compose.yaml nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10
+deploy/docker/services/infra/sdrc/docker-compose.yaml nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2
 deploy/docker/services/infra/sdrc/docker-compose.yaml redis:8.6.2-alpine
 deploy/docker/services/monitoring/compose.yml docker.io/grafana/grafana:13.1.1-ubuntu
 deploy/docker/services/monitoring/compose.yml docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
