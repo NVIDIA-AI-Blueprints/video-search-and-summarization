@@ -1793,16 +1793,26 @@ def reprovisionStreamRedis(k8swlob_name, data, originalJson, parent_context):
 
 
 def _renew_provision_lease_until_stopped(
-    stream_id, lease_owner, lease_ttl, stop_event
+    stream_id, lease_owner, lease_ttl, stop_event, lease_lost_event=None
 ):
+    """Renew the provision lease until stopped, or signal abort if ownership is lost.
+
+    When renew returns False the Redis key has expired or been stolen. Setting
+    ``lease_lost_event`` tells the in-flight add-stream worker to stop and roll
+    back so another replica cannot treat the active reservation as an orphan and
+    place the same stream again.
+    """
     interval = max(1.0, lease_ttl / 3.0)
     while not stop_event.wait(interval):
         try:
             if not cfg.renewProvisionLease(stream_id, lease_owner, lease_ttl):
                 app.logger.error(
-                    "Lost provision lease while stream %s is still in flight",
+                    "Lost provision lease while stream %s is still in flight; "
+                    "signaling add-stream worker to abort",
                     stream_id,
                 )
+                if lease_lost_event is not None:
+                    lease_lost_event.set()
                 return
         except Exception:
             app.logger.exception(
@@ -1823,12 +1833,55 @@ def _finish_provision_lease(
         )
 
 
+def _abort_provision_after_lease_loss(
+    podInfoItm, config_data, wl_id,
+    do_workload_spec_in_thread_first=False, rollback_workload_spec=False,
+    added_on_pod=False,
+):
+    """Stop an in-flight add after lease loss: undo pod add if needed and free the slot."""
+    app.logger.error(
+        "Aborting provision for stream %s on pod %s after losing provision lease "
+        "(added_on_pod=%s)",
+        wl_id,
+        podInfoItm.get("podName"),
+        added_on_pod,
+    )
+    if added_on_pod:
+        try:
+            pc.delete(podInfo=podInfoItm, configData=config_data)
+        except Exception:
+            app.logger.exception(
+                "Failed to undo pod add for stream %s after lease loss", wl_id
+            )
+    if do_workload_spec_in_thread_first or rollback_workload_spec:
+        try:
+            cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+        except Exception:
+            app.logger.exception(
+                "Failed to rollback workload spec for stream %s after lease loss",
+                wl_id,
+            )
+    try:
+        redisMsging.message_err(
+            wlobject=wl_object_name,
+            podname=podInfoItm["podName"],
+            id=wl_id,
+            type="critical",
+            status="add_stream_failed",
+        )
+    except Exception:
+        app.logger.exception(
+            "Failed to publish add_stream_failed after lease loss for stream %s",
+            wl_id,
+        )
+
+
 def _run_provision_add_stream_to_pod_tracked(
     key_holder, podInfoItm, data, originalJson, config_data, wl_id, camera_id,
     otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
     do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
     rollback_workload_spec=False, lease_owner=None, lease_stop=None,
-    lease_heartbeat=None,
+    lease_heartbeat=None, lease_lost_event=None,
 ):
     """Thread target that runs _run_provision_add_stream_to_pod and removes self from provision_add_threads."""
     try:
@@ -1838,6 +1891,7 @@ def _run_provision_add_stream_to_pod_tracked(
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
             workload_spec_reserved=workload_spec_reserved,
             rollback_workload_spec=rollback_workload_spec,
+            lease_lost_event=lease_lost_event,
         )
     finally:
         with provision_add_threads_lock:
@@ -1851,7 +1905,7 @@ def _run_provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
     do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
-    rollback_workload_spec=False,
+    rollback_workload_spec=False, lease_lost_event=None,
 ):
     """Run _provision_add_stream_to_pod; used as thread target so exceptions are logged."""
     try:
@@ -1861,6 +1915,7 @@ def _run_provision_add_stream_to_pod(
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
             workload_spec_reserved=workload_spec_reserved,
             rollback_workload_spec=rollback_workload_spec,
+            lease_lost_event=lease_lost_event,
         )
     except Exception:
         if do_workload_spec_in_thread_first or rollback_workload_spec:
@@ -1933,9 +1988,10 @@ def _run_provision_add_stream(
 ):
     """Run add-stream provision synchronously or in a background thread per WDM_PROVISION_ASYNC."""
     lease_stop = Event()
+    lease_lost = Event()
     lease_heartbeat = Thread(
         target=_renew_provision_lease_until_stopped,
-        args=(wl_id, lease_owner, lease_ttl, lease_stop),
+        args=(wl_id, lease_owner, lease_ttl, lease_stop, lease_lost),
         daemon=True,
     )
     try:
@@ -1958,7 +2014,7 @@ def _run_provision_add_stream(
                     otel_carrier, parent_context, k8swlob_name,
                     event_obj_field, span_data, not workload_spec_reserved,
                     workload_spec_reserved, rollback_workload_spec, lease_owner,
-                    lease_stop, lease_heartbeat,
+                    lease_stop, lease_heartbeat, lease_lost,
                 ),
                 daemon=False,
             )
@@ -1995,6 +2051,7 @@ def _run_provision_add_stream(
                 span_data, do_workload_spec_in_thread_first=False,
                 workload_spec_reserved=workload_spec_reserved,
                 rollback_workload_spec=rollback_workload_spec,
+                lease_lost_event=lease_lost,
             )
         except Exception:
             if rollback_workload_spec:
@@ -2010,12 +2067,20 @@ def _provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
     do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
-    rollback_workload_spec=False,
+    rollback_workload_spec=False, lease_lost_event=None,
 ):
     """Perform add-stream RPC, update route mapping and workload spec, optionally call webhook."""
     # Legacy callers that did not reserve before dispatch still add from the worker.
     if do_workload_spec_in_thread_first:
         cfg.addWorkLoadSpec(podInfoItm["podName"], data, originalJson)
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=False,
+        )
+        return
     otel_span, current_ctx = tracing.create_child_span(
         "add", wl_id, podInfoItm, span_data, parent_context, app.config
     )
@@ -2032,6 +2097,16 @@ def _provision_add_stream_to_pod(
         raise
     finally:
         otel_span.end()
+
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        # Add may have landed on the pod; undo before another replica re-places.
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=True,
+        )
+        return
 
     try:
         data["response"] = resp.json()
@@ -2064,6 +2139,16 @@ def _provision_add_stream_to_pod(
         )
         app.logger.error(
             "add operation failed not updating the Route mapping"
+        )
+        return
+
+    # Final lease check before committing route mapping / capacity accounting.
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=True,
         )
         return
 
