@@ -85,6 +85,55 @@ class redisconfig:
         self._redis_lock_mutex = threading.Lock()
         self._loadWorkLoadSpec()
 
+    def _provision_lease_key(self, stream_id):
+        return "{}:provision-lease:{}".format(self.wl_spec_obj, stream_id)
+
+    def tryAcquireProvisionLease(self, stream_id, owner, ttl_seconds):
+        """Acquire a cross-replica lease for one stream provisioning attempt."""
+        return bool(
+            self.redis_connection.set(
+                self._provision_lease_key(stream_id),
+                owner,
+                nx=True,
+                ex=max(1, int(ttl_seconds)),
+            )
+        )
+
+    def renewProvisionLease(self, stream_id, owner, ttl_seconds):
+        """Extend a lease only when it is still owned by this attempt."""
+        script = """
+        if redis.call('get', KEYS[1]) == ARGV[1] then
+            return redis.call('expire', KEYS[1], ARGV[2])
+        end
+        return 0
+        """
+        return bool(
+            self.redis_connection.eval(
+                script,
+                1,
+                self._provision_lease_key(stream_id),
+                owner,
+                max(1, int(ttl_seconds)),
+            )
+        )
+
+    def releaseProvisionLease(self, stream_id, owner):
+        """Release a lease without deleting a newer attempt's lease."""
+        script = """
+        if redis.call('get', KEYS[1]) == ARGV[1] then
+            return redis.call('del', KEYS[1])
+        end
+        return 0
+        """
+        return bool(
+            self.redis_connection.eval(
+                script,
+                1,
+                self._provision_lease_key(stream_id),
+                owner,
+            )
+        )
+
     @contextmanager
     def _workload_spec_lock_hold(self, retry_sleep_sec=None):
         """Acquire Redis workload-spec lock; on timeout wait retry_sleep_sec and retry (no limit)."""
