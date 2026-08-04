@@ -159,7 +159,13 @@ class Config(object):
         os.environ["WDM_WL_ASSIGNING_METHOD"].strip().lower()
         if "WDM_WL_ASSIGNING_METHOD" in os.environ
         and os.environ["WDM_WL_ASSIGNING_METHOD"].strip() != ""
-        else "lru_round_robin"
+        else "sequential"
+    )
+    WDM_PROVISION_LEASE_SECONDS = (
+        int(os.environ["WDM_PROVISION_LEASE_SECONDS"])
+        if "WDM_PROVISION_LEASE_SECONDS" in os.environ
+        and os.environ["WDM_PROVISION_LEASE_SECONDS"].strip() != ""
+        else 120
     )
 
     WDM_CONFIG_URL = (

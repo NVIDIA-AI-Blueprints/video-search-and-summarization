@@ -20,6 +20,7 @@ from ruamel.yaml import YAML
 import redis
 import logging
 import copy
+import time
 from threading import Lock
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,38 @@ class configserver:
         self.y.indent(mapping=4, sequence=4, offset=2)
         self.y.preserve_quotes = True
         self.file_write_lock = Lock()
+        self.provision_lease_lock = Lock()
+        self.provision_leases = {}
         self._loadWorkLoadSpec()
+
+    def tryAcquireProvisionLease(self, stream_id, owner, ttl_seconds):
+        """Acquire a process-local lease for the file-backed configuration."""
+        now = time.monotonic()
+        with self.provision_lease_lock:
+            current = self.provision_leases.get(stream_id)
+            if current is not None and current[1] > now:
+                return False
+            self.provision_leases[stream_id] = (owner, now + ttl_seconds)
+            return True
+
+    def renewProvisionLease(self, stream_id, owner, ttl_seconds):
+        with self.provision_lease_lock:
+            current = self.provision_leases.get(stream_id)
+            if current is None or current[0] != owner:
+                return False
+            self.provision_leases[stream_id] = (
+                owner,
+                time.monotonic() + ttl_seconds,
+            )
+            return True
+
+    def releaseProvisionLease(self, stream_id, owner):
+        with self.provision_lease_lock:
+            current = self.provision_leases.get(stream_id)
+            if current is None or current[0] != owner:
+                return False
+            del self.provision_leases[stream_id]
+            return True
 
     def erasePodSpecContent(self, wl_pod):
         if self.wl_spec is not None and wl_pod in self.wl_spec:
