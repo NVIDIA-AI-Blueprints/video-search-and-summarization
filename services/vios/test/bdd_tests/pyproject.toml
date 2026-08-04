@@ -34,7 +34,6 @@ requests = "^2.34.2"
 aiohttp = "^3.14.3"
 aiortc = "^1.6.0"
 websockets = "^12.0"
-mcp = "^1.29.0"
 httpx = "^0.28.0"
 pydantic = "^2.0"
 minio = "^7.2"
@@ -101,7 +100,6 @@ markers = [
     "sensor_management: marks tests for the sensor management service",
     "storage_management: marks tests for the storage management service",
     "stream_recorder: marks tests for the stream recorder service",
-    "mcp_gateway: marks tests for the MCP gateway service",
     "longrun: marks tests that run for an extended period (skipped by default unless -m longrun is passed)",
     "needs_iptables: marks tests that require iptables / privileged runner",
     "needs_h265: marks tests that require an H.265 source",

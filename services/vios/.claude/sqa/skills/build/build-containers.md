@@ -31,8 +31,6 @@ Which modules to build depends on the deployment target:
 
 > **`--target all` deploys NVStreamer + stream-processor** — the same containers as the default target plus NVStreamer. Use this flag when you want to be explicit about deploying both services together.
 
-`mcp` is never built — it takes too long and the pre-built image is used at deploy time.
-
 `streambridge` is unused and never built.
 
 ---
@@ -191,8 +189,6 @@ cd <PROJECT_ROOT>
 ./build.sh container ingress
 ```
 
-> **Do not build the MCP container** — `./build.sh container mcp` is intentionally skipped. It takes too long and the pre-built image is used instead.
-
 ### UI build fails while installing npm dependencies
 
 The NVStreamer/VIOS UI build runs `npm` inside the toolchain container. On hosts
@@ -204,7 +200,6 @@ names the missing tool rather than the network — do not chase the symptom.
 Check egress to the configured registry and to any host named in the timeout
 before working around it, and prefer an internal mirror. Report any local build
 patch you apply and keep it out of product commits.
-
 ---
 
 ## Other build variants
