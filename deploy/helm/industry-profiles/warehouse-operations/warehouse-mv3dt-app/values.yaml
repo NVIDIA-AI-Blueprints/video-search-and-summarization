@@ -418,9 +418,6 @@ rtvi:
           bufferDurationS: "2.0"
     persistence:
       storageClass: ""
-      # models PVC mounts at /opt/storage and persists TRT engines across restarts.
-      runtimeStorage:
-        enabled: false
       models:
         size: 100Gi
     resources:
