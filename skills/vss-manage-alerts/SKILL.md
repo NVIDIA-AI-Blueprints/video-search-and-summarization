@@ -3,7 +3,7 @@ name: vss-manage-alerts
 description: Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, verification verdicts, on-demand verification, always-on operation, Slack notifications, incident queries, camera onboarding. Not for non-alert analytics.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.1"
   author: "NVIDIA Video Search and Summarization Team <vss-team@nvidia.com>"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -14,9 +14,13 @@ Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, veri
 
 ## Prerequisites
 
-- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
-- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
-- `curl`, `jq`, and Docker available on the caller.
+- Active VSS **alerts** profile reachable either on Docker (`$HOST_IP:9080` Alert
+  Bridge) or through the public Ingress (`VSS_PUBLIC_URL` with `/alert-bridge`).
+- Follow
+  [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md)
+  for the shared `VSS_PUBLIC_URL` contract.
+- `curl` and `jq` on the agent host. Docker Compose mode detection may use
+  `docker` / `generated.env`; Kubernetes must not.
 
 ## Instructions
 
@@ -55,16 +59,58 @@ The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p a
 
 ## Deployment prerequisite
 
-Requires the VSS **alerts** profile on `$HOST_IP` in either `verification` (CV) or `real-time` (VLM) mode.
+Requires the VSS **alerts** profile in either `verification` (CV) or `real-time`
+(VLM) mode. Resolve endpoints once before probing. See
+[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
 
 ```bash
-# Either vss-rtvi-cv (CV mode) OR vss-rtvi-vlm (VLM mode) must be present.
-curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
-  && docker ps --format '{{.Names}}' \
-     | grep -qE '^(vss-rtvi-cv|vss-rtvi-vlm)$'
+# Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public origin.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  # Force public prefixes — ignore leftover Docker AB / VST / VA_MCP host ports.
+  AB="${VSS_PUBLIC_URL}/alert-bridge"
+  VST="${VSS_PUBLIC_URL}"                    # paths append /vst/api/v1/...
+  VST_API_BASE="${VST}/vst/api/v1"
+  VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
+else
+  DEPLOYMENT_KIND="docker"
+  : "${HOST_IP:?Set HOST_IP for Docker Compose or VSS_PUBLIC_URL for Kubernetes}"
+  AB="http://${HOST_IP}:9080"
+  VST="http://${HOST_IP}:30888"
+  VST_API_BASE="${VST}/vst/api/v1"
+  VA_MCP_URL="http://${HOST_IP}:9901"
+fi
 ```
 
-If the probe fails, ask which mode to deploy and hand off to `/vss-deploy-profile -p alerts -m <mode>` (decline → stop; pre-authorized autonomous deploy → run directly with `verification` by default). If it passes, detect the mode per Step 1.
+On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts,
+`docker exec`, `docker inspect`, or `docker ps`. Probe Alert Bridge with
+`curl -sf --max-time 5 "$AB/health"` (`/health`, not `/api/v1/health`).
+
+```bash
+# Reachability — either mode. Alert Bridge must answer before operate work.
+curl -sf --max-time 5 "$AB/health" >/dev/null
+```
+
+Optional Docker-only peer check (skipped on Kubernetes — RT-VLM is not on
+alerts Ingress):
+
+```bash
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+  curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
+    && docker ps --format '{{.Names}}' \
+       | grep -qE '^(vss-rtvi-cv|vss-rtvi-vlm)$'
+fi
+```
+
+If the Alert Bridge probe fails, ask which mode to deploy and hand off to
+`/vss-deploy-profile -p alerts -m <mode>` (decline → stop; pre-authorized
+autonomous deploy → run directly with `verification` by default). If it
+passes, detect the mode per Step 1.
 
 ---
 
@@ -81,29 +127,54 @@ If the probe fails, ask which mode to deploy and hand off to `/vss-deploy-profil
 
 ## Step 1 — Detect the Currently Deployed Mode
 
-Before running any alert workflow, check which mode is live. Use **CV-only** containers as the signal — `vss-rtvi-vlm` is **not** a reliable mode signal because it runs in both modes.
+Before running any alert workflow, check which mode is live.
+
+**Kubernetes** — do not use `docker ps`. Prefer an explicit mode hint, then ask:
 
 ```bash
-# CV verification mode (vss-behavior-analytics + vss-rtvi-cv are CV-only)
-docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "mode=CV"
+# Operator / deploy hint (preferred on Kubernetes).
+# ALERTS_MODE=real-time|verification  or  MODE=2d_vlm|2d_cv
+if [ -n "${ALERTS_MODE:-}" ]; then
+  case "${ALERTS_MODE}" in
+    real-time|realtime|vlm|2d_vlm) echo "mode=VLM" ;;
+    verification|cv|2d_cv) echo "mode=CV" ;;
+  esac
+elif [ "${MODE:-}" = "2d_vlm" ]; then echo "mode=VLM"
+elif [ "${MODE:-}" = "2d_cv" ]; then echo "mode=CV"
+elif [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
+  # Docs walkthrough is real-time; ask rather than guessing from private pods.
+  echo "Ask the user: is this alerts deployment real-time (VLM) or verification (CV)?"
+fi
+```
 
-# VLM real-time mode (no CV pipeline; vss-rtvi-vlm still runs)
-docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics || \
-  docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm && echo "mode=VLM"
+**Docker only** — use CV-only containers as the signal (`vss-rtvi-vlm` runs in
+both modes, so it is **not** a reliable mode signal alone):
+
+```bash
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+  # CV verification mode (vss-behavior-analytics + vss-rtvi-cv are CV-only)
+  docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "mode=CV"
+
+  # VLM real-time mode (no CV pipeline; vss-rtvi-vlm still runs)
+  docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics || \
+    docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm && echo "mode=VLM"
+fi
 ```
 
 If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi-vlm`).
 If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
-If neither matches, the alerts profile is not deployed — direct the user to the `vss-deploy-profile` skill.
+If neither matches on Docker, the alerts profile is not deployed — direct the user to the `vss-deploy-profile` skill.
 
-Alternative signal (preferred when `docker ps` isn't accessible): check the deployed `generated.env`, falling back to `overrides.env` before a deployment has generated one:
+Alternative Docker signal (preferred when `docker ps` isn't accessible): check the deployed `generated.env`, falling back to `overrides.env` before a deployment has generated one:
 
 ```bash
-ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/generated.env
-[ -f "$ENV_FILE" ] || ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
-grep -E '^MODE=' "$ENV_FILE"
-# MODE=2d_cv   → CV mode (full superset)
-# MODE=2d_vlm  → VLM real-time mode (vss-rtvi-vlm only; no vss-rtvi-cv)
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+  ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/generated.env
+  [ -f "$ENV_FILE" ] || ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
+  grep -E '^MODE=' "$ENV_FILE"
+  # MODE=2d_cv   → CV mode (full superset)
+  # MODE=2d_vlm  → VLM real-time mode (vss-rtvi-vlm only; no vss-rtvi-cv)
+fi
 ```
 
 ---
@@ -194,10 +265,10 @@ On **CV**, adding the RTSP is the *entire* onboarding step (pipeline auto-picks 
 
 Alert rule CRUD (Workflow D) and incident queries (Workflow C) call the **Alert Bridge REST API directly** — do **not** use the VSS Agent `POST /generate`, and do **not** call the `rtvi-vlm` microservice directly.
 
-```bash
-AB="http://${HOST_IP}:9080"     # Alert Bridge (fixed port 9080 on the alerts profile)
-VST="http://${HOST_IP}:30888"   # VIOS/VST (sensor + RTSP resolution)
-```
+Resolve `$AB` / `$VST` once in *Deployment prerequisite* (Kubernetes forces
+`${VSS_PUBLIC_URL}/alert-bridge` and `${VSS_PUBLIC_URL}`; Docker keeps
+`:9080` / `:30888`). Do not reintroduce host-port overrides when
+`VSS_PUBLIC_URL` is set.
 
 **Availability check:** `curl -sf --connect-timeout 5 "$AB/health"` (note: `/health`, not `/api/v1/health`).
 
@@ -224,10 +295,16 @@ A static-CV-pipeline alert on a VLM-only deployment is a mode mismatch — see t
 How a CV alert becomes a verdict: RT-CV (Grounding DINO) detections → Behavior Analytics emits a candidate alert → Alert Bridge invokes the VLM verifier (prompts per `alert_type`) → the verified document lands in Elasticsearch **`mdx-vlm-alerts-*`** with `verdict` + `verificationResponseCode` in its `info` block.
 
 1. **Explain / interpret** — verdict values are `confirmed` / `rejected` / `not-confirmed` / `verification-failed` / `""` (empty — the default `use_verdict: false` freestyle deploy or a pluggable parser; a valid state, **not** a failure); full table in `references/verification.md`.
-2. **Inspect results — interim ES probe.** This store has **no REST query endpoint yet** (a dedicated Alert Bridge endpoint is planned); query Elasticsearch directly:
+2. **Inspect results — interim ES probe (Docker only).** This store has **no REST query endpoint yet** (a dedicated Alert Bridge endpoint is planned). On **Docker**, query Elasticsearch directly:
    ```bash
-   curl -sf "http://${HOST_IP}:9200/mdx-vlm-alerts-*/_search?size=10" | jq '.hits.hits[]._source'
+   if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+     curl -sf "http://${HOST_IP}:9200/mdx-vlm-alerts-*/_search?size=10" | jq '.hits.hits[]._source'
+   fi
    ```
+   On **Kubernetes**, Elasticsearch `:9200` is not on stock alerts Ingress — do
+   not port-forward. Prefer Workflow C (`GET $AB/api/v1/realtime/incidents`)
+   for real-time incident-kind results, or redeploy/ask for a Docker path when
+   CV verdict inspection via `mdx-vlm-alerts-*` is required.
    An **empty hit list is a valid answer** — report "no verification results yet" and stop. Never substitute another source for a verdict question: not the rules list, not `/incidents`, and **not the `mdx-vlm-incidents-*` ES index** (that is Workflow C's incident store — its documents carry no verification verdicts; presenting them as "verdicts recorded" is a wrong answer even when `mdx-vlm-alerts-*` is empty). **Exception — on-demand follow-up:** if the ask follows an on-demand verification you just ran (Workflow F) and `mdx-vlm-alerts-*` is empty, do **not** dead-end here — that result is incident-kind. Continue in **Workflow F**: poll `GET $AB/api/v1/realtime/incidents` for the request's `correlationId` and report its `reasoning` / `vlm_response` (a default freestyle deploy carries no `verdict` field).
 3. **Verifier-prompt config** — REST CRUD on `$AB/api/v1/verification/config[/{alert_type}]` (`GET` list / `GET` one / `POST` / `PUT` / `DELETE`), or the config-file + restart path — rules and payload shapes in `references/verification.md`.
 
