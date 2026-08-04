@@ -1,0 +1,404 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""``vss summarize`` on the fixed verb grammar.
+
+Summarization stays a thin client over the LVS REST API
+(``POST /v1/summarize``); this group does not re-implement it. What the group
+owns is the job shape around that call: mint a ``job_id``, persist the result
+to unified memory, and report both through the framework's ``Result``.
+
+The option surface splits the same three ways ``search`` did:
+
+* **The request stays** as :class:`SummarizeInput` -- what the caller is
+  asking the VLM for, named exactly as the REST API names it so the payload
+  needs no translation table.
+* **Endpoints leave entirely.** The LVS origin, Elasticsearch, RT-Embed and
+  the embedding model are read from ``~/.vss/config.json``, which ``vss
+  configure`` populated from what those backends reported about themselves.
+  ``--backend-url``/``--es-endpoint``/``--embedding-endpoint`` described a
+  *deployment*, not a request, and are gone (NFR-6).
+* **Persistence identity and transport** are caller preferences rather than
+  request fields, so they arrive as :class:`SummarizeOptions` through
+  ``extra_params`` instead of being folded into the payload.
+
+Only ``run`` is implemented here. ``status``/``get``/``list`` are pure reads
+against the memory index (§6.2), so they are inherited from
+:class:`~vss_cli.group.CommandGroup` and answer from ``ctx.memory`` once the
+memory tier lands -- which is also what replaces the interim subprocess bridge
+below. There is deliberately no ``recall``: fetching one record by id *is*
+``get``, and querying recent ones *is* ``list``.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import time
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import ClassVar
+
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
+from pydantic import model_validator
+
+from . import config as config_mod
+from . import params as params_mod
+from .exits import Exit
+from .group import CommandGroup
+from .group import Context
+from .group import InvalidInput
+from .group import Result
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import click
+
+#: Route the LVS service exposes under its recorded mount. ``vss configure``
+#: records the ``agent`` service at ``/api``, so the full path resolves to the
+#: deployment's ``/api/v1/summarize``.
+_SUMMARIZE_PATH = "/v1/summarize"
+
+#: Job ids stay ``summarize-<ULID>`` (design §5.2/§7.2), while the record's
+#: ``group`` token is the shorter unified-schema ``summary``.
+_JOB_DOMAIN = "summarize"
+
+#: Crockford base32, for ULID job ids.
+_CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+#: Entrypoint of the unified-memory tool, relative to its checkout.
+_PERSIST_SCRIPT = "scripts/persist_summary.py"
+
+#: The memory tool reads its own configuration from these; the values come
+#: from the recorded deployment rather than from flags.
+_ENV_ES_ENDPOINT = "VSS_MEMORY_ELASTICSEARCH_ENDPOINT"
+_ENV_ES_INDEX = "VSS_MEMORY_ELASTICSEARCH_INDEX"
+_ENV_EMBED_ENDPOINT = "VSS_MEMORY_EMBEDDING_ENDPOINT"
+_ENV_EMBED_MODEL = "VSS_MEMORY_EMBEDDING_MODEL"
+_ENV_EMBED_DIMENSIONS = "VSS_MEMORY_EMBEDDING_DIMENSIONS"
+_ENV_TOKENIZER_VOCAB = "VSS_MEMORY_TOKENIZER_VOCAB_PATH"
+
+
+class SummarizeInput(BaseModel):
+    """Summarize a video and persist the result to unified memory.
+
+    Exactly one source is required: ``--id`` names media the deployment has
+    already ingested, ``--url`` points at a video to fetch directly.
+
+    Sampling and chunking fields are passed through to the VLM untouched and
+    are named as the REST API names them. Omitted fields are absent from the
+    request rather than sent as null, so the backend's own defaults apply.
+
+    ``--enable-vlm-structured-output`` is worth setting whenever the result
+    will be persisted: it asks the VLM for a JSON object with ``video_summary``
+    and ``events``, which is the shape memory stores. Prose output is still
+    persistable, but arrives as a summary with no events.
+    """
+
+    # Unknown keys are an error rather than something to drop. Click rejects
+    # unknown flags itself, so this guards the programmatic callers where a
+    # misspelled key would otherwise pass silently with the default.
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = Field(None, description="ID of an already-added file or live stream.")
+    url: str | None = Field(None, description="Direct URL to a video to summarize (HTTP/HTTPS/S3).")
+    model: str | None = Field(
+        None,
+        description="VLM to summarize with. Defaults to the model the deployment's RT-VLM reports serving.",
+    )
+    prompt: str | None = Field(None, description="VLM prompt.")
+    system_prompt: str | None = Field(None, description="VLM system prompt.")
+    chunk_duration: int | None = Field(None, ge=1, description="Chunk duration in seconds.")
+    chunk_overlap_duration: int | None = Field(None, ge=0, description="Chunk overlap duration in seconds.")
+    temperature: float | None = Field(None, ge=0.0, le=2.0, description="Sampling temperature.")
+    top_p: float | None = Field(None, ge=0.0, le=1.0, description="Nucleus sampling probability mass.")
+    top_k: int | None = Field(None, ge=0, description="Top-k sampling cutoff.")
+    max_tokens: int | None = Field(None, ge=1, description="Maximum tokens to generate.")
+    seed: int | None = Field(None, description="Sampling seed, for reproducible generations.")
+    num_frames_per_chunk: int | None = Field(None, ge=1, description="Frames sampled from each chunk.")
+    enable_audio: bool = Field(False, description="Transcribe the audio stream alongside the video.")
+    enable_vlm_structured_output: bool = Field(
+        False,
+        description="Request structured JSON (summary + events). Recommended when persisting.",
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> SummarizeInput:
+        # Click can express "mutually exclusive" only by hand-rolled callbacks;
+        # stating it on the model keeps the rule with the fields and applies it
+        # to programmatic callers too.
+        if bool(self.id) == bool(self.url):
+            raise ValueError("exactly one of id or url is required")
+        return self
+
+
+class SummarizeOptions(BaseModel):
+    """Persistence identity and transport. Configures the *job*, not the request.
+
+    :class:`SummarizeInput` is ``extra=forbid``, so none of these can be sent
+    to the VLM by accident -- they are collected separately and routed to the
+    memory write or the HTTP client.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    persist: bool = Field(True, description="Persist the summary to unified memory.")
+    video_id: str | None = Field(
+        None,
+        description="video_id recorded for the persisted record. Defaults to --id; required with --url.",
+    )
+    media_source: str = Field("vst", description="media_ref.source recorded for the persisted record.")
+    media_name: str | None = Field(None, description="media_ref.name, e.g. the original filename.")
+    request_timeout_seconds: int = Field(
+        3600,
+        ge=1,
+        description="HTTP timeout for the (long-running) summarization request.",
+    )
+    memory_index: str | None = Field(None, description="Elasticsearch index for unified memory.")
+    memory_tool_dir: str | None = Field(
+        None,
+        description="Path to tools/vss-unified-memory (auto-detected from the checkout when omitted).",
+    )
+    embedding_dimensions: int | None = Field(None, ge=1, description="Embedding vector size used by the memory write.")
+    tokenizer_vocab_path: str | None = Field(
+        None,
+        description="Path to the embedding model's vocab.txt, required by the memory write.",
+    )
+
+
+def _ulid() -> str:
+    """A lexicographically sortable 26-char ULID (48-bit time + 80-bit random).
+
+    Stdlib-only so the group stays dependency-light; sortability keeps
+    ``job_id`` ordering stable over time.
+    """
+    value = (int(time.time() * 1000) & ((1 << 48) - 1)) << 80 | secrets.randbits(80)
+    return "".join(_CROCKFORD32[(value >> shift) & 0x1F] for shift in range(125, -1, -5))
+
+
+def _mint_job_id() -> str:
+    return f"{_JOB_DOMAIN}-{_ulid()}"
+
+
+def _default_model(deployment: config_mod.Deployment) -> str:
+    """The VLM the deployment reports serving, or a ConfigError naming the fix."""
+    service = deployment.services.get("rt_vlm")
+    if service and service.models:
+        return service.models[0]
+    raise config_mod.ConfigError(
+        f"deployment at {deployment.base_url} reports no RT-VLM model, so --model cannot be defaulted. "
+        f"Pass --model explicitly, or re-run `vss configure --base-url {deployment.base_url}`."
+    )
+
+
+def _summary_content(completion: dict[str, Any]) -> dict[str, Any]:
+    """Map an LVS completion into the memory write's ``content`` contract.
+
+    Structured output yields a JSON object with ``video_summary`` and
+    ``events``; prose is wrapped as a summary with no events so it stays
+    persistable either way.
+    """
+    try:
+        text = completion["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as error:
+        # A ValueError, not an InvalidInput: the caller's request was fine and
+        # the summary may still be in hand, so this degrades the job to partial
+        # rather than reporting it as bad input.
+        raise ValueError("summarization response has no choices[0].message.content") from error
+
+    parsed: Any = None
+    if isinstance(text, str):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = None
+
+    if isinstance(parsed, dict) and "video_summary" in parsed:
+        return {"video_summary": parsed["video_summary"], "events": parsed.get("events") or []}
+    return {"video_summary": text if isinstance(text, str) else json.dumps(text), "events": []}
+
+
+def _memory_tool_dir(options: SummarizeOptions) -> Path:
+    """Locate the unified-memory checkout, or raise with the flag that fixes it."""
+    if options.memory_tool_dir:
+        return Path(options.memory_tool_dir)
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "tools" / "vss-unified-memory"
+        if (candidate / _PERSIST_SCRIPT).is_file():
+            return candidate
+    raise config_mod.ConfigError(
+        "could not locate tools/vss-unified-memory; pass --memory-tool-dir, or --no-persist to skip the memory write"
+    )
+
+
+def _memory_env(deployment: config_mod.Deployment, options: SummarizeOptions) -> dict[str, str]:
+    """Configuration for the memory write, taken from the recorded deployment.
+
+    Endpoints and the embedding model are what the backends reported about
+    themselves. Only the values ``vss configure`` cannot discover -- the index
+    name, the tokenizer vocabulary -- remain caller-supplied.
+    """
+    env = dict(os.environ)
+    env[_ENV_ES_ENDPOINT] = deployment.endpoint("elasticsearch")
+    env[_ENV_EMBED_ENDPOINT] = deployment.endpoint("rt_embed")
+    embed = deployment.services.get("rt_embed")
+    if embed and embed.models:
+        env[_ENV_EMBED_MODEL] = embed.models[0]
+    for value, key in (
+        (options.memory_index, _ENV_ES_INDEX),
+        (options.embedding_dimensions, _ENV_EMBED_DIMENSIONS),
+        (options.tokenizer_vocab_path, _ENV_TOKENIZER_VOCAB),
+    ):
+        if value is not None:
+            env[key] = str(value)
+    return env
+
+
+def _persist(
+    deployment: config_mod.Deployment,
+    options: SummarizeOptions,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Write one summary to unified memory.
+
+    An interim bridge: it drives the memory tool's own entrypoint over stdin
+    JSON so the embedding and Elasticsearch dependencies stay isolated in that
+    tool's virtualenv. When ``vss_core`` ships the memory module this becomes
+    an in-process call through ``ctx.memory``, and the subprocess goes away.
+    """
+    script = _memory_tool_dir(options) / _PERSIST_SCRIPT
+    if not script.is_file():
+        raise config_mod.ConfigError(f"memory entrypoint not found: {script}")
+    try:
+        completed = subprocess.run(
+            [str(script)],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            env=_memory_env(deployment, options),
+            check=False,
+        )
+    except OSError as error:
+        raise config_mod.ConfigError(f"failed to execute {script}: {error}") from error
+
+    stdout = completed.stdout.strip()
+    if not stdout:
+        raise RuntimeError(f"memory write produced no output (exit {completed.returncode}): {completed.stderr[:500]}")
+    try:
+        parsed = json.loads(stdout.splitlines()[-1])
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"memory write returned non-JSON output: {stdout[:500]}") from error
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"memory write returned non-object JSON: {stdout[:500]}")
+    return parsed
+
+
+def _persist_payload(
+    inputs: SummarizeInput,
+    options: SummarizeOptions,
+    completion: dict[str, Any],
+    model: str,
+) -> dict[str, Any]:
+    media_ref: dict[str, Any] = {"source": options.media_source}
+    if inputs.id:
+        media_ref["stream_id"] = inputs.id
+    if options.media_name:
+        media_ref["name"] = options.media_name
+    return {
+        "completion_id": completion.get("id"),
+        "video_id": options.video_id or inputs.id,
+        "created": completion.get("created"),
+        "model": completion.get("model") or model,
+        "media_ref": media_ref,
+        "content": _summary_content(completion),
+    }
+
+
+class SummarizeGroup(CommandGroup):
+    """Summarize video and persist to memory."""
+
+    name: ClassVar[str] = "summarize"
+    summary: ClassVar[str] = "Summarize video and persist to memory"
+
+    Input: ClassVar[type[BaseModel] | None] = SummarizeInput
+    extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SummarizeOptions))
+
+    def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:  # noqa: ARG002 - fixed verb signature
+        import click
+        import httpx
+
+        # Named so the framework's exit-code table recognises them: it maps a
+        # library failure to an exit code by class name, so a plain
+        # ConnectionError would surface as exit 1 with a traceback.
+        from vss_core._foundation.errors import BackendUnreachableError
+
+        if not isinstance(inputs, SummarizeInput):  # pragma: no cover - the framework builds this
+            raise TypeError(f"expected SummarizeInput, got {type(inputs).__name__}")
+
+        deployment = ctx.deployment or config_mod.load()
+        options = SummarizeOptions(**{k: v for k, v in ctx.extra.items() if k in SummarizeOptions.model_fields})
+
+        # Fail before the expensive summarization: a persisted record needs a
+        # video_id, which for a --url summary can only come from --video-id.
+        asset_id = options.video_id or inputs.id
+        if options.persist and not asset_id:
+            raise InvalidInput("cannot persist a --url summary without --video-id (pass --video-id or --no-persist)")
+
+        request = inputs.model_dump(exclude_none=True, exclude_defaults=True)
+        model = inputs.model or _default_model(deployment)
+        request["model"] = model
+
+        job_id = _mint_job_id()
+        url = deployment.endpoint("agent").rstrip("/") + _SUMMARIZE_PATH
+        try:
+            response = httpx.post(url, json=request, timeout=float(options.request_timeout_seconds))
+        except httpx.TimeoutException as error:
+            # Exit 7 carries the job id as a correlation handle: reconcile with
+            # `status` rather than re-running an hour of summarization.
+            click.echo(
+                f"vss: summarization timed out after {options.request_timeout_seconds}s (job {job_id})",
+                err=True,
+            )
+            raise SystemExit(int(Exit.TIMEOUT)) from error
+        except httpx.HTTPError as error:
+            raise BackendUnreachableError("lvs", f"unreachable at {url}: {error}") from error
+
+        if response.status_code >= 500:
+            raise BackendUnreachableError("lvs", f"backend error HTTP {response.status_code}")
+        if response.status_code >= 400:
+            raise InvalidInput(f"summarization rejected HTTP {response.status_code}: {response.text[:500]}")
+
+        try:
+            completion = response.json()
+        except ValueError as error:
+            raise BackendUnreachableError("lvs", "response was not valid JSON") from error
+        if not isinstance(completion, dict):
+            raise BackendUnreachableError("lvs", "response was not a JSON object")
+
+        body: dict[str, Any] = {"job_id": job_id, "summary": completion}
+        if not options.persist:
+            return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+
+        try:
+            receipt = _persist(deployment, options, _persist_payload(inputs, options, completion, model))
+        except (config_mod.ConfigError, RuntimeError, ValueError) as error:
+            # Never lose the summary the caller already paid for: degrade to
+            # partial so only the write is retried, not the whole job.
+            body["persist"] = {"status": "failed", "error": str(error)}
+            return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
+
+        body["persist"] = receipt
+        # "complete" is the memory tool's terminal write status; anything else
+        # means the summary is in hand but not durably stored.
+        exit_code = Exit.SUCCESS if receipt.get("status") == "complete" else Exit.PARTIAL
+        return Result(body=body, exit=exit_code, job_id=job_id)
+
+
+SUMMARIZE = SummarizeGroup()
+
+__all__ = ["SUMMARIZE", "SummarizeGroup", "SummarizeInput", "SummarizeOptions"]
