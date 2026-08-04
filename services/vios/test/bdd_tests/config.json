@@ -107,6 +107,27 @@
         "picture_burst_min_success_ratio": 0.95
       }
     },
+    "bbox_overlay_tests": {
+      "test_parameters": {
+        "stream_id": "",
+        "redis_host": "localhost",
+        "redis_port": 6379,
+        "topic": "mdx-raw",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "warmup_s": 3.0,
+        "publish_duration_s": 45.0,
+        "picture_attempts": 4,
+        "min_border": 200,
+        "obj_type": "BddOverlayTest",
+        "overlay_color": "red",
+        "overlay_thickness": 11,
+        "expected_rgb": [255, 0, 0],
+        "rgb_tol": 55,
+        "timeout": 30
+      }
+    },
     "file_upload_tests": {
       "test_parameters": {
         "race_condition_thread_count": 3,
