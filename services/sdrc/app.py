@@ -820,6 +820,36 @@ def _pod_ordinal(pod_name):
     return (int(m.group(1)) if m else 0, pod_name)
 
 
+def _select_pod_from_candidates(candidates, assigning_method):
+    """Pick one ``(podInfoItm, spec_count, wl_spec)`` entry per WDM_WL_ASSIGNING_METHOD.
+
+    "lru_round_robin" (default)
+      Pick the pod with the fewest current streams; break ties with
+      _pod_ordinal() → (ordinal, name) for a deterministic cycle.  Self-heals
+      after uneven stream removal.
+
+      Trace — 5 indexed pods, threshold 4:
+        s1  min=0 tied=[0,1,2,3,4] → pod-0  [1,0,0,0,0]
+        s2  min=0 tied=[1,2,3,4]   → pod-1  [1,1,0,0,0]
+        s3  min=0 tied=[2,3,4]     → pod-2  [1,1,1,0,0]
+        ...  → 0→1→2→3→4→0→… (perfect round-robin)
+
+    "sequential"
+      Original first-fit: pick the first pod in the order returned by
+      getPodIps() that is below threshold — no sorting, no load comparison.
+      Mirrors the pre-LRU inline loop+break.  Assignment order depends entirely
+      on the API iteration order (typically StatefulSet ordinal order for K8s,
+      insertion order for Docker).
+    """
+    if assigning_method == "sequential":
+        return candidates[0]
+    min_count = min(count for _, count, _ in candidates)
+    return min(
+        (entry for entry in candidates if entry[1] == min_count),
+        key=lambda entry: _pod_ordinal(entry[0]["podName"]),
+    )
+
+
 @app.route("/healthz", methods=["GET"])
 def healthz():
     return """
@@ -1579,7 +1609,7 @@ def reprovisionStreamRedis(k8swlob_name, data, originalJson, parent_context):
 def _run_provision_add_stream_to_pod_tracked(
     key_holder, podInfoItm, data, originalJson, config_data, wl_id, camera_id,
     otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, already_reserved=False,
 ):
     """Thread target that runs _run_provision_add_stream_to_pod and removes self from provision_add_threads."""
     try:
@@ -1587,6 +1617,7 @@ def _run_provision_add_stream_to_pod_tracked(
             podInfoItm, data, originalJson, config_data, wl_id, camera_id,
             otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            already_reserved=already_reserved,
         )
     finally:
         with provision_add_threads_lock:
@@ -1596,7 +1627,7 @@ def _run_provision_add_stream_to_pod_tracked(
 def _run_provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, already_reserved=False,
 ):
     """Run _provision_add_stream_to_pod; used as thread target so exceptions are logged."""
     try:
@@ -1604,9 +1635,10 @@ def _run_provision_add_stream_to_pod(
             podInfoItm, data, originalJson, config_data, wl_id, camera_id,
             otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            already_reserved=already_reserved,
         )
     except Exception:
-        if do_workload_spec_in_thread_first:
+        if do_workload_spec_in_thread_first or already_reserved:
             try:
                 cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
             except Exception as e:
@@ -1670,14 +1702,20 @@ def _wait_provision_add_threads_empty(timeout=60):
 
 def _run_provision_add_stream(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
-    parent_context, k8swlob_name, event_obj_field, span_data
+    parent_context, k8swlob_name, event_obj_field, span_data,
+    already_reserved=False,
 ):
-    """Run add-stream provision synchronously or in a background thread per WDM_PROVISION_ASYNC."""
+    """Run add-stream provision synchronously or in a background thread per WDM_PROVISION_ASYNC.
+
+    already_reserved means the caller already wrote the workload spec entry (see
+    cfg.tryReserveWorkLoadSpec), so the add must not write it a second time but must
+    still roll it back if the add fails.
+    """
     if app.config.get("WDM_PROVISION_ASYNC"):
-        # Do not call cfg.addWorkLoadSpec in main thread: redis_lock is non-reentrant and
-        # the main thread may already hold the lock from earlier cfg calls in provisionStreamRedis.
-        # The background thread will update workload spec first (before add RPC) so spec_count
-        # is updated as soon as the thread runs.
+        # When the slot was not reserved up front, the background thread updates the
+        # workload spec first (before the add RPC) so spec_count reflects the placement
+        # as soon as the thread runs, and so the main thread never calls
+        # cfg.addWorkLoadSpec while it may still hold the non-reentrant redis_lock.
         key_holder = [None]
         t = Thread(
             target=_run_provision_add_stream_to_pod_tracked,
@@ -1685,7 +1723,8 @@ def _run_provision_add_stream(
                 key_holder,
                 podInfoItm, data, originalJson, config_data, wl_id, camera_id,
                 otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-                True,  # do_workload_spec_in_thread_first (avoids main-thread lock)
+                not already_reserved,  # do_workload_spec_in_thread_first
+                already_reserved,
             ),
             daemon=False,
         )
@@ -1698,22 +1737,36 @@ def _run_provision_add_stream(
             wl_id, camera_id,
         )
     else:
-        _provision_add_stream_to_pod(
-            podInfoItm, data, originalJson, config_data, wl_id, camera_id,
-            otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-            do_workload_spec_in_thread_first=False,
-        )
+        try:
+            _provision_add_stream_to_pod(
+                podInfoItm, data, originalJson, config_data, wl_id, camera_id,
+                otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
+                do_workload_spec_in_thread_first=False,
+                already_reserved=already_reserved,
+            )
+        except Exception:
+            if already_reserved:
+                try:
+                    cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+                except Exception as e:
+                    app.logger.exception(
+                        "Failed to rollback workload spec after provision failure: %s", e
+                    )
+            raise
 
 
 def _provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, already_reserved=False,
 ):
     """Perform add-stream RPC, update route mapping and workload spec, optionally call webhook."""
+    # spec_owned: this stream already occupies a workload spec slot, either reserved by
+    # the caller or written below, so any failure path has to release it.
+    spec_owned = do_workload_spec_in_thread_first or already_reserved
     # When async: update workload spec first in this thread (before add RPC) so spec_count
     # is correct and we avoid main-thread redis_lock re-acquire.
-    if do_workload_spec_in_thread_first:
+    if do_workload_spec_in_thread_first and not already_reserved:
         cfg.addWorkLoadSpec(podInfoItm["podName"], data, originalJson)
     otel_span, current_ctx = tracing.create_child_span(
         "add", wl_id, podInfoItm, span_data, parent_context, app.config
@@ -1747,7 +1800,7 @@ def _provision_add_stream_to_pod(
         and ((resp is not None and resp.status_code != 200) or resp is None)
     )
     if not update_mapping:
-        if do_workload_spec_in_thread_first:
+        if spec_owned:
             try:
                 cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
             except Exception as e:
@@ -1771,7 +1824,7 @@ def _provision_add_stream_to_pod(
         k8swlob_name, wl_id, podInfoItm, operation="add"
     )
     notify_xds_update()
-    if not do_workload_spec_in_thread_first:
+    if not spec_owned:
         cfg.addWorkLoadSpec(podInfoItm["podName"], data, originalJson)
     if app.config["WDM_CALL_WL_WEBHOOK"]:
         try:
@@ -1915,65 +1968,55 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                         continue
                     eligible_pods.append((podInfoItm, spec_count, wl_spec))
 
-                # Phase 2: pod selection — strategy controlled by
-                # WDM_WL_ASSIGNING_METHOD.
+                # Phase 2: pod selection (see _select_pod_from_candidates for the
+                # WDM_WL_ASSIGNING_METHOD strategies).
                 #
-                # "lru_round_robin" (default)
-                #   Pick the pod with the fewest current streams; break ties
-                #   with _pod_ordinal() → (ordinal, name) for a deterministic
-                #   cycle.  Self-heals after uneven stream removal.
-                #
-                #   Trace — 5 indexed pods, threshold 4:
-                #     s1  min=0 tied=[0,1,2,3,4] → pod-0  [1,0,0,0,0]
-                #     s2  min=0 tied=[1,2,3,4]   → pod-1  [1,1,0,0,0]
-                #     s3  min=0 tied=[2,3,4]     → pod-2  [1,1,1,0,0]
-                #     ...  → 0→1→2→3→4→0→… (perfect round-robin)
-                #
-                # "sequential"
-                #   Original first-fit: pick the first pod in the order
-                #   returned by getPodIps() that is below threshold — no
-                #   sorting, no load comparison.  Mirrors the pre-LRU inline
-                #   loop+break.  Assignment order depends entirely on the API
-                #   iteration order (typically StatefulSet ordinal order for
-                #   K8s, insertion order for Docker).
+                # The spec_count values in eligible_pods are a snapshot: an async
+                # provision thread or a concurrent caller can fill a pod after its
+                # count was captured. tryReserveWorkLoadSpec re-checks the threshold
+                # and claims the slot in one atomic read-modify-write, so a pod that
+                # filled up in the meantime is dropped and the next best candidate is
+                # tried instead of being pushed past WDM_WL_THRESHOLD. Exhausting the
+                # candidates leaves provisionNewPod True, falling through to the
+                # scale-up / add_stream_failed handling below.
+                selected_pod = None
+                selected_wl_spec = None
                 if eligible_pods:
                     assigning_method = app.config["WDM_WL_ASSIGNING_METHOD"]
-                    if assigning_method == "sequential":
-                        # Original first-fit: take the first pod in the order
-                        # returned by getPodIps() that passed all filters.
-                        # No sorting — mirrors the original inline loop+break.
-                        _entry = eligible_pods[0]
-                        selected_pod, _sel_count, selected_wl_spec = _entry
+                    candidates = list(eligible_pods)
+                    while candidates:
+                        cand_pod, cand_count, cand_wl_spec = _select_pod_from_candidates(
+                            candidates, assigning_method
+                        )
+                        if cfg.tryReserveWorkLoadSpec(
+                            cand_pod["podName"], originalJson, threshold
+                        ):
+                            selected_pod = cand_pod
+                            selected_wl_spec = cand_wl_spec
+                            app.logger.info(
+                                "stream_updates - %s adding_stream: %s "
+                                "(%s selected pod=%s streams=%d)",
+                                wl_object_name, wl_id, assigning_method,
+                                cand_pod["podName"], cand_count,
+                            )
+                            break
                         app.logger.info(
-                            "stream_updates - %s adding_stream: %s "
-                            "(sequential selected pod=%s streams=%d)",
-                            wl_object_name, wl_id,
-                            selected_pod["podName"], _sel_count,
+                            "Pod %s reached WDM_WL_THRESHOLD (%d) after the "
+                            "eligibility snapshot - re-selecting",
+                            cand_pod["podName"], threshold,
                         )
-                    else:
-                        # lru_round_robin (default): fewest streams first,
-                        # tie-broken by (ordinal, name).
-                        min_count = min(count for _, count, _ in eligible_pods)
-                        selected_pod, selected_wl_spec = min(
-                            (
-                                (pod, wl_spec)
-                                for pod, count, wl_spec in eligible_pods
-                                if count == min_count
-                            ),
-                            key=lambda x: _pod_ordinal(x[0]["podName"]),
-                        )
-                        app.logger.info(
-                            "stream_updates - %s adding_stream: %s "
-                            "(lru_round_robin selected pod=%s streams=%d)",
-                            wl_object_name, wl_id,
-                            selected_pod["podName"], min_count,
-                        )
+                        candidates = [
+                            entry for entry in candidates
+                            if entry[0]["podName"] != cand_pod["podName"]
+                        ]
+                if selected_pod is not None:
                     otel_carrier = tracing.inject_context(parent_context)
                     if selected_wl_spec is None:
                         _run_provision_add_stream(
                             selected_pod, data, originalJson, config_data,
                             wl_id, camera_id, otel_carrier, parent_context,
                             k8swlob_name, cfg_ev_obj, originalJson,
+                            already_reserved=True,
                         )
                     else:
                         app.logger.info(
@@ -1983,6 +2026,7 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                             selected_pod, data, originalJson, config_data,
                             wl_id, camera_id, otel_carrier, parent_context,
                             k8swlob_name, cfg_ev_obj, config_data,
+                            already_reserved=True,
                         )
                     provisionNewPod = False
                 if provisionNewPod and app.config["WDM_CLUSTER_TYPE"].lower() == "docker":

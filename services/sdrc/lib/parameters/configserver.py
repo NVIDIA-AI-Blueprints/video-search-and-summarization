@@ -36,6 +36,10 @@ class configserver:
         self.y.indent(mapping=4, sequence=4, offset=2)
         self.y.preserve_quotes = True
         self.file_write_lock = Lock()
+        # Serializes capacity-check + append so two placement decisions cannot both
+        # reserve the last free slot on a pod. Distinct from file_write_lock, which is
+        # taken and released inside each individual read/write helper.
+        self.reserve_lock = Lock()
         self._loadWorkLoadSpec()
 
     def erasePodSpecContent(self, wl_pod):
@@ -283,6 +287,25 @@ class configserver:
             self._write_to_file(self.wl_spec)
             self._loadWorkLoadSpec()
     
+    def tryReserveWorkLoadSpec(self, pod_name, originalData, threshold):
+        """Append a stream to pod_name only if it currently holds fewer than threshold.
+
+        The capacity check and the append share one hold of reserve_lock so a placement
+        decision cannot interleave with another add for the same pod. Returns True when
+        the slot was reserved, False when the pod is already full.
+        """
+        with self.reserve_lock:
+            self._loadWorkLoadSpec()
+            if self.getSpecCount(pod_name) >= threshold:
+                logger.info(
+                    "Reservation refused: pod %s already holds %s stream(s)",
+                    pod_name,
+                    threshold,
+                )
+                return False
+            self.addWorkLoadSpec(pod_name, originalData, originalData)
+        return True
+
     def _write_to_file(self, file_contents, write_type="w"):
         try:
             self.file_write_lock.acquire()

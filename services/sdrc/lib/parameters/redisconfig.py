@@ -372,18 +372,47 @@ class redisconfig:
 
     def addWorkLoadSpec(self, pod_name, spec_data, originalData):
         logger.info("add Workload Spec {}".format(pod_name))
-        spec_data = json.dumps(originalData)
-        # Compute new value in a local variable so another thread cannot replace
-        # self.wl_spec (e.g. via _loadWorkLoadSpec) before we hset, which caused KeyError.
-        current = (self.wl_spec or {}).get(pod_name)
-        if current is None:
-            new_value = json.dumps([json.loads(spec_data)], indent=4)
-        else:
-            d = self._decode_wl_spec_field(current)
-            d.append(json.loads(spec_data))
-            new_value = json.dumps(d, indent=4)
-
         logger.debug("addWorkLoadSpec %s: acquiring redis lock (timeout=%s)", pod_name, self.redis_lock_timeout)
-        with self._workload_spec_lock_hold():
-            self.redis_connection.hset(self.wl_spec_obj, pod_name, new_value)
+        self._append_stream_locked(pod_name, originalData)
         self._loadWorkLoadSpec()
+
+    def tryReserveWorkLoadSpec(self, pod_name, originalData, threshold):
+        """Append a stream to pod_name only if it currently holds fewer than threshold.
+
+        The capacity check and the append share one hold of the workload-spec lock and
+        read from Redis rather than the in-process cache, so a placement decision cannot
+        interleave with another add for the same pod (including from another replica).
+        Returns True when the slot was reserved, False when the pod is already full.
+        """
+        reserved = self._append_stream_locked(
+            pod_name, originalData, threshold=threshold
+        )
+        self._loadWorkLoadSpec()
+        if not reserved:
+            logger.info(
+                "Reservation refused: pod %s already holds %s stream(s) (wl_spec_obj=%s)",
+                pod_name,
+                threshold,
+                self.wl_spec_obj,
+            )
+        return reserved
+
+    def _append_stream_locked(self, pod_name, originalData, threshold=None):
+        """Read-modify-write one pod field inside the workload-spec lock.
+
+        Reading the field under the same lock that guards the write is what makes
+        concurrent adds to the same pod safe; reading self.wl_spec beforehand loses
+        updates when two adds interleave.
+        """
+        entry = json.loads(json.dumps(originalData))
+        with self._workload_spec_lock_hold():
+            streams = self._decode_wl_spec_field(
+                self.redis_connection.hget(self.wl_spec_obj, pod_name)
+            )
+            if threshold is not None and len(streams) >= threshold:
+                return False
+            streams.append(entry)
+            self.redis_connection.hset(
+                self.wl_spec_obj, pod_name, json.dumps(streams, indent=4)
+            )
+        return True
