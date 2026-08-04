@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: sdrc-http-header-lifecycle
+description: Test chart for SDRC HTTP-header lifecycle with RTVI-CV
+type: application
+version: 0.1.0
+appVersion: "1.0"
+dependencies:
+  - name: vios
+    version: 3.2.0
+    repository: file://../../../../../deploy/helm/services/vios
+    condition: vios.enabled
+  - name: infra
+    version: 3.2.0
+    repository: file://../../../../../deploy/helm/services/infra
+    condition: infra.enabled
+  - name: rtvi
+    version: 3.2.1
+    repository: file://../../../../../deploy/helm/services/rtvi
+    condition: rtvi.enabled
