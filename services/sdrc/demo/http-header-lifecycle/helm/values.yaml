@@ -29,16 +29,31 @@ vios:
     enabled: true
     streamProcessorService: sdrc
     persistence:
-      vstData: { enabled: true, create: false, existingClaim: "" }
-      vstVideo: { enabled: true, create: false, existingClaim: "" }
+      vstData:
+        enabled: true
+        create: false
+        existingClaim: ""
+      vstVideo:
+        enabled: true
+        create: false
+        existingClaim: ""
   vss-vios-streamprocessing:
     enabled: true
     useSdrEnvoyStyleHeadless: false
     headlessServiceName: ""
     persistence:
-      vstData: { enabled: true, create: false, existingClaim: "" }
-      vstVideo: { enabled: true, create: false, existingClaim: "" }
-      streamerVideos: { enabled: true, create: false, existingClaim: "" }
+      vstData:
+        enabled: true
+        create: false
+        existingClaim: ""
+      vstVideo:
+        enabled: true
+        create: false
+        existingClaim: ""
+      streamerVideos:
+        enabled: true
+        create: false
+        existingClaim: ""
   vss-vios-ingress:
     enabled: true
   vss-vios-nvstreamer:

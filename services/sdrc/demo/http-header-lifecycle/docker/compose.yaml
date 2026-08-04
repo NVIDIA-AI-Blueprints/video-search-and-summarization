@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+# yamllint disable rule:line-length
 #
 # Minimal SDRC + RTVI-CV test application for the HTTP-header lifecycle flow.
 #
