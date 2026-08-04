@@ -162,10 +162,16 @@ frontend fe_http
     acl p_kibana path_beg /kibana/
     use_backend bk_kibana if h_main p_kibana
 
-    # Elasticsearch, read-only at the edge. The CLI needs query access to
-    # resolve searches through one origin; it does not need to mutate or
-    # administer the cluster, and exposing that through a public ingress
-    # would be a far larger grant than the use case requires.
+    # Elasticsearch, method- and path-restricted at the edge. The CLI needs
+    # query access to resolve searches through one origin; it does not need to
+    # administer the cluster, and exposing that through a public ingress would
+    # be a far larger grant than the use case requires.
+    #
+    # Not read-only: the rules below stop PUT/DELETE, cluster-admin paths and
+    # the two-segment mutating operations, but POST is allowed, so
+    # POST /_bulk, /_reindex, /_scripts/<id> and /<index>/_doc still reach ES.
+    # Closing that means deny-by-default with an allowlist of the handful of
+    # operations the CLI uses, not another entry on the denylist.
     acl p_elasticsearch path /elasticsearch
     acl p_elasticsearch path_beg /elasticsearch/
     acl es_read_method method GET HEAD POST OPTIONS

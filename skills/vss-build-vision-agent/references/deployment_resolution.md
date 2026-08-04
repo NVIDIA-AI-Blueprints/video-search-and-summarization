@@ -134,10 +134,11 @@ AGENT_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.base_url')
 VSS_VIOS_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.services.vst.url')
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 ES_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.services.elasticsearch.url')
-# RT-VLM is on the CLI ingress where the profile deploys it. Profiles that do
-# not run it record no entry, so fall back to the host port.
-RTVI_VLM_URL=$(printf '%s' "${DEPLOYMENT}" | jq -er '.services.rt_vlm.url' \
-  || printf 'http://%s:%s' "${HOST_IP:-127.0.0.1}" "${RTVI_VLM_PORT:-8018}")
+# `vss configure` records RT-VLM at `.services.rt_vlm.url` where the profile
+# routes it, which is what discovery needs. Inference keeps using the host port:
+# the ingress applies `timeout server 120s`, and a non-streaming completion or a
+# caption over a whole video runs past that.
+RTVI_VLM_URL="http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}"
 ```
 
 For VIOS-only operate work without the search CLI, the Compose fallback is:
