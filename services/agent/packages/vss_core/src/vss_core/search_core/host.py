@@ -37,24 +37,21 @@ from .models.search import SearchOutput
 from .primitives.attribute_search import AttributeSearch
 from .primitives.embed_search import EmbedSearch
 from .primitives.search import Search
-from .runtime import RuntimeSnapshot
-from .runtime import SearchRuntime
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from collections.abc import Mapping
-    from pathlib import Path
 
     from .events import SearchEvent
+    from .runtime import SearchRuntime
 
 
 class VSSSearch:
     """One-stop facade for direct (non-HTTP) callers — host skills, notebooks, evals.
 
-    Build with one of the class methods; call .embed_search / .attribute_search /
+    Build from a SearchRuntime; call .embed_search / .attribute_search /
     .search. Use as an async context manager so resources close cleanly:
 
-        async with VSSSearch.from_config_file(path) as vss:
+        async with VSSSearch.from_runtime(runtime) as vss:
             out = await vss.embed_search(query="red car", source_type="rtsp")
 
     Note on `.search()`: direct callers pass already-prepared SearchInput
@@ -82,48 +79,6 @@ class VSSSearch:
     @classmethod
     def from_runtime(cls, rt: SearchRuntime) -> VSSSearch:
         return cls(rt)
-
-    @classmethod
-    def from_env(
-        cls,
-        env: Mapping[str, str] | None = None,
-    ) -> VSSSearch:
-        """Build from os.environ only.
-
-        Does NOT carry orchestrator-level options. For parity with a deployed
-        profile, use from_config_file or from_remote instead.
-        """
-        return cls(SearchRuntime.from_env(env))
-
-    @classmethod
-    def from_config_file(
-        cls,
-        path: str | Path,
-        *,
-        env: Mapping[str, str] | None = None,
-    ) -> VSSSearch:
-        """Build from a NAT-style config file.
-
-        Loads SearchRuntime from the config. Per-request ``search_mode`` is the
-        sole selector for embed, attribute, fusion, and object search.
-        """
-        snap = RuntimeSnapshot.from_config_file(path, env=env)
-        return cls(snap.runtime)
-
-    @classmethod
-    def from_remote(
-        cls,
-        agent_url: str,
-    ) -> VSSSearch:
-        """Fetch a snapshot from a running agent.
-
-        WARNING (Helm): the /api/v1/runtime/config snapshot returns in-cluster
-        DNS URLs that aren't reachable from a developer laptop. Use
-        ``vss search run --deployment kubernetes`` for host-side runtime
-        discovery and managed port-forwards instead.
-        """
-        snap = RuntimeSnapshot.from_remote(agent_url)
-        return cls(snap.runtime)
 
     # ------------------------------------------------ Convenience primitive-only
 

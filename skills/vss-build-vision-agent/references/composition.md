@@ -172,11 +172,21 @@ later values override earlier values. Regenerate `resolved.yml` whenever
 Normalization removes only optional dependency references to services omitted
 by profile filtering, then removes service profile gates from the already
 filtered model. It fails rather than remove a missing required dependency.
+If validation reports real unresolved `${...}` Compose interpolation, do not
+deploy the raw output. Add only the missing concrete value or derived value to
+`override.env`, regenerate `resolved.yml` from the same ordered env layers, and
+rerun normalization and validation. Escaped container-shell variables such as
+`$${HOST_IP}`, `$${NUM_STREAMS}`, or `$${VAR:-default}` are valid in
+`resolved.yml` and must not be counted as unresolved Compose interpolation.
 
 ## Validate
 
 ```bash
+REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
+
+uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 
 docker compose -f "$BUILD_DIR/resolved.yml" config --quiet
 docker compose -f "$BUILD_DIR/resolved.yml" config --services
@@ -192,12 +202,15 @@ Then verify:
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
 - No unrequested service definition is present in a patch.
-- `resolved.yml` contains no unresolved `${...}` interpolation and every
-  selected service's environment is filled in.
+- Any patch contains only changed or new service entries.
+- `resolved.yml` contains no real unresolved `${...}` Compose interpolation and
+  every selected service's environment is filled in. Escaped `$${...}` variables
+  are container-shell expressions, not Compose interpolation failures.
 - `resolved.yml` contains no stock sentinels such as
   `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
-  directory.
+  directory. This is a validation check only: do not create placeholder files
+  or directories under `deploy/docker/` to satisfy it.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 

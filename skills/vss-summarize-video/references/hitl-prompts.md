@@ -63,20 +63,39 @@ canonical defaults rather than guessing.
 
 **Request:**
 
+Resolve endpoints first (`SKILL.md` / `end-to-end-example.md`). On Docker,
+discover the live schema and model from the LVS host port. On Kubernetes, skip
+LVS `/openapi.json` / `/models` (not on Ingress) — use Exact RT-VLM
+`/v1/models` (or `VLM_NAME`) and the checked-in summarize contract.
+
 ```bash
 LVS_REQUEST=/tmp/vss-summarize-video-request.json
 LVS_RESPONSE=/tmp/vss-summarize-video-response.json
+# After endpoint resolution: K8s forces LVS_BACKEND_URL=${VSS_PUBLIC_URL};
+# Docker keeps ${LVS_BACKEND_URL:-http://localhost:38111}.
 LVS_BASE=${LVS_BACKEND_URL:-http://localhost:38111}
-LVS_OPENAPI=/tmp/vss-lvs-openapi.json
-curl -fsS "$LVS_BASE/openapi.json" > "$LVS_OPENAPI"
-jq -e '.paths["/v1/summarize"].post.requestBody.content["application/json"].schema' \
-  "$LVS_OPENAPI" >/dev/null
-LVS_MODEL=$(curl -fsS "$LVS_BASE/models" | jq -er --arg preferred "${VLM_NAME:-}" '
-  [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
-  | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
-    elif ($ids | length) == 1 then $ids[0]
-    else empty end
-') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
+
+# --- Model discovery (gated) ---
+if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
+  # Stock LVS Ingress does not publish /openapi.json or /models.
+  LVS_MODEL=$(curl -fsS "${VLM:-$LVS_BASE}/v1/models" | jq -er --arg preferred "${VLM_NAME:-}" '
+    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
+    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
+      elif ($ids | length) == 1 then $ids[0]
+      else empty end
+  ') || { echo "Set VLM_NAME to an advertised RT-VLM model id"; return 1 2>/dev/null || exit 1; }
+else
+  LVS_OPENAPI=/tmp/vss-lvs-openapi.json
+  curl -fsS "$LVS_BASE/openapi.json" > "$LVS_OPENAPI"
+  jq -e '.paths["/v1/summarize"].post.requestBody.content["application/json"].schema' \
+    "$LVS_OPENAPI" >/dev/null
+  LVS_MODEL=$(curl -fsS "$LVS_BASE/models" | jq -er --arg preferred "${VLM_NAME:-}" '
+    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
+    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
+      elif ($ids | length) == 1 then $ids[0]
+      else empty end
+  ') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
+fi
 
 jq -n \
   --arg url "<fresh_vios_clip_url_from_stage_2>" \
@@ -94,7 +113,7 @@ jq -n \
 
 # Execute exactly once; retain the complete response for parsing or diagnosis.
 LVS_HTTP_CODE=$(curl -sS --max-time 300 -o "$LVS_RESPONSE" -w '%{http_code}' \
-  -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/v1/summarize" \
+  -X POST "${LVS_BASE}/v1/summarize" \
   -H "Content-Type: application/json" \
   --data-binary "@$LVS_REQUEST")
 ```

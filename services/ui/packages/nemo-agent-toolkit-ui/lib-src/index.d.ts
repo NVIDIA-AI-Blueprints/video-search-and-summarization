@@ -11,6 +11,15 @@ export {
   type AlertLike,
   type UseVideoModalOptions,
 } from '@aiqtoolkit-ui/common';
+export {
+  UploadProgressPopup,
+  type UploadFileStatus,
+  type UploadProgressFileItem,
+  type UploadProgressPopupProps,
+  UploadSuccessPopup,
+  type UploadResultItem,
+  type UploadSuccessPopupProps,
+} from '@aiqtoolkit-ui/common';
 
 // Main app export and types
 export interface ChatSidebarControlHandlers {
@@ -132,6 +141,7 @@ export interface UploadFilesDialogProps {
   validateFile?: (file: File) => boolean;
   metadata?: UploadFilesDialogMetadataConfig;
   options?: UploadFilesDialogOptions;
+  overlay?: 'viewport' | 'contained';
 }
 export const UploadFilesDialog: React.ForwardRefExoticComponent<
   UploadFilesDialogProps & React.RefAttributes<UploadFilesDialogHandle>

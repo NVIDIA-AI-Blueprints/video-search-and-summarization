@@ -48,7 +48,7 @@ spec:
       initContainers:
         {{- if $dataEnabled }}
         - name: prepare-data
-          image: "{{ $initImage.repository | default "busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
+          image: "{{ $initImage.repository | default "docker.io/library/busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
           imagePullPolicy: {{ $initImage.pullPolicy | default "IfNotPresent" }}
           command:
             - /bin/sh
@@ -74,7 +74,7 @@ spec:
         {{- end }}
         {{- if $initEnabled }}
         - name: wait-for-broker
-          image: "{{ $initImage.repository | default "busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
+          image: "{{ $initImage.repository | default "docker.io/library/busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
           imagePullPolicy: {{ $initImage.pullPolicy | default "IfNotPresent" }}
           command:
             - /bin/sh

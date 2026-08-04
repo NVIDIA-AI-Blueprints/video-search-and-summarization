@@ -6,8 +6,8 @@
 The vss-search-archive skill exercises the host-side NAT-free ``vss`` base
 distribution for fused semantic + attribute search across pre-ingested video
 sources. Search commands run from the repository checkout as ``uv run --project
-"${VSS_REPO_ROOT}/services/agent" --no-dev vss search run --deployment docker
---profile search ...``; they never run
+"${VSS_REPO_ROOT}/services/agent" --no-dev vss search run <embed|attribute|fusion|object>
+...``; endpoints come from the deployment recorded by ``vss configure``, so they never run
 through a container/pod shell or a manually selected search endpoint.
 It runs against a **full-remote-model VSS search profile** (deploy mode
 = `remote-all`; LLM and underlying VLM inference use remote endpoints, while
@@ -97,14 +97,13 @@ SETUP_PREAMBLE = (
     "setup, prove the project-local host CLI is available with `cd \"${VSS_REPO_ROOT}\" && "
     "uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run --help`. "
     "If checkout validation fails, report it and stop. Do not look for a global `vss` executable. "
-    "Before readiness or cleanup queries, execute the skill's single `RUNTIME_JSON` resolver, which "
-    "uses `discover_docker`, `discover_docker_host_endpoints`, and "
-    "`RuntimeSnapshot.from_config_file`. Use its distinct `video_embed_index`, `behavior_index`, "
-    "and `raw_index` values; `ELASTIC_SEARCH_INDEX` is only the embedding index and must never be "
+    "Record the deployment once with `vss configure --base-url <origin>`, then read endpoints "
+    "and index names from `vss configure show`. Use its distinct embedding, behavior and "
+    "raw index values; `ELASTIC_SEARCH_INDEX` is only the embedding index and must never be "
     "used for behavior or raw queries. For this pinned search profile the resolved values must be "
     "`mdx-embed-filtered-2025-01-01`, `mdx-behavior-2025-01-01`, and "
     "`mdx-raw-2025-01-01`, respectively. Before uploading, make setup idempotent on reused hosts: "
-    "list VST through the discovered `vst_url` and, if present, agent-delete any exact or deduplicated remnants "
+    "list VST through the configured origin's `/vst` route and, if present, agent-delete any exact or deduplicated remnants "
     "of the two eval fixtures (`warehouse_sample`, `warehouse-ladder`, and the legacy "
     "`sample-warehouse-ladder` alias), require successful cleanup, and wait until they are absent. "
     "For each fixture, use the skill's mandatory three-step file ingestion flow exactly: "
@@ -126,7 +125,7 @@ OPERATION_PREAMBLE = (
     "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
     "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, and work from that checkout. "
     "List registered sources through the prepared deployment's discovered VST/VIOS "
-    "connectivity: resolve `vst_url` with `discover_docker_host_endpoints(\"search\")` and "
+    "connectivity: read the origin from `vss configure show` and "
     "GET its `/vst/api/v1/sensor/list`; do not assume a fixed port. If "
     "the requested source is not registered, follow the skill's missing-source rule: list "
     "registered sources, report the missing source, and stop without silently substituting "
@@ -135,10 +134,11 @@ OPERATION_PREAMBLE = (
     "that clarification is "
     "not a request for setup confirmation. For a resolved search request, decompose the request, "
     "pass the decomposed visual query with `--query` (never as a positional argument), select an "
-    "explicit supported search mode, and pass its concrete value with `--search-mode`, "
-    "and run the host checkout's project-local `cd \"${VSS_REPO_ROOT}\" && uv run --project "
-    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run` with `--deployment docker "
-    "--profile search`, the resolved `--video-source`, `--output json --raw`, and any result "
+    "retrieval path, and pass it as the sub-action of `run` -- `run embed` for a text query, "
+    "`run attribute` for attributes only, `run fusion` for both, `run object` for tracked ids -- "
+    "then run the host checkout's project-local `cd \"${VSS_REPO_ROOT}\" && uv run --project "
+    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run <path>` with no endpoint, index "
+    "or model flags (they come from `vss configure`), the resolved `--video-source`, `--raw`, and any result "
     "limit stated in the query. Put that fully constructed invocation in a `SEARCH_COMMAND` "
     "bash array and execute it with `if ! SEARCH_JSON=$(\"${SEARCH_COMMAND[@]}\"); then` so only "
     "the command's exact stdout is captured as `SEARCH_JSON`; fail on "
@@ -166,11 +166,22 @@ OPERATION_PREAMBLE = (
     "save every exact returned screenshot response under `/tmp/`, require each file to be nonempty, "
     "inspect every saved file's pixels, and report a verdict for every hit. For a deletion request, do "
     "not run search; use the skill's agent-backed cleanup workflow. Resolve the agent endpoint and "
-    "the distinct embedding, behavior, and raw indexes with the same `RUNTIME_JSON` recipe used "
-    "during setup, save the source UUID and canonical name before DELETE, require status `success`, "
+    "the distinct embedding, behavior, and raw indexes from `vss configure show` as during setup, "
+    "save the source UUID and canonical name before DELETE, require status `success`, "
     "and poll the exact three index/field/value tuples to zero. Never use the embedding index for "
     "behavior or raw cleanup validation. Do not look for a global executable. If the host command "
     "fails, report its error and stop instead of substituting another search interface."
+)
+
+KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
+    PREAMBLE
+    + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
+    "redeploy, execute the example commands, inspect a cluster, or reuse the Docker "
+    "deployment from earlier steps. Kubernetes and Compose use the same commands and "
+    "differ only in the origin: source listing uses that origin's public /vst route, and "
+    "search runs `vss configure --base-url <origin>` once followed by `vss search run "
+    "<path>`. Do not use kubectl, port-forward, Service DNS, NodePorts, localhost ports, "
+    "or direct Elasticsearch/RTVI access."
 )
 
 
@@ -330,8 +341,12 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         step_dir.mkdir(parents=True, exist_ok=True)
 
         # instruction.md — query + env notes only. Never leak checks[].
+        if expect.get("scenario") == "kubernetes-ingress-contract":
+            preamble = KUBERNETES_INGRESS_CONTRACT_PREAMBLE
+        else:
+            preamble = SETUP_PREAMBLE if idx == 1 else OPERATION_PREAMBLE
         lines = [
-            SETUP_PREAMBLE if idx == 1 else OPERATION_PREAMBLE,
+            preamble,
             "",
             "",
             f"## Query {idx} of {len(expects)}",
@@ -360,6 +375,9 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'name = "nvidia-vss/vss-search-archive-{profile}-{platform_short}{step_suffix}"',
             f'description = "vss-search-archive query {idx}/{len(expects)} on {platform}"',
             f'keywords = ["vss-search-archive", "{profile}", "{platform}"]',
+            "",
+            "[agent]",
+            "timeout_sec = 600.0",
             "",
             "[environment]",
             'skills_dir = "/skills"',

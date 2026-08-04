@@ -172,7 +172,7 @@ user will browse from, ask before setting `EXTERNAL_IP`.**
 ## Firewall — Docker bridge → host services
 <a id="firewall"></a>
 
-Pick `HOST_IP` / `EXTERNAL_IP` first — see [Network addressing](#addressing).
+Pick `HOST_IP` / `EXTERNAL_IP` first — see [Network addressing](#network-addressing--host_ip--external_ip).
 
 VSS runs a mixed network topology: VST and `vss-agent` use host networking, but
 the VLM/LLM NIMs run on the `mdx_default` Docker bridge. The agent hands the VLM a
@@ -216,7 +216,7 @@ sudo ufw allow 31000/tcp
 sudo ufw reload
 ```
 
-(Reachability still depends on `EXTERNAL_IP` — see [Network addressing](#addressing).)
+(Reachability still depends on `EXTERNAL_IP` — see [Network addressing](#network-addressing--host_ip--external_ip).)
 
 ## GPU Module Loading
 

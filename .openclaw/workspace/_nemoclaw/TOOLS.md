@@ -87,14 +87,14 @@ them from the host environment.
 
 If host-side setup is missing (NGC CLI, Docker login to `nvcr.io`, or
 `uv sync` of `services/agent/`), tell the user to run the matching cell in
-`deploy/docker/scripts/deploy_nemoclaw_vss.ipynb`. The notebook lives on the
+`deploy/docker/scripts/deploy_vss_orchestrator.ipynb`. The notebook lives on the
 host, not in the sandbox — do not try to read, list, find, or open it from
 inside the sandbox.
 
 ## Calling MCP tools
 
-Openclaw's built-in MCP client can't fully handshake with the orchestrator's
-`nat mcp serve` (protocol mismatch: openclaw opens the SSE GET before
+OpenClaw's built-in MCP client can't fully handshake with the orchestrator's
+`nat mcp serve` (protocol mismatch: OpenClaw opens the SSE GET before
 establishing a session). Only **`vss_orchestrator__docker_list`** reliably
 registers as a native tool. Prefer it natively when present. Every other
 orchestrator tool (`prereqs`, `docker_generate`, `docker_up`, `docker_down`,
@@ -217,10 +217,10 @@ in Docker, not in the orchestrator's process memory.
 
 ## Skills
 
-Skills are managed by OpenClaw — discover and invoke them via the
-`openclaw skills` CLI (e.g. `openclaw skills list`, `openclaw skills <name>`).
-Do **not** `read` / `cat` / `find` `SKILL.md` paths directly. Paths under
-`/usr/local/lib/node_modules/openclaw/skills/` are OpenClaw's bundled core
-skills (1password, github, etc.) and do not contain VSS skills like
-`deploy`, `alerts`, or `video-search` — those live under the plugin install
-dir and are reachable only via the CLI.
+Skills are managed by the agent runtime. In OpenClaw sandboxes, discover and
+invoke them via the `openclaw skills` CLI (e.g. `openclaw skills list`,
+`openclaw skills <name>`). Do **not** `read` / `cat` / `find` `SKILL.md` paths
+directly. Paths under `/usr/local/lib/node_modules/openclaw/skills/` are
+OpenClaw's bundled core skills (1password, github, etc.) and do not contain VSS
+skills like `deploy`, `alerts`, or `video-search` — those live under the plugin
+install dir and are reachable only via the runtime CLI.

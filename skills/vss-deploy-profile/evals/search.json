@@ -11,7 +11,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **search** profile on this two-GPU {{platform}} host using the `/vss-deploy-profile` skill end-to-end and autonomously. Use the configured remote VLM endpoint because local search RT-VLM requires a third GPU; keep the local `vss-rtvi-vlm` service as the OpenAI-compatible proxy.",
+      "query": "Deploy the VSS **search** profile on this two-GPU {{platform}} host using the `/vss-deploy-profile` skill end-to-end and autonomously. Override the default local RT-VLM and use the configured remote VLM endpoint instead; keep the local `vss-rtvi-vlm` service as the OpenAI-compatible proxy.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",

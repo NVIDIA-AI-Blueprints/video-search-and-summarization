@@ -60,6 +60,10 @@
 			"value": "2"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
+		},
+		{
 			"name": "numWorkersForBehaviorCreation",
 			"value": "0"
 		},

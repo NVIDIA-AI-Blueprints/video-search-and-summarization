@@ -87,7 +87,7 @@ spec:
       {{- end }}
       containers:
         - name: vss-behavior-analytics
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "vss-behavior-analytics.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             {{- toYaml (required "vss-behavior-analytics.command must be set when enabled" .Values.command) | nindent 12 }}

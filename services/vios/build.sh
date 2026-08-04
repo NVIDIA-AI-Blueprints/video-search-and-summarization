@@ -92,10 +92,10 @@ show_help() {
     echo "  all                One-shot: toolchain -> base -> module containers (sensor + streamprocessing"
     echo "                     by default, or whatever module=... lists) -> nvstreamer container."
     echo "  multiarch          Build+push amd64 and arm64 images (per-arch tags) then assemble one"
-    echo "                     multi-arch manifest via 'docker buildx imagetools'. Needs tag=<manifest-tag>"
-    echo "                     (e.g. tag=2.1.0-26.05.4; per-arch tags are derived as -amd64-/-arm64-) and a"
-    echo "                     target (module=<list> and/or nvstreamer). Set IMAGE_REGISTRY to a pushable"
-    echo "                     registry first. amd64 push overlaps the arm64 build."
+    echo "                     multi-arch manifest via 'docker buildx imagetools'. Application targets need"
+    echo "                     tag=<manifest-tag> and module=<list>, nvstreamer, or all. Base images use"
+    echo "                     base-container base-tag=<manifest-tag>. Set IMAGE_REGISTRY to a pushable"
+    echo "                     registry first. Application amd64 push overlaps the arm64 build."
     echo "  multiarch all      Multi-arch equivalent of 'all': builds sensor + streamprocessing + nvstreamer"
     echo "                     for both arches (needs tag=<manifest-tag>). Ingress is separate (already"
     echo "                     multi-arch): ./build.sh container ingress push=1 tag=<tag>."
@@ -112,7 +112,7 @@ show_help() {
     echo "  image-registry=<ref>   Override registry/org prefix for module + base images"
     echo "                          (replaces IMAGE_REGISTRY env var; default 'vios')."
     echo "  nvstreamer-image=<ref> Override the full NVStreamer image repository"
-    echo "                          (replaces NVSTREAMER_IMAGE env var; default 'nvstreamer')."
+    echo "                          (replaces NVSTREAMER_IMAGE_REGISTRY env var; default 'nvstreamer')."
     echo "  vst-app            Build k8s based vst-app for all modules and scaling-app"
     echo "  streamprocessing-app Build k8s based streamprocessing-app (sensor, streamprocessing, postgres, ingress)"
     echo "  ingress            Build ingress container needed for scaling-app"
@@ -153,6 +153,7 @@ show_help() {
     echo "  export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
     echo "  ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing"
     echo "  ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4"
+    echo "  ./build.sh multiarch base-container base-tag=2.1.0-runtime-26.05.4"
     echo "  ./build.sh arch=multiarch all tag=2.1.0-26.05.4   # sensor + streamprocessing + nvstreamer, both arches"
     echo "  ./build.sh container ingress push=1 tag=2.1.0-26.05.4   # ingress (already multi-arch), built separately"
     echo ""
@@ -307,7 +308,7 @@ while [[ "$#" -gt 0 ]]; do
         multiarch) MULTIARCH=1;;
         no-auto-deps) NO_AUTO_DEPS=1;;
         # CLI-flag alternatives to the X86_BUILD_IMAGE / AARCH64_CC_IMAGE /
-        # IMAGE_REGISTRY / NVSTREAMER_IMAGE env vars. Applied AFTER the
+        # IMAGE_REGISTRY / NVSTREAMER_IMAGE_REGISTRY env vars. Applied AFTER the
         # whole arg list is parsed so `arch=arm64 toolchain-image=…` works
         # regardless of arg order. CLI > env > default.
         toolchain-image=*) TOOLCHAIN_IMAGE_OVERRIDE="${1#*=}";;
@@ -333,7 +334,7 @@ if [[ -n "${IMAGE_REGISTRY_OVERRIDE:-}" ]]; then
     IMAGE_REGISTRY="$IMAGE_REGISTRY_OVERRIDE"
 fi
 if [[ -n "${NVSTREAMER_IMAGE_OVERRIDE:-}" ]]; then
-    NVSTREAMER_IMAGE="$NVSTREAMER_IMAGE_OVERRIDE"
+    NVSTREAMER_IMAGE_REGISTRY="$NVSTREAMER_IMAGE_OVERRIDE"
 fi
 
 # Export the resolved toolchain images so the Makefile's `?=` picks them up
@@ -341,6 +342,11 @@ fi
 # this, an env / toolchain-image= override never reaches the containerised
 # `make cc=1` step.
 export AARCH64_CC_IMAGE X86_BUILD_IMAGE
+# The multiarch path re-invokes this script per architecture, so the resolved
+# registries must be in the environment as well; otherwise an `image-registry=`
+# / `nvstreamer-image=` flag would tag the sub-builds with the defaults while
+# the parent pushes the overridden repository.
+export IMAGE_REGISTRY NVSTREAMER_IMAGE_REGISTRY
 
 # Print all variables
 echo "ARCH=$ARCH"
@@ -365,6 +371,7 @@ echo "NO_CACHE=$NO_CACHE"
 echo "BASE_IMAGE=$BASE_IMAGE"
 echo "MODULES=${MODULES[@]}"
 echo "IMAGE_REGISTRY=$IMAGE_REGISTRY"
+echo "NVSTREAMER_IMAGE_REGISTRY=$NVSTREAMER_IMAGE_REGISTRY"
 
 # Default tags for each module
 declare -A DEFAULT_TAGS=(
@@ -381,7 +388,7 @@ declare -A DEFAULT_TAGS=(
     [mcp]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
-    [vst-base]="2.1.0-runtime-26.05.4"
+    [vst-base]="2.1.0-runtime-26.07.1"
 )
 
 # Function to build base image for faster container builds
@@ -720,7 +727,8 @@ build_vios_ui_webroot() {
 
     echo "Staging vios-ui dist into $webroot_dir ..."
     # Remove only the VST UI static files; leave other webroot files intact.
-    rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html"
+    rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html" \
+        "$webroot_dir/runtime-config.js"
     cp -rf "$ui_dir/dist/." "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
 }
 
@@ -808,10 +816,11 @@ clean_generated_artifacts() {
     # Staged vios-ui assets (build_vios_ui_webroot). Never committed — only the
     # .gitkeep placeholders are tracked — so these are safe to drop and are
     # regenerated on the next container build. rm -rf is a no-op if absent.
-    rm -rf webroot/assets webroot/favicon webroot/index.html
+    rm -rf webroot/assets webroot/favicon webroot/index.html webroot/runtime-config.js
     rm -rf deployment/scaling/ingress/vst-ui/assets \
            deployment/scaling/ingress/vst-ui/favicon \
-           deployment/scaling/ingress/vst-ui/index.html
+           deployment/scaling/ingress/vst-ui/index.html \
+           deployment/scaling/ingress/vst-ui/runtime-config.js
 
     # Compiled release output (out/$ARCH/vst_release.tbz2, ...). The container
     # package step may write this as root, so a user-run rm can hit "Permission
@@ -1256,12 +1265,17 @@ fi
 #
 #   ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing
 #   ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4
+#   ./build.sh multiarch base-container base-tag=2.1.0-runtime-26.05.4
 #
 # Requires IMAGE_REGISTRY to point at a real registry you can push to (e.g.
 # export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev), and `docker login`.
 build_multiarch() {
-    # The multi-arch manifest tag is the standard tag= (as everywhere else).
-    if [[ -z "$TAG" ]]; then
+    # Application manifests use tag=; the base image uses base-tag= so the
+    # command matches the existing single-architecture base-container syntax.
+    if [[ $BASE_IMAGE -eq 1 ]] && [[ -z "$BASE_TAG" ]]; then
+        echo "[ERROR] multiarch base-container requires base-tag=<manifest-tag>, e.g. base-tag=2.1.0-runtime-26.05.4"
+        exit 1
+    elif [[ $BASE_IMAGE -eq 0 ]] && [[ -z "$TAG" ]]; then
         echo "[ERROR] multiarch requires tag=<manifest-tag>, e.g. tag=2.1.0-26.05.4"
         exit 1
     fi
@@ -1281,8 +1295,12 @@ build_multiarch() {
         NVSTREAMER=1
     fi
 
-    if [[ ${#MODULES[@]} -eq 0 ]] && [[ $NVSTREAMER -eq 0 ]]; then
-        echo "[ERROR] multiarch needs a target: module=<list>, nvstreamer, and/or 'all'"
+    if [[ $BASE_IMAGE -eq 1 ]] && \
+       { [[ ${#MODULES[@]} -gt 0 ]] || [[ $NVSTREAMER -eq 1 ]] || [[ $BUILD_ALL -eq 1 ]]; }; then
+        echo "[ERROR] multiarch base-container cannot be combined with module=<list>, nvstreamer, or all"
+        exit 1
+    elif [[ $BASE_IMAGE -eq 0 ]] && [[ ${#MODULES[@]} -eq 0 ]] && [[ $NVSTREAMER -eq 0 ]]; then
+        echo "[ERROR] multiarch needs a target: base-container, module=<list>, nvstreamer, and/or 'all'"
         exit 1
     fi
 
@@ -1299,13 +1317,74 @@ build_multiarch() {
     fi
 
     # multiarch always pushes to a registry; the bare local default namespace
-    # (e.g. IMAGE_REGISTRY=vios) has no registry host and cannot be pushed.
-    local reg_host="${IMAGE_REGISTRY%%/*}"
-    if [[ "$reg_host" != *.* ]] && [[ "$reg_host" != *:* ]] && [[ "$reg_host" != "localhost" ]]; then
-        echo "[WARN] IMAGE_REGISTRY='$IMAGE_REGISTRY' has no registry host — the push/manifest will"
+    # (e.g. IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE_REGISTRY=nvstreamer) has no
+    # registry host and cannot be pushed.
+    _warn_unpushable() {
+        local var="$1" value="$2" example="$3" host="${2%%/*}"
+        if [[ "$host" == *.* ]] || [[ "$host" == *:* ]] || [[ "$host" == "localhost" ]]; then
+            return 0
+        fi
+        echo "[WARN] $var='$value' has no registry host — the push/manifest will"
         echo "       target Docker Hub or fail. Set a pushable registry and log in first, e.g.:"
-        echo "         export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
+        echo "         export $var=$example"
         echo "         docker login nvcr.io"
+    }
+    if [[ $BASE_IMAGE -eq 1 ]] || [[ ${#MODULES[@]} -gt 0 ]]; then
+        _warn_unpushable IMAGE_REGISTRY "$IMAGE_REGISTRY" \
+            "nvcr.io/rxczgrvsg8nx/vst-dev"
+    fi
+    if [[ $NVSTREAMER -eq 1 ]]; then
+        _warn_unpushable NVSTREAMER_IMAGE_REGISTRY "$NVSTREAMER_IMAGE_REGISTRY" \
+            "nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer"
+    fi
+
+    if [[ $BASE_IMAGE -eq 1 ]]; then
+        local base_amd_tag base_arm_tag
+        if [[ "$BASE_TAG" == *-* ]]; then
+            # Insert the architecture before the final release segment:
+            # 2.1.0-runtime-26.07.1 -> 2.1.0-runtime-amd64-26.07.1.
+            base_amd_tag="${BASE_TAG%-*}-amd64-${BASE_TAG##*-}"
+            base_arm_tag="${BASE_TAG%-*}-arm64-${BASE_TAG##*-}"
+        else
+            base_amd_tag="${BASE_TAG}-amd64"
+            base_arm_tag="${BASE_TAG}-arm64"
+        fi
+
+        local base_repo="$IMAGE_REGISTRY/vst-base"
+        local base_extra=""
+        [[ $NO_CACHE -eq 1 ]] && base_extra="no-cache"
+
+        echo "=============================================="
+        echo "multiarch base: $BASE_TAG"
+        echo "  amd64 tag : $base_amd_tag"
+        echo "  arm64 tag : $base_arm_tag"
+        echo "  manifest  : $BASE_TAG"
+        echo "  target    : $base_repo"
+        echo "=============================================="
+
+        # Base images contain no shared compiled object tree, so no make clean
+        # is needed between the architecture-specific Docker builds.
+        # shellcheck disable=SC2086
+        "$0" base-container base-tag="$base_amd_tag" push=1 $base_extra || {
+            echo "[ERROR] amd64 base image build failed"; exit 1; }
+        # shellcheck disable=SC2086
+        "$0" arch=arm64 base-container base-tag="$base_arm_tag" push=1 $base_extra || {
+            echo "[ERROR] arm64 base image build failed"; exit 1; }
+
+        docker buildx imagetools create \
+            --tag "$base_repo:$BASE_TAG" \
+            "$base_repo:$base_arm_tag" \
+            "$base_repo:$base_amd_tag" || {
+                echo "[ERROR] base image manifest creation failed"; exit 1; }
+
+        echo ""
+        echo "================ multiarch base complete ================"
+        echo "  pushed   :"
+        echo "     - $base_repo:$base_amd_tag"
+        echo "     - $base_repo:$base_arm_tag"
+        echo "  manifest : $base_repo:$BASE_TAG"
+        echo "========================================================="
+        return
     fi
 
     # 2.1.0-26.05.4 -> prefix=2.1.0 suffix=26.05.4 -> 2.1.0-<arch>-26.05.4.
@@ -1322,7 +1401,7 @@ build_multiarch() {
     local -a repos=()
     local m
     for m in "${MODULES[@]}"; do repos+=("$IMAGE_REGISTRY/vst-${m}"); done
-    [[ $NVSTREAMER -eq 1 ]] && repos+=("$NVSTREAMER_IMAGE")
+    [[ $NVSTREAMER -eq 1 ]] && repos+=("$NVSTREAMER_IMAGE_REGISTRY")
 
     # Flags forwarded to each per-arch sub-build.
     local extra=""
@@ -1465,7 +1544,7 @@ if [[ $BUILD_ALL -eq 1 ]]; then
         _mt="${DEFAULT_TAGS[$_m]:-latest}"
         echo "  module    : $IMAGE_REGISTRY/vst-${_m}:${TAG:-$_mt}"
     done
-    echo "  nvstreamer: $NVSTREAMER_IMAGE:${DEFAULT_TAGS[nvstreamer]:-latest}"
+    echo "  nvstreamer: $NVSTREAMER_IMAGE_REGISTRY:${DEFAULT_TAGS[nvstreamer]:-latest}"
     echo ""
     echo "To publish to your registry, set the registry env vars BEFORE running"
     echo "the build (the tag is baked into the image at build time — see the"
@@ -1836,15 +1915,28 @@ else
             print_per_image_build_timing_line "$MODULE_BUILD_START_TIME"
 
             if [[ $PUSH -eq 1 ]]; then
-                # Push in the background so the next module's compile + docker build
-                # overlaps this image's upload. Output is captured per-image and
-                # printed when the push is waited on after the loop.
-                push_log=$(mktemp)
-                echo "Pushing Docker image (background): $imagename"
-                docker push "$imagename" > "$push_log" 2>&1 &
-                PUSH_PIDS+=("$!")
-                PUSH_IMAGES+=("$imagename")
-                PUSH_LOGS+=("$push_log")
+                if [[ $MODULE_COUNT -eq $((${#MODULES[@]} - 1)) ]]; then
+                    # Last image: no further module build is left to overlap with, so
+                    # push in the foreground and let docker report its own per-layer
+                    # progress instead of leaving the user with a silent upload.
+                    echo "Pushing Docker image: $imagename"
+                    if docker push "$imagename"; then
+                        echo -e "Docker push succeeded for image: $imagename"
+                    else
+                        echo -e "[ERROR] Docker push failed for image: $imagename"
+                        exit 1
+                    fi
+                else
+                    # Push in the background so the next module's compile + docker build
+                    # overlaps this image's upload. Output is captured per-image and
+                    # printed when the push is waited on after the loop.
+                    push_log=$(mktemp)
+                    echo "Pushing Docker image (background): $imagename"
+                    docker push "$imagename" > "$push_log" 2>&1 &
+                    PUSH_PIDS+=("$!")
+                    PUSH_IMAGES+=("$imagename")
+                    PUSH_LOGS+=("$push_log")
+                fi
             fi
 
             MODULE_COUNT=$((MODULE_COUNT + 1))

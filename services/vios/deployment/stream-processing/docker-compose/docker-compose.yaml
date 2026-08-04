@@ -41,6 +41,7 @@ services:
       - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
       - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+      - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data

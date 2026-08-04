@@ -79,4 +79,4 @@ MultiViewAssociator:
 Communicator:
   communicatorType: 2
   pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
-  mqttProtoAdaptorConfigPath: configs/config_mqtt.txt
+  mqttProtoAdaptorConfigPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_mqtt.txt

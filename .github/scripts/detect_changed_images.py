@@ -26,9 +26,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -45,6 +47,29 @@ BUILD_CONTRACT_PATHS = (
     ".github/scripts/release_set.py",
     "deploy/docker/container-inventory.json",
 )
+
+# Agent, UI, and alert share VSS_CONTAINER_TAG and must move as one set.
+# Analytics images have independent tag variables and build only when their
+# own service source changes.
+SHARED_TAG_IMAGE_NAMES = frozenset({"vss-agent", "vss-agent-ui", "vss-alert-ms"})
+
+# Behavior analytics compiles architecture-sensitive native dependencies and
+# must not build arm64 through QEMU on an amd64 runner. The build workflow
+# expands it into one job per platform, then combines the native results into
+# the same multiarch candidate expected by the release-set flow.
+NATIVE_PLATFORM_IMAGE_NAMES = frozenset({"vss-behavior-analytics"})
+RUNNER_BY_PLATFORM = {
+    "linux/amd64": "ubuntu-24.04",
+    "linux/arm64": "ubuntu-24.04-arm",
+}
+RUNNER_ARCH_BY_PLATFORM = {
+    "linux/amd64": "X64",
+    "linux/arm64": "ARM64",
+}
+KERNEL_ARCH_BY_PLATFORM = {
+    "linux/amd64": "x86_64",
+    "linux/arm64": "aarch64",
+}
 
 
 def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -116,30 +141,146 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
         if any(path.startswith(entry["source_path"] + "/") for path in changed)
     ]
     if changed_images:
-        # The managed agent/UI/alert set shares one VSS_CONTAINER_TAG. Publish
-        # every member under that tag so the shared develop/QA coordinate can
-        # switch the managed set with one environment variable.
-        names = ", ".join(entry["name"] for entry in changed_images)
+        selected_names = {entry["name"] for entry in changed_images}
+        if selected_names & SHARED_TAG_IMAGE_NAMES:
+            selected_names.update(
+                entry["name"]
+                for entry in buildable
+                if entry["name"] in SHARED_TAG_IMAGE_NAMES
+            )
+        selected = [
+            entry for entry in buildable if entry["name"] in selected_names
+        ]
+        changed_names = ", ".join(entry["name"] for entry in changed_images)
+        selected_names_text = ", ".join(entry["name"] for entry in selected)
         return (
-            buildable,
-            f"managed image(s) changed ({names}); building complete shared-tag set",
+            selected,
+            f"managed image(s) changed ({changed_names}); building "
+            f"{selected_names_text}",
         )
     return [], f"0 of {len(buildable)} images changed"
 
 
-def to_matrix(entries: list[dict]) -> dict:
+def add_missing_content_tags(
+    buildable: list[dict],
+    selected: list[dict],
+    repo: Path,
+    commit: str,
+    probe: Callable[[str], bool | None],
+    owner: str,
+) -> tuple[list[dict], list[str]]:
+    """Add images whose content tag is absent, whatever the path diff said.
+
+    This is what makes "every image at the tip has a tree-<sha>" true by
+    construction rather than by assumption about build history: a missing tag
+    pulls the image into the matrix, the build republishes it, and the
+    post-merge retag finds it.
+    """
+    have = {entry["name"] for entry in selected}
+    added = [
+        entry
+        for entry in buildable
+        if entry["name"] not in have
+        and content_tag_missing(entry, repo, commit, probe, owner)
+    ]
+    if not added:
+        return selected, []
+    names = [entry["name"] for entry in added]
+    return selected + added, names
+
+
+def ghcr_tag_exists(reference: str) -> bool | None:
+    """True/False if the manifest read succeeded, None if it could not be read."""
+    result = subprocess.run(
+        ["docker", "manifest", "inspect", reference],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return True
+    combined = (result.stderr + result.stdout).lower()
+    if "manifest unknown" in combined or "not found" in combined:
+        return False
+    return None  # auth, network, rate limit: unknown, so build
+
+
+def content_tag_missing(
+    entry: dict,
+    repo: Path,
+    commit: str,
+    probe: Callable[[str], bool | None],
+    owner: str,
+) -> bool:
+    """True when this image has no published ``tree-<sha>`` for its current tree.
+
+    A path diff is a *proxy* for "did the content change"; the tree hash IS the
+    content. An image whose tree is unchanged is normally skipped -- but only
+    safely so if the content tag for that tree actually exists, because the
+    post-merge retag sources the candidate set from it.
+
+    Fails **open**: a probe that errors returns None and the image is built.
+    An unreachable registry must never look like "already published" -- a
+    spurious rebuild costs minutes, a spurious skip costs a missing tag that
+    surfaces somewhere else hours later.
+    """
+    source_path = entry.get("source_path")
+    if not source_path:
+        return False
+    result = run_git(repo, "rev-parse", f"{commit}:{source_path}")
+    if result.returncode != 0:
+        return True
+    tree_sha = result.stdout.strip()
+    reference = f"ghcr.io/{owner.lower()}/vss/{entry['name']}:tree-{tree_sha}"
+    return probe(reference) is not True
+
+
+def matrix_entry(entry: dict) -> dict:
     return {
-        "include": [
-            {
-                "name": entry["name"],
-                "context": entry["context"],
-                "dockerfile": entry["dockerfile"],
-                "lfs_include": entry.get("lfs_include", ""),
-                "platforms": ",".join(entry["platforms"]),
-                "source_path": entry["source_path"],
-            }
-            for entry in entries
-        ]
+        "name": entry["name"],
+        "context": entry["context"],
+        "dockerfile": entry["dockerfile"],
+        "lfs_include": entry.get("lfs_include", ""),
+        "platforms": ",".join(entry["platforms"]),
+        "source_path": entry["source_path"],
+    }
+
+
+def to_matrix(entries: list[dict]) -> dict:
+    return {"include": [matrix_entry(entry) for entry in entries]}
+
+
+def split_build_matrices(entries: list[dict]) -> dict[str, dict]:
+    """Partition selected images and expand native builds by platform."""
+    standard = [
+        entry for entry in entries if entry["name"] not in NATIVE_PLATFORM_IMAGE_NAMES
+    ]
+    native = [
+        entry for entry in entries if entry["name"] in NATIVE_PLATFORM_IMAGE_NAMES
+    ]
+    native_platforms: list[dict] = []
+    for entry in native:
+        base = matrix_entry(entry)
+        for platform in entry["platforms"]:
+            try:
+                runner = RUNNER_BY_PLATFORM[platform]
+            except KeyError as exc:
+                raise ValueError(
+                    f"{entry['name']}: no native runner configured for {platform}"
+                ) from exc
+            native_platforms.append(
+                {
+                    **base,
+                    "platform": platform,
+                    "arch": platform.rsplit("/", 1)[-1],
+                    "runner": runner,
+                    "runner_arch": RUNNER_ARCH_BY_PLATFORM[platform],
+                    "kernel_arch": KERNEL_ARCH_BY_PLATFORM[platform],
+                }
+            )
+    return {
+        "standard_matrix": to_matrix(standard),
+        "native_matrix": to_matrix(native),
+        "native_platform_matrix": {"include": native_platforms},
     }
 
 
@@ -150,6 +291,12 @@ def main() -> int:
     parser.add_argument("--ref-name", required=True)
     parser.add_argument("--before", default="")
     parser.add_argument("--base-branch", default="develop")
+    parser.add_argument(
+        "--owner",
+        default=os.environ.get("GITHUB_REPOSITORY_OWNER", ""),
+        help="GHCR owner; enables the content-tag gap check when set.",
+    )
+    parser.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "HEAD"))
     args = parser.parse_args()
     repo_root = args.repo_root.resolve()
 
@@ -162,13 +309,35 @@ def main() -> int:
         reason += "; diff failed, building everything"
 
     entries, selection_reason = select_images(inventory, changed)
+
+    # A path diff only says the source did not change. It cannot say the content
+    # tag for that source was ever published -- and the post-merge retag sources
+    # the candidate set from tree-<sha>. Pull in any image missing one, so
+    # "every image at the tip has a content tag" holds by construction.
+    if args.owner:
+        buildable = [
+            entry
+            for entry in inventory["images"]
+            if entry.get("strategy") == "build" and entry.get("ghcr_build")
+        ]
+        entries, backfilled = add_missing_content_tags(
+            buildable, entries, repo_root, args.commit, ghcr_tag_exists, args.owner
+        )
+        if backfilled:
+            selection_reason += (
+                f"; no published content tag for {', '.join(backfilled)}"
+            )
     matrix = to_matrix(entries)
+    split_matrices = split_build_matrices(entries)
     print(
         json.dumps(
             {
                 "reason": f"{reason}; {selection_reason}",
                 "count": len(entries),
                 "matrix": matrix,
+                "standard_count": len(split_matrices["standard_matrix"]["include"]),
+                "native_count": len(split_matrices["native_matrix"]["include"]),
+                **split_matrices,
             },
             indent=2,
         )

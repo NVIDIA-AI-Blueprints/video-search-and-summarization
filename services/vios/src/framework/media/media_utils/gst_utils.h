@@ -295,7 +295,9 @@ int getFrameCountForFile  (std::string& file_path, const string& codec);
 GstClockTime getMediaFileDuration (const std::string& file_path);
 GstClockTime fixMediaFileAndGetDuration (const std::string& file_path);
 bool isRecordedFileExist(const string& sensorId, const int64_t& epochStartTime, const int64_t& epochEndTime);
-Json::Value getRTSPStreamDetails (const string &url, std::string& codec,  std::vector<std::vector<uint8_t>> sps_pps_idr_frames);
+// timeoutSec: bus wait in seconds; 0 keeps the built-in 10s default
+Json::Value getRTSPStreamDetails (const string &url, std::string& codec,  std::vector<std::vector<uint8_t>> sps_pps_idr_frames,
+                                  int timeoutSec = 0);
 
 // Container format detection and demuxer/muxer selection utilities
 string detectContainerFormatFromFile(const string& filePath);

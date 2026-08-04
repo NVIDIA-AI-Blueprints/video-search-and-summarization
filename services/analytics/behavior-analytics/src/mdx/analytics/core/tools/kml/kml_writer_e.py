@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import Behavior, Coordinate, Location, Message
-from mdx.analytics.core.schema.trajectory.trajectory_e import TrajectoryE
+from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
 from mdx.analytics.core.tools.kml.kml_writer_base import KmlWriterBase
 from mdx.analytics.core.transform.calibration.calibration_e import CalibrationE
 from mdx.analytics.core.transform.event.tripwire_event import TripwireEvent
@@ -155,7 +155,7 @@ class KmlWriterE(KmlWriterBase):
 
             eventString = self.get_events_string(events)
             if len(events) > 1:
-                trips[(trip.id, eventString)] = TrajectoryE(
+                trips[(trip.id, eventString)] = Trajectory(
                     id=trip.id, start=trip.timestamp, end=trip.end, points=locations
                 )
 
@@ -174,7 +174,7 @@ class KmlWriterE(KmlWriterBase):
                 ),
             ]
 
-            tripwires[("-" + x.id, "wire")] = TrajectoryE(
+            tripwires[("-" + x.id, "wire")] = Trajectory(
                 id=x.id, start=time_x_minutes_ago(1), end=datetime.now(timezone.utc), points=locations
             )
 
@@ -251,7 +251,7 @@ class KmlWriterE(KmlWriterBase):
             >>> print(f"Created trajectory with {len(trajectory.locations.coordinates)} points")
         """
         points = [msg.object.coordinate for msg in messages]
-        tr = TrajectoryE(id=vehicle_id, start=messages[0].timestamp, end=messages[-1].timestamp, points=points)
+        tr = Trajectory(id=vehicle_id, start=messages[0].timestamp, end=messages[-1].timestamp, points=points)
         last_message = messages[-1]
 
         return Behavior(
