@@ -162,6 +162,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 |---|---|---|
 | `model not found` / `No such file` | `vss-rtvi-cv` | `VSS_DATA_DIR` wrong or models not present |
 | `CUDA out of memory` | `vss-rtvi-cv` / LLM NIM / `vss-rtvi-vlm` | Too many streams or wrong device assignment — reduce `NUM_STREAMS` or change device IDs |
+| `Available KV cache memory: -… GiB` / `No available memory for the cache blocks` / `EngineCore failed to start` | `vss-rtvi-vlm` | RT-VLM's context budget does not fit on the selected GPU. Set `RTVI_VLM_MAX_MODEL_LEN=18000` in the active warehouse `generated.env` (or `overrides.env` before first deployment), then recreate `vss-rtvi-vlm`. |
 | `GST pipeline error` / `Failed to start pipeline` | `vss-rtvi-cv` | No valid RTSP input — check `vss-vios-nvstreamer` first |
 | `Connection refused` on broker port | `vss-broker-health-check` | Kafka/Redis not listening — broker crashed |
 | `RTSP connection failed` / `Cannot open resource` | `vss-vios-nvstreamer` | RTSP source (camera / video file) unreachable |
