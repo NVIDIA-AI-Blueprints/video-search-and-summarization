@@ -37,6 +37,8 @@ FILE_TARGET_SUFFIXES = {
     ".yml",
 }
 GENERATED_BIND_NAMES = {".wdm-env"}
+NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
+NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
 
 
 def walk_strings(value: Any, location: str = "$") -> Iterator[tuple[str, str]]:
@@ -72,9 +74,62 @@ def is_within(path: Path, parent: Path) -> bool:
     return True
 
 
+def iter_env(service: dict[str, Any]) -> Iterator[tuple[str, Any]]:
+    env = service.get("environment")
+    if isinstance(env, dict):
+        yield from env.items()
+    elif isinstance(env, list):
+        for item in env:
+            if isinstance(item, str):
+                key, separator, value = item.partition("=")
+                yield key, (value if separator else None)
+
+
+def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[str]:
+    errors: list[str] = []
+    services = document.get("services") or {}
+
+    ngc_required = any(NGC_TRIGGER.search(value) for _, value in walk_strings(document))
+
+    monitored = set(extra_required)
+    if ngc_required:
+        monitored.update(NGC_SECRET_KEYS)
+    if not monitored:
+        return errors
+
+    seen = {key: False for key in monitored}
+    for service_name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        for key, value in iter_env(service):
+            if key not in monitored:
+                continue
+            seen[key] = True
+            if value is None or (isinstance(value, str) and not value.strip()):
+                errors.append(
+                    f"service {service_name!r} environment {key!r} resolved empty; a "
+                    "mode-required credential baked as '' cannot be supplied at deploy "
+                    "time — set it and regenerate resolved.yml"
+                )
+
+    if ngc_required and not (seen["NGC_API_KEY"] or seen["NGC_CLI_API_KEY"]):
+        errors.append(
+            "resolved model references NGC-gated artifacts (nvcr.io/ or ngc:) but no "
+            "NGC_API_KEY/NGC_CLI_API_KEY is wired into any service environment"
+        )
+    for key in extra_required:
+        if not seen[key]:
+            errors.append(
+                f"required credential {key!r} is absent from every service environment"
+            )
+
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
+    extra_required: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     services = document.get("services")
@@ -110,6 +165,8 @@ def validate_document(
                 f"onto file target {target_text}"
             )
 
+    errors.extend(secret_errors(document, extra_required or set()))
+
     return errors
 
 
@@ -117,6 +174,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("resolved_yml", type=Path)
     parser.add_argument("--repo-root", required=True, type=Path)
+    parser.add_argument(
+        "--required-secret",
+        action="append",
+        default=[],
+        metavar="KEY",
+        help="env key that must resolve to a non-empty literal (repeatable)",
+    )
     return parser.parse_args()
 
 
@@ -135,7 +199,9 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    errors = validate_document(document, args.repo_root)
+    errors = validate_document(
+        document, args.repo_root, set(args.required_secret)
+    )
     if errors:
         print(
             f"ERROR: {args.resolved_yml} failed pre-deployment validation:",
@@ -146,8 +212,8 @@ def main() -> None:
         raise SystemExit(2)
 
     print(
-        f"Validated {args.resolved_yml}: no stale placeholders or invalid "
-        "checked-in bind sources"
+        f"Validated {args.resolved_yml}: no stale placeholders, invalid "
+        "checked-in bind sources, or empty mode-required credentials"
     )
 
 
