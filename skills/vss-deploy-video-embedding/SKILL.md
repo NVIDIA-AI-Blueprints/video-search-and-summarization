@@ -1,14 +1,14 @@
 ---
 name: vss-deploy-video-embedding
 description: >
-  Use this skill when deploying, operating, or integrating the VSS 3.2 GA
+  Use this skill when deploying, operating, or integrating the VSS 3.3.0 GA
   RT-Embed Video Embedding microservice. Covers Docker Compose bring-up,
   GPU and storage prerequisites, the `/v1` REST API (file uploads,
   text and video embeddings, live RTSP streams, health and metrics),
   Redis/Kafka/OTel integration, common failure modes, and teardown.
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
@@ -27,12 +27,12 @@ Use this skill when you need to:
 
 ## Service Snapshot
 
-- **VSS 3.2 GA skill:** `vss-deploy-video-embedding`.
+- **VSS 3.3.0 GA skill:** `vss-deploy-video-embedding`.
 - **Legacy 3.1 name:** RT-Embed.
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
-- **Image:** `nvcr.io/nvidia/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
-- **Default tag:** `3.2.1` (override with `RTVI_EMBED_TAG`).
+- **Image:** `nvcr.io/nvstaging/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
+- **Default tag:** `3.3.0-26.07.4` (override with `RTVI_EMBED_TAG`).
 - **Profile:** `rtvi-embed`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.
@@ -77,9 +77,9 @@ command.
 export RTVI_EMBED_PORT=8017
 export VSS_DATA_DIR="${VSS_DATA_DIR:-$(pwd)/.standalone-data}"
 export NGC_API_KEY="<your-ngc-api-key>"
-export HOST_IP="$(hostname -I | awk '{print $1}')"
 export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
-export RTVI_EMBED_KAFKA_ENABLED=false
+export MESSAGE_BUS=
+export ERROR_BUS=
 export ENABLE_REDIS_ERROR_MESSAGES=false
 # Prepare VST clip-storage host dir; use `sudo -n` for ownership fixes.
 CLIP_STORAGE_DIR="${VSS_DATA_DIR}/data_log/vst/clip_storage"
@@ -203,8 +203,8 @@ If `RTVI_EMBED_LOG_DIR` is bound to a host directory, log files are also availab
 ## Integration Surface
 
 - **Inputs:** REST API on `:${RTVI_EMBED_PORT}` (`POST /v1/files`, `POST /v1/generate_text_embeddings`, `POST /v1/generate_video_embeddings`, live-stream control endpoints).
-- **Outputs:** Synchronous REST responses, optional SSE for chunked video embeddings, optional Kafka messages on the topics named by `RTVI_EMBED_KAFKA_TOPIC` (container `KAFKA_TOPIC`) and `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (container `ERROR_MESSAGE_TOPIC`) when Kafka is enabled (host: `RTVI_EMBED_KAFKA_ENABLED=true`, which Compose maps to container `KAFKA_ENABLED`).
-- **Optional peers:** Redis (`ENABLE_REDIS_ERROR_MESSAGES=true`), Kafka (host: `RTVI_EMBED_KAFKA_ENABLED=true` → container `KAFKA_ENABLED`), OpenTelemetry collector (host: `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` → container `ENABLE_OTEL_MONITORING`).
+- **Outputs:** Synchronous REST responses, optional SSE for chunked video embeddings, optional Kafka messages on the topic named by `MESSAGE_BUS_TOPIC` when generated-message output is enabled with `MESSAGE_BUS=kafka`, and optional Kafka error output when `ERROR_BUS=kafka`.
+- **Optional peers:** Redis (`ENABLE_REDIS_ERROR_MESSAGES=true`), Kafka (`MESSAGE_BUS=kafka` and/or `ERROR_BUS=kafka`), OpenTelemetry collector (host: `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` → container `ENABLE_OTEL_MONITORING`).
 
 `references/integrate-vss-deploy-video-embedding.md` documents the full integration contract.
 

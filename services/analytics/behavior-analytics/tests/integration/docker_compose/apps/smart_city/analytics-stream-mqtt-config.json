@@ -194,6 +194,10 @@
 			"value": "100"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "true"
+		},
+		{
 			"name": "objectConfidenceThreshold",
 			"value": "0.5"
 		},

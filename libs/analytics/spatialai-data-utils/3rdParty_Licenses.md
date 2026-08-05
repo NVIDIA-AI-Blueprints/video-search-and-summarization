@@ -21635,7 +21635,7 @@ either expressed or implied, of David Wolever.
 
 ---
 
-## pillow:12.2.0
+## pillow:12.3.0
 
 **License Type:** MIT (HPND / MIT-CMU (CMU variant of MIT))
 
