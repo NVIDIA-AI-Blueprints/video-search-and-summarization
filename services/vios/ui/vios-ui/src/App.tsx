@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { HashRouter } from 'react-router-dom';
+import { HashRouter } from 'react-router';
 import Router from './layout/routes/Routes';
 import { VstAdaptorWrapper } from './features/wrappers/AdaptorWrapper';
 import React from 'react';
