@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -101,8 +101,14 @@ public:
 
     virtual ~VideoSource()
     {
-        this->Stop();
-        LOG(info) << __func__ << endl;
+        try {
+            this->Stop();
+            LOG(info) << __func__ << endl;
+        } catch (const std::exception& e) {
+            try { LOG(error) << "Exception in ~VideoSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+        } catch (...) {
+            try { LOG(error) << "Unknown exception in ~VideoSource" << endl; } catch (...) { (void)std::current_exception(); }
+        }
     }
     void Start()
     {
