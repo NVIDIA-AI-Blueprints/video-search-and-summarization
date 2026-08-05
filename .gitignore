@@ -1,4 +1,5 @@
-.claude
+.claude/*
+!.claude/settings.json
 
 # Python
 __pycache__/
@@ -15,6 +16,21 @@ __pycache__/
 **/generated.env
 deploy/docker/resolved.yml
 deploy/docker/rag-secret.override.yml
+
+# VSS_DATA_DIR bind mounts: uploaded media, elastic/redis/kafka state and
+# agent_eval output written by the running stack. Runtime output, not source.
+/data/
+/deploy/docker/data-dir/
+
+# Local deployment diagnostics and rendered configurations.
+/deploy/docker/compose_config_err.txt
+/deploy/docker/compose_config_err2.txt
+/deploy/docker/resolved_new.yml
+/deploy/docker/developer-profiles/dev-profile-base/nginx-vst-base.conf
+/deploy/docker/developer-profiles/dev-profile-base/sdrc/2d/configs/config.yml
+/deploy/docker/services/vios/configs/nginx-vst-base.conf
+/warehouse_safety_0001_clip.mp4
+/warehouse_safety_001.mp4
 
 *.log
 *checkpoint.*

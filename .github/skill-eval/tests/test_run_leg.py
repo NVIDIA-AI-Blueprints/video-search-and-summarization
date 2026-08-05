@@ -140,6 +140,43 @@ class HarborCommand(unittest.TestCase):
                 invocation, Path("/tmp/results"), "m", "https://x/v1", "Codex"
             )
 
+    def test_build_command_forwards_explicit_agent_environment(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/alerts_cv"),
+            include_task_name="rtxpro6000bw",
+            chain_key="alerts_cv_rtxpro6000bw",
+        )
+
+        cmd = run_leg.build_harbor_command(
+            invocation,
+            Path("/tmp/results"),
+            "claude-sonnet-4-6",
+            "https://inference-api.nvidia.com/v1",
+            agent_env={"EXPERIMENT_MODE": "cold", "STATE_HOME": "/tmp/state"},
+        )
+
+        pairs = [cmd[index + 1] for index, value in enumerate(cmd) if value == "--ae"]
+        self.assertIn("EXPERIMENT_MODE=cold", pairs)
+        self.assertIn("STATE_HOME=/tmp/state", pairs)
+
+    def test_build_command_forwards_explicit_agent_kwargs(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/alerts_cv"),
+            include_task_name="rtxpro6000bw",
+            chain_key="alerts_cv_rtxpro6000bw",
+        )
+
+        cmd = run_leg.build_harbor_command(
+            invocation,
+            Path("/tmp/results"),
+            "claude-sonnet-4-6",
+            "https://inference-api.nvidia.com/v1",
+            agent_kwargs={"append_system_prompt": "Use the cache."},
+        )
+
+        pairs = [cmd[index + 1] for index, value in enumerate(cmd) if value == "--ak"]
+        self.assertIn("append_system_prompt=Use the cache.", pairs)
+
 
 class SkipMarkers(unittest.TestCase):
     def test_latest_reward_ignores_prior_chain_reward_when_since_is_set(self):

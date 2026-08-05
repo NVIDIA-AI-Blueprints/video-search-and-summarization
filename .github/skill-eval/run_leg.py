@@ -157,6 +157,8 @@ def build_harbor_command(
     model: str,
     anthropic_base_url: str,
     agent: str = "claude-code",
+    agent_env: dict[str, str] | None = None,
+    agent_kwargs: dict[str, str] | None = None,
 ) -> list[str]:
     if agent == "codex":
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
@@ -178,6 +180,10 @@ def build_harbor_command(
         ]
     else:
         raise ValueError(f"unsupported agent {agent!r} (expected claude-code | codex)")
+    for name, value in sorted((agent_kwargs or {}).items()):
+        agent_flags.extend(["--ak", f"{name}={value}"])
+    for name, value in sorted((agent_env or {}).items()):
+        agent_flags.extend(["--ae", f"{name}={value}"])
     return [
         "uvx",
         "harbor",
@@ -740,6 +746,8 @@ def run_invocations(
     spec_stem: str,
     platform: str,
     harbor_timeout_sec: int,
+    agent_env: dict[str, str] | None = None,
+    agent_kwargs: dict[str, str] | None = None,
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -788,7 +796,10 @@ def run_invocations(
         ):
             continue
 
-        cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
+        cmd = build_harbor_command(
+            invocation, results_root, model, base_url, agent,
+            agent_env, agent_kwargs,
+        )
         started_at = time.time() - 1.0
         rc = run_command(cmd, env, harbor_timeout_sec)
         # Publish before the rc checks below: a timed-out (rc=124) trial

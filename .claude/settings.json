@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/tools/plan_exec_cache/adapters/claude_code/adapter.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
