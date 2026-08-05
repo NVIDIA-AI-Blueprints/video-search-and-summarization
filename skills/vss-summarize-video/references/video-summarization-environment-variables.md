@@ -55,7 +55,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.07.4` for all platforms | RT-VLM image tag. Full images: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4` and `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4`. |
+| `RTVI_VLM_IMAGE_TAG` | `develop-latest` | Legacy per-image fallback tag. The managed release flow uses `VSS_CONTAINER_REGISTRY=ghcr.io/nvidia-ai-blueprints/vss` and `VSS_CONTAINER_TAG=develop-latest`. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
