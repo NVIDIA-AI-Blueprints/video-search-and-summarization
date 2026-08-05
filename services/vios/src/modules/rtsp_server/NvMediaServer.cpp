@@ -447,15 +447,15 @@ void NvFileServerMediaSubsession::checkForAuxSDPLine1()
         (GET_CONFIG().nv_streamer_sync_file_count > 0 && RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())) &&
         (m_syncSourceToGlobalFrameId == -1))
     {
-        int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait();
+        int64_t currentFrame = RtspSyncPlayback::getInstance()->getGlobalFrameId();
+        int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait(currentFrame);
         if (frames_to_wait == 0)
         {
             m_syncSourceToGlobalFrameId = 0;
         }
         else
         {
-            m_syncSourceToGlobalFrameId = RtspSyncPlayback::getInstance()->getGlobalFrameId();
-            m_syncSourceToGlobalFrameId += frames_to_wait;
+            m_syncSourceToGlobalFrameId = currentFrame + frames_to_wait;
         }
 
         int timeTosync_us = RtspSyncPlayback::getInstance()->timeToSync() * 1000;
@@ -731,8 +731,11 @@ void NvFileServerMediaSubsession::joinRunningSyncGroup()
 
     /* Seek to the group's current loop position, snapped forward to the next
      * IDR boundary. The demux seek uses GST_SEEK_FLAG_KEY_UNIT, so it always
-     * lands on a keyframe and decoding starts cleanly. */
-    int64_t targetFrame = sync->getGlobalFrameId() + sync->framesToWait();
+     * lands on a keyframe and decoding starts cleanly. Sample the frame id once
+     * and reuse it for framesToWait() so both are computed from a single,
+     * consistent clock read (no IDR-boundary skew from a second read). */
+    int64_t currentFrame = sync->getGlobalFrameId();
+    int64_t targetFrame = currentFrame + sync->framesToWait(currentFrame);
     m_syncSourceToGlobalFrameId = targetFrame;
     LOG(info) << "Joining running sync group, streamName:" << m_streamName
               << ", targetFrame:" << targetFrame
@@ -829,15 +832,15 @@ FramedSource* NvFileServerMediaSubsession
                 /* There is much time difference between describe & play, this can happen in case of proxyserver,where
                 *  proxyserver just sends describe & seats idle till new client request.
                 *  In this case get new seek point from global clock */
-                int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait();
+                int64_t currentFrame = RtspSyncPlayback::getInstance()->getGlobalFrameId();
+                int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait(currentFrame);
                 if (frames_to_wait == 0)
                 {
                     m_syncSourceToGlobalFrameId = 0;
                 }
                 else
                 {
-                    m_syncSourceToGlobalFrameId = RtspSyncPlayback::getInstance()->getGlobalFrameId();
-                    m_syncSourceToGlobalFrameId += frames_to_wait;
+                    m_syncSourceToGlobalFrameId = currentFrame + frames_to_wait;
                 }
                 int timeTosync_us = RtspSyncPlayback::getInstance()->timeToSync() * 1000;
                 m_stream_state = PlayState;

@@ -44,10 +44,11 @@ public:
     {
         try {
             stop();
-            if (m_globalGstClock)
+            GstClock* clock = m_globalGstClock.load();
+            if (clock)
             {
-                gst_object_unref(m_globalGstClock);
-                m_globalGstClock = nullptr;
+                gst_object_unref(clock);
+                m_globalGstClock.store(nullptr);
             }
         } catch (const std::exception& e) {
             try { LOG(error) << "Exception in ~RtspSyncPlayback: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
@@ -227,7 +228,18 @@ public:
 
     int framesToWait()
     {
-        int64_t current_frameId = getGlobalFrameId();
+        return framesToWait(getGlobalFrameId());
+    }
+
+    /*
+     * Overload that takes an already-sampled frame position, so callers that
+     * also need the frame id (e.g. joinRunningSyncGroup: target = frameId +
+     * framesToWait(frameId)) compute both from a single, consistent read of the
+     * clock-derived position instead of two reads separated by scheduling
+     * jitter (which could straddle an IDR boundary and skew the residual).
+     */
+    int framesToWait(int64_t current_frameId)
+    {
         int16_t idr_interval = m_idrInterval == 0 ? DEFAULT_IDR_INTERVAL : m_idrInterval;
 
         if ((getMaxFrameCount() - current_frameId) <= m_idrInterval)
@@ -276,7 +288,11 @@ public:
      */
     int64_t getCurrentGroupOffsetMs()
     {
-        if (!m_isSyncPlaybackStarted || m_globalGstClock == nullptr)
+        /* Snapshot the atomic clock pointer once so the null-check and the value
+         * passed to gst_clock_get_time() are consistent even if another thread
+         * re-obtains the clock at a loop boundary. */
+        GstClock* clock = m_globalGstClock.load();
+        if (!m_isSyncPlaybackStarted || clock == nullptr)
         {
             return 0;
         }
@@ -285,7 +301,7 @@ public:
         {
             return 0;
         }
-        GstClockTime now = gst_clock_get_time(m_globalGstClock);
+        GstClockTime now = gst_clock_get_time(clock);
         if (now <= base)
         {
             return 0;
@@ -308,7 +324,7 @@ public:
      */
     int64_t getGlobalFrameId()
     {
-        if (m_isSyncPlaybackStarted && m_globalGstClock != nullptr)
+        if (m_isSyncPlaybackStarted && m_globalGstClock.load() != nullptr)
         {
             return (int64_t)(getCurrentGroupOffsetMs() * groupFrameRate() / 1000.0);
         }
@@ -329,9 +345,10 @@ public:
             return;
         }
         std::lock_guard<std::mutex> guard(m_mediaSourceListLock);
-        if (m_globalGstClock)
+        GstClock* clock = m_globalGstClock.load();
+        if (clock)
         {
-            source->setClock(m_globalGstClock, m_baseGstTime.load());
+            source->setClock(clock, m_baseGstTime.load());
         }
     }
 
@@ -401,8 +418,11 @@ public:
         if (m_mediaSourceList.empty())
         {
             /* Last participant left: tear the group down so a fresh set of
-             * clients re-forms the quorum and starts cleanly at frame 0. */
+             * clients re-forms the quorum and starts cleanly at frame 0. Reset
+             * the group frame rate too so a new group never inherits the old
+             * group's rate before startPlayingAllSources re-captures it. */
             m_isSyncPlaybackStarted = false;
+            m_groupFrameRate.store(DEFAULT_FRAMERATE);
             std::lock_guard<std::mutex> rguard(m_replayListLock);
             m_replayList.clear();
             LOG(info) << "Sync group drained, resetting for a fresh start" << endl;
@@ -432,18 +452,23 @@ public:
     {
         std::lock_guard<std::mutex> guard(m_mediaSourceListLock);
         // Start playing from all the sources
-        if (m_globalGstClock)
+        GstClock* clock = m_globalGstClock.load();
+        if (clock)
         {
-            gst_object_unref(m_globalGstClock);
+            gst_object_unref(clock);
         }
-        m_globalGstClock = gst_system_clock_obtain();
-        GstClockTime baseTime = gst_clock_get_time(m_globalGstClock);
+        clock = gst_system_clock_obtain();
+        m_globalGstClock.store(clock);
+        GstClockTime baseTime = gst_clock_get_time(clock);
         m_baseGstTime.store(baseTime);
 
         /* Capture the group's frame rate and least frame count so the
          * shared-clock elapsed time can be converted to a frame position
-         * (getGlobalFrameId / loopDurationMs) for late joiners. */
+         * (getGlobalFrameId / loopDurationMs) for late joiners. Use the FIRST
+         * source's non-zero rate as the group baseline (synchronized sources
+         * share a rate); this is deterministic regardless of iteration order. */
         int least_framecount = INT_MAX;
+        bool rateCaptured = false;
         for (auto source : m_mediaSourceList)
         {
             if (!source)
@@ -451,9 +476,10 @@ public:
                 continue;
             }
             double fr = source->getFrameRate();
-            if (fr > 0)
+            if (fr > 0 && !rateCaptured)
             {
                 m_groupFrameRate.store(fr);
+                rateCaptured = true;
             }
             int fc = source->getFrameCount();
             if (fc > 0 && fc < least_framecount)
@@ -471,7 +497,7 @@ public:
                   << ", maxFrameCount:" << getMaxFrameCount() << endl;
         for (auto source : m_mediaSourceList)
         {
-            source->setClock(m_globalGstClock, baseTime);
+            source->setClock(clock, baseTime);
         }
         for (auto source : m_mediaSourceList)
         {
@@ -519,12 +545,14 @@ private:
      */
     void triggerGroupReplayLocked()
     {
-        if (m_globalGstClock)
+        GstClock* clock = m_globalGstClock.load();
+        if (clock)
         {
-            gst_object_unref(m_globalGstClock);
+            gst_object_unref(clock);
         }
-        m_globalGstClock = gst_system_clock_obtain();
-        GstClockTime baseTime = gst_clock_get_time(m_globalGstClock);
+        clock = gst_system_clock_obtain();
+        m_globalGstClock.store(clock);
+        GstClockTime baseTime = gst_clock_get_time(clock);
         m_baseGstTime.store(baseTime);
         LOG(info) << "Replaying all sources baseGstTime:" << baseTime
                   << ", count:" << m_mediaSourceList.size() << endl;
@@ -532,7 +560,7 @@ private:
         {
             if (source)
             {
-                source->setClock(m_globalGstClock, baseTime);
+                source->setClock(clock, baseTime);
             }
         }
         for (auto source : m_mediaSourceList)
@@ -557,7 +585,7 @@ private:
     vector<shared_ptr<GstDeMux>> m_demuxList;
     std::mutex              m_demuxerListLock;
     std::atomic<int>        m_simulationWaitTime {0};
-    GstClock*              m_globalGstClock = nullptr;
+    std::atomic<GstClock*> m_globalGstClock{nullptr};
     std::atomic<GstClockTime> m_baseGstTime{GST_CLOCK_TIME_NONE};
     std::atomic<double>    m_groupFrameRate{DEFAULT_FRAMERATE};
     std::mutex              m_mediaSourceListLock;
