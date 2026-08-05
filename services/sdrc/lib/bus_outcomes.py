@@ -55,18 +55,52 @@ def reset_retry_attempts_for_tests() -> None:
     _bus_retry_attempts.clear()
 
 
-def classify_exception(exc: BaseException) -> str:
-    """Classify an exception as TERMINAL or RETRYABLE."""
+def _is_retryable_infra_exception(exc: BaseException) -> bool:
+    """True for transient transport / infra client failures."""
+    # Built-in connectivity / timeout (ConnectionError covers BrokenPipeError, etc.).
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+
     try:
         import requests
 
         if isinstance(exc, requests.RequestException):
-            return EVENT_RETRYABLE
+            return True
     except Exception:
         pass
 
+    try:
+        import redis
+
+        # redis.RedisError covers ConnectionError, TimeoutError, BusyLoadingError, etc.
+        if isinstance(exc, redis.RedisError):
+            return True
+    except Exception:
+        pass
+
+    try:
+        from kubernetes.client.rest import ApiException
+
+        if isinstance(exc, ApiException):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def classify_exception(exc: BaseException) -> str:
+    """Classify an exception as TERMINAL or RETRYABLE.
+
+    Poison / permanent shape errors are TERMINAL. Transient HTTP, Redis, and
+    Kubernetes client failures are RETRYABLE. Unrecognized exceptions stay
+    TERMINAL so a single unexpected bug cannot stall a partition forever.
+    """
     if isinstance(exc, _TERMINAL_EXC_TYPES):
         return EVENT_TERMINAL
+
+    if _is_retryable_infra_exception(exc):
+        return EVENT_RETRYABLE
 
     # Unknown errors: prefer progress (commit) over stalling a partition forever.
     return EVENT_TERMINAL
