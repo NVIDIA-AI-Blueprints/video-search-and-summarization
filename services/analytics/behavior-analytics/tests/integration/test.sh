@@ -215,13 +215,11 @@ else
     echo "✓ Process count verified: $WORKER_COUNT processes running as expected"
 fi
 
-# Wait for the playback container to finish feeding data, then add a small
-# grace period so workers + Logstash can drain whatever is in flight before we
-# extract from Elasticsearch. Falls back to a 10-minute hard cap so a stuck
-# playback never wedges the test indefinitely.
+# Wait for the playback container to finish feeding data. Draining is handled after this, by
+# stopping the app and polling Elasticsearch. Falls back to a 10-minute hard cap so a stuck playback
+# never wedges the test indefinitely.
 echo "Waiting for mdx-analytics-playback to exit (max 10 min)..."
 PLAYBACK_WAIT_DEADLINE_SEC=600
-PLAYBACK_GRACE_SEC=60
 deadline=$(( $(date +%s) + PLAYBACK_WAIT_DEADLINE_SEC ))
 while true; do
     status=$(docker inspect --format '{{.State.Status}}' mdx-analytics-playback 2>/dev/null || echo "missing")
@@ -239,10 +237,6 @@ while true; do
     sleep 5
 done
 
-echo "Waiting ${PLAYBACK_GRACE_SEC}s grace period for in-flight messages to drain..."
-sleep $PLAYBACK_GRACE_SEC
-echo "Wait complete, continuing..."
-
 cd "$PROJ_ROOT_DIR"
 
 TEST_HOST="${TEST_HOST:-}"
@@ -252,6 +246,57 @@ fi
 TEST_HOST="${TEST_HOST:-localhost}"
 ES_URL="${ES_URL:-http://${TEST_HOST}:9200}"
 echo "Using Elasticsearch URL: $ES_URL"
+
+# Stop the app before extracting, because under behaviorEmitOnce a track's behavior is written only
+# when the track ends -- after behaviorStateValidInterval seconds of *event-time* silence. Playback
+# exiting freezes each sensor's clock instead of advancing it, so tracks that were still live are
+# never ended and their behaviors sit in the holdback. The app's close hook flushes them
+# (app_scheduler.py runs it in each worker's finally), so a graceful SIGTERM is what puts them on the
+# stream at all. -t is generous because the flush writes through the sink before it returns.
+echo "Stopping mdx-analytics so emit-once behaviors are flushed..."
+if docker stop -t "${APP_STOP_TIMEOUT_SEC:-60}" mdx-analytics > /dev/null 2>&1; then
+    echo "✓ mdx-analytics stopped"
+else
+    echo "✗ Failed to stop mdx-analytics"
+fi
+
+# Then wait for the flush to land in Elasticsearch. A fixed grace period is the wrong instrument:
+# it has to be long enough for the slowest host, and when it is too short the shortfall reads as a
+# data mismatch rather than as a test that measured too early. Poll the indices this profile
+# compares instead, and move on once the counts stop changing.
+wait_for_elasticsearch_to_settle() {
+    local stable_needed=${ES_SETTLE_STABLE_CHECKS:-3}
+    local interval=${ES_SETTLE_INTERVAL_SEC:-5}
+    local deadline=$(( $(date +%s) + ${ES_SETTLE_DEADLINE_SEC:-300} ))
+    local previous="" current stable=0
+
+    while true; do
+        current=$(curl -s "$ES_URL/mdx-*/_count" 2>/dev/null | python3 -c \
+            'import json,sys; print(json.load(sys.stdin)["count"])' 2>/dev/null || echo "")
+
+        if [[ -n "$current" && "$current" = "$previous" ]]; then
+            stable=$((stable + 1))
+            if [[ $stable -ge $stable_needed ]]; then
+                echo "✓ Elasticsearch settled at $current document(s)"
+                return 0
+            fi
+        else
+            stable=0
+        fi
+
+        previous="$current"
+
+        if [[ "$(date +%s)" -ge "$deadline" ]]; then
+            echo "⚠ Elasticsearch still changing at ${ES_SETTLE_DEADLINE_SEC:-300}s (last count: ${current:-unknown}); extracting anyway"
+            return 0
+        fi
+
+        sleep "$interval"
+    done
+}
+
+echo "Waiting for Elasticsearch document counts to settle..."
+wait_for_elasticsearch_to_settle
 
 # Define which data types to dump/compare for each profile
 get_data_types_for_profile() {
