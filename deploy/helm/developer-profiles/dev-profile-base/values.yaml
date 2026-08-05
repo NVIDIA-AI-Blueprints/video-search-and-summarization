@@ -513,12 +513,58 @@ rtvi:
         value: "cosmos-reason3"
       - name: KAFKA_ENABLED
         value: "false"
-      - name: KAFKA_TOPIC
-        value: "mdx-vlm-captions"
       - name: KAFKA_INCIDENT_TOPIC
         value: "mdx-vlm-incidents"
       - name: ERROR_MESSAGE_TOPIC
         value: "vision-llm-errors"
+      # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
+      - name: MESSAGE_BUS
+        value: "kafka"
+      - name: MESSAGE_BUS_TOPIC
+        value: "mdx-vlm-captions"
+      - name: ERROR_BUS
+        value: "kafka"
+      - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
+        value: "true"
+      # Optional EVS++ session controls.
+      - name: VIA_EVS_DECISION_LAG
+        value: "3"
+      - name: VIA_EVS_SESSION
+        value: "false"
+      - name: VLLM_EVS_SIMILARITY_THRESHOLD
+        value: "0.2"
+      - name: VLLM_NUM_PREPROCESS_WORKERS
+        value: "16"
+      - name: VIA_EVS_TOKEN_BUDGET
+        value: "20000"
+      - name: VIA_EVS_MAX_SESSIONS
+        value: "100"
+      - name: VIA_EVS_MIN_CLIPS
+        value: "3"
+      - name: VIA_EVS_EVENT_ONLY
+        value: "true"
+      - name: VIA_EVS_EMA_MEMORY_S
+        value: "0"
+      - name: VIA_EVS_SPIKE_STD_K
+        value: "2.0"
+      - name: VIA_EVS_SETTLING_STD_K
+        value: "1.5"
+      - name: VIA_EVS_STD_FLOOR_RATIO
+        value: "0.1"
+      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
+        value: "0.10"
+      - name: VIA_EVS_STREAMING_PREFILL
+        value: "false"
+      - name: VIA_PD_SERVER_URL
+        value: ""
+      - name: VIA_PD_SERVER_TIMEOUT_S
+        value: "120.0"
+      - name: VLLM_USE_AOT_COMPILE
+        value: "0"
+      - name: VLLM_DISABLE_COMPILE_CACHE
+        value: "1"
+      - name: VLLM_LOGGING_LEVEL
+        value: "INFO"
       - name: LOG_LEVEL
         value: "INFO"
       - name: ENABLE_OTEL_MONITORING
