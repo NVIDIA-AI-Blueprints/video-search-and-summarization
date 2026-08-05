@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +27,7 @@
 #pragma once
 
 #include "pc/video_track_source.h"
+#include "api/make_ref_counted.h"
 template<class T>
 class VideoFilter : public webrtc::VideoTrackSource {
 public:
@@ -35,7 +36,7 @@ public:
 		if (!source) {
 			return nullptr;
 		}
-		return new webrtc::RefCountedObject<VideoFilter>(std::move(source));
+		return webrtc::make_ref_counted<VideoFilter>(std::move(source));
 	}
 
 protected:

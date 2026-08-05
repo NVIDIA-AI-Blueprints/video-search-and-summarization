@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -70,13 +70,7 @@ HLSManager::HLSManager() : m_eventLoop("hls_event_loop", process_hls_message)
 HLSManager::~HLSManager()
 {
     LOG(info) << "Destroy HLS stream map" << endl;
-    std::map<std::string, RTSPVideoCapturer*>::iterator it;
-    for (it = m_streamMap.begin();  it != m_streamMap.end();)
-    {
-        std::map<std::string, RTSPVideoCapturer*>::iterator it_del = it;
-        delete it_del->second;
-        it = m_streamMap.erase(it_del);
-    }
+    m_streamMap.clear();
 }
 
 void HLSManager::start()
@@ -130,14 +124,14 @@ VmsErrorCode HLSManager::start(std::map<std::string, std::string, std::less<>> o
     RTSPVideoCapturer* capture = nullptr;
     {
         std::lock_guard<std::mutex> peerlock(m_streamLock);
-        std::map<std::string, RTSPVideoCapturer*>::iterator it = m_streamMap.find(peerid);
+        auto it = m_streamMap.find(peerid);
         if(it == m_streamMap.end())
         {
             capture = RTSPVideoCapturer::Create(out_url, opts);
             if (capture)
             {
                 url_path = capture->getUrlsPath();
-                m_streamMap[peerid] = capture;
+                m_streamMap[peerid] = std::unique_ptr<RTSPVideoCapturer>(capture);
             }
         }
         else
@@ -167,10 +161,9 @@ VmsErrorCode HLSManager::start(std::map<std::string, std::string, std::less<>> o
         if (capture)
         {
             std::lock_guard<std::mutex> peerlock(m_streamLock);
-            std::map<std::string, RTSPVideoCapturer*>::iterator it = m_streamMap.find(peerid);
+            auto it = m_streamMap.find(peerid);
             if(it != m_streamMap.end())
             {
-                delete it->second;
                 m_streamMap.erase(it);
             }
         }
@@ -187,10 +180,9 @@ VmsErrorCode HLSManager::stop(const string peerid, Json::Value &response)
 {
     std::lock_guard<std::mutex> peerlock(m_streamLock);
     LOG(info) << "Stoping HLS streamimg " << peerid << endl;
-    std::map<std::string, RTSPVideoCapturer*>::iterator it = m_streamMap.find(peerid);
+    auto it = m_streamMap.find(peerid);
     if(it != m_streamMap.end())
     {
-        delete it->second;
         m_streamMap.erase(it);
     }
     else
@@ -204,7 +196,7 @@ bool HLSManager::checkIfPeerPresent(const string& peerid)
 {
     std::lock_guard<std::mutex> peerlock(m_streamLock);
     bool peer_present = false;
-    std::map<std::string, RTSPVideoCapturer*>::iterator it = m_streamMap.find(peerid);
+    auto it = m_streamMap.find(peerid);
     if(it != m_streamMap.end())
     {
         peer_present = true;

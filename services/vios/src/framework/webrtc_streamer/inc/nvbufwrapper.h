@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -184,6 +184,11 @@ class NvBufWrapper
                 throw std::runtime_error("An exception occurred, error loading the NvBuf libraries");
         }
 
+        NvBufWrapper(const NvBufWrapper&) = delete;
+        NvBufWrapper& operator=(const NvBufWrapper&) = delete;
+        NvBufWrapper(NvBufWrapper&&) = delete;
+        NvBufWrapper& operator=(NvBufWrapper&&) = delete;
+
         ~NvBufWrapper()
         {
             LOG(info) << "Destructor NvBufWrapper::~NvBufWrapper" << endl;
@@ -213,8 +218,10 @@ class NvBufWrapper
             if (m_nvBufferMode == NvBufferModeSoftware || software_mode)
             {
                 is_transformed_needed = true;
-                NvBufSurface *sw_surf   = (NvBufSurface *) calloc (1, sizeof(NvBufSurface));
-                sw_surf->surfaceList    = (NvBufSurfaceParams *) calloc (1, sizeof(NvBufSurfaceParams));
+                NvBufSurface sw_surf_storage = {};
+                NvBufSurfaceParams sw_surf_params = {};
+                NvBufSurface *sw_surf   = &sw_surf_storage;
+                sw_surf->surfaceList    = &sw_surf_params;
 
                 sw_surf->gpuId                                   = g_gpuIndex;
                 sw_surf->batchSize                               = 1;
@@ -274,8 +281,6 @@ class NvBufWrapper
                 int ret = NvBufSurfaceAllocate(&hw_surf, 1, &input_params);
                 if (ret != 0)
                 {
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
                     LOG(error) << "NvBufSurfaceAllocate failed" << endl;
                     ret = -1;
                     return ret;
@@ -284,8 +289,6 @@ class NvBufWrapper
                 ret = NvBufSurfaceCopy (sw_surf, hw_surf);
                 if (ret != 0)
                 {
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
                     NvBufSurfaceDestroy(hw_surf);
                     LOG(error) << "NvBufSurfaceCopy failed" << endl;
                     ret = -1;
@@ -317,8 +320,6 @@ class NvBufWrapper
                     ret = NvBufSurfaceAllocate(&op_surf, 1, &input_params);
                     if (ret != 0)
                     {
-                        free(sw_surf->surfaceList);
-                        free (sw_surf);
                         NvBufSurfaceDestroy(hw_surf);
                         LOG(error) << "NvBufSurfaceAllocate1 failed" << endl;
                         ret = -1;
@@ -335,8 +336,6 @@ class NvBufWrapper
                         if (status < 0)
                         {
                             LOG(error) << "Failed to get surface from fd =" << *fd << endl;
-                            free(sw_surf->surfaceList);
-                            free (sw_surf);
                             NvBufSurfaceDestroy(hw_surf);
                             NvBufSurfaceDestroy(op_surf);
                             ret = -1;
@@ -350,10 +349,9 @@ class NvBufWrapper
                 config_params.cuda_stream  = nullptr;
                 NvBufSurfTransformSetSessionParams (&config_params);
 
-                NvBufSurfTransformRect *src_rect = nullptr, *dst_rect = nullptr;
+                NvBufSurfTransformRect src_rect_storage = {}, dst_rect_storage = {};
+                NvBufSurfTransformRect *src_rect = &src_rect_storage, *dst_rect = &dst_rect_storage;
                 NvBufSurfTransformParams transform_params = {0};
-                src_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-                dst_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
                 src_rect->top                       = 0;
                 src_rect->left                      = 0;
                 src_rect->width                     = sourceWidth;
@@ -372,10 +370,6 @@ class NvBufWrapper
                 if (transform_error != NvBufSurfTransformError_Success)
                 {
                     LOG(error) << "Failed to Transform" << endl;
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
-                    free (dst_rect);
-                    free (src_rect);
                     NvBufSurfaceDestroy(hw_surf);
                     NvBufSurfaceDestroy(op_surf);
                     ret = -1;
@@ -386,10 +380,6 @@ class NvBufWrapper
                     *fd = op_surf->surfaceList->bufferDesc;
                     *ret_transform = is_transformed_needed;
                 }
-                free (src_rect);
-                free (dst_rect);
-                free (sw_surf->surfaceList);
-                free (sw_surf);
                 NvBufSurfaceDestroy(hw_surf);
 #ifdef DUMP_YUV
                 {
@@ -449,8 +439,10 @@ class NvBufWrapper
                 }
                 if (is_transformed_needed)
                 {
-                    NvBufSurfTransformRect *src_rect          = nullptr;
-                    NvBufSurfTransformRect *dst_rect          = nullptr;
+                    NvBufSurfTransformRect src_rect_storage   = {};
+                    NvBufSurfTransformRect dst_rect_storage   = {};
+                    NvBufSurfTransformRect *src_rect          = &src_rect_storage;
+                    NvBufSurfTransformRect *dst_rect          = &dst_rect_storage;
                     NvBufSurfaceCreateParams buf_params       = {0};
                     NvBufSurfTransformParams transform_params = {0};
                     NvBufSurface *op_surf                     = nullptr;
@@ -516,9 +508,6 @@ class NvBufWrapper
                         }
                         ip_surf = (NvBufSurface*)buffer_type.m_inputBuffer;
                     }
-                    src_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-                    dst_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-
                     src_rect->top    = 0;
                     src_rect->left   = 0;
                     src_rect->width  = sourceWidth;
@@ -544,8 +533,6 @@ class NvBufWrapper
                         {
                             LOG(error) << "Failed to destroy surface" << endl;
                         }
-                        free (src_rect);
-                        free (dst_rect);
                         ret = -1;
                         return ret;
                     }
@@ -557,8 +544,6 @@ class NvBufWrapper
                     {
                         *ret_transform = is_transformed_needed;
                     }
-                    free (src_rect);
-                    free (dst_rect);
                 }
                 else
                 {
@@ -1163,8 +1148,10 @@ class NvBufWrapper
             compositeParam.params.composite_blend_filter = NvBufSurfTransformInter_Algo3;
 
             size_t alloc_size = (sizeof(NvBufSurfTransformRect) * list_size);
-            compositeParam.dst_comp_rect = static_cast<NvBufSurfTransformRect*> (malloc(alloc_size));
-            compositeParam.src_comp_rect = static_cast<NvBufSurfTransformRect*> (malloc(alloc_size));
+            auto dst_comp_rect = std::make_unique<NvBufSurfTransformRect[]> (list_size);
+            auto src_comp_rect = std::make_unique<NvBufSurfTransformRect[]> (list_size);
+            compositeParam.dst_comp_rect = dst_comp_rect.get();
+            compositeParam.src_comp_rect = src_comp_rect.get();
 
             // Use safe memory copy with bounds validation
             size_t src_size = sizeof(dstCompRect);
@@ -1172,8 +1159,6 @@ class NvBufWrapper
             {
                 LOG(error) << "Buffer overflow prevented: alloc_size(" << alloc_size 
                           << ") > src_size(" << src_size << ")" << endl;
-                free(compositeParam.dst_comp_rect);
-                free(compositeParam.src_comp_rect);
                 return;  // Early return from void function
             }
             memmove(compositeParam.dst_comp_rect, &dstCompRect[0], alloc_size);
@@ -1261,14 +1246,6 @@ class NvBufWrapper
                 }
 #endif
             NvBufWrapper::getInstance()->destroyFd(blk_surface_fd);
-            if (compositeParam.src_comp_rect)
-            {
-                free(compositeParam.src_comp_rect);
-            }
-            if (compositeParam.dst_comp_rect)
-            {
-                free(compositeParam.dst_comp_rect);
-            }
         }
 
         int getSwNvBufSurface(webrtc::scoped_refptr<webrtc::I420Buffer> buffer, NvBufSurface* sw_surf)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,14 +30,6 @@ namespace nv_vms
                      , m_audioFreq(8000)
                      , m_videoCodec("h264")
         {}
-        UdpStream (const UdpStream& obj)
-        {
-            this->m_audioPort = obj.m_audioPort;
-            this->m_videoPort = obj.m_videoPort;
-            this->m_type = obj.m_type;
-            this->m_audioFreq = obj.m_audioFreq;
-            this->m_videoCodec = obj.m_videoCodec;
-        }
         unsigned int m_videoPort;
         unsigned int m_audioPort;
         string m_type;
@@ -56,7 +48,7 @@ namespace nv_vms
             UdpClient(const string& id, UdpStream& stream) : m_id(id)
                                                            , m_udpStream(stream)
             {}
-            virtual ~UdpClient() {}
+            virtual ~UdpClient() = default;
 
             virtual int create() { return -1; };
             virtual int create(int freq) { return -1; };

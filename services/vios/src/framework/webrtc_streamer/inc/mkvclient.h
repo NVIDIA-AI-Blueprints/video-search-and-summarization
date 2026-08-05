@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,6 +54,11 @@ class MKVClient
 	public:
 		MKVClient(Environment& env, Callback* callback, const char* path, const std::map<std::string,std::string, std::less<>> & opts, int verbosityLevel=1);
 		virtual ~MKVClient() noexcept;
+
+		MKVClient(const MKVClient&) = delete;
+		MKVClient& operator=(const MKVClient&) = delete;
+		MKVClient(MKVClient&&) = delete;
+		MKVClient& operator=(MKVClient&&) = delete;
 
 		void stop() {
 			m_env.stop();

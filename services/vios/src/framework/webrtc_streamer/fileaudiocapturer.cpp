@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,6 +37,5 @@ FileAudioSource::FileAudioSource(webrtc::scoped_refptr<webrtc::AudioDecoderFacto
 	LOG(info) << "FileAudioSource " << uri ;					
 }
 
-FileAudioSource::~FileAudioSource()  { 
-}
+FileAudioSource::~FileAudioSource() = default;
 #endif

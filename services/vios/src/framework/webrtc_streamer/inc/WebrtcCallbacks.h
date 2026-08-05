@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "api/make_ref_counted.h"
 #include "api/peer_connection_interface.h"
 #include "Scheduler.h"
 #include "webrtcstreamproducer.h"
@@ -84,9 +85,9 @@ protected:
 class SetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserver
 {
     public:
-        static SetSessionDescriptionObserver* Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
+        static webrtc::scoped_refptr<SetSessionDescriptionObserver> Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
         {
-            return new webrtc::RefCountedObject<SetSessionDescriptionObserver>(pc, promise, sdp);
+            return webrtc::make_ref_counted<SetSessionDescriptionObserver>(pc, promise, sdp);
         }
         virtual void OnSuccess();
         virtual void OnFailure(webrtc::RTCError error);
@@ -102,9 +103,9 @@ class SetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserv
 class CreateSessionDescriptionObserver : public webrtc::CreateSessionDescriptionObserver
 {
     public:
-        static CreateSessionDescriptionObserver* Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
+        static webrtc::scoped_refptr<CreateSessionDescriptionObserver> Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
         {
-            return new webrtc::RefCountedObject<CreateSessionDescriptionObserver>(pc,promise, sdp);
+            return webrtc::make_ref_counted<CreateSessionDescriptionObserver>(pc,promise, sdp);
         }
         virtual void OnSuccess(webrtc::SessionDescriptionInterface* desc);
         virtual void OnFailure(webrtc::RTCError error);
@@ -120,7 +121,7 @@ class CreateSessionDescriptionObserver : public webrtc::CreateSessionDescription
 class PeerConnectionStatsCollectorCallback : public webrtc::RTCStatsCollectorCallback
 {
     public:
-        PeerConnectionStatsCollectorCallback() {}
+        PeerConnectionStatsCollectorCallback() = default;
         void clearReport() { m_report.clear(); }
         Json::Value getReport() { return m_report; }
         std::string getTransportID() { return m_transportId; }

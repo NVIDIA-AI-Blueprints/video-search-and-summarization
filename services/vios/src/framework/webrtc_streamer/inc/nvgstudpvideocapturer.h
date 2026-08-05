@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,6 +16,8 @@
  */
 
 #pragma once
+#include <memory>
+
 #include "rtc_base/ref_counted_object.h"
 
 #include "nvgstudpvideosource.h"
@@ -28,7 +30,7 @@ class NvGstUDPVideoCapturer : public NvGstUDPVideoSource
 	
 		static NvGstUDPVideoCapturer* Create(const std::string & url, const std::map<std::string, std::string, std::less<>> & opts)
 		{
-			return new NvGstUDPVideoCapturer(url, opts);
+			return std::make_unique<NvGstUDPVideoCapturer>(url, opts).release();
 		}
 		void controlStreamCapturer(const std::string&, const std::string&);
 		void switchStreamCapturer(std::string url, const std::map<std::string, std::string, std::less<>> &opts);

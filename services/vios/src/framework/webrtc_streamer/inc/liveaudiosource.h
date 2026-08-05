@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,6 +30,7 @@
 #include <thread>
 #include <mutex>
 #include <queue>
+#include <vector>
 #include <cctype>
 
 #include "environment.h"
@@ -153,9 +154,9 @@ public:
                 }
 
                 int maxDecodedBufferSize = m_decoder->PacketDuration(buffer, size) * m_channel * sizeof(int16_t);
-                int16_t *decoded = new int16_t[maxDecodedBufferSize];
+                std::vector<int16_t> decoded(maxDecodedBufferSize);
                 webrtc::AudioDecoder::SpeechType speech_type;
-                int decodedBufferSize = m_decoder->Decode(buffer, size, m_freq, maxDecodedBufferSize, decoded, &speech_type);
+                int decodedBufferSize = m_decoder->Decode(buffer, size, m_freq, maxDecodedBufferSize, decoded.data(), &speech_type);
                 LOG(verbose) << "LiveAudioSource::onData size:" << size << " decodedBufferSize:" << decodedBufferSize << " maxDecodedBufferSize: " << maxDecodedBufferSize << " channels: " << m_channel;
                 if (decodedBufferSize > 0)
                 {
@@ -168,10 +169,9 @@ public:
                 {
                     LOG(error) << "LiveAudioSource::onData error:Decode Audio failed";
                 }
-                delete[] decoded;
                 while (m_buffer.size() > segmentLength * m_channel)
                 {
-                    int16_t *outbuffer = new int16_t[segmentLength * m_channel];
+                    std::vector<int16_t> outbuffer(segmentLength * m_channel);
                     for (unsigned int i = 0; i < segmentLength * m_channel; ++i)
                     {
                         uint16_t value = m_buffer.front();
@@ -181,9 +181,8 @@ public:
                     std::lock_guard<std::mutex> lock(m_sink_lock);
                     for (auto *sink : m_sinks)
                     {
-                        sink->OnData(outbuffer, 16, m_freq, m_channel, segmentLength);
+                        sink->OnData(outbuffer.data(), 16, m_freq, m_channel, segmentLength);
                     }
-                    delete[] outbuffer;
                 }
 
                 m_previmagets = sourcets;

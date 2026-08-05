@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "mkvclient.h"
 
 #include "nvgstvideosource.h"
@@ -29,7 +31,7 @@ class NvGstVideoCapturer : public NvGstVideoSource
 	
 		static NvGstVideoCapturer* Create(const std::string & url, const std::map<std::string, std::string, std::less<>> & opts)
 		{
-			return new NvGstVideoCapturer(url, opts);
+			return std::make_unique<NvGstVideoCapturer>(url, opts).release();
 		}
 		VmsErrorCode controlStreamCapturer(const std::string&, const std::string&);
 		void startPlayback();

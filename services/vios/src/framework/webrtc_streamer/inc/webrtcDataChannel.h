@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +22,7 @@
 #include "datachannellistenerinterface.h"
 #include <thread>
 #include <string>
+#include <memory>
 
 using namespace std;
 
@@ -114,22 +115,31 @@ protected:
 
 class WebrtcDataChannel
 {
+	struct PrivateTag
+	{
+	};
+
 public:
+	explicit WebrtcDataChannel(PrivateTag)
+	{
+		LOG(verbose) << __PRETTY_FUNCTION__ << endl;
+	}
+	~WebrtcDataChannel()
+	{
+		LOG(info) << __PRETTY_FUNCTION__ << endl;
+	}
+
 	static WebrtcDataChannel *getInstance()
 	{
 		if (m_instance == nullptr)
 		{
-			m_instance = new WebrtcDataChannel();
+			m_instance = std::make_unique<WebrtcDataChannel>(PrivateTag{});
 		}
-		return m_instance;
+		return m_instance.get();
 	}
 	static void deleteDataChannelInstance()
 	{
-		if (m_instance != nullptr)
-		{
-			delete m_instance;
-			m_instance = nullptr;
-		}
+		m_instance.reset();
 	}
 
 	void addChannelObserver(std::string clientId, webrtc::scoped_refptr<webrtc::DataChannelInterface> channel);
@@ -142,15 +152,7 @@ public:
 	void deRegisterListener(IDataChannelListener *listener);
 
 private:
-	WebrtcDataChannel()
-	{
-		LOG(verbose) << __PRETTY_FUNCTION__ << endl;
-	}
-	~WebrtcDataChannel()
-	{
-		LOG(info) << __PRETTY_FUNCTION__ << endl;
-	}
-	static WebrtcDataChannel *m_instance;
+	static std::unique_ptr<WebrtcDataChannel> m_instance;
 
 	std::map<std::string, std::shared_ptr<WebrtcDataChannelOberver>> m_channelObserverMap;
 	std::mutex m_channelMapMutex;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,8 +25,8 @@
 
 struct DecoderStats : public LatencyStats
 {
-    DecoderStats() {}
-    ~DecoderStats() {}
+    DecoderStats() = default;
+    ~DecoderStats() = default;
     std::queue<int64_t> qTimestamp;
     std::mutex   m_queueLock;
     std::condition_variable  m_qTsCond;
