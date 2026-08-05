@@ -653,9 +653,17 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
 
+      - name: Compute development package version
+        id: package-version
+        run: |
+          short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
+          suffix=".dev${GITHUB_RUN_NUMBER}+g${short_sha}.r${GITHUB_RUN_ATTEMPT}"
+          echo "suffix=${suffix}" >> "$GITHUB_OUTPUT"
+          echo "Spatial AI Data Utils version suffix: ${suffix}"
+
       - name: Build and validate development package
         env:
-          VERSION_SUFFIX: .dev${{ github.run_number }}+run.${{ github.run_attempt }}
+          VERSION_SUFFIX: ${{ steps.package-version.outputs.suffix }}
         run: |
           python -m pip install "twine==6.2.0"
           cd release
