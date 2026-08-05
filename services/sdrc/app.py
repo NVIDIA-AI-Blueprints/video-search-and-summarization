@@ -49,6 +49,7 @@ from lib.bus_outcomes import (
     classify_exception,
     decide_commit,
     kafka_message_key,
+    kafka_rewind_to_message,
     log_terminal_failure,
     redis_message_key,
 )
@@ -3335,13 +3336,27 @@ if bus is not None:
                 app.logger.info("commiting consumer message")
                 bus.consumer.commit()
             else:
-                app.logger.info(
-                    "not committing consumer message after retryable failure "
-                    "(attempt %s/%s, outcome=%s)",
-                    attempt,
-                    app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
-                    final_outcome,
-                )
+                # flask-kafka commits after this handler returns. Seek back so
+                # that commit (or a later success) cannot skip this offset.
+                if not kafka_rewind_to_message(bus.consumer, msg):
+                    app.logger.error(
+                        "failed to rewind Kafka consumer after retryable "
+                        "failure; offset may be skipped on next commit "
+                        "(attempt %s/%s, outcome=%s)",
+                        attempt,
+                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        final_outcome,
+                    )
+                else:
+                    app.logger.info(
+                        "rewound Kafka consumer after retryable failure "
+                        "(attempt %s/%s, outcome=%s); deferring commit skip "
+                        "via seek",
+                        attempt,
+                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        final_outcome,
+                    )
+                time.sleep(1.0)
         except Exception as e:
             app.logger.error(f"Exception: {e}")
 
