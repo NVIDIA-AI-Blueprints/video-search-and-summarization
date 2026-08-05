@@ -54,7 +54,6 @@ dshm:
   sizeLimit: "16Gi"
 clearCachedEnginesOnStart: false
 kafkaEnabled: true
-kafkaTopic: "mdx-embed"
 kafkaBootstrapServers: ""
 messageBus: "kafka"
 messageBusTopic: "mdx-embed"

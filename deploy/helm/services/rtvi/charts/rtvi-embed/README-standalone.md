@@ -105,7 +105,7 @@ helm upgrade --install "${RELEASE}" . \
   --set vss-rtvi-vlm.enabled=false \
   --set vss-rtvi-embed.kafkaEnabled=false \
   --set vss-rtvi-embed.waitForKafka.enabled=false \
-  --set vss-rtvi-embed.kafkaTopic=mdx-embed \
+  --set vss-rtvi-embed.messageBusTopic=mdx-embed \
   --set vss-rtvi-embed.hfTokenSecret.name=hf-token-secret \
   --set vss-rtvi-embed.hfTokenSecret.key=HF_TOKEN \
   --set-json 'vss-rtvi-embed.imagePullSecrets=[{"name":"ngc-image-pull-secret"}]' \
@@ -115,8 +115,8 @@ helm upgrade --install "${RELEASE}" . \
 Notes:
 
 - Ensure **`hf-token-secret`** and **`ngc-image-pull-secret`** exist in **`${NAMESPACE}`** (umbrella install does not create secrets). The **`--set-json`** line above wires image pull to the secret from section 2; without it the chart defaults to **`ngc-docker-reg-secret`** and pods may hit **ImagePullBackOff**.
-- **`kafkaTopic`** defaults to **`mdx-embed`** in `values.yaml`; standalone overrides keep the same topic for later Kafka integration.
-- The Deployment sets **`ERROR_MESSAGE_TOPIC=vision-embed-errors`** (hardcoded env today); output topic for Kafka is **`KAFKA_TOPIC`** / **`kafkaTopic`**.
+- **`messageBusTopic`** defaults to **`mdx-embed`** in `values.yaml`; standalone overrides keep the same topic for later Kafka integration.
+- Output and error publishing are controlled by **`MESSAGE_BUS`**, **`MESSAGE_BUS_TOPIC`**, and **`ERROR_BUS`**.
 - First startup can take **many minutes** (HF model download + Triton model repo; `startupProbe` in `values.yaml` allows a long initial delay).
 
 ---
@@ -210,7 +210,7 @@ kubectl delete namespace "${NAMESPACE}"
 - **Stuck in init `wait-for-kafka`**: use **`overrides_rtvi_embed.yaml`** or set **`waitForKafka.enabled: false`**.
 - **HF / model errors**: verify **`hf-token-secret`** / **`HF_TOKEN`**; check pod logs during Cosmos-Embed1 download.
 - **Slow ready on first install**: expected; keep **`--timeout 45m`** on `helm upgrade --wait` or inspect **`startupProbe`** in `values.yaml`.
-- **Wrong values applied**: `helm get values "${RELEASE}" -n "${NAMESPACE}"` and confirm **`kafkaTopic`**, **`modelPath`**, image tag.
+- **Wrong values applied**: `helm get values "${RELEASE}" -n "${NAMESPACE}"` and confirm **`messageBusTopic`**, **`modelPath`**, image tag.
 
 ---
 
