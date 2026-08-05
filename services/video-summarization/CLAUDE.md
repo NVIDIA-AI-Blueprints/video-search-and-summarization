@@ -181,9 +181,10 @@ Note: Livestream summarization uses the dedicated two-phase APIs above, not `POS
 
 ### Docker Architecture
 
-**Multi-stage build**:
-1. Base image (`docker/base/Dockerfile`): Dependencies only (apt + Python packages)
-2. VIA image (`docker/Dockerfile`): Application code on top of base
+**Multi-stage build** (`docker/Dockerfile`):
+1. `runtime-base` — distroless Python + apt/uv deps from `docker/base/`
+2. `pkg-installer` / `app-builder` — app packages, configs, and sources
+3. Final image — copies runtime artifacts onto `runtime-base`
 
 **Development vs Release**:
 - Dev: Source mounted from `VIA_SRC_DIR`, runs `src/via_server.py`
