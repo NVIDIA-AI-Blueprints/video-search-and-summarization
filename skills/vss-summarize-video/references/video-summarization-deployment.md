@@ -90,7 +90,7 @@ Video summarization service values:
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
 | `LVS_IMAGE` | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | video summarization image repository. |
-| `LVS_TAG` | `develop-latest` | video summarization image tag in current develop. GHCR publishes a multi-arch manifest, so the tag does not vary by host CPU platform. |
+| `LVS_TAG` | `3.3.0-rc2` on x86/Tegra; use `3.3.0-rc2-sbsa` on SBSA. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
@@ -258,7 +258,9 @@ RT-VLM values:
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | RT-VLM backend selector for default integrated mode. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default integrated checkpoint. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw captions to Kafka. |
-| `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw captions topic. |
+| `RTVI_VLM_MESSAGE_BUS` | `kafka` | Generated-output broker type. |
+| `RTVI_VLM_MESSAGE_BUS_TOPIC` | `mdx-vlm-captions` | Raw captions topic. |
+| `RTVI_VLM_ERROR_BUS` | `kafka` | Error-output broker type. |
 
 ## Model Id Rule
 
