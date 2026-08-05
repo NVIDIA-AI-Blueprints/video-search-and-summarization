@@ -77,7 +77,6 @@ command.
 export RTVI_EMBED_PORT=8017
 export VSS_DATA_DIR="${VSS_DATA_DIR:-$(pwd)/.standalone-data}"
 export NGC_API_KEY="<your-ngc-api-key>"
-export HOST_IP="$(hostname -I | awk '{print $1}')"
 export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
 export MESSAGE_BUS=
 export ERROR_BUS=
