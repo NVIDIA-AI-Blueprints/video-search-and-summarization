@@ -19,19 +19,27 @@ imagePullSecrets:
 
 # Keep image aligned with chart defaults unless you need a specific build.
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+  tag: "3.3.0-26.07.4"
   pullPolicy: IfNotPresent
 
 # Model source and implementation paths
 modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
 modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+remoteEmbedEndpoint: ""
+remoteEmbedEndpointModelName: "nvidia/cosmos-embed1"
+remoteEmbedEndpointApiKey: ""
+remoteEmbedEndpointTimeoutSec: "300"
+remoteEmbedEndpointBatchSize: "64"
 
 # Standalone dependency endpoints (chart does not deploy kafka/redis itself)
 kafkaEnabled: false
 kafkaBootstrapServers: "127.0.0.1:9092"
 kafkaTopic: "mdx-embed"
+messageBus: "kafka"
+messageBusTopic: "mdx-embed"
+errorBus: "kafka"
 waitForKafka:
   enabled: false
 redisHost: "127.0.0.1"
@@ -61,6 +69,15 @@ rtspLatency: ""
 rtspReconnectionInterval: "5"
 rtspReconnectionMaxAttempts: "10"
 rtspReconnectionWindow: "60"
+assetDownloadConnectTimeout: "10"
+assetDownloadTotalTimeout: "300"
+assetDownloadMaxFileSizeGb: 8
+assetDownloadSslSkipVerifyDomains: ""
+assetDownloadMaxRedirects: "0"
+assetDownloadAuthTokens: ""
+fileUrlAllowedDirs: ""
+maxAssetStorageSizeGb: ""
+assetMaxAgeHours: "0"
 
 resources:
   limits:
