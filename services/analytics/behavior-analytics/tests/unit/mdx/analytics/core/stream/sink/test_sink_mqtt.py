@@ -16,6 +16,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
+from mdx.analytics.core.app.scheduler.app_scheduler_mp import MultiprocessingScheduler
+from mdx.analytics.core.stream.sink import sink_mqtt
 from mdx.analytics.core.stream.sink.sink_mqtt import SinkMQTT
 from mdx.analytics.core.schema.config import AppConfig, AppMQTTConfig, MQTTProducerConfig
 from paho.mqtt.client import Client, ConnectFlags, DisconnectFlags
@@ -753,6 +755,39 @@ class TestSinkMQTTDirtyTests:
         mock_logger.error.assert_called_once()
         mock_client.disconnect.assert_called_once()
         mock_client.loop_stop.assert_called_once()
+
+    def test_close_disconnects_when_the_status_check_itself_raises(self, mock_client):
+        """is_published() raises as well as returns.
+
+        ValueError when the message never made it onto a full outgoing queue, RuntimeError when the
+        publish failed. Those are the cases where the client most needs closing, so the check has to
+        sit inside the try -- outside it, a failed publish would skip the disconnect and strand the
+        network loop thread.
+        """
+        # Arrange
+        self.sink._client = mock_client
+        pending = Mock()
+        pending.is_published.side_effect = ValueError("Message is not queued due to ERR_QUEUE_SIZE")
+        self.sink._last_publish = pending
+
+        # Act
+        with patch('mdx.analytics.core.stream.sink.sink_mqtt.logger') as mock_logger:
+            self.sink.close()
+
+        # Assert
+        mock_logger.error.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+        mock_client.loop_stop.assert_called_once()
+
+    def test_publish_drain_leaves_the_scheduler_room_to_stop_the_worker(self):
+        """The drain must finish before the parent's patience does.
+
+        MultiprocessingScheduler SIGKILLs a worker SHUTDOWN_TIMEOUT_SECONDS after SIGTERM. If the
+        two were equal, a worker that used its whole drain window would be killed exactly as the
+        wait returned, with the disconnect and its own teardown still pending -- the wait meant to
+        save those messages would be what cost the process its life.
+        """
+        assert sink_mqtt.PUBLISH_DRAIN_TIMEOUT_SECONDS < MultiprocessingScheduler.SHUTDOWN_TIMEOUT_SECONDS
 
     def test_write_retains_the_publish_handle(self, mock_client):
         """The handle close() waits on is the one write() would otherwise discard."""
