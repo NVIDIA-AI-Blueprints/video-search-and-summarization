@@ -394,12 +394,12 @@ Run each check in order. **If a check fails, automatically install and re-verify
 
 `HARDWARE_PROFILE` is a **blueprint setting**, not a string that `nvidia-smi` always prints verbatim. For **discrete GPUs**, match the GPU model from `nvidia-smi` / `lspci` to a row below. **IGX-THOR** and **DGX-SPARK** are **whole-system platforms** (kits/boards): set the profile from product/SKU or vendor docs if you already know the machine type; `nvidia-smi` shows the **on-board NVIDIA GPU name** (e.g. a Thor-class or Spark system GPU), not the text `IGX-THOR` or `DGX-SPARK`. On **DGX Spark**, unified memory can make some `nvidia-smi` memory fields show **Not Supported**; driver and device listing should still be checked per [DGX Spark user guide](https://docs.nvidia.com/dgx/dgx-spark/).
 
-Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK`. All profiles include tuned `max_streams_supported` for 2D, 3D, and MV3DT modes.
+Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO4500BW, RTXPRO6000BW, IGX-THOR, DGX-SPARK`. All profiles include tuned `max_streams_supported` for 2D, 3D, and MV3DT modes.
 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
+| RTX PRO 4500 Blackwell | `RTXPRO4500BW` (32 GB). When `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}` deploys `vss-rtvi-vlm`, set `RTVI_VLM_MAX_MODEL_LEN=18000` to cap RT-VLM context and allow KV-cache allocation. |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -826,7 +826,7 @@ SAMPLE_VIDEO_DATASET="<dataset-name>"
 NUM_STREAMS=<3|4>
 
 # --- Hardware ---
-# Valid: H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK
+# Valid: H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO4500BW, IGX-THOR, DGX-SPARK
 HARDWARE_PROFILE=H100
 
 # GPU device IDs (defaults shown — change only if you need a non-default layout)
