@@ -58,7 +58,7 @@ Create `docker/.env` with the variables you want to override. A starting templat
 ```bash
 BACKEND_PORT=8017
 RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
-#RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-custom
+#RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #HF_TOKEN=<HF_TOKEN>
 #NGC_API_KEY=nvapi-XXXXXX
@@ -121,14 +121,14 @@ Only needed if you've edited files under [`src/`](src/) and want those changes b
 
 ```bash
 # From the rt-embed/ directory — Dockerfile expects src/ in the build context
-docker build -f docker/Dockerfile -t rtvi-embed:3.2.1-custom .
+docker build -f docker/Dockerfile -t rtvi-embed:3.3.0-custom .
 ```
 
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:
 
 ```bash
 #RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
-RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-custom
+RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 ```
 
 Restart:

@@ -1,6 +1,6 @@
 # References
 
-Reference files for the `vss-deploy-video-embedding` skill (VSS 3.2 GA Video Embedding microservice, legacy name RT-Embed).
+Reference files for the `vss-deploy-video-embedding` skill (VSS 3.3.0 GA Video Embedding microservice, legacy name RT-Embed).
 
 | File | Description | When to read |
 |---|---|---|
