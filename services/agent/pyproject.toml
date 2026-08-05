@@ -149,6 +149,12 @@ arango_graph = [
     "langchain-community>=0.3.27",
     "python-arango>=8.2",
 ]
+# CA-RAG db_query (knowledge_retrieval backend=db_query) depends on
+# context-aware-rag 3.1.1rc1. It is not declared as a uv extra here because
+# vss-ctx-rag pins conflict with the agent lock (e.g. python-multipart).
+# Install into the agent image/env the same way LVS does:
+#   uv pip install "vss-ctx-rag @ git+https://github.com/NVIDIA/context-aware-rag.git@3.1.1rc1"
+#   uv pip install "vss-ctx-rag-arango @ git+https://github.com/NVIDIA/context-aware-rag.git@3.1.1rc1#subdirectory=packages/vss_ctx_rag_arango"
 all = ["nvidia-vss-agents", "nvidia-vss-cli"]
 
 [dependency-groups]

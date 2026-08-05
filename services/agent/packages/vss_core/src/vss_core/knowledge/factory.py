@@ -40,6 +40,7 @@ _LAZY_BACKENDS: dict[str, str] = {
     "llama_index": "vss_core.knowledge.adapters.llama_index",
     "langchain": "vss_core.knowledge.adapters.langchain",
     "arango_graph": "vss_core.knowledge.adapters.arango_graph",
+    "db_query": "vss_core.knowledge.adapters.db_query",
 }
 
 

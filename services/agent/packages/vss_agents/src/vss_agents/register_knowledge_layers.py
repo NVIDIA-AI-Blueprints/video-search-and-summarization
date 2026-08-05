@@ -38,7 +38,9 @@ from vss_core.knowledge import get_retriever
 
 logger = logging.getLogger(__name__)
 
-BackendType = Literal["frag_api", "es_caption", "frag_lib", "llama_index", "langchain", "arango_graph"]
+BackendType = Literal[
+    "frag_api", "es_caption", "frag_lib", "llama_index", "langchain", "arango_graph", "db_query"
+]
 
 SUMMARIZE_SYSTEM_PROMPT = (
     "You are an analyst summarising retrieved knowledge-base excerpts. "
@@ -72,6 +74,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "(requires the `nvidia-vss[agent,langchain]` extras); "
             "'arango_graph' = in-process LangChain graph QA over ArangoDB "
             "(requires the `nvidia-vss[arango_graph]` extra); "
+            "'db_query' = CA-RAG storage db_query over neo4j/arango/milvus/elasticsearch "
+            "(requires context-aware-rag 3.1.1rc1 / vss-ctx-rag installed in the agent env); "
             "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
         ),
     )
@@ -216,7 +220,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, builder: Builder
         f"cited source material rather than general knowledge. Returns up to "
         f"{config.top_k} excerpts by default."
     )
-    backend_hint = getattr(retriever.__class__, "tool_description_hint", "") or ""
+    # Prefer instance hint (e.g. db_query appends schema_description) over ClassVar.
+    backend_hint = getattr(retriever, "tool_description_hint", "") or ""
     description = f"{base_description}\n\n{backend_hint}".rstrip()
 
     yield FunctionInfo.create(
