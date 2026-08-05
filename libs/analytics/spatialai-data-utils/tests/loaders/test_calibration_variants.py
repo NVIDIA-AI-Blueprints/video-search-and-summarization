@@ -36,6 +36,7 @@ from spatialai_data_utils.loaders.calibration import (
     apply_recentering,
     fetch_fps_from_calibration,
     get_camera_name_to_bev_name_map,
+    load_calib,
     load_calib_into_dict_from_bevformer,
     load_calib_into_dict_grouped,
     load_calib_into_dict_grouped_buffer_zone,
@@ -49,13 +50,17 @@ from spatialai_data_utils.loaders.calibration import (
 
 
 def _make_sensor(*, cam_id, group_name="bev-sensor-1", origin=(0.0, 0.0),
-                 with_fps=True, with_group=True):
+                 with_fps=True, with_group=True, fx=1000.0):
     """Build a synthetic NVSchema sensor with intrinsic/extrinsic +
     optional group block + optional fps attribute.
 
     ``with_group=False`` produces an ungrouped sensor — required by
     :func:`load_calib_into_dict_native` to return a flat dict (which is
-    what :func:`load_calib_into_dict_grouped_random` expects)."""
+    what :func:`load_calib_into_dict_grouped_random` expects).
+
+    ``fx`` sets the focal length in the intrinsic matrix so a test can
+    distinguish which calibration file a loader actually selected (e.g.
+    a full-res ``fx=1000`` vs a down-scaled ``fx=278`` variant)."""
     attrs = [
         {"name": "frameWidth", "value": "1920"},
         {"name": "frameHeight", "value": "1080"},
@@ -70,8 +75,8 @@ def _make_sensor(*, cam_id, group_name="bev-sensor-1", origin=(0.0, 0.0),
         "id": cam_id,
         "type": "camera",
         "intrinsicMatrix": [
-            [1000.0, 0.0, 960.0],
-            [0.0, 1000.0, 540.0],
+            [fx, 0.0, 960.0],
+            [0.0, fx, 540.0],
             [0.0, 0.0, 1.0],
         ],
         # NVSchema extrinsicMatrix is the 3x4 [R | t] block (the
@@ -386,3 +391,78 @@ class TestApplyRecentering:
         }
         out = apply_recentering(calib, areas)
         assert "g_missing" not in out  # didn't sneak in
+
+
+# ---------------------------------------------------------------------------
+# load_calib(use_customized_calib=...) — variant selection
+# ---------------------------------------------------------------------------
+
+
+def _first_fx(calib_by_group):
+    """Focal length of the first camera in the first BEV group — used to
+    tell which calibration file the loader actually selected."""
+    group = next(iter(calib_by_group.values()))
+    cam = next(iter(group.values()))
+    return float(np.asarray(cam["intrinsic_matrix"])[0, 0])
+
+
+class TestLoadCalibCustomizedCalibSelection:
+    """``load_calib(use_customized_calib="grouped")`` must not silently pick
+    a resolution-variant sibling.
+
+    Regression for the BuildingK pkl-corruption bug: the greedy prefix test
+    ``calibration_grouped*`` also matched ``calibration_grouped_default.json``
+    (a ~518x294 calibration, fx~278) alongside the correct
+    ``calibration_grouped.json`` (1920x1080, fx~1030), and an arbitrary one
+    won via ``os.listdir`` order — baking the wrong intrinsics into the pkl
+    and collapsing training.
+    """
+
+    def test_prefers_exact_match_over_default_variant(self, tmp_path):
+        # correct full-res file (fx=1000) + a down-scaled `_default` variant (fx=278)
+        _write_calib(tmp_path / "calibration_grouped.json", [
+            _make_sensor(cam_id="Camera_01", group_name="bev-sensor-1", fx=1000.0),
+        ])
+        _write_calib(tmp_path / "calibration_grouped_default.json", [
+            _make_sensor(cam_id="Camera_01", group_name="bev-sensor-1", fx=278.0),
+        ])
+        calib_by_group, _ = load_calib(
+            str(tmp_path), calib_mode="aic25", use_customized_calib="grouped",
+        )
+        # The exact calibration_grouped.json (fx=1000) must win, never the
+        # _default variant (fx=278).
+        assert _first_fx(calib_by_group) == 1000.0
+
+    def test_single_variant_without_exact_is_used(self, tmp_path):
+        # Only the _default variant exists (no exact calibration_grouped.json):
+        # a single unambiguous match is still honoured (backward compatible).
+        _write_calib(tmp_path / "calibration_grouped_default.json", [
+            _make_sensor(cam_id="Camera_01", group_name="bev-sensor-1", fx=278.0),
+        ])
+        calib_by_group, _ = load_calib(
+            str(tmp_path), calib_mode="aic25", use_customized_calib="grouped",
+        )
+        assert _first_fx(calib_by_group) == 278.0
+
+    def test_ambiguous_without_exact_raises(self, tmp_path):
+        # Two variants match the prefix, neither is the exact name -> fail loud.
+        _write_calib(tmp_path / "calibration_grouped_a.json", [
+            _make_sensor(cam_id="Camera_01", group_name="bev-sensor-1", fx=100.0),
+        ])
+        _write_calib(tmp_path / "calibration_grouped_b.json", [
+            _make_sensor(cam_id="Camera_02", group_name="bev-sensor-1", fx=200.0),
+        ])
+        with pytest.raises(ValueError, match="ambiguous"):
+            load_calib(
+                str(tmp_path), calib_mode="aic25", use_customized_calib="grouped",
+            )
+
+    def test_single_exact_file_unchanged(self, tmp_path):
+        # The common case (one exact file) is untouched by the guard.
+        _write_calib(tmp_path / "calibration_grouped.json", [
+            _make_sensor(cam_id="Camera_01", group_name="bev-sensor-1", fx=1234.0),
+        ])
+        calib_by_group, _ = load_calib(
+            str(tmp_path), calib_mode="aic25", use_customized_calib="grouped",
+        )
+        assert _first_fx(calib_by_group) == 1234.0

@@ -1657,10 +1657,53 @@ function state_up() {
 }
 
 function state_down() {
-  local _profile_dir_names _profile_dir_name _generated_env
+  local _profile_dir_names _profile_dir_name _profile_dir _source_env _overrides_env _generated_env
+  local _compose_project_name _compose_project_names=()
+
+  _profile_dir_names=('base' 'lvs' 'search' 'alerts')
+
+  if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    _compose_project_names+=("${COMPOSE_PROJECT_NAME}")
+  fi
+
+  for _profile_dir_name in "${_profile_dir_names[@]}"; do
+    _profile_dir="${deployment_directory}/developer-profiles/dev-profile-${_profile_dir_name}"
+    _source_env="${_profile_dir}/.env"
+    _overrides_env="${_profile_dir}/overrides.env"
+    _generated_env="${_profile_dir}/generated.env"
+    if [[ -f "${_generated_env}" ]]; then
+      _compose_project_name="$(get_env_value_from_files "COMPOSE_PROJECT_NAME" "${_source_env}" "${_overrides_env}" "${_generated_env}")"
+      _compose_project_name="${_compose_project_name:-vss}"
+      if ! contains_element "${_compose_project_name}" "${_compose_project_names[@]}"; then
+        _compose_project_names+=("${_compose_project_name}")
+      fi
+    fi
+  done
+
+  if [[ ${#_compose_project_names[@]} -eq 0 ]]; then
+    for _profile_dir_name in "${_profile_dir_names[@]}"; do
+      _profile_dir="${deployment_directory}/developer-profiles/dev-profile-${_profile_dir_name}"
+      _compose_project_name="$(get_env_value_from_files "COMPOSE_PROJECT_NAME" "${_profile_dir}/.env" "${_profile_dir}/overrides.env")"
+      if [[ -n "${_compose_project_name}" ]]; then
+        _compose_project_names+=("${_compose_project_name}")
+        break
+      fi
+    done
+  fi
+  if [[ ${#_compose_project_names[@]} -eq 0 ]]; then
+    _compose_project_names=('vss')
+  fi
+
+  for _compose_project_name in "${_compose_project_names[@]}"; do
+    echo "[INFO] Bringing down docker compose project '${_compose_project_name}' (with volumes)..."
+    if [[ "${dry_run}" == "true" ]]; then
+      echo "[DRY-RUN] docker compose -p ${_compose_project_name} down -v --remove-orphans"
+    else
+      docker compose -p "${_compose_project_name}" down -v --remove-orphans
+    fi
+  done
 
   echo "[INFO] Cleaning up generated.env files from all profiles..."
-  _profile_dir_names=('base' 'lvs' 'search' 'alerts')
   for _profile_dir_name in "${_profile_dir_names[@]}"; do
     _generated_env="${deployment_directory}/developer-profiles/dev-profile-${_profile_dir_name}/generated.env"
     if [[ -f "${_generated_env}" ]]; then
@@ -1672,13 +1715,6 @@ function state_down() {
       fi
     fi
   done
-
-  echo "[INFO] Bringing down docker compose project 'mdx' (with volumes)..."
-  if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] docker compose -p mdx down -v --remove-orphans"
-  else
-    docker compose -p mdx down -v --remove-orphans
-  fi
 
   echo "[INFO] Removing dangling docker volumes..."
   if [[ "${dry_run}" == "true" ]]; then

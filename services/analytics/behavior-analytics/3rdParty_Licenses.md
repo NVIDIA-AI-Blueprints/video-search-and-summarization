@@ -2725,7 +2725,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
-## pillow:12.2.0
+## pillow:12.3.0
 
 **License Type:** CMU License (MIT-CMU)
 

@@ -128,7 +128,3 @@ services:
         condition: service_completed_successfully
       elasticsearch-init-container:
         condition: service_completed_successfully
-
-volumes:
-  mdx-nvstreamer-data:
-  mdx-nvstreamer-videos:

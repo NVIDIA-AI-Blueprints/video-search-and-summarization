@@ -36,7 +36,9 @@ from vss_api_models import (
     HTTP_URL_VALIDATION_PATTERN,
     KEY_PATTERN,
     LIVE_STREAM_URL_PATTERN,
+    MediaInfoOffset,
     PATH_PATTERN,
+    SummarizationQuery,
     TIMESTAMP_PATTERN,
 )
 
@@ -1738,3 +1740,109 @@ def test_vlm_query_response_format_default():
 
     query = VlmQuery(model="m", id=uuid4(), prompt="p")
     assert query.response_format.type == ResponseType.TEXT
+
+# ---------------------------------------------------------------------------
+# MediaInfoOffset — reversed offset rejection
+# ---------------------------------------------------------------------------
+
+
+class TestMediaInfoOffsetValidation:
+    def test_valid_offsets_accepted(self):
+        m = MediaInfoOffset(type="offset", start_offset=0, end_offset=60)
+        assert m.start_offset == 0
+        assert m.end_offset == 60
+
+    def test_reversed_offsets_rejected(self):
+        with pytest.raises(ValidationError, match="start_offset.*must be less than.*end_offset"):
+            MediaInfoOffset(type="offset", start_offset=50, end_offset=20)
+
+    def test_equal_offsets_rejected(self):
+        with pytest.raises(ValidationError, match="start_offset.*must be less than.*end_offset"):
+            MediaInfoOffset(type="offset", start_offset=30, end_offset=30)
+
+    def test_only_start_offset_no_error(self):
+        m = MediaInfoOffset(type="offset", start_offset=10, end_offset=None)
+        assert m.start_offset == 10
+
+    def test_only_end_offset_no_error(self):
+        m = MediaInfoOffset(type="offset", start_offset=None, end_offset=60)
+        assert m.end_offset == 60
+
+    def test_both_none_no_error(self):
+        m = MediaInfoOffset(type="offset", start_offset=None, end_offset=None)
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+    def test_for_response_omits_equal_placeholder(self):
+        m = MediaInfoOffset.for_response(0, 0)
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+    def test_for_response_omits_missing_bounds(self):
+        m = MediaInfoOffset.for_response()
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+    def test_for_response_keeps_valid_range(self):
+        m = MediaInfoOffset.for_response(0, 60)
+        assert m.start_offset == 0
+        assert m.end_offset == 60
+
+    def test_for_response_omits_iso_timestamps(self):
+        m = MediaInfoOffset.for_response(
+            "2026-04-30T10:39:20.934Z",
+            "2026-04-30T10:45:00.000Z",
+        )
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+    def test_for_response_coerces_none_like_or_zero(self):
+        m = MediaInfoOffset.for_response(None, None)
+        assert m.type == "offset"
+        assert m.start_offset is None
+        assert m.end_offset is None
+
+
+# ---------------------------------------------------------------------------
+# SummarizationQuery — min_tokens > max_tokens rejection
+# ---------------------------------------------------------------------------
+
+
+def _base_query(**overrides):
+    """Minimal valid SummarizationQuery kwargs."""
+    defaults = dict(
+        url="http://media-server/1min.mp4",
+        model="cosmos-reason1",
+        scenario="warehouse",
+        events=["forklift", "crash"],
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+class TestSummarizationQueryTokenConstraints:
+    def test_valid_min_less_than_max(self):
+        q = SummarizationQuery(**_base_query(min_tokens=10, max_tokens=100))
+        assert q.min_tokens == 10
+        assert q.max_tokens == 100
+
+    def test_min_tokens_greater_than_max_rejected(self):
+        with pytest.raises(ValidationError, match="min_tokens.*must not exceed.*max_tokens"):
+            SummarizationQuery(**_base_query(min_tokens=100, max_tokens=10))
+
+    def test_min_tokens_equal_to_max_accepted(self):
+        q = SummarizationQuery(**_base_query(min_tokens=50, max_tokens=50))
+        assert q.min_tokens == 50
+
+    def test_only_max_tokens_no_error(self):
+        q = SummarizationQuery(**_base_query(max_tokens=512))
+        assert q.max_tokens == 512
+        assert q.min_tokens is None
+
+    def test_only_min_tokens_no_error(self):
+        q = SummarizationQuery(**_base_query(min_tokens=10))
+        assert q.min_tokens == 10
+
+    def test_neither_token_field_set_no_error(self):
+        q = SummarizationQuery(**_base_query())
+        assert q.min_tokens is None

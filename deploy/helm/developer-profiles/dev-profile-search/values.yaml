@@ -335,8 +335,8 @@ rtvi:
     enabled: true
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-      tag: "3.2.1"
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+      tag: "3.3.0-26.07.4"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -349,8 +349,6 @@ rtvi:
       enabled: true
       sizeLimit: 16Gi
     clearCachedEnginesOnStart: false
-    kafkaEnabled: true
-    kafkaTopic: mdx-embed
     kafkaBootstrapServers: ''
     redisHost: ''
     redisPort: '6379'

@@ -2,7 +2,7 @@ opencv-python-headless==4.13.0.92
 h5py==3.16.0
 matplotlib==3.10.9
 numpy==2.2.6
-pillow==12.2.0
+pillow==12.3.0
 pydantic==2.13.4
 pyquaternion==0.9.9
 scipy==1.15.3

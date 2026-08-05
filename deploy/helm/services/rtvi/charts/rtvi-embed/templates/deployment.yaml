@@ -74,7 +74,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- $wfk := .Values.waitForKafka | default dict }}
-      {{- $waitKafka := and .Values.kafkaEnabled (or (not (hasKey $wfk "enabled")) $wfk.enabled) }}
+      {{- $usesKafkaBus := or (eq (.Values.messageBus | default "") "kafka") (eq (.Values.errorBus | default "") "kafka") }}
+      {{- $waitKafka := and $usesKafkaBus (or (not (hasKey $wfk "enabled")) $wfk.enabled) }}
       {{- if or $waitKafka .Values.clearCachedEnginesOnStart }}
       initContainers:
         {{- if $waitKafka }}
@@ -153,12 +154,33 @@ spec:
               value: {{ .Values.modelPath | quote }}
             - name: MODEL_REPOSITORY_SCRIPT_PATH
               value: {{ .Values.modelRepositoryScriptPath | quote }}
-            - name: KAFKA_ENABLED
-              value: {{ .Values.kafkaEnabled | quote }}
+            - name: REMOTE_EMBED_ENDPOINT
+              value: {{ .Values.remoteEmbedEndpoint | default "" | quote }}
+            - name: REMOTE_EMBED_ENDPOINT_MODEL_NAME
+              value: {{ .Values.remoteEmbedEndpointModelName | default "nvidia/cosmos-embed1" | quote }}
+            {{- $remoteApiKey := .Values.remoteEmbedEndpointApiKeySecret | default dict }}
+            {{- $remoteApiKeyName := trim (default "" $remoteApiKey.name) }}
+            - name: REMOTE_EMBED_ENDPOINT_API_KEY
+              {{- if ne $remoteApiKeyName "" }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $remoteApiKeyName | quote }}
+                  key: {{ $remoteApiKey.key | default "REMOTE_EMBED_ENDPOINT_API_KEY" | quote }}
+              {{- else }}
+              value: {{ .Values.remoteEmbedEndpointApiKey | default "" | quote }}
+              {{- end }}
+            - name: REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC
+              value: {{ .Values.remoteEmbedEndpointTimeoutSec | default "300" | quote }}
+            - name: REMOTE_EMBED_ENDPOINT_BATCH_SIZE
+              value: {{ .Values.remoteEmbedEndpointBatchSize | default "64" | quote }}
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "vss-rtvi-embed.kafkaBootstrap" . | quote }}
-            - name: KAFKA_TOPIC
-              value: {{ .Values.kafkaTopic | quote }}
+            - name: MESSAGE_BUS
+              value: {{ .Values.messageBus | quote }}
+            - name: MESSAGE_BUS_TOPIC
+              value: {{ .Values.messageBusTopic | default "mdx-embed" | quote }}
+            - name: ERROR_BUS
+              value: {{ .Values.errorBus | quote }}
             - name: REDIS_HOST
               value: {{ include "vss-rtvi-embed.redisHost" . | quote }}
             - name: REDIS_PORT
@@ -226,6 +248,17 @@ spec:
               value: {{ .Values.assetDownloadSslSkipVerifyDomains | default "" | quote }}
             - name: ASSET_DOWNLOAD_MAX_REDIRECTS
               value: {{ .Values.assetDownloadMaxRedirects | default "0" | quote }}
+            {{- $assetTok := .Values.assetDownloadAuthTokensSecret | default dict }}
+            {{- $assetTokName := trim (default "" $assetTok.name) }}
+            - name: ASSET_DOWNLOAD_AUTH_TOKENS
+              {{- if ne $assetTokName "" }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $assetTokName | quote }}
+                  key: {{ $assetTok.key | default "ASSET_DOWNLOAD_AUTH_TOKENS" | quote }}
+              {{- else }}
+              value: {{ .Values.assetDownloadAuthTokens | default "" | quote }}
+              {{- end }}
             - name: FILE_URL_ALLOWED_DIRS
               value: {{ .Values.fileUrlAllowedDirs | default "" | quote }}
             - name: MAX_ASSET_STORAGE_SIZE_GB
