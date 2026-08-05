@@ -57,7 +57,7 @@
     "react-compound-slider": "^3.4.0",
     "react-dom": "^19.2.8",
     "react-konva": "^19.2.5",
-    "react-router-dom": "^7.18.2",
+    "react-router": "^8.3.0",
     "react-sparklines": "^1.7.0",
     "sass": "^1.102.0",
     "scss": "^0.2.4",
