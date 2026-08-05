@@ -59,6 +59,7 @@ from ..models.embed_search import EmbedSearchOutput
 from ..models.search import SearchInput
 from ..models.search import SearchOutput
 from ..models.search import SearchResult
+from ..models.tag_search import TagSearchOutput
 from . import _fusion
 from ._attribute_helpers import enrich_attribute_results
 from ._attribute_helpers import resolve_index_by_source_type
@@ -105,6 +106,7 @@ class SearchConfig(Protocol):
     fusion_method: str
     w_attribute: float
     w_embed: float
+    w_tag: float
     rrf_k: int
     rrf_w: float
     vst_internal_url: str
@@ -377,15 +379,17 @@ async def execute_core_search(
     embed_search: SupportsAinvoke,
     config: SearchConfig,
     attribute_search_fn: SupportsAinvoke | None = None,
+    tag_search: SupportsAinvoke | None = None,
     behavior_es: ElasticIndex | None = None,
 ) -> AsyncGenerator[AgentMessageChunk | SearchOutput]:
     """Core search execution: yields progress chunks, then a final SearchOutput.
 
-    Routes to one of four paths:
+    Routes to one of five paths:
       1. object_id re-search (direct behavior kNN by an existing object's vector)
       2. explicit attribute-only mode
       3. explicit embed-only mode
-      4. explicit fusion mode
+      4. explicit tag-only mode
+      5. explicit fusion mode
 
     The injected adapters (``embed_search``, ``attribute_search_fn``) each expose
     an async ``.ainvoke``; ``behavior_es`` is an
@@ -493,6 +497,37 @@ async def execute_core_search(
     # single-word attribute pruning can surface an observable note.
     search_messages: list[str] = []
 
+    tag_params = {
+        "query": search_input.query,
+        "source_type": search_input.source_type,
+        "video_sources": search_input.video_sources,
+        "timestamp_start": search_input.timestamp_start,
+        "timestamp_end": search_input.timestamp_end,
+        "top_k": min(top_k, _DOWNSTREAM_MAX_TOP_K),
+    }
+
+    if search_input.search_mode == "tag":
+        if tag_search is None:
+            raise ConfigurationError("tag_search must be pre-loaded by the Search primitive")
+        yield AgentMessageChunk(
+            type=AgentMessageChunkType.TOOL_CALL,
+            content=f"Running VLM tag search with query: '{search_input.query}'",
+        )
+        raw_tag_output = await tag_search.ainvoke(tag_params)
+        tag_output = (
+            raw_tag_output
+            if isinstance(raw_tag_output, TagSearchOutput)
+            else TagSearchOutput.model_validate(raw_tag_output)
+        )
+        search_results = _fusion.tag_output_to_search_results(tag_output)
+        if tag_output.malformed_documents:
+            search_messages.append(
+                f"Skipped {tag_output.malformed_documents} malformed VLM tag "
+                f"document{'s' if tag_output.malformed_documents != 1 else ''}."
+            )
+        yield SearchOutput(data=search_results[:top_k], search_messages=search_messages)
+        return
+
     query_params: dict[str, str] = {"query": search_input.query}
 
     if search_input.video_sources and len(search_input.video_sources) > 0:
@@ -512,7 +547,95 @@ async def execute_core_search(
 
         attribute_list = [attr.strip() for attr in attribute_list if attr.strip()]
 
-    # ----- EXECUTION FLOW: embed / attribute-only / fusion -----
+    if search_input.search_mode == "fusion":
+        if tag_search is None:
+            raise ConfigurationError("tag_search must be pre-loaded by the Search primitive")
+        query_params["top_k"] = str(min(top_k, _DOWNSTREAM_MAX_TOP_K))
+        query_input_json = json.dumps(
+            {
+                "params": query_params,
+                "source_type": search_input.source_type,
+                "exclude_videos": [],
+            }
+        )
+
+        async def _embed_provider() -> list[SearchResult]:
+            output = await embed_search.ainvoke(query_input_json)
+            validated = (
+                output
+                if isinstance(output, EmbedSearchOutput)
+                else EmbedSearchOutput.model_validate_json(output)
+                if isinstance(output, str)
+                else EmbedSearchOutput.model_validate(output)
+            )
+            return _fusion.embed_output_to_search_results(validated)
+
+        async def _tag_provider() -> tuple[list[SearchResult], int]:
+            output = await tag_search.ainvoke(tag_params)
+            validated = output if isinstance(output, TagSearchOutput) else TagSearchOutput.model_validate(output)
+            return _fusion.tag_output_to_search_results(validated), validated.malformed_documents
+
+        provider_names = ["embed", "tag"]
+        provider_calls: list[Any] = [_embed_provider(), _tag_provider()]
+        if attribute_list:
+            if attribute_search_fn is None:
+                raise ConfigurationError("attribute_search_fn must be pre-loaded by the Search primitive")
+            provider_names.append("attribute")
+            provider_calls.append(
+                _run_attribute_only_search(
+                    attribute_list=attribute_list,
+                    search_input=search_input,
+                    attribute_search_fn=attribute_search_fn,
+                    top_k=min(top_k, _DOWNSTREAM_MAX_TOP_K),
+                    min_similarity=0.0,
+                    search_messages=search_messages,
+                )
+            )
+
+        yield AgentMessageChunk(
+            type=AgentMessageChunkType.TOOL_CALL,
+            content="Running tag, embedding, and optional attribute retrieval for fusion",
+        )
+        outcomes = await asyncio.gather(*provider_calls, return_exceptions=True)
+        provider_results: dict[str, list[SearchResult]] = {}
+        failures: list[Exception] = []
+        malformed_documents = 0
+        for provider, outcome in zip(provider_names, outcomes, strict=True):
+            if isinstance(outcome, BaseException):
+                if not isinstance(outcome, Exception):
+                    raise outcome
+                if isinstance(outcome, BackendUnreachableError):
+                    failures.append(outcome)
+                    search_messages.append(f"{provider.capitalize()} provider degraded: {outcome}")
+                    continue
+                raise outcome
+            if provider == "tag":
+                tag_results, malformed_documents = outcome
+                provider_results[provider] = tag_results
+            else:
+                provider_results[provider] = outcome
+
+        if not provider_results:
+            if failures:
+                raise failures[0]
+            raise BackendUnreachableError("search", "all fusion providers failed")
+        if malformed_documents:
+            search_messages.append(
+                f"Skipped {malformed_documents} malformed VLM tag document{'s' if malformed_documents != 1 else ''}."
+            )
+
+        search_results = _fusion.fuse_ranked_union(
+            provider_results,
+            method=config.fusion_method,
+            weights={"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute},
+            rrf_k=config.rrf_k,
+        )
+        if getattr(config, "merge_adjacent", True):
+            search_results = _fusion.merge_consecutive_results(search_results)
+        yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
+        return
+
+    # ----- EXECUTION FLOW: embed / attribute-only -----
     # The object_id path above returns before reaching here, so this
     # ``search_results`` init is only hit on the remaining paths. Reusing the
     # name without a fresh annotation keeps mypy's no-redef check happy.
@@ -561,7 +684,7 @@ async def execute_core_search(
                 content=f"Found {len(search_results)} results from attribute-only search",
             )
 
-        # PATH 2 & 3: Embed search first
+        # PATH 2: Embed search
         else:
             logger.info("EXECUTION PATH: Embed search")
             yield AgentMessageChunk(
@@ -606,98 +729,6 @@ async def execute_core_search(
                 content=f"Found {len(search_results)} results from embed search",
             )
 
-            # Embed confidence fallback / fusion
-            if attribute_list and getattr(config, "attribute_search_tool", None):
-                max_embed_score = max((r.similarity for r in search_results), default=0.0)
-                if search_input.search_mode == "fusion" and not search_results:
-                    logger.info("Explicit fusion search has no embed candidates; preserving an empty fusion result")
-                    search_messages.append(
-                        "Fusion search found no semantic candidates; attribute-only fallback was not used."
-                    )
-                    yield AgentMessageChunk(
-                        type=AgentMessageChunkType.THOUGHT,
-                        content="Fusion search found no semantic candidates; returning no results",
-                    )
-                elif search_input.search_mode != "fusion" and (
-                    not search_results or max_embed_score < config.embed_confidence_threshold
-                ):
-                    logger.info(
-                        f"Embed candidates absent or confidence low (max={max_embed_score:.3f}, "
-                        f"threshold={config.embed_confidence_threshold:.3f}). Falling back to attribute-only."
-                    )
-                    yield AgentMessageChunk(
-                        type=AgentMessageChunkType.THOUGHT,
-                        content=(
-                            f"Embed confidence low ({max_embed_score:.3f}), falling back to attribute-only search"
-                        ),
-                    )
-
-                    if attribute_search_fn is None:
-                        raise ConfigurationError("attribute_search_fn must be pre-loaded by the Search primitive")
-
-                    with TimeMeasure("search: attribute-only fallback"):
-                        search_results = await _run_attribute_only_search(
-                            attribute_list=attribute_list,
-                            search_input=search_input,
-                            attribute_search_fn=attribute_search_fn,
-                            top_k=top_k,
-                            min_similarity=0.0,
-                            exclude_videos=[],
-                            search_messages=search_messages,
-                        )
-
-                    yield AgentMessageChunk(
-                        type=AgentMessageChunkType.THOUGHT,
-                        content=f"Found {len(search_results)} results from attribute-only search",
-                    )
-                elif search_input.search_mode == "fusion" and search_results:
-                    if max_embed_score < config.embed_confidence_threshold:
-                        logger.info(
-                            "Explicit fusion search is below the embed confidence threshold "
-                            "(max=%.3f, threshold=%.3f); preserving the requested fusion route",
-                            max_embed_score,
-                            config.embed_confidence_threshold,
-                        )
-                    try:
-                        logger.info("EXECUTION PATH: Fusion Search")
-                        yield AgentMessageChunk(
-                            type=AgentMessageChunkType.TOOL_CALL,
-                            content=f"Running fusion reranking with attributes: {attribute_list}",
-                        )
-
-                        if attribute_search_fn is None:
-                            raise ConfigurationError("attribute_search_fn must be pre-loaded by the Search primitive")
-
-                        with TimeMeasure("search: fusion search rerank"):
-                            reranked_results = await fusion_search_rerank(
-                                embed_results=search_results,
-                                attributes=attribute_list,
-                                attribute_search_fn=attribute_search_fn,
-                                vst_internal_url=config.vst_internal_url,
-                                source_type=search_input.source_type,
-                                fusion_method=config.fusion_method,
-                                rrf_k=config.rrf_k,
-                                rrf_w=config.rrf_w,
-                                w_attribute=config.w_attribute,
-                                w_embed=config.w_embed,
-                            )
-
-                        search_results = reranked_results
-                        yield AgentMessageChunk(
-                            type=AgentMessageChunkType.THOUGHT,
-                            content="Fusion reranking complete",
-                        )
-                    except LibraryError as e:
-                        # Hybrid policy: a systemic fusion failure is fatal.
-                        # Per-video attribute degradation is handled inside
-                        # fusion_search_rerank and never reaches here.
-                        logger.error(f"Fusion reranking failed: {e}", exc_info=True)
-                        yield AgentMessageChunk(
-                            type=AgentMessageChunkType.ERROR,
-                            content=f"Fusion reranking failed: {e}",
-                        )
-                        raise
-
         # Percentage-based filtering
         search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
 
@@ -720,6 +751,7 @@ async def execute_core_search_wrapper(
     embed_search: SupportsAinvoke,
     config: SearchConfig,
     attribute_search_fn: SupportsAinvoke | None = None,
+    tag_search: SupportsAinvoke | None = None,
     behavior_es: ElasticIndex | None = None,
 ) -> SearchOutput:
     """Non-streaming wrapper: collects chunks, returns final SearchOutput."""
@@ -728,6 +760,7 @@ async def execute_core_search_wrapper(
         embed_search=embed_search,
         config=config,
         attribute_search_fn=attribute_search_fn,
+        tag_search=tag_search,
         behavior_es=behavior_es,
     )
     async with aclosing(updates):

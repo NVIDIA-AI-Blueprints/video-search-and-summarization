@@ -129,40 +129,32 @@ class AttributeInput(_Common):
     )
 
 
+class TagInput(_Common):
+    """BM25 keyword retrieval over indexed RT-VLM tags and descriptions."""
+
+    query: str = Field(..., description="Keyword or phrase to match against VLM tag documents.")
+    video_sources: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Registered source name or ID to search; repeatable and required.",
+        json_schema_extra={"cli_flag": "--video-source"},
+    )
+
+
 class FusionInput(_Common):
-    """Embedding retrieval, re-ranked by attribute evidence.
-
-    The two legs are NOT symmetric, and this is the thing to understand
-    before using it: the embedding leg decides *which* results exist, and the
-    attribute leg only decides how they are *ordered*.
-
-    \b
-    1. --query is embedded and matched against `mdx-embed-filtered-*`,
-       producing the candidate set (identical to `run embed`).
-    2. For each candidate, `mdx-behavior-*` is queried for the --attribute
-       terms within that candidate's sensor and time window. Per-candidate
-       attribute scores are summed, then normalised by how many attributes
-       were supplied.
-    3. The two scores are combined by --fusion-method:
-         rrf (default)            1/(embed_rank + rrf_k) + rrf_w * attr_score
-         weighted_linear          w_embed * embed_score + w_attribute * attr_score
-         rrf_with_attribute_rank  as rrf, but ranked on the attribute side
-
-    Consequence: an object matching every attribute is unreachable if the
-    embedding leg did not surface its window. Attributes cannot add results,
-    only reorder them. If you want attribute matches regardless of visual
-    similarity, use `run attribute`.
-
-    Fallback: when the best embed score is below --embed-confidence-threshold
-    the embedding leg is judged uninformative and the search degrades to
-    attribute-only.
-    """
+    """Candidate-union fusion across VLM tags, video embeddings, and optional attributes."""
 
     query: str = Field(..., description="Visual query for the embedding leg.")
+    video_sources: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Registered source name or ID to search; repeatable and required.",
+        json_schema_extra={"cli_flag": "--video-source"},
+    )
     description: str | None = Field(None, description="Free-text description accompanying the query.")
     attributes: list[str] = Field(
-        ...,
-        description="Attribute for the attribute leg; repeatable.",
+        default_factory=list,
+        description="Optional attribute for the attribute leg; repeatable.",
         json_schema_extra={"cli_flag": "--attribute"},
     )
     min_cosine_similarity: float | None = Field(
@@ -196,11 +188,12 @@ class SearchTuning(BaseModel):
     an omitted flag never silently overrides configuration.
     """
 
-    fusion_method: Literal["weighted_linear", "rrf", "rrf_with_attribute_rank"] | None = Field(
-        None, description="How embed and attribute legs are combined."
+    fusion_method: Literal["weighted_rrf", "rrf"] | None = Field(
+        None, description="How tag, embed, and optional attribute ranks are combined."
     )
     w_attribute: float | None = Field(None, ge=0.0, le=1.0, description="Attribute leg weight.")
     w_embed: float | None = Field(None, ge=0.0, le=1.0, description="Embedding leg weight.")
+    w_tag: float | None = Field(None, ge=0.0, le=1.0, description="VLM tag leg weight.")
     rrf_k: int | None = Field(None, ge=1, description="Reciprocal-rank-fusion k.")
     rrf_w: float | None = Field(None, ge=0.0, le=1.0, description="Reciprocal-rank-fusion weight.")
     top_percent_filter: float | None = Field(None, ge=0.0, le=1.0, description="Keep only the top fraction of hits.")
@@ -336,7 +329,7 @@ class SearchGroup(CommandGroup):
     name: ClassVar[str] = "search"
     summary: ClassVar[str] = "Search indexed video"
 
-    #: The four retrieval paths, each with only the fields it accepts. This
+    #: The five retrieval paths, each with only the fields it accepts. This
     #: replaces `--search-mode`: the old flag put every path's fields on one
     #: command, so `SearchInput` needed runtime rules to reject the nonsense
     #: combinations ("search_mode='embed' does not accept attributes",
@@ -362,10 +355,16 @@ class SearchGroup(CommandGroup):
             requires=frozenset({"elasticsearch", "rtvi_cv"}),
         ),
         Action(
+            "tag",
+            "BM25 keyword retrieval over source-scoped VLM tag documents.",
+            TagInput,
+            requires=frozenset({"elasticsearch", "vst"}),
+        ),
+        Action(
             "fusion",
-            "Embedding retrieval re-ranked by attribute evidence.",
+            "Candidate-union fusion across tags, embeddings, and optional attributes.",
             FusionInput,
-            requires=frozenset({"elasticsearch", "rt_embed", "rtvi_cv"}),
+            requires=frozenset({"elasticsearch", "rt_embed", "vst"}),
         ),
         Action(
             "object",
@@ -423,4 +422,4 @@ class SearchGroup(CommandGroup):
 
 SEARCH = SearchGroup()
 
-__all__ = ["SEARCH", "AttributeInput", "EmbedInput", "FusionInput", "ObjectInput", "SearchGroup"]
+__all__ = ["SEARCH", "AttributeInput", "EmbedInput", "FusionInput", "ObjectInput", "SearchGroup", "TagInput"]
