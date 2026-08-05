@@ -64,10 +64,10 @@ MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #NGC_API_KEY=nvapi-XXXXXX
 NVIDIA_VISIBLE_DEVICES=0
 
-KAFKA_ENABLED=true
 #KAFKA_BOOTSTRAP_SERVERS=<Kafka_server_ip:port>
-#KAFKA_TOPIC=vision-embed-messages
-#ERROR_MESSAGE_TOPIC=vision-embed-errors
+MESSAGE_BUS=kafka
+MESSAGE_BUS_TOPIC=mdx-embed
+ERROR_BUS=kafka
 ```
 
 Replace `<tag>` with the NGC image tag for your platform (for example `3.3.0-26.07.4` on x86, or `3.3.0-26.07.4-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
@@ -417,10 +417,11 @@ VLM_BATCH_SIZE=128                          # Override automatic batch size
 # Logging
 LOG_LEVEL=INFO                              # DEBUG, INFO, WARNING, ERROR
 
-# Kafka server config
-KAFKA_ENABLED=<true/false>                  # Enable Kafka messages containing generated embeddings
+# Message bus config
+MESSAGE_BUS=kafka                           # Enable generated embedding messages over Kafka; empty disables generated-output messages
 KAFKA_BOOTSTRAP_SERVERS=<ip_address:port>   # Kafka server
-KAFKA_TOPIC=vision-embed-messages           # Kafka message topic
+MESSAGE_BUS_TOPIC=mdx-embed                 # Generated embedding message topic
+ERROR_BUS=kafka                             # Enable error messages over Kafka; empty disables error bus publishing
 
 # Redis error message config
 ERROR_MESSAGE_TOPIC=vision-embed-errors     # Error message topic (Kafka or Redis channel)
@@ -548,10 +549,11 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Kafka Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `KAFKA_ENABLED` | Enable Kafka integration | `false` | No |
 | `KAFKA_PORT` | Host port to expose Kafka (Docker Compose only) | `9092` | No |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker addresses | `localhost:9092` | No |
-| `KAFKA_TOPIC` | Kafka topic name for VisionLLM/embedding messages | `vision-embed-messages` | No |
+| `MESSAGE_BUS` | Generated-output bus type; set to `kafka` to publish embedding messages or empty to disable publishing | `kafka` | No |
+| `MESSAGE_BUS_TOPIC` | Generated embedding message topic | `mdx-embed` | No |
+| `ERROR_BUS` | Error bus type; set to `kafka` to publish errors or empty to disable error bus publishing | `kafka` | No |
 | `ERROR_MESSAGE_TOPIC` | Kafka topic name for error messages (or Redis channel when Redis is enabled) | `vision-embed-errors` | No |
 | `ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT` | Enable streaming text embeddings results to Kafka | `false` | No |
 | `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` | Max queued Kafka producer send jobs before dropping during broker metadata stalls | `1024` | No |
