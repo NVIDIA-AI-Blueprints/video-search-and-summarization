@@ -319,11 +319,25 @@ wait_for_elasticsearch_to_settle || abort_on_infrastructure_failure \
 # flushed, so the run would go on to compare a behavior stream that is missing every track still
 # live at the end -- an infrastructure failure wearing the costume of a data mismatch.
 echo "Stopping mdx-analytics so emit-once behaviors are flushed..."
-if docker stop -t "${APP_STOP_TIMEOUT_SEC:-60}" mdx-analytics > /dev/null 2>&1; then
-    echo "✓ mdx-analytics stopped"
-else
+if ! docker stop -t "${APP_STOP_TIMEOUT_SEC:-60}" mdx-analytics > /dev/null 2>&1; then
     abort_on_infrastructure_failure \
         "Failed to stop mdx-analytics; emit-once behaviors were never flushed"
+fi
+
+# `docker stop` succeeding only means the container is no longer running. It sends SIGTERM, waits
+# out the timeout, then SIGKILL -- and reports success either way. SIGKILL cannot be handled, so the
+# close hook never runs and the holdback is lost, which is precisely the failure this stop exists to
+# prevent. The exit status is what distinguishes the two: 0 for the signal handler returning
+# normally, 137 (128 + SIGKILL) when Docker had to force it.
+APP_EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' mdx-analytics 2>/dev/null || echo "unknown")
+if [[ "$APP_EXIT_CODE" = "0" ]]; then
+    echo "✓ mdx-analytics stopped gracefully (exit 0)"
+elif [[ "$APP_EXIT_CODE" = "137" ]]; then
+    abort_on_infrastructure_failure \
+        "mdx-analytics was SIGKILLed after the ${APP_STOP_TIMEOUT_SEC:-60}s timeout (exit 137); the close hook never ran, so emit-once behaviors were never flushed"
+else
+    abort_on_infrastructure_failure \
+        "mdx-analytics exited $APP_EXIT_CODE rather than 0; the close hook cannot be assumed to have flushed emit-once behaviors"
 fi
 
 echo "Waiting for the flush to land in Elasticsearch..."
