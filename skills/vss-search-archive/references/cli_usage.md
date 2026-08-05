@@ -71,8 +71,10 @@ run embed --query "person at entrance" --video-source entrance-camera \
 run fusion --query "person in white jacket running" --attribute "white jacket"
 ```
 
-`--video-source` is validated against the deployment's VST source listing. An
-unavailable or ambiguous source stops the command before search.
+`--video-source` is matched **literally** against the index — the CLI does no
+name↔id resolution or VST validation, so an unknown source silently returns
+nothing (not an error). Validating a named source is the skill's job (SKILL.md
+step 2), not the CLI's.
 
 ## Retrieval tuning
 

@@ -88,8 +88,9 @@
     {
       "name": "vss-video-summarization",
       "strategy": "build",
-      "ghcr_build": false,
+      "ghcr_build": true,
       "source_path": "services/video-summarization",
+      "context": "services/video-summarization",
       "dockerfile": "services/video-summarization/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-video-summarization"],

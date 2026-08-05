@@ -170,7 +170,7 @@ On GPUs where the script gives RT-VLM a high share — **OTHER (0.7)**,
 32 GB VRAM is too little to host RT-VLM **and** a local Nano 9B LLM together. The supported layout is the default Cosmos Reason3 Nano BF16 RT-VLM checkpoint with the LLM remote. Full env block for `dev-profile-alerts/generated.env`:
 
 ```env
-HARDWARE_PROFILE=RTX4500
+HARDWARE_PROFILE=RTXPRO4500BW
 LLM_MODE=remote
 VLM_MODE=local
 # RT-VLM sizing: cap context + lift utilization to fit on 32 GB.

@@ -32,7 +32,7 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 | VST / NvStreamer | ✅ | ✅ |
 | Auto-Calibration | ❌ (use the auto-calibration variant) | ❌ (use the auto-calibration variant) |
 | ELK (Elasticsearch/Logstash/Kibana) | ❌ | ✅ |
-| Video Analytics API (`vss-video-analytics-api`, `MDX_PORT` 8081) | ❌ | ✅ |
+| Video Analytics API (`vss-video-analytics-api`, `VIDEO_ANALYTICS_API_HOST_PORT` 8081) | ❌ | ✅ |
 | Monitoring | ❌ | ✅ |
 | Bounding box overlays in VST | ❌ | ✅ (requires Elasticsearch) |
 
@@ -170,7 +170,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | VST MCP (direct) | `http://<HOST_IP>:8001` | All warehouse variants |
 | Phoenix (direct) | `http://<HOST_IP>:6006` | `BP_PROFILE=bp_wh` only (prefer `/phoenix` via HAProxy) |
 | Kibana (direct) | `http://<HOST_IP>:5601` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/kibana` via HAProxy |
-| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/video-analytics-api` via HAProxy |
+| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`VIDEO_ANALYTICS_API_HOST_PORT`) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/video-analytics-api` via HAProxy |
 | VST UI | `http://<HOST_IP>:30888/vst/` | All warehouse variants — direct port, not proxied via HAProxy |
 
 `EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. The HAProxy `h_main` ACL routes browser traffic through `${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`; for local defaults this is `${EXTERNAL_IP}:${HAPROXY_HOST_PORT}`. Wrong Host headers get a 404 from haproxy.
@@ -394,12 +394,12 @@ Run each check in order. **If a check fails, automatically install and re-verify
 
 `HARDWARE_PROFILE` is a **blueprint setting**, not a string that `nvidia-smi` always prints verbatim. For **discrete GPUs**, match the GPU model from `nvidia-smi` / `lspci` to a row below. **IGX-THOR** and **DGX-SPARK** are **whole-system platforms** (kits/boards): set the profile from product/SKU or vendor docs if you already know the machine type; `nvidia-smi` shows the **on-board NVIDIA GPU name** (e.g. a Thor-class or Spark system GPU), not the text `IGX-THOR` or `DGX-SPARK`. On **DGX Spark**, unified memory can make some `nvidia-smi` memory fields show **Not Supported**; driver and device listing should still be checked per [DGX Spark user guide](https://docs.nvidia.com/dgx/dgx-spark/).
 
-Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK`. All profiles include tuned `max_streams_supported` for 2D, 3D, and MV3DT modes.
+Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO4500BW, RTXPRO6000BW, IGX-THOR, DGX-SPARK`. All profiles include tuned `max_streams_supported` for 2D, 3D, and MV3DT modes.
 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
+| RTX PRO 4500 Blackwell | `RTXPRO4500BW` (32 GB). When `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}` deploys `vss-rtvi-vlm`, set `RTVI_VLM_MAX_MODEL_LEN=18000` to cap RT-VLM context and allow KV-cache allocation. |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -638,7 +638,7 @@ These steps are required on any Brev-provisioned instance and are not covered by
 
 **UFW — allow Docker bridge networks to reach host services**
 
-`vss-rtvi-vlm` runs on the Docker bridge network (`mdx_default`, subnet `172.18.0.0/16`) and needs to reach host-network services (HAProxy, VST). UFW blocks this by default:
+`vss-rtvi-vlm` runs on the Compose Docker bridge (`<project>_default`, default `vss_default`; commonly subnet `172.18.0.0/16`) and needs to reach host-network services (HAProxy, VST). UFW blocks this by default:
 
 ```bash
 sudo ufw allow from 172.17.0.0/16
@@ -826,7 +826,7 @@ SAMPLE_VIDEO_DATASET="<dataset-name>"
 NUM_STREAMS=<3|4>
 
 # --- Hardware ---
-# Valid: H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK
+# Valid: H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO4500BW, IGX-THOR, DGX-SPARK
 HARDWARE_PROFILE=H100
 
 # GPU device IDs (defaults shown — change only if you need a non-default layout)

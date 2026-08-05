@@ -37,14 +37,15 @@ When you stopped with plain `down` in Step 1 but later decide to reset only cert
 
 ```bash
 # Remove MV3DT-named volumes explicitly
-docker volume rm $(docker volume ls -q | grep '^mdx_') 2>/dev/null
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+docker volume ls -q | grep "^${COMPOSE_PROJECT_NAME}_" | xargs -r docker volume rm
 
 # Then clean up dangling resources
 docker volume prune -f
 docker system prune -f
 ```
 
-**Prune does not reliably remove the named volumes.** Neither `docker volume prune -f` nor `docker system prune -af --volumes` is a dependable way to clear `mdx_mdx-kafka` / `mdx_vios_pg_data` — prune skips anonymous/unreferenced volumes, and named project volumes routinely survive a full system prune. Always target them explicitly with `docker volume rm $(docker volume ls -q | grep '^mdx_')` (or `down -v`, which drops the project's volumes as part of teardown). Skip the prune lines if other docker workloads on this host share the volume namespace.
+**Prune does not reliably remove the named volumes.** Neither `docker volume prune -f` nor `docker system prune -af --volumes` is a dependable way to clear `vss_kafka-data` / `vss_vios_pg_data` by default — prune skips anonymous/unreferenced volumes, and named project volumes routinely survive a full system prune. Always target them explicitly with `docker volume ls -q | grep "^${COMPOSE_PROJECT_NAME:-vss}_" | xargs -r docker volume rm` (or `down -v`, which drops the project's volumes as part of teardown). Skip the prune lines if other docker workloads on this host share the volume namespace.
 
 ## Step 3 — Clear data logs
 

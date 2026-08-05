@@ -15,6 +15,23 @@
   `broker-health-check`.
 - Alerts mode consumes RT-CV events; Search mode consumes the Search perception
   pipeline. Do not activate both variants for a single capability.
+- The object-class filter keys in the mounted config
+  (`fovCountViolationIncidentObjectType`, `stateManagementFilter`) must match the
+  class-label taxonomy the resolved RT-CV detector emits — label set and casing.
+  In a combined build these follow the single converged detector, not the value
+  a source profile's config happened to ship.
+- To serve more than one capability at once, run a single combined instance
+  rather than two, mounting the shipped joint config
+  `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
+  via a service-definition patch (no developer profile mounts it by default; the
+  setup skill owns the recipe). Its `numWorkersFor*` knobs gate each processor
+  independently, so enable one only for a requested capability: incident
+  generation for detection-rule alerts, behavior creation for search analytics,
+  embed filtering for search embeddings — leave the rest at zero. In particular,
+  alerts that do not derive from this owner (see the Alerts owner) leave incident
+  generation off.
+- A combined instance writes more than one Elasticsearch index family, so its
+  Kibana initializer must seed all of them — see `elk.md` (Kibana seeding).
 
 ## Configuration knobs
 

@@ -1,21 +1,14 @@
 # Golden resolved image references for deploy/docker (defaults only, no env).
 # Regenerate with:  python3 .github/scripts/compose_image_golden.py --update
 # A diff in this file means a registry, image name, or default tag changed.
-deploy/docker/developer-profiles/dev-profile-alerts/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-deploy/docker/developer-profiles/dev-profile-lvs/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
-deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
-deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0
-deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:3.2.0
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
-deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/alert/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
@@ -38,7 +31,7 @@ deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
-deploy/docker/services/infra/sdrc/docker-compose.yaml nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10
+deploy/docker/services/infra/sdrc/docker-compose.yaml nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2
 deploy/docker/services/infra/sdrc/docker-compose.yaml redis:8.6.2-alpine
 deploy/docker/services/monitoring/compose.yml docker.io/grafana/grafana:13.1.1-ubuntu
 deploy/docker/services/monitoring/compose.yml docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
@@ -72,7 +65,7 @@ deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvstaging
 deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1
 deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1
 deploy/docker/services/ui/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
-deploy/docker/services/video-summarization/compose.yml nvcr.io/nvstaging/vss-core/vss-video-summarization:3.3.0-rc2
+deploy/docker/services/video-summarization/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest
 deploy/docker/services/vios/foundational/docker-compose.yaml ${NGINX_IMAGE}
 deploy/docker/services/vios/foundational/docker-compose.yaml ${POSTGRES_IMAGE}
 deploy/docker/services/vios/initiator/docker-compose.yaml ${VST_SENSOR_IMAGE}
@@ -80,6 +73,7 @@ deploy/docker/services/vios/initiator/docker-compose.yaml ${VST_SENSOR_IMAGE}
 deploy/docker/services/vios/initiator/docker-compose.yaml ${VST_SENSOR_IMAGE}
 deploy/docker/services/vios/initiator/docker-compose.yaml ${VST_SENSOR_IMAGE}
 deploy/docker/services/vios/initiator/docker-compose.yaml busybox:1.37.0
+deploy/docker/services/vios/nvstreamer/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ${VST_STREAM_PROCESSOR_IMAGE}
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ${VST_STREAM_PROCESSOR_IMAGE}
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ${VST_STREAM_PROCESSOR_IMAGE}

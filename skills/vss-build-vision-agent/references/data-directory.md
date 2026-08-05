@@ -1,9 +1,11 @@
 # Data Directory Gate
 
-Run this gate for every stock or delta build after writing
-`_builds/<name>/override.env` and before `docker compose up`. Docker otherwise
-creates missing bind sources as `root:root`, and dangling symlinks left by an
-older deployment can make permission or mount setup fail unpredictably.
+Run this gate for every stock or delta build once `_builds/<name>/override.env`
+exists — a bring-up prerequisite, not a deploy step, so run it whether or not
+this run deploys. Any later `docker compose up`, this agent's or hand-run, needs
+it: Docker otherwise creates missing bind sources as `root:root`, and stale
+dangling symlinks break permission or mount setup. It only prepares the external
+`VSS_DATA_DIR`, never the repository tree.
 
 ## Check and create
 
@@ -119,6 +121,18 @@ Do not silently ignore dangling symlinks. A permission walker may skip one in
 best-effort mode, but the stale path can still break a later bind mount,
 cleanup, or deployment.
 
+## RT-CV model contents
+
+This gate creates the model directories (including `models/rtdetr-its` and
+`models/gdino` for `perception-alerts`) and makes them world-writable — the
+RT-CV container runs as a non-matching UID and writes generated TensorRT
+`.engine` files back into this tree, so the directories must stay `a+rwx`. The
+gate does **not** download any model: when the build carries an RT-CV perception
+key, the RT-CV container downloads the detector ONNX (and the Search vision
+encoder) at first boot (ds-start phase 0) from its mounted `models-download.json`
+into this tree and sets their file permissions itself. No host-side staging is
+required.
+
 ## Existing PostgreSQL failure
 
 If `vss-vios-postgres` already reports corrupted or stale PGDATA, stop the
@@ -126,9 +140,10 @@ stack and remove only its resolved Compose volume:
 
 ```bash
 docker logs vss-vios-postgres
-docker compose -f "$BUILD_DIR/resolved.yml" down
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+docker compose -p "${COMPOSE_PROJECT_NAME}" -f "$BUILD_DIR/resolved.yml" down
 docker volume ls -q \
-  --filter label=com.docker.compose.project=mdx \
+  --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
   | grep 'vios_pg_data$' \
   | xargs -r docker volume rm
 ```
