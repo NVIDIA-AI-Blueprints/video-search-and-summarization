@@ -257,6 +257,34 @@ void H264ByteStreamSource::doGetNextFrame()
     do
     {
         fFrameSize = 0;
+        /* Quorum parking: with nv_streamer_sync_file_count>0 a synchronized
+         * source must not emit ANY frame until the group has actually started
+         * (the quorum of sync_file_count clients has requested PLAY and
+         * startPlayingAllSources() has released them together). Frames primed
+         * into the stream buffer while building the SDP would otherwise leak a
+         * lone stale frame to a client that connects before the quorum is met.
+         * Drop those primed frames and keep waiting so the client stays paused
+         * at PLAY with no output. The DESCRIBE probe source (sourceState
+         * "describe") is exempt so SPS/PPS can still be read for the SDP. */
+        if (GET_CONFIG().nv_streamer_sync_file_count > 0 &&
+            m_sourceState != "describe" &&
+            !RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())
+        {
+            /* Drop frames primed during DESCRIBE exactly once. The demux is
+             * paused while parked, so the buffer stays empty afterwards; guard
+             * on queue size so we don't re-clear (and re-log) on every poll. */
+            if (m_mediaSource && m_mediaSource->m_streamBuf.getQueueSize() > 0)
+            {
+                m_mediaSource->m_streamBuf.clear();
+            }
+            if (!m_trunctedBytes.empty())
+            {
+                m_trunctedBytes.clear();
+            }
+            nextTask() = envir().taskScheduler().scheduleDelayedTask(DEFAULT_VIDEO_FRAME_PLAY_TIME_USEC,
+                (TaskFunc*)H264ByteStreamSource::retryGetFrame, this);
+            return;
+        }
         if (m_mediaSource)
         {
             if (m_trunctedBytes.size() > 0)
