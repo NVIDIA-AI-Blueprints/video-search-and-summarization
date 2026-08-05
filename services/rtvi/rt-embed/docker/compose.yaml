@@ -69,9 +69,7 @@ services:
       OTEL_TRACES_EXPORTER: "${OTEL_TRACES_EXPORTER:-otlp}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
       OTEL_METRIC_EXPORT_INTERVAL: "${OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
-      KAFKA_ENABLED: "${KAFKA_ENABLED:-true}"
       ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT: "${ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT:-false}"
-      KAFKA_TOPIC: "${KAFKA_TOPIC:-vision-embed-messages}"
       ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-vision-embed-errors}"
       KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
       # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
