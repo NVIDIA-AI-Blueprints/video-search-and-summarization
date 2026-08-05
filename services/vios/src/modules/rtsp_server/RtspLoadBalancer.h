@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 #include "rtspserver.h"
 #include "network_utils.h"
 #include "logger.h"
+#include <memory>
 #include <regex>
 
 inline constexpr int MAX_RTSP_SERVER_COUNT = 512;
@@ -45,10 +46,10 @@ public:
         {
             if (serversCount == 1)
             {
-                RtspServer *rtspserver = new RtspServer(startPort);
+                auto rtspserver = std::make_unique<RtspServer>(startPort);
                 if (rtspserver && !rtspserver->isError())
                 {
-                    m_servers.push_back(rtspserver);
+                    m_servers.push_back(rtspserver.release());
                     portArray[0] = startPort;
                     break;
                 }
@@ -72,10 +73,10 @@ public:
             /* Launch the rtsp-server instances */
             for (int i = 0; i < m_serversCount; i++)
             {
-                RtspServer *rtspserver = new RtspServer(portArray[i]);
+                auto rtspserver = std::make_unique<RtspServer>(portArray[i]);
                 if (rtspserver && !rtspserver->isError())
                 {
-                    m_servers.push_back(rtspserver);
+                    m_servers.push_back(rtspserver.release());
                 }
             }
         } while (0);
