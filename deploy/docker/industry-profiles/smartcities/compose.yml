@@ -129,7 +129,7 @@ services:
     profiles: ["calibration-toolkit-smartcities"]
     network_mode: "host"
     volumes:
-      - mdx-calibration-toolkit-alerts:/calibration/server/data:rw
+      - calibration-toolkit-alerts:/calibration/server/data:rw
     container_name: mdx-calibration-toolkit
     command: "deploy.sh 8003"
 
@@ -144,7 +144,7 @@ services:
       REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS: ${REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS:-false}
       REACT_APP_MEDIA_STREAMING_URL_BASE: http://$EXTERNAL_IP:30888/vst/api/v1
       REACT_APP_GOOGLE_MAPS_API_KEY: $GOOGLE_MAPS_API_KEY
-      REACT_APP_API_URL_BASE: http://$EXTERNAL_IP:${MDX_PORT}
+      REACT_APP_API_URL_BASE: http://$EXTERNAL_IP:${VIDEO_ANALYTICS_API_HOST_PORT}
       PORT: "3002"
     container_name: vss-video-analytics-ui-smc
     restart: always
@@ -153,9 +153,7 @@ services:
       - sensor-ms
 
 volumes:
-  mdx-nvstreamer-data:
-  mdx-nvstreamer-videos:
-  mdx-calibration-toolkit-alerts:
+  calibration-toolkit-alerts:
     driver: local
     driver_opts:
       type: none

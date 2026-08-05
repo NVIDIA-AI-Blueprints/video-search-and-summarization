@@ -68,7 +68,7 @@ services:
           devices:
           - capabilities: [gpu]
             device_ids: ["0"]
-    volumes:    
+    volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
@@ -108,8 +108,3 @@ services:
         condition: service_started
       broker-health-check:
         condition: service_completed_successfully
-
-
-volumes:
-  mdx-nvstreamer-data:        
-  mdx-nvstreamer-videos:

@@ -125,10 +125,11 @@ serve no query. Both ends are separate runtime steps, and a headless
 
 ## Stop
 
-Clean the complete `mdx` Compose project and its named volumes by default:
+Clean the complete Compose project (`COMPOSE_PROJECT_NAME`, default `vss`) and its named volumes by default:
 
 ```bash
-docker compose -p mdx -f "$BUILD_DIR/resolved.yml" down -v --remove-orphans
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+docker compose -p "${COMPOSE_PROJECT_NAME}" -f "$BUILD_DIR/resolved.yml" down -v --remove-orphans
 ```
 
 This removes data volumes and model caches. Use the cache-preserving path only

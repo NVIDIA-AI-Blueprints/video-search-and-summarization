@@ -256,7 +256,7 @@ Then proceed straight to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.
 
 ### Last resort — reset compose volumes with `down -v`
 
-> **WARNING:** `docker compose down -v` removes the containers and named volumes for this MV3DT compose project, not just VST sensor records. That resets data such as VST Postgres sensor metadata (`mdx_vios_pg_data`), broker/Kafka state and offsets (`mdx_mdx-kafka`), Elasticsearch overlay/index data, Logstash state, and any anonymous volumes created by compose. Use this only when the targeted VST API path does not fully reconcile the sensor set, or when the user explicitly wants a clean redeploy.
+> **WARNING:** `docker compose down -v` removes the containers and named volumes for this MV3DT compose project, not just VST sensor records. That resets data such as VST Postgres sensor metadata (`vss_vios_pg_data` by default), broker/Kafka state and offsets (`vss_kafka-data` by default), Elasticsearch overlay/index data, Logstash state, and any anonymous volumes created by compose. Use this only when the targeted VST API path does not fully reconcile the sensor set, or when the user explicitly wants a clean redeploy.
 
 ```bash
 cd "${VSS_APPS_DIR}"

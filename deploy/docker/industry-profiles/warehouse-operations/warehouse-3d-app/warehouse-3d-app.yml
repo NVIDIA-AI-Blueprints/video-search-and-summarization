@@ -67,7 +67,7 @@ services:
             - gpu
             device_ids:
             - "${RT_CV_DEVICE_ID:-0}"
-    volumes:    
+    volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
@@ -352,5 +352,3 @@ services:
 
 volumes:
   vss-behavior-analytics-3d:
-  mdx-nvstreamer-data:        
-  mdx-nvstreamer-videos: 
