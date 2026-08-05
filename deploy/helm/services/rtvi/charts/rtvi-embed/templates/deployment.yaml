@@ -158,8 +158,17 @@ spec:
               value: {{ .Values.remoteEmbedEndpoint | default "" | quote }}
             - name: REMOTE_EMBED_ENDPOINT_MODEL_NAME
               value: {{ .Values.remoteEmbedEndpointModelName | default "nvidia/cosmos-embed1" | quote }}
+            {{- $remoteApiKey := .Values.remoteEmbedEndpointApiKeySecret | default dict }}
+            {{- $remoteApiKeyName := trim (default "" $remoteApiKey.name) }}
             - name: REMOTE_EMBED_ENDPOINT_API_KEY
+              {{- if ne $remoteApiKeyName "" }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $remoteApiKeyName | quote }}
+                  key: {{ $remoteApiKey.key | default "REMOTE_EMBED_ENDPOINT_API_KEY" | quote }}
+              {{- else }}
               value: {{ .Values.remoteEmbedEndpointApiKey | default "" | quote }}
+              {{- end }}
             - name: REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC
               value: {{ .Values.remoteEmbedEndpointTimeoutSec | default "300" | quote }}
             - name: REMOTE_EMBED_ENDPOINT_BATCH_SIZE
