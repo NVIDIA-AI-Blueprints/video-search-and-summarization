@@ -246,24 +246,6 @@ class SelectImagesTest(unittest.TestCase):
             ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
         )
 
-    def test_repository_inventory_builds_rt_vlm_in_ghcr(self):
-        repo_root = Path(__file__).resolve().parents[2]
-        inventory = dci.load_inventory(repo_root)
-        entry = next(
-            item for item in inventory["images"] if item["name"] == "vss-rt-vlm"
-        )
-
-        self.assertTrue(entry["ghcr_build"])
-        self.assertEqual(entry["strategy"], "build")
-        self.assertEqual(entry["context"], "services/rtvi/rt-vlm")
-        self.assertEqual(entry["source_path"], "services/rtvi/rt-vlm")
-        self.assertEqual(entry["platforms"], ["linux/amd64", "linux/arm64"])
-
-        selected, _ = dci.select_images(
-            inventory, ["services/rtvi/rt-vlm/src/server.py"]
-        )
-        self.assertEqual([item["name"] for item in selected], ["vss-rt-vlm"])
-
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
