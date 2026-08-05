@@ -340,6 +340,17 @@ else
         "mdx-analytics exited $APP_EXIT_CODE rather than 0; the close hook cannot be assumed to have flushed emit-once behaviors"
 fi
 
+# Exit 0 is the parent's verdict, and the parent reports success even when it had to kill a worker.
+# MultiprocessingScheduler.shutdown gives each worker SHUTDOWN_TIMEOUT_SECONDS after SIGTERM, then
+# SIGKILLs whatever is still alive and carries on -- so a behavior worker can lose its close hook,
+# and its share of the holdback, without leaving a trace in the exit status. The scheduler does say
+# so in the log, which is the only place that distinction survives.
+if docker logs mdx-analytics 2>&1 | grep -q "did not terminate gracefully, forcing kill"; then
+    abort_on_infrastructure_failure \
+        "a worker was SIGKILLed during shutdown; its emit-once behaviors were never flushed (see 'forcing kill' in mdx-analytics logs)"
+fi
+echo "✓ every worker shut down without being force-killed"
+
 echo "Waiting for the flush to land in Elasticsearch..."
 wait_for_elasticsearch_to_settle || abort_on_infrastructure_failure \
     "Elasticsearch never settled after the flush; extracted data would be incomplete"
