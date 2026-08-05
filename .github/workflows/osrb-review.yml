@@ -38,6 +38,10 @@ jobs:
       LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}
       SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
       EXTERNAL_ID: gitlab-osrb:${{ github.event.workflow_run.id }}
+      # Job level, as in ci.yml: the trigger and the poller both need these.
+      DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
+      DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
+      DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
 
     steps:
       - name: Checkout trusted dispatch implementation
@@ -90,9 +94,6 @@ jobs:
         id: trigger
         continue-on-error: true
         env:
-          DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
-          DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
-          DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
           # A standing ref, because the private project's normal jobs are
           # opt-out gated and a trigger against its default branch would start
           # a full build. That ref is maintainer-protected and points at
@@ -118,8 +119,6 @@ jobs:
         id: poll
         continue-on-error: true
         env:
-          DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
-          DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
           DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
           DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
           POLL_INTERVAL_SECONDS: "30"

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import unittest
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -73,6 +74,22 @@ class DispatchTests(unittest.TestCase):
         )
         self.assertIn('LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}', workflow)
         self.assertIn('--run-url "$LICENSE_RUN_URL"', workflow)
+
+    def test_workflow_supplies_every_variable_the_helpers_require(self) -> None:
+        """The poller reads DOWNSTREAM_PROJECT_PATH even when given a project id.
+
+        ci.yml supplies the shared downstream variables at job level, so both
+        the trigger and the poll step inherit them. Setting them per step is
+        what left the poller a variable short.
+        """
+        workflow = WORKFLOW.read_text()
+        required: set[str] = set()
+        for helper in ("trigger-downstream-pipeline.sh", "poll-downstream-pipeline.py"):
+            required.update(
+                re.findall(r'require_env\(\s*"([A-Z0-9_]+)"', (DIRECTORY / helper).read_text())
+            )
+        missing = sorted(name for name in required if name not in workflow)
+        self.assertEqual(missing, [], f"workflow never sets {missing}")
 
     def test_dispatch_does_not_choose_the_private_pipeline_code_ref(self) -> None:
         workflow = WORKFLOW.read_text()
