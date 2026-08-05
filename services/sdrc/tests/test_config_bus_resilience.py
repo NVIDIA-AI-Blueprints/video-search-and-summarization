@@ -462,7 +462,10 @@ def test_kafka_max_replica_does_not_commit_until_retry_limit(app_module, monkeyp
     app_module._test_fake_bus.consumer.commit.assert_called_once()
 
 
-def test_classify_exception_and_decide_commit():
+def test_classify_exception_and_decide_commit(monkeypatch):
+    import sys
+    import types
+
     from lib.bus_outcomes import (
         EVENT_RETRYABLE,
         EVENT_TERMINAL,
@@ -472,10 +475,46 @@ def test_classify_exception_and_decide_commit():
     )
     import requests
 
+    # Stub redis / kubernetes if not installed in the test environment.
+    if "redis" not in sys.modules:
+        fake_redis = types.ModuleType("redis")
+
+        class RedisError(Exception):
+            pass
+
+        class RedisConnectionError(RedisError):
+            pass
+
+        fake_redis.RedisError = RedisError
+        fake_redis.ConnectionError = RedisConnectionError
+        monkeypatch.setitem(sys.modules, "redis", fake_redis)
+
+    if "kubernetes.client.rest" not in sys.modules:
+        fake_k8s = types.ModuleType("kubernetes")
+        fake_client = types.ModuleType("kubernetes.client")
+        fake_rest = types.ModuleType("kubernetes.client.rest")
+
+        class ApiException(Exception):
+            def __init__(self, status=0, reason=""):
+                super().__init__(reason)
+                self.status = status
+                self.reason = reason
+
+        fake_rest.ApiException = ApiException
+        monkeypatch.setitem(sys.modules, "kubernetes", fake_k8s)
+        monkeypatch.setitem(sys.modules, "kubernetes.client", fake_client)
+        monkeypatch.setitem(sys.modules, "kubernetes.client.rest", fake_rest)
+
+    import redis
+    from kubernetes.client.rest import ApiException
+
     reset_retry_attempts_for_tests()
     assert classify_exception(KeyError("camera_id")) == EVENT_TERMINAL
     assert classify_exception(RuntimeError("boom")) == EVENT_TERMINAL
     assert classify_exception(requests.ConnectionError("down")) == EVENT_RETRYABLE
+    assert classify_exception(redis.ConnectionError("redis down")) == EVENT_RETRYABLE
+    assert classify_exception(TimeoutError("slow")) == EVENT_RETRYABLE
+    assert classify_exception(ApiException(status=503, reason="Service Unavailable")) == EVENT_RETRYABLE
 
     should_commit, final, attempt = decide_commit(EVENT_RETRYABLE, "k1", 2)
     assert should_commit is False
