@@ -73,6 +73,9 @@ assetDownloadMaxFileSizeGb: 8
 assetDownloadSslSkipVerifyDomains: ""
 assetDownloadMaxRedirects: "0"
 assetDownloadAuthTokens: ""
+assetDownloadAuthTokensSecret:
+  name: ""
+  key: "ASSET_DOWNLOAD_AUTH_TOKENS"
 fileUrlAllowedDirs: ""
 maxAssetStorageSizeGb: ""
 assetMaxAgeHours: "0"
