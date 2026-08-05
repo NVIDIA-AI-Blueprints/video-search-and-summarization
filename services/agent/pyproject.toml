@@ -48,25 +48,32 @@ managed = true
 index-strategy = "unsafe-best-match"
 # Security: constrain transitive dependencies to patch HIGH/CRITICAL CVEs.
 constraint-dependencies = [
+    "aiohttp>=3.14.0",              # Fix CVE-2026-50269 (multipart header injection)
     "authlib>=1.7.2,<1.8",          # Fix GHSA-wvwj-cvrp-7pv5 + new BDSAs for cache-CSRF in starlette_client.OAuth and jwk-header signature bypass (both flagged on 1.6.12)
+    "bleach>=6.4.0",                # Fix BDSA-2026-15483 (Unicode URI-scheme sanitization bypass)
     "cffi==2.0.0",                  # Keep permissive MIT metadata; cffi 2.1.0 reports MIT-0, which is not yet accepted by the repository license gate
     "cryptography>=50.0.0",         # Fix CVE-2026-69247 (PKCS#7 Bleichenbacher oracle)
     "langchain>=1.3.9,<1.4",        # Fix GHSA-gr75-jv2w-4656
+    "langchain-classic>=1.0.7",     # Fix CVE-2026-45134 (unsafe public prompt deserialization)
     "langchain-community>=0.3.27",  # Fix CVE-2025-6984 (XXE in EverNoteLoader)
     "langchain-core>=1.4.9,<1.5",   # Required by the fixed LangChain release line
     "langgraph>=1.2.5,<1.3",        # Required by the fixed LangChain release line
     "langgraph-checkpoint>=4.0.0",  # Fix CVE-2025-64439 (RCE in JsonPlusSerializer) & CVE-2026-27794 (BaseCache pickle)
+    "langsmith>=0.8.0",             # Fix CVE-2026-45134 (unsafe public prompt deserialization)
     "litellm>=1.84.0,<1.85",        # Fix /guardrails/test_custom_code RCE + privilege escalation + JWT/OIDC userinfo cache misuse (all flagged on 1.83.14)
     "lxml>=6.1.0,<6.2",             # Fix GHSA-vfmq-68hx-4jfw
     "mako>=1.3.12",                 # Fix GHSA-2h4p-vjrc-8xpq (path traversal in TemplateLookup, Windows-only)
+    "mcp>=1.28.1",                  # Fix CVE-2026-59950, CVE-2026-52870, and CVE-2026-52869
     "pillow>=12.3.0",               # Fix Pillow advisories through 12.2.0
     "pygments>=2.20.0",             # Fix BDSA: ReDoS in AdlLexer (lexers/archetype.py) flagged on 2.19.x
     "pyjwt>=2.13.0,<2.14",          # Fix PyJWT advisories through 2.12.1
+    "pyopenssl>=26.0.0",            # Fix CVE-2026-27459 (DTLS cookie callback buffer overflow)
     "pypdf>=6.7.3",                 # Fix CVE-2026-27888 (XFA decompression bomb) & CVE-2026-27628 (infinite loop)
     "pytest>=9.0.3",                # Fix GHSA-6w46-j5rx-g56g
     "python-multipart>=0.0.31",     # Fix multipart advisories through 0.0.28
     "starlette>=1.3.1",             # Fix Starlette advisories through 0.52.1
     "tokenizers==0.22.2",           # Keep the stable release while prereleases are globally enabled
+    "torch>=2.10.0",                # Fix CVE-2026-24747 and CVE-2025-32434 (unsafe checkpoint loading)
     "tornado>=6.5.7,<6.6",          # Fix Tornado advisories through 6.5.5
     "transformers>=5.5.0,<6",       # Fix Transformers advisories through 5.4
     "urllib3>=2.7.0",               # Fix GHSA-mf9v-mfxr-j63j (decompression bomb in streaming API) & GHSA-qccp-gfcp-xxvc (cross-origin header leak on proxied redirects)
