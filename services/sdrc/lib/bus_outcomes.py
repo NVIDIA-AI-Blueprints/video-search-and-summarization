@@ -1,0 +1,170 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Bus event outcome helpers for Redis/Kafka commit decisions.
+
+Safe policy (always on):
+- OK / NOOP / TERMINAL -> commit (progress the bus)
+- RETRYABLE -> do not commit until WDM_EVENT_RETRY_LIMIT, then promote to TERMINAL
+- TERMINAL failures are always logged at ERROR (log-based DLQ)
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, MutableMapping, Optional, Tuple
+
+# Event handled successfully (stream added/removed/configured as requested).
+EVENT_OK = "OK"
+# Nothing to do (ignored, filtered, or duplicate); still safe to ack.
+EVENT_NOOP = "NOOP"
+# Permanent failure — retrying this same message cannot succeed; log + commit.
+EVENT_TERMINAL = "TERMINAL"
+# Temporary failure — keep the message pending and try again later.
+EVENT_RETRYABLE = "RETRYABLE"
+
+# Permanent / poison-style failures: retrying the same record cannot help.
+_TERMINAL_EXC_TYPES = (
+    KeyError,
+    TypeError,
+    ValueError,
+    json.JSONDecodeError,
+    AttributeError,
+    IndexError,
+    UnicodeDecodeError,
+)
+
+# In-process retry counters keyed by bus message id (reset on process restart).
+_bus_retry_attempts: MutableMapping[str, int] = {}
+
+
+def reset_retry_attempts_for_tests() -> None:
+    """Clear retry counters (unit tests only)."""
+    _bus_retry_attempts.clear()
+
+
+def classify_exception(exc: BaseException) -> str:
+    """Classify an exception as TERMINAL or RETRYABLE."""
+    try:
+        import requests
+
+        if isinstance(exc, requests.RequestException):
+            return EVENT_RETRYABLE
+    except Exception:
+        pass
+
+    if isinstance(exc, _TERMINAL_EXC_TYPES):
+        return EVENT_TERMINAL
+
+    # Unknown errors: prefer progress (commit) over stalling a partition forever.
+    return EVENT_TERMINAL
+
+
+def bump_retry_attempt(message_key: str) -> int:
+    """Increment and return the 1-based attempt count for a bus message."""
+    attempt = int(_bus_retry_attempts.get(message_key, 0)) + 1
+    _bus_retry_attempts[message_key] = attempt
+    return attempt
+
+
+def clear_retry_attempt(message_key: str) -> None:
+    _bus_retry_attempts.pop(message_key, None)
+
+
+def decide_commit(
+    outcome: str,
+    message_key: str,
+    retry_limit: int,
+) -> Tuple[bool, str, int]:
+    """Return (should_commit, final_outcome, attempt).
+
+    RETRYABLE outcomes are promoted to TERMINAL when attempt >= retry_limit.
+    """
+    limit = max(1, int(retry_limit))
+    attempt = 0
+    final = outcome if outcome in {
+        EVENT_OK, EVENT_NOOP, EVENT_TERMINAL, EVENT_RETRYABLE
+    } else EVENT_TERMINAL
+
+    if final == EVENT_RETRYABLE:
+        attempt = bump_retry_attempt(message_key)
+        if attempt >= limit:
+            final = EVENT_TERMINAL
+        else:
+            return False, final, attempt
+
+    clear_retry_attempt(message_key)
+    return True, final, attempt
+
+
+def kafka_message_key(msg: Any) -> str:
+    """Build a stable-ish key for Kafka retry accounting."""
+    for getter in (
+        lambda m: f"kafka:{m.topic()}:{m.partition()}:{m.offset()}",
+        lambda m: (
+            f"kafka:{getattr(m, 'topic', None)}:"
+            f"{getattr(m, 'partition', None)}:{getattr(m, 'offset', None)}"
+        ),
+    ):
+        try:
+            key = getter(msg)
+            if key and "None" not in key:
+                return key
+        except Exception:
+            continue
+    return f"kafka:{id(msg)}"
+
+
+def redis_message_key(msgid: Any) -> str:
+    return f"redis:{msgid}"
+
+
+def truncate_payload(payload: Any, max_chars: int = 2048) -> str:
+    try:
+        text = payload if isinstance(payload, str) else json.dumps(payload, default=str)
+    except Exception:
+        text = repr(payload)
+    if len(text) > max_chars:
+        return text[:max_chars] + "...(truncated)"
+    return text
+
+
+def log_terminal_failure(
+    logger: Any,
+    *,
+    bus: str,
+    message_id: str,
+    error: Any,
+    change: Optional[str] = None,
+    stream_id: Optional[str] = None,
+    workload: Optional[str] = None,
+    attempt: Optional[int] = None,
+    payload: Any = None,
+    reason: Optional[str] = None,
+) -> None:
+    """Log-based DLQ entry for a terminal bus failure."""
+    logger.error(
+        "bus terminal failure bus=%s message_id=%s workload=%s change=%s "
+        "stream_id=%s attempt=%s reason=%s error=%s payload=%s",
+        bus,
+        message_id,
+        workload,
+        change,
+        stream_id,
+        attempt,
+        reason or "terminal",
+        repr(error),
+        truncate_payload(payload) if payload is not None else None,
+    )
