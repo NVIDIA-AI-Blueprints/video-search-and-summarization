@@ -37,7 +37,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@aiqtoolkit-ui/common": "*",
+    "common": "*",
     "@datadog/browser-rum": "^5.11.0",
     "@dqbd/tiktoken": "^1.0.2",
     "@radix-ui/react-select": "^2.1.2",

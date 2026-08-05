@@ -41,7 +41,7 @@ export {
   UploadSuccessPopup,
   type UploadResultItem,
   type UploadSuccessPopupProps,
-} from '@aiqtoolkit-ui/common';
+} from 'common';
 
 // Chat sidebar (for external rendering)
 export { ChatSidebarContent } from './components/Chatbar/components/ChatSidebarContent';
@@ -85,7 +85,7 @@ export {
   type FileUploadResult,
   type ChunkedUploadOptions,
   type ChunkedUploadResponse,
-} from '@aiqtoolkit-ui/common';
+} from 'common';
 
 // Constants
 export * from './constants/constants';

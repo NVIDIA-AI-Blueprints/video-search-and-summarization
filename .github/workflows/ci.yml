@@ -917,8 +917,8 @@ jobs:
 
       # Skip nv-metropolis-bp-vss-ui workspaces: `tsc` cannot resolve sibling `@nv-metropolis-bp-vss-ui/*`
       # without the full local build graph. Skip nemo app + `@nemo-agent-toolkit/ui` lib: workspace path/types
-      # for `@aiqtoolkit-ui/common` and other packages do not satisfy `tsc` in CI; lib also has TS errors.
-      # Remaining typecheck: `@aiqtoolkit-ui/common` only.
+      # for `common` and other packages do not satisfy `tsc` in CI; lib also has TS errors.
+      # Remaining typecheck: `common` only.
       # TODO: remove these filters once the dev source is fixed for typechecking.
       - name: Typecheck
         run: |
@@ -1192,11 +1192,12 @@ jobs:
               "BlueOak-1.0.0","MPL-2.0"
             ]);
             // OSRB-approved exceptions (dynamically linked, reviewed)
-            const excludePrefixes = ["@img/sharp-libvips","@aiqtoolkit-ui/common"];
+            const excludePrefixes = ["@img/sharp-libvips"];
+            const excludeExact = new Set(["common"]);
             const failures = [];
             for (const [pkg, info] of Object.entries(licenses)) {
               const name = pkg.replace(/@[^@]+$/, "");
-              if (excludePrefixes.some(p => name.startsWith(p))) continue;
+              if (excludeExact.has(name) || excludePrefixes.some(p => name.startsWith(p))) continue;
               const lic = String(info.licenses || "UNKNOWN");
               // license-checker appends * when license is inferred from file (e.g. "MIT*")
               const parts = lic.replace(/[()]/g, "").split(/ OR | AND /);
