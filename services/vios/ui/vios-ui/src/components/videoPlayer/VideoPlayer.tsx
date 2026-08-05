@@ -152,9 +152,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     const runOnceRef = useRef<boolean>(true);
     const startTimeMs = useRef<number | null>(null);
     const endTimeMs = useRef<number | null>(null);
-    const inboundPeerIDRef = useRef<string | undefined>();
-    const inboundMediaSessionIDRef = useRef<string | undefined>();
-    const inboundConnectionQualityWatchdogRef = useRef<NodeJS.Timeout>();
+    const inboundPeerIDRef = useRef<string | undefined>(undefined);
+    const inboundMediaSessionIDRef = useRef<string | undefined>(undefined);
+    const inboundConnectionQualityWatchdogRef = useRef<NodeJS.Timeout>(undefined);
     const overlayRef = useRef<HTMLCanvasElement | null>(null);
     const controlsHideTimerRef = useRef<NodeJS.Timeout | null>(null);
     // Guards against overlapping fullscreen requests/exits when the button is spammed.
