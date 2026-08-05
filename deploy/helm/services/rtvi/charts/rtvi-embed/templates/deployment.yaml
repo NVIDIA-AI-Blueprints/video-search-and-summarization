@@ -239,8 +239,17 @@ spec:
               value: {{ .Values.assetDownloadSslSkipVerifyDomains | default "" | quote }}
             - name: ASSET_DOWNLOAD_MAX_REDIRECTS
               value: {{ .Values.assetDownloadMaxRedirects | default "0" | quote }}
+            {{- $assetTok := .Values.assetDownloadAuthTokensSecret | default dict }}
+            {{- $assetTokName := trim (default "" $assetTok.name) }}
             - name: ASSET_DOWNLOAD_AUTH_TOKENS
+              {{- if ne $assetTokName "" }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $assetTokName | quote }}
+                  key: {{ $assetTok.key | default "ASSET_DOWNLOAD_AUTH_TOKENS" | quote }}
+              {{- else }}
               value: {{ .Values.assetDownloadAuthTokens | default "" | quote }}
+              {{- end }}
             - name: FILE_URL_ALLOWED_DIRS
               value: {{ .Values.fileUrlAllowedDirs | default "" | quote }}
             - name: MAX_ASSET_STORAGE_SIZE_GB
