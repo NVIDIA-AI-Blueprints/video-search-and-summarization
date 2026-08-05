@@ -43,6 +43,9 @@ spec:
         app.kubernetes.io/name: vss-rtvi-vlm
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName | quote }}
+      {{- end }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

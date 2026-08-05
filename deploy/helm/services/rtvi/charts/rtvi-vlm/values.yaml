@@ -71,6 +71,10 @@ service:
   port: 8000
   type: ClusterIP
 
+# NVIDIA container runtime class (e.g. "nvidia" for CDI-based GPU operator setups).
+# Empty string omits the field from the pod spec (default behavior unchanged).
+runtimeClassName: ""
+
 # Compose: user 1001:1001, shm 16gb, GPU
 securityContext:
   runAsUser: 1001
