@@ -66,18 +66,17 @@ Source-backed topic sets:
 
 Always confirm the live container before validating Kafka, because these env vars
 are fixed at RT-VLM container start. In a full VSS alerts real-time profile, the
-Kafka container is `mdx-kafka`; use that exact container name in consumer
-commands and final proof snippets. Do not shorten it to `kafka`, even if another
-container with that name exists. Run this shared setup once before the topic
-checks and consumer snippets below:
+Kafka container is `kafka`; use that exact container name in consumer commands
+and final proof snippets. Run this shared setup once before the topic checks and
+consumer snippets below:
 ```bash
 if [ -z "${KAFKA_CONTAINER:-}" ]; then
-  if docker ps --format '{{.Names}}' | grep -qx mdx-kafka; then
+  if docker ps --format '{{.Names}}' | grep -qx kafka; then
+    KAFKA_CONTAINER=kafka
+  elif docker ps --format '{{.Names}}' | grep -qx mdx-kafka; then
     KAFKA_CONTAINER=mdx-kafka
   elif docker ps --format '{{.Names}}' | grep -qx rtvi-vlm-kafka; then
     KAFKA_CONTAINER=rtvi-vlm-kafka
-  elif docker ps --format '{{.Names}}' | grep -qx kafka; then
-    KAFKA_CONTAINER=kafka
   else
     KAFKA_CONTAINER=rtvi-vlm-kafka
   fi
@@ -327,11 +326,11 @@ done
 ```
 
 For a full VSS alerts real-time profile, the incident-topic proof should include
-`mdx-kafka` explicitly. Skip this block for standalone RT-VLM; use the
+`kafka` explicitly. Skip this block for standalone RT-VLM; use the
 `kafka_cli` consumer above instead.
 
 ```bash
-docker exec mdx-kafka kafka-console-consumer \
+docker exec kafka kafka-console-consumer \
   --bootstrap-server 127.0.0.1:9092 \
   --topic "${INCIDENT_TOPIC:-mdx-vlm-incidents}" \
   --from-beginning \
