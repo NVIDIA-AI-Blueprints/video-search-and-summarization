@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -87,15 +87,21 @@ ADTSByteStreamSource
 
 ADTSByteStreamSource::~ADTSByteStreamSource()
 {
-    LOG(info) << "~ ::ADTSByteStreamSource streamName:" << m_streamName << endl;
-    envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
-    /* Unregister from the AV-loop-sync coordinator. If we were parked
-     * at EOS waiting on the video side, this also releases the video
-     * side so it doesn't deadlock waiting for a now-gone audio. */
-    if (m_avLoopSync)
-    {
-        m_avLoopSync->unregisterParticipant(this);
-        m_avLoopSync.reset();
+    try {
+        LOG(info) << "~ ::ADTSByteStreamSource streamName:" << m_streamName << endl;
+        envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        /* Unregister from the AV-loop-sync coordinator. If we were parked
+         * at EOS waiting on the video side, this also releases the video
+         * side so it doesn't deadlock waiting for a now-gone audio. */
+        if (m_avLoopSync)
+        {
+            m_avLoopSync->unregisterParticipant(this);
+            m_avLoopSync.reset();
+        }
+    } catch (const std::exception& e) {
+        try { LOG(error) << "Exception in ~ADTSByteStreamSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+    } catch (...) {
+        try { LOG(error) << "Unknown exception in ~ADTSByteStreamSource" << endl; } catch (...) { (void)std::current_exception(); }
     }
 }
 
