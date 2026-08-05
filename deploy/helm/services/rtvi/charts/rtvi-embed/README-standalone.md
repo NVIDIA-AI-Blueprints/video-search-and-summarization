@@ -70,6 +70,17 @@ kubectl create secret generic asset-download-auth-tokens \
 
 Then set `assetDownloadAuthTokensSecret.name: asset-download-auth-tokens` and `assetDownloadAuthTokensSecret.key: ASSET_DOWNLOAD_AUTH_TOKENS`.
 
+**Optional remote CE1 NIM API key.** If your `remoteEmbedEndpoint` requires `REMOTE_EMBED_ENDPOINT_API_KEY`, prefer a Kubernetes Secret instead of a literal Helm value:
+
+```bash
+kubectl create secret generic remote-embed-api-key \
+  --namespace "${NAMESPACE}" \
+  --from-literal=REMOTE_EMBED_ENDPOINT_API_KEY='<api-key>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Then set `remoteEmbedEndpointApiKeySecret.name: remote-embed-api-key` and `remoteEmbedEndpointApiKeySecret.key: REMOTE_EMBED_ENDPOINT_API_KEY`.
+
 ---
 
 ## 3. Helm chart path and dependencies
