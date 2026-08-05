@@ -16,7 +16,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { styled, useTheme } from '@mui/material/styles';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router';
 import MuiDrawer from '@mui/material/Drawer';
 import { Box, Stack, Toolbar, useMediaQuery } from '@mui/material';
 import MuiAppBar from '@mui/material/AppBar';
