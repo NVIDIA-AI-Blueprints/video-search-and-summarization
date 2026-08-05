@@ -41,6 +41,10 @@ API_PREFIX = "/v1"
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
+pytestmark = pytest.mark.skipif(
+    os.getenv("SKIP_INTEGRATION_TESTS") == "1", reason="Integration tests disabled"
+)
+
 
 @pytest.fixture(scope="class")
 def test_video_file():
@@ -99,7 +103,7 @@ def test_server():
             "0.0.0.0",
             "--port",
             "8017",
-            "--kafka-topic",
+            "--message-bus-topic",
             "mdx-embed",
             "--kafka-bootstrap-servers",
             "kafka:9092",

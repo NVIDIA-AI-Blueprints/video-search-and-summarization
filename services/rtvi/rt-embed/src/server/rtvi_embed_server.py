@@ -64,6 +64,12 @@ from api_models.common import (
     ServiceError,
     timestamp_validator,
 )
+from api_models.config import (
+    CONFIG_ALERT_TYPE,
+    CONFIG_CHANGE_TYPE,
+    ConfigRequest,
+    ConfigResponse,
+)
 from api_models.embeddings import (
     TextEmbeddingsCompletionResponse,
     TextEmbeddingsQuery,
@@ -81,17 +87,24 @@ from api_models.file import (
     Purpose,
 )
 from api_models.live_stream import (
+    STREAM_ADD_CHANGE_TYPES,
+    STREAM_REMOVE_CHANGE_TYPES,
+    VIOS_CAMERA_STATUS_CHANGE_ALERT_TYPE,
     AddLiveStreams,
     AddLiveStreamsResponse,
     DeleteLiveStreamsRequest,
     DeleteLiveStreamsResponse,
     LiveStreamInfo,
-    StreamAddRequest,
+    StreamAddInput,
     StreamAddResponse,
     StreamInfo,
     StreamInfoResponse,
-    StreamRemoveRequest,
+    StreamRemoveInput,
     StreamRemoveResponse,
+    ViosStreamAddRequest,
+    ViosStreamRemoveRequest,
+    normalize_stream_add_request,
+    normalize_stream_remove_request,
 )
 from api_models.models import ListModelsResponse
 from api_models.nim_compat import ManifestResponse, VersionResponse
@@ -304,6 +317,10 @@ class RTVIServer:
         # Use FastAPI to implement the REST API
         openapi_tags = [
             {
+                "name": "Config",
+                "description": "Operations to update runtime service configuration.",
+            },
+            {
                 "name": "Embeddings",
                 "description": "Operations to generate embeddings for a video.",
             },
@@ -486,6 +503,60 @@ class RTVIServer:
             )
         return local_path
 
+    @staticmethod
+    def _is_vios_file_sensor(
+        request: StreamAddInput, camera_url: str, camera_type: Optional[str] = None
+    ) -> bool:
+        """Return whether this VIOS stream event represents a file sensor."""
+        return isinstance(request, ViosStreamAddRequest) and (
+            camera_type == "file"
+            or camera_url.startswith("file://")
+            or (camera_type != "rtsp" and camera_url.startswith(("http://", "https://")))
+        )
+
+    def _resolve_vios_file_sensor_path(self, camera_url: str) -> str:
+        """Resolve a VIOS file sensor URL to the local path expected by file APIs."""
+        from urllib.parse import unquote
+
+        decoded_url = "file://" + unquote(camera_url[len("file://") :])
+        return self._resolve_file_url(decoded_url)
+
+    async def _add_vios_file_sensor_asset(self, value, url_headers: Optional[dict] = None) -> str:
+        """Register or download a VIOS file sensor and return the asset id."""
+        if value.camera_url.startswith("file://"):
+            file_path = self._resolve_vios_file_sensor_path(value.camera_url)
+            return self._asset_manager.add_file(
+                file_path=file_path,
+                purpose="vision",
+                media_type="video",
+                creation_time=value.creation_time,
+                sensor_name=value.camera_id,
+                camera_id=value.camera_id,
+            )
+
+        if re.match(r"^https?://", value.camera_url):
+            from urllib.parse import urlparse
+
+            parsed = urlparse(value.camera_url)
+            file_name = os.path.basename(parsed.path) or "vios_file.mp4"
+            return await self._asset_manager.download_file(
+                url=value.camera_url,
+                file_name=file_name,
+                purpose="vision",
+                media_type="video",
+                creation_time=value.creation_time,
+                file_id=None,
+                url_headers=url_headers,
+                sensor_name=value.camera_id,
+                camera_id=value.camera_id,
+            )
+
+        raise ServiceException(
+            "VIOS file sensors support file://, http://, or https:// camera_url values.",
+            "InvalidParameters",
+            422,
+        )
+
     def run(self):
         # Configure and start the uvicorn web server
         config = uvicorn.Config(
@@ -608,6 +679,8 @@ class RTVIServer:
             summary="Get asset storage statistics",
             description=(
                 "Returns asset counts, oldest asset age, storage limits, and TTL configuration. "
+                "A null max_storage_usage_gb means no storage cap is configured; "
+                "a null max_asset_age_hours means TTL eviction is disabled. "
                 "Useful for monitoring tmpfs/disk usage and diagnosing age-out behaviour."
             ),
             responses={
@@ -1260,8 +1333,75 @@ class RTVIServer:
 
         # ======================= Live Stream API
 
+        # ======================= Runtime Config API
+        @self._app.post(
+            "/api/v1/config",
+            include_in_schema=False,
+            response_model_exclude_none=True,
+        )
+        @self._app.post(
+            f"{API_PREFIX}/config",
+            summary="Update runtime message bus configuration",
+            description=(
+                "Update generated-message output routing from a VSS config event. "
+                "Kafka and Redis connection details remain configured at startup."
+            ),
+            response_model_exclude_none=True,
+            responses={
+                200: {"description": "Successful Response."},
+                **add_common_error_responses([400, 500]),
+            },
+            tags=["Config"],
+        )
+        async def update_runtime_config(request: ConfigRequest) -> ConfigResponse:
+            if request.alert_type != CONFIG_ALERT_TYPE:
+                raise ServiceException(
+                    f"Unsupported alert_type: {request.alert_type}. "
+                    f"Expected '{CONFIG_ALERT_TYPE}'.",
+                    "BadRequest",
+                    400,
+                )
+            if request.event.change != CONFIG_CHANGE_TYPE:
+                raise ServiceException(
+                    f"Unsupported change type: {request.event.change}. "
+                    f"Expected '{CONFIG_CHANGE_TYPE}'.",
+                    "BadRequest",
+                    400,
+                )
+
+            metadata = request.event.metadata
+            result = self._stream_handler.configure_message_bus(
+                metadata.messagingbus.value,
+                metadata.topic_prefix,
+                create_topic=metadata.create_topic,
+                topic_partition=metadata.topic_partition,
+            )
+            error_result = None
+            if metadata.errorbus is not None:
+                error_result = self._stream_handler.configure_error_bus(
+                    metadata.errorbus.value,
+                    metadata.error_topic_prefix,
+                    create_topic=metadata.create_topic,
+                    topic_partition=metadata.topic_partition,
+                )
+            return ConfigResponse(
+                txn_id=request.txn_id,
+                status="updated",
+                messagingbus=result["messagingbus"],
+                topic=result["topic"],
+                errorbus=error_result["errorbus"] if error_result else None,
+                error_topic=error_result["topic"] if error_result else None,
+                source=request.source,
+                created_at=request.created_at,
+                warnings=result.get("warnings"),
+            )
+
         # ======================= CV-Compatible Stream API
 
+        @self._app.post("/api/v1/camera/add", include_in_schema=False)
+        @self._app.put("/api/v1/camera/streaming", include_in_schema=False)
+        @self._app.post(f"{API_PREFIX}/camera/add", include_in_schema=False)
+        @self._app.put(f"{API_PREFIX}/camera/streaming", include_in_schema=False)
         @self._app.post(
             f"{API_PREFIX}/stream/add",
             summary="Add a video stream",
@@ -1277,13 +1417,41 @@ class RTVIServer:
             tags=["Stream"],
         )
         async def cv_stream_add(
-            request: StreamAddRequest, http_request: Request
+            request: StreamAddInput, http_request: Request
         ) -> StreamAddResponse:
-            value = request.value
+            value, _headers = normalize_stream_add_request(request)
+            is_vios_request = isinstance(request, ViosStreamAddRequest)
 
-            if value.change not in ("camera_add", "add"):
+            if is_vios_request and request.alert_type != VIOS_CAMERA_STATUS_CHANGE_ALERT_TYPE:
                 raise ServiceException(
-                    f"Unsupported change type: {value.change}. Expected 'camera_add'.",
+                    f"Unsupported alert_type: {request.alert_type}. "
+                    f"Expected '{VIOS_CAMERA_STATUS_CHANGE_ALERT_TYPE}'.",
+                    "BadRequest",
+                    400,
+                )
+
+            if value.change not in STREAM_ADD_CHANGE_TYPES:
+                raise ServiceException(
+                    f"Unsupported change type: {value.change}. "
+                    f"Expected one of {STREAM_ADD_CHANGE_TYPES}.",
+                    "BadRequest",
+                    400,
+                )
+
+            if not value.camera_url:
+                if is_vios_request and value.change == "camera_add":
+                    logger.info(
+                        "Received VIOS camera_add registration without stream URL: camera_id=%s",
+                        value.camera_id,
+                    )
+                    return StreamAddResponse(
+                        camera_id=value.camera_id,
+                        asset_id="",
+                        status="added",
+                        inference=False,
+                    )
+                raise ServiceException(
+                    "camera_url is required for stream creation.",
                     "BadRequest",
                     400,
                 )
@@ -1294,19 +1462,33 @@ class RTVIServer:
                 value.camera_url,
             )
 
-            # Add stream via existing asset manager with camera_id tracking
-            video_id = self._asset_manager.add_live_stream(
-                url=value.camera_url,
-                description=value.camera_name or value.camera_id,
-                camera_id=value.camera_id,
-                sensor_name=value.camera_id,
+            is_vios_file_sensor = self._is_vios_file_sensor(
+                request, value.camera_url, value.camera_type
             )
+            if is_vios_file_sensor:
+                video_id = await self._add_vios_file_sensor_asset(
+                    value,
+                    url_headers=_headers.url_headers if _headers else None,
+                )
+                logger.info(
+                    "[AssetManager] VIOS file sensor added - camera_id: %s, asset_id: %s",
+                    value.camera_id,
+                    video_id,
+                )
+            else:
+                # Add stream via existing asset manager with camera_id tracking
+                video_id = self._asset_manager.add_live_stream(
+                    url=value.camera_url,
+                    description=value.camera_name or value.camera_id,
+                    camera_id=value.camera_id,
+                    sensor_name=value.camera_id,
+                )
 
-            logger.info(
-                "[AssetManager] Video stream added - camera_id: %s, asset_id: %s",
-                value.camera_id,
-                video_id,
-            )
+                logger.info(
+                    "[AssetManager] Video stream added - camera_id: %s, asset_id: %s",
+                    value.camera_id,
+                    video_id,
+                )
 
             inference_started = False
 
@@ -1345,7 +1527,7 @@ class RTVIServer:
                         self._stream_handler.generate_vlm_captions,
                         [asset],
                         vlm_query,
-                        True,  # is_rtsp=True
+                        not is_vios_file_sensor,
                     )
 
                     inference_started = True
@@ -1377,6 +1559,22 @@ class RTVIServer:
             )
 
         @self._app.post(
+            "/api/v1/camera/remove",
+            include_in_schema=False,
+        )
+        @self._app.delete(
+            "/api/v1/camera/remove",
+            include_in_schema=False,
+        )
+        @self._app.post(
+            f"{API_PREFIX}/camera/remove",
+            include_in_schema=False,
+        )
+        @self._app.delete(
+            f"{API_PREFIX}/camera/remove",
+            include_in_schema=False,
+        )
+        @self._app.post(
             f"{API_PREFIX}/stream/remove",
             summary="Remove a video stream.",
             description="Remove a video stream by camera_id, stopping video embeddings generation if active.",
@@ -1386,17 +1584,33 @@ class RTVIServer:
             },
             tags=["Stream"],
         )
-        async def cv_stream_remove(request: StreamRemoveRequest) -> StreamRemoveResponse:
-            value = request.value
-            if value.change not in ("camera_remove", "remove"):
+        async def cv_stream_remove(request: StreamRemoveInput) -> StreamRemoveResponse:
+            value, _headers = normalize_stream_remove_request(request)
+            is_vios_request = isinstance(request, ViosStreamRemoveRequest)
+            if is_vios_request and request.alert_type != VIOS_CAMERA_STATUS_CHANGE_ALERT_TYPE:
                 raise ServiceException(
-                    f"Unsupported change type: {value.change}. Expected 'camera_remove'.",
+                    f"Unsupported alert_type: {request.alert_type}. "
+                    f"Expected '{VIOS_CAMERA_STATUS_CHANGE_ALERT_TYPE}'.",
+                    "BadRequest",
+                    400,
+                )
+
+            if value.change not in STREAM_REMOVE_CHANGE_TYPES:
+                raise ServiceException(
+                    f"Unsupported change type: {value.change}. "
+                    f"Expected one of {STREAM_REMOVE_CHANGE_TYPES}.",
                     "BadRequest",
                     400,
                 )
 
             asset_id = self._asset_manager.get_asset_id_by_camera_id(value.camera_id)
             if not asset_id:
+                if is_vios_request:
+                    logger.info(
+                        "Received VIOS camera_remove for camera without stream asset: camera_id=%s",
+                        value.camera_id,
+                    )
+                    return StreamRemoveResponse(camera_id=value.camera_id, asset_id="")
                 raise ServiceException(
                     f"No stream found with camera_id: {value.camera_id}",
                     "NotFound",
@@ -1410,12 +1624,10 @@ class RTVIServer:
             asset = self._asset_manager.get_asset(asset_id)
             loop = asyncio.get_running_loop()
 
-            await _await_stream_setup_complete(asset, asset_id)
+            if asset.is_live:
+                await _await_stream_setup_complete(asset, asset_id)
 
-            # Remove RTSP stream from the pipeline if it is being processed
-            await loop.run_in_executor(
-                self._async_executor, self._stream_handler.remove_rtsp_stream, asset
-            )
+            await loop.run_in_executor(self._async_executor, self._remove_asset, asset)
             await loop.run_in_executor(
                 self._async_executor,
                 functools.partial(

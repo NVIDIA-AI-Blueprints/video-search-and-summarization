@@ -153,12 +153,28 @@ spec:
               value: {{ .Values.modelPath | quote }}
             - name: MODEL_REPOSITORY_SCRIPT_PATH
               value: {{ .Values.modelRepositoryScriptPath | quote }}
+            - name: REMOTE_EMBED_ENDPOINT
+              value: {{ .Values.remoteEmbedEndpoint | default "" | quote }}
+            - name: REMOTE_EMBED_ENDPOINT_MODEL_NAME
+              value: {{ .Values.remoteEmbedEndpointModelName | default "nvidia/cosmos-embed1" | quote }}
+            - name: REMOTE_EMBED_ENDPOINT_API_KEY
+              value: {{ .Values.remoteEmbedEndpointApiKey | default "" | quote }}
+            - name: REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC
+              value: {{ .Values.remoteEmbedEndpointTimeoutSec | default "300" | quote }}
+            - name: REMOTE_EMBED_ENDPOINT_BATCH_SIZE
+              value: {{ .Values.remoteEmbedEndpointBatchSize | default "64" | quote }}
             - name: KAFKA_ENABLED
               value: {{ .Values.kafkaEnabled | quote }}
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "vss-rtvi-embed.kafkaBootstrap" . | quote }}
             - name: KAFKA_TOPIC
               value: {{ .Values.kafkaTopic | quote }}
+            - name: MESSAGE_BUS
+              value: {{ .Values.messageBus | default "kafka" | quote }}
+            - name: MESSAGE_BUS_TOPIC
+              value: {{ .Values.messageBusTopic | default "mdx-embed" | quote }}
+            - name: ERROR_BUS
+              value: {{ .Values.errorBus | default "kafka" | quote }}
             - name: REDIS_HOST
               value: {{ include "vss-rtvi-embed.redisHost" . | quote }}
             - name: REDIS_PORT

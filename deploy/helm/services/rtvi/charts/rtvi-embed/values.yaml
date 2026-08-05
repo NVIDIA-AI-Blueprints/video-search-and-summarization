@@ -18,8 +18,8 @@ imagePullSecrets:
 
 replicas: 1
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+  tag: "3.3.0-26.07.4"
   pullPolicy: IfNotPresent
 port: 8000
 service:
@@ -56,6 +56,9 @@ clearCachedEnginesOnStart: false
 kafkaEnabled: true
 kafkaTopic: "mdx-embed"
 kafkaBootstrapServers: ""
+messageBus: "kafka"
+messageBusTopic: "mdx-embed"
+errorBus: "kafka"
 # Wait for Kafka before starting the workload (busybox nc). Set enabled: false for standalone
 # installs where no broker exists yet.
 waitForKafka:
@@ -65,6 +68,11 @@ redisPort: "6379"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
 modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
 modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+remoteEmbedEndpoint: ""
+remoteEmbedEndpointModelName: "nvidia/cosmos-embed1"
+remoteEmbedEndpointApiKey: ""
+remoteEmbedEndpointTimeoutSec: "300"
+remoteEmbedEndpointBatchSize: "64"
 logLevel: "INFO"
 enableOtelMonitoring: false
 enableRedisErrorMessages: false
