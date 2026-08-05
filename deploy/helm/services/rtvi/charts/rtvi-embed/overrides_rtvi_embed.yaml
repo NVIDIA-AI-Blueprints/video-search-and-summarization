@@ -36,7 +36,6 @@ remoteEmbedEndpointBatchSize: "64"
 # Standalone dependency endpoints (chart does not deploy kafka/redis itself)
 kafkaEnabled: false
 kafkaBootstrapServers: "127.0.0.1:9092"
-kafkaTopic: "mdx-embed"
 messageBus: ""
 messageBusTopic: "mdx-embed"
 errorBus: ""

@@ -350,7 +350,6 @@ rtvi:
       sizeLimit: 16Gi
     clearCachedEnginesOnStart: false
     kafkaEnabled: true
-    kafkaTopic: mdx-embed
     kafkaBootstrapServers: ''
     redisHost: ''
     redisPort: '6379'
