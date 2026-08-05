@@ -1,6 +1,6 @@
 # Standalone RTVI Embed (`vss-rtvi-embed`)
 
-This document describes a **from-scratch** install of the **`vss-rtvi-embed`** subchart: the **RTVI Cosmos Embed1** HTTP service (port **8000**) for text/video embeddings and MDX search. The chart deploys a GPU **Deployment**, **Service**, and PVCs for NGC and Hugging Face model caches. **Kafka and Redis are not required** for the standalone profile in **`overrides_rtvi_embed.yaml`** (`kafkaEnabled: false`, `waitForKafka.enabled: false`).
+This document describes a **from-scratch** install of the **`vss-rtvi-embed`** subchart: the **RTVI Cosmos Embed1** HTTP service (port **8000**) for text/video embeddings and MDX search. The chart deploys a GPU **Deployment**, **Service**, and PVCs for NGC and Hugging Face model caches. **Kafka and Redis are not required** for the standalone profile in **`overrides_rtvi_embed.yaml`** (`messageBus: ""`, `errorBus: ""`, `waitForKafka.enabled: false`).
 
 For chart internals (templates, values), see `charts/rtvi-embed/`.
 
@@ -103,7 +103,8 @@ helm upgrade --install "${RELEASE}" . \
   --set vss-rtvi-cv.enabled=false \
   --set vss-rtvi-cv-sdr.enabled=false \
   --set vss-rtvi-vlm.enabled=false \
-  --set vss-rtvi-embed.kafkaEnabled=false \
+  --set-string vss-rtvi-embed.messageBus="" \
+  --set-string vss-rtvi-embed.errorBus="" \
   --set vss-rtvi-embed.waitForKafka.enabled=false \
   --set vss-rtvi-embed.messageBusTopic=mdx-embed \
   --set vss-rtvi-embed.hfTokenSecret.name=hf-token-secret \
@@ -154,12 +155,12 @@ kill %1  # stop the port-forward when done
 
 ## 6. Standalone vs full stack
 
-| Mode | `kafkaEnabled` | `waitForKafka` | Typical use |
-|------|----------------|----------------|-------------|
-| **Standalone** (`overrides_rtvi_embed.yaml`) | `false` | `false` | Dev GPU cluster; HTTP embed only |
-| **Full VSS** (default `values.yaml` + umbrella) | `true` | `true` | Search pipeline; topic **`mdx-embed`** |
+| Mode | `messageBus` / `errorBus` | `waitForKafka` | Typical use |
+|------|----------------------------|----------------|-------------|
+| **Standalone** (`overrides_rtvi_embed.yaml`) | empty | `false` | Dev GPU cluster; HTTP embed only |
+| **Full VSS** (default `values.yaml` + umbrella) | `kafka` | `true` | Search pipeline; topic **`mdx-embed`** |
 
-Do **not** leave **`waitForKafka.enabled: true`** without a reachable **`kafkaBootstrapServers`**; the init container will block startup.
+Do **not** leave **`waitForKafka.enabled: true`** while **`messageBus`** or **`errorBus`** is `kafka` without a reachable **`kafkaBootstrapServers`**; the init container will block startup.
 
 ---
 
