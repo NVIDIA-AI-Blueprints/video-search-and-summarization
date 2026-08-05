@@ -1,6 +1,6 @@
-# @aiqtoolkit-ui/common
+# common
 
-Shared components and utilities for the AIQ Toolkit UI system.
+Shared components and utilities for the UI monorepo.
 
 ## Installation
 
@@ -9,7 +9,7 @@ The package is included in the monorepo. To use it in an app or another package:
 ```json
 {
   "dependencies": {
-    "@aiqtoolkit-ui/common": "*"
+    "common": "*"
   }
 }
 ```
