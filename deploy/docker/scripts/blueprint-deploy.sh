@@ -1162,10 +1162,24 @@ function run_data_log_cleanup() {
 }
 
 function state_down() {
-  local _deploy_dir_names _deploy_dir_name _generated_env
+  local _deploy_dir_names _deploy_dir_name _deploy_dir _source_env _overrides_env _generated_env
+
+  _deploy_dir_names=('industry-profiles/warehouse-operations')
+
+  local _compose_project_name="${COMPOSE_PROJECT_NAME:-}"
+  if [[ -z "${_compose_project_name}" ]]; then
+    for _deploy_dir_name in "${_deploy_dir_names[@]}"; do
+      _deploy_dir="${deployment_directory}/${_deploy_dir_name}"
+      _source_env="${_deploy_dir}/.env"
+      _overrides_env="${_deploy_dir}/overrides.env"
+      _generated_env="${_deploy_dir}/generated.env"
+      _compose_project_name="$(get_env_value_from_files "COMPOSE_PROJECT_NAME" "${_source_env}" "${_overrides_env}" "${_generated_env}")"
+      [[ -n "${_compose_project_name}" ]] && break
+    done
+  fi
+  _compose_project_name="${_compose_project_name:-vss}"
 
   echo "[INFO] Cleaning up generated.env files from warehouse..."
-  _deploy_dir_names=('industry-profiles/warehouse-operations')
   for _deploy_dir_name in "${_deploy_dir_names[@]}"; do
     _generated_env="${deployment_directory}/${_deploy_dir_name}/generated.env"
     if [[ -f "${_generated_env}" ]]; then
@@ -1178,11 +1192,11 @@ function state_down() {
     fi
   done
 
-  echo "[INFO] Bringing down docker compose project 'mdx' (with volumes)..."
+  echo "[INFO] Bringing down docker compose project '${_compose_project_name}' (with volumes)..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] docker compose -p mdx down -v --remove-orphans"
+    echo "[DRY-RUN] docker compose -p ${_compose_project_name} down -v --remove-orphans"
   else
-    docker compose -p mdx down -v --remove-orphans
+    docker compose -p "${_compose_project_name}" down -v --remove-orphans
   fi
 
   echo "[INFO] Removing dangling docker volumes..."

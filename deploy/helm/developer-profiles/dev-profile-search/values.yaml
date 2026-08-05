@@ -85,6 +85,31 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+  # Edge routes `vss configure` probes, mirroring the four the Docker edge
+  # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
+  # same paths resolve on Compose and Kubernetes. Each mount carries whatever
+  # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
+  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/... .
+  #
+  # Off by default. Enabling this publishes Elasticsearch on the public origin
+  # with no per-path guard, because an Ingress annotation cannot express one.
+  # The Docker edge is not a read-only baseline either: its deny rules stop
+  # PUT/DELETE, cluster-admin paths and the two-segment mutating operations, but
+  # POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
+  # there. Enable only where a writable Elasticsearch is acceptable, or front it
+  # with your own guard.
+  #
+  # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
+  # enabled -- that Ingress already publishes both paths. /rtvi-vlm is not one
+  # of them, so it follows cliRoutes.enabled alone.
+  cliRoutes:
+    enabled: false
+    elasticsearchPort: 9200
+    rtviEmbedPort: 8000
+    rtviCvPort: 9000
+    # RT-VLM's cluster Service port. Not 8018 -- that is the Compose
+    # host-published port and has no meaning in Kubernetes.
+    rtviVlmPort: 8000
 
 sharedStorage:
   streamerVideos:
@@ -310,8 +335,8 @@ rtvi:
     enabled: true
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-      tag: "3.2.1"
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+      tag: "3.3.0-26.07.4"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -324,8 +349,6 @@ rtvi:
       enabled: true
       sizeLimit: 16Gi
     clearCachedEnginesOnStart: false
-    kafkaEnabled: true
-    kafkaTopic: mdx-embed
     kafkaBootstrapServers: ''
     redisHost: ''
     redisPort: '6379'

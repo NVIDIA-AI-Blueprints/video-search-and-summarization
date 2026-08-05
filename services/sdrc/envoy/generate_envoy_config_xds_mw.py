@@ -37,8 +37,32 @@ import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader
+
+
+_HTTP_LIFECYCLE_MODE_ALIASES = frozenset(("http", "http-header", "http_header"))
+_LIFECYCLE_ROUTE_FIELDS = (
+    (
+        "add",
+        "WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH",
+        "WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD",
+        "POST",
+    ),
+    (
+        "delete",
+        "WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH",
+        "WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD",
+        "DELETE",
+    ),
+    (
+        "reprovision",
+        "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH",
+        "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD",
+        "POST",
+    ),
+)
 
 
 def _slug(workload_key: str) -> str:
@@ -94,6 +118,77 @@ def _parse_target_port_mapping(value) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _config_value(defaults: dict, entry: dict, key: str, fallback=None):
+    value = entry.get(key)
+    if value is not None and (not isinstance(value, str) or value.strip() != ""):
+        return value
+    value = defaults.get(key) if isinstance(defaults, dict) else None
+    if value is not None and (not isinstance(value, str) or value.strip() != ""):
+        return value
+    return fallback
+
+
+def _normalize_envoy_lifecycle_path(path: str) -> str:
+    split = urlsplit(str(path or ""))
+    normalized = split.path or "/"
+    if not normalized.startswith("/"):
+        normalized = "/" + normalized
+    while len(normalized) > 1 and normalized.endswith("/"):
+        normalized = normalized[:-1]
+    return normalized or "/"
+
+
+def _normalize_backend_lifecycle_path(path: str) -> str:
+    normalized = _normalize_envoy_lifecycle_path(path)
+    if normalized == "/sdrc":
+        return "/"
+    if normalized.startswith("/sdrc/"):
+        normalized = normalized[len("/sdrc") :]
+    return normalized or "/"
+
+
+def _path_match_regex(path: str) -> str:
+    normalized = _normalize_envoy_lifecycle_path(path)
+    if normalized == "/":
+        return r"^/?(?:\?.*)?$"
+    return r"^%s/?(?:\?.*)?$" % re.escape(normalized)
+
+
+def _build_lifecycle_routes(defaults: dict, entry: dict, wl_obj_name: str) -> list[dict]:
+    mode = str(_config_value(defaults, entry, "WDM_LIFECYCLE_INGRESS_MODE", "") or "")
+    if mode.strip().lower() not in _HTTP_LIFECYCLE_MODE_ALIASES:
+        return []
+
+    routes: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for action, path_key, method_key, default_method in _LIFECYCLE_ROUTE_FIELDS:
+        path = _config_value(defaults, entry, path_key)
+        method = str(_config_value(defaults, entry, method_key, default_method) or "")
+        method = method.strip().upper()
+        if not path or not method:
+            continue
+
+        envoy_path = _normalize_envoy_lifecycle_path(str(path))
+        binding = (method, envoy_path)
+        if binding in seen:
+            continue
+        seen.add(binding)
+
+        backend_path = _normalize_backend_lifecycle_path(str(path))
+        routes.append(
+            {
+                "action": action,
+                "method": method,
+                "path": envoy_path,
+                "path_regex": _path_match_regex(envoy_path),
+                "route_name": "lifecycle_%s_%s"
+                % (_sanitize_name(wl_obj_name), action),
+                "rewrite_path": "/sdrc/%s%s" % (wl_obj_name, backend_path),
+            }
+        )
+    return routes
+
+
 def _build_headerless_endpoints(entry: dict) -> list[dict]:
     """Endpoints for the static headerless_service cluster, derived from this
     workload's WDM_TARGET_PORT_MAPPING. Each pod's port becomes a 127.0.0.1
@@ -141,7 +236,10 @@ def _gather_workloads(cfg: dict) -> list[tuple[str, dict]]:
     return out
 
 
-def _build_workload_rows(workloads: list[tuple[str, dict]]) -> list[dict]:
+def _build_workload_rows(
+    workloads: list[tuple[str, dict]], defaults: dict | None = None
+) -> list[dict]:
+    defaults = defaults or {}
     rows: list[dict] = []
     for wl_key, entry in workloads:
         slug = _slug(wl_key)
@@ -190,6 +288,9 @@ def _build_workload_rows(workloads: list[tuple[str, dict]]) -> list[dict]:
                 "envoy_route_timeout": envoy_route_timeout,
                 "headerless_cluster_name": headerless_cluster_name,
                 "headerless_endpoints": headerless_endpoints,
+                "lifecycle_routes": _build_lifecycle_routes(
+                    defaults, entry, wl_obj_name
+                ),
             }
         )
     return rows
@@ -323,7 +424,7 @@ def main() -> int:
             print(f"{wl_key}: invalid WDM_MS_LISTENER_PORT or port: {e}", file=sys.stderr)
             return 1
 
-    workload_rows = _build_workload_rows(workloads)
+    workload_rows = _build_workload_rows(workloads, _cfg_defaults)
     header_mapping_lines = [
         f"{wk}: listener :{e['WDM_MS_LISTENER_PORT']} → app port {e['port']}"
         for wk, e in workloads

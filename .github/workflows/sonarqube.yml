@@ -230,8 +230,15 @@ jobs:
         if: matrix.name == 'agent'
         working-directory: services/agent
         run: |
+          # Both packages, matching the same invocation in ci.yml. The
+          # vss_cli tests already ran here, but without --cov for its source
+          # tree none of its lines reached coverage-lib.xml, so Sonar counted
+          # every changed vss_cli line as uncovered. That stayed invisible
+          # while the package was small and surfaced as "2.9% Coverage on New
+          # Code" the first time a PR added substantially to it.
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test \
             --cov=packages/vss_core/src \
+            --cov=packages/vss_cli/src \
             --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
