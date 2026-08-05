@@ -77,7 +77,7 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 - Docker Engine and Docker Compose plugin recent enough to support the conditional `${VAR:+...}` bind-mount syntax used by the optional `ASSET_STORAGE_DIR` and `RTVI_EMBED_LOG_DIR` mounts.
 - NVIDIA Container Toolkit configured as the default container runtime.
 - API keys exposed to the runtime: `NGC_API_KEY` (required), `NVIDIA_API_KEY` (defaults to a sentinel; set to a real key if your downstream calls require it), and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
-- Host environment variables: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, and `HOST_IP` (used to construct `KAFKA_BOOTSTRAP_SERVERS`).
+- Host environment variables: `RTVI_EMBED_PORT` and `VSS_DATA_DIR`. Set `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` only when Kafka buses are enabled and the default `kafka:29092` broker address is not correct for your Compose network.
 - Disk space sufficient for the Hugging Face cache, NGC model cache, and Triton model repository volumes.
 - Network reachability to `nvcr.io`, `huggingface.co`, and any peer services (Redis, Kafka) that are enabled.
 
@@ -133,6 +133,6 @@ docker compose -f rtvi-embed-docker-compose.yml down -v
 ## Gotchas & Known Issues
 
 - The Compose service runs as non-root (`user: "1001:1001"`). Any host-side bind mount must be writable by that UID/GID, or the container will exit on startup.
-- `KAFKA_BOOTSTRAP_SERVERS` is constructed from `${HOST_IP}:9092`. If `HOST_IP` is unset or resolves incorrectly inside the container, Kafka integration will silently fail; double-check it when Kafka is enabled.
+- `KAFKA_BOOTSTRAP_SERVERS` defaults to `kafka:29092` through `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS`. If Kafka buses are enabled and your broker uses a different address, set `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` before starting the service.
 - The conditional volume entries (`${ASSET_STORAGE_DIR:+...}` and `${RTVI_EMBED_LOG_DIR:+...}`) require a Docker Compose version that supports the `${VAR:+value}` substitution. Older Compose plugins will fail to parse the file.
 - The healthcheck command is `curl -f http://localhost:8000/v1/ready` and assumes `curl` is present in the image, which it is. Do not strip `curl` when building derived images or the healthcheck will always fail.
