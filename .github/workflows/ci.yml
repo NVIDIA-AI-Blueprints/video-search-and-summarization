@@ -49,11 +49,56 @@ jobs:
       build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
       current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
       current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
+      spatialai-data-utils-changed: ${{ steps.spatialai-changes.outputs.changed }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Detect Spatial AI Data Utils changes
+        id: spatialai-changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".github/scripts")
+          from detect_changed_images import (
+              changed_paths,
+              paths_changed_under,
+              resolve_diff_base,
+          )
+
+          repo = Path.cwd()
+          ref_name = os.environ["REF_NAME"]
+          # Direct pushes use their event range. PR mirror branches use the
+          # merge-base with develop so all changes in the PR are considered.
+          base_branch = ref_name if ref_name in {"main", "develop"} else "develop"
+          base, reason = resolve_diff_base(
+              repo,
+              os.environ["EVENT_NAME"],
+              ref_name,
+              os.environ.get("BEFORE_SHA", ""),
+              base_branch,
+          )
+          paths = changed_paths(repo, base) if base else None
+          if base and paths is None:
+              reason += "; diff failed; running Spatial AI Data Utils CI"
+
+          changed = paths_changed_under(
+              paths,
+              "libs/analytics/spatialai-data-utils",
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"changed={str(changed).lower()}\n")
+          print(f"Spatial AI Data Utils changed: {changed} ({reason})")
+          PY
 
       - name: Detect analytics image changes
         id: analytics-changes
@@ -581,6 +626,7 @@ jobs:
   spatialai-data-utils-test:
     name: Test (Spatial AI Data Utils)
     needs: prepare-source
+    if: needs.prepare-source.outputs.spatialai-data-utils-changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     defaults:
@@ -691,7 +737,10 @@ jobs:
   spatialai-data-utils-publish:
     name: Publish Spatial AI Data Utils (URM)
     needs: spatialai-data-utils-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop' &&
+      needs.spatialai-data-utils-test.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
