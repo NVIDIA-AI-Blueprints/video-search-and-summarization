@@ -144,6 +144,9 @@ function postBulk(esUrlParsed, body) {
 
 /**
  * Normalize _source so ES mapping is consistent (e.g. coordinates as float not long).
+ * The warehouse-2D dump contains empty bbox3d placeholders emitted by proto JSON
+ * serialization. Remove those placeholders so the fixture matches the public
+ * contract, where bbox3d is present only when it has 9 or 12 coordinates.
  * Recursively ensures any "coordinates" array is array of floats so ES does not
  * mix long/float and trigger "mapper [locations.coordinates] cannot be changed from type [float] to [long]".
  * Uses a custom stringify for the bulk body so coordinate numbers are emitted as "1.0" not "1".
@@ -159,6 +162,9 @@ function normalizeSource(obj) {
     const out = {};
     for (const key of Object.keys(obj)) {
         const val = obj[key];
+        if (key === 'bbox3d' && Array.isArray(val?.coordinates) && val.coordinates.length === 0) {
+            continue;
+        }
         if (key === 'coordinates' && Array.isArray(val)) {
             out[key] = val.map((v) => (Array.isArray(v) && v.every((n) => typeof n === 'number') ? v.map((n) => Number(n)) : normalizeSource(v)));
         } else if (val !== null && typeof val === 'object') {
