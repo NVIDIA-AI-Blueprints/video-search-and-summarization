@@ -123,7 +123,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.3.0-26.07.4` for x86/Tegra; `3.3.0-26.07.4` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.3.0-26.07.4` as of 2026-06-02).** | `3.3.0-26.07.4` (per `dev-profile-base/.env`) | optional |
+| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.3.0-26.07.4` for x86/Tegra; `3.3.0-26.07.4-sbsa` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.3.0-26.07.4` as of 2026-06-02).** | `3.3.0-26.07.4` (per `dev-profile-base/.env`) | optional |
 
 ## Network Requirements
 
