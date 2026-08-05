@@ -61,14 +61,16 @@ Create `.env` with your configuration:
 ```bash
 cat > .env << EOF
 BACKEND_PORT=8000
-RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1
+RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
 # For DGX Spark/SBSA platforms:
-#RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
 VLM_MODEL_TO_USE=cosmos-reason3
 MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 KAFKA_ENABLED=true
 #KAFKA_BOOTSTRAP_SERVERS=<Kafka_server_ip:port>
-KAFKA_TOPIC=mdx-vlm-captions
+MESSAGE_BUS=kafka
+MESSAGE_BUS_TOPIC=mdx-vlm-captions
+ERROR_BUS=kafka
 KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
 NGC_API_KEY=nvapi-XXXXXX
 VLM_BATCH_SIZE=128
@@ -119,14 +121,14 @@ Build the custom image from the RT-VLM service directory:
 
 ```bash
 cd video-search-and-summarization/services/rtvi/rt-vlm
-docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.2.1-custom .
+docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.07.4-custom .
 ```
 
 To test the custom image with Docker Compose, set `RTVI_IMAGE` in `docker/.env`:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1
-RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.2.1-custom
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
+RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.07.4-custom
 ```
 
 Then restart the service:
@@ -144,16 +146,16 @@ export IS_SBSA=true
 docker buildx build --platform linux/arm64 \
   --build-arg IS_SBSA \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.2.1-custom-sbsa \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.07.4-custom-sbsa \
   --load .
 ```
 
-For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
+For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
 
 ```bash
 docker buildx build --platform linux/arm64 \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.2.1-custom-thor \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.07.4-custom-thor \
   --load .
 ```
 
@@ -894,7 +896,9 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `VLLM_USE_NVFP4_CT_EMULATIONS` | Enable NVFP4 CT emulation | `0` |
 | `KAFKA_ENABLED` | Enable Kafka publishing | Compose: `true`; Helm: `false` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | Compose: `kafka:9092`; Helm: `127.0.0.1:9092` |
-| `KAFKA_TOPIC` | VisionLLM message topic | `mdx-vlm-captions` |
+| `MESSAGE_BUS` | Generated-output broker type | `kafka` |
+| `MESSAGE_BUS_TOPIC` | VisionLLM message topic / Redis stream | `mdx-vlm-captions` |
+| `ERROR_BUS` | Error-output broker type; empty disables errors | `kafka` |
 | `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` |
 | `RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` (Helm env: `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE`) | Bounded queue size for async Kafka sends | `1024` |
 | `ERROR_MESSAGE_TOPIC` | Kafka topic or Redis channel for error messages | `vision-llm-errors` |
@@ -916,7 +920,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | Value | Description | Default |
 |-------|-------------|---------|
 | `enabled` | Enable the RT-VLM chart | `false` in `values.yaml`, `true` in `overrides_rtvi_vlm.yaml` |
-| `image.repository` | RT-VLM image repository | `nvcr.io/nvidia/vss-core/vss-rt-vlm` |
+| `image.repository` | RT-VLM image repository | `nvcr.io/nvstaging/vss-core/vss-rt-vlm` |
 | `image.tag` | RT-VLM image tag | `3.2.1` |
 | `image.pullPolicy` | Kubernetes image pull policy | `IfNotPresent` |
 | `replicas` | Number of RT-VLM replicas | `1` |

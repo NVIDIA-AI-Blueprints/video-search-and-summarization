@@ -55,7 +55,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.2.1` for x86 / Jetson Thor; `3.2.1-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1` and `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa`. |
+| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.07.4` for all platforms | RT-VLM image tag. Full images: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4` and `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4`. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
@@ -64,7 +64,9 @@ RT-VLM:
 | `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | empty; `5` for remote openai-compat LVS deployments | RT-VLM fixed-frame default used when LVS requests omit frame sampling overrides. Leave model-specific local defaults unchanged. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw caption events. |
-| `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw caption topic. |
+| `RTVI_VLM_MESSAGE_BUS` | `kafka` | Generated-output broker type. |
+| `RTVI_VLM_MESSAGE_BUS_TOPIC` | `mdx-vlm-captions` | Raw caption Kafka topic or Redis stream. |
+| `RTVI_VLM_ERROR_BUS` | `kafka` | Error-output broker type; empty disables errors. |
 | `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker URL from RT-VLM. |
 
 Video summarization service:
