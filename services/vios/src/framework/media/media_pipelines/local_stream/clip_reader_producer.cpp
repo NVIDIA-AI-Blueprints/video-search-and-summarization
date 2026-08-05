@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -343,9 +343,15 @@ static void link_demuxer_to_queues(GstElement* demuxer,
         GstCaps* caps = gst_pad_get_current_caps(new_pad);
         if (!caps) caps = gst_pad_query_caps(new_pad, nullptr);
         gchar* caps_str = caps ? gst_caps_to_string(caps) : g_strdup("<none>");
-        bool is_video = (caps_str && (g_str_has_prefix(caps_str, "video/x-h264") ||
-                                      g_str_has_prefix(caps_str, "video/x-h265")));
-        bool is_audio = (caps_str && g_str_has_prefix(caps_str, "audio"));
+        bool is_video = false;
+        bool is_audio = false;
+        if (caps_str)
+        {
+            const bool is_h264 = g_str_has_prefix(caps_str, "video/x-h264");
+            const bool is_h265 = g_str_has_prefix(caps_str, "video/x-h265");
+            is_video = is_h264 || is_h265;
+            is_audio = g_str_has_prefix(caps_str, "audio");
+        }
 
         LOG(info) << getLogPrefix(c->owner)
                   << "ClipReaderProducer (giosrc): pad-added with caps: " << caps_str << endl;
