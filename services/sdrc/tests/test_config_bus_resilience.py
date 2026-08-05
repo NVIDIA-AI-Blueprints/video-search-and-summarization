@@ -1,5 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import importlib
 import json
@@ -378,7 +390,11 @@ def test_kafka_terminal_config_failure_commits(app_module, monkeypatch):
 
 
 @pytest.mark.parametrize("app_module", [True], indirect=True)
-def test_kafka_unclassified_exception_does_not_commit(app_module, monkeypatch):
+def test_kafka_unclassified_exception_commits_as_terminal(app_module, monkeypatch):
+    """Poison/unknown failures must commit so Kafka partitions are not blocked."""
+    from lib.bus_outcomes import reset_retry_attempts_for_tests
+
+    reset_retry_attempts_for_tests()
     wl_d = {
         app_module.change_field: app_module.change_id_add,
         app_module.app.config["WDM_WL_ID_FIELD"]: "cam-1",
@@ -390,7 +406,86 @@ def test_kafka_unclassified_exception_does_not_commit(app_module, monkeypatch):
     handler = app_module._test_fake_bus.handlers[app_module.topic]
     handler(MagicMock())
 
+    app_module._test_fake_bus.consumer.commit.assert_called_once()
+
+
+@pytest.mark.parametrize("app_module", [True], indirect=True)
+def test_kafka_malformed_keyerror_commits(app_module, monkeypatch):
+    from lib.bus_outcomes import reset_retry_attempts_for_tests
+
+    reset_retry_attempts_for_tests()
+    wl_d = {
+        app_module.change_field: app_module.change_id_add,
+        # missing camera_id on purpose
+    }
+    original_json = {app_module.app.config["WDM_EVENT_OBJECT_FIELD"]: {}}
+    app_module._test_mock_kfk.getMessageValue.return_value = (wl_d, original_json)
+
+    handler = app_module._test_fake_bus.handlers[app_module.topic]
+    handler(MagicMock())
+
+    app_module._test_fake_bus.consumer.commit.assert_called_once()
+
+
+@pytest.mark.parametrize("app_module", [True], indirect=True)
+def test_kafka_max_replica_does_not_commit_until_retry_limit(app_module, monkeypatch):
+    from lib.bus_outcomes import reset_retry_attempts_for_tests
+
+    reset_retry_attempts_for_tests()
+    app_module.app.config["WDM_EVENT_RETRY_LIMIT"] = 3
+    app_module.evic_q_on_no_capacity = False
+    wl_d = {
+        app_module.change_field: app_module.change_id_add,
+        app_module.app.config["WDM_WL_ID_FIELD"]: "cam-1",
+    }
+    original_json = {app_module.app.config["WDM_EVENT_OBJECT_FIELD"]: wl_d}
+    app_module._test_mock_kfk.getMessageValue.return_value = (wl_d, original_json)
+    monkeypatch.setattr(
+        app_module,
+        "provisionStreamRedis",
+        MagicMock(side_effect=app_module.MaxReplicaException(1)),
+    )
+
+    handler = app_module._test_fake_bus.handlers[app_module.topic]
+    msg = MagicMock()
+    msg.topic.return_value = "t"
+    msg.partition.return_value = 0
+    msg.offset.return_value = 42
+
+    handler(msg)
     app_module._test_fake_bus.consumer.commit.assert_not_called()
+
+    handler(msg)
+    app_module._test_fake_bus.consumer.commit.assert_not_called()
+
+    handler(msg)
+    app_module._test_fake_bus.consumer.commit.assert_called_once()
+
+
+def test_classify_exception_and_decide_commit():
+    from lib.bus_outcomes import (
+        EVENT_RETRYABLE,
+        EVENT_TERMINAL,
+        classify_exception,
+        decide_commit,
+        reset_retry_attempts_for_tests,
+    )
+    import requests
+
+    reset_retry_attempts_for_tests()
+    assert classify_exception(KeyError("camera_id")) == EVENT_TERMINAL
+    assert classify_exception(RuntimeError("boom")) == EVENT_TERMINAL
+    assert classify_exception(requests.ConnectionError("down")) == EVENT_RETRYABLE
+
+    should_commit, final, attempt = decide_commit(EVENT_RETRYABLE, "k1", 2)
+    assert should_commit is False
+    assert final == EVENT_RETRYABLE
+    assert attempt == 1
+
+    should_commit, final, attempt = decide_commit(EVENT_RETRYABLE, "k1", 2)
+    assert should_commit is True
+    assert final == EVENT_TERMINAL
+    assert attempt == 2
 
 
 def test_remove_all_streams_missing_trace_context_continues(app_module, monkeypatch):
