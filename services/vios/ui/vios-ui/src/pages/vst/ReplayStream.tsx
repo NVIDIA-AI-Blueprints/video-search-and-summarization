@@ -23,7 +23,7 @@ import VSTStreamManager from '../../features/streamManager/StreamManager';
 import { Sensor } from '../../interfaces/interfaces';
 import { StreamType } from 'vst-streaming-lib';
 import { getSensorsWithTimeline } from '../../utils/misc/sensorUtils';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 
 const ReplayStream = () => {
     const location = useLocation();
