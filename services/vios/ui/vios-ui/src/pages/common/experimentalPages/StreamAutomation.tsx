@@ -75,7 +75,7 @@ export const StreamAutomation: React.FC = () => {
         successCallbackFailed: 0,
     });
 
-    const automationIntervalRef = useRef<number>();
+    const automationIntervalRef = useRef<number>(undefined);
     const streamManagerRef = useRef<StreamManager | null>(null);
 
     const handleStreamTest = useCallback(
