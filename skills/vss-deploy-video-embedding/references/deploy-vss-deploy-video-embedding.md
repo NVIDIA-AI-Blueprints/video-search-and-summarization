@@ -2,8 +2,8 @@
 
 ## Container Image
 
-- **Image name** — `nvcr.io/nvidia/vss-core/vss-rt-embed`. The Compose service uses `${RTVI_EMBED_IMAGE}` and `${RTVI_EMBED_TAG}` so the image and tag are overridable per environment.
-- **Tag** — published VSS release tag (Compose default: `3.2.1`). Override `RTVI_EMBED_TAG` only when pinning a different published build.
+- **Image name** — `nvcr.io/nvstaging/vss-core/vss-rt-embed`. The Compose service uses `${RTVI_EMBED_IMAGE}` and `${RTVI_EMBED_TAG}` so the image and tag are overridable per environment.
+- **Tag** — published VSS release tag (Compose default: `3.3.0-26.07.4`). Override `RTVI_EMBED_TAG` only when pinning a different published build.
 - **Registry** — `nvcr.io`. Pulls require an authenticated session with NGC.
 - **NGC pull requirements** — `docker login nvcr.io` with `$oauthtoken` and a valid `NGC_API_KEY`. The same `NGC_API_KEY` must also be present in the container environment for model and asset access.
 - **Architecture support** — x86_64. The image is built for `linux/amd64`; aarch64 variants are not specified in the Compose service.
@@ -67,7 +67,7 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 | `docker compose up` errors that `RTVI_EMBED_PORT` is required. | The `ports:` mapping uses `${RTVI_EMBED_PORT?}`, which fails fast when unset. | Set `RTVI_EMBED_PORT` in the environment or `.env` file before bringing the service up. |
 | Model download fails with HTTP 429 against Hugging Face. | Anonymous Hugging Face downloads are being rate-limited while pulling `nvidia/Cosmos-Embed1-448p`. | Set `HF_TOKEN` to a valid Hugging Face token to lift the rate limit, or pre-populate the `rtvi-hf-cache` volume so first boot does not need to re-fetch the weights. |
 | Model download fails with HTTP 401/403 against NGC. | `NGC_API_KEY` is missing or invalid. | Provide a valid `NGC_API_KEY` and confirm `docker login nvcr.io` succeeded on the host. |
-| Service starts but `/v1/ready` keeps returning 503. | A peer such as Redis or Kafka was enabled but is not reachable. | Either disable the feature on the host (`ENABLE_REDIS_ERROR_MESSAGES=false`, `RTVI_EMBED_KAFKA_ENABLED=false` — the latter maps to the container's `KAFKA_ENABLED`) or fix peer reachability (`REDIS_HOST`, `HOST_IP`/`KAFKA_BOOTSTRAP_SERVERS`). |
+| Service starts but `/v1/ready` keeps returning 503. | A peer such as Redis or Kafka was enabled but is not reachable. | Either disable the feature on the host (`ENABLE_REDIS_ERROR_MESSAGES=false`, `MESSAGE_BUS=`, `ERROR_BUS=`) or fix peer reachability (`REDIS_HOST`, `KAFKA_BOOTSTRAP_SERVERS`). |
 | Process exits with permission errors on `/opt/nvidia/rtvi/.rtvi/ngc_model_cache` or `/tmp/huggingface`. | Host-side bind mount is not writable by UID/GID `1001:1001`. | Run `sudo -n chown -R 1001:1001 <host-path>` or ask the host owner to run the same command; do not use `chmod 777`. Named volumes avoid this issue. |
 | GPU not visible inside the container. | NVIDIA Container Toolkit not installed or driver too old. | Install/upgrade NVIDIA Container Toolkit and matching driver, then re-pull the image and restart the service. |
 
@@ -77,7 +77,7 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 - Docker Engine and Docker Compose plugin recent enough to support the conditional `${VAR:+...}` bind-mount syntax used by the optional `ASSET_STORAGE_DIR` and `RTVI_EMBED_LOG_DIR` mounts.
 - NVIDIA Container Toolkit configured as the default container runtime.
 - API keys exposed to the runtime: `NGC_API_KEY` (required), `NVIDIA_API_KEY` (defaults to a sentinel; set to a real key if your downstream calls require it), and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
-- Host environment variables: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, and `HOST_IP` (used to construct `KAFKA_BOOTSTRAP_SERVERS`).
+- Host environment variables: `RTVI_EMBED_PORT` and `VSS_DATA_DIR`. Set `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` only when Kafka buses are enabled and the default `kafka:29092` broker address is not correct for your Compose network.
 - Disk space sufficient for the Hugging Face cache, NGC model cache, and Triton model repository volumes.
 - Network reachability to `nvcr.io`, `huggingface.co`, and any peer services (Redis, Kafka) that are enabled.
 
@@ -133,6 +133,6 @@ docker compose -f rtvi-embed-docker-compose.yml down -v
 ## Gotchas & Known Issues
 
 - The Compose service runs as non-root (`user: "1001:1001"`). Any host-side bind mount must be writable by that UID/GID, or the container will exit on startup.
-- `KAFKA_BOOTSTRAP_SERVERS` is constructed from `${HOST_IP}:9092`. If `HOST_IP` is unset or resolves incorrectly inside the container, Kafka integration will silently fail; double-check it when Kafka is enabled.
+- `KAFKA_BOOTSTRAP_SERVERS` defaults to `kafka:29092` through `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS`. If Kafka buses are enabled and your broker uses a different address, set `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` before starting the service.
 - The conditional volume entries (`${ASSET_STORAGE_DIR:+...}` and `${RTVI_EMBED_LOG_DIR:+...}`) require a Docker Compose version that supports the `${VAR:+value}` substitution. Older Compose plugins will fail to parse the file.
 - The healthcheck command is `curl -f http://localhost:8000/v1/ready` and assumes `curl` is present in the image, which it is. Do not strip `curl` when building derived images or the healthcheck will always fail.
