@@ -559,6 +559,10 @@ rtvi:
         value: ""
       - name: VIA_PD_SERVER_TIMEOUT_S
         value: ""
+      - name: VLLM_USE_AOT_COMPILE
+        value: "0"
+      - name: VLLM_DISABLE_COMPILE_CACHE
+        value: "1"
       - name: VLLM_LOGGING_LEVEL
         value: "INFO"
       - name: LOG_LEVEL
