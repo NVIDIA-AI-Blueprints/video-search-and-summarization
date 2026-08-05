@@ -537,7 +537,8 @@ class GraphConfig(BaseModel):
     :ivar float osmQueryPointDistMeters: Distance radius for OSM query
     :ivar list[RoadNetworkPointConfig] osmQueryPolygon: Polygon for OSM query
     :ivar str osmQueryPlace: Place name for OSM query
-    :ivar str osmQueryFile: Path to OSM data file
+    :ivar str osmQueryFile: Path to a road network graph saved by ``osmnx.save_graphml``, used when
+        ``osmLoadMethod`` is ``from_file``. ``.graphml`` or ``.graphml.gz``; not a raw OSM extract.
 
     Examples::
         >>> graph_config = GraphConfig(
@@ -557,7 +558,7 @@ class GraphConfig(BaseModel):
     osmQueryPointDistMeters: float = 500.0
     osmQueryPolygon: list[RoadNetworkPointConfig] = list()
     osmQueryPlace: str = "Dubuque, Iowa, USA"
-    osmQueryFile: str = "sample_data/iowa-latest.osm.pbf"
+    osmQueryFile: str = "sample_data/road_network.graphml.gz"
 
 
 class VisualizationConfig(BaseModel):

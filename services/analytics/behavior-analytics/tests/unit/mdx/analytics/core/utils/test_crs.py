@@ -15,6 +15,9 @@
 import logging
 import os
 import shutil
+from unittest import mock
+
+from PIL import Image
 import unittest
 
 from mdx.analytics.core.schema.config import AppConfig
@@ -22,6 +25,10 @@ from mdx.analytics.core.utils.crs import CoordinateReferenceSystem as crs
 from mdx.analytics.core.utils.io_utils import load_json_from_file, validate_file_path
 
 CONFIG_PATH = "tests/unit/resources/smart_city_config_test.json"
+# Pinned road-network graphs. The live Overpass API made these tests fail on unrelated PRs
+# (rate-limited/timed out -> graph None -> confusing downstream errors); a saved graph makes
+# them deterministic and ~60s faster.
+OSM_GRAPH_DIR = "tests/unit/resources/osm_graphs/"
 ROUTE_LATLON = [
     (42.491617, -90.720460),
     (42.491007, -90.720042),
@@ -76,6 +83,15 @@ class _CrsNetworkTestBase(unittest.TestCase):
         self.output_path = "tests/unit/outputs/"
         os.makedirs(self.output_path, exist_ok=True)
 
+        # draw_map renders a basemap through smopy, which downloads tile images from a public tile
+        # server -- a second network dependency, separate from the road-network graph, and the one
+        # that surfaced as "LinAlgError: Singular matrix" when the download failed. Serve a blank
+        # tile instead: these tests assert that a figure is produced, never what it looks like.
+        tile_patch = mock.patch(
+            "smopy.fetch_tile", side_effect=lambda *a, **k: Image.new("RGB", (256, 256), (128, 128, 128)))
+        tile_patch.start()
+        self.addCleanup(tile_patch.stop)
+
     def tearDown(self):
         if os.path.exists(self.output_path):
             for file in os.listdir(self.output_path):
@@ -95,7 +111,8 @@ class TestNetworkLatLonFromPointInputLatLon(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_point"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_point_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = False
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -127,7 +144,8 @@ class TestNetworkLatLonFromPlaceInputLatLon(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_place"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_place_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = False
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -159,7 +177,8 @@ class TestNetworkLatLonFromPolygonInputLatLon(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_polygon"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_polygon_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = False
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -202,7 +221,8 @@ class TestNetworkLatLonFromPolygonInputCartesian(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_polygon"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_polygon_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = False
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -234,7 +254,8 @@ class TestNetworkLatLonFromPolygonSimplifyInputLatLon(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_polygon"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_polygon_drive_simplify.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = True
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = False
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -276,7 +297,8 @@ class TestNetwork26915FromPolygonInputLatLon(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_polygon"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_polygon_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = True
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -309,7 +331,8 @@ class TestNetwork26915FromPolygonInputCartesian(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_polygon"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_polygon_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = True
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -343,7 +366,8 @@ class TestNetwork26915FromPolygonInputCartesianCustomize(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_polygon"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_polygon_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = True
         config.coordinateReferenceSystem.crsCartesian = "EPSG:26915"
@@ -377,7 +401,8 @@ class TestNetwork3395FromPolygonInputLatLon(_CrsNetworkTestBase):
 
     @classmethod
     def configure_crs(cls, config: AppConfig) -> None:
-        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_polygon"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+        config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = OSM_GRAPH_DIR + "from_polygon_drive.graphml.gz"
         config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
         config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = True
         config.coordinateReferenceSystem.crsCartesian = "EPSG:3395"
