@@ -123,7 +123,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `RTVI_VLM_IMAGE_TAG` | Legacy Compose image-tag override used when `VSS_CONTAINER_TAG` is unset. The managed GHCR release flow uses `VSS_CONTAINER_TAG`. | `develop-latest` | optional |
+| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.3.0-26.07.4` for x86/Tegra; `3.3.0-26.07.4` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.3.0-26.07.4` as of 2026-06-02).** | `3.3.0-26.07.4` (per `dev-profile-base/.env`) | optional |
 
 ## Network Requirements
 
@@ -133,7 +133,7 @@ The host-side variable names that the compose interpolates differ from the canon
   - Kafka broker on `${KAFKA_BOOTSTRAP_SERVERS}` (host:9092 by default)
   - Redis on `${REDIS_HOST}:${REDIS_PORT}` when `ENABLE_REDIS_ERROR_MESSAGES=true`
   - NIM backend on `${VIA_VLM_ENDPOINT}` when `VLM_MODEL_TO_USE=openai-compat`
-  - GHCR (`ghcr.io`) for the service image, plus NGC and Hugging Face for model downloads on first boot
+  - NGC image registry `nvcr.io`, `huggingface.co` for model downloads on first boot
 - **DNS / hostname assumptions:** the compose default `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` assumes Kafka runs on the **host network**, not the compose bridge — this is the foundational IN-1 wiring (compose puts the broker on `network_mode: host` and RT-VLM on bridge → RT-VLM reaches it via the host IP). `extra_hosts: host.docker.internal: host-gateway` is wired as an alternative way to reach the host. Source: `real-time-vlm.rst` § Sample docker-compose.yml (lines 386–388) + `deploy-rt-vlm-service.md` §10.
 - **`network_mode`:** bridge (default Docker compose network). RT-VLM does NOT use `network_mode: host` — distinguishing it from the ELK + Kafka foundational services.
 
@@ -159,7 +159,7 @@ Minimal IN-1-relevant block. Full upstream compose is at `deploy/docker/services
 ```yaml
 services:
   rtvi-vlm:
-    image: ${VSS_RT_VLM_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-vlm}:${VSS_CONTAINER_TAG:-${RTVI_VLM_IMAGE_TAG:-develop-latest}}
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.07.4}   # resolve tag from dev-profile-base/.env; registry is nvstaging in 3.2.0
     container_name: vss-rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
