@@ -30,6 +30,9 @@ modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-e
 remoteEmbedEndpoint: ""
 remoteEmbedEndpointModelName: "nvidia/cosmos-embed1"
 remoteEmbedEndpointApiKey: ""
+remoteEmbedEndpointApiKeySecret:
+  name: ""
+  key: "REMOTE_EMBED_ENDPOINT_API_KEY"
 remoteEmbedEndpointTimeoutSec: "300"
 remoteEmbedEndpointBatchSize: "64"
 
