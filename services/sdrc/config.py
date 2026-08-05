@@ -153,6 +153,14 @@ class Config(object):
         and os.environ["WDM_WL_THRESHOLD"].strip() != ""
         else 8 # TODO: update based on config input
     )
+    # Pod selection when adding streams: "lru_round_robin" (fewest streams,
+    # ordinal/name tie-break) or "sequential" (first eligible from getPodIps).
+    WDM_WL_ASSIGNING_METHOD = (
+        os.environ["WDM_WL_ASSIGNING_METHOD"].strip().lower()
+        if "WDM_WL_ASSIGNING_METHOD" in os.environ
+        and os.environ["WDM_WL_ASSIGNING_METHOD"].strip() != ""
+        else "lru_round_robin"
+    )
 
     WDM_CONFIG_URL = (
         os.environ["WDM_CONFIG_URL"]
