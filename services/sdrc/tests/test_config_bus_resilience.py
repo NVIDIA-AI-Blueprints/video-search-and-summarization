@@ -451,15 +451,19 @@ def test_kafka_max_replica_does_not_commit_until_retry_limit(app_module, monkeyp
     msg.topic.return_value = "t"
     msg.partition.return_value = 0
     msg.offset.return_value = 42
+    monkeypatch.setattr(app_module.time, "sleep", MagicMock())
 
     handler(msg)
     app_module._test_fake_bus.consumer.commit.assert_not_called()
+    assert app_module._test_fake_bus.consumer.seek.call_count == 1
 
     handler(msg)
     app_module._test_fake_bus.consumer.commit.assert_not_called()
+    assert app_module._test_fake_bus.consumer.seek.call_count == 2
 
     handler(msg)
     app_module._test_fake_bus.consumer.commit.assert_called_once()
+    assert app_module._test_fake_bus.consumer.seek.call_count == 2
 
 
 def test_classify_exception_and_decide_commit(monkeypatch):
