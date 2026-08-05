@@ -62,12 +62,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         make \
         cmake \
         pkg-config \
-        npm \
         binutils \
         crossbuild-essential-arm64 \
         protobuf-compiler-grpc \
         lbzip2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js for the vios-ui build (build.sh -> build_vios_ui). Installed for the
+# image's own architecture (amd64 host), not the arm64 cross target: the UI
+# build runs natively here and only emits static assets.
+# Ubuntu 24.04 ships nodejs 18.19.1, which is EOL and below the
+# "^20.19.0 || >=22.12.0" required by vite 8, so the apt `npm` package cannot
+# be used. Installed from NodeSource with an explicit keyring rather than
+# piping their setup script into a shell.
+ARG NODE_MAJOR=22
+RUN install -d -m 0755 /usr/share/keyrings && \
+    wget -qO- https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/* && \
+    node -v && npm -v
 
 # ---------------------------------------------------------------------------
 # 3. arm64 target dependencies via multiarch. These land under
