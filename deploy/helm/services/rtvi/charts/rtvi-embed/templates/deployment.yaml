@@ -170,11 +170,11 @@ spec:
             - name: KAFKA_TOPIC
               value: {{ .Values.kafkaTopic | quote }}
             - name: MESSAGE_BUS
-              value: {{ .Values.messageBus | default "kafka" | quote }}
+              value: {{ .Values.messageBus | quote }}
             - name: MESSAGE_BUS_TOPIC
               value: {{ .Values.messageBusTopic | default "mdx-embed" | quote }}
             - name: ERROR_BUS
-              value: {{ .Values.errorBus | default "kafka" | quote }}
+              value: {{ .Values.errorBus | quote }}
             - name: REDIS_HOST
               value: {{ include "vss-rtvi-embed.redisHost" . | quote }}
             - name: REDIS_PORT

@@ -37,9 +37,9 @@ remoteEmbedEndpointBatchSize: "64"
 kafkaEnabled: false
 kafkaBootstrapServers: "127.0.0.1:9092"
 kafkaTopic: "mdx-embed"
-messageBus: "kafka"
+messageBus: ""
 messageBusTopic: "mdx-embed"
-errorBus: "kafka"
+errorBus: ""
 waitForKafka:
   enabled: false
 redisHost: "127.0.0.1"
