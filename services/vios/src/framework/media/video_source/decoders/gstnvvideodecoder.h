@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -110,7 +110,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
                     m_decStats.printTotalStats();
                     m_decStats.clearQueue();
                 }
-                destroy(true);
+                GstNvVideoDecoder::destroy(true);
                 LOG(info) << "Decoder instance is deleted "<< m_peerid << endl;
             } catch (const std::exception& e) {
                 try { LOG(error) << "Exception in ~GstNvVideoDecoder: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }

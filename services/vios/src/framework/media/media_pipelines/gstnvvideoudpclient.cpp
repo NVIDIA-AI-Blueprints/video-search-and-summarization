@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1243,7 +1243,7 @@ void GstUDPVideoClient::play_internal ()
     LOG (info) << "Exit - play Gstreamer GstUDPVideoClient pipeline" << endl;   
 
     m_videoDataWatchDog = make_unique<Bosma::Scheduler>(1);
-    m_videoDataWatchDog->interval(VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [=]() {
+    m_videoDataWatchDog->interval(VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [this]() {
         checkVideoDataFlowStatus();
     });
 }

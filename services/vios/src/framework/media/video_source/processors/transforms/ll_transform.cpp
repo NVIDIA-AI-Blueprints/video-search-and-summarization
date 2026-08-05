@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -94,16 +94,8 @@ NvLLTransform::~NvLLTransform ()
         m_surfacePool->freeSurfacesAndDataStructure(false);
     }
     m_surfacePool.reset();
-    if (m_swSurf != nullptr)
-    {
-        if (m_swSurf->surfaceList != nullptr)
-        {
-            free(m_swSurf->surfaceList);
-            m_swSurf->surfaceList = nullptr;
-        }
-        free(m_swSurf);
-        m_swSurf = nullptr;
-    }
+    m_swSurf.reset();
+    m_swSurfaceList.reset();
     LOG(info) << "Exit " << __METHOD_NAME__ <<  endl;
 }
 
@@ -391,20 +383,18 @@ void NvLLTransform::doTransformTask()
                     config_params.cuda_stream  = nullptr;
                     NvBufWrapper::getInstance()->NvBufSurfTransformSetSessionParams (&config_params);
 
-                    NvBufSurfTransformRect *src_rect = nullptr, *dst_rect = nullptr;
+                    NvBufSurfTransformRect src_rect = {}, dst_rect = {};
                     NvBufSurfTransformParams transform_params = {0};
-                    src_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-                    dst_rect = (NvBufSurfTransformRect*)calloc (1, sizeof(NvBufSurfTransformRect));
-                    src_rect->top                       = 0;
-                    src_rect->left                      = 0;
-                    src_rect->width                     = sink_frame->m_sourceWidth;
-                    src_rect->height                    = sink_frame->m_sourceHeight;
-                    dst_rect->top                       = 0;
-                    dst_rect->left                      = 0;
-                    dst_rect->width                     = sink_frame->m_targetWidth;
-                    dst_rect->height                    = sink_frame->m_targetHeight;
-                    transform_params.src_rect           = src_rect;
-                    transform_params.dst_rect           = dst_rect;
+                    src_rect.top                        = 0;
+                    src_rect.left                       = 0;
+                    src_rect.width                      = sink_frame->m_sourceWidth;
+                    src_rect.height                     = sink_frame->m_sourceHeight;
+                    dst_rect.top                        = 0;
+                    dst_rect.left                       = 0;
+                    dst_rect.width                      = sink_frame->m_targetWidth;
+                    dst_rect.height                     = sink_frame->m_targetHeight;
+                    transform_params.src_rect           = &src_rect;
+                    transform_params.dst_rect           = &dst_rect;
                     transform_params.transform_flag     = NVBUFSURF_TRANSFORM_FILTER;
                     transform_params.transform_flip     = NvBufSurfTransform_None;
                     transform_params.transform_filter   = NvBufSurfTransformInter_Default;
@@ -413,13 +403,9 @@ void NvLLTransform::doTransformTask()
                     if (transform_error != NvBufSurfTransformError_Success)
                     {
                         LOG(error) << "Transform failure" << endl;
-                        free (dst_rect);
-                        free (src_rect);
                         is_error = true;
                         goto error;
                     }
-                    free (dst_rect);
-                    free (src_rect);
                 }
 
                 if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true || (m_consumer && m_consumer->getConsumerType() != ConsumerType::webrtcConsumer))
@@ -440,7 +426,7 @@ void NvLLTransform::doTransformTask()
                         {
                             // case 1.2 hw mode full
                             frame_data->m_fd            = fd_index_pair.first;
-                            frame_data->m_fdWrapperObj  = new std::shared_ptr<fdWrapper>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, fd_index_pair.second));
+                            frame_data->m_fdWrapperObj  = std::make_unique<std::shared_ptr<fdWrapper>>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, fd_index_pair.second));
                             frame_data->m_sourceWidth   = sink_frame->m_targetWidth;
                             frame_data->m_sourceHeight  = sink_frame->m_targetHeight;
                         }
@@ -583,24 +569,13 @@ void NvLLTransform::doTransformTask()
                         // Create the NvBufSurface for webrtc SW buffer storage
                         if (!m_swSurf)
                         {
-                            m_swSurf = (NvBufSurface *) calloc (1, sizeof(NvBufSurface));
-                            if (!m_swSurf)
-                            {
-                                LOG(error) << "Allocate SW surface failed" << endl;
-                                is_error = true;
-                                goto error;
-                            }
-                            m_swSurf->surfaceList = (NvBufSurfaceParams *) calloc (1, sizeof(NvBufSurfaceParams));
-                            if (!m_swSurf->surfaceList)
-                            {
-                                LOG(error) << "Allocate SW surfaceList failed" << endl;
-                                is_error = true;
-                                goto error;
-                            }
+                            m_swSurf = std::make_unique<NvBufSurface>();
+                            m_swSurfaceList = std::make_unique<NvBufSurfaceParams>();
+                            m_swSurf->surfaceList = m_swSurfaceList.get();
                         }
 
                         // For SW transform : Init the NvBufSurface data from the webrtc I420 buffer created
-                        ret = NvBufWrapper::getInstance()->getSwNvBufSurface(yuv_buffer, m_swSurf);
+                        ret = NvBufWrapper::getInstance()->getSwNvBufSurface(yuv_buffer, m_swSurf.get());
                         if (ret < 0)
                         {
                             LOG(error) << "Get SW NvBufSurface failed" << endl;
@@ -609,7 +584,7 @@ void NvLLTransform::doTransformTask()
                         }
 
                         // For SW transform : Copy from HW I420 -> SW I420
-                        ret = NvBufWrapper::getInstance()->NvBufSurfaceCopy (dst_surf, m_swSurf);
+                        ret = NvBufWrapper::getInstance()->NvBufSurfaceCopy (dst_surf, m_swSurf.get());
                         if (ret < 0)
                         {
                             LOG(error) << "NvBufSurfaceCopy failed" << endl;

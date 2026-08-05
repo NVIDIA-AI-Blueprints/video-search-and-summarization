@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,7 @@
 
 #include "nvjpegenc_loader.h"
 #include <dlfcn.h>
+#include <vector>
 #include "logger.h"
 #include "nvbufwrapper.h"
 
@@ -30,23 +31,10 @@ constexpr int JPEG_DEFAULT_QUALITY = 75;
 #endif
 #define ROUND_UP_4(num)  (((num) + 3) & ~3)
 
-NvJpegEncLoader* NvJpegEncLoader::m_instance = nullptr;
-
 NvJpegEncLoader* NvJpegEncLoader::getInstance()
 {
-    if (m_instance == nullptr)
-    {
-        m_instance = new NvJpegEncLoader();
-    }
-    return m_instance;
-}
-
-void NvJpegEncLoader::deleteInstance()
-{
-    if (m_instance)
-    {
-        delete m_instance;
-    }
+    static NvJpegEncLoader _instance;
+    return &_instance;
 }
 
 NvJpegEncLoader::NvJpegEncLoader()
@@ -191,6 +179,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
 int NvJpegEncLoader::nvjpegEncodeFromBuffer(unsigned char* buffer, uint32_t width, uint32_t height, unsigned char **out_buf, unsigned long &out_buf_size)
 {
     unsigned char **line[3];
+    std::vector<unsigned char *> line_storage[MAX_CHANNELS];
 
     uint32_t comp_height[MAX_CHANNELS];
     uint32_t comp_width[MAX_CHANNELS];
@@ -262,8 +251,8 @@ int NvJpegEncLoader::nvjpegEncodeFromBuffer(unsigned char* buffer, uint32_t widt
     {
         cinfo.comp_info[i].h_samp_factor = h_samp[i];
         cinfo.comp_info[i].v_samp_factor = v_samp[i];
-        line[i] = (unsigned char **) malloc(v_max_samp * DCTSIZE *
-                sizeof(unsigned char *));
+        line_storage[i].resize(v_max_samp * DCTSIZE);
+        line[i] = line_storage[i].data();
     }
 
     for (i = 0; i < channels; i++)
@@ -302,10 +291,6 @@ int NvJpegEncLoader::nvjpegEncodeFromBuffer(unsigned char* buffer, uint32_t widt
     }
 
     jpeg_finish_compress(&cinfo);
-    for (i = 0; i < channels; i++)
-    {
-        free(line[i]);
-    }
     LOG(info) << "Succesfully encoded Buffer" << endl;
 
     /* Destroy */

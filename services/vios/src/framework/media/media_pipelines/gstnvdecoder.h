@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +21,8 @@
 class GstNvDecoder
 {
     public:
-        GstNvDecoder () {}
-        ~GstNvDecoder () {}
+        GstNvDecoder () = default;
+        ~GstNvDecoder () = default;
 
         virtual int create(bool blocking = false) { return 0; }
         virtual void destroy(bool expect_result) = 0;

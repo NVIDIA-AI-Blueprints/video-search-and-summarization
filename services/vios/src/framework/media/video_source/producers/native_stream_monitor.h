@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,32 +18,31 @@
 #pragma once
 
 #include<iostream>
+#include <memory>
 #include "logger.h"
 #include "nativestreamproducer.h"
 
 class NativeStreamMonitor
 {
 private:
-    static NativeStreamMonitor* m_pInstance;
-    NativeStreamMonitor() { }
+    struct PrivateTag { };
+    static std::unique_ptr<NativeStreamMonitor> m_pInstance;
 
 public:
+    explicit NativeStreamMonitor(PrivateTag) { }
+
     static NativeStreamMonitor* getInstance()
     {
         if(m_pInstance == nullptr)
         {
-            m_pInstance  = new NativeStreamMonitor();
+            m_pInstance  = std::make_unique<NativeStreamMonitor>(PrivateTag{});
         }
-        return m_pInstance;
+        return m_pInstance.get();
     }
 
     static void deleteInstance()
     {
-        if(m_pInstance != nullptr)
-        {
-            delete m_pInstance;
-            m_pInstance = nullptr;
-        }
+        m_pInstance.reset();
     }
     ~NativeStreamMonitor();
 

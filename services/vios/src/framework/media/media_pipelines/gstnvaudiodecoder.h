@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,7 +81,7 @@ class GstNvAudioDecoder : public IMediaDataConsumer, public GstNvDecoder
             {
                 m_audioData.m_audioCodec = opts.at("audio_codec");
             }
-            setConsumerMediaType(MediaTypeAudio);
+            IMediaDataConsumer::setConsumerMediaType(MediaTypeAudio);
         }
         ~GstNvAudioDecoder ()
         {

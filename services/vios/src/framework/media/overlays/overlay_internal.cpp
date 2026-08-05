@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -753,7 +753,7 @@ void NvLLOverlayInternal::draw_bbox_id_cuosd(const Point& left_top, const Point&
     const int bottom = right_bottom.y;
     const int right = right_bottom.x;
 
-    OSD_TextParams* text_params = static_cast<OSD_TextParams*>(malloc(sizeof(OSD_TextParams)));
+    OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
     if (!text_params)
     {
         LOG(error) << "Failed to allocate OSD_TextParams for bbox id" << endl;
@@ -761,7 +761,7 @@ void NvLLOverlayInternal::draw_bbox_id_cuosd(const Point& left_top, const Point&
     }
 
     const string text = object_id;
-    char* cstr = static_cast<char*>(calloc(text.size() + 1, sizeof(char)));
+    char* cstr = g_try_new0(char, text.size() + 1);
     if (cstr)
     {
         strncpy(cstr, text.c_str(), text.size());
@@ -771,7 +771,7 @@ void NvLLOverlayInternal::draw_bbox_id_cuosd(const Point& left_top, const Point&
     else
     {
         LOG(error) << "Failed to allocate memory for overlay object id text" << endl;
-        free(text_params);
+        g_free(text_params);
         return;
     }
 
@@ -955,7 +955,7 @@ int NvLLOverlayInternal::draw_3d_bbox(const vector<Point2D>& corners2d, const st
         clamp_point(x1, y1, m_sourceWidth, m_sourceHeight);
         clamp_point(x2, y2, m_sourceWidth, m_sourceHeight);
 
-        OSD_LineParams* line_params = (OSD_LineParams*)malloc(sizeof(OSD_LineParams));
+        OSD_LineParams* line_params = g_try_new0(OSD_LineParams, 1);
         if (line_params)
         {
             Point start = interpolateCoordinate(x1, y1, m_sourceWidth, m_sourceHeight, m_width, m_height);
@@ -979,7 +979,7 @@ int NvLLOverlayInternal::draw_3d_bbox(const vector<Point2D>& corners2d, const st
             }
 
             draw_line_cuosd(line_params, box_params, context, buffer, output_color);
-            free(line_params);
+            g_free(line_params);
         }
     }
 
@@ -1016,11 +1016,11 @@ int NvLLOverlayInternal::draw_3d_bbox(const vector<Point2D>& corners2d, const st
         ss << object_id << "," << obj_type << "," << std::fixed << std::setprecision(2) << confidence;
         string label_text = ss.str();
 
-        OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
         if (text_params != nullptr)
         {
             // Use safe strncpy with explicit bounds checking
-            char* cstr = (char*)calloc(label_text.size() + 1, sizeof(char));
+            char* cstr = g_try_new0(char, label_text.size() + 1);
             if (cstr != nullptr)
             {
                 strncpy(cstr, label_text.c_str(), label_text.size());
@@ -1252,7 +1252,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
         }
 
         /* Assign bounding box coordinates */
-        OSD_RectParams* rect_params = (OSD_RectParams*)malloc(sizeof(OSD_RectParams));
+        OSD_RectParams* rect_params = g_try_new0(OSD_RectParams, 1);
         Point left_top = {}, right_bottom = {};
         if (rect_params)
         {
@@ -1311,16 +1311,13 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
             int bottom = right_bottom.y;
 
             // Display coordinates above each bbox.
-            OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
             if (text_params)
             {
                 string text = to_string(left) + "    " + to_string(top);
-                // Use safe strncpy with explicit bounds checking
-                char* cstr = (char*)calloc(text.size() + 1, sizeof(char));
+                char* cstr = strdup(text.c_str());
                 if (cstr)
                 {
-                    strncpy(cstr, text.c_str(), text.size());
-                    cstr[text.size()] = '\0';  // Guarantee null termination
                     text_params->text = cstr;
                 }
                 else
@@ -1352,12 +1349,12 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
 
             // Display retail name & confidence under bbox.
             {
-                OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+                OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
                 if (text_params)
                 {
                     string text = obj_type + "    " + to_string(confidence);
                     // Use safe strncpy with explicit bounds checking
-                    char* cstr = (char*)calloc(text.size() + 1, sizeof(char));
+                    char* cstr = g_try_new0(char, text.size() + 1);
                     if (cstr)
                     {
                         strncpy(cstr, text.c_str(), text.size());
@@ -1522,7 +1519,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
         if (box_params->m_overlay.m_proximityAnimation == "circleOnly" ||
             box_params->m_overlay.m_proximityAnimation == "circleAndLine")
         {
-            OSD_CircleParams* circle_params = (OSD_CircleParams*)malloc(sizeof(OSD_CircleParams));
+            OSD_CircleParams* circle_params = g_try_new0(OSD_CircleParams, 1);
             if (circle_params)
             {
                 // Use the bottom face center for the circle
@@ -1588,7 +1585,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                 }
                 else
                 {
-                    free(circle_params);
+                    g_free(circle_params);
                 }
             }
         }
@@ -1597,7 +1594,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
         if (box_params->m_overlay.m_proximityAnimation == "ellipseOnly" ||
             box_params->m_overlay.m_proximityAnimation == "ellipseAndLine")
         {
-            OSD_EllipseParams* ellipse_params = (OSD_EllipseParams*)malloc(sizeof(OSD_EllipseParams));
+            OSD_EllipseParams* ellipse_params = g_try_new0(OSD_EllipseParams, 1);
             if (ellipse_params)
             {
                 // Check if we have bbox3d coordinates in the original JSON
@@ -1853,7 +1850,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                     }
                     else
                     {
-                        free(ellipse_params);
+                        g_free(ellipse_params);
                     }
                 }
             }
@@ -1914,7 +1911,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                 if (entrantStates.find(entrantId) != entrantStates.end())
                 {
                     // Draw line between bottom face centers
-                    OSD_LineParams* line_params = (OSD_LineParams*)malloc(sizeof(OSD_LineParams));
+                    OSD_LineParams* line_params = g_try_new0(OSD_LineParams, 1);
                     if (line_params)
                     {
                         // Use the bottom face centers for both proximity and entrant objects
@@ -1937,7 +1934,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                         }
                         else
                         {
-                            free(line_params);
+                            g_free(line_params);
                             continue;
                         }
 
@@ -1958,15 +1955,12 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                         int text_y = ((start.y + end.y) / 2) - 2; // Offset above the line
 
                         // Create text parameters
-                        OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+                        OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
                         if (text_params != nullptr)
                         {
-                            // Use safe strncpy with explicit bounds checking
-                            char* cstr = (char*)calloc(distance_text.size() + 1, sizeof(char));
+                            char* cstr = strdup(distance_text.c_str());
                             if (cstr != nullptr)
                             {
-                                strncpy(cstr, distance_text.c_str(), distance_text.size());
-                                cstr[distance_text.size()] = '\0';  // Guarantee null termination
                                 text_params->text = cstr;
                             }
                             else
@@ -1996,7 +1990,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
                                 GET_OSD_INSTANCE()->osd_add_metadata(context, &meta);
                             }
                         }
-                        free (line_params);
+                        g_free(line_params);
                         line_params = nullptr;
                     }
                 }
@@ -2205,7 +2199,7 @@ void NvLLOverlayInternal::readTripwire()
                 {
                     if (tripwire.wires[j])
                     {
-                        free(tripwire.wires[j]);
+                        g_free(tripwire.wires[j]);
                         tripwire.wires[j] = nullptr;
                     }
                 }
@@ -2213,7 +2207,7 @@ void NvLLOverlayInternal::readTripwire()
                 {
                     if (tripwire.endpoints[j])
                     {
-                        free(tripwire.endpoints[j]);
+                        g_free(tripwire.endpoints[j]);
                         tripwire.endpoints[j] = nullptr;
                     }
                 }
@@ -2221,7 +2215,7 @@ void NvLLOverlayInternal::readTripwire()
                 {
                     if (tripwire.direction[j])
                     {
-                        free(tripwire.direction[j]);
+                        g_free(tripwire.direction[j]);
                         tripwire.direction[j] = nullptr;
                     }
                 }
@@ -2247,15 +2241,15 @@ void NvLLOverlayInternal::readTripwire()
                     tripwire.direction_count = tripwire.endpoints_count = tripwire.wires_count = 0;
                     for (uint32_t j = 0; j < MAX_LINES; j++)
                     {
-                        tripwire.wires[j] = (OSD_LineParams *)malloc(sizeof(OSD_LineParams));
+                        tripwire.wires[j] = g_new0(OSD_LineParams, 1);
                     }
                     for (uint32_t j = 0; j < MAX_POINTS; j++)
                     {
-                        tripwire.endpoints[j] = (OSD_PointParams *)malloc(sizeof(OSD_PointParams));
+                        tripwire.endpoints[j] = g_new0(OSD_PointParams, 1);
                     }
                     for (uint32_t j = 0; j < MAX_ARROWS; j++)
                     {
-                        tripwire.direction[j] = (OSD_ArrowParams *)malloc(sizeof(OSD_ArrowParams));
+                        tripwire.direction[j] = g_new0(OSD_ArrowParams, 1);
                     }
 
                     Json::Value wire = tripwire_details[i].get("wire", Json::Value::null);
@@ -2408,13 +2402,12 @@ void NvLLOverlayInternal::drawTripwire(GstBuffer* buffer)
         }
         if (tripwire.stats.size())
         {
-            OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params=g_try_new0(OSD_TextParams, 1);
             if (text_params != nullptr)
             {
-                char* cstr = (char*)malloc(tripwire.stats.size() + 1);
+                char* cstr = strdup(tripwire.stats.c_str());
                 if (cstr != nullptr)
                 {
-                    strcpy(cstr, tripwire.stats.c_str());
                     text_params->text = cstr;
                 }
 
@@ -2501,7 +2494,7 @@ void NvLLOverlayInternal::readRoi()
                 {
                     if (roi.lines[j])
                     {
-                        free(roi.lines[j]);
+                        g_free(roi.lines[j]);
                         roi.lines[j] = nullptr;
                     }
                 }
@@ -2509,7 +2502,7 @@ void NvLLOverlayInternal::readRoi()
                 {
                     if (roi.endpoints[j])
                     {
-                        free(roi.endpoints[j]);
+                        g_free(roi.endpoints[j]);
                         roi.endpoints[j] = nullptr;
                     }
                 }
@@ -2535,11 +2528,11 @@ void NvLLOverlayInternal::readRoi()
                     roi.lines_count = roi.endpoints_count = 0;
                     for (uint32_t j = 0; j < MAX_LINES; j++)
                     {
-                        roi.lines[j] = (OSD_LineParams *)malloc(sizeof(OSD_LineParams));
+                        roi.lines[j] = g_new0(OSD_LineParams, 1);
                     }
                     for (uint32_t j = 0; j < MAX_POINTS; j++)
                     {
-                        roi.endpoints[j] = (OSD_PointParams *)malloc(sizeof(OSD_PointParams));
+                        roi.endpoints[j] = g_new0(OSD_PointParams, 1);
                     }
                     Json::Value roi_coord = roi_details[i].get("coordinates", Json::Value::null);
                     if (roi_details[i].get("id", Json::Value::null) != Json::Value::null)
@@ -2687,13 +2680,12 @@ void NvLLOverlayInternal::drawRoi(GstBuffer* buffer)
         }
         if (roi.stats.size())
         {
-            OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params=g_try_new0(OSD_TextParams, 1);
             if (text_params != nullptr)
             {
-                char* cstr = (char*)malloc(roi.stats.size() + 1);
+                char* cstr = strdup(roi.stats.c_str());
                 if (cstr != nullptr)
                 {
-                    strcpy(cstr, roi.stats.c_str());
                     text_params->text = cstr;
                 }
 
@@ -3445,13 +3437,13 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
     {
         if (!m_cpuCtx)
         {
-            m_cpuCtx = new OsdCpuDataContext();
+            m_cpuCtx = std::make_unique<OsdCpuDataContext>();
         }
         m_cpuCtx->width = m_width;
         m_cpuCtx->height = m_height;
         m_cpuCtx->data = &buffer;
         m_cpuCtx->size = (m_width * m_height * 3) / 2;
-        ip_buffer = (OsdCpuDataContext *)m_cpuCtx;
+        ip_buffer = m_cpuCtx.get();
     }
 #endif
     string frameTimestamp;
@@ -3516,7 +3508,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
                 Point left_top = {}, right_bottom = {};
 
                 /* Assign bounding box coordinates */
-                OSD_RectParams* rect_params = (OSD_RectParams*)malloc(sizeof(OSD_RectParams));
+                OSD_RectParams* rect_params = g_try_new0(OSD_RectParams, 1);
 
                 if (rect_params)
                 {
@@ -3560,13 +3552,12 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
 
     if (m_enableSensorNameText)
     {
-        OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
         if (text_params != nullptr)
         {
-            char* cstr = (char*)malloc(m_sensorName.size() + 1);
+            char* cstr = strdup(m_sensorName.c_str());
             if (cstr != nullptr)
             {
-                strcpy(cstr, m_sensorName.c_str());
                 text_params->text = cstr;
             }
 
@@ -3601,14 +3592,13 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
         if (m_bboxParams.m_overlay.m_bboxDebug)
         {
 #ifdef USE_CUOSD
-            OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
             if (text_params != nullptr)
             {
                 string text = getUTCtoLocalISOTime(frameTS);
-                char* cstr = (char*)malloc(text.size() + 1);
+                char* cstr = strdup(text.c_str());
                 if (cstr != nullptr)
                 {
-                    strcpy(cstr, text.c_str());
                     text_params->text = cstr;
                 }
 
@@ -3768,7 +3758,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
 #ifdef USE_CUOSD
     if (m_bboxParams.m_overlay.m_bboxDebug)
     {
-        OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
         int font_size = interpolateFontSize(m_sourceWidth, m_width);
         if (text_params != nullptr)
         {
@@ -3777,10 +3767,9 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
             {
                 text = text + "  #objects: " + to_string(num_objects);
             }
-            char* cstr = (char*)malloc(text.size() + 1);
+            char* cstr = strdup(text.c_str());
             if (cstr != nullptr)
             {
-                strcpy(cstr, text.c_str());
                 text_params->text = cstr;
             }
 
@@ -3810,15 +3799,14 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
         // Display latency of the frame;
         if (m_bboxParams.m_isLive)
         {
-            OSD_TextParams* text_params_latency = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+            OSD_TextParams* text_params_latency = g_try_new0(OSD_TextParams, 1);
             if (text_params_latency != nullptr)
             {
                 int64_t current_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 string text = "Latency: " + to_string((current_time_ns - stored_frame_TS) / 1000000) + "ms";
-                char* cstr = (char*)malloc(text.size() + 1);
+                char* cstr = strdup(text.c_str());
                 if (cstr != nullptr)
                 {
-                    strcpy(cstr, text.c_str());
                     text_params_latency->text = cstr;
                 }
 
@@ -3881,13 +3869,13 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
     {
         if (!m_cpuCtx)
         {
-            m_cpuCtx = new OsdCpuDataContext();
+            m_cpuCtx = std::make_unique<OsdCpuDataContext>();
         }
         m_cpuCtx->width = m_width;
         m_cpuCtx->height = m_height;
         m_cpuCtx->data = &buffer;
         m_cpuCtx->size = (m_width * m_height * 3) / 2;
-        ip_buffer = (OsdCpuDataContext *)m_cpuCtx;
+        ip_buffer = m_cpuCtx.get();
     }
 #endif
 
@@ -3904,15 +3892,14 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
     if (m_bboxParams.m_overlay.m_bboxDebug)
     {
 #ifdef USE_CUOSD
-        OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params=g_try_new0(OSD_TextParams, 1);
         if (text_params != nullptr)
         {
             string time_str = getRelativeTimeUsingFrameId(frameTS, m_bboxParams.m_frameRate);
             string text = "id:" + to_string(frameTS) + string(" ts: ") + time_str ;
-            char* cstr = (char*)malloc(text.size() + 1);
+            char* cstr = strdup(text.c_str());
             if (cstr != nullptr)
             {
-                strcpy(cstr, text.c_str());
                 text_params->text = cstr;
             }
 
@@ -4041,7 +4028,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
     if (m_bboxParams.m_overlay.m_bboxDebug)
     {
 #ifdef USE_CUOSD
-        OSD_TextParams* text_params=(OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params=g_try_new0(OSD_TextParams, 1);
         if (text_params != nullptr)
         {
             string text = to_string(frameTS) + "   " + to_string(elasticFrameId) + "  " + match_check;
@@ -4049,10 +4036,9 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
             {
                 text = text + "  #objects: " + to_string(num_objects);
             }
-            char* cstr = (char*)malloc(text.size() + 1);
+            char* cstr = strdup(text.c_str());
             if (cstr != nullptr)
             {
-                strcpy(cstr, text.c_str());
                 text_params->text = cstr;
             }
 
@@ -4089,24 +4075,10 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
     return true;
 }
 
-NvOsdLibs* NvOsdLibs::_instance = nullptr;
-
 NvOsdLibs* NvOsdLibs::getInstance()
 {
-    if (_instance == nullptr)
-    {
-        _instance = new NvOsdLibs();
-    }
-    return _instance;
-}
-
-void NvOsdLibs::deleteInstance()
-{
-    if (_instance)
-    {
-        delete _instance;
-        _instance = nullptr;  // Reset to nullptr after deletion
-    }
+    static NvOsdLibs instance;
+    return &instance;
 }
 
 NvOsdLibs::NvOsdLibs()
@@ -4209,10 +4181,6 @@ void NvLLOverlayInternal::updateIPCStreamResolution(int width, int height)
 {
     m_ipcSourceWidth  = width;
     m_ipcSourceHeight = height;
-}
-
-NvLLOverlayInternal::NvLLOverlayInternal()
-{
 }
 
 void NvLLOverlayInternal::enableOverlay(OverlayParams& params, bool use_frameid, bool wait_for_es_query)
@@ -4421,7 +4389,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (tripwire.wires[j])
                 {
-                    free(tripwire.wires[j]);
+                    g_free(tripwire.wires[j]);
                     tripwire.wires[j] = nullptr;
                 }
             }
@@ -4429,7 +4397,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (tripwire.endpoints[j])
                 {
-                    free(tripwire.endpoints[j]);
+                    g_free(tripwire.endpoints[j]);
                     tripwire.endpoints[j] = nullptr;
                 }
             }
@@ -4437,7 +4405,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (tripwire.direction[j])
                 {
-                    free(tripwire.direction[j]);
+                    g_free(tripwire.direction[j]);
                     tripwire.direction[j] = nullptr;
                 }
             }
@@ -4450,7 +4418,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (roi.lines[j])
                 {
-                    free(roi.lines[j]);
+                    g_free(roi.lines[j]);
                     roi.lines[j] = nullptr;
                 }
             }
@@ -4458,7 +4426,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
             {
                 if (roi.endpoints[j])
                 {
-                    free(roi.endpoints[j]);
+                    g_free(roi.endpoints[j]);
                     roi.endpoints[j] = nullptr;
                 }
             }
@@ -4488,11 +4456,7 @@ NvLLOverlayInternal::~NvLLOverlayInternal()
         osd_ctx = nullptr;
     }
 #if !defined(AARCH64_PLATFORM)
-    if (m_cpuCtx)
-    {
-        delete m_cpuCtx;
-        m_cpuCtx = nullptr;
-    }
+    m_cpuCtx.reset();
 #endif
     m_calibrationData.clear();
     activeObjectCorners.clear();
@@ -5296,15 +5260,12 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
     {
         Point text_pos = interpolateCoordinate(x, y, m_sourceWidth, m_sourceHeight, m_width, m_height);
 
-        OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+        OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
         if (text_params)
         {
-            // Use safe strncpy with explicit bounds checking
-            char* cstr = (char*)calloc(action_label.size() + 1, sizeof(char));
+            char* cstr = g_strdup(action_label.c_str());
             if (cstr)
             {
-                strncpy(cstr, action_label.c_str(), action_label.size());
-                cstr[action_label.size()] = '\0';  // Guarantee null termination
                 text_params->text = cstr;
             }
             else
@@ -5319,7 +5280,7 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
 
             // Add error checking for strdup
             const char* font_type_str = GET_CONFIG().overlay_text_font_type.c_str();
-            text_params->font_type = strdup(font_type_str);
+            text_params->font_type = g_strdup(font_type_str);
             if (!text_params->font_type)
             {
                 LOG(error) << "Failed to duplicate font type string" << endl;
@@ -5349,9 +5310,9 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
                 // Clean up if we failed to allocate text
                 if (text_params->font_type)
                 {
-                    free(text_params->font_type);
+                    g_free(text_params->font_type);
                 }
-                free(text_params);
+                g_free(text_params);
             }
         }
         else
@@ -5369,7 +5330,7 @@ void NvLLOverlayInternal::draw_ellipse_around_2d_bbox(const Point& left_top, con
     right   = right_bottom.x;
     bottom  = right_bottom.y;
 
-    OSD_EllipseParams* ellipse_params = (OSD_EllipseParams*)malloc(sizeof(OSD_EllipseParams));
+    OSD_EllipseParams* ellipse_params = g_try_new0(OSD_EllipseParams, 1);
     if (ellipse_params)
     {
         // Calculate the midpoint of the bottom line of the 2D box

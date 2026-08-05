@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -353,6 +353,11 @@ public:
         if (handle_libavcodec) dlclose(handle_libavcodec);
         if (handle_libavutil) dlclose(handle_libavutil);
     }
+
+    LibavWrapper(const LibavWrapper&) = delete;
+    LibavWrapper& operator=(const LibavWrapper&) = delete;
+    LibavWrapper(LibavWrapper&&) = delete;
+    LibavWrapper& operator=(LibavWrapper&&) = delete;
 
     LibavMode getLibavMode() const
     {

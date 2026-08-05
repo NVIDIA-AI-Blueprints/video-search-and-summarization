@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +21,7 @@
  #include <filesystem>
  #include <iomanip>
  #include <chrono>
+ #include <memory>
  
  // Enable detailed logging
  #define LOG_INFO(msg) std::cout << "[INFO] " << msg << std::endl
@@ -542,7 +543,7 @@ extern "C" {
     // Create VideoSegmentExtractor instance
     nv_vms::VideoSegmentExtractor* createVideoSegmentExtractor() {
         try {
-            return new nv_vms::VideoSegmentExtractor();
+            return std::make_unique<nv_vms::VideoSegmentExtractor>().release();
         } catch (const std::exception& e) {
             LOG_ERROR("Failed to create VideoSegmentExtractor: " << e.what());
             return nullptr;
@@ -551,9 +552,7 @@ extern "C" {
     
     // Destroy VideoSegmentExtractor instance
     void destroyVideoSegmentExtractor(nv_vms::VideoSegmentExtractor* extractor) {
-        if (extractor) {
-            delete extractor;
-        }
+        std::unique_ptr<nv_vms::VideoSegmentExtractor> owner(extractor);
     }
     
     // Extract video segment using stream copy

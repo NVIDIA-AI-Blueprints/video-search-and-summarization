@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,12 +27,12 @@ void VideoWebRTCSender::unRefDataStructure(void *ptr)
     if (ptr)
     {
         std::lock_guard<std::mutex> lock(m_encParamsLock);
-        encoder_params* params = (encoder_params*) ptr;
+        encoder_params* params = static_cast<encoder_params*>(ptr);
         /* Copy encoder feedback params as member variables */
         m_qp        = params->m_qp;
         m_targetBps = params->m_targetBps;
         m_fps       = params->m_frameRate;
-        free (params);
+        delete params;
     }
 }
 
@@ -40,7 +40,7 @@ VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, const st
                     IMediaDataConsumer(consumer_name), m_uri(uri)
 {
     m_fpsDisplay = std::make_unique<FPSDisplay>();
-    setConsumerMediaType(MediaTypeVideo);
+    IMediaDataConsumer::setConsumerMediaType(MediaTypeVideo);
 }
 
 VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, double frame_rate, bool enable_frame_sync)
@@ -48,7 +48,7 @@ VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, double f
 {
     LOG(info) << "VideoWebRTCSender::VideoWebRTCSender m_frameRate:" << m_frameRate << endl;
     m_fpsDisplay = std::make_unique<FPSDisplay>();
-    setConsumerMediaType(MediaTypeVideo);
+    IMediaDataConsumer::setConsumerMediaType(MediaTypeVideo);
     if (frame_rate != 0)
     {
         m_idealFrameSendInterval = (1000/m_frameRate);
@@ -59,7 +59,7 @@ VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, double f
 VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name) : IMediaDataConsumer(consumer_name)
 {
     m_fpsDisplay = std::make_unique<FPSDisplay>();
-    setConsumerMediaType(MediaTypeVideo);
+    IMediaDataConsumer::setConsumerMediaType(MediaTypeVideo);
 }
 
 int VideoWebRTCSender::createPassThroughMode(std::string& device_id)
@@ -246,8 +246,7 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
         memcpy(nv_video_frame_buffer_ptr->m_encodedData,  content.data(),  content.size());
         nv_video_frame_buffer->codecName = frame_params.m_codec;
 
-        encoder_params* params = (encoder_params*)malloc(sizeof(encoder_params));
-        memset(params, 0, sizeof(encoder_params));
+        encoder_params* params = new encoder_params{};
         nv_video_frame_buffer_ptr->m_clientBuffer = (void*)params;
         nv_video_frame_buffer_ptr->setPassThrough(true);
         nv_video_frame_buffer_ptr->registerCB([this](void* params) { unRefDataStructure(params); });

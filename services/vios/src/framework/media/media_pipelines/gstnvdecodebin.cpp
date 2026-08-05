@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -453,10 +453,7 @@ NvDecodeBin::NvDecodeBin(DecoderBase* parent, const string codec)
     m_useNvV4l2Dec = NvHwDetection::getInstance()->m_useNvV4l2Dec;
 }
 
-NvDecodeBin::~NvDecodeBin()
-{
-
-}
+NvDecodeBin::~NvDecodeBin() = default;
 
 GstElement* NvDecodeBin::create(bool is_image_capture)
 {

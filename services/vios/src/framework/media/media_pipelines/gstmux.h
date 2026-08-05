@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -88,12 +88,10 @@ class GstMux : public IMediaDataConsumer
         m_recordingStopped = false;
         m_fpsDisplay.reset(new FPSDisplay());
         m_checkStatusScheduler = make_unique<Bosma::Scheduler>(1);
-        setConsumerMediaType(MediaTypeAudioVideo);
+        IMediaDataConsumer::setConsumerMediaType(MediaTypeAudioVideo);
         m_videoQueue.setRecordingState(m_recordingState);
     }
-    ~GstMux()
-    {
-    }
+    ~GstMux() = default;
 
     int create(shared_ptr<StreamInfo> stream, GAsyncQueue* qErrorDeviceID, bool recreate_muxer = false);
     void destroy();

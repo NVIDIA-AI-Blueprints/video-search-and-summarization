@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -370,13 +370,9 @@ void HaloSafetyCommandListener::listenerThread()
 // HaloSafetyManager Implementation
 // =============================================================================
 
-HaloSafetyManager::HaloSafetyManager()
-{
-}
+HaloSafetyManager::HaloSafetyManager() = default;
 
-HaloSafetyManager::~HaloSafetyManager()
-{
-}
+HaloSafetyManager::~HaloSafetyManager() = default;
 
 bool HaloSafetyManager::checkHalosData(const std::string& obj_type, const std::string& proximity_class,
                                        bool& draw_halo_text, const std::string& metadata_object_id)
@@ -555,10 +551,10 @@ static OSD_ColorParams getHaloTextColor(const std::string& color)
 void HaloSafetyManager::drawHaloText(const Point& left_top, const Point& right_bottom,
                                      const std::string& text, OsdContext_t context, GstBuffer* buffer)
 {
-    OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+    OSD_TextParams* text_params = g_try_new0(OSD_TextParams, 1);
     if (text_params != nullptr)
     {
-        char* cstr = (char*)calloc(text.size() + 1, sizeof(char));
+        char* cstr = g_try_new0(char, text.size() + 1);
         if (cstr != nullptr)
         {
             strncpy(cstr, text.c_str(), text.size());

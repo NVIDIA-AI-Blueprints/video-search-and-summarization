@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -563,11 +563,7 @@ NvLLOverlay::~NvLLOverlay ()
     m_surfacePool.reset();
     for (int i = 0; i < OUTPUT_PLANE_NUM_BUFFERS; i++)
     {
-        if (m_cpuPtr[i])
-        {
-            free (m_cpuPtr[i]);
-            m_cpuPtr[i] = nullptr;
-        }
+        m_cpuPtr[i].reset();
     }
     LOG(info) << "Exit " << __METHOD_NAME__ <<  endl;
 }
@@ -762,11 +758,7 @@ void NvLLOverlay::doDrawTask()
                     m_surfacePool->m_surfacesAllocated = false;
                     for (int i = 0; i < OUTPUT_PLANE_NUM_BUFFERS; i++)
                     {
-                        if (m_cpuPtr[i])
-                        {
-                            free (m_cpuPtr[i]);
-                            m_cpuPtr[i] = nullptr;
-                        }
+                        m_cpuPtr[i].reset();
                     }
                 }
                 LOG(info) << "Allocating surfaces of resolution = " << m_width << " x " << m_height << endl;
@@ -798,9 +790,9 @@ void NvLLOverlay::doDrawTask()
                     }
                     if (!m_cpuPtr[index])
                     {
-                        m_cpuPtr[index] = (uint8_t *) malloc (m_width * m_height * 3 / 2);
+                        m_cpuPtr[index] = std::make_unique<uint8_t[]>(m_width * m_height * 3 / 2);
                     }
-                    memcpy((void *)m_cpuPtr[index], sink_frame->m_map.data, sink_frame->m_map.size);
+                    memcpy((void *)m_cpuPtr[index].get(), sink_frame->m_map.data, sink_frame->m_map.size);
                 }
                 else
                 {
@@ -829,7 +821,7 @@ void NvLLOverlay::doDrawTask()
                 // Perform overlay using GPU/CPU based on config
                 if (!isJetsonPlatform() && is_sw_mode)
                 {
-                    data_ptr = (void *)m_cpuPtr[index];
+                    data_ptr = (void *)m_cpuPtr[index].get();
                     ret = m_overlay->doDraw(data_ptr, &meta_union, pts);
                 }
                 else
@@ -859,10 +851,10 @@ void NvLLOverlay::doDrawTask()
                         {
                             frame_data->m_fd        = (fd_index_pair.first * -1) + 1;
                         }
-                        frame_data->m_map.data  = m_cpuPtr[index];
+                        frame_data->m_map.data  = m_cpuPtr[index].get();
                         frame_data->m_map.size  = m_width * m_height * 3 / 2;
                     }
-                    frame_data->m_fdWrapperObj  = new std::shared_ptr<fdWrapper>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, index));
+                    frame_data->m_fdWrapperObj  = std::make_unique<std::shared_ptr<fdWrapper>>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, index));
                     frame_data->m_sourceWidth   = m_overlay->m_width;
                     frame_data->m_sourceHeight  = m_overlay->m_height;
                     frame_data->m_targetWidth   = m_overlay->m_width;

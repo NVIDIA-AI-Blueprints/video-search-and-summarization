@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +27,7 @@
 #include <json/json.h>
 #include <algorithm>
 #include <climits>
+#include <memory>
 #include <sstream>
 
 inline constexpr int DEFAUL_KEY_FRAME_INTERVAL = 30;
@@ -228,9 +229,12 @@ class GstTranscode : public GstNvElements
         string m_inAudioCaps;
     } TranscodeParam;
 
-    GstTranscode()
-    {
-    }
+    GstTranscode() = default;
+
+    GstTranscode(const GstTranscode&) = delete;
+    GstTranscode& operator=(const GstTranscode&) = delete;
+    GstTranscode(GstTranscode&&) = delete;
+    GstTranscode& operator=(GstTranscode&&) = delete;
 
     ~GstTranscode()
     {
@@ -314,7 +318,7 @@ bool muxElementaryStream(const std::string& elementaryFilePath, const std::strin
 class GstDummyUdpPipeline
 {
 public:
-    GstDummyUdpPipeline() {}
+    GstDummyUdpPipeline() = default;
     ~GstDummyUdpPipeline();
     static GstDummyUdpPipeline* getInstance();
     static void deleteInstance();
@@ -323,7 +327,7 @@ public:
     void stopAllUdpPipelines();
 
 private:
-    static GstDummyUdpPipeline*                                          m_instance;
+    static std::unique_ptr<GstDummyUdpPipeline>                          m_instance;
     std::mutex                                                      m_pipelineMapMutex;
     std::unordered_map<std::string, std::shared_ptr<gstElements> >  m_udpPipelines;
 

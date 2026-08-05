@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -104,11 +104,7 @@ struct _RawFrameParams
             gst_caps_unref (m_caps);
             m_caps = nullptr;
         }
-        if (m_fdWrapperObj)
-        {
-            delete (m_fdWrapperObj);
-            m_fdWrapperObj = nullptr;
-        }
+        m_fdWrapperObj.reset();
     }
 
     string     m_streamId;
@@ -137,7 +133,7 @@ struct _RawFrameParams
     void *meta = nullptr;
     int64_t pts = 0;
 
-    std::shared_ptr<fdWrapper>*       m_fdWrapperObj = nullptr;
+    std::unique_ptr<std::shared_ptr<fdWrapper>> m_fdWrapperObj;
     EncoderMsgType m_encoderMsgType = Buffer;
     std::atomic<bool> m_eos;
 } typedef RawFrameParams;

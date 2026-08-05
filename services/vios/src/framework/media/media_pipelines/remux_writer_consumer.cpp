@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -60,7 +60,7 @@ RemuxWriterConsumer::RemuxWriterConsumer(const RemuxWriterConfig& cfg)
 RemuxWriterConsumer::~RemuxWriterConsumer()
 {
     try {
-        stop();
+        RemuxWriterConsumer::stop();
         teardown();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~RemuxWriterConsumer: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
@@ -368,7 +368,7 @@ void RemuxWriterConsumer::attachProbes()
     // Attach EOS enforcement probe on mux sink (for end_time_ms)
     if (mMux && mCfg.end_time_ms != std::numeric_limits<int64_t>::max())
     {
-        MuxProbeCtx* mctx = new MuxProbeCtx();
+        auto mctx = std::make_unique<MuxProbeCtx>();
         mctx->end_ms = mCfg.end_time_ms;
         mctx->mux = mMux;
         mctx->videoSrc = mVideoAppsrc ? GST_APP_SRC(mVideoAppsrc) : nullptr;
@@ -410,7 +410,7 @@ void RemuxWriterConsumer::attachProbes()
                                         }
                                     }
                                     return GST_PAD_PROBE_OK;
-                                }, mctx, (GDestroyNotify)+[](gpointer data) { delete static_cast<MuxProbeCtx*>(data); });
+                                }, mctx.release(), (GDestroyNotify)+[](gpointer data) { std::unique_ptr<MuxProbeCtx>(static_cast<MuxProbeCtx*>(data)); });
 
                             g_value_reset(&item);
                             done = TRUE;  // First video pad is enough
