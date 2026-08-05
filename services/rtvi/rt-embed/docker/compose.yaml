@@ -15,7 +15,7 @@
 
 services:
   rtvi-server:
-    image: ${RTVI_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1}
+    image: ${RTVI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4}
     shm_size: '16gb'
     runtime: nvidia
     user: "1001:1001"
@@ -37,6 +37,11 @@ services:
       MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
       MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
       MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
+      REMOTE_EMBED_ENDPOINT: "${REMOTE_EMBED_ENDPOINT:-}"
+      REMOTE_EMBED_ENDPOINT_MODEL_NAME: "${REMOTE_EMBED_ENDPOINT_MODEL_NAME:-nvidia/cosmos-embed1}"
+      REMOTE_EMBED_ENDPOINT_API_KEY: "${REMOTE_EMBED_ENDPOINT_API_KEY:-}"
+      REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC: "${REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC:-300}"
+      REMOTE_EMBED_ENDPOINT_BATCH_SIZE: "${REMOTE_EMBED_ENDPOINT_BATCH_SIZE:-64}"
       COSMOS_EMBED1_TRT_PRECISION: "${COSMOS_EMBED1_TRT_PRECISION:-fp16}"
       COSMOS_EMBED1_TRT_EXTRA_ARGS: "${COSMOS_EMBED1_TRT_EXTRA_ARGS:-}"
       NGC_API_KEY: ${NGC_API_KEY:-}
@@ -69,6 +74,10 @@ services:
       KAFKA_TOPIC: "${KAFKA_TOPIC:-vision-embed-messages}"
       ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-vision-embed-errors}"
       KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
+      MESSAGE_BUS: "${MESSAGE_BUS-kafka}"
+      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
+      ERROR_BUS: "${ERROR_BUS-kafka}"
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
       ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
