@@ -446,7 +446,7 @@ under the terms of *both* these licenses.
 
 ---
 
-## @pillow:12.2.0
+## @pillow:12.3.0
 
 **License Type:** MIT (HPND / MIT-CMU (CMU variant of MIT))
 

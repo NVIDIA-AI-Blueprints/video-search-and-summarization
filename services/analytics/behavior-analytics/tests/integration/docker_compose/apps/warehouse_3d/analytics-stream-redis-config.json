@@ -106,6 +106,10 @@
 			"value": "300"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "true"
+		},
+		{
 			"name": "in3dMode",
 			"value": "true"
 		},

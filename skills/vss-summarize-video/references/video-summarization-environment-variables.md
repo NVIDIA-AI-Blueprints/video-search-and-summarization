@@ -55,7 +55,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `develop-latest` | Legacy per-image fallback tag. The managed release flow uses `VSS_CONTAINER_REGISTRY=ghcr.io/nvidia-ai-blueprints/vss` and `VSS_CONTAINER_TAG=develop-latest`. |
+| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.07.4` on x86/Tegra; `3.3.0-26.07.4-sbsa` on SBSA | RT-VLM image tag. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
@@ -75,7 +75,7 @@ Video summarization service:
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
 | `LVS_IMAGE` | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Image repository. |
-| `LVS_TAG` | `develop-latest` | Image tag in current develop. Full image: `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest`. GHCR publishes a multi-arch manifest, so unlike `RTVI_VLM_IMAGE_TAG` above this tag does not vary by host CPU platform. |
+| `LVS_TAG` | `3.3.0-rc2` on x86/Tegra; use `3.3.0-rc2-sbsa` on SBSA. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |

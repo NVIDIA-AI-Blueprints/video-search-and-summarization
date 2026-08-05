@@ -61,7 +61,9 @@ Create `.env` with your configuration:
 ```bash
 cat > .env << EOF
 BACKEND_PORT=8000
-RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
+# For DGX Spark/SBSA platforms:
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4-sbsa
 VLM_MODEL_TO_USE=cosmos-reason3
 MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 KAFKA_ENABLED=true
@@ -125,7 +127,7 @@ docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.07.4-
 To test the custom image with Docker Compose, set `RTVI_IMAGE` in `docker/.env`:
 
 ```bash
-#RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
 RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.07.4-custom
 ```
 
@@ -918,8 +920,8 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | Value | Description | Default |
 |-------|-------------|---------|
 | `enabled` | Enable the RT-VLM chart | `false` in `values.yaml`, `true` in `overrides_rtvi_vlm.yaml` |
-| `image.repository` | RT-VLM image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm` |
-| `image.tag` | RT-VLM image tag | `develop-latest` |
+| `image.repository` | RT-VLM image repository | `nvcr.io/nvstaging/vss-core/vss-rt-vlm` |
+| `image.tag` | RT-VLM image tag | `3.3.0-26.07.4` |
 | `image.pullPolicy` | Kubernetes image pull policy | `IfNotPresent` |
 | `replicas` | Number of RT-VLM replicas | `1` |
 | `useSharedNim` | Use an in-cluster or remote OpenAI-compatible NIM instead of loading the model in the RT-VLM pod | `false` |

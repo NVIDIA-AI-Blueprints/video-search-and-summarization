@@ -105,37 +105,37 @@ rtvi:
         value: "true"
       # Optional EVS++ session controls.
       - name: VIA_EVS_DECISION_LAG
-        value: "3"
+        value: ""
       - name: VIA_EVS_SESSION
-        value: "false"
+        value: ""
       - name: VLLM_EVS_SIMILARITY_THRESHOLD
-        value: "0.2"
+        value: ""
       - name: VLLM_NUM_PREPROCESS_WORKERS
         value: "16"
       - name: VIA_EVS_TOKEN_BUDGET
-        value: "20000"
+        value: ""
       - name: VIA_EVS_MAX_SESSIONS
-        value: "100"
+        value: ""
       - name: VIA_EVS_MIN_CLIPS
-        value: "3"
+        value: ""
       - name: VIA_EVS_EVENT_ONLY
-        value: "true"
+        value: ""
       - name: VIA_EVS_EMA_MEMORY_S
-        value: "0"
+        value: ""
       - name: VIA_EVS_SPIKE_STD_K
-        value: "2.0"
+        value: ""
       - name: VIA_EVS_SETTLING_STD_K
-        value: "1.5"
+        value: ""
       - name: VIA_EVS_STD_FLOOR_RATIO
-        value: "0.1"
+        value: ""
       - name: VIA_EVS_DOWNWARD_BASELINE_MIN
-        value: "0.10"
+        value: ""
       - name: VIA_EVS_STREAMING_PREFILL
-        value: "false"
+        value: ""
       - name: VIA_PD_SERVER_URL
         value: ""
       - name: VIA_PD_SERVER_TIMEOUT_S
-        value: "120.0"
+        value: ""
       - name: VLLM_USE_AOT_COMPILE
         value: "0"
       - name: VLLM_DISABLE_COMPILE_CACHE
