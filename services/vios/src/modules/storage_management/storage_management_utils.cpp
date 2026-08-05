@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -151,6 +151,11 @@ public:
                                    m_destroyFunc(nullptr), m_extractFunc(nullptr),
                                    m_getErrorFunc(nullptr), m_isAvailableFunc(nullptr),
                                    m_instance(nullptr) {}
+
+    DynamicVideoSegmentExtractor(const DynamicVideoSegmentExtractor&) = delete;
+    DynamicVideoSegmentExtractor& operator=(const DynamicVideoSegmentExtractor&) = delete;
+    DynamicVideoSegmentExtractor(DynamicVideoSegmentExtractor&&) = delete;
+    DynamicVideoSegmentExtractor& operator=(DynamicVideoSegmentExtractor&&) = delete;
 
     ~DynamicVideoSegmentExtractor() {
         cleanup();
