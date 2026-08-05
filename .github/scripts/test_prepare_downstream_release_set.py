@@ -187,7 +187,7 @@ INVENTORY = {
         {"name": "vss-agent", "source_path": "services/agent", "ghcr_build": True},
         {"name": "vss-rt-cv", "source_path": "services/rt-cv",
          "trigger_downstream_from_source": True},
-        {"name": "vss-configurator", "source_path": "services/configurator"},
+        {"name": "vss-configurator", "source_path": "services/configurators"},
     ]
 }
 
@@ -206,7 +206,7 @@ class DownstreamGateTest(unittest.TestCase):
         self.assertIn("vss-rt-cv", why)
 
     def test_unflagged_source_change_does_not_run(self):
-        run, _ = downstream_relevant(["services/configurator/a.py"], INVENTORY)
+        run, _ = downstream_relevant(["services/configurators/a.py"], INVENTORY)
         self.assertFalse(run)
 
     def test_deploy_change_runs_without_any_source_change(self):
