@@ -30,9 +30,14 @@ from mdx.analytics.core.stream.sink.sink_base import Sink
 
 logger = logging.getLogger(__name__)
 
-# How long close() waits for queued publishes to reach the broker before giving up. Bounded so a
-# broker that has already gone away cannot wedge shutdown.
-PUBLISH_DRAIN_TIMEOUT_SECONDS = 10.0
+# How long close() waits for queued publishes to reach the broker before giving up.
+#
+# Deliberately below MultiprocessingScheduler.SHUTDOWN_TIMEOUT_SECONDS (10s), which is how long a
+# worker gets after SIGTERM before the parent SIGKILLs it. Matching that number would leave no
+# margin: a worker that used its whole drain window would be killed at the instant the wait
+# returned, with the disconnect, the loop stop and its own teardown all still to do -- so the wait
+# meant to save those messages would be what got the process killed. The remainder is that margin.
+PUBLISH_DRAIN_TIMEOUT_SECONDS = 5.0
 
 
 class SinkMQTT(Sink):
@@ -280,17 +285,23 @@ class SinkMQTT(Sink):
         """
 
         if self._client:
-            if self._last_publish is not None and not self._last_publish.is_published():
-                try:
+            # Every inspection sits inside the try, not just the wait: is_published() raises too --
+            # ValueError when the message never made it onto a full outgoing queue, RuntimeError
+            # when the publish itself failed. Those are the cases where the client most needs
+            # closing, so leaving the check outside would skip the disconnect precisely when a
+            # publish had already gone wrong, and leak the network loop thread with it.
+            try:
+                if self._last_publish is not None and not self._last_publish.is_published():
                     self._last_publish.wait_for_publish(timeout=PUBLISH_DRAIN_TIMEOUT_SECONDS)
-                except (RuntimeError, ValueError) as e:
-                    # RuntimeError: the queue was purged or the client was never connected.
-                    logger.error(f"Queued MQTT messages were not delivered before shutdown: {e}")
-                else:
+
                     if not self._last_publish.is_published():
                         logger.error(
                             f"Queued MQTT messages still undelivered after "
                             f"{PUBLISH_DRAIN_TIMEOUT_SECONDS}s; disconnecting anyway")
 
-            self._client.disconnect()
-            self._client.loop_stop()
+            except (RuntimeError, ValueError) as e:
+                logger.error(f"Queued MQTT messages were not delivered before shutdown: {e}")
+
+            finally:
+                self._client.disconnect()
+                self._client.loop_stop()
