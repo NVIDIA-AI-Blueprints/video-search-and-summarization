@@ -8,7 +8,6 @@ This reference lists every variable the Compose service consumes and how host-le
 |---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | Compose uses `${RTVI_EMBED_PORT?}`, so a missing value fails `docker compose config`. |
 | `VSS_DATA_DIR` | Host root for VSS shared data. | `${VSS_DATA_DIR}/data_log/vst/clip_storage` is bind-mounted to the container clip-storage reader path declared in `rtvi-embed-docker-compose.yml`. |
-| `HOST_IP` | Host IP used to construct Kafka bootstrap servers. | Only required when `MESSAGE_BUS=kafka` or `ERROR_BUS=kafka` is set and the broker is exposed through the host. |
 | `NGC_API_KEY` | NGC API key for asset downloads. | Required for first-boot model fetches from NGC. |
 | `HF_TOKEN` | Hugging Face token. | Optional. Recommended to avoid Hugging Face 429 rate-limit errors during the first-boot Cosmos-Embed1 weights download. |
 
@@ -36,6 +35,7 @@ Several host-side variables map to differently named container variables. The Co
 | `RTVI_EMBED_OTEL_EXPORTER_OTLP_ENDPOINT` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` |
 | `RTVI_EMBED_OTEL_METRIC_EXPORT_INTERVAL` | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` (ms) |
 | `RTVI_EMBED_ERROR_MESSAGE_TOPIC` | `ERROR_MESSAGE_TOPIC` | `vision-embed-errors` |
+| `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` |
 | `RTVI_EMBED_HF_CACHE` | volume source for `/tmp/huggingface` | `rtvi-hf-cache` (named) |
 | `NGC_MODEL_CACHE` | volume source for the NGC cache | `rtvi-ngc-model-cache` (named) |
 | `RTVI_EMBED_LOG_DIR` | optional host bind for `/opt/nvidia/rtvi/log/rtvi/` | (unset; mount is skipped) |
@@ -75,7 +75,7 @@ Several host-side variables map to differently named container variables. The Co
 | `MAX_ASSET_STORAGE_SIZE_GB` | Optional numeric max asset storage size in GB for eviction. | (empty) |
 | `ASSET_MAX_AGE_HOURS` | TTL-based asset eviction in hours. `0` disables TTL eviction. | `0` |
 | `ENABLE_REQUEST_PROFILING` | Per-request profiling. | `false` |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list (constructed by Compose as `${HOST_IP}:9092`). | derived |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list used when `MESSAGE_BUS=kafka` or `ERROR_BUS=kafka`. | `kafka:29092` via `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` |
 
 ## Secret-Sensitive Variables
 

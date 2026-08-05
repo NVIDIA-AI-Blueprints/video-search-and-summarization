@@ -101,7 +101,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `MESSAGE_BUS_TOPIC` | Kafka topic for generated embedding events when `MESSAGE_BUS=kafka`. | `mdx-embed` | No |
 | `ERROR_BUS` | Error output bus. Use `kafka` to publish errors; set empty to disable. | `kafka` in the shipped `.env` | No |
 | `RTVI_EMBED_ERROR_MESSAGE_TOPIC` | Maps to `ERROR_MESSAGE_TOPIC`. | `vision-embed-errors` | No |
-| `HOST_IP` | Used to build `KAFKA_BOOTSTRAP_SERVERS` as `${HOST_IP}:9092`. | (unset) | Yes when Kafka is enabled |
+| `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Maps to `KAFKA_BOOTSTRAP_SERVERS` when Kafka buses are enabled. | `kafka:29092` | Yes when Kafka is enabled outside the default Compose network |
 | `ENABLE_REDIS_ERROR_MESSAGES` | Publish error messages to Redis. | `false` | No |
 | `REDIS_HOST` | Redis host. | `redis` | Yes when Redis error messages are enabled |
 | `REDIS_PORT` | Redis port. | `6379` | No |
@@ -129,7 +129,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 - **Ports exposed** — `${RTVI_EMBED_PORT}:8000/tcp`.
 - **Inbound traffic** — REST clients (other VSS microservices or operator tooling) calling the `/v1/*` endpoints.
 - **Outbound traffic** — Hugging Face (`huggingface.co`) and NGC (`nvcr.io`) at first boot; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
-- **DNS / hostname assumptions** — Uses `${HOST_IP}:9092` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
+- **DNS / hostname assumptions** — Uses `KAFKA_BOOTSTRAP_SERVERS=${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
 - **`network_mode`** — Default bridge (no `network_mode` override in the Compose service).
 
 ## Known Integration Constraints
@@ -185,7 +185,7 @@ services:
       MESSAGE_BUS: "${MESSAGE_BUS:-}"
       MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
       ERROR_BUS: "${ERROR_BUS:-}"
-      KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
+      KAFKA_BOOTSTRAP_SERVERS: "${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
       REDIS_PORT: "${REDIS_PORT:-6379}"
     volumes:
