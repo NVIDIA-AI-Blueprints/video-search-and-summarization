@@ -222,7 +222,7 @@ The `nv.VisionLLM` and `nv.Incident` protobuf schemas are the contract between R
 
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server 127.0.0.1:9092 --topic mdx-vlm-captions
-docker exec mdx-kafka kafka-console-consumer \
+docker exec kafka kafka-console-consumer \
   --bootstrap-server 127.0.0.1:9092 --topic mdx-vlm-captions \
   --from-beginning --timeout-ms 5000 --max-messages 5 \
   --property print.headers=true --property print.key=true --property print.value=false
