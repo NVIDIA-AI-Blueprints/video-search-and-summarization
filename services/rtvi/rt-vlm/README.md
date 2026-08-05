@@ -63,7 +63,7 @@ cat > .env << EOF
 BACKEND_PORT=8000
 RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
 # For DGX Spark/SBSA platforms:
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4-sbsa
 VLM_MODEL_TO_USE=cosmos-reason3
 MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 KAFKA_ENABLED=true
