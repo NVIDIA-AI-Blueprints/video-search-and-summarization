@@ -4,14 +4,14 @@
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
 **Image (default multiarch: x86 / Jetson-Tegra / non-Spark non-SBSA)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4`
-**Image (Spark / GB10 / SBSA / Grace)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4`
+**Image (Spark / GB10 / SBSA / Grace)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4-sbsa`
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
 
 Derive `<compose-default>` from the checked-out
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
-hardcoding it in commands. The current `develop` compose default is
-`3.2.1`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All other
+hardcoding it in commands. The current compose default is
+`3.3.0-26.07.4`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All other
 platforms use the normal multiarch tag.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
@@ -169,7 +169,7 @@ sudo -n chown 1001:1001 ./rtvi-logs || {
 | Host var | Required | Compose default | Notes |
 |---|---|---|---|
 | `RTVI_VLM_PORT` | **YES** (`${RTVI_VLM_PORT?}` strict) | — | Host REST API port |
-| `HOST_IP` | **YES (effectively)** | — | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | optional | `kafka:29092` | Override for an external broker, for example `host.docker.internal:9092`. |
 | `VSS_DATA_DIR` | **YES (effectively)** | — | Interpolated into VST clip-storage bind mount; no fallback |
 | `NGC_CLI_API_KEY` | **YES for documented pull / local NGC model path** | — | `docker login nvcr.io`, image pull, and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` | optional / backend-dependent | `${NGC_CLI_API_KEY}` fallback in compose | RT-VLM bearer auth or non-NGC backend auth; does not replace `NGC_CLI_API_KEY` for registry pulls |
@@ -187,12 +187,12 @@ The most important host-side variables use the `RTVI_VLM_*` or `RTVI_VLLM_*`
 prefix and are rewritten to canonical container-side names by compose.
 
 Minimum standalone openai-compatible deployment using the documented image pull:
-`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`,
+`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `VSS_DATA_DIR`,
 `RTVI_VLM_ENDPOINT`, and `VLM_NAME`. Add `RTVI_VLM_API_KEY` when the remote
 backend or RT-VLM bearer policy requires a token different from the NGC key.
 
 Minimum standalone self-hosted Cosmos deployment:
-`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`,
+`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `VSS_DATA_DIR`,
 `RTVI_VLM_MODEL_TO_USE`, and `RTVI_VLM_MODEL_PATH`.
 
 ## 8. Optional / Feature-Flag Environment Variables
@@ -746,15 +746,10 @@ docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down --rmi
   `docker_cmd` wrapper and pipe secrets through
   stdin (`printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login ...`). Never let
   `sudo` prompt interactively in an agent session.
-- **External Kafka required**: `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` — if
-  `HOST_IP` isn't set, the container tries `:9092` and fails.
-  `host.docker.internal` is wired via `extra_hosts` as an alternative value.
+- **Kafka broker default**: `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=kafka:29092`. Override it for an external broker, for example `host.docker.internal:9092`.
 - **`VSS_DATA_DIR` required**: no default on the bind mount. Without it the
   mount spec expands to garbage.
-- **Kafka startup order matters for validation**: when `RTVI_VLM_KAFKA_ENABLED=true`,
-  start Kafka with an advertised `${HOST_IP}:9092` listener before RT-VLM. If the
-  broker was missing or its listener changed after RT-VLM started, run
-  `docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile rtvi-vlm up -d --force-recreate rtvi-vlm`.
+- **Kafka startup order matters for validation**: start the broker before RT-VLM. For the default `kafka:29092` address, the broker must be reachable on the Compose network; for an external broker, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to its container-reachable address before starting RT-VLM.
 - **Host-var rewrite convention**: most host-side vars use `RTVI_VLM_*` or
   `RTVI_VLLM_*` and rewrite to canonical names inside the container.
 - **`VLM_MODEL_TO_USE=openai-compat` by default**: this stack expects a sibling

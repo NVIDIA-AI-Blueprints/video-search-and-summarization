@@ -8,7 +8,7 @@ detection**: the server lower-cases each chunk's VLM response and checks for the
 **`"yes"` or `"true"`**. If either appears, the server builds an incident protobuf
 (`isAnomaly=True`, `info["triggerPhrase"]=<matched tokens>`, `info["verdict"]="confirmed"`)
 and publishes it to `KAFKA_INCIDENT_TOPIC` in addition to the normal caption message on
-`KAFKA_TOPIC`. Per <https://docs.nvidia.com/vss/latest/real-time-vlm.html>.
+`MESSAGE_BUS_TOPIC`. Per <https://docs.nvidia.com/vss/latest/real-time-vlm.html>.
 
 **Recommended prompt pattern** (from the docs):
 ```
@@ -43,7 +43,7 @@ response to the caller and Kafka records for downstream message-bus consumers.
   ```
 
 **Kafka publish** (when `KAFKA_ENABLED=true`):
-- Every caption → **`KAFKA_TOPIC`** with header `message_type: vision_llm`
+- Every caption → **`MESSAGE_BUS_TOPIC`** with header `message_type: vision_llm`
   and `info["incidentDetected"] = "true"|"false"`.
 - Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`**
   with header `message_type: incident`.
@@ -82,7 +82,7 @@ if [ -z "${KAFKA_CONTAINER:-}" ]; then
     KAFKA_CONTAINER=rtvi-vlm-kafka
   fi
 fi
-CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
+CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv MESSAGE_BUS_TOPIC 2>/dev/null || true)}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
 ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
 CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
@@ -99,7 +99,7 @@ kafka_cli() {
   ' sh "$@"
 }
 
-docker exec vss-rtvi-vlm printenv KAFKA_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC 2>/dev/null || true
+docker exec vss-rtvi-vlm printenv MESSAGE_BUS_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC 2>/dev/null || true
 printf 'Kafka container: %s\n' "$KAFKA_CONTAINER"
 ```
 
@@ -114,11 +114,7 @@ done
 
 ### Standalone Kafka Listener Setup
 
-The RT-VLM compose does not bundle Kafka. For standalone tests, start an
-equivalent broker before starting RT-VLM. The critical requirement is that the
-broker advertises the same `${HOST_IP}:9092` value that RT-VLM uses for
-`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`.
-
+The RT-VLM compose expects `kafka:29092` by default. For standalone tests, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to an address reachable from the RT-VLM container (for example `host.docker.internal:9092`), then ensure the broker advertises that same address.
 First choose how Kafka should be provided:
 
 - **Use existing Kafka** if a broker is already running and the user confirms it
@@ -297,10 +293,7 @@ for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
 done
 ```
 
-The standalone RT-VLM compose sets `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; a
-`rtvi-vlm.env` value named `KAFKA_BOOTSTRAP_SERVERS` is ignored unless you edit the
-compose. If Kafka was not reachable when RT-VLM started, or if you changed the
-broker advertised listener, restart/recreate RT-VLM before checking offsets:
+The RT-VLM compose maps `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to the container-side `KAFKA_BOOTSTRAP_SERVERS`, defaulting to `kafka:29092`. Set the prefixed host variable in `rtvi-vlm.env` before recreating RT-VLM when using an external broker.
 
 ```bash
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
