@@ -22,6 +22,7 @@
 #include <gst/gstmessage.h>
 #include "config.h"
 #include <iomanip>
+#include <atomic>
 #include "stream_monitor.h"
 #include "event_loop.h"
 #include "stream_buffer.h"
@@ -217,8 +218,11 @@ namespace nv_vms
             string                  m_prevFileName;
             uint64_t                m_actualStartTime = 0;
             uint64_t                m_fileEndTime = 0;
-            GstClock*               m_globalGstClock = nullptr;
-            GstClockTime            m_baseGstTime = GST_CLOCK_TIME_NONE;
+            /* Written by setGstClock() from the RtspSyncPlayback management
+             * thread and read from the GStreamer pipeline thread in seek()/
+             * seekToStart()/play_internal(); atomic to avoid a data race. */
+            std::atomic<GstClock*>      m_globalGstClock{nullptr};
+            std::atomic<GstClockTime>   m_baseGstTime{GST_CLOCK_TIME_NONE};
             bool                    m_loop = false;
         public:
             std::shared_ptr<IMediaDataConsumer>     m_mediaConsumer = nullptr;
