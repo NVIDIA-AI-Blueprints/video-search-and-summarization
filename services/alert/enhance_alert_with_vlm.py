@@ -313,17 +313,7 @@ class AnomalyEnhancer(
         # them individually produced eight variants of a single mode, each
         # with its own fallback behaviour to reason about and test, and every
         # deployment that actually runs thread_bridge enables all three.
-        superseded_switches = sorted(
-            key
-            for key in ('vst_enabled', 'elastic_enabled', 'dedup_enabled', 'redis_enabled')
-            if key in async_io_cfg
-        )
-        if superseded_switches:
-            logger.warning(
-                "alert_agent.async_io per-service switches no longer take effect (%s): "
-                "external I/O follows the pipeline mode",
-                ", ".join(superseded_switches),
-            )
+        self._warn_retired_scaling_config()
         external_timeout = async_io_cfg.get('external_timeout_seconds', 30)
         try:
             self.async_external_timeout_seconds = max(1.0, float(external_timeout))
@@ -731,22 +721,50 @@ class AnomalyEnhancer(
 
         return rate_limit_filtered
 
-    def _resolve_chunk_size(self) -> int:
-        chunk_size = self.config.get("alert_agent", {}).get("chunk_size", 1)
-        if not isinstance(chunk_size, int) or chunk_size <= 0:
-            return 1
-        return chunk_size
+    def _warn_retired_scaling_config(self) -> None:
+        """Report configuration that no longer has any effect.
 
-    def _schedule_sub_batch(
+        Retired keys are ignored rather than rejected so an existing
+        deployment still boots; the warning is what tells the operator their
+        tuning is not doing what they think it is.
+        """
+        alert_agent_cfg = self.config.get('alert_agent', {}) or {}
+        async_io_cfg = alert_agent_cfg.get('async_io', {}) or {}
+
+        retired = sorted(
+            f"alert_agent.async_io.{key}"
+            for key in ('vst_enabled', 'elastic_enabled', 'dedup_enabled', 'redis_enabled')
+            if key in async_io_cfg
+        )
+        if 'chunk_size' in alert_agent_cfg:
+            # Dispatch is per message in every mode, so grouping messages only
+            # ever changed the granularity of the scheduling loop.
+            retired.append("alert_agent.chunk_size")
+        if retired:
+            logger.warning(
+                "Ignoring retired configuration: %s. Scaling is tuned through "
+                "processes, pipeline_mode, num_workers, async_dispatch_workers "
+                "and async_io.max_vlm_concurrent.",
+                ", ".join(retired),
+            )
+
+        if 'enabled' in async_io_cfg:
+            logger.warning(
+                "alert_agent.async_io.enabled is deprecated; set "
+                "alert_agent.pipeline_mode instead. It is consulted only when "
+                "pipeline_mode is unset."
+            )
+
+    def _schedule_message(
         self,
         worker_pool: Optional[ThreadPoolExecutor],
-        sub_batch: List[Dict[str, Any]],
+        message: Dict[str, Any],
         message_type: str,
         batch: Dict[str, Any],
     ) -> None:
-        """Hand one sub-batch to the mode's executor, or run it inline.
+        """Hand one message to the mode's executor, or run it inline.
 
-        ``worker_assigned_at`` is stamped at the moment the sub-batch is
+        ``worker_assigned_at`` is stamped at the moment the message is
         accepted for processing, so ``WORKER_QUEUE_WAIT_DURATION`` keeps one
         meaning in every mode: "kafka_consumed -> accepted for processing".
         """
@@ -759,7 +777,7 @@ class AnomalyEnhancer(
             # here cannot break the loop.
             self.process_batch_vlm(
                 0,
-                sub_batch,
+                [message],
                 message_type,
                 batch.get("kafka_consumed_at"),
                 batch.get("kafka_published_at"),
@@ -772,12 +790,12 @@ class AnomalyEnhancer(
             try:
                 worker_id = self.worker_queue.get(timeout=5)
             except Empty:
-                logger.debug("All workers busy. Waiting to schedule next sub-batch...")
+                logger.debug("All workers busy. Waiting to schedule next message...")
 
         future: Future = worker_pool.submit(
             self.process_batch_vlm,
             worker_id,
-            sub_batch,
+            [message],
             message_type,
             batch.get("kafka_consumed_at"),
             batch.get("kafka_published_at"),
@@ -788,9 +806,7 @@ class AnomalyEnhancer(
         )
 
     def _run_consume_loop(self, worker_pool: Optional[ThreadPoolExecutor]) -> None:
-        """Poll the source and schedule every sub-batch until interrupted."""
-        chunk_size = self._resolve_chunk_size()
-
+        """Poll the source and schedule every message until interrupted."""
         while True:
             try:
                 raw_messages = self.source.read_data()
@@ -810,12 +826,8 @@ class AnomalyEnhancer(
                     batch_kind = (batch.get("kind") or "").lower()
                     message_type = "Incident" if batch_kind == "incident" else "Behavior"
 
-                    for start in range(0, len(batch_messages), chunk_size):
-                        sub_batch = batch_messages[start : start + chunk_size]
-                        if sub_batch:
-                            self._schedule_sub_batch(
-                                worker_pool, sub_batch, message_type, batch
-                            )
+                    for message in batch_messages:
+                        self._schedule_message(worker_pool, message, message_type, batch)
 
             except Empty:
                 logger.debug("All workers busy, waiting for availability")

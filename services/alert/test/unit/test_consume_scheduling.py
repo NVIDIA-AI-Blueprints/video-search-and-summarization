@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sub-batch scheduling: pooled in sync mode, inline in the async modes."""
+"""Message scheduling: pooled in sync mode, inline in the async modes."""
 
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
@@ -26,12 +26,10 @@ from enhance_alert_with_vlm import AnomalyEnhancer
 class SchedulerStub:
     """Carries only what the scheduling helpers touch."""
 
-    _resolve_chunk_size = AnomalyEnhancer._resolve_chunk_size
-    _schedule_sub_batch = AnomalyEnhancer._schedule_sub_batch
+    _schedule_message = AnomalyEnhancer._schedule_message
 
-    def __init__(self, chunk_size=None, num_workers=2):
-        alert_agent = {} if chunk_size is None else {"chunk_size": chunk_size}
-        self.config = {"alert_agent": alert_agent}
+    def __init__(self, num_workers=2):
+        self.config = {"alert_agent": {}}
         self.worker_queue = Queue(maxsize=num_workers)
         self.calls = []
 
@@ -50,26 +48,12 @@ BATCH = {"kafka_consumed_at": "2026-01-01T00:00:00+00:00",
          "kafka_published_at": "2026-01-01T00:00:00+00:00"}
 
 
-class TestChunkSize:
-    def test_defaults_to_one(self):
-        assert SchedulerStub()._resolve_chunk_size() == 1
-
-    def test_explicit_value_is_used(self):
-        assert SchedulerStub(chunk_size=5)._resolve_chunk_size() == 5
-
-    @pytest.mark.parametrize("value", [0, -3, "four", None, 2.5])
-    def test_invalid_values_fall_back_to_one(self, value):
-        # The unbatched default: a bad value must not silently enable
-        # chunking, which is what the previous fallback of 2 did.
-        assert SchedulerStub(chunk_size=value)._resolve_chunk_size() == 1
-
-
 class TestInlineScheduling:
     """Async modes: no pool, no worker queue, processed on the consume thread."""
 
     def test_runs_inline_without_a_pool(self):
         stub = SchedulerStub()
-        stub._schedule_sub_batch(None, [{"id": "a"}], "Incident", BATCH)
+        stub._schedule_message(None, {"id": "a"}, "Incident", BATCH)
 
         assert len(stub.calls) == 1
         assert stub.calls[0]["messages"] == [{"id": "a"}]
@@ -78,12 +62,12 @@ class TestInlineScheduling:
 
     def test_does_not_touch_the_worker_queue(self):
         stub = SchedulerStub()
-        stub._schedule_sub_batch(None, [{"id": "a"}], "Behavior", BATCH)
+        stub._schedule_message(None, {"id": "a"}, "Behavior", BATCH)
         assert stub.worker_queue.qsize() == 0
 
     def test_stamps_worker_assigned_at(self):
         stub = SchedulerStub()
-        stub._schedule_sub_batch(None, [{"id": "a"}], "Incident", BATCH)
+        stub._schedule_message(None, {"id": "a"}, "Incident", BATCH)
         assert stub.calls[0]["worker_assigned_at"]
 
     def test_batch_failure_does_not_propagate_to_the_consume_loop(self):
@@ -92,7 +76,7 @@ class TestInlineScheduling:
         # process_batch_vlm swallows its own errors in production; if that ever
         # regresses, an inline schedule would take the consume loop down.
         with pytest.raises(RuntimeError):
-            stub._schedule_sub_batch(None, [{"id": "a"}], "Incident", BATCH)
+            stub._schedule_message(None, {"id": "a"}, "Incident", BATCH)
 
 
 class TestPooledScheduling:
@@ -104,7 +88,7 @@ class TestPooledScheduling:
         stub.worker_queue.put(1)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
-            stub._schedule_sub_batch(pool, [{"id": "a"}], "Incident", BATCH)
+            stub._schedule_message(pool, {"id": "a"}, "Incident", BATCH)
             pool.shutdown(wait=True)
 
         assert len(stub.calls) == 1
@@ -119,11 +103,43 @@ class TestPooledScheduling:
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             for index in range(4):
-                stub._schedule_sub_batch(pool, [{"id": index}], "Incident", BATCH)
+                stub._schedule_message(pool, {"id": index}, "Incident", BATCH)
             pool.shutdown(wait=True)
 
         assert len(stub.calls) == 4
         assert stub.worker_queue.qsize() == 2
+
+
+class TestRetiredConfigWarnings:
+    """Retired keys must warn and be ignored, never fail the boot."""
+
+    @staticmethod
+    def _warn_text(caplog, config):
+        import logging
+        from enhance_alert_with_vlm import AnomalyEnhancer as AE
+        stub = type("S", (), {})()
+        stub.config = config
+        with caplog.at_level(logging.WARNING):
+            AE._warn_retired_scaling_config(stub)
+        return " ".join(r.getMessage() for r in caplog.records)
+
+    def test_chunk_size_is_reported(self, caplog):
+        text = self._warn_text(caplog, {"alert_agent": {"chunk_size": 4}})
+        assert "alert_agent.chunk_size" in text
+
+    def test_per_service_switches_are_reported(self, caplog):
+        text = self._warn_text(caplog, {"alert_agent": {"async_io": {
+            "vst_enabled": True, "elastic_enabled": True}}})
+        assert "vst_enabled" in text and "elastic_enabled" in text
+
+    def test_async_io_enabled_is_reported_as_deprecated(self, caplog):
+        text = self._warn_text(caplog, {"alert_agent": {"async_io": {"enabled": True}}})
+        assert "async_io.enabled" in text and "pipeline_mode" in text
+
+    def test_clean_config_is_silent(self, caplog):
+        text = self._warn_text(caplog, {"alert_agent": {"num_workers": 4, "async_io": {
+            "external_timeout_seconds": 30}}})
+        assert text == ""
 
 
 if __name__ == "__main__":

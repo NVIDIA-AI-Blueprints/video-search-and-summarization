@@ -119,10 +119,6 @@ alert_agent:
   pipeline_mode: event_loop
   async_dispatch_max_in_flight: 16    # Global in-flight bound, 2-4x max_vlm_concurrent
   async_io:
-    enabled: true                     # Ignored when pipeline_mode is set; kept for config-only rollback
-    vst_enabled: true
-    elastic_enabled: true
-    dedup_enabled: true
     external_timeout_seconds: 30
     sink_warn_in_flight: 20
     # event_loop per-service caps. max_vlm_concurrent MUST be set explicitly

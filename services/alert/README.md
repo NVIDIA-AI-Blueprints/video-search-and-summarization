@@ -154,16 +154,40 @@ bounded cross-process staleness.
 | `thread_bridge` | dispatch thread pool, blocking wait | `async_dispatch_workers` | legacy async mode, rollback |
 | `event_loop` | coroutine-per-message on one persistent loop; async clients per stage (VLM `AsyncOpenAI`, VST `httpx`, sink/verdict `AsyncElasticsearch`) | `async_io.max_vlm_concurrent` | non-blocking mode: Kafka consumption decoupled from VLM latency |
 
-Knob meaning per mode:
+### The knobs
 
-- `async_dispatch_workers` — thread_bridge: dispatch-pool thread count (the
-  throughput lever). event_loop: no pool is created; the value only serves as
-  the default for the per-service caps.
-- `async_dispatch_max_in_flight` — both async modes: global in-flight bound;
-  when full, hand-off pauses and backpressure reaches the Kafka consume loop.
-  It bounds memory, it does not raise the throughput ceiling.
-- `async_io.max_vlm_concurrent` / `max_vst_concurrent` — event_loop only:
-  per-service concurrency caps (asyncio semaphores).
+Five keys control scaling. Each mode has exactly one throughput lever, so at
+any moment only three of the five are in play:
+
+| Key | Applies to | Meaning |
+|---|---|---|
+| `alert_agent.processes` | all modes | independent pipeline processes; the only way past ~1 CPU core |
+| `alert_agent.pipeline_mode` | — | `sync` \| `thread_bridge` \| `event_loop` |
+| `alert_agent.num_workers` | `sync` | batch worker threads — the throughput lever |
+| `alert_agent.async_dispatch_workers` | `thread_bridge` | dispatch-pool threads — the throughput lever |
+| `alert_agent.async_io.max_vlm_concurrent` | `event_loop` | VLM concurrency cap — the throughput lever |
+
+Everything else is derived. The formulas below are the defaults; each key is
+still honoured when set explicitly, so an existing tuned deployment keeps its
+values:
+
+```
+async_dispatch_workers        = num_workers
+async_dispatch_max_in_flight  = 2 × async_dispatch_workers
+async_io.max_vst_concurrent   = async_dispatch_workers
+async_io.sink_warn_in_flight  = async_dispatch_max_in_flight
+```
+
+`async_dispatch_max_in_flight` is the global in-flight bound for both async
+modes: when full, hand-off pauses and backpressure reaches the Kafka consume
+loop. It bounds memory; it does not raise the throughput ceiling.
+
+Retired keys are ignored with a startup warning rather than failing the boot:
+`alert_agent.chunk_size` (dispatch is per message in every mode) and the
+`alert_agent.async_io` per-service switches `vst_enabled`, `elastic_enabled`,
+`dedup_enabled`, `redis_enabled` (external I/O now follows the pipeline mode).
+`alert_agent.async_io.enabled` is deprecated but still consulted when
+`pipeline_mode` is unset — set `pipeline_mode` instead.
 
 Sizing rule (event_loop): size against the **survivor rate** (events that
 pass dedup and reach the VLM — `rate(alert_bridge_events_after_dedup_total)`,
