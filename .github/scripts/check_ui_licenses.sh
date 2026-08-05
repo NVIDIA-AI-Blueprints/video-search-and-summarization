@@ -28,11 +28,12 @@ const allowed = new Set([
   "Unlicense","CC0-1.0","CC-BY-4.0","CC-BY-3.0","Python-2.0",
   "BlueOak-1.0.0","MPL-2.0",
 ]);
-const excludePrefixes = ["@img/sharp-libvips", "@aiqtoolkit-ui/common"];
+const excludePrefixes = ["@img/sharp-libvips"];
+const excludeExact = new Set(["common"]);
 const failures = [];
 for (const [pkg, info] of Object.entries(licenses)) {
   const name = pkg.replace(/@[^@]+$/, "");
-  if (excludePrefixes.some(p => name.startsWith(p))) continue;
+  if (excludeExact.has(name) || excludePrefixes.some(p => name.startsWith(p))) continue;
   const lic = String(info.licenses || "UNKNOWN");
   const parts = lic.replace(/[()]/g, "").split(/ OR | AND /);
   const ok = parts.some(p => allowed.has(p.trim().replace(/\*$/, "")));

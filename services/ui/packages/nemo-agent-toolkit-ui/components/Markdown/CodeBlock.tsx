@@ -9,7 +9,7 @@ import {
   generateRandomString,
   programmingLanguages,
 } from '@/utils/app/codeblock';
-import { copyToClipboard as copyToClipboardUtil } from '@aiqtoolkit-ui/common';
+import { copyToClipboard as copyToClipboardUtil } from 'common';
 
 interface Props {
   language: string;

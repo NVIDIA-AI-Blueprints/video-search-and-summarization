@@ -16,7 +16,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@aiqtoolkit-ui/common": "*",
+    "common": "*",
     "@nemo-agent-toolkit/ui": "0.1.1",
     "@nv-metropolis-bp-vss-ui/all": "*",
     "@tabler/icons-react": "^2.9.0",

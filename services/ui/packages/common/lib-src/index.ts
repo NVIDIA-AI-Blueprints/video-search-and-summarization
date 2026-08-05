@@ -1,7 +1,7 @@
 /**
- * @aiqtoolkit-ui/common
+ * common
  *
- * Shared components and utilities for the AIQ Toolkit UI system.
+ * Shared components and utilities for the UI monorepo.
  * Use this package across all apps (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui, etc.)
  */
 
