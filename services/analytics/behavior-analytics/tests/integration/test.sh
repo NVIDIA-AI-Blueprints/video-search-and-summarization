@@ -247,23 +247,10 @@ TEST_HOST="${TEST_HOST:-localhost}"
 ES_URL="${ES_URL:-http://${TEST_HOST}:9200}"
 echo "Using Elasticsearch URL: $ES_URL"
 
-# Stop the app before extracting, because under behaviorEmitOnce a track's behavior is written only
-# when the track ends -- after behaviorStateValidInterval seconds of *event-time* silence. Playback
-# exiting freezes each sensor's clock instead of advancing it, so tracks that were still live are
-# never ended and their behaviors sit in the holdback. The app's close hook flushes them
-# (app_scheduler.py runs it in each worker's finally), so a graceful SIGTERM is what puts them on the
-# stream at all. -t is generous because the flush writes through the sink before it returns.
-echo "Stopping mdx-analytics so emit-once behaviors are flushed..."
-if docker stop -t "${APP_STOP_TIMEOUT_SEC:-60}" mdx-analytics > /dev/null 2>&1; then
-    echo "✓ mdx-analytics stopped"
-else
-    echo "✗ Failed to stop mdx-analytics"
-fi
-
-# Then wait for the flush to land in Elasticsearch. A fixed grace period is the wrong instrument:
-# it has to be long enough for the slowest host, and when it is too short the shortfall reads as a
-# data mismatch rather than as a test that measured too early. Poll the indices this profile
-# compares instead, and move on once the counts stop changing.
+# Wait until Elasticsearch stops receiving new documents. A fixed grace period is the wrong
+# instrument: it has to be long enough for the slowest host, and when it is too short the shortfall
+# reads as a data mismatch rather than as a test that measured too early. Poll the indices instead,
+# and move on once the counts stop changing.
 wait_for_elasticsearch_to_settle() {
     local stable_needed=${ES_SETTLE_STABLE_CHECKS:-3}
     local interval=${ES_SETTLE_INTERVAL_SEC:-5}
@@ -287,16 +274,61 @@ wait_for_elasticsearch_to_settle() {
         previous="$current"
 
         if [[ "$(date +%s)" -ge "$deadline" ]]; then
-            echo "⚠ Elasticsearch still changing at ${ES_SETTLE_DEADLINE_SEC:-300}s (last count: ${current:-unknown}); extracting anyway"
-            return 0
+            # Still moving at the deadline, so any snapshot taken now is arbitrary. Report it as a
+            # failure rather than extracting: comparing a knowingly-unstable index turns an
+            # ingestion problem into a data mismatch, which is the harder thing to diagnose.
+            echo "✗ Elasticsearch still changing after ${ES_SETTLE_DEADLINE_SEC:-300}s (last count: ${current:-unknown})"
+            return 1
         fi
 
         sleep "$interval"
     done
 }
 
-echo "Waiting for Elasticsearch document counts to settle..."
-wait_for_elasticsearch_to_settle
+# Shared exit path for infrastructure failures. Distinct from a comparison failure: the data was
+# never in a state worth comparing, so say that rather than letting it surface as missing records.
+abort_on_infrastructure_failure() {
+    echo "✗ $1"
+    if [[ "$MODE" = "prod" ]]; then
+        cleanup_docker_environment
+        if [[ $? -ne 0 ]]; then
+            echo "✗ Docker cleanup failed"
+        fi
+    else
+        echo "Development mode: Skipping cleanup to allow debugging"
+    fi
+    exit 1
+}
+
+# Drain what the running app still owes before stopping it. Not every output is tied to the
+# holdback: space utilization is emitted on a timer for as long as the app runs, so stopping as soon
+# as playback exits truncates that series -- the fixed 60s sleep this replaced was, incidentally,
+# what used to let it finish.
+echo "Waiting for in-flight output to settle before stopping the app..."
+wait_for_elasticsearch_to_settle || abort_on_infrastructure_failure \
+    "Elasticsearch never settled while the app was running; not extracting a moving target"
+
+# Then stop the app, because under behaviorEmitOnce a track's behavior is written only when the
+# track ends -- after behaviorStateValidInterval seconds of *event-time* silence. Playback exiting
+# freezes each sensor's clock instead of advancing it, so tracks that were still live are never
+# ended and their behaviors sit in the holdback. The app's close hook flushes them (app_scheduler.py
+# runs it in each worker's finally), so a graceful SIGTERM is what puts them on the stream at all.
+# -t is generous because the flush writes through the sink before it returns.
+#
+# A failed stop is fatal for the same reason the stop exists: without it the holdback is never
+# flushed, so the run would go on to compare a behavior stream that is missing every track still
+# live at the end -- an infrastructure failure wearing the costume of a data mismatch.
+echo "Stopping mdx-analytics so emit-once behaviors are flushed..."
+if docker stop -t "${APP_STOP_TIMEOUT_SEC:-60}" mdx-analytics > /dev/null 2>&1; then
+    echo "✓ mdx-analytics stopped"
+else
+    abort_on_infrastructure_failure \
+        "Failed to stop mdx-analytics; emit-once behaviors were never flushed"
+fi
+
+echo "Waiting for the flush to land in Elasticsearch..."
+wait_for_elasticsearch_to_settle || abort_on_infrastructure_failure \
+    "Elasticsearch never settled after the flush; extracted data would be incomplete"
 
 # Define which data types to dump/compare for each profile
 get_data_types_for_profile() {
