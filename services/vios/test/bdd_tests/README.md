@@ -2,6 +2,73 @@
 
 Comprehensive Behavior-Driven Development (BDD) test suite for the VST API, featuring organized test categories, parallel execution, and automated resource monitoring.
 
+> ### ⚠️ Read this before your first run
+>
+> Most "mystery failures" in this suite are **environment**, not product bugs.
+> Two things catch almost everyone:
+>
+> 1. **A fresh deployment has no sensors and no recordings.** The stream,
+>    download and WebRTC suites need seeded data. The auto-seeder only finds
+>    clips inside the BDD *container* image (`/app/test_videos`); on a native
+>    run it silently finds nothing and the suite tests an **empty system**.
+>    → Set `TEST_VIDEOS_DIR` and seed first — see
+>    [Seeding test data](#seeding-test-data-required-for-streamdownloadwebrtc-suites).
+>
+> 2. **Old recordings affect results.** `stop` keeps the VST volume, so
+>    segments and sensors survive redeploys — they slow long-polling suites and
+>    can appear as stale entries. If you want a clean slate, use
+>    `python3 oneclick_dc_deployment.py stop all --clean` (irreversible — it
+>    deletes recordings). Testing against an existing deployment is fine; just
+>    account for the pre-existing data when reading results.
+>
+> Agent-facing detail lives in `.claude/sqa/skills/testing/run-bdd-tests.md`.
+
+---
+
+## Seeding test data (required for stream/download/webrtc suites)
+
+```bash
+# 0. Only if you want a clean slate (irreversible) — otherwise skip
+cd <PROJECT_ROOT>/services/vios/deployment/stream-processing
+python3 oneclick_dc_deployment.py stop all --clean
+
+# 0b. If deploying and you have a clips directory, point NVStreamer at it
+python3 oneclick_dc_deployment.py deploy --target all --force \
+    --nvstreamer-video-path /path/to/clips
+
+# 1. Point config.json at the deployment (api.base_url AND nvstreamer.host)
+
+# 2. Seed NVStreamer -> VIOS sensors -> recordings
+cd <PROJECT_ROOT>/services/vios/test/bdd_tests
+export TEST_VIDEOS_DIR=/path/to/clips     # e.g. /home/vst/vst_release/streamer_videos/clip
+poetry run python -c "
+import json, logging, sys
+logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+sys.path.insert(0, '.')
+from scripts.stream_prerequisite import ensure_streams
+cfg = json.load(open('config.json'))
+print(ensure_streams(cfg['api']['base_url'], cfg['api'].get('verify_ssl', False), cfg))
+"
+
+# 3. Verify recordings are accumulating (dict keyed by sensorId, NOT a list)
+curl -s "<BASE_URL>/vst/api/v1/storage/file/list" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('segments:', sum(len(v) for v in d.values() if isinstance(v,list)))"
+
+# 4. Upload one clip directly to VIOS for file-sensor coverage
+curl --location --request PUT --fail \
+  "<BASE_URL>/vst/api/v1/storage/file/test_video.mp4?sensorId=test_video&timestamp=2025-01-01T00:00:00.000Z" \
+  --header "Content-Type: video/mp4" --data-binary "@/path/to/test_video.mp4"
+```
+
+Notes:
+- **No clips available?** Ask whoever owns the machine; on VST dev hosts they
+  are often under `/home/vst/vst_release/streamer_videos/clip/`.
+- **NVStreamer accepts H.264 / H.265 only.** An mpeg4 clip returns
+  `422 … Video encode format not supported: mpeg4` — expected, just skip it.
+- Give recording a few minutes so multi-segment tests (e.g.
+  `test_download_inter_file_gap.py`, which picks a *non-first* recorded file)
+  have enough segments.
+
 ## Quick Start
 
 ### Option 1: Automated Setup (Recommended)
