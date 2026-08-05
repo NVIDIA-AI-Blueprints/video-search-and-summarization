@@ -25,7 +25,7 @@ dependencies:
     repository: "file://./charts/rtvi-cv"
     condition: vss-rtvi-cv.enabled
   - name: vss-rtvi-vlm
-    version: 3.2.0
+    version: 3.2.1
     repository: "file://./charts/rtvi-vlm"
     condition: vss-rtvi-vlm.enabled
   - name: vss-rtvi-embed
