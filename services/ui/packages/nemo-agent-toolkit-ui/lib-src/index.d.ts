@@ -10,7 +10,7 @@ export {
   type VideoModalData,
   type AlertLike,
   type UseVideoModalOptions,
-} from '@aiqtoolkit-ui/common';
+} from 'common';
 export {
   UploadProgressPopup,
   type UploadFileStatus,
@@ -19,7 +19,7 @@ export {
   UploadSuccessPopup,
   type UploadResultItem,
   type UploadSuccessPopupProps,
-} from '@aiqtoolkit-ui/common';
+} from 'common';
 
 // Main app export and types
 export interface ChatSidebarControlHandlers {
@@ -216,7 +216,7 @@ export {
   type FileUploadResult,
   type ChunkedUploadOptions,
   type ChunkedUploadResponse,
-} from '@aiqtoolkit-ui/common';
+} from 'common';
 
 // Re-export next-i18next config
 export const nextI18nConfig: any;
