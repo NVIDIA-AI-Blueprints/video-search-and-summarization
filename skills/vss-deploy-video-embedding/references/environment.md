@@ -8,7 +8,7 @@ This reference lists every variable the Compose service consumes and how host-le
 |---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | Compose uses `${RTVI_EMBED_PORT?}`, so a missing value fails `docker compose config`. |
 | `VSS_DATA_DIR` | Host root for VSS shared data. | `${VSS_DATA_DIR}/data_log/vst/clip_storage` is bind-mounted to the container clip-storage reader path declared in `rtvi-embed-docker-compose.yml`. |
-| `HOST_IP` | Host IP used to construct Kafka bootstrap servers. | Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). Setting `KAFKA_ENABLED` directly on the host has no effect. |
+| `HOST_IP` | Host IP used to construct Kafka bootstrap servers. | Only required when `MESSAGE_BUS=kafka` or `ERROR_BUS=kafka` is set and the broker is exposed through the host. |
 | `NGC_API_KEY` | NGC API key for asset downloads. | Required for first-boot model fetches from NGC. |
 | `HF_TOKEN` | Hugging Face token. | Optional. Recommended to avoid Hugging Face 429 rate-limit errors during the first-boot Cosmos-Embed1 weights download. |
 
@@ -35,8 +35,6 @@ Several host-side variables map to differently named container variables. The Co
 | `RTVI_EMBED_OTEL_TRACES_EXPORTER` | `OTEL_TRACES_EXPORTER` | `otlp` |
 | `RTVI_EMBED_OTEL_EXPORTER_OTLP_ENDPOINT` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` |
 | `RTVI_EMBED_OTEL_METRIC_EXPORT_INTERVAL` | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` (ms) |
-| `RTVI_EMBED_KAFKA_ENABLED` | `KAFKA_ENABLED` | `false` |
-| `RTVI_EMBED_KAFKA_TOPIC` | `KAFKA_TOPIC` | `vision-embed-messages` |
 | `RTVI_EMBED_ERROR_MESSAGE_TOPIC` | `ERROR_MESSAGE_TOPIC` | `vision-embed-errors` |
 | `RTVI_EMBED_HF_CACHE` | volume source for `/tmp/huggingface` | `rtvi-hf-cache` (named) |
 | `NGC_MODEL_CACHE` | volume source for the NGC cache | `rtvi-ngc-model-cache` (named) |
@@ -50,6 +48,9 @@ Several host-side variables map to differently named container variables. The Co
 | `MODEL_PATH` | Model source URI for first-boot download. | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` |
 | `MODEL_IMPLEMENTATION_PATH` | In-container path to the model implementation. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` |
 | `MODEL_REPOSITORY_SCRIPT_PATH` | Script that builds the Triton model repository. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py` |
+| `MESSAGE_BUS` | Generated-message output bus. Use `kafka` to publish embedding events; set empty to disable. | `kafka` in the shipped `.env` |
+| `MESSAGE_BUS_TOPIC` | Generated-message Kafka topic when `MESSAGE_BUS=kafka`. | `mdx-embed` |
+| `ERROR_BUS` | Error output bus. Use `kafka` for Kafka-backed errors; set empty to disable. | `kafka` in the shipped `.env` |
 | `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, RT-Embed uses the remote CE1 backend. | (empty) |
 | `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | CE1 NIM deployment/model id. | `nvidia/cosmos-embed1` |
 | `REMOTE_EMBED_ENDPOINT_API_KEY` | Optional bearer token for the CE1 NIM endpoint. | (empty) |

@@ -8,7 +8,7 @@ The Video Embedding microservice (legacy name: RT-Embed) generates dense vector 
 
 - **Hugging Face / NGC reachability** — Required at first boot to download `nvidia/Cosmos-Embed1-448p` and any NGC assets. After the model is cached in the persistent volumes, restarts do not need outbound access.
 - **Redis** — Optional. Only required when error-message publishing is enabled (`ENABLE_REDIS_ERROR_MESSAGES=true`). Configure via `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, and `REDIS_PASSWORD`.
-- **Apache Kafka** — Optional. Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). The service publishes embedding messages to the topic named by `RTVI_EMBED_KAFKA_TOPIC` (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose builds this from `${HOST_IP}:9092`).
+- **Apache Kafka** — Optional. Only required when generated-message or error publishing is enabled with `MESSAGE_BUS=kafka` and/or `ERROR_BUS=kafka`. The service publishes embedding messages to the topic named by `MESSAGE_BUS_TOPIC` (default `mdx-embed`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose defaults to `kafka:29092`).
 - **OpenTelemetry collector** — Optional. Only required when `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` is set on the host (Compose injects this as `ENABLE_OTEL_MONITORING` inside the container). The service exports OTLP traces and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (default `http://otel-collector:4318`).
 - **Upstream video source (VST or compatible clip writer)** — Optional. When you want to embed clips written by VST, bind `${VSS_DATA_DIR}/data_log/vst/clip_storage` to the container clip-storage reader mount declared in `rtvi-embed-docker-compose.yml` so the service can read clip files locally.
 
@@ -31,8 +31,8 @@ The Video Embedding microservice (legacy name: RT-Embed) generates dense vector 
 - **Topic / endpoint / path** —
   - Embedding responses on `POST /v1/generate_video_embeddings` and `POST /v1/generate_text_embeddings` (synchronous or SSE).
   - Prometheus metrics on `GET /v1/metrics`.
-  - Optional Kafka topic set via `RTVI_EMBED_KAFKA_TOPIC` on the host (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) for embedding events when `RTVI_EMBED_KAFKA_ENABLED=true` on the host.
-  - Optional Kafka topic set via `RTVI_EMBED_ERROR_MESSAGE_TOPIC` on the host (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) for error events when `RTVI_EMBED_KAFKA_ENABLED=true` on the host.
+  - Optional Kafka topic set via `MESSAGE_BUS_TOPIC` (default `mdx-embed`) for embedding events when `MESSAGE_BUS=kafka`.
+  - Optional Kafka error publishing when `ERROR_BUS=kafka`, with error topic set via `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`).
 - **Schema** — Successful video embedding responses include `id`, `created`, `model`, `media_info`, `usage`, and `chunk_responses`. Text embedding responses include `id`, `created`, `model`, and `data`. See the API Schema section for the full list of endpoints.
 - **Frequency / trigger** — Per request for synchronous calls; per chunk when streaming (`chunk_duration`, `chunk_overlap_duration` control chunking).
 
@@ -97,8 +97,9 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `RTVI_EMBED_OTEL_TRACES_EXPORTER` | Maps to `OTEL_TRACES_EXPORTER`. | `otlp` | No |
 | `RTVI_EMBED_OTEL_EXPORTER_OTLP_ENDPOINT` | Maps to `OTEL_EXPORTER_OTLP_ENDPOINT`. | `http://otel-collector:4318` | No |
 | `RTVI_EMBED_OTEL_METRIC_EXPORT_INTERVAL` | Maps to `OTEL_METRIC_EXPORT_INTERVAL` (ms). | `60000` | No |
-| `RTVI_EMBED_KAFKA_ENABLED` | Maps to `KAFKA_ENABLED`. | `false` | No |
-| `RTVI_EMBED_KAFKA_TOPIC` | Maps to `KAFKA_TOPIC`. | `vision-embed-messages` | No |
+| `MESSAGE_BUS` | Generated-message output bus. Use `kafka` to publish embedding events; set empty to disable. | `kafka` in the shipped `.env` | No |
+| `MESSAGE_BUS_TOPIC` | Kafka topic for generated embedding events when `MESSAGE_BUS=kafka`. | `mdx-embed` | No |
+| `ERROR_BUS` | Error output bus. Use `kafka` to publish errors; set empty to disable. | `kafka` in the shipped `.env` | No |
 | `RTVI_EMBED_ERROR_MESSAGE_TOPIC` | Maps to `ERROR_MESSAGE_TOPIC`. | `vision-embed-errors` | No |
 | `HOST_IP` | Used to build `KAFKA_BOOTSTRAP_SERVERS` as `${HOST_IP}:9092`. | (unset) | Yes when Kafka is enabled |
 | `ENABLE_REDIS_ERROR_MESSAGES` | Publish error messages to Redis. | `false` | No |
@@ -181,7 +182,9 @@ services:
       HF_TOKEN: "${HF_TOKEN:-}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
       LOG_LEVEL: "${RTVI_EMBED_LOG_LEVEL:-INFO}"
-      KAFKA_ENABLED: "${RTVI_EMBED_KAFKA_ENABLED:-false}"
+      MESSAGE_BUS: "${MESSAGE_BUS:-}"
+      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
+      ERROR_BUS: "${ERROR_BUS:-}"
       KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
       REDIS_HOST: "${REDIS_HOST:-redis}"
       REDIS_PORT: "${REDIS_PORT:-6379}"
