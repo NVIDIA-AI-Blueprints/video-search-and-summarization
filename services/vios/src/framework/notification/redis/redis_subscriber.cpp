@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,24 +63,10 @@ static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *top
     }
 }
 
-RedisSubscriber* RedisSubscriber::_instance = nullptr;
-
 RedisSubscriber* RedisSubscriber::getInstance()
 {
-    if (_instance == nullptr)
-    {
-        _instance = new RedisSubscriber();
-    }
-    return _instance;
-}
-
-void RedisSubscriber::deleteInstance()
-{
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    static RedisSubscriber instance;
+    return &instance;
 }
 
 RedisSubscriber::RedisSubscriber()
@@ -145,7 +131,10 @@ error:
 
 RedisSubscriber::~RedisSubscriber()
 {
-    nvds_msgapi_disconnect(m_connHandle);
+    if (nvds_msgapi_disconnect)
+    {
+        nvds_msgapi_disconnect(m_connHandle);
+    }
     if (m_handleRedis)
     {
         dlclose(m_handleRedis);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,27 +41,23 @@ DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaq
 }
 #endif
 
-NvKafka* NvKafka::_instance = nullptr;
+std::unique_ptr<NvKafka> NvKafka::_instance;
 
 NvKafka* NvKafka::getInstance()
 {
     if (_instance == nullptr)
     {
-        _instance = new NvKafka();
+        _instance = std::make_unique<NvKafka>(PrivateTag{});
     }
-    return _instance;
+    return _instance.get();
 }
 
 void NvKafka::deleteInstance()
 {
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    _instance.reset();
 }
 
-NvKafka::NvKafka()
+NvKafka::NvKafka(PrivateTag)
         : m_error(false)
 #if !defined(AARCH64_PLATFORM)
         , m_kafkaHandle(nullptr)

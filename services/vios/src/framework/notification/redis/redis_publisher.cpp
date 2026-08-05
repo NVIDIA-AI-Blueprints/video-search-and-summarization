@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,27 +28,23 @@
 
 using namespace std;
 
-NvRedis* NvRedis::_instance = nullptr;
+std::unique_ptr<NvRedis> NvRedis::_instance;
 
 NvRedis* NvRedis::getInstance()
 {
     if (_instance == nullptr)
     {
-        _instance = new NvRedis();
+        _instance = std::make_unique<NvRedis>(PrivateTag{});
     }
-    return _instance;
+    return _instance.get();
 }
 
 void NvRedis::deleteInstance()
 {
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    _instance.reset();
 }
 
-NvRedis::NvRedis()
+NvRedis::NvRedis(PrivateTag)
       : nvds_msgapi_connect(nullptr)
       , nvds_msgapi_send(nullptr)
       , m_error(false)

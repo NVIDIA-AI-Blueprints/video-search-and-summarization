@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,27 +26,10 @@
 using namespace std;
 #define MQTT_WAIT_TIMEOUT (10 * 1000)   // 10 seconds
 
-MqttSubscriber* MqttSubscriber::_instance = nullptr;
-std::mutex MqttSubscriber::m_instanceMutex;
-
 MqttSubscriber* MqttSubscriber::getInstance()
 {
-    std::lock_guard<std::mutex> lock(m_instanceMutex);
-    if (_instance == nullptr)
-    {
-        _instance = new MqttSubscriber();
-    }
-    return _instance;
-}
-
-void MqttSubscriber::deleteInstance()
-{
-    std::lock_guard<std::mutex> lock(m_instanceMutex);
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    static MqttSubscriber instance;
+    return &instance;
 }
 
 MqttSubscriber::MqttSubscriber()

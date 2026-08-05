@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,7 +18,9 @@
 #include "ds_proto_parser.h"
 #include "logger.h"
 #include "utils.h"
+#include <cstdlib>
 #include <dlfcn.h>
+#include <memory>
 #include <vector>
 
 constexpr const char* ABSOLUTE_LIBRARY_PATH_2D_X86_64 = "/home/vst/vst_release/prebuilts/x86_64/libnvds_schema_2d.so";
@@ -181,6 +183,8 @@ Json::Value DsProtoParser::parseMessage(const void* msg, int len, int64_t& frame
         return Json::nullValue;
     }
 
+    using CStringPtr = std::unique_ptr<char, decltype(&std::free)>;
+
     Json::Value payload;
     try {
         if (!m_frame_new || !m_frame_parse || !m_frame_get_sensorid ||
@@ -198,9 +202,8 @@ Json::Value DsProtoParser::parseMessage(const void* msg, int len, int64_t& frame
         }
 
         // SensorId
-        char* sensorid = m_frame_get_sensorid(frame);
-        payload["sensorId"] = sensorid ? sensorid : "";
-        free(sensorid);
+        CStringPtr sensorid(m_frame_get_sensorid(frame), std::free);
+        payload["sensorId"] = sensorid ? sensorid.get() : "";
 
         // Timestamp
         frameTimeMs = 0;
@@ -215,13 +218,11 @@ Json::Value DsProtoParser::parseMessage(const void* msg, int len, int64_t& frame
             void* obj = m_frame_get_object(frame, i);
             Json::Value objJson;
             // id, type, confidence
-            char* id = m_object_get_id(obj);
-            char* type = m_object_get_type(obj);
-            objJson["id"] = id ? id : "";
-            objJson["type"] = type ? type : "";
+            CStringPtr id(m_object_get_id(obj), std::free);
+            CStringPtr type(m_object_get_type(obj), std::free);
+            objJson["id"] = id ? id.get() : "";
+            objJson["type"] = type ? type.get() : "";
             objJson["confidence"] = m_object_get_confidence(obj);
-            if (id) free(id);
-            if (type) free(type);
             // 3D or 2D bbox
             if (m_data2d)
             {
@@ -261,9 +262,8 @@ Json::Value DsProtoParser::parseMessage(const void* msg, int len, int64_t& frame
                 // Add pose type
                 if (m_object_get_pose_type)
                 {
-                    char* poseType = m_object_get_pose_type(obj);
-                    poseJson["type"] = poseType ? poseType : "";
-                    if (poseType) free(poseType);
+                    CStringPtr poseType(m_object_get_pose_type(obj), std::free);
+                    poseJson["type"] = poseType ? poseType.get() : "";
                 }
 
                 // Add keypoints as an array of keypoint objects, size = keypointCount
@@ -311,22 +311,20 @@ Json::Value DsProtoParser::parseMessage(const void* msg, int len, int64_t& frame
                     if (actionsCount > 0)
                     {
                         // For compatibility with overlay_internal.cpp, use the first action as primary
-                        char* primaryActionType = m_object_get_pose_action_type(obj, 0);
+                        CStringPtr primaryActionType(m_object_get_pose_action_type(obj, 0), std::free);
                         float primaryActionConfidence = m_object_get_pose_action_confidence(obj, 0);
-                        poseJson["action"] = primaryActionType ? primaryActionType : "";
+                        poseJson["action"] = primaryActionType ? primaryActionType.get() : "";
                         poseJson["action_confidence"] = primaryActionConfidence;
-                        if (primaryActionType) free(primaryActionType);
 
                         // Also add all actions as an array for completeness
                         Json::Value actionsArray = Json::arrayValue;
                         for (int i = 0; i < actionsCount; i++)
                         {
-                            char* actionType = m_object_get_pose_action_type(obj, i);
+                            CStringPtr actionType(m_object_get_pose_action_type(obj, i), std::free);
                             float actionConfidence = m_object_get_pose_action_confidence(obj, i);
                             Json::Value actionJson;
-                            actionJson["type"] = actionType ? actionType : "";
+                            actionJson["type"] = actionType ? actionType.get() : "";
                             actionJson["confidence"] = actionConfidence;
-                            if (actionType) free(actionType);
                             actionsArray.append(actionJson);
                         }
                         poseJson["actions"] = actionsArray;
@@ -351,29 +349,30 @@ Json::Value DsProtoParser::parseMessage(const void* msg, int len, int64_t& frame
             std::vector<char*> values(infoSize, nullptr);
             int infoCount = m_frame_get_info(frame, keys.data(), values.data(), infoSize);
 
+            std::vector<CStringPtr> infoOwners;
+            infoOwners.reserve(static_cast<size_t>(infoSize) * 2);
+            for (int i = 0; i < infoSize; i++)
+            {
+                infoOwners.emplace_back(keys[i], std::free);
+                infoOwners.emplace_back(values[i], std::free);
+            }
+
             Json::Value perCameraPayloads = Json::arrayValue;
             for (int i = 0; i < infoCount; i++)
             {
                 if (!keys[i] || !values[i])
                 {
-                    free(keys[i]);
-                    free(values[i]);
                     continue;
                 }
                 std::time_t epochMs = isoToEpoch(std::string(values[i]));
                 if (epochMs == 0)
                 {
-                    free(keys[i]);
-                    free(values[i]);
                     continue;
                 }
                 Json::Value cameraPayload = payload;
                 cameraPayload["sensorId"] = std::string(keys[i]);
                 cameraPayload["epocTime"] = static_cast<int64_t>(epochMs);
                 perCameraPayloads.append(cameraPayload);
-
-                free(keys[i]);
-                free(values[i]);
             }
 
             if (perCameraPayloads.size() > 0)
