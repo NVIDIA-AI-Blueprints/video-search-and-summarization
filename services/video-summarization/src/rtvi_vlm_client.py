@@ -370,39 +370,42 @@ class RtviVlmClient:
             timeout=600,
             headers={"x-stream-id": str(req.id)},
         )
-        if resp.status_code != 200:
-            self._raise_rtvi_error("generate_captions", resp)
+        try:
+            if resp.status_code != 200:
+                self._raise_rtvi_error("generate_captions", resp)
 
-        for line in resp.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            # SSE comment lines (keepalive pings, etc.)
-            if line.startswith(":"):
-                continue
-            # SSE event type lines — skip, we only care about data
-            if line.startswith("event:"):
-                continue
-            # SSE data lines
-            if line.startswith("data:"):
-                data = line[len("data:") :].strip()
-            else:
-                # Unknown line format — skip
-                logger.debug("RTVI SSE unexpected line: %s", line)
-                continue
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                # SSE comment lines (keepalive pings, etc.)
+                if line.startswith(":"):
+                    continue
+                # SSE event type lines — skip, we only care about data
+                if line.startswith("event:"):
+                    continue
+                # SSE data lines
+                if line.startswith("data:"):
+                    data = line[len("data:") :].strip()
+                else:
+                    # Unknown line format — skip
+                    logger.debug("RTVI SSE unexpected line: %s", line)
+                    continue
 
-            if not data or data == "ping" or data == ": ping":
-                continue
-            if data == "[DONE]":
-                logger.info("RTVI generate_captions_stream: received [DONE]")
-                return
+                if not data or data == "ping" or data == ": ping":
+                    continue
+                if data == "[DONE]":
+                    logger.info("RTVI generate_captions_stream: received [DONE]")
+                    return
 
-            try:
-                chunk = json.loads(data)
-                yield chunk
-            except Exception as e:
-                logger.warning("RTVI SSE parse error: %s, line: %s", e, data)
+                try:
+                    chunk = json.loads(data)
+                    yield chunk
+                except Exception as e:
+                    logger.warning("RTVI SSE parse error: %s, line: %s", e, data)
 
-        logger.info("RTVI generate_captions_stream: stream ended")
+            logger.info("RTVI generate_captions_stream: stream ended")
+        finally:
+            resp.close()
 
     def start_captions(self, **kwargs):
         """Fire-and-forget kickoff for RTVI live-stream captioning.

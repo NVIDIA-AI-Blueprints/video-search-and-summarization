@@ -113,8 +113,8 @@ services:
     profiles: ["elasticsearch"]
     volumes:
       - $VSS_APPS_DIR/services/infra/elk/elasticsearch/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
-      - mdx-elastic-data:/tmp/elastic/data:rw
-      - mdx-elastic-logs:/tmp/elastic/logs:rw
+      - elastic-data:/tmp/elastic/data:rw
+      - elastic-logs:/tmp/elastic/logs:rw
     container_name: elasticsearch
     restart: always
     ports:
@@ -153,7 +153,7 @@ services:
   kafka:
     image: confluentinc/cp-kafka:8.3.0
     volumes:
-      - mdx-kafka:/tmp/kafka-data
+      - kafka-data:/tmp/kafka-data
       - $VSS_APPS_DIR/services/infra/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
     profiles: ["kafka"]
     environment:
@@ -270,7 +270,7 @@ services:
     image: docker.elastic.co/logstash/logstash:9.4.4
     profiles: ["logstash"]
     volumes:
-      - mdx-logstash-libs:/opt/logstash-data-libs
+      - logstash-libs:/opt/logstash-data-libs
       - $VSS_APPS_DIR/services/infra/elk/logstash/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
       - $VSS_APPS_DIR/services/infra/elk/logstash/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
       - $VSS_APPS_DIR/services/infra/elk/logstash/pb_definitions/descriptors/ext.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/ext.desc
@@ -343,20 +343,20 @@ services:
 volumes:
   vss-turn-password:
   phoenix-data:
-  mdx-logstash-libs:
-  mdx-elastic-data:
+  logstash-libs:
+  elastic-data:
     driver: local
     driver_opts:
       type: none
       o: bind
       device: $VSS_DATA_DIR/data_log/elastic/data
-  mdx-elastic-logs:
+  elastic-logs:
     driver: local
     driver_opts:
       type: none
       o: bind
       device: $VSS_DATA_DIR/data_log/elastic/logs
-  mdx-kafka:
+  kafka-data:
     driver: local
     driver_opts:
       type: none
