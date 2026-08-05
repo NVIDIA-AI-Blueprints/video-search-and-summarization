@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1495,17 +1495,15 @@ bool ping(const string& ip)
     {
         return false;
     }
-ping_retry:
-    cmd = string("timeout 1 ping -c1 ") + ip.c_str() + string(" > /dev/null 2>&1");
-    int ret = system(cmd.c_str());
-    if (ret == 0)
+    do
     {
-        return true;
-    }
-    else if (retry-- > 0)
-    {
-        goto ping_retry;
-    }
+        cmd = string("timeout 1 ping -c1 ") + ip.c_str() + string(" > /dev/null 2>&1");
+        int ret = system(cmd.c_str());
+        if (ret == 0)
+        {
+            return true;
+        }
+    } while (retry-- > 0);
     return false;
 }
 
