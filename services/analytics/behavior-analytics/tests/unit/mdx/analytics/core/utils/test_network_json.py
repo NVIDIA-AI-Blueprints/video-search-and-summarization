@@ -16,6 +16,9 @@ import unittest
 import logging
 import os
 import shutil
+from unittest import mock
+
+from PIL import Image
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.utils.io_utils import validate_file_path, load_json_from_file
 from mdx.analytics.core.utils.crs import CoordinateReferenceSystem as crs
@@ -24,6 +27,13 @@ from mdx.analytics.core.utils.crs import CoordinateReferenceSystem as crs
 class TestNetworkJsonGeneration(unittest.TestCase):
 
     def setUp(self):
+        # draw_network_json renders a basemap through smopy, which downloads tile images.
+        # Serve a blank tile: this test asserts the files are produced, not their pixels.
+        tile_patch = mock.patch(
+            "smopy.fetch_tile", side_effect=lambda *a, **k: Image.new("RGB", (256, 256), (128, 128, 128)))
+        tile_patch.start()
+        self.addCleanup(tile_patch.stop)
+
         # Create output directory if it doesn't exist
         self.output_path = 'tests/unit/outputs/'
         os.makedirs(self.output_path, exist_ok=True)
@@ -53,7 +63,10 @@ class TestNetworkJsonGeneration(unittest.TestCase):
     config = AppConfig(**load_json_from_file(valid_config_path))
     config.coordinateReferenceSystem.roadNetwork.visualization.visualizationGraphShowGraph = False
     # test case parameters
-    config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_place"
+    # Pinned graph rather than a live Overpass query -- see test_crs.py.
+    config.coordinateReferenceSystem.roadNetwork.graph.osmLoadMethod = "from_file"
+    config.coordinateReferenceSystem.roadNetwork.graph.osmQueryFile = \
+        "tests/unit/resources/osm_graphs/from_place_drive.graphml.gz"
     config.coordinateReferenceSystem.roadNetwork.graph.osmSimplify = False
     config.coordinateReferenceSystem.roadNetwork.roadNetworkUseCRSCartesian = False
     config.coordinateReferenceSystem.roadNetwork.segmentShiftDistanceMeters = 5
