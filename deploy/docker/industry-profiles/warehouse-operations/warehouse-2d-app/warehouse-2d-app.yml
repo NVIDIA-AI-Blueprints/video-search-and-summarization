@@ -44,7 +44,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_DATA_DIR/playback/warehouse_loading_dock_playback.json:/opt/mdx/playback/warehouse_loading_dock_playback.json
     container_name: vss-behavior-analytics-playback
-    command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_loading_dock_playback.json      
+    command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_loading_dock_playback.json
 
   nvstreamer-2d:
     extends:
@@ -67,7 +67,7 @@ services:
             - gpu
             device_ids:
             - "${RT_CV_DEVICE_ID:-0}"
-    volumes:    
+    volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
@@ -154,7 +154,7 @@ services:
       VSS_APPS_DIR: $VSS_APPS_DIR
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/
       NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs
-      MESSAGE_BROKER_TYPE: $STREAM_TYPE 
+      MESSAGE_BROKER_TYPE: $STREAM_TYPE
       WDM_REDIS_HOST: redis
       WDM_REDIS_PORT: 6379
       WDM_REDIS_STREAM_NAME: vst.event
@@ -278,6 +278,4 @@ services:
       - vss-video-analytics-api-2d
 
 volumes:
-  mdx-nvstreamer-data:        
-  mdx-nvstreamer-videos: 
   perception-2d:

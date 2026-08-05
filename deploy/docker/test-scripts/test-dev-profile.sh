@@ -531,10 +531,10 @@ run_dry_run_test "edge (AGX-THOR) alerts real-time uses device ID 0 (no VLM over
 # Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION is an option (mirrors NIM hw-H100.env pattern: ${VLM_NIM_KVCACHE_PERCENT}), flows through from env (unset → empty).
 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
 # Alerts on IGX-THOR/AGX-THOR: RTVI_VLLM_GPU_MEMORY_UTILIZATION env var flows through to generated.env (option pattern, like ${VLM_NIM_KVCACHE_PERCENT} in NIM hw-H100.env).
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
@@ -974,6 +974,16 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+_mdx_volume_decl_matches="$(grep -R -n -E --include='*.yml' --include='*.yaml' '(^[[:space:]]+- mdx-(elastic|kafka|logstash|nvstreamer|calibration-toolkit)[A-Za-z0-9_-]*:|^[[:space:]]+mdx-(elastic|kafka|logstash|nvstreamer|calibration-toolkit)[A-Za-z0-9_-]*:)' "${REPO_ROOT}/deploy/docker" || true)"
+if [[ -n "${_mdx_volume_decl_matches}" ]]; then
+  echo "FAIL: Compose volume declarations should not use mdx-* names"
+  echo "${_mdx_volume_decl_matches}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: Compose volume declarations use non-mdx names"
+  ((TESTS_PASSED++)) || true
+fi
+
 _helm_mv3dt_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml"
 _helm_mv3dt_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
 _helm_mv3dt_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
@@ -1179,7 +1189,7 @@ EOF
 
 # --- Profile env split: stable .env plus script-modifiable overrides.env ---
 _common_overrides_env_keys=(
-  HARDWARE_PROFILE COMPOSE_PROFILES
+  HARDWARE_PROFILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES
   LLM_DEVICE_ID VLM_DEVICE_ID LLM_MODE VLM_MODE
   LLM_NAME LLM_NAME_SLUG LLM_ENV_FILE LLM_BASE_URL LLM_MODEL_TYPE
   VLM_NAME VLM_NAME_SLUG VLM_ENV_FILE VLM_BASE_URL VLM_MODEL_TYPE
@@ -1200,10 +1210,12 @@ for _profile in base lvs search alerts; do
     continue
   fi
   _expected_override_keys=("${_common_overrides_env_keys[@]}")
+  _allowed_duplicate_keys=()
   case "${_profile}" in
     base)
-      _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_stable_keys=(MODE RTVI_VLM_MAX_MODEL_LEN)
+      _allowed_duplicate_keys=(RTVI_VLM_MAX_MODEL_LEN)
       ;;
     lvs)
       _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
@@ -1212,17 +1224,24 @@ for _profile in base lvs search alerts; do
       ;;
     search)
       _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
-      _expected_override_keys+=(RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=(MODE PERCEPTION_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
     alerts)
       _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
-      _expected_override_keys+=(RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=(NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
   esac
   for _key in "${_expected_override_keys[@]}"; do
-    if grep -Eq "^${_key}=" "${_stable_env}"; then
+    _allow_duplicate=0
+    for _duplicate_key in "${_allowed_duplicate_keys[@]}"; do
+      if [[ "${_key}" == "${_duplicate_key}" ]]; then
+        _allow_duplicate=1
+        break
+      fi
+    done
+    if [[ ${_allow_duplicate} -eq 0 ]] && grep -Eq "^${_key}=" "${_stable_env}"; then
       echo "FAIL: dev-profile-${_profile}/.env should not define override-layer ${_key}"
       ((_split_failed++)) || true
     fi
@@ -1232,11 +1251,18 @@ for _profile in base lvs search alerts; do
     fi
   done
   for _key in "${_expected_stable_keys[@]}"; do
+    _allow_duplicate=0
+    for _duplicate_key in "${_allowed_duplicate_keys[@]}"; do
+      if [[ "${_key}" == "${_duplicate_key}" ]]; then
+        _allow_duplicate=1
+        break
+      fi
+    done
     if ! grep -Eq "^${_key}=" "${_stable_env}"; then
       echo "FAIL: dev-profile-${_profile}/.env should keep static ${_key}"
       ((_split_failed++)) || true
     fi
-    if grep -Eq "^${_key}=" "${_overrides_env}"; then
+    if [[ ${_allow_duplicate} -eq 0 ]] && grep -Eq "^${_key}=" "${_overrides_env}"; then
       echo "FAIL: dev-profile-${_profile}/overrides.env should not define static ${_key}"
       ((_split_failed++)) || true
     fi
@@ -1255,7 +1281,7 @@ _warehouse_stable_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-op
 _warehouse_overrides_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
 _warehouse_host_port_keys=(
   HAPROXY_HOST_PORT VSS_UI_HOST_PORT VSS_AGENT_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT
-  RTVI_CV_HOST_PORT RTVI_CV_MV3DT_HOST_PORT RTVI_VLM_PORT NVSTREAMER_HTTP_HOST_PORT PHOENIX_HOST_PORT ELASTICSEARCH_HOST_PORT
+  VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT RTVI_CV_MV3DT_HOST_PORT RTVI_VLM_PORT NVSTREAMER_HTTP_HOST_PORT PHOENIX_HOST_PORT ELASTICSEARCH_HOST_PORT
   KAFKA_HOST_PORT REDIS_HOST_PORT KIBANA_HOST_PORT TURN_HOST_PORT TURN_MIN_RELAY_HOST_PORT TURN_MAX_RELAY_HOST_PORT
   MQTT_HOST_PORT VST_INGRESS_HOST_PORT SENSOR_HTTP_HOST_PORT STREAM_PROCESSOR_HTTP_HOST_PORT RTSP_SERVER_HOST_PORT RTSP_SERVER_HOST_PORT_END
   SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT
@@ -1272,6 +1298,14 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
     COMPOSE_PROFILES
   )
+  if grep -Eq "^COMPOSE_PROJECT_NAME=" "${_warehouse_stable_env}"; then
+    echo "FAIL: warehouse .env should not define user-facing compose project name COMPOSE_PROJECT_NAME"
+    ((_split_failed++)) || true
+  fi
+  if ! grep -Eq "^COMPOSE_PROJECT_NAME=" "${_warehouse_overrides_env}"; then
+    echo "FAIL: warehouse overrides.env should define user-facing compose project name COMPOSE_PROJECT_NAME"
+    ((_split_failed++)) || true
+  fi
   for _key in "${_warehouse_compose_profile_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define user-facing compose profile value ${_key}"
@@ -1300,8 +1334,21 @@ else
   echo "FAIL: warehouse profile should have both .env and overrides.env"
   ((_split_failed++)) || true
 fi
+_smartcities_overrides_env="${REPO_ROOT}/deploy/docker/industry-profiles/smartcities/overrides.env"
+if [[ -f "${_smartcities_overrides_env}" ]]; then
+  _smartcities_inherited_override_keys=(COMPOSE_PROJECT_NAME VIDEO_ANALYTICS_API_HOST_PORT)
+  for _key in "${_smartcities_inherited_override_keys[@]}"; do
+    if grep -Eq "^${_key}=" "${_smartcities_overrides_env}"; then
+      echo "FAIL: smartcities overlay should inherit user-facing override ${_key} from the selected base profile"
+      ((_split_failed++)) || true
+    fi
+  done
+else
+  echo "FAIL: smartcities profile should have overrides.env"
+  ((_split_failed++)) || true
+fi
 _shared_service_env_specs=(
-  "deploy/docker/services/agent/agent.env:VSS_AGENT_VERSION VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
+  "deploy/docker/services/agent/agent.env:VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
   "deploy/docker/services/alert/alert.env:ALERT_BRIDGE_PORT ALERT_BRIDGE_URL"
   "deploy/docker/services/ui/ui.env:NEXT_PUBLIC_APP_TITLE NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR NEXT_PUBLIC_ENABLE_CHAT_TAB NEXT_PUBLIC_ENABLE_MAP_TAB"
   "deploy/docker/services/infra/infra.env:ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS"
@@ -1435,7 +1482,7 @@ run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
-  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "RTVI_VLM_KAFKA_ENABLED" "false"
 
 run_dry_run_up_and_check_generated_env "generated.env MODE for alerts" "alerts" \
@@ -1778,7 +1825,7 @@ run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM 
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
-  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "COMPOSE_PROFILES" "${_expected_lvs_compose_profiles}"
 
 # LVS with remote VLM: keep RT-VLM in the stack and point only RT-VLM at the remote OpenAI-compatible endpoint.
@@ -1947,8 +1994,8 @@ elif [[ ${exit_code} -ne 0 ]]; then
   echo "FAIL: down dry-run (expected exit 0, got ${exit_code})"
   cat "${out_file}" "${err_file}" | sed 's/^/    /'
   ((TESTS_FAILED++)) || true
-elif ! grep -q "\[DRY-RUN\] docker compose -p mdx down -v --remove-orphans" "${out_file}"; then
-  echo "FAIL: down dry-run (stdout missing '[DRY-RUN] docker compose -p mdx down -v --remove-orphans')"
+elif ! grep -q "\[DRY-RUN\] docker compose -p vss down -v --remove-orphans" "${out_file}"; then
+  echo "FAIL: down dry-run (stdout missing '[DRY-RUN] docker compose -p vss down -v --remove-orphans')"
   ((TESTS_FAILED++)) || true
 elif ! grep -q "State down completed" "${out_file}"; then
   echo "FAIL: down dry-run (stdout missing 'State down completed')"
@@ -1958,6 +2005,159 @@ else
   ((TESTS_PASSED++)) || true
 fi
 rm -f "${out_file}" "${err_file}"
+
+# --- Positive: dry-run down honors COMPOSE_PROJECT_NAME from persisted env state ---
+_custom_project_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/overrides.env"
+if [[ -f "${_custom_project_overrides}" ]]; then
+  _custom_project_backup="$(mktemp)"
+  cp "${_custom_project_overrides}" "${_custom_project_backup}"
+  CLEANUP_RESTORES+=("${_custom_project_backup}|${_custom_project_overrides}")
+  sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-custom-test/' "${_custom_project_overrides}"
+  _custom_project_generated_backups=()
+  for _custom_project_profile in base lvs search alerts; do
+    _custom_project_generated="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_custom_project_profile}/generated.env"
+    if [[ -f "${_custom_project_generated}" ]]; then
+      _custom_project_generated_backup="$(mktemp)"
+      cp "${_custom_project_generated}" "${_custom_project_generated_backup}"
+      CLEANUP_RESTORES+=("${_custom_project_generated_backup}|${_custom_project_generated}")
+      _custom_project_generated_backups+=("${_custom_project_generated_backup}|${_custom_project_generated}")
+      if grep -q '^COMPOSE_PROJECT_NAME=' "${_custom_project_generated}"; then
+        sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-custom-test/' "${_custom_project_generated}"
+      else
+        printf '\nCOMPOSE_PROJECT_NAME=vss-custom-test\n' >> "${_custom_project_generated}"
+      fi
+    fi
+  done
+
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" down --dry-run > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  mv "${_custom_project_backup}" "${_custom_project_overrides}"
+  for _custom_project_restore in "${_custom_project_generated_backups[@]}"; do
+    IFS='|' read -r _custom_project_generated_backup _custom_project_generated <<< "${_custom_project_restore}"
+    [[ -f "${_custom_project_generated_backup}" ]] && mv "${_custom_project_generated_backup}" "${_custom_project_generated}"
+  done
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (timed out after ${TEST_TIMEOUT}s)"
+    ((TESTS_FAILED++)) || true
+  elif [[ ${exit_code} -ne 0 ]]; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (expected exit 0, got ${exit_code})"
+    cat "${out_file}" "${err_file}" | sed 's/^/    /'
+    ((TESTS_FAILED++)) || true
+  elif ! grep -Fq "[DRY-RUN] docker compose -p vss-custom-test down -v --remove-orphans" "${out_file}"; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (stdout missing custom project down command)"
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: down dry-run honors custom COMPOSE_PROJECT_NAME"
+    ((TESTS_PASSED++)) || true
+  fi
+  rm -f "${out_file}" "${err_file}"
+else
+  echo "SKIP: down dry-run honors custom COMPOSE_PROJECT_NAME (base overrides.env not found)"
+fi
+
+# --- Positive: dry-run down tears down each distinct COMPOSE_PROJECT_NAME from generated.env files ---
+_multi_project_specs=("base:vss-base-test" "lvs:vss-base-test" "alerts:vss-alerts-test")
+_multi_project_backups=()
+_multi_project_created=()
+for _multi_project_spec in "${_multi_project_specs[@]}"; do
+  _multi_project_profile="${_multi_project_spec%%:*}"
+  _multi_project_name="${_multi_project_spec#*:}"
+  _multi_project_generated="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_multi_project_profile}/generated.env"
+  if [[ -f "${_multi_project_generated}" ]]; then
+    _multi_project_backup="$(mktemp)"
+    cp "${_multi_project_generated}" "${_multi_project_backup}"
+    CLEANUP_RESTORES+=("${_multi_project_backup}|${_multi_project_generated}")
+    _multi_project_backups+=("${_multi_project_backup}|${_multi_project_generated}")
+  else
+    _multi_project_created+=("${_multi_project_generated}")
+  fi
+  printf 'COMPOSE_PROJECT_NAME=%s\n' "${_multi_project_name}" > "${_multi_project_generated}"
+done
+
+out_file="$(mktemp)"
+err_file="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" down --dry-run > "${out_file}" 2> "${err_file}"
+exit_code=$?
+set -e
+for _multi_project_restore in "${_multi_project_backups[@]}"; do
+  IFS='|' read -r _multi_project_backup _multi_project_generated <<< "${_multi_project_restore}"
+  [[ -f "${_multi_project_backup}" ]] && mv "${_multi_project_backup}" "${_multi_project_generated}"
+done
+for _multi_project_generated in "${_multi_project_created[@]}"; do
+  rm -f "${_multi_project_generated}"
+done
+if [[ ${exit_code} -eq 124 ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (timed out after ${TEST_TIMEOUT}s)"
+  ((TESTS_FAILED++)) || true
+elif [[ ${exit_code} -ne 0 ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (expected exit 0, got ${exit_code})"
+  cat "${out_file}" "${err_file}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+elif [[ "$(grep -Fc '[DRY-RUN] docker compose -p vss-base-test down -v --remove-orphans' "${out_file}")" != "1" ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (vss-base-test not torn down exactly once)"
+  ((TESTS_FAILED++)) || true
+elif [[ "$(grep -Fc '[DRY-RUN] docker compose -p vss-alerts-test down -v --remove-orphans' "${out_file}")" != "1" ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (vss-alerts-test not torn down exactly once)"
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: down dry-run tears down each distinct generated COMPOSE_PROJECT_NAME"
+  ((TESTS_PASSED++)) || true
+fi
+rm -f "${out_file}" "${err_file}"
+
+# --- Positive: warehouse down dry-run honors COMPOSE_PROJECT_NAME from env files ---
+_warehouse_project_overrides="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
+_warehouse_project_generated="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+if [[ -f "${_warehouse_project_overrides}" ]]; then
+  _warehouse_project_backup="$(mktemp)"
+  cp "${_warehouse_project_overrides}" "${_warehouse_project_backup}"
+  CLEANUP_RESTORES+=("${_warehouse_project_backup}|${_warehouse_project_overrides}")
+  sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-warehouse-custom-test/' "${_warehouse_project_overrides}"
+
+  _warehouse_generated_backup=""
+  if [[ -f "${_warehouse_project_generated}" ]]; then
+    _warehouse_generated_backup="$(mktemp)"
+    cp "${_warehouse_project_generated}" "${_warehouse_generated_backup}"
+    CLEANUP_RESTORES+=("${_warehouse_generated_backup}|${_warehouse_project_generated}")
+    sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-warehouse-custom-test/' "${_warehouse_project_generated}"
+  fi
+
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  timeout "${TEST_TIMEOUT}" "$BLUEPRINT_DEPLOY" down -D "${REPO_ROOT}/deploy/docker/data-dir" --dry-run > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  mv "${_warehouse_project_backup}" "${_warehouse_project_overrides}"
+  if [[ -n "${_warehouse_generated_backup}" && -f "${_warehouse_generated_backup}" ]]; then
+    mv "${_warehouse_generated_backup}" "${_warehouse_project_generated}"
+  fi
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (timed out after ${TEST_TIMEOUT}s)"
+    ((TESTS_FAILED++)) || true
+  elif [[ ${exit_code} -ne 0 ]]; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (expected exit 0, got ${exit_code})"
+    cat "${out_file}" "${err_file}" | sed 's/^/    /'
+    ((TESTS_FAILED++)) || true
+  elif ! grep -Fq "[DRY-RUN] docker compose -p vss-warehouse-custom-test down -v --remove-orphans" "${out_file}"; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (stdout missing custom project down command)"
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME"
+    ((TESTS_PASSED++)) || true
+  fi
+  rm -f "${out_file}" "${err_file}"
+else
+  echo "SKIP: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME (warehouse overrides.env not found)"
+fi
 
 # --- Summary ---
 echo ""

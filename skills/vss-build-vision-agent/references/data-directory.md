@@ -140,9 +140,10 @@ stack and remove only its resolved Compose volume:
 
 ```bash
 docker logs vss-vios-postgres
-docker compose -f "$BUILD_DIR/resolved.yml" down
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+docker compose -p "${COMPOSE_PROJECT_NAME}" -f "$BUILD_DIR/resolved.yml" down
 docker volume ls -q \
-  --filter label=com.docker.compose.project=mdx \
+  --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
   | grep 'vios_pg_data$' \
   | xargs -r docker volume rm
 ```

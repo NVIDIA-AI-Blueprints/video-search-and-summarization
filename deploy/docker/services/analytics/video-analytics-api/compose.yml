@@ -19,7 +19,7 @@ services:
     command: node index.js --config /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
     restart: always
     ports:
-      - ${MDX_PORT:-8081}:8081
+      - ${VIDEO_ANALYTICS_API_HOST_PORT:-8081}:8081
     volumes:
       - $VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
       - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
