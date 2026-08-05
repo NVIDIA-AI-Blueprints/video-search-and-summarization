@@ -717,7 +717,7 @@ SDRC uses a **safe bus policy** for Redis and Kafka (always on):
 | Success (`OK`) / `CONFIGURE_OK` | Operation succeeded | Commit |
 | `NOOP` / `CONFIGURE_NOOP` | Skipped or nothing to do | Commit |
 | Terminal failure / `CONFIGURE_FAILED` | Permanent/poison failure (malformed payload, permanent reject, exhausted retries) | **ERROR log** (log-based DLQ) + **Commit** |
-| Retryable / `CONFIGURE_DEFERRED` | Temporary failure (unready workers, max replicas, transport blips, deferred configure) | Do **not** commit; retry the same event up to `WDM_EVENT_RETRY_LIMIT`, then promote to terminal |
+| Retryable / `CONFIGURE_DEFERRED` | Temporary failure (unready workers, max replicas, HTTP/Redis/Kubernetes client blips, deferred configure) | Do **not** commit; retry the same event up to `WDM_EVENT_RETRY_LIMIT`, then promote to terminal |
 
 This keeps the bus moving when a message can never succeed, while still retrying temporary conditions. Enable `WDM_CONFIG_DEFER_ON_FAILURE` only when you intentionally want configure redelivery until `/config` succeeds.
 
