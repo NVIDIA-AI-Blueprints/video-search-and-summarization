@@ -100,6 +100,7 @@
       "name": "vss-rt-vlm",
       "strategy": "build",
       "ghcr_build": false,
+      "trigger_downstream_from_source": true,
       "source_path": "services/rtvi/rt-vlm",
       "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
