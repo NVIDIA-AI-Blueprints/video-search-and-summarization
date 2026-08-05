@@ -351,6 +351,16 @@ if docker logs mdx-analytics 2>&1 | grep -q "did not terminate gracefully, forci
 fi
 echo "✓ every worker shut down without being force-killed"
 
+# The MQTT sink cannot recover a publish it failed to drain -- by the time close() runs, a broker
+# that is not answering will not answer -- so it logs and lets shutdown finish. That leaves the run
+# exiting 0 through both checks above with behaviors missing, which would surface as a comparison
+# mismatch. The likeliest cause is not a dead broker but a drain window too short for a loaded host,
+# and that is worth naming rather than inferring from absent records.
+if docker logs mdx-analytics 2>&1 | grep -q "Queued MQTT messages"; then
+    abort_on_infrastructure_failure \
+        "the MQTT sink could not confirm delivery before shutdown; behaviors are missing (see 'Queued MQTT messages' in mdx-analytics logs)"
+fi
+
 echo "Waiting for the flush to land in Elasticsearch..."
 wait_for_elasticsearch_to_settle || abort_on_infrastructure_failure \
     "Elasticsearch never settled after the flush; extracted data would be incomplete"
