@@ -143,22 +143,52 @@ def decide_commit(
     return True, final, attempt
 
 
+def _kafka_record_field(msg: Any, name: str) -> Any:
+    """Read topic/partition/offset from kafka-python or confluent-style records."""
+    val = getattr(msg, name, None)
+    if callable(val):
+        try:
+            return val()
+        except TypeError:
+            return val
+    return val
+
+
 def kafka_message_key(msg: Any) -> str:
     """Build a stable-ish key for Kafka retry accounting."""
-    for getter in (
-        lambda m: f"kafka:{m.topic()}:{m.partition()}:{m.offset()}",
-        lambda m: (
-            f"kafka:{getattr(m, 'topic', None)}:"
-            f"{getattr(m, 'partition', None)}:{getattr(m, 'offset', None)}"
-        ),
-    ):
-        try:
-            key = getter(msg)
-            if key and "None" not in key:
-                return key
-        except Exception:
-            continue
+    topic = _kafka_record_field(msg, "topic")
+    partition = _kafka_record_field(msg, "partition")
+    offset = _kafka_record_field(msg, "offset")
+    if topic is not None and partition is not None and offset is not None:
+        return f"kafka:{topic}:{partition}:{offset}"
     return f"kafka:{id(msg)}"
+
+
+def kafka_rewind_to_message(consumer: Any, msg: Any) -> bool:
+    """Seek back to ``msg`` so a later/post-handler commit cannot skip it.
+
+    flask-kafka always calls ``consumer.commit()`` after the handler returns.
+    With ``enable_auto_commit=False``, skipping our own commit is not enough:
+    the iterator has already advanced, so the next successful commit would
+    acknowledge this offset and permanently drop the lifecycle update.
+    Rewinding before return makes that commit re-park the group at this offset.
+    """
+    try:
+        topic = _kafka_record_field(msg, "topic")
+        partition = _kafka_record_field(msg, "partition")
+        offset = _kafka_record_field(msg, "offset")
+        if topic is None or partition is None or offset is None:
+            return False
+        try:
+            from kafka import TopicPartition
+        except Exception:
+            from collections import namedtuple
+
+            TopicPartition = namedtuple("TopicPartition", ["topic", "partition"])
+        consumer.seek(TopicPartition(topic, int(partition)), int(offset))
+        return True
+    except Exception:
+        return False
 
 
 def redis_message_key(msgid: Any) -> str:
