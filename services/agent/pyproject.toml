@@ -50,7 +50,7 @@ index-strategy = "unsafe-best-match"
 constraint-dependencies = [
     "authlib>=1.7.2,<1.8",          # Fix GHSA-wvwj-cvrp-7pv5 + new BDSAs for cache-CSRF in starlette_client.OAuth and jwk-header signature bypass (both flagged on 1.6.12)
     "cffi==2.0.0",                  # Keep permissive MIT metadata; cffi 2.1.0 reports MIT-0, which is not yet accepted by the repository license gate
-    "cryptography>=48.0.1",         # Fix GHSA-537c-gmf6-5ccf
+    "cryptography>=50.0.0",         # Fix CVE-2026-69247 (PKCS#7 Bleichenbacher oracle)
     "langchain>=1.3.9,<1.4",        # Fix GHSA-gr75-jv2w-4656
     "langchain-community>=0.3.27",  # Fix CVE-2025-6984 (XXE in EverNoteLoader)
     "langchain-core>=1.4.9,<1.5",   # Required by the fixed LangChain release line
@@ -74,7 +74,7 @@ constraint-dependencies = [
 
 # Override nvidia-nat-core's fastapi~=0.119.0 pin to allow starlette>=0.49.1
 override-dependencies = [
-    "cryptography>=48.0.1",
+    "cryptography>=50.0.0",
     "fastapi>=0.139.2",
     "huggingface-hub>=1.5.0",
     "langgraph>=1.2.5,<1.3",
