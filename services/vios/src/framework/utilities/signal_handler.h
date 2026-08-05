@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +22,7 @@
 #include <signal.h>
 #include <cstdlib>
 #include <cxxabi.h>
+#include <memory>
 #include "logger.h"
 
 // Initialize the static member variable
@@ -29,7 +30,7 @@ struct sigaction sigact;
 class SignalHandler
 {
 public:
-    SignalHandler() {}
+    SignalHandler() = default;
     SignalHandler(void (*handler)(int))
     {
         signal(SIGINT, handler);
@@ -65,6 +66,13 @@ private:
         // Do any cleaning up chores here
     }
 
+    // deleter for buffers handed back by backtrace_symbols()/__cxa_demangle(),
+    // whose contract mandates release through std::free()
+    struct CFree
+    {
+        void operator()(void* ptr) const noexcept { std::free(ptr); } // NOSONAR - mandated by the C API contract
+    };
+
     static void dumpstack(unsigned int max_frames = 63)
     {
         LOG(error) << "stack trace:" << endl;
@@ -80,12 +88,9 @@ private:
         }
 
         // resolve addresses into strings containing "filename(function+address)",
-        // this array must be free()-ed
-        char** symbollist = backtrace_symbols(addrlist, addrlen);
-
-        // allocate string which will be filled with the demangled function name
-        size_t funcnamesize = 256;
-        char* funcname = (char*)malloc(funcnamesize);
+        // this array is owned by the caller and released by CFree
+        std::unique_ptr<char*, CFree> symbollist_owner(backtrace_symbols(addrlist, addrlen));
+        char** symbollist = symbollist_owner.get();
 
         // iterate over the returned symbol lines. skip the first, it is the
         // address of this function.
@@ -118,11 +123,10 @@ private:
                 // offset in [begin_offset, end_offset). now apply
                 // __cxa_demangle():
                 int status;
-                char* ret = abi::__cxa_demangle(begin_name, funcname, &funcnamesize, &status);
+                std::unique_ptr<char, CFree> funcname(abi::__cxa_demangle(begin_name, nullptr, nullptr, &status));
                 if (status == 0)
                 {
-                    funcname = ret;
-                    LOG(error) << symbollist[i] << " : " << funcname << "+" << begin_offset << endl;
+                    LOG(error) << symbollist[i] << " : " << funcname.get() << "+" << begin_offset << endl;
                 }
                 else
                 {
@@ -136,8 +140,6 @@ private:
                 LOG(error) << " " << symbollist[i] << endl;
             }
         }
-        free(funcname);
-        free(symbollist);
         return;
     }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,15 +45,11 @@ void Logger::setRedirect(bool flag)
     std::lock_guard<std::mutex> lock(m_LogLock);
     if (flag)
     {
-        m_redirect = new CoutToString(m_stringBuffer.rdbuf());
+        m_redirect = std::make_unique<CoutToString>(m_stringBuffer.rdbuf());
     }
     else
     {
-        if (m_redirect)
-        {
-            delete m_redirect;
-            m_redirect = nullptr;
-        }
+        m_redirect.reset();
     }
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -55,6 +55,7 @@
 #include <ifaddrs.h>
 #include <algorithm>
 #include <iterator>
+#include <memory>
 #include <regex>
 
 #include<boost/algorithm/string.hpp>
@@ -1724,14 +1725,13 @@ Json::Value stringToJson(string in)
 {
     Json::Value out;
     Json::CharReaderBuilder builder;
-    Json::CharReader* reader = builder.newCharReader();
+    std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
     std::string errors;
 
     reader->parse(in.c_str(),
                 in.c_str() + in.size(),
                 &out,
                 &errors);
-    delete reader;
     return out;
 }
 

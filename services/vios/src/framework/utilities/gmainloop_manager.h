@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,6 +38,11 @@ public:
             g_main_loop_unref(m_loop);
         }
     }
+
+    GMainLoopManager(const GMainLoopManager&) = delete;
+    GMainLoopManager& operator=(const GMainLoopManager&) = delete;
+    GMainLoopManager(GMainLoopManager&&) = delete;
+    GMainLoopManager& operator=(GMainLoopManager&&) = delete;
 
     void run()
     {

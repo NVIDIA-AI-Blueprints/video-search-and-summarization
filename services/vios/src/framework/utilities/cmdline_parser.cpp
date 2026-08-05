@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,17 +26,12 @@
 using namespace std;
 using namespace nv_vms;
 
-/* Null, because instance will be initialized on demand. */
-CmdLineParser* CmdLineParser::m_instance = 0;
-
 CmdLineParser* CmdLineParser::getInstance()
 {
-    if (m_instance == 0)
-    {
-        m_instance = new CmdLineParser();
-    }
+    /* Instance is initialized on demand and destroyed at exit. */
+    static CmdLineParser instance;
 
-    return m_instance;
+    return &instance;
 }
 
 static void

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +32,7 @@ struct EventLoopOutData
     std::condition_variable m_outDataWait;
     std::shared_ptr<void> m_outData;
     uint32_t m_timeout = 0;
-    virtual ~EventLoopOutData() {}
+    virtual ~EventLoopOutData() = default;
 };
 struct EventLoopData
 {
@@ -42,7 +42,7 @@ struct EventLoopData
     std::atomic<bool> m_error {false};
     std::shared_ptr<EventLoopOutData> m_outResult;
     Json::Value m_inData;
-    virtual ~EventLoopData() {}
+    virtual ~EventLoopData() = default;
 };
 
 struct EventLoopMsg;

@@ -101,6 +101,8 @@ private:
         std::string m_responseBody;
         char m_errorBuffer[CURL_ERROR_SIZE]{};
 
+        RequestContext() = default;
+
         ~RequestContext()
         {
             if (m_headerList != nullptr)
@@ -108,6 +110,11 @@ private:
                 curl_slist_free_all(m_headerList);
             }
         }
+
+        RequestContext(const RequestContext&) = delete;
+        RequestContext& operator=(const RequestContext&) = delete;
+        RequestContext(RequestContext&&) = delete;
+        RequestContext& operator=(RequestContext&&) = delete;
     };
 
     using Clock = std::chrono::steady_clock;

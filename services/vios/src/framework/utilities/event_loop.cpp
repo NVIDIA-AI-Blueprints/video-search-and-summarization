@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -98,7 +98,7 @@ std::thread::id EventLoop::GetCurrentThreadId()
 void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData, void *parent)
 {
     m_isProcessFuncDone = false;
-    std::thread t([&]()
+    std::thread t([this, &userData]()
     {
         if (m_processMsg)
         {

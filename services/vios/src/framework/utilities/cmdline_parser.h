@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,8 +29,6 @@ namespace nv_vms {
 class CmdLineParser
 {
     private:
-        /* Here will be the instance stored. */
-        static CmdLineParser* m_instance;
         std::string m_adaptorConfigFilePath;
         std::string m_vmsConfigFilePath;
         std::string m_onvifFilePath;
@@ -47,7 +45,7 @@ class CmdLineParser
                          , m_rtspStreamsFilePath(RTSP_STREAMS_FILE)
         {
         }
-        ~CmdLineParser () {}
+        ~CmdLineParser () = default;
 
     public:
         int parseCommandLine (int argc, char *argv[]);
