@@ -74,7 +74,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- $wfk := .Values.waitForKafka | default dict }}
-      {{- $waitKafka := and .Values.kafkaEnabled (or (not (hasKey $wfk "enabled")) $wfk.enabled) }}
+      {{- $usesKafkaBus := or (eq (.Values.messageBus | default "") "kafka") (eq (.Values.errorBus | default "") "kafka") }}
+      {{- $waitKafka := and $usesKafkaBus (or (not (hasKey $wfk "enabled")) $wfk.enabled) }}
       {{- if or $waitKafka .Values.clearCachedEnginesOnStart }}
       initContainers:
         {{- if $waitKafka }}
@@ -163,8 +164,6 @@ spec:
               value: {{ .Values.remoteEmbedEndpointTimeoutSec | default "300" | quote }}
             - name: REMOTE_EMBED_ENDPOINT_BATCH_SIZE
               value: {{ .Values.remoteEmbedEndpointBatchSize | default "64" | quote }}
-            - name: KAFKA_ENABLED
-              value: {{ .Values.kafkaEnabled | quote }}
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "vss-rtvi-embed.kafkaBootstrap" . | quote }}
             - name: MESSAGE_BUS

@@ -349,7 +349,6 @@ rtvi:
       enabled: true
       sizeLimit: 16Gi
     clearCachedEnginesOnStart: false
-    kafkaEnabled: true
     kafkaBootstrapServers: ''
     redisHost: ''
     redisPort: '6379'
