@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,13 +33,13 @@ extern "C" void* createPeerConnectionLiveManagerObject()
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
     std::shared_ptr<PeerConnectionManager> pcm = std::make_shared<PeerConnectionManager>("live", audioLayer, publishFilter, deviceManager);
 
-    return static_cast<void*>(static_cast<IVstModule*>(new LivePeerConnection(pcm, deviceManager)));
+    auto pcm_live = std::make_unique<LivePeerConnection>(pcm, deviceManager);
+    return static_cast<void*>(static_cast<IVstModule*>(pcm_live.release()));
 }
 
 extern "C" void deletePeerConnectionLiveManagerObject(IVstModule* object)
 {
-    LivePeerConnection* pcm_live = static_cast<LivePeerConnection*>(object);
-    delete pcm_live;
+    std::unique_ptr<LivePeerConnection> pcm_live(static_cast<LivePeerConnection*>(object));
 }
 
 LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> peerConnectionManager,
