@@ -1,7 +1,21 @@
-# SDRC — Sensor Distribution and Routing Controller
-
 <!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+# SDRC — Sensor Distribution and Routing Controller
+
 
 SDRC is a coordinator and routing layer that manages which backend worker handles each live stream, and keeps that routing stable, scalable, and recoverable. It is the stream-placement and traffic-routing backbone for VSS pipeline deployments.
 
@@ -554,6 +568,7 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `WDM_CONFIG_RETRY_ATTEMPTS` | `3` | Dedicated transport retry budget for `/config` HTTP calls only (does not use `WDM_ADD_REMOVE_RETRY_ATTEMPTS`). If unset at call time, falls back to `min(WDM_ADD_REMOVE_RETRY_ATTEMPTS, 5)`. |
 | `WDM_CONFIG_RETRY_DELAY` | `0.5` | Delay in seconds between `/config` transport retries. |
 | `WDM_CONFIG_DEFER_ON_FAILURE` | `False` | If `true`, failed config handling returns deferred status and leaves the bus message uncommitted for later retry. Default `false` treats config failures as terminal and commits the offset. |
+| `WDM_EVENT_RETRY_LIMIT` | `20` | Max times to retry the **same** Redis/Kafka event on temporary failures before giving up. After the limit, SDRC logs an ERROR (log-based DLQ) and commits/ACKs so the bus is not blocked. |
 | `DELETE_API_METHOD` | `POST` | HTTP method used for worker delete calls. |
 | `WDM_ADD_REMOVE_RETRY_ATTEMPTS` | `2` | Number of add/remove retry attempts. |
 | `WDM_ADD_REMOVE_RETRY_DELAY` | `0.5` | Delay between retries in seconds. |
@@ -695,14 +710,16 @@ When a config event is accepted:
 
 ### Failure and bus commit behavior
 
-| Result | Meaning | Default bus behavior |
-|---|---|---|
-| `CONFIGURE_OK` | `/config` succeeded | Commit |
-| `CONFIGURE_NOOP` | Skipped or nothing to do | Commit |
-| `CONFIGURE_FAILED` | Terminal failure (bad payload, HTTP error, exhausted retries) | Commit |
-| `CONFIGURE_DEFERRED` | Only when `WDM_CONFIG_DEFER_ON_FAILURE=true` | Leave uncommitted so the bus can redeliver |
+SDRC uses a **safe bus policy** for Redis and Kafka (always on):
 
-Default P0 behavior commits terminal config failures so a shared consumer group is not blocked by a permanently failing `/config` call. Enable `WDM_CONFIG_DEFER_ON_FAILURE` only when you intentionally want redelivery until `/config` succeeds.
+| Result | Meaning | Bus behavior |
+|---|---|---|
+| Success (`OK`) / `CONFIGURE_OK` | Operation succeeded | Commit |
+| `NOOP` / `CONFIGURE_NOOP` | Skipped or nothing to do | Commit |
+| Terminal failure / `CONFIGURE_FAILED` | Permanent/poison failure (malformed payload, permanent reject, exhausted retries) | **ERROR log** (log-based DLQ) + **Commit** |
+| Retryable / `CONFIGURE_DEFERRED` | Temporary failure (unready workers, max replicas, transport blips, deferred configure) | Do **not** commit; retry the same event up to `WDM_EVENT_RETRY_LIMIT`, then promote to terminal |
+
+This keeps the bus moving when a message can never succeed, while still retrying temporary conditions. Enable `WDM_CONFIG_DEFER_ON_FAILURE` only when you intentionally want configure redelivery until `/config` succeeds.
 
 ### Example workload settings
 

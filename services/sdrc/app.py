@@ -41,6 +41,17 @@ from lib.xDS.grpc_xds_server import (
     notify_xds_update,
 )
 from lib import tracing
+from lib.bus_outcomes import (
+    EVENT_NOOP,
+    EVENT_OK,
+    EVENT_RETRYABLE,
+    EVENT_TERMINAL,
+    classify_exception,
+    decide_commit,
+    kafka_message_key,
+    log_terminal_failure,
+    redis_message_key,
+)
 from lib.logging import configure_root_logging
 from lib.wdm_swagger_ui import openapi_public_server_root, register_wdm_swagger_ui
 from lib.lifecycle.http_header import (
@@ -819,6 +830,74 @@ def should_handle_config_events():
     if handle_config is None:
         return _config_bool(app.config.get("WDM_ENABLE_REGEX_MAPPING"), False)
     return _config_bool(handle_config, False)
+
+
+def _event_stream_meta(original_json, wl_d=None):
+    """Best-effort stream id / change extraction for terminal failure logs."""
+    stream_id = None
+    change = None
+    try:
+        ev = None
+        if isinstance(original_json, dict):
+            ev = original_json.get(app.config["WDM_EVENT_OBJECT_FIELD"])
+        if isinstance(ev, dict):
+            stream_id = ev.get(app.config["WDM_WL_ID_FIELD"])
+            change = ev.get(change_field)
+        if isinstance(wl_d, dict):
+            if change is None:
+                change = wl_d.get(change_field)
+            if stream_id is None:
+                stream_id = wl_d.get(app.config["WDM_WL_ID_FIELD"])
+    except Exception:
+        pass
+    return stream_id, change
+
+
+def _apply_bus_commit_decision(
+    *,
+    bus_name,
+    message_key,
+    outcome,
+    error=None,
+    original_json=None,
+    wl_d=None,
+):
+    """Apply safe bus policy: commit terminal/ok; retry retryable until limit."""
+    retry_limit = int(app.config.get("WDM_EVENT_RETRY_LIMIT", 20) or 20)
+    should_commit, final_outcome, attempt = decide_commit(
+        outcome, message_key, retry_limit
+    )
+    if final_outcome == EVENT_TERMINAL:
+        stream_id, change = _event_stream_meta(original_json, wl_d)
+        reason = "terminal"
+        if outcome == EVENT_RETRYABLE and attempt:
+            reason = "retry_limit_exceeded"
+        log_terminal_failure(
+            app.logger,
+            bus=bus_name,
+            message_id=message_key,
+            error=error if error is not None else final_outcome,
+            change=change,
+            stream_id=stream_id,
+            workload=app.config.get("WDM_WL_OBJECT_NAME"),
+            attempt=attempt or None,
+            payload=original_json if original_json is not None else wl_d,
+            reason=reason,
+        )
+    return should_commit, final_outcome, attempt
+
+
+def _end_error_span_for_event(original_json):
+    try:
+        _cid = original_json[app.config["WDM_EVENT_OBJECT_FIELD"]][
+            app.config["WDM_WL_ID_FIELD"]
+        ]
+    except (KeyError, TypeError):
+        return
+    _span = id_ctx_mapping.get(_cid, {}).get("span")
+    if _span is not None:
+        _span.set_status(tracing.StatusCode.ERROR)
+        _span.end()
 
 
 def _configure_failure_result():
@@ -3022,30 +3101,35 @@ def redisGetStreamData():
             while True:
                 messages = consumer.get_items()
                 for i, item in enumerate(messages):
-                    app.logger.info(item)
-                    app.logger.info(item.content)
-                    app.logger.info(item.content[msg_field])
-
-                    sens = item.content[msg_field]
-                    jValue = json.loads(sens)
-                    
-                    # Swap camera_id and camera_name for the MMJ usecase
-                    if app.config["WDM_DS_SWAP_ID_NAME"]:
-                        if app.config["WDM_WL_ID_FIELD"] in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]:
-                            app.logger.info("swapping")
-                            tmp_val = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
-                            jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]] = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]]
-                            jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]] = tmp_val
-                        else:
-                            app.logger.info("camera_id not found in event - not swapping")
-
-                    wl_d = redisMsging.getMessageValue(jValue)
+                    message_key = redis_message_key(item.msgid)
+                    outcome = EVENT_OK
+                    err = None
+                    jValue = None
+                    wl_d = None
+                    parent_context = None
                     try:
+                        app.logger.info(item)
+                        app.logger.info(item.content)
+                        app.logger.info(item.content[msg_field])
+
+                        sens = item.content[msg_field]
+                        jValue = json.loads(sens)
+
+                        # Swap camera_id and camera_name for the MMJ usecase
+                        if app.config["WDM_DS_SWAP_ID_NAME"]:
+                            if app.config["WDM_WL_ID_FIELD"] in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]:
+                                app.logger.info("swapping")
+                                tmp_val = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
+                                jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]] = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]]
+                                jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]] = tmp_val
+                            else:
+                                app.logger.info("camera_id not found in event - not swapping")
+
+                        wl_d = redisMsging.getMessageValue(jValue)
                         global id_ctx_mapping
-                        redis_skip_commit = False
                         if wl_d is not None:
                             if app.config["WDM_EVENT_OBJECT_FIELD"] in jValue and jValue[app.config["WDM_EVENT_OBJECT_FIELD"]] is not None and app.config["WDM_WL_ID_FIELD"] in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]:
-                                camera_id =jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
+                                camera_id = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
                                 if camera_id not in id_ctx_mapping:
                                     otel_parent_span, parent_context = tracing.create_parent_span(camera_id, "redisGetStreamData()", redisMsging)
                                     id_ctx_mapping[camera_id] = {
@@ -3062,29 +3146,29 @@ def redisGetStreamData():
                             app.logger.info("provision stream")
                             _prv = provisionStreamRedis(
                                 app.config["WDM_WL_OBJECT_NAME"],
-                                wl_d, jValue, parent_context 
+                                wl_d, jValue, parent_context
                             )
                             if _prv is PROVISION_DEFERRED_UNREADY_PODS:
-                                redis_skip_commit = True
+                                outcome = EVENT_RETRYABLE
                         elif (wl_d is not None) and (change_field in wl_d) and (
                             wl_d[change_field].lower() == change_id_reprovision
                         ):
                             app.logger.info("reprovision stream")
                             _rpv = reprovisionStreamRedis(
                                 app.config["WDM_WL_OBJECT_NAME"],
-                                wl_d, jValue, parent_context 
+                                wl_d, jValue, parent_context
                             )
                             if _rpv is PROVISION_DEFERRED_UNREADY_PODS:
-                                redis_skip_commit = True
+                                outcome = EVENT_RETRYABLE
                         elif (wl_d is not None) and (change_field in wl_d) and (
                             wl_d[change_field].lower() == change_id_del
                         ):
                             app.logger.info("deprovision stream")
                             deprovisionStreamRedis(
-                                app.config["WDM_WL_OBJECT_NAME"], wl_d, jValue, parent_context 
+                                app.config["WDM_WL_OBJECT_NAME"], wl_d, jValue, parent_context
                             )
                             id_ctx_mapping[jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]]["span"].end()
-                            id_ctx_mapping.pop(jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]])                               
+                            id_ctx_mapping.pop(jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]])
                         elif (wl_d is not None) and (change_field in wl_d) and (
                             wl_d[change_field].lower() == change_id_pod_configure
                         ):
@@ -3093,40 +3177,57 @@ def redisGetStreamData():
                                 app.config["WDM_WL_OBJECT_NAME"], wl_d, jValue
                             )
                             if configure_result == CONFIGURE_DEFERRED:
-                                redis_skip_commit = True
+                                outcome = EVENT_RETRYABLE
+                            elif configure_result == CONFIGURE_FAILED:
+                                outcome = EVENT_TERMINAL
+                                err = configure_result
+                            elif configure_result == CONFIGURE_NOOP:
+                                outcome = EVENT_NOOP
                         else:
                             app.logger.info("wl_d is None. wl_d: " + str(wl_d))
-                        if redis_skip_commit:
-                            app.logger.info(
-                                "Not committing message id %s - deferred until "
-                                "all workload replicas are ready; message stays pending",
-                                item.msgid,
-                            )
-                            time.sleep(1.0)
-                        else:
-                            app.logger.info(
-                                "Commiting message id %s" % (item.msgid)
-                            )
-                            consumer.commit(item_id=item.msgid)
+                            outcome = EVENT_NOOP
                     except MaxReplicaException as me:
+                        err = me
                         app.logger.error(f"Max replica exception {me}")
-                        err_span = None
-                        if wl_d is not None and (
-                            app.config["WDM_EVENT_OBJECT_FIELD"] in jValue
-                            and jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]
-                            is not None
-                            and app.config["WDM_WL_ID_FIELD"]
-                            in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]
-                        ):
-                            _cid = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][
-                                app.config["WDM_WL_ID_FIELD"]
-                            ]
-                            err_span = id_ctx_mapping.get(_cid, {}).get("span")
-                        if err_span is not None:
-                            err_span.set_status(tracing.StatusCode.ERROR)
-                            err_span.end()
-                        if evic_q_on_no_capacity:
+                        if jValue is not None:
+                            _end_error_span_for_event(jValue)
+                        # Preserve legacy eviction behavior: drop from queue when configured.
+                        outcome = EVENT_TERMINAL if evic_q_on_no_capacity else EVENT_RETRYABLE
+                    except Exception as exc:
+                        err = exc
+                        outcome = classify_exception(exc)
+                        app.logger.exception(
+                            "exception occurred while processing Redis stream event"
+                        )
+                        if jValue is not None:
+                            _end_error_span_for_event(jValue)
+
+                    should_commit, final_outcome, attempt = _apply_bus_commit_decision(
+                        bus_name="redis",
+                        message_key=message_key,
+                        outcome=outcome,
+                        error=err,
+                        original_json=jValue,
+                        wl_d=wl_d,
+                    )
+                    if should_commit:
+                        app.logger.info("Commiting message id %s", item.msgid)
+                        try:
                             consumer.commit(item_id=item.msgid)
+                        except Exception as commit_exc:
+                            app.logger.error(
+                                "Failed to commit Redis message id %s: %s",
+                                item.msgid,
+                                commit_exc,
+                            )
+                    else:
+                        app.logger.info(
+                            "Not committing message id %s (retryable attempt %s/%s)",
+                            item.msgid,
+                            attempt,
+                            app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        )
+                        time.sleep(1.0)
 
                 time.sleep(0.05)
 
@@ -3140,14 +3241,19 @@ if bus is not None:
 
     @bus.handle(topic)
     def kafka_topic_handler(msg):
-        commit_message = True
+        message_key = kafka_message_key(msg)
+        outcome = EVENT_OK
+        err = None
+        wl_d = None
+        originalJson = None
+        parent_context = None
         try:
             message_value = kfk.getMessageValue(bus, msg)
             if message_value is None:
                 app.logger.info("Kafka message ignored by key/value filter")
+                outcome = EVENT_NOOP
             else:
                 wl_d, originalJson = message_value
-
                 try:
                     global id_ctx_mapping
                     if wl_d is not None:
@@ -3158,7 +3264,6 @@ if bus is not None:
                                 "context": parent_context,
                                 "span": otel_parent_span
                             }
-
                         else:
                             parent_context = id_ctx_mapping[camera_id]["context"]
                             otel_parent_span = id_ctx_mapping[camera_id]["span"]
@@ -3166,10 +3271,12 @@ if bus is not None:
                         wl_d[change_field].lower() == change_id_add
                     ):
                         app.logger.info("provision stream")
-                        provisionStreamRedis(
+                        _prv = provisionStreamRedis(
                             app.config["WDM_WL_OBJECT_NAME"],
                             wl_d, originalJson, parent_context
                         )
+                        if _prv is PROVISION_DEFERRED_UNREADY_PODS:
+                            outcome = EVENT_RETRYABLE
                     elif wl_d is not None and change_field in wl_d and (
                         wl_d[change_field].lower() == change_id_del
                     ):
@@ -3188,54 +3295,58 @@ if bus is not None:
                             app.config["WDM_WL_OBJECT_NAME"], wl_d, originalJson
                         )
                         if configure_result == CONFIGURE_DEFERRED:
-                            commit_message = False
+                            outcome = EVENT_RETRYABLE
+                        elif configure_result == CONFIGURE_FAILED:
+                            outcome = EVENT_TERMINAL
+                            err = configure_result
+                        elif configure_result == CONFIGURE_NOOP:
+                            outcome = EVENT_NOOP
                     else:
                         app.logger.info("wl_d is None ")
+                        outcome = EVENT_NOOP
                 except MaxReplicaException as me:
-                    commit_message = False
+                    err = me
                     app.logger.error(f"Max replica exception Kafka {me}")
-                    if wl_d is not None:
-                        try:
-                            _kcid = originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][
-                                app.config["WDM_WL_ID_FIELD"]
-                            ]
-                        except (KeyError, TypeError):
-                            _kcid = None
-                        if _kcid is not None:
-                            _kspan = id_ctx_mapping.get(_kcid, {}).get("span")
-                            if _kspan is not None:
-                                _kspan.set_status(tracing.StatusCode.ERROR)
-                                _kspan.end()
-                    raise MaxReplicaException("Max replica reached")
-                except Exception:
-                    commit_message = False
+                    if originalJson is not None:
+                        _end_error_span_for_event(originalJson)
+                    outcome = EVENT_TERMINAL if evic_q_on_no_capacity else EVENT_RETRYABLE
+                except Exception as exc:
+                    err = exc
+                    outcome = classify_exception(exc)
                     app.logger.exception("exception occured")
-                    if wl_d is not None:
-                        try:
-                            _kcid = originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][
-                                app.config["WDM_WL_ID_FIELD"]
-                            ]
-                        except (KeyError, TypeError):
-                            _kcid = None
-                        if _kcid is not None:
-                            _kspan = id_ctx_mapping.get(_kcid, {}).get("span")
-                            if _kspan is not None:
-                                _kspan.set_status(tracing.StatusCode.ERROR)
-                                _kspan.end()
+                    if originalJson is not None:
+                        _end_error_span_for_event(originalJson)
         except Exception as e:
-            commit_message = False
+            err = e
+            outcome = classify_exception(e)
             app.logger.error(f"Exception occured: {e}")
             app.logger.error("An exception occured in the main loop")
+
+        should_commit, final_outcome, attempt = _apply_bus_commit_decision(
+            bus_name="kafka",
+            message_key=message_key,
+            outcome=outcome,
+            error=err,
+            original_json=originalJson,
+            wl_d=wl_d,
+        )
         try:
-            if commit_message:
+            if should_commit:
                 app.logger.info("commiting consumer message")
                 bus.consumer.commit()
             else:
-                app.logger.info("not commiting consumer message after deferred or unexpected failure")
+                app.logger.info(
+                    "not committing consumer message after retryable failure "
+                    "(attempt %s/%s, outcome=%s)",
+                    attempt,
+                    app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                    final_outcome,
+                )
         except Exception as e:
             app.logger.error(f"Exception: {e}")
 
         app.logger.info("waiting for next message")
+
 
 
 def preloadData(originalJson):
