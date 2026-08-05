@@ -246,7 +246,7 @@ and 26.05 compatibility notes live in
   documented in [`references/kafka-workflows.md`](references/kafka-workflows.md).
 - Kafka validation: trust the live `vss-rtvi-vlm` environment for topic names.
   In a full VSS alerts real-time profile, use the existing VSS Kafka container
-  `mdx-kafka` for CLI checks and final incident-consumer commands. For
+  `kafka` for CLI checks and final incident-consumer commands. For
   standalone validation, use a broker that advertises `${HOST_IP}:9092`; never
   stop or replace a pre-existing broker without user confirmation.
 

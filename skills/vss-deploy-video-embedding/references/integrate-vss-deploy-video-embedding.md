@@ -8,7 +8,7 @@ The Video Embedding microservice (legacy name: RT-Embed) generates dense vector 
 
 - **Hugging Face / NGC reachability** — Required at first boot to download `nvidia/Cosmos-Embed1-448p` and any NGC assets. After the model is cached in the persistent volumes, restarts do not need outbound access.
 - **Redis** — Optional. Only required when error-message publishing is enabled (`ENABLE_REDIS_ERROR_MESSAGES=true`). Configure via `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, and `REDIS_PASSWORD`.
-- **Apache Kafka** — Optional. Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). The service publishes embedding messages to the topic named by `RTVI_EMBED_KAFKA_TOPIC` (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose builds this from `${HOST_IP}:9092`).
+- **Apache Kafka** — Optional. Only required when generated-message or error publishing is enabled with `MESSAGE_BUS=kafka` and/or `ERROR_BUS=kafka`. The service publishes embedding messages to the topic named by `MESSAGE_BUS_TOPIC` (default `mdx-embed`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose defaults to `kafka:29092`).
 - **OpenTelemetry collector** — Optional. Only required when `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` is set on the host (Compose injects this as `ENABLE_OTEL_MONITORING` inside the container). The service exports OTLP traces and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (default `http://otel-collector:4318`).
 - **Upstream video source (VST or compatible clip writer)** — Optional. When you want to embed clips written by VST, bind `${VSS_DATA_DIR}/data_log/vst/clip_storage` to the container clip-storage reader mount declared in `rtvi-embed-docker-compose.yml` so the service can read clip files locally.
 
@@ -31,8 +31,8 @@ The Video Embedding microservice (legacy name: RT-Embed) generates dense vector 
 - **Topic / endpoint / path** —
   - Embedding responses on `POST /v1/generate_video_embeddings` and `POST /v1/generate_text_embeddings` (synchronous or SSE).
   - Prometheus metrics on `GET /v1/metrics`.
-  - Optional Kafka topic set via `RTVI_EMBED_KAFKA_TOPIC` on the host (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) for embedding events when `RTVI_EMBED_KAFKA_ENABLED=true` on the host.
-  - Optional Kafka topic set via `RTVI_EMBED_ERROR_MESSAGE_TOPIC` on the host (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) for error events when `RTVI_EMBED_KAFKA_ENABLED=true` on the host.
+  - Optional Kafka topic set via `MESSAGE_BUS_TOPIC` (default `mdx-embed`) for embedding events when `MESSAGE_BUS=kafka`.
+  - Optional Kafka error publishing when `ERROR_BUS=kafka`, with error topic set via `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`).
 - **Schema** — Successful video embedding responses include `id`, `created`, `model`, `media_info`, `usage`, and `chunk_responses`. Text embedding responses include `id`, `created`, `model`, and `data`. See the API Schema section for the full list of endpoints.
 - **Frequency / trigger** — Per request for synchronous calls; per chunk when streaming (`chunk_duration`, `chunk_overlap_duration` control chunking).
 
@@ -66,8 +66,8 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | (unset; `${RTVI_EMBED_PORT?}` fails fast) | Yes |
-| `RTVI_EMBED_IMAGE` | Container image. | `nvcr.io/nvidia/vss-core/vss-rt-embed` | No |
-| `RTVI_EMBED_TAG` | Container image tag. | `3.2.1` | No |
+| `RTVI_EMBED_IMAGE` | Container image. | `nvcr.io/nvstaging/vss-core/vss-rt-embed` | No |
+| `RTVI_EMBED_TAG` | Container image tag. | `3.3.0-26.07.4` | No |
 | `RT_EMBED_DEVICE_ID` | GPU device id used by the Compose `device_ids` reservation. | `0` | No |
 | `RTVI_EMBED_NVIDIA_VISIBLE_DEVICES` | Maps to `NVIDIA_VISIBLE_DEVICES` inside the container. | `all` | No |
 | `RTVI_EMBED_NUM_GPUS` | Sets `NUM_GPUS` inside the container. | (unset) | No |
@@ -76,6 +76,11 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `MODEL_PATH` | Model source URI used at first boot. | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
 | `MODEL_IMPLEMENTATION_PATH` | In-container path to the model implementation. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `MODEL_REPOSITORY_SCRIPT_PATH` | Script that builds the Triton model repository. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py` | No |
+| `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, RT-Embed uses the remote CE1 backend. | (empty) | No |
+| `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | CE1 NIM deployment/model id. | `nvidia/cosmos-embed1` | No |
+| `REMOTE_EMBED_ENDPOINT_API_KEY` | Optional bearer token for the CE1 NIM endpoint. | (empty) | No |
+| `REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC` | Request timeout for CE1 NIM calls. | `300` | No |
+| `REMOTE_EMBED_ENDPOINT_BATCH_SIZE` | Maximum batch size used by the CE1 NIM client wrapper. | `64` | No |
 | `NGC_API_KEY` | NGC API key for asset downloads. | (empty) | Yes for first boot |
 | `NVIDIA_API_KEY` | NVIDIA API key for downstream calls. | `NOAPIKEYSET` | Yes if downstream calls require it |
 | `HF_TOKEN` | Hugging Face token used during model download. | (empty) | No; recommended to avoid Hugging Face 429 rate limits |
@@ -92,10 +97,11 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `RTVI_EMBED_OTEL_TRACES_EXPORTER` | Maps to `OTEL_TRACES_EXPORTER`. | `otlp` | No |
 | `RTVI_EMBED_OTEL_EXPORTER_OTLP_ENDPOINT` | Maps to `OTEL_EXPORTER_OTLP_ENDPOINT`. | `http://otel-collector:4318` | No |
 | `RTVI_EMBED_OTEL_METRIC_EXPORT_INTERVAL` | Maps to `OTEL_METRIC_EXPORT_INTERVAL` (ms). | `60000` | No |
-| `RTVI_EMBED_KAFKA_ENABLED` | Maps to `KAFKA_ENABLED`. | `false` | No |
-| `RTVI_EMBED_KAFKA_TOPIC` | Maps to `KAFKA_TOPIC`. | `vision-embed-messages` | No |
+| `MESSAGE_BUS` | Generated-message output bus. Use `kafka` to publish embedding events; set empty to disable. | `kafka` in the shipped `.env` | No |
+| `MESSAGE_BUS_TOPIC` | Kafka topic for generated embedding events when `MESSAGE_BUS=kafka`. | `mdx-embed` | No |
+| `ERROR_BUS` | Error output bus. Use `kafka` to publish errors; set empty to disable. | `kafka` in the shipped `.env` | No |
 | `RTVI_EMBED_ERROR_MESSAGE_TOPIC` | Maps to `ERROR_MESSAGE_TOPIC`. | `vision-embed-errors` | No |
-| `HOST_IP` | Used to build `KAFKA_BOOTSTRAP_SERVERS` as `${HOST_IP}:9092`. | (unset) | Yes when Kafka is enabled |
+| `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Maps to `KAFKA_BOOTSTRAP_SERVERS` when Kafka buses are enabled. | `kafka:29092` | Yes when Kafka is enabled outside the default Compose network |
 | `ENABLE_REDIS_ERROR_MESSAGES` | Publish error messages to Redis. | `false` | No |
 | `REDIS_HOST` | Redis host. | `redis` | Yes when Redis error messages are enabled |
 | `REDIS_PORT` | Redis port. | `6379` | No |
@@ -103,6 +109,13 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `REDIS_PASSWORD` | Redis password. | (empty) | Yes when the Redis instance requires auth |
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Maximum seconds for a URL asset download. | `300` | No |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Connection timeout (seconds) for asset downloads. | `10` | No |
+| `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` | Max file size for HTTP/data URI asset ingestion. | `8` | No |
+| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains where RT-Embed should skip TLS verification for asset downloads. | (empty) | No |
+| `ASSET_DOWNLOAD_MAX_REDIRECTS` | Max redirect hops for URL downloads. `0` disables redirects. | `0` | No |
+| `ASSET_DOWNLOAD_AUTH_TOKENS` | Optional server-level auth headers for URL downloads, formatted as `domain=Bearer token` entries separated by semicolons. | (empty) | No |
+| `FILE_URL_ALLOWED_DIRS` | Comma-separated allow-list for `file://` URL access. Empty disables `file://` URLs. | (empty) | No |
+| `MAX_ASSET_STORAGE_SIZE_GB` | Optional numeric max asset storage size in GB for eviction. | (empty) | No |
+| `ASSET_MAX_AGE_HOURS` | TTL-based asset eviction in hours. `0` disables TTL eviction. | `0` | No |
 | `ENABLE_REQUEST_PROFILING` | Per-request profiling. | `false` | No |
 | `NGC_MODEL_CACHE` | Optional bind/named volume override for the NGC model cache. | Named volume `rtvi-ngc-model-cache` | No |
 | `RTVI_EMBED_HF_CACHE` | Optional bind/named volume override for the Hugging Face cache. | Named volume `rtvi-hf-cache` | No |
@@ -116,7 +129,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 - **Ports exposed** — `${RTVI_EMBED_PORT}:8000/tcp`.
 - **Inbound traffic** — REST clients (other VSS microservices or operator tooling) calling the `/v1/*` endpoints.
 - **Outbound traffic** — Hugging Face (`huggingface.co`) and NGC (`nvcr.io`) at first boot; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
-- **DNS / hostname assumptions** — Uses `${HOST_IP}:9092` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
+- **DNS / hostname assumptions** — Uses `KAFKA_BOOTSTRAP_SERVERS=${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
 - **`network_mode`** — Default bridge (no `network_mode` override in the Compose service).
 
 ## Known Integration Constraints
@@ -149,7 +162,7 @@ export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH="$(
 ```yaml
 services:
   rtvi-embed:
-    image: ${RTVI_EMBED_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-embed}:${RTVI_EMBED_TAG:-3.2.1}
+    image: ${RTVI_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-embed}:${RTVI_EMBED_TAG:-3.3.0-26.07.4}
     container_name: vss-rtvi-embed
     user: "1001:1001"
     profiles: ["rtvi-embed"]
@@ -169,8 +182,10 @@ services:
       HF_TOKEN: "${HF_TOKEN:-}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
       LOG_LEVEL: "${RTVI_EMBED_LOG_LEVEL:-INFO}"
-      KAFKA_ENABLED: "${RTVI_EMBED_KAFKA_ENABLED:-false}"
-      KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
+      MESSAGE_BUS: "${MESSAGE_BUS:-}"
+      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
+      ERROR_BUS: "${ERROR_BUS:-}"
+      KAFKA_BOOTSTRAP_SERVERS: "${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
       REDIS_PORT: "${REDIS_PORT:-6379}"
     volumes:

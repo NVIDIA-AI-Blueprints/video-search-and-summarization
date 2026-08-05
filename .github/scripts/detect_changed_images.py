@@ -120,6 +120,25 @@ def changed_paths(repo: Path, base: str) -> list[str] | None:
     return [line for line in result.stdout.splitlines() if line]
 
 
+def paths_changed_under(changed: list[str] | None, directory: str) -> bool:
+    """Whether the diff contains ``directory`` or one of its descendants.
+
+    ``None`` represents an unavailable diff and deliberately fails open so a
+    history or range-resolution problem runs CI instead of silently skipping
+    it. The directory boundary prevents similarly named siblings from
+    matching (for example, ``spatialai-data-utils-old``).
+    """
+    directory = directory.rstrip("/")
+    if not directory:
+        raise ValueError("directory must not be empty")
+    if changed is None:
+        return True
+    return any(
+        path == directory or path.startswith(directory + "/")
+        for path in changed
+    )
+
+
 def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict], str]:
     """Matrix entries for the buildable images that need a build."""
     buildable = [

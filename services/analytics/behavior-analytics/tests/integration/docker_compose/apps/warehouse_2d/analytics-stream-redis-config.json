@@ -74,6 +74,10 @@
 			"value": "200"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "true"
+		},
+		{
 			"name": "playbackLoop",
 			"value": "1"
 		},
