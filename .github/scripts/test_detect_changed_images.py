@@ -338,6 +338,31 @@ class SelectImagesTest(unittest.TestCase):
             dci.split_build_matrices(entries)
 
 
+class PathsChangedUnderTest(unittest.TestCase):
+    def test_descendant_matches(self):
+        self.assertTrue(
+            dci.paths_changed_under(
+                ["libs/analytics/spatialai-data-utils/release/setup.py"],
+                "libs/analytics/spatialai-data-utils",
+            )
+        )
+
+    def test_similarly_named_sibling_does_not_match(self):
+        self.assertFalse(
+            dci.paths_changed_under(
+                ["libs/analytics/spatialai-data-utils-old/setup.py"],
+                "libs/analytics/spatialai-data-utils",
+            )
+        )
+
+    def test_unavailable_diff_fails_open(self):
+        self.assertTrue(
+            dci.paths_changed_under(
+                None,
+                "libs/analytics/spatialai-data-utils",
+            )
+        )
+
 
 BUILDABLE = [
     {"name": "vss-agent", "source_path": "services/agent",

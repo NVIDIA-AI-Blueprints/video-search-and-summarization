@@ -8,7 +8,7 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 
 ## Required Peer Services
 
-- **Kafka** — required when `KAFKA_ENABLED=true` (the compose default). RT-VLM publishes caption + incident protobuf records to `${KAFKA_TOPIC}` and `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (compose default `${HOST_IP}:9092` for host-network Kafka). Source: `real-time-vlm.rst` § Sample docker-compose.yml file (lines 343–349). Setting `KAFKA_ENABLED=false` makes Kafka optional — captions then return only via HTTP.
+- **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (compose default `${HOST_IP}:9092` for host-network Kafka).
 - **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`, which is the compose default. Either a sibling NIM (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`) reachable at `${VIA_VLM_ENDPOINT}`, OR remote OpenAI/Azure. In-process operation requires switching `VLM_MODEL_TO_USE` to `cosmos-reason1` / `cosmos-reason2` / `cosmos-reason3` / `vllm-compatible` and pointing `MODEL_PATH` at an NGC or git URL. Source: `real-time-vlm.rst` § Models Supported (lines 62–87).
 - **Video source** — RT-VLM accepts video input via **three independent paths**:
   1. **On-demand (VOD) via VIOS-shared bind mount.** Operator uploads to VIOS `POST /vst/api/v1/files`, file lands in `${VSS_DATA_DIR}/data_log/vst/clip_storage/`, RT-VLM mounts the same host directory at `/home/vst/vst_release/streamer_videos/` and can reference the file path in `POST /v1/files` or `POST /v1/generate_captions`. **VIOS is the producer; RT-VLM is the reader.** Both must mount the same host path or the path-based caption call gets "file not found".
@@ -17,7 +17,7 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 
   Source: `real-time-vlm.rst` § Streaming Example lines 558–627 + § CV-Compatible Stream API lines 648–682; verified live 2026-05-23.
 - **Redis** — optional. Required only when `ENABLE_REDIS_ERROR_MESSAGES=true` to publish VLM/decode errors onto a Redis channel. Source: `real-time-vlm.rst` § Sample docker-compose.yml (lines 350–354).
-- **Elasticsearch + Logstash + Kibana (via ELK stack)** — optional but standard for IN-1: Logstash consumes the `${KAFKA_TOPIC}` and `${KAFKA_INCIDENT_TOPIC}` from Kafka and writes documents into Elasticsearch. Schema compatibility is mediated by the NvSchema protobuf descriptors (`schema.desc` + `ext.desc`) shared between RT-VLM (producer) and Logstash (consumer). Source: `integrate-elk.md` § Required Peer Services + § Known Integration Constraints.
+- **Elasticsearch + Logstash + Kibana (via ELK stack)** — optional but standard for IN-1: Logstash consumes `${MESSAGE_BUS_TOPIC}` when `MESSAGE_BUS=kafka`, plus `${KAFKA_INCIDENT_TOPIC}`, and writes documents into Elasticsearch. Schema compatibility is mediated by the NvSchema protobuf descriptors (`schema.desc` + `ext.desc`) shared between RT-VLM (producer) and Logstash (consumer). Source: `integrate-elk.md` § Required Peer Services + § Known Integration Constraints.
 
 Sibling NIM backends (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `cosmos3-reasoner`, `qwen3-vl-8b-instruct`, plus their `-shared-gpu` variants) live in a separate `services/nim/compose.yml` and have their own forthcoming `integrate-vlm-nim.md`. When the in-process backend is used (the IN-1 default), those NIM service-keys are not deployed, and their `depends_on: { required: false }` entries on rtvi-vlm must be stripped from a standalone deploy — recent Docker Compose rejects undefined peers at project-load (see § Known Integration Constraints).
 
@@ -64,7 +64,7 @@ Sibling NIM backends (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `cosmos3-reasone
   > **Read captions from `chunk_responses[]`, not `choices`.** On the `/v1/generate_captions` response `choices` is null — it belongs to `/v1/chat/completions` (chat/summarize) — so a `choices` read reports a false "0 results" on a successful caption run. Verified live vss-rt-vlm:3.2.1.
 
 - **Method:** Kafka topic — caption records
-  **Topic:** `${KAFKA_TOPIC}` (skill default: `mdx-vlm-captions` — the VSS-3.2 upstream `mdx-lvs` Logstash pipeline subscribes to this topic and indexes captions in via-ctx-rag shape under `<collection>_<id>` ES indices. Raw rtvi-vlm compose default is `vision-llm-messages`, which is NOT subscribed by any pipeline; pre-3.2 references to `mdx-vlm` topic are obsolete — also unsubscribed in current upstream.)
+  **Topic:** `${MESSAGE_BUS_TOPIC}` (skill default: `mdx-vlm-captions` — the VSS-3.2 upstream `mdx-lvs` Logstash pipeline subscribes to this topic and indexes captions in via-ctx-rag shape under `<collection>_<id>` ES indices.)
   **Schema:** NvSchema `nv.VisionLLM` protobuf; descriptors at `deploy/docker/services/infra/elk/pb_definitions/descriptors/schema.desc`. Headers: `message_type: vision_llm` and `info["incidentDetected"] = "true"|"false"`. Source: `kafka-workflows.md` § 4.
   **Trigger:** per-caption-chunk when `KAFKA_ENABLED=true`.
   **Partition key:** `<request_id>:<chunk_idx>` — guarantees caption and matching incident (if any) land on the same partition for join-by-key consumers.
@@ -115,13 +115,15 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RT_VLM_DEVICE_ID` | GPU `device_ids` entry (breaks `RTVI_VLM_*` pattern by design — fixed by upstream compose) | `0` | optional |
 | `RTVI_VLM_NVIDIA_VISIBLE_DEVICES` → `NVIDIA_VISIBLE_DEVICES` | GPU visibility | `all` | optional |
 | `KAFKA_ENABLED` | Toggle Kafka output | `true` | optional |
-| `RTVI_VLM_KAFKA_TOPIC` → `KAFKA_TOPIC` | Caption topic | `mdx-vlm-captions` (VSS 3.2 — subscribed by `mdx-lvs` Logstash pipeline) | optional (compose-default is `vision-llm-messages`; skill **must override** to reach ES) |
+| `RTVI_VLM_MESSAGE_BUS` → `MESSAGE_BUS` | Generated-output broker type | `kafka` | optional |
+| `RTVI_VLM_MESSAGE_BUS_TOPIC` → `MESSAGE_BUS_TOPIC` | Caption topic / Redis stream | `mdx-vlm-captions` (VSS 3.2 — subscribed by `mdx-lvs` Logstash pipeline) | optional |
+| `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
 | `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
 | `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `${HOST_IP}:9092` (host-net) or `kafka:9092` (compose-net) | **Yes (effective)** |
 | `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.2.0-26.05.4` for x86/Tegra; `3.2.0-26.05.4-sbsa` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.2.0-26.05.4` as of 2026-06-02).** | `3.2.0-26.05.4` (per `dev-profile-base/.env`) | optional |
+| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.3.0-26.07.4` for x86/Tegra; `3.3.0-26.07.4-sbsa` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.3.0-26.07.4` as of 2026-06-02).** | `3.3.0-26.07.4` (per `dev-profile-base/.env`) | optional |
 
 ## Network Requirements
 
@@ -143,7 +145,7 @@ The host-side variable names that the compose interpolates differ from the canon
 - **Profiles are mandatory.** The upstream rtvi-vlm compose declares 6 compose profiles (`bp_wh_2d`, `bp_developer_alerts_2d_vlm`, `bp_developer_alerts_2d_cv`, `bp_developer_base_2d_IGX-THOR`, `bp_developer_base_2d_AGX-THOR`, `bp_developer_lvs_2d`). `docker compose up` without `--profile` starts **nothing**. A standalone deploy must add its chosen compose-profile flag to the `profiles:` list of its compose copy.
 - **Single-instance.** `container_name: vss-rtvi-vlm` is hardcoded in the upstream compose. A second instance on the same host fails with `Conflict. The container name "/vss-rtvi-vlm" is already in use`. Source: `deploy-rt-vlm-service.md` §20.
 - **NvSchema protobuf must align with Logstash descriptors.** The producer (RT-VLM) and the consumer (Logstash) must agree on the `nv.VisionLLM` and `nv.Incident` proto schema. The shared source-of-truth is the descriptor pair at `deploy/docker/services/infra/elk/pb_definitions/descriptors/{schema.desc, ext.desc}`. Schema drift on one side without the other causes Logstash to write empty/default-valued documents to ES without raising. Source: `integrate-elk.md` § Known Integration Constraints.
-- **Caption topic must be `mdx-vlm-captions` (resolved in VSS 3.2).** VSS 3.2 added the `mdx-lvs` Logstash pipeline (`pipelines/kafka/mdx-lvs-logstash.conf`) that subscribes to `mdx-vlm-captions` and indexes captions into ES using via-ctx-rag's `add_summary` shape (indices named `<collection>_<id>`, not `mdx-vlm-*` date indices). The legacy Finding 4 gap (plain `mdx-vlm` topic unsubscribed) is now obsolete: use `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` and captions reach ES without any Logstash config patching. The `patch-logstash.py` Option A workaround at the repo root is now superseded by this topic choice. Source: live verification 2026-05-23, `met-blueprint-docs/real-time-vlm.rst`, `mdx-lvs-logstash.conf`.
+- **Caption topic must be `mdx-vlm-captions` (resolved in VSS 3.2).** VSS 3.2 added the `mdx-lvs` Logstash pipeline (`pipelines/kafka/mdx-lvs-logstash.conf`) that subscribes to `mdx-vlm-captions` and indexes captions into ES using via-ctx-rag's `add_summary` shape (indices named `<collection>_<id>`, not `mdx-vlm-*` date indices). Use `RTVI_VLM_MESSAGE_BUS=kafka` and `RTVI_VLM_MESSAGE_BUS_TOPIC=mdx-vlm-captions` so captions reach ES without any Logstash config patching. Source: live verification 2026-05-23, `met-blueprint-docs/real-time-vlm.rst`, `mdx-lvs-logstash.conf`.
 - **MODEL_PATH tag divergence (must override).** Compose default is `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` but the VSS-docs-matching tag is `:1208-fp8-static-kv8` (the rst sample uses `:0303-fp8-dynamic-kv8`). These tags are NOT interchangeable on a live cache — different quant produces different torch_aot_compile cache hashes. Source: `deploy-rt-vlm-service.md` §20 third bullet.
 - **VOD vs. RTSP timestamp differ.** File uploads (VOD) carry chunk-relative epoch timestamps; if the upload `timestamp` query param is unset, caption docs land in the `mdx-vlm-1970-01-01` ES index. RTSP streams carry wall-clock NTP timestamps and land in the correct date-named index. Affects Kibana dashboards — time picker must include 1970 for VOD-driven captions. Source: `EXAMPLE-PROMPTS.md` § P-006-S1 known edge cases.
 - **Jetson Thor / DGX Spark instability at 8+ vision tokens.** Documented platform issue. Cap streams ≤2 or drop input resolution. Source: `real-time-vlm.rst` § (search "Jetson Thor") + `deploy-rt-vlm-service.md` §9.
@@ -157,7 +159,7 @@ Minimal IN-1-relevant block. Full upstream compose is at `deploy/docker/services
 ```yaml
 services:
   rtvi-vlm:
-    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.4}   # resolve tag from dev-profile-base/.env; registry is nvstaging in 3.2.0
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.07.4}   # resolve tag from dev-profile-base/.env; registry is nvstaging in 3.2.0
     container_name: vss-rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
@@ -177,7 +179,9 @@ services:
       VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-cosmos-reason2}"
       MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8}"
       KAFKA_ENABLED: "true"
-      KAFKA_TOPIC: "${RTVI_VLM_KAFKA_TOPIC:-mdx-vlm-captions}"
+      MESSAGE_BUS: "${RTVI_VLM_MESSAGE_BUS:-kafka}"
+      MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
+      ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
       KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
       KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
       ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-mdx-events}"
