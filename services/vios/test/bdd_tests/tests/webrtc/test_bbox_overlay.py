@@ -294,11 +294,18 @@ def live_picture_overlay(context, tmp_path):
             context.last_picture = jpg
             context.rgb, context.jpeg_w, context.jpeg_h = jpeg_to_rgb(jpg)
             last_err = None
-            # Consumer often connects on first overlay request; retry a few times.
+            # Stop as soon as a picture actually shows the overlay border. The
+            # consumer often connects only after the first overlay request, so a
+            # later frame may lack the box; without this break an earlier valid
+            # capture would be overwritten by a later borderless one and the
+            # test would flake with a false "no overlay" failure.
+            if _picture_shows_overlay(context, context.rgb, context.jpeg_w, context.jpeg_h):
+                break
             time.sleep(1.0)
         except Exception as exc:  # noqa: BLE001
             last_err = exc
             time.sleep(1.0)
+    _raise_if_publisher_failed(context)
     if last_err is not None and context.rgb is None:
         raise last_err
 
@@ -335,8 +342,48 @@ def _expected_target(params) -> tuple:
     return (int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
 
+def _picture_shows_overlay(context, rgb, width, height) -> bool:
+    """True if ``rgb`` already satisfies the bbox-border check, so the retry loop
+    can keep the first valid capture instead of overwriting it. Returns False
+    (keep retrying) when the spec is unavailable or the border is not yet drawn.
+    """
+    spec = getattr(context, "spec", None)
+    if spec is None or rgb is None:
+        return False
+    params = context.params
+    box = scale_box(
+        spec.pixel_box(),
+        int(params["width"]),
+        int(params["height"]),
+        width,
+        height,
+    )
+    try:
+        assert_live_box_border(
+            rgb, width, height, box,
+            target_rgb=_expected_target(params),
+            min_border=int(params.get("min_border", 200)),
+            tol=int(params.get("rgb_tol", 55)),
+        )
+        return True
+    except AssertionError:
+        return False
+
+
+def _raise_if_publisher_failed(context) -> None:
+    """Surface a background bbox-publisher thread failure as the real cause,
+    instead of letting it show up as a misleading missing-overlay assertion."""
+    publisher = getattr(context, "publisher", None)
+    if publisher is not None and getattr(publisher, "error", None) is not None:
+        raise AssertionError(
+            "live bbox publisher thread failed before overlay validation; "
+            f"overlay metadata was not published: {publisher.error!r}"
+        ) from publisher.error
+
+
 @then('the JPEG contains a region of the expected bbox color')
 def jpeg_has_bbox_color(context):
+    _raise_if_publisher_failed(context)
     assert context.rgb is not None, "no live picture RGB captured"
     assert context.spec is not None, "no LiveBoxSpec"
     params = context.params
@@ -361,6 +408,7 @@ def jpeg_has_bbox_color(context):
 
 @then('sampled WebRTC frames contain a region of the expected bbox color')
 def webrtc_frames_have_bbox_color(context):
+    _raise_if_publisher_failed(context)
     assert context.webrtc_frames, "no WebRTC RGB frames captured"
     assert context.spec is not None, "no LiveBoxSpec"
     params = context.params

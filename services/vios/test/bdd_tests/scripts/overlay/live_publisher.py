@@ -95,6 +95,7 @@ class KafkaBoxPublisher:
         self.fps = fps
         self._running = False
         self._sent = 0
+        self._error: Optional[Exception] = None
 
     def _now_ms(self) -> int:
         return int(time.time() * 1000)
@@ -113,18 +114,31 @@ class KafkaBoxPublisher:
         interval = 1.0 / self.fps
         end = time.monotonic() + duration_s
         next_t = time.monotonic()
-        while self._running and time.monotonic() < end:
-            self.publish_once()
-            next_t += interval
-            sleep = next_t - time.monotonic()
-            if sleep > 0:
-                time.sleep(sleep)
+        try:
+            while self._running and time.monotonic() < end:
+                self.publish_once()
+                next_t += interval
+                sleep = next_t - time.monotonic()
+                if sleep > 0:
+                    time.sleep(sleep)
+        except Exception as exc:  # noqa: BLE001
+            # Daemon-thread target: capture the failure instead of letting it be
+            # swallowed, so the test can surface the real cause.
+            self._error = exc
+            logger.exception(
+                "KafkaBoxPublisher thread failed after %d frames: %s", self._sent, exc
+            )
         self._producer.flush(5)
         logger.info("KafkaBoxPublisher sent %d frames to topic=%s", self._sent, self.topic)
         return self._sent
 
     def stop(self) -> None:
         self._running = False
+
+    @property
+    def error(self) -> Optional[Exception]:
+        """Exception that terminated the publisher thread, if any."""
+        return self._error
 
 
 class RedisBoxPublisher:
@@ -149,6 +163,7 @@ class RedisBoxPublisher:
         self.maxlen = maxlen
         self._running = False
         self._sent = 0
+        self._error: Optional[Exception] = None
 
     def _now_ms(self) -> int:
         return int(time.time() * 1000)
@@ -170,14 +185,29 @@ class RedisBoxPublisher:
         interval = 1.0 / self.fps
         end = time.monotonic() + duration_s
         next_t = time.monotonic()
-        while self._running and time.monotonic() < end:
-            self.publish_once()
-            next_t += interval
-            sleep = next_t - time.monotonic()
-            if sleep > 0:
-                time.sleep(sleep)
+        try:
+            while self._running and time.monotonic() < end:
+                self.publish_once()
+                next_t += interval
+                sleep = next_t - time.monotonic()
+                if sleep > 0:
+                    time.sleep(sleep)
+        except Exception as exc:  # noqa: BLE001
+            # Runs in a daemon thread. Without this, a mid-run failure (e.g.
+            # Redis going away after the initial ping) would be swallowed and
+            # surface only as a misleading missing-overlay assertion in the
+            # test. Capture it so the caller can report the real cause.
+            self._error = exc
+            logger.exception(
+                "RedisBoxPublisher thread failed after %d frames: %s", self._sent, exc
+            )
         logger.info("RedisBoxPublisher XADDed %d frames to stream=%s", self._sent, self.topic)
         return self._sent
 
     def stop(self) -> None:
         self._running = False
+
+    @property
+    def error(self) -> Optional[Exception]:
+        """Exception that terminated the publisher thread, if any."""
+        return self._error
