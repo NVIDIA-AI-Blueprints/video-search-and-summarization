@@ -693,9 +693,76 @@ class TestSinkMQTTDirtyTests:
         """Test close method when no client exists."""
         # Arrange
         self.sink._client = None
-        
+
         # Act
         self.sink.close()
-        
+
         # Assert
         # Should not raise any exception when client is None
+
+    def test_close_waits_for_queued_publishes_before_disconnecting(self, mock_client):
+        """publish() only queues; loop_stop() does not promise the queue drained first.
+
+        Under behaviorEmitOnce the close hook writes every still-live track's only behavior
+        immediately before this runs, so a message dropped here is missing from the output
+        altogether rather than merely stale.
+        """
+        # Arrange
+        self.sink._client = mock_client
+        pending = Mock()
+        pending.is_published.return_value = False
+        self.sink._last_publish = pending
+
+        # Act
+        self.sink.close()
+
+        # Assert
+        pending.wait_for_publish.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+
+    def test_close_does_not_wait_when_the_queue_already_drained(self, mock_client):
+        """Nothing outstanding means no reason to pay the wait."""
+        # Arrange
+        self.sink._client = mock_client
+        published = Mock()
+        published.is_published.return_value = True
+        self.sink._last_publish = published
+
+        # Act
+        self.sink.close()
+
+        # Assert
+        published.wait_for_publish.assert_not_called()
+        mock_client.disconnect.assert_called_once()
+
+    def test_close_disconnects_even_when_the_drain_fails(self, mock_client):
+        """A broker that has already gone makes the wait unsatisfiable. Report it and shut down --
+        blocking here would trade lost messages for a hung process."""
+        # Arrange
+        self.sink._client = mock_client
+        pending = Mock()
+        pending.is_published.return_value = False
+        pending.wait_for_publish.side_effect = RuntimeError("queue purged")
+        self.sink._last_publish = pending
+
+        # Act
+        with patch('mdx.analytics.core.stream.sink.sink_mqtt.logger') as mock_logger:
+            self.sink.close()
+
+        # Assert
+        mock_logger.error.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+        mock_client.loop_stop.assert_called_once()
+
+    def test_write_retains_the_publish_handle(self, mock_client):
+        """The handle close() waits on is the one write() would otherwise discard."""
+        # Arrange
+        self.sink._client = mock_client
+        info = Mock()
+        mock_client.publish.return_value = info
+
+        # Act
+        self.sink.write("test_key", [{"id": 1}], lambda x: str(x).encode('utf-8'))
+
+        # Assert
+        assert self.sink._last_publish is info

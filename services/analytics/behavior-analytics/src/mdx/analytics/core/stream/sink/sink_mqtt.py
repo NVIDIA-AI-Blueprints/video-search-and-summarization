@@ -16,7 +16,8 @@
 import logging
 import time
 
-from paho.mqtt.client import Client, ConnectFlags, DisconnectFlags, CONNACK_ACCEPTED, MQTT_ERR_SUCCESS
+from paho.mqtt.client import (Client, ConnectFlags, DisconnectFlags, MQTTMessageInfo,
+                              CONNACK_ACCEPTED, MQTT_ERR_SUCCESS)
 from paho.mqtt.enums import CallbackAPIVersion, MQTTProtocolVersion
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
@@ -28,6 +29,10 @@ from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.stream.sink.sink_base import Sink
 
 logger = logging.getLogger(__name__)
+
+# How long close() waits for queued publishes to reach the broker before giving up. Bounded so a
+# broker that has already gone away cannot wedge shutdown.
+PUBLISH_DRAIN_TIMEOUT_SECONDS = 10.0
 
 
 class SinkMQTT(Sink):
@@ -43,6 +48,11 @@ class SinkMQTT(Sink):
         self._get_topic = config.get_mqtt_topic
 
         self._client: Client | None = None
+        # The most recent publish, kept so close() can confirm the queue drained. paho works a
+        # single ordered outgoing queue per client, so the last message reaching the broker means
+        # the ones before it did too -- which is why one handle is enough and a growing list of
+        # them is not needed.
+        self._last_publish: MQTTMessageInfo | None = None
 
 
     def write(
@@ -85,7 +95,7 @@ class SinkMQTT(Sink):
             if key and not isinstance(key, bytes):
                 raise ValueError(f"Message key must be of type `bytes`, incorrect type received - {type(key)}")
 
-            self._client.publish( # type: ignore 
+            self._last_publish = self._client.publish( # type: ignore 
                 topic = topic,
                 payload = value_serializer(message),
                 properties = self._serialize_properties(headers, key),
@@ -118,7 +128,7 @@ class SinkMQTT(Sink):
         if not self._client:
             self._init_client()
 
-        self._client.publish( # type: ignore
+        self._last_publish = self._client.publish( # type: ignore
             topic = topic,
             payload = message,
             properties = self._serialize_properties(headers, key),
@@ -255,8 +265,32 @@ class SinkMQTT(Sink):
 
 
     def close(self) -> None:
-        """Close the MQTT client connection and stop the network loop."""
+        """Drain queued publishes, then close the MQTT client connection and stop the network loop.
+
+        publish() only queues; the network loop sends. loop_stop() does not promise the queue was
+        drained first, so disconnecting straight after a write can discard messages that were never
+        put on the wire. Under ``behaviorEmitOnce`` that is not a cosmetic loss: every track still
+        live at shutdown has its one and only behavior written by the close hook, immediately before
+        this runs, so anything dropped here is absent from the output entirely rather than merely
+        stale.
+
+        Waiting is best-effort and bounded. If the broker is already gone the wait cannot succeed,
+        and blocking shutdown on it would trade lost messages for a hung process, so it gives up and
+        says so.
+        """
 
         if self._client:
+            if self._last_publish is not None and not self._last_publish.is_published():
+                try:
+                    self._last_publish.wait_for_publish(timeout=PUBLISH_DRAIN_TIMEOUT_SECONDS)
+                except (RuntimeError, ValueError) as e:
+                    # RuntimeError: the queue was purged or the client was never connected.
+                    logger.error(f"Queued MQTT messages were not delivered before shutdown: {e}")
+                else:
+                    if not self._last_publish.is_published():
+                        logger.error(
+                            f"Queued MQTT messages still undelivered after "
+                            f"{PUBLISH_DRAIN_TIMEOUT_SECONDS}s; disconnecting anyway")
+
             self._client.disconnect()
             self._client.loop_stop()
