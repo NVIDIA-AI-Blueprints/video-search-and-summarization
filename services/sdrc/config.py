@@ -656,6 +656,14 @@ class Config(object):
     WDM_CONFIG_DEFER_ON_FAILURE = _bool_env(
         "WDM_CONFIG_DEFER_ON_FAILURE", False
     )
+    # Max times to re-process the same bus event on temporary failures before
+    # giving up (ERROR log + commit). Applies to Redis and Kafka consumers.
+    WDM_EVENT_RETRY_LIMIT = (
+        int(os.environ["WDM_EVENT_RETRY_LIMIT"].strip())
+        if "WDM_EVENT_RETRY_LIMIT" in os.environ
+        and os.environ["WDM_EVENT_RETRY_LIMIT"].strip() != ""
+        else 20
+    )
     WDM_DS_STATUS_CHECK = (
         True
         if "WDM_DS_STATUS_CHECK" in os.environ
