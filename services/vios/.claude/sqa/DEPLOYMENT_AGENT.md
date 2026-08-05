@@ -42,8 +42,25 @@ Standalone stack management for VIOS. Each operation is independent — the user
    # NVStreamer only:
    deploy --target nvstreamer --force
    ```
-4. After a successful `deploy`, sync `test/bdd_tests/config.json` → `api.base_url` with the resolved BASE_URL.
-5. Report the outcome.
+4. After a successful `deploy`, sync `test/bdd_tests/config.json` → `api.base_url` **and** `nvstreamer.host` with the resolved BASE_URL / host.
+5. **Respect the NVStreamer → stream-processor start-up order.** When
+   `configs/rtsp_streams.json` has an `Nvstreamer` entry with `enabled: true`
+   (the default), `sensor-ms` imports that endpoint's streams via
+   `/api/v1/sensor/streams` **once, at start-up**. Bring NVStreamer up first and
+   wait until its stream list is non-empty and stable before the
+   stream-processor starts, or VIOS imports an incomplete set and never retries.
+   With `enabled: false` VIOS imports nothing — add the sensors manually from
+   the NVStreamer stream list. See `skills/deployment/deploy.md` Step 2e.
+6. **If the deployment will be tested**, seed it — a fresh stack has no sensors
+   and no recordings, so stream/download/webrtc suites fail on empty data in a
+   way that looks like product defects. Follow `skills/testing/run-bdd-tests.md`
+   **Step 0**: confirm how streams reach VIOS (auto-import vs manual), locate
+   clips (**ask the user if none exist** — the baked `/app/test_videos` path
+   only exists inside the BDD container image) or pass
+   `--nvstreamer-video-path`, confirm recordings are actually accumulating, then
+   cover the file-sensor path.
+7. Report the outcome, including whether the running containers are the locally
+   built images (compare image IDs — see `skills/deployment/deploy.md` Step 1b-ii).
 
 ---
 
@@ -64,7 +81,7 @@ Standalone stack management for VIOS. Each operation is independent — the user
   - `status=passwordless` → tuning needed AND `sudo -n` works; run normally, sudo passes through silently.
   - `status=needs_password` + interactive user → ask: *"Deploy will need sudo to tune kernel network buffers (rmem_max → 2 MB, etc.). Provide password? OR pass --skip-sysctl to skip (throughput may be lower under load)."* Then proceed with their choice.
   - `status=needs_password` + non-interactive (can't relay a prompt) → pass `--skip-sysctl` to avoid hanging. The script also auto-skips in this case but the explicit flag is clearer in the deploy log.
-- **After a build step:** `compose.env` has pinned versioned tags that do NOT match locally built images. Always append `--all-tag <BUILD_TAG> --nvstreamer-tag <BUILD_TAG>` to every deploy command. `--all-tag` covers stream-processor + sensor images; `--nvstreamer-tag` covers NVStreamer. `build.sh` defaults to `latest`. Do not add `--pull-always`.
+- **After a build step:** `compose.env` has pinned versioned tags AND registry repositories that do NOT match locally built images. Tag flags alone are not enough — a tag override still points at the `compose.env` repository, which fails with `manifest unknown`. Pass the verbatim image overrides together with their tags (`--streamprocessor-image`/`--sensor-image`/`--nvstreamer-image` + `--streamprocessor-tag`/`--sensor-tag`/`--nvstreamer-tag`), reading the real names off `docker images` first. See `skills/deployment/deploy.md` Step 1b-i. `build.sh` defaults to `latest`. Do not add `--pull-always`.
 - Do not modify `deployment/**/docker-compose*.y*ml` without instruction.
 - **Default deploy target is stream-processor only.** Requests like "deploy", "deploy VST", "deploy VIOS", or any deploy request without an explicit target → stream-processor.
 - **Deployment mode: SDRC (default) vs direct — independent of the adaptor.** The stack now defaults to **SDRC mode** (`VST_USE_SDRC=true`, `COMPOSE_PROFILES=sdrc`, `NGINX_MODE=vst-sdrc`, `sdr-controller` running). This is a **separate axis** from `VST_ADAPTOR` — `vst-sdrc` is **not** an adaptor and has nothing to do with adaptor selection. Map the user's intent:
