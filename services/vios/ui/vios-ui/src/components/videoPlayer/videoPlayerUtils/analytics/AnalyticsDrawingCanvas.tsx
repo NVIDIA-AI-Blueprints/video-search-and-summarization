@@ -19,8 +19,8 @@ import { useTheme, alpha, Theme } from '@mui/material/styles';
 import { DrawingMode, CoordinatePoint, TripwireCoordinates } from './AnalyticsTypes';
 
 interface AnalyticsDrawingCanvasProps {
-    canvasRef: React.RefObject<HTMLCanvasElement>;
-    videoRef: React.RefObject<HTMLVideoElement>;
+    canvasRef: React.RefObject<HTMLCanvasElement | null>;
+    videoRef: React.RefObject<HTMLVideoElement | null>;
     videoWidth: number;
     videoHeight: number;
     drawingMode: DrawingMode;
@@ -29,7 +29,7 @@ interface AnalyticsDrawingCanvasProps {
     directionPoints: TripwireCoordinates | null;
     tempTripwireStart: CoordinatePoint | null;
     tempDirectionStart: CoordinatePoint | null;
-    onCanvasClick: (event: React.MouseEvent<HTMLCanvasElement>, videoRef: React.RefObject<HTMLVideoElement>) => void;
+    onCanvasClick: (event: React.MouseEvent<HTMLCanvasElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => void;
     existingROIsForDisplay?: Array<{ id: string; imageCoords: CoordinatePoint[] }>;
     existingTripwiresForDisplay?: Array<{
         id: string;
@@ -264,7 +264,7 @@ const AnalyticsDrawingCanvas: React.FC<AnalyticsDrawingCanvasProps> = ({
     const stableExistingTripwires = useMemo(() => existingTripwiresForDisplay, [existingTripwiresForDisplay]);
 
     // Use requestAnimationFrame to batch canvas updates and reduce flashing
-    const animationFrameRef = useRef<number>();
+    const animationFrameRef = useRef<number>(undefined);
 
     // Separate function to draw existing items (only redraws when existing items change)
     const drawExistingItems = useCallback(
