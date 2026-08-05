@@ -99,6 +99,11 @@ assetDownloadMaxFileSizeGb: 8
 assetDownloadSslSkipVerifyDomains: ""
 assetDownloadMaxRedirects: "0"
 assetDownloadAuthTokens: ""
+# Optional: pull ASSET_DOWNLOAD_AUTH_TOKENS from an existing Kubernetes secret.
+# Prefer this over assetDownloadAuthTokens for non-empty authorization headers.
+assetDownloadAuthTokensSecret:
+  name: ""
+  key: "ASSET_DOWNLOAD_AUTH_TOKENS"
 fileUrlAllowedDirs: ""
 maxAssetStorageSizeGb: ""
 assetMaxAgeHours: "0"

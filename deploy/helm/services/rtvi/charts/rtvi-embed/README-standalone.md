@@ -59,6 +59,17 @@ kubectl create secret generic hf-token-secret \
 
 If you use other secret names, set `imagePullSecrets` and `hfTokenSecret` in Helm values or `--set` flags to match.
 
+**Optional asset authorization tokens.** If you need `ASSET_DOWNLOAD_AUTH_TOKENS`, prefer a Kubernetes Secret instead of a literal Helm value:
+
+```bash
+kubectl create secret generic asset-download-auth-tokens \
+  --namespace "${NAMESPACE}" \
+  --from-literal=ASSET_DOWNLOAD_AUTH_TOKENS='<authorization-headers>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Then set `assetDownloadAuthTokensSecret.name: asset-download-auth-tokens` and `assetDownloadAuthTokensSecret.key: ASSET_DOWNLOAD_AUTH_TOKENS`.
+
 ---
 
 ## 3. Helm chart path and dependencies
