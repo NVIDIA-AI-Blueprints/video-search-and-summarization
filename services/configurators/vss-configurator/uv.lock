@@ -1235,8 +1235,7 @@ wheels = [
 
 [[package]]
 name = "spatialai-data-utils"
-version = "2.0.1"
-source = { registry = "https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple" }
+source = { directory = "../../../libs/analytics/spatialai-data-utils/release" }
 dependencies = [
     { name = "boto3" },
     { name = "fvcore" },
@@ -1259,9 +1258,37 @@ dependencies = [
     { name = "tabulate" },
     { name = "tqdm" },
 ]
-wheels = [
-    { url = "https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/spatialai-data-utils/2.0.1/spatialai_data_utils-2.0.1-py3-none-any.whl", hash = "sha256:79818cbb16dd6566fddf67a067feeb382fa0f29f22873d507320b932de4d3cfc" },
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = "==1.36.2" },
+    { name = "fvcore", specifier = "==0.1.5.post20221221" },
+    { name = "h5py", specifier = "==3.16.0" },
+    { name = "iopath", specifier = "==0.1.9" },
+    { name = "jsonschema", specifier = "==4.23.0" },
+    { name = "lap", specifier = "==0.5.12" },
+    { name = "matplotlib", specifier = "==3.11.0" },
+    { name = "motmetrics", marker = "extra == 'eval'", specifier = "==1.4.0" },
+    { name = "numpy", specifier = "==1.26.4" },
+    { name = "nuscenes-devkit", marker = "extra == 'eval'", specifier = "==1.2.0" },
+    { name = "opencv-python-headless", marker = "extra == 'viz'", specifier = ">=4.5.4.58,<=4.11.0.86" },
+    { name = "pandas", specifier = "==2.3.3" },
+    { name = "pillow", specifier = "==12.2.0" },
+    { name = "pycocotools", specifier = "==2.0.11" },
+    { name = "pyquaternion", specifier = "==0.9.9" },
+    { name = "python-dotenv", specifier = "==1.0.1" },
+    { name = "pytorch3d", marker = "extra == 'full'", git = "https://github.com/facebookresearch/pytorch3d.git?rev=33824be" },
+    { name = "pytz", specifier = "==2024.2" },
+    { name = "requests", specifier = "==2.32.3" },
+    { name = "scikit-learn", specifier = "==1.9.0" },
+    { name = "scipy", specifier = "==1.15.3" },
+    { name = "shapely", specifier = "==2.0.7" },
+    { name = "spatialai-data-utils", extras = ["eval", "viz"], marker = "extra == 'full'" },
+    { name = "tabulate", specifier = "==0.9.0" },
+    { name = "torch", marker = "extra == 'full'", specifier = ">=2.10.0" },
+    { name = "tqdm", specifier = "==4.67.1" },
 ]
+provides-extras = ["viz", "eval", "full"]
 
 [[package]]
 name = "tabulate"
@@ -1349,7 +1376,7 @@ requires-dist = [
     { name = "redis", specifier = "==5.0.1" },
     { name = "requests", specifier = "==2.32.3" },
     { name = "ruamel-yaml", specifier = "==0.18.15" },
-    { name = "spatialai-data-utils", specifier = "==2.0.1", index = "https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple" },
+    { name = "spatialai-data-utils", directory = "../../../libs/analytics/spatialai-data-utils/release" },
 ]
 
 [package.metadata.requires-dev]
