@@ -627,7 +627,7 @@ void H264ByteStreamSource::closeSource()
 void H264ByteStreamSource::restartForLoop()
 {
     LOG(info) << "H264ByteStreamSource restartForLoop, m_sessionId:" << m_sessionId << endl;
-    if (GET_CONFIG().nv_streamer_sync_playback == true)
+    if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
     {
         m_seekOffset = 0;
         m_start = 0;

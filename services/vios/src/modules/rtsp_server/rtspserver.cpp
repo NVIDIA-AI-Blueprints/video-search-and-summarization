@@ -190,7 +190,7 @@ RtspServer::~RtspServer()
     m_env.stop();
     m_thread->join();
 
-    if (GET_CONFIG().nv_streamer_sync_playback == true)
+    if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
     {
         RtspSyncPlayback::getInstance()->stop();
     }

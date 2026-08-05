@@ -443,7 +443,7 @@ void NvFileServerMediaSubsession::checkForAuxSDPLine1()
 {
     nextTask() = nullptr;
 
-    if ((GET_CONFIG().nv_streamer_sync_playback == true ||
+    if ((((GET_CONFIG().nv_streamer_sync_playback == true) && (GET_CONFIG().nv_streamer_sync_file_count <= 0)) ||
         (GET_CONFIG().nv_streamer_sync_file_count > 0 && RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())) &&
         (m_syncSourceToGlobalFrameId == -1))
     {
@@ -632,8 +632,10 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
         return;
     }
 
-    /* Ignore this seek in case of sync_playback, It will be handled while createNewStreamSource */
-    if (GET_CONFIG().nv_streamer_sync_playback == true || m_vodEnableOverlay)
+    /* Ignore this seek in case of sync_playback, It will be handled while createNewStreamSource.
+     * The new sync_file_count quorum engine takes precedence: when it is active the legacy
+     * sync_playback branch is suppressed so both engines never drive the same source. */
+    if ((GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0) || m_vodEnableOverlay)
     {
         delete[] absStart; absStart = nullptr;
         delete[] absEnd; absEnd = nullptr;
@@ -805,7 +807,7 @@ FramedSource* NvFileServerMediaSubsession
         // Create a framer for the Video Elementary Stream:
         estBitrate = 500; // kbps, estimate`
         m_videoStreamSource = H264ByteStreamSource::createNew(envir(), m_streamName, m_mediaSource, m_url_params, sourceState, m_sessionId);
-        if ((GET_CONFIG().nv_streamer_sync_playback == true ||
+        if ((((GET_CONFIG().nv_streamer_sync_playback == true) && (GET_CONFIG().nv_streamer_sync_file_count <= 0)) ||
             (GET_CONFIG().nv_streamer_sync_file_count > 0 && RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())) &&
             m_syncSourceToGlobalFrameId > 0)
         {
