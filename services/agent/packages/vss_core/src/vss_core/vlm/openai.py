@@ -74,6 +74,7 @@ class OpenAIVLMAnalyzer:
         disable_audio: bool = True,
         max_frames: int = 60,
         max_fps: int = 2,
+        cosmos_nim_runtime_options: bool = True,
     ) -> None:
         if not base_url.strip():
             raise ConfigurationError("VLM base_url must be non-empty")
@@ -95,6 +96,7 @@ class OpenAIVLMAnalyzer:
         self._disable_audio = disable_audio
         self._max_frames = max(1, max_frames)
         self._max_fps = max(1, max_fps)
+        self._cosmos_nim_runtime_options = cosmos_nim_runtime_options
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -207,7 +209,7 @@ class OpenAIVLMAnalyzer:
 
     def _add_model_runtime_options(self, payload: dict[str, Any], duration_seconds: float) -> None:
         model = self._model.lower()
-        if "cosmos" in model and self._media_mode != "frame_base64":
+        if self._cosmos_nim_runtime_options and "cosmos" in model and self._media_mode != "frame_base64":
             payload["media_io_kwargs"] = {
                 "video": {
                     "num_frames": _dynamic_num_frames(duration_seconds, self._max_frames, self._max_fps),

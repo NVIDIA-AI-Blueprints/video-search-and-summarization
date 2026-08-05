@@ -51,6 +51,9 @@ if TYPE_CHECKING:
 
     import click
 
+    from vss_core.critic import CriticAgent
+    from vss_core.vlm import OpenAIVLMAnalyzer
+
 #: Index families the deployment reports, mapped to the runtime field that
 #: consumes them. Discovered rather than declared -- `vss configure` reads
 #: them from Elasticsearch's own _cat/indices.
@@ -265,6 +268,68 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     return SearchRuntime(**kwargs)
 
 
+async def _rt_vlm_available(service_url: str, model: str) -> bool:
+    """Return whether the configured RT-VLM route currently serves ``model``.
+
+    Deployment configuration is a snapshot and may outlive the service. Probe
+    once before an all-hit critic run so an outage does not fan out into one
+    retried request per search result.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{service_url.rstrip('/')}/v1/models")
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return False
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return False
+    return any(isinstance(item, dict) and item.get("id") == model for item in payload["data"])
+
+
+async def _critic_from(
+    deployment: config_mod.Deployment,
+) -> tuple[CriticAgent | None, OpenAIVLMAnalyzer | None]:
+    """Build the reusable critic stack when this deployment exposes one.
+
+    RT-VLM is optional for archive search. Returning ``(None, None)`` keeps
+    retrieval available and causes the result model's fail-open ``unverified``
+    state to remain untouched.
+    """
+    rt_vlm = deployment.services.get("rt_vlm")
+    if not deployment.has("vst") or rt_vlm is None or not rt_vlm.url or not rt_vlm.models:
+        return None, None
+    if not await _rt_vlm_available(rt_vlm.url, rt_vlm.models[0]):
+        return None, None
+
+    from vss_core.critic import CriticAgent
+    from vss_core.vlm import OpenAIVLMAnalyzer
+    from vss_core.vst import VSTClient
+
+    vst = VSTClient(
+        internal_url=deployment.base_url,
+        external_url=deployment.base_url,
+    )
+    vlm = OpenAIVLMAnalyzer(
+        base_url=f"{rt_vlm.url.rstrip('/')}/v1",
+        model=rt_vlm.models[0],
+        vst=vst,
+        # Match the search profile's video_understanding contract: RT-VLM
+        # fetches the bounded VST clip. Inlining the MP4 is subject to the
+        # proxy's base64-size cap and makes otherwise valid hits unverifiable.
+        media_mode="video_url",
+        video_url_scope="external",
+        # A Cosmos model id does not make this a direct Cosmos NIM endpoint.
+        # RT-VLM performs its own preprocessing, so the direct-NIM
+        # media_io_kwargs that OpenAIVLMAnalyzer normally adds do not belong
+        # in this proxy request.
+        cosmos_nim_runtime_options=False,
+    )
+    return CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset"), vlm
+
+
 class SearchGroup(CommandGroup):
     """Search indexed video."""
 
@@ -329,9 +394,27 @@ class SearchGroup(CommandGroup):
         payload["search_mode"] = action
         runtime = _runtime_from(deployment, tuning)
 
+        # Validate the complete library request before probing optional
+        # verification infrastructure.  Besides preserving the CLI's usage
+        # error semantics, this guarantees invalid input has no network side
+        # effects (the facade validates the same model again at dispatch).
+        # Field constraints alone are not enough: the cross-field errors the
+        # CLI actually produces -- an empty query on embed/fusion, no
+        # attributes on attribute/fusion -- only surface from
+        # validate_semantics(), so without it `_critic_from` would still make
+        # its RT-VLM probe before the usage error appeared.
+        from vss_core.search_core.models.search import SearchInput
+
+        SearchInput(**payload).validate_semantics()
+
         async def _go() -> Any:
-            async with VSSSearch.from_runtime(runtime) as vss:
-                return await vss.search(**payload)
+            critic, vlm = await _critic_from(deployment)
+            try:
+                async with VSSSearch.from_runtime(runtime, critic=critic) as vss:
+                    return await vss.search(**payload)
+            finally:
+                if vlm is not None:
+                    await vlm.aclose()
 
         output = asyncio.run(_go())
         body = output.model_dump() if hasattr(output, "model_dump") else output
