@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,12 +23,12 @@
 #include "nvhwdetection.h"
 #include "gstnvvideodecoder.h"
 
-#define GST_DEBUG_PROBE_BUFFER_COUNT 10
-#define DECODER_EXTRA_SURFACES 6
-#define CUDA_DEC_MEM_TYPE_DEVICE 0
-#define MAX_PADS_WAIT_TIMEOUT 5s
-#define MAX_IMAGE_WIDTH  3840
-#define MAX_IMAGE_HEIGHT 2160
+constexpr int  GST_DEBUG_PROBE_BUFFER_COUNT = 10;
+constexpr gint DECODER_EXTRA_SURFACES       = 6;
+constexpr gint CUDA_DEC_MEM_TYPE_DEVICE     = 0;
+constexpr auto MAX_PADS_WAIT_TIMEOUT        = std::chrono::seconds(5);
+constexpr int  MAX_IMAGE_WIDTH              = 3840;
+constexpr int  MAX_IMAGE_HEIGHT             = 2160;
 
 namespace
 {
@@ -338,7 +338,7 @@ GstPadProbeReturn NvDecodeBin::padProbeCB (GstPad * pad, GstPadProbeInfo * info)
         if (!isJetsonPlatform())
         {
         g_object_set (G_OBJECT (m_decoder), "cudadec-memtype"   , CUDA_DEC_MEM_TYPE_DEVICE, nullptr);
-        g_object_set (G_OBJECT (m_decoder), "gpu-id"   , g_gpuIndex, nullptr);
+        g_object_set (G_OBJECT (m_decoder), "gpu-id"   , getGpuIndex(), nullptr);
         }
     }
 
@@ -385,7 +385,7 @@ dbin_element_added (GstElement * dbin, GstElement * element, gpointer data)
             {
             g_object_set (G_OBJECT (element), "num-extra-surfaces", DECODER_EXTRA_SURFACES  , nullptr);
             g_object_set (G_OBJECT (element), "cudadec-memtype"   , CUDA_DEC_MEM_TYPE_DEVICE, nullptr);
-            g_object_set (G_OBJECT (element), "gpu-id"   , g_gpuIndex, nullptr);
+            g_object_set (G_OBJECT (element), "gpu-id"   , getGpuIndex(), nullptr);
             }
             else
             {

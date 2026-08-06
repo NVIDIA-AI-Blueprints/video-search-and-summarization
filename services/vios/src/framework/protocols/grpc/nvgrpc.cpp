@@ -393,7 +393,7 @@ Status GrpcUdpService::addDevice(std::shared_ptr<nv_vms::DeviceManager> deviceMn
     LOG(info) << "Grpc response video_port:" << video_port << ", audio_port:" << audio_port << endl;
     reply->set_video_port(video_port);
     reply->set_audio_port(audio_port);
-    reply->set_host_address(g_hostIp);
+    reply->set_host_address(getHostIpAddress());
 
     return Status::OK;
 }

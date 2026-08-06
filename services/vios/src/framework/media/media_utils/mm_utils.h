@@ -25,7 +25,6 @@
 #include "video_resolution.h"
 
 using namespace std;
-using namespace nv_vms;
 
 inline constexpr const char* DECODER_NODE           = "/dev/nvidia0";
 inline constexpr const char* NV_V4L2_DECODER        = "nvv4l2decoder";

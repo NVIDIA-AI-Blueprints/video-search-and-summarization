@@ -139,12 +139,12 @@ void NvVideoEncoder::Init()
         }
         else
         {
-            if (g_gpuNodePath.empty())
+            if (getGpuNodePath().empty())
             {
-                g_gpuNodePath = ENCODER_DEV;
+                setGpuNodePath(ENCODER_DEV);
             }
-            encoder_fd = NvLibs::getInstance()->v4l2_open(g_gpuNodePath.c_str(), flags | O_RDWR);
-            LOG(error) << "Opening Nvidia Enc device: " << g_gpuNodePath << endl;
+            encoder_fd = NvLibs::getInstance()->v4l2_open(getGpuNodePath().c_str(), flags | O_RDWR);
+            LOG(error) << "Opening Nvidia Enc device: " << getGpuNodePath() << endl;
         }
         if (encoder_fd == -1)
         {
@@ -872,8 +872,8 @@ int NvVideoEncoder::InitEncode(uint32_t width, uint32_t height, string codecStri
             return -1;
         }
         CudaLoader::getInstance()->cuInit(0);
-        LOG(info) << "Init CUDA device " << g_gpuIndex << endl;
-        cu_result = CudaLoader::getInstance()->cuDeviceGet(&cuDevice, g_gpuIndex);
+        LOG(info) << "Init CUDA device " << getGpuIndex() << endl;
+        cu_result = CudaLoader::getInstance()->cuDeviceGet(&cuDevice, getGpuIndex());
         if (cu_result != CUDA_SUCCESS)
         {
             LOG(error) << "ENC_CTX Unable to get Cuda device\n" << cu_result << endl;
@@ -930,7 +930,7 @@ int NvVideoEncoder::InitEncode(uint32_t width, uint32_t height, string codecStri
 
     if (!isJetsonPlatform())
     {
-        setGPUIndex(g_gpuIndex);
+        setGPUIndex(getGpuIndex());
     }
 
     DeviceConfig config =  GET_CONFIG();

@@ -701,7 +701,7 @@ gboolean busWatchEncoder (GstBus *bus, GstMessage *message, gpointer decoder_dat
                         if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
                         {
                             detectGPU();
-                            if (g_isGpuPresent == false)
+                            if (isGpuPresent() == false)
                             {
                                 LOG(error) << "---#--- /dev/nvidia node not present, Non-recoverable error ---#---" << endl;
                                 std::exit(EXIT_GPU_NOT_FOUND);
@@ -829,8 +829,8 @@ int GstNvVideoEncoder::create ()
 
     if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
     {
-        g_object_set (G_OBJECT (m_encoder), "gpu-id"   , g_gpuIndex, nullptr);
-        g_object_set (G_OBJECT (m_conv), "gpu-id"   , g_gpuIndex, nullptr);
+        g_object_set (G_OBJECT (m_encoder), "gpu-id"   , getGpuIndex(), nullptr);
+        g_object_set (G_OBJECT (m_conv), "gpu-id"   , getGpuIndex(), nullptr);
         g_object_set (G_OBJECT (m_conv), "compute-hw"  , 1      , nullptr);
     #ifdef AARCH64_PLATFORM
         g_object_set (G_OBJECT (m_encoder), "insert-sps-pps", true, nullptr);

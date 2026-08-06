@@ -3412,7 +3412,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
     }
 #if !defined(AARCH64_PLATFORM)
     // Running in CPU mode
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         if (!m_cpuCtx)
         {
@@ -3848,7 +3848,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
     }
 #if !defined(AARCH64_PLATFORM)
     // Running in CPU mode
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         if (!m_cpuCtx)
         {
@@ -4356,8 +4356,8 @@ NvLLOverlayInternal::NvLLOverlayInternal(OverlayParams& params,
                         bool use_frameid, bool wait_for_es_query)
 {
     m_metadataStore = metadataStore;
-    bool enable_cpu_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
-    osd_ctx = GET_OSD_INSTANCE()->osd_init(enable_cpu_mode, g_gpuIndex);
+    bool enable_cpu_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
+    osd_ctx = GET_OSD_INSTANCE()->osd_init(enable_cpu_mode, getGpuIndex());
 
     enableOverlay(params, use_frameid, wait_for_es_query);
 }
@@ -4470,7 +4470,7 @@ bool NvLLOverlayInternal::isOverlayEnabled()
     bool is_overlay = m_enableBbox || m_enableTripwire || m_enableRoi
                      || m_enableSensorNameText || m_enablePose || m_enableHalos;
 #if defined(AARCH64_PLATFORM)
-    bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
     return !is_sw_mode && is_overlay;
 #else
     return is_overlay;
@@ -4560,7 +4560,7 @@ GstElement* NvLLOverlayInternal::create()
     /* SW path creates overlay_bin as follows :
      * videoconvert ! video/x-raw, format=RGBA ! cuosd ! video/x-raw, format=RGBA ! videoconvert ! video/x-raw, format=I420
      */
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         converter2 = gst_element_factory_make ("videoconvert", nullptr);
         filter2 = gst_element_factory_make ("capsfilter", nullptr);
@@ -4594,7 +4594,7 @@ GstElement* NvLLOverlayInternal::create()
                         << " nvvideoconvert(converter2): " << (converter2 ? "OK" : "NULL")
                         << ", capsfilter(filter2): " << (filter2 ? "OK" : "NULL")
                         << ", use_software_path: " << GET_CONFIG().use_software_path
-                        << ", g_isGpuPresent: " << g_isGpuPresent
+                        << ", isGpuPresent: " << isGpuPresent()
                         << ", m_useNvV4l2Enc: " << NvHwDetection::getInstance()->m_useNvV4l2Enc
                         << endl;
             return nullptr;
@@ -4611,16 +4611,16 @@ GstElement* NvLLOverlayInternal::create()
 
 #ifdef USE_CUOSD
 #if !defined(AARCH64_PLATFORM)
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         g_object_set (G_OBJECT (m_nvosd), "enable-cpu-mode" , true, nullptr);
     }
     else
     {
-        g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , g_gpuIndex, nullptr);
+        g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , getGpuIndex(), nullptr);
     }
 #else
-    g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , g_gpuIndex, nullptr);
+    g_object_set (G_OBJECT (m_nvosd), "gpu-id"   , getGpuIndex(), nullptr);
 #endif
     if (!gst_element_link (m_nvosd, m_filter))
     {
@@ -4643,7 +4643,7 @@ GstElement* NvLLOverlayInternal::create()
         source_pad = gst_element_get_static_pad (m_filter, "src");
     }
 #else
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         if (!gst_element_link_many (converter1, filter1, m_nvosd, nullptr))
         {
@@ -4691,7 +4691,7 @@ GstElement* NvLLOverlayInternal::create()
             return nullptr;
         }
 #else
-        if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+        if (GET_CONFIG().use_software_path || isGpuPresent() == false)
         {
             if (!gst_element_link (latency_queue, converter1))
             {
@@ -4715,7 +4715,7 @@ GstElement* NvLLOverlayInternal::create()
 #if defined(AARCH64_PLATFORM)
         sink_pad = gst_element_get_static_pad (m_nvosd, "sink");
 #else
-        if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+        if (GET_CONFIG().use_software_path || isGpuPresent() == false)
         {
             sink_pad = gst_element_get_static_pad (converter1, "sink");
         }
@@ -4743,7 +4743,7 @@ GstElement* NvLLOverlayInternal::create()
 #if defined(AARCH64_PLATFORM)
     caps_filter = gst_caps_from_string ("video/x-raw(memory:NVMM),format=NV12");
 #else
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         caps_filter = gst_caps_from_string ("video/x-raw,format=RGBA");
     }
@@ -4755,7 +4755,7 @@ GstElement* NvLLOverlayInternal::create()
     g_object_set (G_OBJECT (m_filter), "caps", caps_filter, nullptr);
     gst_caps_unref (caps_filter);
 #if !defined(AARCH64_PLATFORM)
-    if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
+    if (GET_CONFIG().use_software_path || isGpuPresent() == false)
     {
         GstCaps *caps_filter1  = nullptr;
         caps_filter1 = gst_caps_from_string ("video/x-raw,format=RGBA");

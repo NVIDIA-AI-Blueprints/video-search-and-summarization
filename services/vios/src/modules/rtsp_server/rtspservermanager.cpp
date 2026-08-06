@@ -677,7 +677,7 @@ VmsErrorCode RtspServerManager::handleProxyConfiguration(const Json::Value &req_
         response["webserviceAccessControlList"] = config.webservice_access_control_list;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
     }
     else

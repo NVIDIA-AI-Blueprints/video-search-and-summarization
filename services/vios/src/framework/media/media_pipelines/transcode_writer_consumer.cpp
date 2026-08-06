@@ -83,7 +83,7 @@ static GstPadProbeReturn decoder_src_pad_cb(GstPad *pad, GstPadProbeInfo *info, 
 {
     DecoderProbeCtx* ctx = (DecoderProbeCtx*)user_data;
     int64_t start_time = 0;
-    bool sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
     if (ctx)
     {
         start_time = ctx->seek_start_ms + FIXED_TS_OFFSET/1000000;
@@ -1103,7 +1103,7 @@ bool TranscodeWriterConsumer::waitForCompletion(int64_t timeout_secs)
                     if (NvHwDetection::getInstance()->m_useNvV4l2Dec || NvHwDetection::getInstance()->m_useNvV4l2Enc)
                     {
                         detectGPU();
-                        if (!g_isGpuPresent)
+                        if (!isGpuPresent())
                         {
                             LOG(error) << mLogPrefix << "---#--- /dev/nvidia node not present, Non-recoverable error ---#---" << endl;
                             std::exit(EXIT_GPU_NOT_FOUND);

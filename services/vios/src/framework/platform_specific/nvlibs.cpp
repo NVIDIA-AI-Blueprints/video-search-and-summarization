@@ -96,11 +96,11 @@ bool NvLibs::isV4l2EncPresent()
         struct v4l2_capability encoder_caps;
         int fd = -1;
 
-        if (g_gpuNodePath.empty())
+        if (getGpuNodePath().empty())
         {
             return false;
         }
-        fd = v4l2_open(g_gpuNodePath.c_str(), O_RDWR);
+        fd = v4l2_open(getGpuNodePath().c_str(), O_RDWR);
         if (fd == -1)
         {
             LOG(error) << "Could not open device ENCODER DEV" << endl;
@@ -188,11 +188,11 @@ bool NvLibs::isV4l2DecPresent()
         struct v4l2_ext_control control;
         struct v4l2_ext_controls ctrls;
 
-        if (g_gpuNodePath.empty())
+        if (getGpuNodePath().empty())
         {
             return false;
         }
-        fd = v4l2_open(g_gpuNodePath.c_str(), O_RDWR);
+        fd = v4l2_open(getGpuNodePath().c_str(), O_RDWR);
         if (fd == -1)
         {
             LOG(error) << "Could not open device DECODER DEV" << endl;

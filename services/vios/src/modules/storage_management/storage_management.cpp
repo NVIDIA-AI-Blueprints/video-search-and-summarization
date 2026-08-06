@@ -1281,7 +1281,7 @@ VmsErrorCode StorageManagement::getStorageConfiguration(const Json::Value & req_
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
         response["useMultiUser"] = config.use_multi_user;
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["recordedVideoDirRoot"] = GET_CONFIG().recorded_video_root;
         response["enableAgingPolicy"] = GET_CONFIG().enable_aging_policy;
         response["totalVideoStorageSizeMB"] = (uint32_t)GET_CONFIG().total_video_storage_size_MB;

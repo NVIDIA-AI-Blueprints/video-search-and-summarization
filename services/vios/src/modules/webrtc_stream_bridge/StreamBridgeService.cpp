@@ -487,7 +487,7 @@ VmsErrorCode StreamBridgeService::handleStreambridgeConfiguration(const Json::Va
         response["enableGstDebugProbes"] = config.enable_gst_debug_probes;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
         response["enableNetworkBandwidthNotification"] = config.enable_network_bandwidth_notification;
         response["enableLatencyLogging"] = config.enable_latency_logging;

@@ -522,7 +522,7 @@ NvLLOverlay::~NvLLOverlay ()
 {
     LOG(info) << "Entry " << __METHOD_NAME__ <<  endl;
     FD_Index_Pair fd_index_pair = {-1, -1};
-    bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
     // Stop the overlay properly
     m_stop = true;
@@ -652,7 +652,7 @@ void NvLLOverlay::doDrawTask()
         int64_t pts = 0;
         bool is_drc = false;
         void *data_ptr = nullptr;
-        bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+        bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
         {
             std::unique_lock<std::mutex> lk(m_queueLock);

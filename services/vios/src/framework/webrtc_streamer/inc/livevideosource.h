@@ -50,12 +50,12 @@
 #include "media/video_source/processors/transforms/ll_transform.h"
 #include "media/video_source/senders/webrtc_sink_consumer.h"
 
-#define H265_NAL_IDR_RADL     19
-#define H265_NAL_IDR_LP       20
-#define H265_NAL_VPS          32
-#define H265_NAL_SPS          33
-#define H265_NAL_PPS          34
-#define H265_NAL_PREFIX_SEI   39
+inline constexpr int H265_NAL_IDR_RADL   = 19;
+inline constexpr int H265_NAL_IDR_LP     = 20;
+inline constexpr int H265_NAL_VPS        = 32;
+inline constexpr int H265_NAL_SPS        = 33;
+inline constexpr int H265_NAL_PPS        = 34;
+inline constexpr int H265_NAL_PREFIX_SEI = 39;
 
 template <typename T>
 class VideoSource : public T::Callback

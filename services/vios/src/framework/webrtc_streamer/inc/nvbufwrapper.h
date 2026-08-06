@@ -219,7 +219,7 @@ class NvBufWrapper
                 NvBufSurface *sw_surf    = sw_surf_holder.get();
                 sw_surf->surfaceList     = sw_surf_list_holder.get();
 
-                sw_surf->gpuId                                   = g_gpuIndex;
+                sw_surf->gpuId                                   = getGpuIndex();
                 sw_surf->batchSize                               = 1;
                 sw_surf->numFilled                               = 1;
                 sw_surf->memType                                 = NVBUF_MEM_SYSTEM;
@@ -263,7 +263,7 @@ class NvBufWrapper
                 input_params.params.height      = sourceHeight;
                 input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                 input_params.params.colorFormat = NVBUF_COLOR_FORMAT_YUV420;
-                if (isJetsonPlatform() && g_useCudaDeviceMemory)
+                if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                 {
                     LOG(info) << "Using CUDA Device memory" << endl;
                     input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -302,7 +302,7 @@ class NvBufWrapper
                     input_params.params.height      = height;
                     input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                     input_params.params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-                    if (isJetsonPlatform() && g_useCudaDeviceMemory)
+                    if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                     {
                         LOG(info) << "Using CUDA Device memory" << endl;
                         input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -340,7 +340,7 @@ class NvBufWrapper
                     }
                 }
                 NvBufSurfTransformConfigParams config_params;
-                config_params.gpu_id       = g_gpuIndex;
+                config_params.gpu_id       = getGpuIndex();
                 config_params.compute_mode = NvBufSurfTransformCompute_Default;
                 config_params.cuda_stream  = nullptr;
                 NvBufSurfTransformSetSessionParams (&config_params);
@@ -422,7 +422,7 @@ class NvBufWrapper
             {
                 NvBufSurface *ip_surf = nullptr;
                 NvBufSurfTransformConfigParams config_params;
-                config_params.gpu_id       = g_gpuIndex;
+                config_params.gpu_id       = getGpuIndex();
                 config_params.compute_mode = NvBufSurfTransformCompute_Default;
                 config_params.cuda_stream  = nullptr;
                 /* TODO add this API after CUDA libs and headers are added */
@@ -447,7 +447,7 @@ class NvBufWrapper
                     {
                         buf_params.width       = targetWidth;
                         buf_params.height      = targetHeight;
-                        if (isJetsonPlatform() && g_useCudaDeviceMemory)
+                        if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                         {
                             LOG(info) << "Using CUDA Device memory" << endl;
                             buf_params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -458,7 +458,7 @@ class NvBufWrapper
                             buf_params.memType     = NVBUF_MEM_DEFAULT;
                         }
                         buf_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-                        buf_params.gpuId       = g_gpuIndex;
+                        buf_params.gpuId       = getGpuIndex();
                         int status = NvBufSurfaceCreate(&op_surf, 1, &buf_params);
                         if (status < 0)
                         {
@@ -766,7 +766,7 @@ class NvBufWrapper
             buf_params.height      = target_h;
             buf_params.memType     = NVBUF_MEM_SYSTEM;
             buf_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-            buf_params.gpuId       = g_gpuIndex;
+            buf_params.gpuId       = getGpuIndex();
             int blk_surface_fd = -1;
             int status = NvBufWrapper::getInstance()->createSurface(&blk_surface, 1, &buf_params);
             if (status < 0)
@@ -1262,7 +1262,7 @@ class NvBufWrapper
             int height = buffer->height();
             int pitch = buffer->StrideY();
 
-            sw_surf->gpuId                                   = g_gpuIndex;
+            sw_surf->gpuId                                   = getGpuIndex();
             sw_surf->batchSize                               = 1;
             sw_surf->numFilled                               = 1;
             sw_surf->memType                                 = NVBUF_MEM_SYSTEM;

@@ -23,8 +23,6 @@
 #include <jsoncpp/json/json.h>
 #include "logger.h"
 
-using namespace std;
-
 struct LatencyStats
 {
      LatencyStats() : m_totalFrames(0)

@@ -530,7 +530,7 @@ gboolean busWatch (GstBus *bus, GstMessage *message, gpointer decoder_data)
                     if (NvHwDetection::getInstance()->m_useNvV4l2Dec)
                     {
                         detectGPU();
-                        if (!g_isGpuPresent)
+                        if (!isGpuPresent())
                         {
                             LOG(error) << "---#--- /dev/nvidia node not present, Non-recoverable error ---#---" << endl;
                             std::exit(EXIT_GPU_NOT_FOUND);
@@ -1822,7 +1822,7 @@ GstNvVideoDecoder::GstNvVideoDecoder (const std::string& consumer_name, const st
     }
 
     m_state = GST_STATE_NULL;
-    m_gpuExist = g_isGpuPresent;
+    m_gpuExist = isGpuPresent();
     setOptions(opts);
     if (m_recordedPlayback && m_debug_logging_vod && !m_peerid.empty())
     {

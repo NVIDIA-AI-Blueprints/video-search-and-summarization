@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,8 +26,6 @@
 #include "sensor_discovery_adaptor.h"
 #include "vms_media_interface.h"
 
-using namespace std;
-
 namespace nv_vms {
 
 class AdaptorLoader
@@ -37,12 +35,12 @@ public:
     ~AdaptorLoader();
     std::shared_ptr<DeviceManager> loadAdaptor(ModuleId module_id = ModuleAll);
 private:
-    int loadControlAdaptorLibrary(const string& path, ISensorControlInterface** object, void** delObject);
-    int loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscoveryInterface** object, void** delObject);
-    int loadSensorControlAdaptorLibrary(const string& path, ISensorControlInterface** object, void** delObject);
+    int loadControlAdaptorLibrary(const std::string& path, ISensorControlInterface** object, void** delObject);
+    int loadDiscoveryAdaptorLibrary(const std::string& path, ISensorDiscoveryInterface** object, void** delObject);
+    int loadSensorControlAdaptorLibrary(const std::string& path, ISensorControlInterface** object, void** delObject);
 private:
-    vector <destroyControlObject_t> m_adaptorDistructorList;
-    vector <void*> m_libs;
+    std::vector <destroyControlObject_t> m_adaptorDistructorList;
+    std::vector <void*> m_libs;
 };
 
 } //nv_vms

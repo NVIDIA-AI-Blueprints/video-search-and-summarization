@@ -41,7 +41,9 @@
 #include <sys/stat.h>
 #include <cctype>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <mutex>
 #include <sstream>
 #include <arpa/inet.h>
 #include <random>
@@ -80,12 +82,112 @@ constexpr int MAX_QUERY_PARAM_VALUE_LENGTH = 4096;
 constexpr int MAX_QUERY_PARAM_VALUES_PER_KEY = 10;
 constexpr const char* GPU_DEV = "/dev/nvidia0";
 
-uint32_t g_init_avaiable_memory;
-bool g_isGpuPresent = false;
-int g_gpuIndex = 0;
-string g_gpuNodePath;
-string g_hostIp;
-bool g_useCudaDeviceMemory = false;
+namespace
+{
+std::atomic<int>& gpuIndexValue()
+{
+    static std::atomic<int> gpuIndex{0};
+    return gpuIndex;
+}
+
+std::string& gpuNodePathValue()
+{
+    static std::string gpuNodePath;
+    return gpuNodePath;
+}
+
+std::string& hostIpValue()
+{
+    static std::string hostIp;
+    return hostIp;
+}
+
+std::mutex& hostIpMutex()
+{
+    static std::mutex hostIpLock;
+    return hostIpLock;
+}
+
+std::atomic<bool>& cudaDeviceMemoryFlag()
+{
+    static std::atomic<bool> useCudaDeviceMemoryFlag{false};
+    return useCudaDeviceMemoryFlag;
+}
+
+std::atomic<uint32_t>& initAvailableMemory()
+{
+    static std::atomic<uint32_t> initAvailableMemoryValue{0};
+    return initAvailableMemoryValue;
+}
+
+std::atomic<bool>& gpuPresentFlag()
+{
+    static std::atomic<bool> isGpuPresentFlag{false};
+    return isGpuPresentFlag;
+}
+}
+
+int getGpuIndex()
+{
+    return gpuIndexValue().load();
+}
+
+void setGpuIndex(int index)
+{
+    gpuIndexValue().store(index);
+}
+
+const string& getGpuNodePath()
+{
+    return gpuNodePathValue();
+}
+
+void setGpuNodePath(const string& path)
+{
+    gpuNodePathValue() = path;
+}
+
+uint32_t getInitAvailableMemory()
+{
+    return initAvailableMemory().load();
+}
+
+void setInitAvailableMemory(uint32_t memory)
+{
+    initAvailableMemory().store(memory);
+}
+
+bool isGpuPresent()
+{
+    return gpuPresentFlag().load();
+}
+
+void setGpuPresent(bool present)
+{
+    gpuPresentFlag().store(present);
+}
+
+bool isCudaDeviceMemoryEnabled()
+{
+    return cudaDeviceMemoryFlag().load();
+}
+
+void setCudaDeviceMemoryEnabled(bool enabled)
+{
+    cudaDeviceMemoryFlag().store(enabled);
+}
+
+string getHostIpAddress()
+{
+    std::lock_guard<std::mutex> lock(hostIpMutex());
+    return hostIpValue();
+}
+
+void setHostIpAddress(const string& hostIp)
+{
+    std::lock_guard<std::mutex> lock(hostIpMutex());
+    hostIpValue() = hostIp;
+}
 
 static const std::string base64_chars =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -732,10 +834,18 @@ std::string timeStampToHReadble(const time_t rawtime)
     return oss.str();
 }
 
-static std::mutex g_getTimeLock;
+namespace
+{
+std::mutex& getTimeLock()
+{
+    static std::mutex timeLock;
+    return timeLock;
+}
+}
+
 const std::string getCurrentTime()
 {
-    std::lock_guard<std::mutex> devicesLock(g_getTimeLock);
+    std::lock_guard<std::mutex> devicesLock(getTimeLock());
     time_t     now = time(nullptr);
     struct tm  tstruct;
     if (localtime_r(&now, &tstruct) == nullptr)
@@ -776,7 +886,7 @@ const std::string getOffsetUtcTime(int milliseconds)
 const string getCurrentTimeMS()
 {
     string t;
-    std::lock_guard<std::mutex> devicesLock(g_getTimeLock);
+    std::lock_guard<std::mutex> devicesLock(getTimeLock());
     auto now = std::chrono::system_clock::now();
     auto seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
     auto fraction = now - seconds;
@@ -2081,8 +2191,9 @@ Json::Value getSystemStats()
 
     /* Get - Total system memory usage  */
     uint32_t current_available_memory = getAvailableMemory();
-    value["system_memory_usage_MB"] = g_init_avaiable_memory > current_available_memory ?
-                            g_init_avaiable_memory - current_available_memory : 0;
+    uint32_t init_available_memory = getInitAvailableMemory();
+    value["system_memory_usage_MB"] = init_available_memory > current_available_memory ?
+                            init_available_memory - current_available_memory : 0;
 
 
     if (isJetsonPlatform())
@@ -2678,9 +2789,9 @@ void removeWhiteSpaces(string& str)
 
 void detectGPU()
 {
-    g_isGpuPresent = false;
+    setGpuPresent(false);
 #ifdef AARCH64_PLATFORM
-    // g_useCudaDeviceMemory selects CUDA-device buffer memory (NVBUF_MEM_CUDA_DEVICE) and is
+    // isCudaDeviceMemoryEnabled() selects CUDA-device buffer memory (NVBUF_MEM_CUDA_DEVICE) and is
     // meant only for the rare Jetson-with-discrete-GPU configuration. On Orin the
     // INTEGRATED GPU exposes /dev/nvidia0, so the legacy isJetsonGpuPresent() probe
     // (access("/dev/nvidia0")) misfires and would force CUDA-device memory — which is
@@ -2690,11 +2801,11 @@ void detectGPU()
     // discrete GPU alongside the iGPU (i.e. NOT the integrated one detected as Jetson).
     if (isJetsonPlatform())
     {
-        g_useCudaDeviceMemory = false;
+        setCudaDeviceMemoryEnabled(false);
     }
     else
     {
-        g_useCudaDeviceMemory = isJetsonGpuPresent();
+        setCudaDeviceMemoryEnabled(isJetsonGpuPresent());
     }
 #endif
     for (int gpuIndex = 0 ; gpuIndex < MAX_GPU_COUNT; gpuIndex++)
@@ -2702,12 +2813,12 @@ void detectGPU()
         string nvidia_node = string("/dev/nvidia") + to_string(gpuIndex);
         if (isFileExist(nvidia_node))
         {
-            g_isGpuPresent = true;
-            g_gpuNodePath = nvidia_node;
+            setGpuPresent(true);
+            setGpuNodePath(nvidia_node);
             break;
         }
     }
-    if(g_isGpuPresent == false)
+    if(isGpuPresent() == false)
     {
         LOG(error) << "############## NO GPU IS DETECTED " << "##############" << endl;
     }
@@ -2715,10 +2826,10 @@ void detectGPU()
     {
         if (GET_CONFIG().gpu_indices.size() == 0)
         {
-            g_gpuIndex = 0;
+            setGpuIndex(0);
         }
-        LOG(info) << "############## GPU ID DETECTED = " << g_gpuIndex << " ##############" << endl;
-        LOG(info) << "############## GPU Device = " << g_gpuNodePath << " ##############" << endl;
+        LOG(info) << "############## GPU ID DETECTED = " << getGpuIndex() << " ##############" << endl;
+        LOG(info) << "############## GPU Device = " << getGpuNodePath() << " ##############" << endl;
     }
 }
 

@@ -1245,7 +1245,7 @@ bool GstTranscode::transcode (TranscodeParam params)
     if (m_useHwEncoder)
     {
         // nvv4l2 encoder settings
-        g_object_set(G_OBJECT(m_enc), "gpu-id", g_gpuIndex, NULL);
+        g_object_set(G_OBJECT(m_enc), "gpu-id", getGpuIndex(), NULL);
 
         if (params.m_allIframes)
         {

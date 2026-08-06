@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -189,7 +189,7 @@ WebServer::WebServer()
         LOG(info) << "OpenTelemetry tracing disabled by configuration" << std::endl;
     }
 
-    LOG(info) << "HTTP Listen at " << g_hostIp << ":" << config.http_port << std::endl;
+    LOG(info) << "HTTP Listen at " << getHostIpAddress() << ":" << config.http_port << std::endl;
 }
 
 

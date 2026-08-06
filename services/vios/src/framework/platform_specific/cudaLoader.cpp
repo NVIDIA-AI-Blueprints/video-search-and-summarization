@@ -86,7 +86,7 @@ CudaLoader::CudaLoader()
     }
     if (!m_handleCuda || !m_handleCudart)
     {
-        if (g_isGpuPresent)
+        if (isGpuPresent())
         {
             LOG(error) << "Error loading the CUDA libraries (libcuda: "
                        << (m_handleCuda ? "ok" : "missing") << ", libcudart: "

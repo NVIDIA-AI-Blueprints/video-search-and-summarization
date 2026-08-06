@@ -3059,7 +3059,7 @@ const pair<string, int> PeerConnectionManager::getAvailableSeatFromRP(const stri
         }
         else
         {
-            node_ip = g_hostIp;
+            node_ip = getHostIpAddress();
         }
     }
 

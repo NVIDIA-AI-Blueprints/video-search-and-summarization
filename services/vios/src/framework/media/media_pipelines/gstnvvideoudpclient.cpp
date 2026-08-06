@@ -32,24 +32,20 @@
 using namespace std;
 using namespace nv_vms;
 
-#define DECODER_EXTRA_SURFACES 6
-#define CUDA_DEC_MEM_TYPE_DEVICE 0
+[[maybe_unused]] constexpr gint DECODER_EXTRA_SURFACES   = 6;
+[[maybe_unused]] constexpr gint CUDA_DEC_MEM_TYPE_DEVICE = 0;
 
 const string UdpClient::UDP_AUDIO_TYPE = "audio";
 const string UdpClient::UDP_VIDEO_TYPE = "video";
 const string UdpClient::UDP_VIDEO_AUDIO_TYPE = "video_audio";
 const string UdpClient::UDP_UNKNOWN_TYPE = "unknown";
 
-#define NV_V4L2_DECODER        "nvv4l2decoder"
-#define SW_DECODER             "avdec_h264"
-#define DECODER_NODE           "/dev/nvidia0"
-#define NV_VID_CONV            "nvvidconv"
-#define NV_VID_CONVERT         "nvvideoconvert"
-#define VID_CONVERT            "videoconvert"
+[[maybe_unused]] constexpr const char* SW_DECODER = "avdec_h264";
+[[maybe_unused]] constexpr const char* VID_CONVERT = "videoconvert";
 
-#define GST_DEBUG_DECODER_PROBE_COUNT 10
-#define GST_DEBUG_UDPSRC_PROBE_COUNT 1500
-#define VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL  10s
+constexpr unsigned GST_DEBUG_DECODER_PROBE_COUNT = 10;
+constexpr unsigned GST_DEBUG_UDPSRC_PROBE_COUNT = 1500;
+constexpr auto VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL = 10s;
 
 namespace nv_vms
 {
@@ -997,7 +993,7 @@ int GstUDPVideoClient::create_internal ()
     if (use_video_convert)
     {
         m_videoConverter = gst_element_factory_make ("nvvideoconvert", nullptr);
-        g_object_set (G_OBJECT (m_videoConverter), "gpu-id", g_gpuIndex, nullptr);
+        g_object_set (G_OBJECT (m_videoConverter), "gpu-id", getGpuIndex(), nullptr);
         m_convCapsFilter    = gst_element_factory_make ("capsfilter", nullptr);
         if (!m_videoConverter || !m_convCapsFilter)
         {

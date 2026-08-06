@@ -36,7 +36,6 @@
 #include "media_producer.h"
 
 using namespace std;
-using namespace nv_vms;
 
 namespace nv_vms
 {

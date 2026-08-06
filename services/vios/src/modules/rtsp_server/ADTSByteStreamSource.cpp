@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,7 +23,7 @@
 #include "AvLoopSyncCoordinator.h"
 
 #define ADTS_HEADER_SIZE 7
-#define DATA_ARRIVAL_TIMEOUT_USEC 30*1000*1000
+constexpr int DATA_ARRIVAL_TIMEOUT_USEC = 30*1000*1000;
 
 ADTSByteStreamSource
 ::ADTSByteStreamSource(UsageEnvironment& env, const string& streamName,

@@ -42,8 +42,8 @@ using namespace std;
 constexpr int ADDON_FRAMES = 30;
 constexpr int MAX_END_ADDON_TIME_SEC = 5;
 
-unsigned fileSinkBufferSize = 400000;
-unsigned int fileOutputInterval = 20;
+constexpr unsigned fileSinkBufferSize = 400000;
+constexpr unsigned int fileOutputInterval = 20;
 
 RTSPConnection::RTSPConnection(Environment& env, Callback* callback, const char* rtspURL, int timeout, int rtptransport, int verbosityLevel) 
 				: m_startCallbackTask(nullptr)

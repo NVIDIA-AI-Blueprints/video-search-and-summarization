@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -206,7 +206,7 @@ Json::Value VmsConfigManager::getWebrtcVideoQualityValues(const uint32_t& height
 string VmsConfigManager::getWebServerUrl()
 {
     string domain_name = m_vmsConfig.server_domain_name.empty() == false ?
-                            m_vmsConfig.server_domain_name : g_hostIp;
+                            m_vmsConfig.server_domain_name : getHostIpAddress();
     string url = string("http://") + domain_name + string(":") + m_vmsConfig.http_port + string("/");
     return url;
 }
@@ -530,7 +530,7 @@ VmsConfigManager::VmsConfigManager()
         else
         {
             // If ingress endpoint is not set, use the default ingress endpoint locahhost:30888/vst
-            m_vmsConfig.ingress_endpoint =  string(g_hostIp) + ":" + string(DEFAULT_INGRESS_ENDPOINT);
+            m_vmsConfig.ingress_endpoint =  getHostIpAddress() + ":" + string(DEFAULT_INGRESS_ENDPOINT);
         }
 
         m_vmsConfig.use_webrtc_hw_dec = data.get("use_webrtc_hw_dec", false).asBool();
@@ -719,7 +719,7 @@ VmsConfigManager::VmsConfigManager()
     }
     if (m_vmsConfig.gpu_indices.size() > 0)
     {
-        g_gpuIndex = m_vmsConfig.gpu_indices[0];  // Currenlty only first gpu index is supported
+        setGpuIndex(m_vmsConfig.gpu_indices[0]);  // Currenlty only first gpu index is supported
     }
 
     // message_broker config now lives in the dedicated notification_config.json.
@@ -817,7 +817,7 @@ VmsConfigManager::VmsConfigManager()
     if (m_vmsConfig.analytic_server_address.empty())
     {
         string protocol = DEFAULT_ANALYTIC_PROTOCOL;
-        string hostIp = g_hostIp;
+        string hostIp = getHostIpAddress();
         string analyticsPort = DEFAULT_ANALYTIC_PORT;
         string analyticsEndPoint = DEFAULT_ANALYTIC_ENDPOINT;
         m_vmsConfig.analytic_server_address = protocol + "://" + hostIp + ":" + analyticsPort + "/" + analyticsEndPoint;

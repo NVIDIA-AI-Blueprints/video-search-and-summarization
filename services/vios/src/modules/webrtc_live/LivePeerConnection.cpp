@@ -24,6 +24,9 @@
 #include "health_probes.h"
 #include <filesystem>
 
+using namespace std;
+using namespace nv_vms;
+
 #define LIVE_API "/api/v1/live/stream/*"
 
 extern "C" void* createPeerConnectionLiveManagerObject()
@@ -664,7 +667,7 @@ VmsErrorCode LivePeerConnection::handleLiveConfiguration(const Json::Value &req_
         response["enableGstDebugProbes"] = config.enable_gst_debug_probes;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
         response["enableDecLowLatencyMode"] = config.enable_dec_low_latency_mode;
         response["analyticServerAddress"] = config.analytic_server_address;

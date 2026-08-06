@@ -158,7 +158,7 @@ void PeerConnectionObserver::OnIceCandidate(const webrtc::IceCandidateInterface 
                 }
                 else
                 {
-                    node_ip = g_hostIp;
+                    node_ip = getHostIpAddress();
                 }
 
                 string local_ip = candidate->candidate().address().ipaddr().ToString();
