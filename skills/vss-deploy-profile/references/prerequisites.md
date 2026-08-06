@@ -368,7 +368,7 @@ Required minimum: **`4.10.0+`**. Use the `ngc` skill to check NGC CLI and API ke
 
 ## Canonical version matrix
 
-Single source of truth for **every** dependency the deploy assumes. Sourced from the [VSS prerequisites page](https://docs.nvidia.com/vss/latest/prerequisites.html); update this table when the upstream blueprint docs change.
+Single source of truth for **every** dependency the deploy assumes. Sourced from the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html); update this table when the upstream blueprint docs change.
 
 | Component | Required version | Notes |
 |---|---|---|
