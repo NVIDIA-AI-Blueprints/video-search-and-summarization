@@ -33,6 +33,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import subprocess
@@ -3397,6 +3398,26 @@ async def _run_local_transfer_command(
 _registered_nodes_cache: dict[str, dict] | None = None
 
 
+def _configured_registered_nodes() -> set[str]:
+    """Return operator-approved registered nodes that use direct SSH.
+
+    The coordinator provisions persistent aliases for these names.  Brev API
+    discovery is therefore optional metadata: the environment validates the
+    actual SSH connection and live hardware before starting a task.
+    """
+    raw = " ".join(
+        (
+            os.environ.get("BREV_REGISTERED_POOL", ""),
+            os.environ.get("BREV_RTX4090_POOL", ""),
+        )
+    )
+    return {
+        value.lower()
+        for value in re.split(r"[\s,]+", raw.strip())
+        if value
+    }
+
+
 async def _load_registered_nodes() -> dict[str, dict]:
     """Return {lower_name: node_dict} from `brev ls nodes --json`.
     Cached per-process.  Safe to call on any host that has the brev CLI."""
@@ -3429,6 +3450,8 @@ async def _is_registered_node(name: str) -> bool:
     """True if *name* matches a registered external node (case-insensitive)."""
     if not name:
         return False
+    if name.lower() in _configured_registered_nodes():
+        return True
     cache = await _load_registered_nodes()
     return name.lower() in cache
 
@@ -3780,6 +3803,21 @@ async def _find_brev_instance(name: str) -> dict | None:
     Retries a few times — `brev ls` sometimes hits transient RPC
     deadline-exceeded errors and returns empty stdout.
     """
+    # Registered pool members have persistent coordinator SSH aliases and are
+    # explicitly operator-approved.  Resolve them before calling the Brev API
+    # so an expired refresh token does not prevent direct SSH transport.  The
+    # subsequent live resource/readiness checks remain authoritative.
+    if name.lower() in _configured_registered_nodes():
+        return {
+            "name": name,
+            "type": "registered",
+            "gpu": "",
+            "instance_type": "registered-external-node",
+            "status": "CONNECTED",
+            "_registered": True,
+            "_inventory_fallback": True,
+        }
+
     for attempt in range(4):
         result = await _run_brev("ls", "--json", timeout=30)
         raw = result.stdout or ""

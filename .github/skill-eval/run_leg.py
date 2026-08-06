@@ -599,17 +599,50 @@ def _registered_pool_allowlist(
     return names
 
 
+def _synthetic_registered_instance(name: str) -> dict:
+    """Build the fail-closed record for an operator-approved SSH worker.
+
+    Registered workers are connected through persistent SSH aliases on the
+    coordinator.  Their Brev API inventory is useful health metadata, but it
+    is not required for transport: reachability, GPU count, and disk capacity
+    are all checked live over SSH before a worker is selected.  Keeping this
+    record narrowly tied to ``BREV_REGISTERED_POOL`` prevents an expired Brev
+    refresh token from taking the already-provisioned SSH fleet offline.
+    """
+    return {
+        "name": name,
+        "status": "RUNNING",
+        "gpu": _registered_gpu_hint(name),
+        "instance_type": "registered-external-node",
+        "_registered": True,
+        "_inventory_fallback": True,
+    }
+
+
 def _list_pool_instances(
     required_gpu_type: str | None = None,
 ) -> list[dict]:
     """Return managed instances plus connected registered pool nodes."""
-    instances = list(_list_brev_instances())
+    registered_allowlist = _registered_pool_allowlist(required_gpu_type)
+    try:
+        instances = list(_list_brev_instances())
+    except BrevAuthenticationError:
+        if not registered_allowlist:
+            raise
+        # The registered pool uses direct SSH.  Continue with only the
+        # explicit operator allowlist and let the normal live reachability and
+        # resource probes reject stale/disconnected aliases.
+        print(
+            "[run-leg] Brev API authentication unavailable; using the "
+            "operator-approved registered SSH pool",
+            flush=True,
+        )
+        instances = []
     for instance in instances:
         name = (instance.get("name") or "").strip().lower()
         if name:
             _WORKER_TRANSPORTS[name] = "brev"
     seen = {(inst.get("name") or "").lower() for inst in instances}
-    registered_allowlist = _registered_pool_allowlist(required_gpu_type)
     if not registered_allowlist:
         print(
             "[run-leg] worker inventory: "
@@ -619,13 +652,41 @@ def _list_pool_instances(
             flush=True,
         )
         return instances
-    registered_nodes = _list_registered_nodes()
+    inventory_fallback = False
+    try:
+        registered_nodes = _list_registered_nodes()
+    except BrevAuthenticationError:
+        # Authentication may expire while the process is between the managed
+        # and registered inventory calls.  Synthesize only explicitly
+        # approved names; no arbitrary SSH host is admitted.
+        registered_nodes = [
+            _synthetic_registered_instance(name)
+            for name in sorted(registered_allowlist)
+        ]
+        inventory_fallback = True
+    # Inventory helpers intentionally collapse exhausted RPC timeouts and
+    # malformed/empty output to ``[]``.  The allowlist is the operator-owned
+    # transport contract, so add any missing names provisionally even when no
+    # exception was available to classify.  Selection still requires live SSH,
+    # remote-lock, GPU, and disk probes; a stale alias cannot run a task.
+    discovered_names = {
+        str(node.get("name") or "").strip().lower()
+        for node in registered_nodes
+        if node.get("name")
+    }
+    missing_allowlisted = registered_allowlist - discovered_names
+    if missing_allowlisted:
+        registered_nodes.extend(
+            _synthetic_registered_instance(name)
+            for name in sorted(missing_allowlisted)
+        )
+        inventory_fallback = True
     registered_connected = 0
     registered_merged = 0
     for node in registered_nodes:
         name = (node.get("name") or "").strip()
         status = (node.get("status") or "").upper()
-        if status == "CONNECTED":
+        if status == "CONNECTED" or node.get("_inventory_fallback"):
             registered_connected += 1
         if (
             not name
@@ -633,15 +694,24 @@ def _list_pool_instances(
             or name.lower() not in registered_allowlist
         ):
             continue
-        instances.append({
-            **node,
-            "name": name,
-            # Managed instances say RUNNING; registered nodes say Connected.
-            "status": "RUNNING" if status == "CONNECTED" else status,
-            "gpu": _registered_gpu_hint(name),
-            "instance_type": "registered-external-node",
-            "_registered": True,
-        })
+        instances.append(
+            {
+                **node,
+                "name": name,
+                # Managed instances say RUNNING; registered nodes say
+                # Connected.  API-independent fallback records are accepted
+                # provisionally and must still pass the live SSH/resource
+                # gates before selection.
+                "status": (
+                    "RUNNING"
+                    if status == "CONNECTED" or node.get("_inventory_fallback")
+                    else status
+                ),
+                "gpu": _registered_gpu_hint(name),
+                "instance_type": "registered-external-node",
+                "_registered": True,
+            }
+        )
         _WORKER_TRANSPORTS[name.lower()] = "ssh"
         seen.add(name.lower())
         registered_merged += 1
@@ -651,7 +721,8 @@ def _list_pool_instances(
         f"registered_allowlist={len(registered_allowlist)} "
         f"registered_discovered={len(registered_nodes)} "
         f"registered_connected={registered_connected} "
-        f"registered_merged={registered_merged}",
+        f"registered_merged={registered_merged} "
+        f"inventory_fallback={str(inventory_fallback).lower()}",
         flush=True,
     )
     return instances
@@ -733,6 +804,13 @@ def _worker_uses_ssh(instance: str) -> bool:
     cached = _WORKER_TRANSPORTS.get(key)
     if cached is not None:
         return cached == "ssh"
+
+    # The allowlist is an operator-owned transport contract.  Resolve it
+    # before querying Brev so an expired API login cannot redirect a
+    # registered worker through ``brev exec``.
+    if key in _registered_pool_allowlist(RTX4090_GPU_TYPE):
+        _WORKER_TRANSPORTS[key] = "ssh"
+        return True
 
     for managed in _list_brev_instances():
         name = (managed.get("name") or "").strip().lower()

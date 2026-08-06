@@ -118,6 +118,23 @@ class RegisteredNodeDetection(unittest.TestCase):
         self.assertFalse(asyncio.run(brev_env._is_registered_node("unknown")))
         self.assertFalse(asyncio.run(brev_env._is_registered_node("")))
 
+    def test_configured_pool_is_registered_without_api_inventory(self):
+        brev_env._registered_nodes_cache = None
+        with (
+            mock.patch.dict(
+                brev_env.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(brev_env, "_load_registered_nodes") as load,
+        ):
+            self.assertTrue(
+                asyncio.run(
+                    brev_env._is_registered_node("VSS-EVAL-RTX-2G-VM1B")
+                )
+            )
+        load.assert_not_called()
+
     def test_ssh_alias(self):
         self.assertEqual(brev_env._ssh_alias_for("SPARK"), "spark")
         self.assertEqual(brev_env._ssh_alias_for("H100-VLM"), "h100-vlm")
@@ -151,6 +168,24 @@ class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["type"], "registered")
         finally:
             brev_env._run_brev = original
+
+    async def test_configured_pool_resolves_without_brev_api(self):
+        with (
+            mock.patch.dict(
+                brev_env.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(brev_env, "_run_brev") as run_brev,
+        ):
+            result = await brev_env._find_brev_instance(
+                "VSS-EVAL-RTX-2G-VM1B"
+            )
+
+        run_brev.assert_not_called()
+        self.assertTrue(result["_registered"])
+        self.assertTrue(result["_inventory_fallback"])
+        self.assertEqual(result["status"], "CONNECTED")
 
     async def test_brev_instance_can_be_found_by_id(self):
         async def fake_run_brev(*args, **kw):
