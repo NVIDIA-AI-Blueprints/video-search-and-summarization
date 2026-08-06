@@ -10097,7 +10097,6 @@
                     "id",
                     "timeInterval",
                     "end",
-                    "locations",
                     "length",
                     "speedOverTime",
                     "sensor",
@@ -14894,6 +14893,9 @@
                                             "bbox": {
                                                 "$ref": "#/components/schemas/Bbox"
                                             },
+                                            "bbox3d": {
+                                                "$ref": "#/components/schemas/Bbox3d"
+                                            },
                                             "confidence": {
                                                 "type": "number",
                                                 "format": "float"
@@ -15013,14 +15015,22 @@
                                             }
                                         },
                                         "required": [
-                                            "bbox",
                                             "confidence",
                                             "type",
                                             "speed",
-                                            "id",
-                                            "embedding",
-                                            "location",
-                                            "coordinate"
+                                            "id"
+                                        ],
+                                        "anyOf": [
+                                            {
+                                                "required": [
+                                                    "bbox"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "bbox3d"
+                                                ]
+                                            }
                                         ]
                                     }
                                 },
@@ -15311,15 +15321,22 @@
                                             }
                                         },
                                         "required": [
-                                            "bbox",
-                                            "bbox3d",
                                             "confidence",
                                             "type",
                                             "speed",
-                                            "id",
-                                            "embedding",
-                                            "location",
-                                            "coordinate"
+                                            "id"
+                                        ],
+                                        "anyOf": [
+                                            {
+                                                "required": [
+                                                    "bbox"
+                                                ]
+                                            },
+                                            {
+                                                "required": [
+                                                    "bbox3d"
+                                                ]
+                                            }
                                         ]
                                     }
                                 },

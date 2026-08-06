@@ -60,6 +60,7 @@ import os
 import os.path
 import re
 import datetime
+import uuid
 from prometheus_client import Gauge, generate_latest
 import socket
 
@@ -781,6 +782,16 @@ app.logger.info(
     % (app.config["WDM_KAFKA_MSG_KEY"], app.config["WDM_REDIS_MSG_KEY"])
 )
 app.logger.info(app.config["WDM_WL_REDIS_SERVER"])
+
+_VALID_ASSIGNING_METHODS = ("lru_round_robin", "sequential")
+_assigning_method = app.config["WDM_WL_ASSIGNING_METHOD"]
+if _assigning_method not in _VALID_ASSIGNING_METHODS:
+    raise ValueError(
+        f"WDM_WL_ASSIGNING_METHOD='{_assigning_method}' is not valid. "
+        f"Choose one of: {_VALID_ASSIGNING_METHODS}"
+    )
+app.logger.info("WDM_WL_ASSIGNING_METHOD=%s", _assigning_method)
+
 kfk = kafka(app.config)
 lock = Lock()
 envy = envoyxDS(app.config)
@@ -801,6 +812,40 @@ if app.config["WDM_DISABLE_WERKZEUG_LOGGING"]:
 
 
 id_ctx_mapping = {}
+
+
+def _pod_ordinal(pod_name):
+    """Return a stable sort key for round-robin tie-breaking.
+
+    Returns a ``(numeric_ordinal, pod_name)`` tuple so that the round-robin
+    selection is deterministic regardless of pod naming convention:
+
+    * **Indexed pods** (e.g. ``my-app-3``): ``(3, "my-app-3")``.
+      The numeric ordinal is the primary discriminator, so the existing
+      0→1→2→3→4→0 cycle is preserved unchanged.
+
+    * **Non-indexed pods** (e.g. ``worker-alpha``): ``(0, "worker-alpha")``.
+      All such pods share ordinal 0, so they are sorted lexicographically by
+      name.  This produces an alphabetic round-robin
+      (alpha→beta→gamma→alpha→…) without requiring any global state.
+
+    Using only the integer (the old behaviour) caused all non-indexed pods to
+    compare equal, making ``min()`` fall through to iteration order — correct
+    only accidentally when the API returns pods in a stable sequence.
+    """
+    m = re.search(r"-(\d+)$", pod_name)
+    return (int(m.group(1)) if m else 0, pod_name)
+
+
+def _select_pod_from_candidates(candidates, assigning_method):
+    """Select one eligible-pod tuple according to the configured policy."""
+    if assigning_method == "sequential":
+        return candidates[0]
+    min_count = min(count for _, count, _ in candidates)
+    return min(
+        (entry for entry in candidates if entry[1] == min_count),
+        key=lambda entry: _pod_ordinal(entry[0]["podName"]),
+    )
 
 
 @app.route("/healthz", methods=["GET"])
@@ -1747,10 +1792,148 @@ def reprovisionStreamRedis(k8swlob_name, data, originalJson, parent_context):
     return
 
 
+def _renew_provision_lease_until_stopped(
+    stream_id, lease_owner, lease_ttl, stop_event, lease_lost_event=None
+):
+    """Renew the provision lease until stopped, or signal abort if ownership is lost.
+
+    ``lease_lost_event`` is set when renew is rejected (expired/stolen) or when
+    renew keeps raising past the lease TTL. Without the TTL guard, Redis errors
+    alone leave the worker unaware while another replica acquires the expired
+    lease and places the same stream.
+    """
+    interval = max(1.0, float(lease_ttl) / 3.0)
+    ttl = max(1.0, float(lease_ttl))
+    # Acquired just before this heartbeat started; Redis TTL advances even when
+    # renew calls raise and never reach EXPIRE.
+    lease_deadline = time.monotonic() + ttl
+
+    def _signal_lease_lost(reason):
+        app.logger.error(
+            "Lost provision lease while stream %s is still in flight (%s); "
+            "signaling add-stream worker to abort",
+            stream_id,
+            reason,
+        )
+        if lease_lost_event is not None:
+            lease_lost_event.set()
+
+    while not stop_event.wait(interval):
+        try:
+            if not cfg.renewProvisionLease(stream_id, lease_owner, lease_ttl):
+                _signal_lease_lost("renew rejected")
+                return
+            lease_deadline = time.monotonic() + ttl
+        except Exception:
+            app.logger.exception(
+                "Failed to renew provision lease for stream %s", stream_id
+            )
+            if time.monotonic() >= lease_deadline:
+                _signal_lease_lost("renew errors past lease TTL")
+                return
+
+
+def _finish_provision_lease(
+    stream_id, lease_owner, stop_event, heartbeat_thread
+):
+    stop_event.set()
+    heartbeat_thread.join(timeout=1.0)
+    try:
+        cfg.releaseProvisionLease(stream_id, lease_owner)
+    except Exception:
+        app.logger.exception(
+            "Failed to release provision lease for stream %s", stream_id
+        )
+
+
+def _abort_provision_after_lease_loss(
+    podInfoItm, config_data, wl_id,
+    do_workload_spec_in_thread_first=False, rollback_workload_spec=False,
+    added_on_pod=False,
+):
+    """Abort local commit after lease loss without clobbering a replacement attempt.
+
+    Pod delete and workload-spec rollback are scoped only by pod + stream ID, so
+    they must run only while this worker can re-acquire the provision lease. If a
+    replacement replica already holds the lease, its reservation/add for the same
+    stream must be left alone.
+    """
+    app.logger.error(
+        "Aborting provision for stream %s on pod %s after losing provision lease "
+        "(added_on_pod=%s)",
+        wl_id,
+        podInfoItm.get("podName"),
+        added_on_pod,
+    )
+    cleanup_ttl = max(
+        1, int(app.config.get("WDM_PROVISION_LEASE_SECONDS", 30))
+    )
+    cleanup_owner = str(uuid.uuid4())
+    owns_cleanup = False
+    try:
+        owns_cleanup = cfg.tryAcquireProvisionLease(
+            wl_id, cleanup_owner, cleanup_ttl
+        )
+    except Exception:
+        app.logger.exception(
+            "Failed to acquire cleanup lease for stream %s after lease loss",
+            wl_id,
+        )
+    if not owns_cleanup:
+        app.logger.warning(
+            "Skipping pod/workload-spec rollback for stream %s after lease loss; "
+            "another replica holds the provision lease",
+            wl_id,
+        )
+        return
+    try:
+        if added_on_pod:
+            try:
+                pc.delete(podInfo=podInfoItm, configData=config_data)
+            except Exception:
+                app.logger.exception(
+                    "Failed to undo pod add for stream %s after lease loss",
+                    wl_id,
+                )
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
+            try:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            except Exception:
+                app.logger.exception(
+                    "Failed to rollback workload spec for stream %s after "
+                    "lease loss",
+                    wl_id,
+                )
+        try:
+            redisMsging.message_err(
+                wlobject=wl_object_name,
+                podname=podInfoItm["podName"],
+                id=wl_id,
+                type="critical",
+                status="add_stream_failed",
+            )
+        except Exception:
+            app.logger.exception(
+                "Failed to publish add_stream_failed after lease loss for "
+                "stream %s",
+                wl_id,
+            )
+    finally:
+        try:
+            cfg.releaseProvisionLease(wl_id, cleanup_owner)
+        except Exception:
+            app.logger.exception(
+                "Failed to release cleanup lease for stream %s after lease loss",
+                wl_id,
+            )
+
+
 def _run_provision_add_stream_to_pod_tracked(
     key_holder, podInfoItm, data, originalJson, config_data, wl_id, camera_id,
     otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
+    rollback_workload_spec=False, lease_owner=None, lease_stop=None,
+    lease_heartbeat=None, lease_lost_event=None,
 ):
     """Thread target that runs _run_provision_add_stream_to_pod and removes self from provision_add_threads."""
     try:
@@ -1758,16 +1941,23 @@ def _run_provision_add_stream_to_pod_tracked(
             podInfoItm, data, originalJson, config_data, wl_id, camera_id,
             otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            workload_spec_reserved=workload_spec_reserved,
+            rollback_workload_spec=rollback_workload_spec,
+            lease_lost_event=lease_lost_event,
         )
     finally:
         with provision_add_threads_lock:
             provision_add_threads.pop(key_holder[0], None)
+        _finish_provision_lease(
+            wl_id, lease_owner, lease_stop, lease_heartbeat
+        )
 
 
 def _run_provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
+    rollback_workload_spec=False, lease_lost_event=None,
 ):
     """Run _provision_add_stream_to_pod; used as thread target so exceptions are logged."""
     try:
@@ -1775,9 +1965,12 @@ def _run_provision_add_stream_to_pod(
             podInfoItm, data, originalJson, config_data, wl_id, camera_id,
             otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            workload_spec_reserved=workload_spec_reserved,
+            rollback_workload_spec=rollback_workload_spec,
+            lease_lost_event=lease_lost_event,
         )
     except Exception:
-        if do_workload_spec_in_thread_first:
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
             try:
                 cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
             except Exception as e:
@@ -1841,51 +2034,105 @@ def _wait_provision_add_threads_empty(timeout=60):
 
 def _run_provision_add_stream(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
-    parent_context, k8swlob_name, event_obj_field, span_data
+    parent_context, k8swlob_name, event_obj_field, span_data,
+    workload_spec_reserved=False, rollback_workload_spec=False,
+    lease_owner=None, lease_ttl=120,
 ):
     """Run add-stream provision synchronously or in a background thread per WDM_PROVISION_ASYNC."""
+    lease_stop = Event()
+    lease_lost = Event()
+    lease_heartbeat = Thread(
+        target=_renew_provision_lease_until_stopped,
+        args=(wl_id, lease_owner, lease_ttl, lease_stop, lease_lost),
+        daemon=True,
+    )
+    try:
+        lease_heartbeat.start()
+    except Exception:
+        cfg.releaseProvisionLease(wl_id, lease_owner)
+        if rollback_workload_spec:
+            cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+        raise
     if app.config.get("WDM_PROVISION_ASYNC"):
-        # Do not call cfg.addWorkLoadSpec in main thread: redis_lock is non-reentrant and
-        # the main thread may already hold the lock from earlier cfg calls in provisionStreamRedis.
-        # The background thread will update workload spec first (before add RPC) so spec_count
-        # is updated as soon as the thread runs.
+        # New placement calls reserve before reaching this function. Keep the
+        # worker-side add for callers that have not already reserved a slot.
         key_holder = [None]
-        t = Thread(
-            target=_run_provision_add_stream_to_pod_tracked,
-            args=(
-                key_holder,
-                podInfoItm, data, originalJson, config_data, wl_id, camera_id,
-                otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-                True,  # do_workload_spec_in_thread_first (avoids main-thread lock)
-            ),
-            daemon=False,
-        )
+        try:
+            t = Thread(
+                target=_run_provision_add_stream_to_pod_tracked,
+                args=(
+                    key_holder,
+                    podInfoItm, data, originalJson, config_data, wl_id, camera_id,
+                    otel_carrier, parent_context, k8swlob_name,
+                    event_obj_field, span_data, not workload_spec_reserved,
+                    workload_spec_reserved, rollback_workload_spec, lease_owner,
+                    lease_stop, lease_heartbeat, lease_lost,
+                ),
+                daemon=False,
+            )
+        except Exception:
+            _finish_provision_lease(
+                wl_id, lease_owner, lease_stop, lease_heartbeat
+            )
+            if rollback_workload_spec:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            raise
         with provision_add_threads_lock:
             key_holder[0] = id(t)
             provision_add_threads[key_holder[0]] = t
-        t.start()
+        try:
+            t.start()
+        except Exception:
+            with provision_add_threads_lock:
+                provision_add_threads.pop(key_holder[0], None)
+            _finish_provision_lease(
+                wl_id, lease_owner, lease_stop, lease_heartbeat
+            )
+            if rollback_workload_spec:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            raise
         app.logger.info(
             "Provision add-stream running in background for wl_id=%s camera_id=%s",
             wl_id, camera_id,
         )
     else:
-        _provision_add_stream_to_pod(
-            podInfoItm, data, originalJson, config_data, wl_id, camera_id,
-            otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-            do_workload_spec_in_thread_first=False,
-        )
+        try:
+            _provision_add_stream_to_pod(
+                podInfoItm, data, originalJson, config_data, wl_id, camera_id,
+                otel_carrier, parent_context, k8swlob_name, event_obj_field,
+                span_data, do_workload_spec_in_thread_first=False,
+                workload_spec_reserved=workload_spec_reserved,
+                rollback_workload_spec=rollback_workload_spec,
+                lease_lost_event=lease_lost,
+            )
+        except Exception:
+            if rollback_workload_spec:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            raise
+        finally:
+            _finish_provision_lease(
+                wl_id, lease_owner, lease_stop, lease_heartbeat
+            )
 
 
 def _provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
+    rollback_workload_spec=False, lease_lost_event=None,
 ):
     """Perform add-stream RPC, update route mapping and workload spec, optionally call webhook."""
-    # When async: update workload spec first in this thread (before add RPC) so spec_count
-    # is correct and we avoid main-thread redis_lock re-acquire.
+    # Legacy callers that did not reserve before dispatch still add from the worker.
     if do_workload_spec_in_thread_first:
         cfg.addWorkLoadSpec(podInfoItm["podName"], data, originalJson)
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=False,
+        )
+        return
     otel_span, current_ctx = tracing.create_child_span(
         "add", wl_id, podInfoItm, span_data, parent_context, app.config
     )
@@ -1903,6 +2150,16 @@ def _provision_add_stream_to_pod(
     finally:
         otel_span.end()
 
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        # Add may have landed on the pod; undo before another replica re-places.
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=True,
+        )
+        return
+
     try:
         data["response"] = resp.json()
         originalJson[event_obj_field]["response"] = resp.json()
@@ -1918,7 +2175,7 @@ def _provision_add_stream_to_pod(
         and ((resp is not None and resp.status_code != 200) or resp is None)
     )
     if not update_mapping:
-        if do_workload_spec_in_thread_first:
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
             try:
                 cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
             except Exception as e:
@@ -1937,12 +2194,22 @@ def _provision_add_stream_to_pod(
         )
         return
 
+    # Final lease check before committing route mapping / capacity accounting.
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=True,
+        )
+        return
+
     app.logger.info("add operation success updating the Route mapping")
     curr_cluster.updateRouteMapping(
         k8swlob_name, wl_id, podInfoItm, operation="add"
     )
     notify_xds_update()
-    if not do_workload_spec_in_thread_first:
+    if not do_workload_spec_in_thread_first and not workload_spec_reserved:
         cfg.addWorkLoadSpec(podInfoItm["podName"], data, originalJson)
     if app.config["WDM_CALL_WL_WEBHOOK"]:
         try:
@@ -1967,6 +2234,7 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
     is_event = msg_type == "event_message"
     event_obj = originalJson[cfg_ev_obj] if is_event else data
     wl_id = data[cfg_key_id]
+    lease_ttl = max(1, int(app.config["WDM_PROVISION_LEASE_SECONDS"]))
 
     app.logger.info("Provision Stream Redis")
     obj = redisMsging.getIdPodMapping(wl_id)
@@ -1974,6 +2242,31 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
     if obj is not None and wobj is not None and len(wobj) > 0:
         app.logger.info("%s is already provisioned", wl_id)
         return
+    if obj is None and wobj:
+        cleanup_owner = str(uuid.uuid4())
+        if not cfg.tryAcquireProvisionLease(
+            wl_id, cleanup_owner, lease_ttl
+        ):
+            app.logger.info(
+                "%s has a provision lease owned by another SDRC replica; "
+                "deferring retry",
+                wl_id,
+            )
+            return False
+        try:
+            app.logger.warning(
+                "%s has workload-spec reservation(s) without a route mapping "
+                "and no active provision lease; removing orphaned capacity "
+                "before retry",
+                wl_id,
+            )
+            for orphan in wobj:
+                orphan_pod = orphan.get("pod_name")
+                if orphan_pod is not None:
+                    cfg.deleteFromWorkLoadSpec(orphan_pod, wl_id)
+        finally:
+            cfg.releaseProvisionLease(wl_id, cleanup_owner)
+        wobj = None
 
     ignore_regex = app.config["WDM_WL_NAME_IGNORE_REGEX"]
     name_ignore_pattern = None
@@ -2038,6 +2331,10 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
             if podsInfo is not None:
                 provisionNewPod = True
                 any_pod_down = False
+                # Phase 1: collect eligible pods (not down, not full, regex match).
+                # Orphan cleanup happens before this scan while holding the
+                # distributed provision lease.
+                eligible_pods = []  # (podInfoItm, spec_count, wl_spec)
                 for podInfoItm in podsInfo:
                     if curr_cluster.ifPodDown(podInfoItm["podName"]):
                         any_pod_down = True
@@ -2070,45 +2367,105 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                         podInfoItm["podName"],
                         wl_id,
                     )
-                    podMapping = redisMsging.getIdPodMapping(wl_id)
-                    podDnsMapping = redisMsging.getIdPodPodDnsMapping(
-                        podInfoItm["podName"]
-                    )
-                    if podDnsMapping is None or podMapping is None:
-                        cfg.deleteFromWorkLoadSpec(
-                            podInfoItm["podName"], wl_id
-                        )
                     spec_count = cfg.getSpecCount(podInfoItm["podName"])
                     if spec_count >= threshold:
                         continue
-                    otel_carrier = tracing.inject_context(parent_context)
-                    if wl_spec is None:
+                    eligible_pods.append((podInfoItm, spec_count, wl_spec))
+
+                # Phase 2: pod selection — strategy controlled by
+                # WDM_WL_ASSIGNING_METHOD.
+                #
+                # "lru_round_robin" (default)
+                #   Pick the pod with the fewest current streams; break ties
+                #   with _pod_ordinal() → (ordinal, name) for a deterministic
+                #   cycle.  Self-heals after uneven stream removal.
+                #
+                #   Trace — 5 indexed pods, threshold 4:
+                #     s1  min=0 tied=[0,1,2,3,4] → pod-0  [1,0,0,0,0]
+                #     s2  min=0 tied=[1,2,3,4]   → pod-1  [1,1,0,0,0]
+                #     s3  min=0 tied=[2,3,4]     → pod-2  [1,1,1,0,0]
+                #     ...  → 0→1→2→3→4→0→… (perfect round-robin)
+                #
+                # "sequential"
+                #   Original first-fit: pick the first pod in the order
+                #   returned by getPodIps() that is below threshold — no
+                #   sorting, no load comparison.  Mirrors the pre-LRU inline
+                #   loop+break.  Assignment order depends entirely on the API
+                #   iteration order (typically StatefulSet ordinal order for
+                #   K8s, insertion order for Docker).
+                if eligible_pods:
+                    assigning_method = app.config["WDM_WL_ASSIGNING_METHOD"]
+                    candidates = list(eligible_pods)
+                    selected_entry = None
+                    lease_owner = str(uuid.uuid4())
+                    if not cfg.tryAcquireProvisionLease(
+                        wl_id, lease_owner, lease_ttl
+                    ):
                         app.logger.info(
-                            "stream_updates - %s adding_stream: %s",
+                            "%s provision lease is held by another SDRC "
+                            "replica; deferring placement",
+                            wl_id,
+                        )
+                        return False
+                    try:
+                        while candidates:
+                            candidate = _select_pod_from_candidates(
+                                candidates, assigning_method
+                            )
+                            candidate_pod, candidate_count, _ = candidate
+                            reservation = cfg.tryReserveWorkLoadSpec(
+                                candidate_pod["podName"], originalJson, threshold
+                            )
+                            if (
+                                reservation is True
+                                or reservation == "already_held"
+                            ):
+                                selected_entry = candidate
+                                break
+                            app.logger.info(
+                                "Pod %s reached capacity after placement snapshot; "
+                                "trying another candidate",
+                                candidate_pod["podName"],
+                            )
+                            candidates.remove(candidate)
+                    except Exception:
+                        cfg.releaseProvisionLease(wl_id, lease_owner)
+                        raise
+
+                    if selected_entry is not None:
+                        selected_pod, selected_count, selected_wl_spec = (
+                            selected_entry
+                        )
+                        app.logger.info(
+                            "stream_updates - %s adding_stream: %s "
+                            "(%s selected pod=%s snapshot_streams=%d)",
                             wl_object_name, wl_id,
+                            assigning_method, selected_pod["podName"],
+                            selected_count,
+                        )
+                        otel_carrier = tracing.inject_context(parent_context)
+                        if selected_wl_spec is not None:
+                            app.logger.info(
+                                "%s pod is already deployed",
+                                selected_pod["podName"],
+                            )
+                        span_data = (
+                            originalJson
+                            if selected_wl_spec is None
+                            else config_data
                         )
                         _run_provision_add_stream(
-                            podInfoItm, data, originalJson, config_data,
+                            selected_pod, data, originalJson, config_data,
                             wl_id, camera_id, otel_carrier, parent_context,
-                            k8swlob_name, cfg_ev_obj, originalJson,
+                            k8swlob_name, cfg_ev_obj, span_data,
+                            workload_spec_reserved=True,
+                            rollback_workload_spec=True,
+                            lease_owner=lease_owner,
+                            lease_ttl=lease_ttl,
                         )
                         provisionNewPod = False
-                        break
-                    app.logger.info(
-                        "%s pod is already deployed", podInfoItm["podName"]
-                    )
-                    if spec_count < threshold:
-                        app.logger.info(
-                            "stream_updates - %s adding_stream: %s",
-                            wl_object_name, wl_id,
-                        )
-                        _run_provision_add_stream(
-                            podInfoItm, data, originalJson, config_data,
-                            wl_id, camera_id, otel_carrier, parent_context,
-                            k8swlob_name, cfg_ev_obj, config_data,
-                        )
-                        provisionNewPod = False
-                        break
+                    else:
+                        cfg.releaseProvisionLease(wl_id, lease_owner)
                 if provisionNewPod and app.config["WDM_CLUSTER_TYPE"].lower() == "docker":
                     if any_pod_down:
                         app.logger.info(

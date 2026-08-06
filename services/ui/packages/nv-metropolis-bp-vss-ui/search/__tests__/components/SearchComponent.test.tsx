@@ -41,8 +41,8 @@ jest.mock('../../lib-src/hooks/useFilter', () => ({
   })),
 }));
 
-jest.mock('@aiqtoolkit-ui/common', () => ({
-  ...jest.requireActual('@aiqtoolkit-ui/common'),
+jest.mock('common', () => ({
+  ...jest.requireActual('common'),
   useVideoModal: jest.fn(() => ({
     videoModal: {
       isOpen: false,

@@ -329,7 +329,11 @@ import time
 pid = os.fork()
 if pid == 0:
     os.setsid()
-    Path(sys.argv[1]).write_text(str(os.getpid()))
+    # Publish the pid atomically. write_text() creates a zero-length file
+    # before the bytes land, so a waiter that gates on exists() can read ''.
+    tmp = Path(sys.argv[1] + ".tmp")
+    tmp.write_text(str(os.getpid()))
+    os.replace(tmp, sys.argv[1])
     while True:
         time.sleep(1)
 while not Path(sys.argv[1]).exists():

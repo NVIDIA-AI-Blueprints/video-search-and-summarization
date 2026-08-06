@@ -168,15 +168,6 @@ class RoadNetworkGraph:
         self.load_methods_supported = ["from_point", "from_polygon", "from_place", "from_file"]
         self.network_types_supported = ["all", "all_public", "bike", "drive", "drive_service", "walk"]
 
-        self.network_type_osmnx_to_pyrosm = {
-            "all": "all",
-            "all_public": "all",
-            "bike": "cycling",
-            "drive": "driving",
-            "drive_service": "driving+service",
-            "walk": "walking",
-        }
-
         if config:
             self.graph_from_osm = config.graphFromOSM
             self.osm_load_method = config.osmLoadMethod
@@ -197,18 +188,47 @@ class RoadNetworkGraph:
         graph = None
         if not self.graph_from_osm:
             return None
-        else:
-            try:
-                if self.osm_load_method == "from_point":
-                    graph = self._graph_from_point(self.osm_query_point)
-                if self.osm_load_method == "from_polygon":
-                    graph = self._graph_from_polygon(self.osm_query_polygon)
-                if self.osm_load_method == "from_place":
-                    graph = self._graph_from_place(self.osm_query_place)
-            except Exception as e:
-                logger.warning(f"An exception occurred when pulling content from openStreetMap: {e}")
+
+        # Reading a pinned graph is deliberately not covered by the handler below. That handler
+        # exists because the other three methods query Overpass, where a transient outage or a rate
+        # limit should degrade rather than crash. A file read fails for one of two reasons -- the
+        # path is wrong or the file is unreadable -- and both are configuration errors that will
+        # fail identically on every retry. Swallowing one would report it as an OpenStreetMap fetch
+        # failure and leave the graph silently None, which is how a missing pinned file turns into a
+        # confusing error somewhere downstream instead of an obvious one here.
+        if self.osm_load_method == "from_file":
+            return self._graph_from_file(self.osm_query_file)
+
+        try:
+            if self.osm_load_method == "from_point":
+                graph = self._graph_from_point(self.osm_query_point)
+            if self.osm_load_method == "from_polygon":
+                graph = self._graph_from_polygon(self.osm_query_polygon)
+            if self.osm_load_method == "from_place":
+                graph = self._graph_from_place(self.osm_query_place)
+        except Exception as e:
+            logger.warning(f"An exception occurred when pulling content from openStreetMap: {e}")
 
         return graph
+
+    def _graph_from_file(self, path: str) -> MultiDiGraph:
+        """
+        Load a road network graph previously saved with ``osmnx.save_graphml``.
+
+        ``from_file`` was already listed in ``load_methods_supported`` and ``osmQueryFile`` was
+        already read from config, but no branch implemented it. The other three methods query the
+        live Overpass API, which makes graph construction depend on a third-party service being
+        reachable and un-rate-limited; this reads a pinned graph off disk instead.
+
+        ``osmnx.load_graphml`` decompresses ``.gz`` transparently, so a graph can be stored
+        compressed -- a city-sized network is roughly 12x smaller that way.
+
+        :param str path: Path to a ``.graphml`` or ``.graphml.gz`` file.
+        :return MultiDiGraph: NetworkX MultiDiGraph containing the road network.
+        """
+        logger.info(f"Loading road network graph from file: {path}")
+
+        return ox.load_graphml(path)
 
     def _graph_from_point(self, point: tuple[float, float]) -> MultiDiGraph:
         """

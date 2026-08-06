@@ -11,9 +11,9 @@ import {
   type UploadFileConfigTemplate,
   type UploadFileStatus,
   type FileUploadResult,
-} from '@aiqtoolkit-ui/common';
+} from 'common';
 
-export type { UploadFileConfigTemplate, UploadFileFieldConfig } from '@aiqtoolkit-ui/common';
+export type { UploadFileConfigTemplate, UploadFileFieldConfig } from 'common';
 
 import HomeContext from '@/pages/api/home/home.context';
 import type { ChatVideoUploadCompletePayload } from '@/types/chatVideoUpload';

@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button as KaizenButton } from '@nvidia/foundations-react-core';
-import { VideoModal, VideoModalTooltip } from '@aiqtoolkit-ui/common';
+import { VideoModal, VideoModalTooltip } from 'common';
 
 export interface SearchVideoModalProps {
   isOpen: boolean;

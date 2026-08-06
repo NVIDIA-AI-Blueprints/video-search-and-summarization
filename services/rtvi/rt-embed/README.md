@@ -57,20 +57,20 @@ Create `docker/.env` with the variables you want to override. A starting templat
 
 ```bash
 BACKEND_PORT=8017
-RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>
-#RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-custom
+RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
+#RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #HF_TOKEN=<HF_TOKEN>
 #NGC_API_KEY=nvapi-XXXXXX
 NVIDIA_VISIBLE_DEVICES=0
 
-KAFKA_ENABLED=true
 #KAFKA_BOOTSTRAP_SERVERS=<Kafka_server_ip:port>
-#KAFKA_TOPIC=vision-embed-messages
-#ERROR_MESSAGE_TOPIC=vision-embed-errors
+MESSAGE_BUS=kafka
+MESSAGE_BUS_TOPIC=mdx-embed
+ERROR_BUS=kafka
 ```
 
-Replace `<tag>` with the NGC image tag for your platform (for example `3.2.1` on x86, or `3.2.1-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
+Replace `<tag>` with the NGC image tag for your platform (for example `3.3.0-26.07.4` on x86, or `3.3.0-26.07.4-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
 
 `compose.yaml` provides defaults for every other variable — see [Complete Environment Variable Reference](#complete-environment-variable-reference) below for the full list.
 
@@ -121,14 +121,14 @@ Only needed if you've edited files under [`src/`](src/) and want those changes b
 
 ```bash
 # From the rt-embed/ directory — Dockerfile expects src/ in the build context
-docker build -f docker/Dockerfile -t rtvi-embed:3.2.1-custom .
+docker build -f docker/Dockerfile -t rtvi-embed:3.3.0-custom .
 ```
 
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>
-RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-custom
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
+RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 ```
 
 Restart:
@@ -417,10 +417,11 @@ VLM_BATCH_SIZE=128                          # Override automatic batch size
 # Logging
 LOG_LEVEL=INFO                              # DEBUG, INFO, WARNING, ERROR
 
-# Kafka server config
-KAFKA_ENABLED=<true/false>                  # Enable Kafka messages containing generated embeddings
+# Message bus config
+MESSAGE_BUS=kafka                           # Enable generated embedding messages over Kafka; empty disables generated-output messages
 KAFKA_BOOTSTRAP_SERVERS=<ip_address:port>   # Kafka server
-KAFKA_TOPIC=vision-embed-messages           # Kafka message topic
+MESSAGE_BUS_TOPIC=mdx-embed                 # Generated embedding message topic
+ERROR_BUS=kafka                             # Enable error messages over Kafka; empty disables error bus publishing
 
 # Redis error message config
 ERROR_MESSAGE_TOPIC=vision-embed-errors     # Error message topic (Kafka or Redis channel)
@@ -498,6 +499,11 @@ Use the /v1/models API to get the name of the model once the server is up.
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
 | `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
+| `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. | - | No |
+| `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | Model deployment name sent to the CE1 NIM backend and used as the RTVI model id. | `nvidia/cosmos-embed1` | No |
+| `REMOTE_EMBED_ENDPOINT_API_KEY` | Optional bearer token for the CE1 NIM endpoint. | - | No |
+| `REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC` | Request timeout for CE1 NIM calls. | `300` | No |
+| `REMOTE_EMBED_ENDPOINT_BATCH_SIZE` | Maximum batch size used by the CE1 NIM client wrapper. | `64` | No |
 | `COSMOS_EMBED1_TRT_PRECISION` | trtexec network precision for Cosmos-Embed1 video/text TRT engines (`fp32`, `fp16`, `bf16`, `int8`, `fp8`, `best`). Read by `create_triton_model_repo.py`. Engine filename includes the precision so engines are rebuilt on change. | `fp16` | No |
 | `COSMOS_EMBED1_TRT_EXTRA_ARGS` | Extra trtexec args (shell-quoted string) appended verbatim to both video and text engine builds, e.g. `--stronglyTyped --builderOptimizationLevel=5`. Note: `--stronglyTyped` is mutually exclusive with `--fp16`/`--bf16`/`--int8`/`--fp8`/`--best`; pair it with `COSMOS_EMBED1_TRT_PRECISION=fp32`. Engine filename includes a short hash of these args so engines are rebuilt on change. | - | No |
 
@@ -543,10 +549,11 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Kafka Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `KAFKA_ENABLED` | Enable Kafka integration | `false` | No |
 | `KAFKA_PORT` | Host port to expose Kafka (Docker Compose only) | `9092` | No |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker addresses | `localhost:9092` | No |
-| `KAFKA_TOPIC` | Kafka topic name for VisionLLM/embedding messages | `vision-embed-messages` | No |
+| `MESSAGE_BUS` | Generated-output bus type; set to `kafka` to publish embedding messages or empty to disable publishing | `kafka` | No |
+| `MESSAGE_BUS_TOPIC` | Generated embedding message topic | `mdx-embed` | No |
+| `ERROR_BUS` | Error bus type; set to `kafka` to publish errors or empty to disable error bus publishing | `kafka` | No |
 | `ERROR_MESSAGE_TOPIC` | Kafka topic name for error messages (or Redis channel when Redis is enabled) | `vision-embed-errors` | No |
 | `ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT` | Enable streaming text embeddings results to Kafka | `false` | No |
 | `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` | Max queued Kafka producer send jobs before dropping during broker metadata stalls | `1024` | No |
@@ -570,7 +577,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Docker Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1` | No |
+| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4` | No |
 | `HF_TOKEN` | Hugging Face Hub access token for private `git:` model downloads; forwarded from `docker/.env` into the container by Compose | - | No |
 
 #### AWS Configuration

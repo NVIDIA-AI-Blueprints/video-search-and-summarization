@@ -1,6 +1,5 @@
 .git*
 Jenkins*
-**/*.md
 readmes/
 test/
 configs/sample-configs/

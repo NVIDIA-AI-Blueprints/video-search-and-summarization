@@ -1,6 +1,6 @@
 {
   "name": "@nv-metropolis-bp-vss-ui/search",
-  "version": "3.2-dev",
+  "version": "3.3-dev",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
