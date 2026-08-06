@@ -13,6 +13,8 @@ data:
 {{ .Files.Get "files/ds-start.sh" | indent 4 }}
   download-models.sh: |
 {{ .Files.Get "files/download-models.sh" | indent 4 }}
+  setup-tracker-reid.sh: |
+{{ .Files.Get "files/setup-tracker-reid.sh" | indent 4 }}
   {{- if .Values.downloadModelsFromNgc }}
   models-download.json: |
     {

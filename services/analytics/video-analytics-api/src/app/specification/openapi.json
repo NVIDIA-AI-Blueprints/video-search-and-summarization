@@ -7,11 +7,11 @@
             "name": "Apache 2.0",
             "url": ""
         },
-        "version": "3.2.0"
+        "version": "3.3.0"
     },
     "servers": [
         {
-            "url": "https://ai.nvidia.com/api/v3.2/analytics",
+            "url": "https://ai.nvidia.com/api/v3.3/analytics",
             "x-internal": false
         }
     ],

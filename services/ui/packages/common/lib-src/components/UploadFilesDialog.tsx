@@ -13,8 +13,11 @@ import type { UploadFileConfigTemplate, UploadFileFieldConfig } from '../types/u
 
 const INPUT_CLASS =
   'w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-[#76b900] focus:outline-none focus:ring-1 focus:ring-[#76b900] dark:border-neutral-700 dark:bg-black dark:text-gray-300';
-const POPUP_OVERLAY_CLASS =
+const POPUP_OVERLAY_VIEWPORT =
   'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+/** Covers only the parent `relative` region (e.g. Video Management main pane), not the whole browser window */
+const POPUP_OVERLAY_CONTAINED =
+  'absolute inset-0 z-40 flex items-center justify-center bg-black/50';
 const POPUP_CONTAINER_CLASS =
   'mx-4 w-full max-w-xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-2xl';
 
@@ -109,6 +112,8 @@ export interface UploadFilesDialogProps {
   metadata?: UploadFilesDialogMetadataConfig;
   /** UI options */
   options?: UploadFilesDialogOptions;
+  /** `contained` = overlay only the nearest positioned ancestor (e.g. Video Management pane). Default `viewport` = full window. */
+  overlay?: 'viewport' | 'contained';
 }
 
 const DEFAULT_EMPTY_HINT = (
@@ -270,6 +275,7 @@ export const UploadFilesDialog = forwardRef<UploadFilesDialogHandle, UploadFiles
     validateFile = DEFAULT_VALIDATE_FILE,
     metadata,
     options,
+    overlay = 'viewport',
   },
   ref
 ) {
@@ -503,6 +509,9 @@ export const UploadFilesDialog = forwardRef<UploadFilesDialogHandle, UploadFiles
 
   if (!open) return null;
 
+  const overlayClass =
+    overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
+
   return (
     <>
       {/* Hidden file inputs (main + optional metadata) */}
@@ -523,7 +532,7 @@ export const UploadFilesDialog = forwardRef<UploadFilesDialogHandle, UploadFiles
           onChange={handleMetadataInputChange}
         />
       )}
-      <div className={POPUP_OVERLAY_CLASS}>
+      <div className={overlayClass}>
         <div className={POPUP_CONTAINER_CLASS}>
           <h3 className="mb-6 text-center text-lg font-semibold text-gray-900 dark:text-white">
             {title}

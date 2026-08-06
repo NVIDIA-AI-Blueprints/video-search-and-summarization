@@ -2,6 +2,7 @@
 
 Use these implementations with the ordered stages in `SKILL.md`.
 
+- [Resolve endpoints](#resolve-endpoints)
 - [Probe readiness](#probe-readiness)
 - [Prepare the video through VIOS](#prepare-the-video-through-vios)
 - [Submit one LVS request](#submit-one-lvs-request)
@@ -10,15 +11,40 @@ Use these implementations with the ordered stages in `SKILL.md`.
 Do not run a direct VLM fallback when LVS is ready, and do not rerun the LVS
 POST with broader events when the response is empty.
 
+### Resolve endpoints
+
+Run once before any probe. Docker keeps host ports; Kubernetes uses
+`VSS_PUBLIC_URL` (LVS client base = origin, **no** `/v1` suffix).
+
+```bash
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
+  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
+  VST_API_BASE="${VSS_PUBLIC_URL}/vst/api/v1"
+  VLM="${VSS_PUBLIC_URL}"
+else
+  DEPLOYMENT_KIND="docker"
+  LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
+  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
+  VST_API_BASE="http://${HOST_IP:-localhost}:30888/vst/api/v1"
+  VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+  VLM="${VLM%/v1}"
+fi
+
+LVS_REQUEST=/tmp/vss-summarize-video-request.json
+LVS_RESPONSE=/tmp/vss-summarize-video-response.json
+```
+
 ### Probe readiness
 
 ```bash
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
-LVS_REQUEST=/tmp/vss-summarize-video-request.json
-LVS_RESPONSE=/tmp/vss-summarize-video-response.json
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
-VLM="${VLM%/v1}"
-
 vlm_code=$(curl -s -o /dev/null -w '%{http_code}' \
   --connect-timeout 3 --max-time 10 "$VLM/v1/models")
 [ "$vlm_code" = "200" ] || echo "VLM not reachable (HTTP $vlm_code)"
@@ -56,7 +82,7 @@ with the exact requested local file and upload it directly. Preserve the
 returned stream ID, full timeline, and fresh MP4 URL for later stages.
 
 ```bash
-VIOS_API="http://${HOST_IP:-localhost}:30888/vst/api/v1"
+VIOS_API="${VST_API_BASE:-http://${HOST_IP:-localhost}:30888/vst/api/v1}"
 SOURCE_FILE=/path/to/video.mp4
 FILENAME=$(basename "$SOURCE_FILE")
 UPLOAD_TIMESTAMP=2025-01-01T00:00:00.000Z
@@ -95,11 +121,14 @@ CLIP=$(jq -er '.videoUrl | sub("^http://http://"; "http://")' \
   /tmp/vios-clip-url.json)
 ```
 
-When LVS is selected, verify the URL from inside `vss-lvs` without writing the
-video body into tool output:
+When LVS is selected, verify the URL is fetchable without writing the video
+body into tool output.
+
+**Docker** — probe from inside `vss-lvs`:
 
 ```bash
-docker exec vss-lvs python3 -c '
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+  docker exec vss-lvs python3 -c '
 import sys
 import urllib.request
 request = urllib.request.Request(sys.argv[1], headers={"Range": "bytes=0-0"})
@@ -107,18 +136,27 @@ with urllib.request.urlopen(request, timeout=30) as response:
     response.read(1)
     print(response.status)
 ' "$CLIP"
+fi
+```
+
+**Kubernetes** — no `docker exec` / `kubectl exec`. Probe from the agent host
+with a bounded Range GET. The URL passed to LVS must remain the minted VIOS
+URL (deploy should set `VST_EXTERNAL_URL` to the public origin so the LVS pod
+can fetch it):
+
+```bash
+if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
+  curl -fsS --connect-timeout 5 --max-time 60 --range 0-0 -o /dev/null "$CLIP" \
+    || { echo "CLIP not reachable from agent host: $CLIP"; return 1 2>/dev/null || exit 1; }
+fi
 ```
 
 ### Submit one LVS request
 
-Assume video preparation established `$CLIP` and `$DURATION`. Discover the
-live schema and model, then issue exactly one summarize request.
+Assume video preparation established `$CLIP` and `$DURATION`. Resolve the model,
+then issue exactly one summarize request.
 
 ```bash
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
-LVS_REQUEST=/tmp/vss-summarize-video-request.json
-LVS_RESPONSE=/tmp/vss-summarize-video-response.json
-
 # HITL (required, before the curl): collect the Stage 3 scenario/events and
 # wait for the user's reply. Substitute their values (or the `defaults` opt-in)
 # into $SCENARIO, $EVENTS_JSON, and $OBJECTS_JSON below. Do not run the curl
@@ -126,16 +164,30 @@ LVS_RESPONSE=/tmp/vss-summarize-video-response.json
 SCENARIO='warehouse monitoring'            # or whatever the user gave
 EVENTS_JSON='["notable activity"]'         # jq-compatible JSON array
 OBJECTS_JSON=''                            # '' to omit, else '["cars","trucks"]'
-LVS_OPENAPI=/tmp/vss-lvs-openapi.json
-curl -fsS "$VIDEO_SUMMARIZATION_URL/openapi.json" > "$LVS_OPENAPI"
-jq -e '.paths["/v1/summarize"].post.requestBody.content["application/json"].schema' \
-  "$LVS_OPENAPI" >/dev/null
-LVS_MODEL=$(curl -fsS "$VIDEO_SUMMARIZATION_URL/models" | jq -er --arg preferred "${VLM_NAME:-}" '
-  [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
-  | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
-    elif ($ids | length) == 1 then $ids[0]
-    else empty end
-') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
+
+# --- Model discovery ---
+# Docker: LVS GET /models (authoritative for summarize).
+# Kubernetes: LVS /models is not on Ingress — use Exact RT-VLM /v1/models
+# (or VLM_NAME when set).
+if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
+  LVS_MODEL=$(curl -fsS "$VLM/v1/models" | jq -er --arg preferred "${VLM_NAME:-}" '
+    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
+    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
+      elif ($ids | length) == 1 then $ids[0]
+      else empty end
+  ') || { echo "Set VLM_NAME to an advertised RT-VLM model id"; return 1 2>/dev/null || exit 1; }
+else
+  LVS_OPENAPI=/tmp/vss-lvs-openapi.json
+  curl -fsS "$VIDEO_SUMMARIZATION_URL/openapi.json" > "$LVS_OPENAPI"
+  jq -e '.paths["/v1/summarize"].post.requestBody.content["application/json"].schema' \
+    "$LVS_OPENAPI" >/dev/null
+  LVS_MODEL=$(curl -fsS "$VIDEO_SUMMARIZATION_URL/models" | jq -er --arg preferred "${VLM_NAME:-}" '
+    [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
+    | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
+      elif ($ids | length) == 1 then $ids[0]
+      else empty end
+  ') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
+fi
 
 jq -n --arg url "$CLIP" \
       --arg model "$LVS_MODEL" \
@@ -152,6 +204,7 @@ jq -n --arg url "$CLIP" \
   > "$LVS_REQUEST"
 
 # Exactly one summarize POST. Save the raw body for parsing and diagnosis.
+# Keep a long timeout — LVS chunk→VLM→aggregate can exceed 50s; Ingress allows 600s.
 LVS_HTTP_CODE=$(curl -sS --max-time 300 -o "$LVS_RESPONSE" -w '%{http_code}' \
   -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
   -H "Content-Type: application/json" \
@@ -185,8 +238,6 @@ Run this only after LVS remains unavailable and the user explicitly approves
 the lower-quality fallback. `$CLIP` must be reachable from the VLM endpoint.
 
 ```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
-VLM="${VLM%/v1}"
 VLM_MODEL=$(curl -fsS "$VLM/v1/models" | jq -er --arg preferred "${VLM_NAME:-}" '
   [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
   | if $preferred != "" and ($ids | index($preferred)) != null then $preferred

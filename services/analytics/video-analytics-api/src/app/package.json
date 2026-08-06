@@ -1,7 +1,7 @@
 {
     "name": "web-apis",
-    "version": "3.2.0",
-    "description": "This project creates Web-APIs for applications of mdx",
+    "version": "3.3.0",
+    "description": "This project creates a video analytics API server with multiple endpoints using the core functionalities defined in the web-api-core package",
     "main": "index.js",
     "dependencies": {
         "change-case": "5.4.4",

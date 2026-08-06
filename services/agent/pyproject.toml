@@ -99,7 +99,7 @@ explicit = true
 
 [[tool.uv.index]]
 name = "ngc-data-platform"
-url = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple"
+url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple"
 explicit = true
 
 [project]
@@ -186,6 +186,11 @@ ignore = ["E501", "W505", "SIM108", "B024"]
 "__init__.py" = ["F401"]
 # Tests at any depth (packages/<dist>/tests/**); mock args + nested `with`.
 "**/tests/**" = ["ARG001", "ARG002", "SIM117", "B017"]
+# Memory and job helpers keep runtime imports lazy (TC001/TC003) to stay NAT-free.
+"packages/vss_core/src/vss_core/memory/**" = ["TC001", "TC003"]
+"packages/vss_cli/src/vss_cli/_jobs.py" = ["TC001", "TC003"]
+"packages/vss_cli/src/vss_cli/memory_cmd.py" = ["TC001", "TC003"]
+"packages/vss_cli/src/vss_cli/summarize_group.py" = ["TC001", "TC003"]
 
 [tool.ruff.format]
 docstring-code-format = true

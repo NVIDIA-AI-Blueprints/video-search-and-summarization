@@ -15,8 +15,8 @@ raw-options.version_scheme = "no-guess-dev"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-# vss_core: NAT-free libraries (search_core, critic, vlm, vst, _foundation) plus
-# knowledge (BackendAdapter ABC/schema/factory + lazily-loaded adapters). The
+# vss_core: NAT-free libraries (search_core, critic, vlm, vst, memory, _foundation)
+# plus knowledge (BackendAdapter ABC/schema/factory + lazily-loaded adapters). The
 # import stays light: factory.py resolves adapters via importlib, so heavy
 # backend deps only load when a backend is selected -- see the optional extras.
 packages = ["src/vss_core"]
