@@ -814,7 +814,7 @@ void NvSoap::getSystemDateAndTimeResponse(const string& xmlData, string& respons
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if (cursor)
     {
@@ -901,7 +901,7 @@ void NvSoap::getNTPResponse(const string& xmlData, string& response)
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if (cursor)
     {
@@ -2334,7 +2334,7 @@ bool NvSoap::setCameraNetworkInterfacesResponse(const string& xmlData)
         return false;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar *>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "RebootNeeded");
     if (cur)
@@ -2359,7 +2359,7 @@ SensorNetworkInfo NvSoap::getCameraNetworkInterfacesResponse(const string& xmlDa
         return networkInfo;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "NetworkInterfaces");
     if (cur)
@@ -2797,7 +2797,7 @@ SensorVideoEncoderSettingsValues NvSoap::getVideoEncoderConfigurationMediaRespon
     }
 
     Token token;
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Configuration");
     if (cur)
