@@ -235,19 +235,6 @@ function set_alerts_rtvi_vlm_kafka_from_mode() {
   esac
 }
 
-# Derive alerts mode-specific integrations from MODE.
-function set_alerts_integrations_from_mode() {
-  local _generated_env="${1}"
-  local _mode _always_on
-  _mode="$(get_env_value "${_generated_env}" "MODE")"
-  case "${_mode}" in
-    2d_vlm) _always_on="true" ;;
-    *)      _always_on="false" ;;
-  esac
-  sed -i "s|^ALERT_AGENT_ALWAYS_ON=.*|ALERT_AGENT_ALWAYS_ON=${_always_on}|" "${_generated_env}"
-  echo "[INFO] Alerts integrations for MODE=${_mode:-2d_cv}: ALERT_AGENT_ALWAYS_ON=${_always_on}"
-}
-
 # Gets model name from remote API endpoint (works for both LLM and VLM).
 # Auto-select is only safe when the endpoint serves exactly one model
 # (e.g., a deployed NIM). For aggregate endpoints like
@@ -1348,10 +1335,13 @@ function state_up() {
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
-    set_alerts_integrations_from_mode "${_generated_env}"
-    # Alerts VLM mode uses a different explicit service list than CV mode.
-    if [[ "${mode_env}" == "2d_vlm" ]]; then
+    # Real-time: VLM service list + always-on gate. Verification keeps overrides defaults
+    # (COMPOSE_PROFILES_CV, ALERT_AGENT_ALWAYS_ON=false).
+    if [[ "$(get_env_value "${_generated_env}" "MODE")" == "2d_vlm" ]]; then
       set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "true"
+    else
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "false"
     fi
   fi
 
