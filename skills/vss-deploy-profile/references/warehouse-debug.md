@@ -722,10 +722,23 @@ If yes:
 ```bash
 cd <repo>/deploy/docker
 
-# Project-scoped teardown, as blueprint-deploy.sh does it. This needs no env-file
-# resolution, so an unexpanded COMPOSE_PROFILES cannot leave containers behind.
-# COMPOSE_PROJECT_NAME defaults to `vss` (overrides.env).
-docker compose -p "${COMPOSE_PROJECT_NAME:-vss}" down --remove-orphans
+# Resolve the project name from generated.env FIRST. It is not in your shell, so a bare
+# "${COMPOSE_PROJECT_NAME:-vss}" always falls back to `vss` — and on a host that renamed the
+# project (overrides.env invites this to run two stacks side by side) that tears down nothing
+# while reporting success. `:?` fails loudly instead of guessing.
+set -a
+. industry-profiles/warehouse-operations/.env
+. industry-profiles/warehouse-operations/generated.env
+set +a
+: "${COMPOSE_PROJECT_NAME:?not set by generated.env — resolve it before tearing down}"
+
+# Confirm the resolved project is the one actually running before removing anything.
+echo "Tearing down Compose project: $COMPOSE_PROJECT_NAME"
+docker compose -p "$COMPOSE_PROJECT_NAME" ps --format '{{.Name}}' | head
+
+# Project-scoped teardown, as blueprint-deploy.sh does it: with -p the removal does not
+# depend on COMPOSE_PROFILES resolving, so an unexpanded list cannot leave containers behind.
+docker compose -p "$COMPOSE_PROJECT_NAME" down --remove-orphans
 docker volume prune -f
 docker system prune -f
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
