@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1012,12 +1013,27 @@ class CachedManagedSSH(unittest.TestCase):
     def setUp(self):
         self.original_transports = dict(run_leg._WORKER_TRANSPORTS)
         self.original_configs = dict(run_leg._WORKER_SSH_CONFIGS)
+        self.original_snapshot_count = len(
+            run_leg._CACHED_MANAGED_SSH_SNAPSHOTS
+        )
+        self.original_snapshot_cache = dict(
+            run_leg._CACHED_MANAGED_SSH_SNAPSHOT_CACHE
+        )
 
     def tearDown(self):
         run_leg._WORKER_TRANSPORTS.clear()
         run_leg._WORKER_TRANSPORTS.update(self.original_transports)
         run_leg._WORKER_SSH_CONFIGS.clear()
         run_leg._WORKER_SSH_CONFIGS.update(self.original_configs)
+        while (
+            len(run_leg._CACHED_MANAGED_SSH_SNAPSHOTS)
+            > self.original_snapshot_count
+        ):
+            run_leg._CACHED_MANAGED_SSH_SNAPSHOTS.pop().cleanup()
+        run_leg._CACHED_MANAGED_SSH_SNAPSHOT_CACHE.clear()
+        run_leg._CACHED_MANAGED_SSH_SNAPSHOT_CACHE.update(
+            self.original_snapshot_cache
+        )
 
     @staticmethod
     def _write_config(root: Path, source: str, mode: int = 0o600) -> Path:
@@ -1079,8 +1095,89 @@ class CachedManagedSSH(unittest.TestCase):
                     "vss-eval-rtx-2g-2,vss-eval-rtx-2g-3"
                 )
                 candidates = run_leg._cached_managed_ssh_candidates()
+                expected_source = config.read_text(encoding="utf-8")
 
-        self.assertEqual(candidates, {"vss-eval-rtx-2g-2": config})
+        self.assertEqual(set(candidates), {"vss-eval-rtx-2g-2"})
+        snapshot = candidates["vss-eval-rtx-2g-2"]
+        self.assertNotEqual(snapshot, config)
+        self.assertEqual(snapshot.read_text(encoding="utf-8"), expected_source)
+        self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o400)
+        self.assertEqual(stat.S_IMODE(snapshot.parent.stat().st_mode), 0o500)
+
+    def test_cache_accepts_owner_only_file_in_writable_brev_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            config.parent.chmod(0o777)
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                candidates = run_leg._cached_managed_ssh_candidates()
+
+        self.assertEqual(set(candidates), {"vss-eval-rtx-2g-2"})
+        snapshot = candidates["vss-eval-rtx-2g-2"]
+        self.assertTrue(snapshot.is_file())
+        self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o400)
+        self.assertEqual(stat.S_IMODE(snapshot.parent.stat().st_mode), 0o500)
+
+    def test_cache_snapshot_is_stable_after_source_path_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config = self._write_config(
+                root,
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            config.parent.chmod(0o777)
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                snapshot = run_leg._cached_managed_ssh_candidates()[
+                    "vss-eval-rtx-2g-2"
+                ]
+
+            config.unlink()
+            config.write_text(
+                "Host vss-eval-rtx-2g-2\n"
+                "  ProxyCommand /tmp/untrusted-proxy %h %p\n",
+                encoding="utf-8",
+            )
+
+        self.assertIn("HostName 192.0.2.10", snapshot.read_text(
+            encoding="utf-8"
+        ))
+        self.assertNotIn("ProxyCommand", snapshot.read_text(encoding="utf-8"))
+
+    def test_cache_reuses_private_snapshot_across_inventory_retries(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                first = run_leg._cached_managed_ssh_candidates()
+                second = run_leg._cached_managed_ssh_candidates()
+
+        self.assertEqual(
+            first["vss-eval-rtx-2g-2"],
+            second["vss-eval-rtx-2g-2"],
+        )
+        self.assertEqual(
+            len(run_leg._CACHED_MANAGED_SSH_SNAPSHOTS),
+            self.original_snapshot_count + 1,
+        )
 
     def test_cache_rejects_patterns_and_executable_proxy_stanzas(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1181,6 +1278,9 @@ class CachedManagedSSH(unittest.TestCase):
             propagated = os.environ.get(
                 run_leg.CACHED_MANAGED_SSH_ADMITTED_ENV
             )
+            propagated_config = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV
+            )
 
         self.assertEqual([item["name"] for item in instances], [
             "vss-eval-rtx-2g-2"
@@ -1188,6 +1288,7 @@ class CachedManagedSSH(unittest.TestCase):
         self.assertTrue(instances[0]["_registered"])
         self.assertTrue(instances[0]["_cached_managed_ssh"])
         self.assertEqual(propagated, "vss-eval-rtx-2g-2")
+        self.assertEqual(propagated_config, str(config))
         self.assertEqual(
             run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"], "ssh"
         )
@@ -1236,6 +1337,9 @@ class CachedManagedSSH(unittest.TestCase):
             propagated = os.environ.get(
                 run_leg.CACHED_MANAGED_SSH_ADMITTED_ENV
             )
+            propagated_config = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV
+            )
 
         self.assertEqual(instances, [managed])
         cached.assert_not_called()
@@ -1243,6 +1347,7 @@ class CachedManagedSSH(unittest.TestCase):
             run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"], "brev"
         )
         self.assertIsNone(propagated)
+        self.assertIsNone(propagated_config)
 
     def test_cached_worker_remote_lock_uses_explicit_ssh_config(self):
         calls = []

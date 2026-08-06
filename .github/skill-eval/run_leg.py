@@ -29,6 +29,7 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -67,6 +68,8 @@ VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 RTX4090_GPU_TYPE = "GEFORCE RTX 4090"
 _WORKER_TRANSPORTS: dict[str, str] = {}
 _WORKER_SSH_CONFIGS: dict[str, str] = {}
+_CACHED_MANAGED_SSH_SNAPSHOTS: list[tempfile.TemporaryDirectory] = []
+_CACHED_MANAGED_SSH_SNAPSHOT_CACHE: dict[str, Path] = {}
 
 # Managed Brev workspaces are normally discovered through ``brev ls``.  The
 # CLI also keeps a directly usable SSH alias for each running workspace in
@@ -77,6 +80,9 @@ _WORKER_SSH_CONFIGS: dict[str, str] = {}
 CACHED_MANAGED_SSH_OPT_IN_ENV = "BREV_ALLOW_CACHED_SSH"
 CACHED_MANAGED_SSH_POOL_ENV = "BREV_DIRECT_SSH_POOL"
 CACHED_MANAGED_SSH_ADMITTED_ENV = "BREV_ADMITTED_CACHED_SSH_POOL"
+CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV = (
+    "BREV_ADMITTED_CACHED_SSH_CONFIG"
+)
 CACHED_MANAGED_SSH_CONFIG_MAX_BYTES = 1024 * 1024
 SAFE_CACHED_MANAGED_SSH_ALIAS_RE = re.compile(
     r"^vss-eval-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
@@ -622,78 +628,174 @@ def _cached_brev_ssh_config_path() -> Path:
     return Path.home() / ".brev" / "ssh_config"
 
 
-def _safe_cached_brev_ssh_config(path: Path) -> bool:
-    """Validate ownership and write permissions before trusting Host names."""
+def _read_safe_cached_brev_ssh_config(path: Path) -> str | None:
+    """Read one stable, owner-only config inode without following symlinks.
+
+    The Brev CLI can leave ``~/.brev`` group/world writable even though its
+    ``ssh_config`` is an owner-only regular file. A writable parent permits
+    path replacement, so never hand that path directly to OpenSSH: pin the
+    opened inode with ``O_NOFOLLOW``, validate and read it through the file
+    descriptor, then let the caller create a private snapshot.
+    """
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "O_NOFOLLOW is unavailable",
+            flush=True,
+        )
+        return None
     try:
-        config_stat = path.lstat()
-        parent_stat = path.parent.lstat()
+        fd = os.open(
+            path,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK | nofollow,
+        )
     except OSError as exc:
         print(
             f"[run-leg] cached managed SSH config unavailable: {exc}",
             flush=True,
         )
-        return False
+        return None
 
-    expected_uid = os.geteuid()
-    checks = (
-        (
-            stat_module.S_ISREG(config_stat.st_mode),
-            "config is not a regular file",
-        ),
-        (
-            config_stat.st_uid == expected_uid,
-            "config is not owned by the coordinator user",
-        ),
-        (
-            config_stat.st_mode & 0o022 == 0,
-            "config is group/world writable",
-        ),
-        (
-            config_stat.st_size <= CACHED_MANAGED_SSH_CONFIG_MAX_BYTES,
-            "config exceeds the size limit",
-        ),
-        (
-            stat_module.S_ISDIR(parent_stat.st_mode),
-            "config parent is not a directory",
-        ),
-        (
-            parent_stat.st_uid == expected_uid,
-            "config parent is not owned by the coordinator user",
-        ),
-        (
-            parent_stat.st_mode & 0o022 == 0,
-            "config parent is group/world writable",
-        ),
-    )
-    for passed, reason in checks:
-        if not passed:
+    try:
+        before = os.fstat(fd)
+        expected_uid = os.geteuid()
+        checks = (
+            (
+                stat_module.S_ISREG(before.st_mode),
+                "config is not a regular file",
+            ),
+            (
+                before.st_uid == expected_uid,
+                "config is not owned by the coordinator user",
+            ),
+            (
+                before.st_mode & 0o022 == 0,
+                "config is group/world writable",
+            ),
+            (
+                before.st_nlink == 1,
+                "config has multiple hard links",
+            ),
+            (
+                before.st_size <= CACHED_MANAGED_SSH_CONFIG_MAX_BYTES,
+                "config exceeds the size limit",
+            ),
+        )
+        for passed, reason in checks:
+            if passed:
+                continue
             print(
                 f"[run-leg] cached managed SSH config rejected: {reason}",
                 flush=True,
             )
-            return False
-    return True
+            return None
+
+        chunks: list[bytes] = []
+        remaining = CACHED_MANAGED_SSH_CONFIG_MAX_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(fd, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        after = os.fstat(fd)
+    except OSError as exc:
+        print(
+            f"[run-leg] cached managed SSH config could not be read: {exc}",
+            flush=True,
+        )
+        return None
+    finally:
+        os.close(fd)
+
+    if len(payload) > CACHED_MANAGED_SSH_CONFIG_MAX_BYTES:
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "config exceeds the size limit",
+            flush=True,
+        )
+        return None
+    stable_fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_nlink",
+                     "st_size", "st_mtime_ns", "st_ctime_ns")
+    if any(getattr(before, key) != getattr(after, key) for key in stable_fields):
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "config changed while being read",
+            flush=True,
+        )
+        return None
+    if len(payload) != after.st_size:
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "config size changed while being read",
+            flush=True,
+        )
+        return None
+    try:
+        return payload.decode("utf-8")
+    except UnicodeError as exc:
+        print(
+            f"[run-leg] cached managed SSH config could not be decoded: {exc}",
+            flush=True,
+        )
+        return None
 
 
-def _exact_cached_brev_ssh_aliases(path: Path) -> set[str]:
-    """Parse exact, single-name ``Host vss-eval-*`` stanzas from *path*.
+def _snapshot_cached_brev_ssh_config(source: str) -> Path | None:
+    """Copy validated config bytes into a private path used by OpenSSH."""
+    payload = source.encode("utf-8")
+    cache_key = hashlib.sha256(payload).hexdigest()
+    cached = _CACHED_MANAGED_SSH_SNAPSHOT_CACHE.get(cache_key)
+    if cached is not None and cached.is_file():
+        return cached
+    _CACHED_MANAGED_SSH_SNAPSHOT_CACHE.pop(cache_key, None)
+
+    temp_dir = tempfile.TemporaryDirectory(
+        prefix="vss-skill-eval-brev-ssh-"
+    )
+    snapshot = Path(temp_dir.name) / "ssh_config"
+    fd: int | None = None
+    try:
+        fd = os.open(
+            snapshot,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC,
+            0o600,
+        )
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short write while creating SSH config snapshot")
+            view = view[written:]
+        os.fchmod(fd, 0o400)
+        os.fsync(fd)
+    except OSError as exc:
+        print(
+            f"[run-leg] cached managed SSH snapshot failed: {exc}",
+            flush=True,
+        )
+        temp_dir.cleanup()
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+    snapshot.parent.chmod(0o500)
+    _CACHED_MANAGED_SSH_SNAPSHOTS.append(temp_dir)
+    _CACHED_MANAGED_SSH_SNAPSHOT_CACHE[cache_key] = snapshot
+    return snapshot
+
+
+def _parse_exact_cached_brev_ssh_aliases(source: str) -> set[str]:
+    """Parse exact, single-name ``Host vss-eval-*`` stanzas from text.
 
     Admit only Brev's self-contained direct Hostname form. ProxyCommand,
     Include, Match, RemoteCommand, LocalCommand, and unknown directives are
     excluded so this secret-bearing CI process never executes config-supplied
     local commands. OpenSSH still performs the connection after this gate.
     """
-    if not _safe_cached_brev_ssh_config(path):
-        return set()
-    try:
-        source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        print(
-            f"[run-leg] cached managed SSH config could not be read: {exc}",
-            flush=True,
-        )
-        return set()
-
     allowed_directives = {
         "hostname",
         "identityfile",
@@ -803,6 +905,14 @@ def _exact_cached_brev_ssh_aliases(path: Path) -> set[str]:
     return aliases
 
 
+def _exact_cached_brev_ssh_aliases(path: Path) -> set[str]:
+    """Safely read *path* and return its exact managed aliases."""
+    source = _read_safe_cached_brev_ssh_config(path)
+    if source is None:
+        return set()
+    return _parse_exact_cached_brev_ssh_aliases(source)
+
+
 def _cached_managed_ssh_candidates() -> dict[str, Path]:
     """Return allowlisted cached aliases when the recovery path is enabled."""
     enabled = os.environ.get(CACHED_MANAGED_SSH_OPT_IN_ENV, "").strip().lower()
@@ -831,7 +941,11 @@ def _cached_managed_ssh_candidates() -> dict[str, Path]:
         return {}
 
     config_path = _cached_brev_ssh_config_path()
-    configured = _exact_cached_brev_ssh_aliases(config_path)
+    source = _read_safe_cached_brev_ssh_config(config_path)
+    if source is None:
+        configured: set[str] = set()
+    else:
+        configured = _parse_exact_cached_brev_ssh_aliases(source)
     admitted = requested & configured
     missing = sorted(requested - configured)
     if missing:
@@ -840,7 +954,16 @@ def _cached_managed_ssh_candidates() -> dict[str, Path]:
             f"the safe cache: {', '.join(missing)}",
             flush=True,
         )
-    return {name: config_path for name in sorted(admitted)}
+    if not admitted or source is None:
+        return {}
+    snapshot = _snapshot_cached_brev_ssh_config(source)
+    if snapshot is None:
+        return {}
+    print(
+        "[run-leg] cached managed SSH config copied to a private snapshot",
+        flush=True,
+    )
+    return {name: snapshot for name in sorted(admitted)}
 
 
 def _propagate_cached_managed_ssh(names: set[str]) -> None:
@@ -851,9 +974,20 @@ def _propagate_cached_managed_ssh(names: set[str]) -> None:
     cache. ``brev_env`` reads this exact admitted set for SSH/scp routing.
     """
     if names:
+        config_paths = {
+            _WORKER_SSH_CONFIGS.get(name.lower()) for name in names
+        }
+        if None in config_paths or len(config_paths) != 1:
+            raise RuntimeError(
+                "cache-admitted SSH workers do not share one private config"
+            )
         os.environ[CACHED_MANAGED_SSH_ADMITTED_ENV] = ",".join(sorted(names))
+        os.environ[CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV] = next(
+            iter(config_paths)
+        )
     else:
         os.environ.pop(CACHED_MANAGED_SSH_ADMITTED_ENV, None)
+        os.environ.pop(CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV, None)
 
 
 def _registered_pool_allowlist(

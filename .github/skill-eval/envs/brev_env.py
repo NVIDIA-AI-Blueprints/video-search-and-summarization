@@ -3404,6 +3404,9 @@ _registered_nodes_cache: dict[str, dict] | None = None
 # a direct SSH destination.
 DEFAULT_BREV_SSH_CONFIG = "~/.brev/ssh_config"
 CACHED_MANAGED_SSH_ADMITTED_ENV = "BREV_ADMITTED_CACHED_SSH_POOL"
+CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV = (
+    "BREV_ADMITTED_CACHED_SSH_CONFIG"
+)
 
 
 def _ssh_config_path() -> str:
@@ -3430,9 +3433,16 @@ def _configured_cached_ssh_nodes() -> set[str]:
 
 
 def _ssh_config_args(alias: str) -> list[str]:
-    """Pin only cache-admitted workers to Brev's standalone SSH config."""
+    """Pin cache-admitted workers to run_leg's private config snapshot."""
     if alias.lower() in _configured_cached_ssh_nodes():
-        return ["-F", _ssh_config_path()]
+        configured = os.environ.get(
+            CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV, ""
+        ).strip()
+        if not configured:
+            raise RuntimeError(
+                "cache-admitted SSH worker is missing its private config"
+            )
+        return ["-F", str(Path(configured).expanduser())]
     return []
 
 
