@@ -86,6 +86,7 @@ public:
     using IMediaDataConsumer::onFrame;
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void setConsumer(std::shared_ptr<IMediaDataConsumer> consumer);
+    using IMediaDataConsumer::setOriginalFrameSize;
     void setOriginalFrameSize() override;
     void setFrameRate(string frame_rate);
     

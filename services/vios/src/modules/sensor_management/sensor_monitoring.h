@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,7 +63,7 @@ class SensorManagement;
         int onSensorFound(SensorInfo& sensorInfo);
         int onSensorChanged(SensorInfo& sensorInfo);
         int onSensorRemoved(const string& sensor_id);
-        void notifyEvent(const SensorStatus& status, const string& url, const string &ipc_url = "");
+        void notifyEvent(const SensorStatus& status, const string& url, const string &ipc_url = "") override;
         void refreshSensorList();
         void addAndRegisterDiscoveryObject(ISensorDiscoveryInterface* discoveryObject);
         void removeAndDeRegisterDiscoveryObject(ISensorDiscoveryInterface* discoveryObject);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -117,7 +117,7 @@ bool WebsocketServerRequestHandler::handleData(CivetServer *server, struct mg_co
 void WebsocketServerRequestHandler::handleClose(CivetServer *server, const struct mg_connection *conn)
 {
     Json::Value temp_json;
-    m_callbackMap["/event/disconnect"](temp_json, temp_json, (struct mg_connection *)conn);
+    m_callbackMap["/event/disconnect"](temp_json, temp_json, const_cast<struct mg_connection *>(conn));
     return GET_WEBSOCKET_INSTANCE()->removeConnection(conn);
 }
 

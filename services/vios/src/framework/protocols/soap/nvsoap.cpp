@@ -5696,7 +5696,7 @@ void NvSoap::getServicesResponse(const string& xmlData, map<string, OnvifService
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -5809,7 +5809,7 @@ SensorEncoderSettingsOptions NvSoap::getVideoEncoderConfigurationOptionsMedia2Re
         return options;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -6140,7 +6140,7 @@ ServiceCapabilities NvSoap::getServiceCapabilitiesResponse(const string& xmlData
     }
 
     Token token;
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find the Security node

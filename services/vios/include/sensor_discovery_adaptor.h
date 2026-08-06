@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +36,7 @@ class ISensorDiscoveryEvent
         virtual int onSensorChanged(SensorInfo& sensorInfo) = 0;
         virtual int onSensorRemoved(const string& sensorInfo) = 0;
 
-        virtual void notifyEvent(const SensorStatus& status, const string& url) {}
+        virtual void notifyEvent(const SensorStatus& status, const string& url, const string& ipc_url = "") {}
         virtual void refreshSensorList() {}
 };
 
