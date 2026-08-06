@@ -112,25 +112,25 @@ def complete(
     success: bool,
     summary: str,
 ) -> None:
-    check = find_check(repo, sha, external_id)
-    if not check:
-        raise CheckError(f"no {CHECK_NAME!r} check exists for {sha}")
-    github(
-        "PATCH",
-        repo,
-        f"/check-runs/{check['id']}",
-        {
-            "name": CHECK_NAME,
-            "status": "completed",
-            "conclusion": "success" if success else "failure",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "details_url": run_url,
-            "output": {
-                "title": "OSRB review passed" if success else "OSRB review needs attention",
-                "summary": summary_with_guide(repo, summary),
-            },
+    payload = {
+        "name": CHECK_NAME,
+        "status": "completed",
+        "conclusion": "success" if success else "failure",
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "details_url": run_url,
+        "output": {
+            "title": "OSRB review passed" if success else "OSRB review needs attention",
+            "summary": summary_with_guide(repo, summary),
         },
-    )
+    }
+    check = find_check(repo, sha, external_id)
+    if check:
+        github("PATCH", repo, f"/check-runs/{check['id']}", payload)
+        return
+    # `start` runs first and should have created it. If that call was lost to a
+    # transient API failure, publish the conclusion anyway: a pull request with
+    # no check at all is worse than one showing the gate did not complete.
+    github("POST", repo, "/check-runs", {**payload, "head_sha": sha, "external_id": external_id})
 
 
 def main() -> int:

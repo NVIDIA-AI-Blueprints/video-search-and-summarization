@@ -81,7 +81,11 @@ jobs:
           esac
 
       - name: Mark release-branch review as not applicable
+        id: mark
         if: steps.pr.outputs.skip == 'true'
+        # Failing here must not abort before the completion step, or the check
+        # would stay in_progress with nothing left to resolve it.
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -128,21 +132,28 @@ jobs:
           MAX_POLL_DURATION_SECONDS: "2400"
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
+      # Unconditional, so every path that created the check also resolves it.
       - name: Complete OSRB check
-        if: always() && steps.pr.outputs.skip != 'true'
+        if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SKIP: ${{ steps.pr.outputs.skip }}
+          MARK_OUTCOME: ${{ steps.mark.outcome }}
           TRIGGER_OUTCOME: ${{ steps.trigger.outcome }}
           POLL_OUTCOME: ${{ steps.poll.outcome }}
         run: |
           set -euo pipefail
+          # The release-branch path already completed the check itself.
+          if [[ "$SKIP" == "true" && "$MARK_OUTCOME" == "success" ]]; then
+            exit 0
+          fi
           success=()
           if [[ "$TRIGGER_OUTCOME" == "success" && "$POLL_OUTCOME" == "success" ]]; then
             success=(--success)
             summary="The reported dependency changes passed OSRB review. No further OSRB action is required; normal required checks and CODEOWNERS review still apply."
-          elif [[ "$TRIGGER_OUTCOME" != "success" && "$TRIGGER_OUTCOME" != "failure" ]]; then
-            # The review was never dispatched, so this says nothing about the
-            # dependencies themselves. Distinguish it from a real finding.
+          elif [[ "$TRIGGER_OUTCOME" != "success" ]]; then
+            # No verdict was ever produced, so this says nothing about the
+            # dependencies themselves. Do not word it like a finding.
             summary="The OSRB gate could not run, so these dependency changes were not reviewed. Ask a repository maintainer to rerun License Diff; do not merge on the strength of this check."
           else
             summary="This change needs attention. Read the automated PR review and linked License Diff, then correct the dependency or work with the OSRB owner before pushing an update."

@@ -89,6 +89,33 @@ class DispatchTests(unittest.TestCase):
         start_block = start_block.split("- name:", 1)[0]
         self.assertNotIn("if:", start_block, "Start OSRB check must be unconditional")
 
+    def test_every_path_resolves_the_check(self) -> None:
+        """No branch may leave the check stuck in_progress with nothing to close it."""
+        workflow = WORKFLOW.read_text()
+        complete_block = workflow.split("- name: Complete OSRB check", 1)[1]
+        self.assertIn("if: always()\n", complete_block)
+        self.assertNotIn("always() && steps.pr.outputs.skip", complete_block)
+
+        mark_block = workflow.split("- name: Mark release-branch review as not applicable", 1)[1]
+        mark_block = mark_block.split("- name:", 1)[0]
+        self.assertIn("continue-on-error: true", mark_block)
+
+    def test_complete_publishes_even_when_the_check_was_never_started(self) -> None:
+        calls: list[tuple[str, str, dict | None]] = []
+
+        def fake_github(method: str, repo: str, path: str, payload: dict | None = None):
+            calls.append((method, path, payload))
+            return {"check_runs": []} if method == "GET" else {}
+
+        with mock.patch.object(check, "github", fake_github):
+            check.complete("owner/repo", "deadbeef", "https://run", "gitlab-osrb:1", False, "why")
+
+        self.assertEqual([call[0] for call in calls], ["GET", "POST"])
+        created = calls[1][2] or {}
+        self.assertEqual(created["head_sha"], "deadbeef")
+        self.assertEqual(created["conclusion"], "failure")
+        self.assertEqual(created["external_id"], "gitlab-osrb:1")
+
     def test_dispatch_job_wiring_is_exercised_in_ci(self) -> None:
         self.assertIn(
             "python3 .github/scripts/test_osrb_dispatch.py",
