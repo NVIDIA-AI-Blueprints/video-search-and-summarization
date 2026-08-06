@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.3.1"
+  version: "3.3.2"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -665,7 +665,16 @@ Use for "generate an SOP compliance report" over a sensor + time range. Data com
 - Confirm the SOP tools are present (once). The four `get_sop_*` tools are added by the SOP patch and are **not** in the base `/vss-query-analytics` tool set, so call the VA-MCP endpoint directly (two-step MCP JSON-RPC: `initialize` → `tools/list`):
 
 ```bash
-# Resolve VA_MCP_URL first (Endpoint resolution above). Force public path on K8s.
+# Each fenced block is its own shell — re-derive VA-MCP here (do not rely on
+# Endpoint resolution above). Force public path when VSS_PUBLIC_URL is set.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
 MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
 SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
@@ -685,6 +694,14 @@ curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID"
 Call `video_analytics__get_sop_report` on the same endpoint. Each fenced block runs as its own shell, so `$MCP` / `$SID` / `$CT` / `$AC` from Step 1 do NOT carry over — re-establish them and re-`initialize` for a fresh session id here:
 
 ```bash
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
 MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
 SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \

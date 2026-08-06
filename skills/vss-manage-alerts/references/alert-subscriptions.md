@@ -43,10 +43,26 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 
 ## Setup
 
-Resolve `$AB` and `$VST` once from the parent skill's *Deployment prerequisite*
-(Kubernetes: `${VSS_PUBLIC_URL}/alert-bridge` and `${VSS_PUBLIC_URL}`; Docker:
-`http://${HOST_IP}:9080` and `http://${HOST_IP}:30888`). Do not hardcode host
+Resolve `$AB` and `$VST` in **this** playbook's shell before any curl (parent
+skill resolution does not carry across files or fenced blocks). Kubernetes:
+`${VSS_PUBLIC_URL}/alert-bridge` and `${VSS_PUBLIC_URL}`; Docker:
+`http://${HOST_IP}:9080` and `http://${HOST_IP}:30888`. Do not hardcode host
 ports when `VSS_PUBLIC_URL` is set.
+
+```bash
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  AB="${VSS_PUBLIC_URL%/}/alert-bridge"
+  VST="${VSS_PUBLIC_URL%/}"
+else
+  : "${HOST_IP:?Set HOST_IP for Docker Compose or VSS_PUBLIC_URL for Kubernetes}"
+  AB="http://${HOST_IP}:9080"
+  VST="http://${HOST_IP}:30888"
+fi
+: "${AB:?Resolve AB}"; : "${VST:?Resolve VST}"
+```
 
 **1. Alert Bridge endpoint:** `$AB`
 - All Alert Bridge API calls use `$AB/api/v1/realtime`.
@@ -417,7 +433,7 @@ All errors must be translated into plain language. Never show raw HTTP responses
 
 - **RTSP streams only:** Realtime alerts require a live RTSP stream. When resolving a sensor in Step 2, verify the stream `url` starts with `rtsp://`. If the `url` is a file path (e.g. `"/data/vst/streamer_videos/video.mp4"`), the sensor is a file-based upload and cannot be used for realtime monitoring. Report: "Sensor '`<name>`' is a file-based sensor, not a live camera. Realtime alerts require a live RTSP stream."
 - **jq:** All JSON responses are piped through `jq .` for readability.
-- **Endpoint resolution:** Use `$AB` and `$VST` from the parent skill (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge` + `${VSS_PUBLIC_URL}`; Docker `:9080` + `:30888`). Do not prompt for host/ports; do not keep Docker host ports when `VSS_PUBLIC_URL` is set.
+- **Endpoint resolution:** Re-derive `$AB` and `$VST` in this playbook's Setup block (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge` + `${VSS_PUBLIC_URL}`; Docker `:9080` + `:30888`). Do not prompt for host/ports; do not keep Docker host ports when `VSS_PUBLIC_URL` is set.
 - **Prompt passthrough:** The user's prompt is sent verbatim to the Alert Bridge `prompt` field. Do not rephrase, summarize, or alter it — the vision model needs the user's original intent.
 
 ---

@@ -4,7 +4,7 @@ description: Use this skill when reading video-analytics metrics, incidents, ale
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.2.2"
+  version: "3.2.3"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -91,8 +91,17 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 1. Probe VA-MCP liveness via `/health` (Ingress rewrites
    `${VSS_PUBLIC_URL}/va-mcp/health` → `/health` on the Service). Do **not**
    use `GET /mcp` or the service root as the readiness check — those are not
-   reliable health routes.
+   reliable health routes. Re-derive endpoints in this shell (fenced blocks
+   do not share state):
    ```bash
+   if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+     VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+   fi
+   if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+     VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+   else
+     VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+   fi
    curl -sf --max-time 5 "${VA_MCP_URL%/}/health" >/dev/null
    ```
 
@@ -119,6 +128,17 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 **Every query requires two shell commands run in sequence:**
 
 ```bash
+# Re-derive in this shell — fenced blocks do not share prior state.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
+VA_MCP_MCP="${VA_MCP_URL%/}/mcp"
+
 # Step 1: initialize — get session ID from response HEADER
 SESSION_ID=$(curl -si -X POST "${VA_MCP_MCP}" \
   -H "Content-Type: application/json" \
@@ -217,6 +237,14 @@ JSON-RPC 2.0 over Server-Sent Events.
 1. **Verify reachability** before any `tools/call`:
 
    ```bash
+   if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+     VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+   fi
+   if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+     VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+   else
+     VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+   fi
    curl -sf --max-time 5 "${VA_MCP_URL%/}/health" >/dev/null
    ```
 
