@@ -7099,6 +7099,14 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
 
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
+    BREV_AUTH_TRACE = (
+        "github.com/brevdev/brev-cli/pkg/auth.Auth.PromptForLogin\n"
+        "/go/src/github.com/brevdev/brev-cli/pkg/auth/auth.go:247\n"
+        ": [error]\n"
+        "github.com/brevdev/brev-cli/pkg/auth.shouldLogin\n"
+        ": EOF\nEOF\n"
+    )
+
     def setUp(self):
         # Scheduling tests use compressed synthetic clocks and budgets. Keep
         # those fixtures small without weakening the production constants that
@@ -10202,6 +10210,93 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(calls["lock"], ("vss-eval-rtx-1g-2", "instance-123"))
         self.assertEqual(lock.remote_target, "instance-123")
 
+    def test_worker_selection_fails_fast_on_brev_login_eof(self):
+        instances = [
+            {
+                "id": "instance-123",
+                "name": "vss-eval-rtx-1g-2",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+            },
+        ]
+        auth_result = smoke_runner.CommandResult(
+            1,
+            "",
+            self.BREV_AUTH_TRACE,
+        )
+        with (
+            mock.patch.object(
+                smoke_runner,
+                "_list_instances",
+                return_value=instances,
+            ),
+            mock.patch.object(
+                smoke_runner,
+                "_run",
+                return_value=auth_result,
+            ) as run,
+            mock.patch.object(smoke_runner.time, "sleep") as sleep,
+            self.assertRaisesRegex(
+                smoke_runner.worker_pool.BrevAuthenticationError,
+                "PromptForLogin reached EOF",
+            ) as ctx,
+        ):
+            smoke_runner._select_and_lock_instance(
+                "RTXPRO6000BW",
+                1,
+                None,
+                1200,
+            )
+
+        self.assertNotIn("lock timeout", str(ctx.exception))
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_remote_lock_fails_fast_on_brev_login_eof(self):
+        handle = mock.Mock()
+
+        def fake_remote_lock(remote_executor, instance):
+            self.assertEqual(instance, "vss-eval-rtx-1g-2")
+            try:
+                remote_executor("remote lock command", 60)
+            except smoke_runner.worker_pool.BrevAuthenticationError:
+                # Match remote_worker_lock's fail-closed transport contract:
+                # the helper logs arbitrary executor failures and returns no
+                # lease rather than propagating them.
+                pass
+            return None
+
+        with (
+            mock.patch.object(smoke_runner.os, "open", return_value=123),
+            mock.patch.object(smoke_runner.os, "fdopen", return_value=handle),
+            mock.patch.object(smoke_runner.fcntl, "flock"),
+            mock.patch.object(
+                smoke_runner,
+                "_run",
+                return_value=smoke_runner.CommandResult(
+                    1,
+                    "",
+                    self.BREV_AUTH_TRACE,
+                ),
+            ),
+            mock.patch.object(
+                smoke_runner.remote_worker_lock,
+                "try_acquire_remote_worker_lock",
+                side_effect=fake_remote_lock,
+            ) as acquire,
+            self.assertRaisesRegex(
+                smoke_runner.worker_pool.BrevAuthenticationError,
+                "PromptForLogin reached EOF",
+            ),
+        ):
+            smoke_runner._try_acquire_lock(
+                "vss-eval-rtx-1g-2",
+                "instance-123",
+            )
+
+        acquire.assert_called_once()
+        handle.close.assert_called_once()
+
     def test_registered_worker_uses_human_name_instead_of_node_id(self):
         target = smoke_runner._exec_target_for_instance(
             {
@@ -12371,7 +12466,7 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             nemoclaw_plan_source,
         )
         self.assertIn(
-            "runs-on: [self-hosted, vss-skill-eval-runner]",
+            "runs-on: [self-hosted, vss-skill-eval-runner, brev]",
             nemoclaw_eval_source,
         )
         self.assertNotIn(

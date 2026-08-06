@@ -1307,11 +1307,27 @@ def _worker_remote_executor(
         command: str,
         timeout: int,
     ) -> CommandResult:
-        return _run(
+        setattr(execute_managed, "_brev_auth_failure", None)
+        result = _run(
             ["brev", "exec", target, command],
             timeout=timeout,
         )
+        try:
+            worker_pool._raise_if_brev_auth_failure(
+                result.stdout,
+                result.stderr,
+                f"brev exec {instance} (worker selection)",
+            )
+        except worker_pool.BrevAuthenticationError as exc:
+            # The shared remote-lock helper deliberately converts transport
+            # exceptions into an unavailable lease. Preserve this terminal
+            # classification on the exact executor object so its caller can
+            # recover it without substituting a different executor identity.
+            setattr(execute_managed, "_brev_auth_failure", exc)
+            raise
+        return result
 
+    setattr(execute_managed, "_brev_auth_failure", None)
     return execute_managed
 
 
@@ -1344,6 +1360,11 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
         flush=True,
     )
     refresh = _run(["brev", "refresh"], timeout=60)
+    worker_pool._raise_if_brev_auth_failure(
+        refresh.stdout,
+        refresh.stderr,
+        "brev refresh (worker selection)",
+    )
     if refresh.returncode != 0:
         tail = _reachability_failure_text(refresh)[-800:] or "<no output>"
         print(
@@ -1385,6 +1406,7 @@ def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLo
     remote_owner: str | None = None
     remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
     remote_executor = _worker_remote_executor(instance, exec_target)
+
     try:
         remote_lock_disabled = (
             os.environ.get("NEMOCLAW_DISABLE_REMOTE_WORKER_LOCK", "").strip().lower()
@@ -1395,6 +1417,16 @@ def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLo
                 remote_executor,
                 instance,
             )
+            remote_auth_failure = getattr(
+                remote_executor,
+                "__dict__",
+                {},
+            ).get("_brev_auth_failure")
+            if isinstance(
+                remote_auth_failure,
+                worker_pool.BrevAuthenticationError,
+            ):
+                raise remote_auth_failure
             if remote_lease is None:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 handle.close()
@@ -4096,7 +4128,7 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         return 0
-    except InfrastructureBlocked as exc:
+    except (InfrastructureBlocked, worker_pool.BrevAuthenticationError) as exc:
         reason = str(exc)
         print(f"BLOCKED: NemoClaw smoke infra blocked: {reason}", file=sys.stderr, flush=True)
         _append_blocked_summary(

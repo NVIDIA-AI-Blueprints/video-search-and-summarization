@@ -420,11 +420,11 @@ jobs:
     name: NemoClaw / ${{ matrix.name }}
     needs: nemoclaw_plan
     if: needs.nemoclaw_plan.outputs.has_targets == 'true'
-    # The v2 skill-eval coordinators carry the operator-maintained
-    # BREV_REGISTERED_POOL allowlist, registered-node visibility, and SSH
-    # aliases. Legacy nemoclaw-ci-runner hosts can drive managed Brev
-    # instances but do not have that registered-worker configuration.
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    # Restrict execution to the Brev-designated v2 validator coordinators.
+    # Other vss-skill-eval-runner replicas run unrelated workloads and do not
+    # consistently carry the operator-maintained Brev auth, registered-pool
+    # allowlist, and SSH aliases that this job requires.
+    runs-on: [self-hosted, vss-skill-eval-runner, brev]
     strategy:
       fail-fast: false
       # Two coordinators can use the two currently healthy large-disk workers

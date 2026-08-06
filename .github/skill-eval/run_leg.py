@@ -169,6 +169,10 @@ class LockTimeoutError(RuntimeError):
     pass
 
 
+class BrevAuthenticationError(RuntimeError):
+    """Raised when the non-interactive Brev CLI cannot refresh its login."""
+
+
 class LegDeadlineError(RuntimeError):
     pass
 
@@ -452,6 +456,37 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
     return []
 
 
+def _brev_auth_failure_reason(
+    stdout: str | None,
+    stderr: str | None,
+    operation: str,
+) -> str | None:
+    """Classify the Brev CLI's terminal headless-login failure.
+
+    A bare ``EOF`` is also emitted by transient SSH/RPC failures, so require
+    the Brev auth stack's ``PromptForLogin`` marker as well.
+    """
+    output = "\n".join(part for part in (stdout, stderr) if part)
+    lowered = output.lower()
+    if "promptforlogin" not in lowered or not re.search(r"\beof\b", lowered):
+        return None
+    return (
+        f"Brev CLI authentication failed during {operation}: "
+        "PromptForLogin reached EOF in the non-interactive coordinator; "
+        "refresh the coordinator's Brev credentials"
+    )
+
+
+def _raise_if_brev_auth_failure(
+    stdout: str | None,
+    stderr: str | None,
+    operation: str,
+) -> None:
+    reason = _brev_auth_failure_reason(stdout, stderr, operation)
+    if reason is not None:
+        raise BrevAuthenticationError(reason)
+
+
 def _list_brev_instances() -> list[dict]:
     """Snapshot `brev ls --json` with retries for transient RPC flakes.
     An org with zero managed instances prints `null` — authoritative-empty."""
@@ -465,6 +500,11 @@ def _list_brev_instances() -> list[dict]:
             print(f"[run-leg] brev ls failed (attempt {attempt + 1}): {exc}", flush=True)
             time.sleep(5)
             continue
+        _raise_if_brev_auth_failure(
+            proc.stdout,
+            proc.stderr,
+            "brev ls --json",
+        )
         raw = (proc.stdout or "").strip()
         if raw.startswith("null"):
             return []
@@ -496,6 +536,11 @@ def _list_registered_nodes() -> list[dict]:
             )
             time.sleep(5)
             continue
+        _raise_if_brev_auth_failure(
+            proc.stdout,
+            proc.stderr,
+            "brev ls nodes --json",
+        )
         raw = (proc.stdout or "").strip()
         if raw.startswith("null"):
             return []
