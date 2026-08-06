@@ -306,7 +306,6 @@ class AnomalyEnhancer(
         # ``async_io_enabled`` gates the thread_bridge machinery only; the
         # event_loop mode awaits external I/O on the pipeline loop instead of
         # routing it through the per-service guardrail wrappers.
-        self.async_io_enabled = self.pipeline_mode == PIPELINE_MODE_THREAD_BRIDGE
         event_loop_mode = self.pipeline_mode == PIPELINE_MODE_EVENT_LOOP
         # thread_bridge is one path: VST lookup, Elastic sink publishing and
         # dedup state all hand off to the async runtime together. Toggling

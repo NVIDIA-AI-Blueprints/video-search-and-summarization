@@ -93,6 +93,16 @@ def _fallback_to_inline(
 
 
 class AsyncDispatchMixin:
+    @property
+    def async_io_enabled(self) -> bool:
+        """Whether thread_bridge machinery applies.
+
+        Derived rather than stored: it was previously a second attribute
+        assigned once from ``pipeline_mode``, which went stale the moment
+        anything reassigned the mode.
+        """
+        return getattr(self, "pipeline_mode", None) == PIPELINE_MODE_THREAD_BRIDGE
+
     def _effective_pipeline_mode(self) -> str:
         return _effective_mode(self)
 
