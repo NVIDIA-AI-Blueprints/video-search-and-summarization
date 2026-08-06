@@ -429,7 +429,11 @@ class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
         async def fake_run_brev_exec(instance, command, timeout=30):
             calls.append((instance, command, timeout))
             return brev_env.ExecResult(
-                stdout="117G\n42G\nvss-eval-rtx-1g-2\n",
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:42\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
                 stderr=None,
                 return_code=0,
             )
@@ -454,12 +458,18 @@ class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
             "docker info --format '{{.DockerRootDir}}'",
             calls[0][1],
         )
-        self.assertIn("awk '{print $2; print $4}'", calls[0][1])
+        self.assertIn("df -P -BG", calls[0][1])
+        self.assertIn("SKILL_EVAL_STORAGE_TOTAL_GB:", calls[0][1])
+        self.assertIn("SKILL_EVAL_STORAGE_FREE_GB:", calls[0][1])
 
     async def test_docker_storage_free_floor_rejects_low_headroom(self):
         async def fake_run_brev_exec(instance, command, timeout=30):
             return brev_env.ExecResult(
-                stdout="117G\n10G\nvss-eval-rtx-1g-2\n",
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:10\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
                 stderr=None,
                 return_code=0,
             )
@@ -486,8 +496,17 @@ class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
 
     async def test_required_docker_storage_free_check_fails_closed(self):
         for stdout in (
-            "117G\nnot-a-size\nvss-eval-rtx-1g-2\n",
-            "117G\nvss-eval-rtx-1g-2\n",
+            (
+                "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                "SKILL_EVAL_STORAGE_FREE_GB:not-a-size\n"
+                "vss-eval-rtx-1g-2\n"
+            ),
+            "SKILL_EVAL_STORAGE_TOTAL_GB:117\nvss-eval-rtx-1g-2\n",
+            (
+                "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                "SKILL_EVAL_STORAGE_FREE_GB:42\n"
+                "SKILL_EVAL_STORAGE_FREE_GB:43\n"
+            ),
         ):
             with self.subTest(stdout=stdout):
                 with (
@@ -518,7 +537,11 @@ class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
     async def test_root_disk_parser_ignores_brev_workspace_suffix(self):
         async def fake_run_brev_exec(instance, command, timeout=30):
             return brev_env.ExecResult(
-                stdout="200G\nvss-eval-rtx-1g-2\n",
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:200\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:80\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
                 stderr=None,
                 return_code=0,
             )
@@ -536,7 +559,11 @@ class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
     async def test_root_disk_floor_rejects_decorated_small_disk_output(self):
         async def fake_run_brev_exec(instance, command, timeout=30):
             return brev_env.ExecResult(
-                stdout="117G\nvss-eval-rtx-1g-2\n",
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:20\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
                 stderr=None,
                 return_code=0,
             )
@@ -1240,6 +1267,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
     async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
         calls = []
         lifecycle_events = []
+        live_requirements = []
         reset_kwargs = []
         attempt_owner_token = "0123456789abcdef0123456789abcdef"
 
@@ -1251,6 +1279,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
         async def fake_check_live_resources(instance, requirements):
             lifecycle_events.append("live-resource-check")
+            live_requirements.append(dict(requirements))
             return None
 
         async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
@@ -1277,7 +1306,10 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 env_dir = task_dir / "environment"
                 env_dir.mkdir(parents=True)
                 (task_dir / "task.toml").write_text(
-                    "[metadata]\nrunner = \"nemoclaw\"\n",
+                    "[metadata]\n"
+                    "runner = \"nemoclaw\"\n"
+                    "min_root_disk_gb = 110\n"
+                    "min_root_disk_free_gb = 20\n",
                     encoding="utf-8",
                 )
 
@@ -1286,6 +1318,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
                 async def reset_noop(self, *args, **kwargs):
                     reset_kwargs.append(kwargs)
+                    lifecycle_events.append("docker-reset")
 
                 env = brev_env.BrevEnvironment()
                 env.environment_dir = env_dir
@@ -1311,9 +1344,26 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             reset_kwargs,
             [{"preserve_openshell_gateway": True}],
         )
-        self.assertLess(
-            lifecycle_events.index("artifact-reset"),
-            lifecycle_events.index("live-resource-check"),
+        self.assertEqual(
+            lifecycle_events,
+            [
+                "artifact-reset",
+                "live-resource-check",
+                "docker-reset",
+                "live-resource-check",
+            ],
+        )
+        self.assertEqual(
+            live_requirements[0]["min_root_disk_free_gb"],
+            0,
+        )
+        self.assertTrue(live_requirements[0]["_check_docker_storage"])
+        self.assertEqual(
+            live_requirements[1],
+            {
+                "min_root_disk_gb": 110,
+                "min_root_disk_free_gb": 20,
+            },
         )
         reset_commands = [command for _, command, _ in calls if "sudo rm -rf" in command]
         self.assertEqual(len(reset_commands), 1)

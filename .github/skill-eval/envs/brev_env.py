@@ -15,7 +15,7 @@ Task.toml [metadata] fields consumed:
     gpu_count             — 1 or 2
     min_vram_gb_per_gpu   — e.g. 48, 80
     min_root_disk_gb      — storage-filesystem size floor post-resolve
-    min_root_disk_free_gb — optional free-space floor on Docker storage
+    min_root_disk_free_gb — first-trial post-reset Docker free-space floor
     min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
     nemoclaw_sample_files — (optional) allowlisted sample MP4s staged into
@@ -739,14 +739,30 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
-        # Live resource checks: root disk + GPU driver. Run these only after
+        task_dir = self.environment_dir.parent
+        task_dir_name = task_dir.name
+        is_first_trial = not (
+            task_dir_name.startswith("step-") and task_dir_name != "step-1"
+        )
+
+        # Live resource checks: storage + GPU driver. Run these only after
         # the attempt owner marker and clean artifact epoch above are in
         # place. A warm worker that fails this preflight must not let Harbor
         # collect another trial's /logs/artifacts as this attempt's evidence.
-        # The pool box was provisioned by the operator and is expected to meet
-        # these requirements, but the checks catch silent regressions (for
-        # example a ~100 GB root filesystem that cannot hold local NIM images).
-        await _check_live_resources(self._instance_name, requirements)
+        # Validate the immutable Docker-filesystem total here, but defer the
+        # free-space floor until a first trial's reset removes the preceding
+        # trial's disposable containers and volumes. Later steps deliberately
+        # preserve step 1's deployment (including large model volumes), so
+        # applying the clean-slate headroom floor to them would reject the
+        # expected state they are meant to verify.
+        initial_requirements = requirements
+        if requirements["min_root_disk_free_gb"]:
+            initial_requirements = {
+                **requirements,
+                "min_root_disk_free_gb": 0,
+                "_check_docker_storage": True,
+            }
+        await _check_live_resources(self._instance_name, initial_requirements)
 
         # Archive session JSONLs and root-level agent outputs left by prior
         # trials on this warm-pool box. Without this, Harbor's mapper merges every
@@ -902,7 +918,6 @@ class BrevEnvironment(BaseEnvironment):
         # Upload the task's skills/ directory to /skills on the instance
         # so Claude Code can register them via task.toml:
         # [environment] skills_dir = "/skills"
-        task_dir = self.environment_dir.parent
         task_skills_dir = task_dir / "skills"
         if task_skills_dir.is_dir():
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
@@ -940,10 +955,6 @@ class BrevEnvironment(BaseEnvironment):
         # AND the repo sync — because each of them tears down state the later
         # step under test depends on. (`environment_dir.parent` is the task
         # dir — named `step-N` for multi-step, the platform for single-step.)
-        task_dir_name = self.environment_dir.parent.name
-        is_first_trial = not (
-            task_dir_name.startswith("step-") and task_dir_name != "step-1"
-        )
         if is_first_trial:
             await self._reset_docker_runtime(
                 preserve_openshell_gateway=_uses_nemoclaw(meta),
@@ -951,6 +962,16 @@ class BrevEnvironment(BaseEnvironment):
             # Host bind-mount purge runs AFTER the docker reset so every
             # container that writes into these dirs is already gone.
             await self._purge_host_data_dirs()
+            if requirements["min_root_disk_free_gb"]:
+                await _check_live_resources(
+                    self._instance_name,
+                    {
+                        "min_root_disk_gb": requirements["min_root_disk_gb"],
+                        "min_root_disk_free_gb": requirements[
+                            "min_root_disk_free_gb"
+                        ],
+                    },
+                )
         else:
             logger.info(
                 "Skipping docker reset, host purge, and repo sync on %s — %s "
@@ -4232,34 +4253,22 @@ def _version_lt(a: str, b: str) -> bool:
     return tup(a) < tup(b)
 
 
-def _parse_df_size_gb(output: str | None) -> int | None:
-    """Return the first standalone ``df -BG`` size from Brev CLI output.
-
-    Managed ``brev exec`` can append the workspace name after the remote
-    command's stdout (for example ``117G\nvss-eval-rtx-1g-2\n``).  Parsing
-    the entire buffer silently disabled the disk requirement on exactly those
-    workers.  Accept only a line containing an integer with an optional
-    trailing ``G``; ignore transport decorations and instance names.
-    """
-    for line in (output or "").splitlines():
-        value = line.strip()
-        if value.endswith("G"):
-            value = value[:-1].strip()
-        if value.isdigit():
-            return int(value)
-    return None
+_DF_TOTAL_MARKER = "SKILL_EVAL_STORAGE_TOTAL_GB:"
+_DF_FREE_MARKER = "SKILL_EVAL_STORAGE_FREE_GB:"
 
 
-def _parse_df_sizes_gb(output: str | None) -> list[int]:
-    """Return standalone ``df -BG`` values, ignoring transport suffixes."""
+def _parse_df_marker_gb(output: str | None, marker: str) -> int | None:
+    """Parse exactly one anchored numeric storage marker from remote output."""
     values: list[int] = []
     for line in (output or "").splitlines():
-        value = line.strip()
-        if value.endswith("G"):
-            value = value[:-1].strip()
-        if value.isdigit():
-            values.append(int(value))
-    return values
+        stripped = line.strip()
+        if not stripped.startswith(marker):
+            continue
+        value = stripped.removeprefix(marker)
+        if not value.isdigit():
+            return None
+        values.append(int(value))
+    return values[0] if len(values) == 1 else None
 
 
 async def _check_live_resources(instance_name: str, req: dict) -> None:
@@ -4267,42 +4276,52 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
     min_disk = req.get("min_root_disk_gb", 0)
     min_free_disk = req.get("min_root_disk_free_gb", 0)
     min_driver = req.get("min_gpu_driver_version")
+    check_docker_storage = bool(
+        min_free_disk or req.get("_check_docker_storage", False)
+    )
 
     if min_disk or min_free_disk:
         # Managed warm-pool tasks set a free-space floor. Probe the filesystem
-        # that actually backs Docker when it is locally visible; otherwise
-        # fall back to /. Generic tasks retain the legacy root-filesystem
-        # total-size contract.
-        if min_free_disk:
-            disk_command = (
+        # that actually backs Docker and fail closed if Docker cannot identify
+        # it. Generic tasks retain the legacy root-filesystem total contract.
+        if check_docker_storage:
+            target_command = (
                 "docker_root=$(docker info --format "
-                "'{{.DockerRootDir}}' 2>/dev/null | tail -1 || true); "
-                "target=/; "
-                "if [ -n \"$docker_root\" ] && [ -e \"$docker_root\" ]; "
-                "then target=$docker_root; fi; "
-                "df -BG -- \"$target\" | tail -1 | "
-                "awk '{print $2; print $4}'"
+                "'{{.DockerRootDir}}' 2>/dev/null); "
+                "[ -n \"$docker_root\" ] && [ -d \"$docker_root\" ]; "
+                "target=$docker_root; "
             )
         else:
-            disk_command = "df -BG / | tail -1 | awk '{print $2}'"
+            target_command = "target=/; "
+        disk_command = (
+            "set -eu; "
+            + target_command
+            + "df -P -BG -- \"$target\" | "
+            "awk 'NR == 2 { "
+            "total=$2; free=$4; sub(/G$/, \"\", total); "
+            "sub(/G$/, \"\", free); "
+            "if (total !~ /^[0-9]+$/ || free !~ /^[0-9]+$/) exit 2; "
+            f'printf "{_DF_TOTAL_MARKER}%s\\n", total; '
+            f'printf "{_DF_FREE_MARKER}%s\\n", free; '
+            "seen=1 } END { if (!seen) exit 3 }'"
+        )
         result = await _run_brev_exec(
             instance_name,
             disk_command,
             timeout=30,
         )
-        disk_values = (
-            _parse_df_sizes_gb(result.stdout)
+        total_gb = (
+            _parse_df_marker_gb(result.stdout, _DF_TOTAL_MARKER)
             if result.return_code == 0
-            else []
+            else None
         )
-        total_gb = disk_values[0] if disk_values else None
         storage_label = (
-            "Docker storage filesystem" if min_free_disk else "root disk"
+            "Docker storage filesystem" if check_docker_storage else "root disk"
         )
         if total_gb is None:
             raise RuntimeError(
                 f"Brev instance '{instance_name}' {storage_label} could not be "
-                "determined: df returned no standalone GB size"
+                "determined: df returned no unique total-GB marker"
             )
         if total_gb < min_disk:
             raise RuntimeError(
@@ -4313,12 +4332,12 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
                 f"instance type."
             )
         if min_free_disk:
-            free_gb = disk_values[1] if len(disk_values) > 1 else None
+            free_gb = _parse_df_marker_gb(result.stdout, _DF_FREE_MARKER)
             if free_gb is None:
                 raise RuntimeError(
                     f"Brev instance '{instance_name}' Docker storage free "
-                    "space could not be determined: df returned no standalone "
-                    "available-GB size"
+                    "space could not be determined: df returned no unique "
+                    "free-GB marker"
                 )
             if free_gb < min_free_disk:
                 raise RuntimeError(
@@ -4332,7 +4351,7 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
             "(required total=%s GB free=%s GB)",
             instance_name,
             total_gb,
-            disk_values[1] if len(disk_values) > 1 else "not-probed",
+            _parse_df_marker_gb(result.stdout, _DF_FREE_MARKER),
             min_disk,
             min_free_disk,
         )

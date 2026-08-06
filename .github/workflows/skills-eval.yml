@@ -576,10 +576,10 @@ jobs:
           # Keep the runner's fail-fast default for dependent task chains. It
           # records later tasks as SKIPPED when a prerequisite fails.
           export NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE=1
-          # The managed Brev pool has 120-GiB roots and retained VSS caches.
-          # Admit those workers without changing any eval's required local or
-          # remote model placement, while still requiring free space on the
-          # filesystem that actually backs Docker before Harbor starts.
+          # The managed NemoClaw fleet has 120-GiB roots. For the exact eight
+          # validated scenarios, use its bounded storage contract without
+          # changing required model placement. Unlisted scenarios retain their
+          # adapter floor; admitted rows must have free Docker space post-reset.
           export NEMOCLAW_BREV_POOL_STORAGE_CONTRACT=1
           # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
           # is online, the smoke runner can place this 1-GPU profile there.

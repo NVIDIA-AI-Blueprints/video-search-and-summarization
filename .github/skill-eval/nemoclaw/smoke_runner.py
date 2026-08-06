@@ -66,6 +66,42 @@ ATTEMPT_OWNER_PROBE_RETRY_DELAY_S = 3
 BREV_POOL_STORAGE_CONTRACT_ENV = "NEMOCLAW_BREV_POOL_STORAGE_CONTRACT"
 BREV_POOL_MIN_STORAGE_GB = 110
 BREV_POOL_MIN_FREE_STORAGE_GB = 20
+BREV_POOL_STORAGE_SCENARIOS = frozenset(
+    {
+        (
+            "vss-ask-video",
+            "base_profile_video_understanding",
+            "RTXPRO6000BW",
+        ),
+        (
+            "vss-deploy-dense-captioning",
+            "alerts_profile_api",
+            "RTXPRO6000BW",
+        ),
+        ("vss-deploy-profile", "base", "RTXPRO6000BW"),
+        (
+            "vss-generate-video-report",
+            "base_profile_report",
+            "RTXPRO6000BW",
+        ),
+        (
+            "vss-manage-alerts",
+            "alerts_vlm_real_time",
+            "RTXPRO6000BW",
+        ),
+        (
+            "vss-query-analytics",
+            "query_analytics",
+            "RTXPRO6000BW",
+        ),
+        (
+            "vss-setup-behavior-analytics",
+            "deploy_search_and_alerts",
+            "ANY",
+        ),
+        ("vss-summarize-video", "lvs_api_ops", "RTXPRO6000BW"),
+    }
+)
 _REGISTERED_WORKERS: set[str] = set()
 
 PLATFORM_TASK = {
@@ -1047,7 +1083,11 @@ def _wrap_task_for_nemoclaw(
         "requires_mcp": True,
         "expected_skill": skill,
     }
-    if _env_flag(BREV_POOL_STORAGE_CONTRACT_ENV, default=False):
+    if (
+        _env_flag(BREV_POOL_STORAGE_CONTRACT_ENV, default=False)
+        and (skill, spec_path.stem, task_platform.upper())
+        in BREV_POOL_STORAGE_SCENARIOS
+    ):
         metadata_updates.update(
             {
                 "min_root_disk_gb": BREV_POOL_MIN_STORAGE_GB,
@@ -2174,15 +2214,17 @@ def _stream_command(
                         message = (
                             "[nemoclaw-ci] Harbor leader exited while child "
                             "processes remained; registered transport groups: "
-                            f"{groups}\n"
+                            f"{groups}; preserving leader exit "
+                            f"{proc.returncode}\n"
                         )
                         print(message, end="", flush=True)
                         log.write(message)
                         log.flush()
                         cancellation_reason = (
-                            "Harbor leader exited with live child processes"
+                            "Harbor leader exited with live child processes; "
+                            "reaping descendants without changing its result"
                         )
-                        outcome = 124
+                        outcome = proc.returncode or 0
                         break
                     for rest in proc.stdout:
                         print(rest, end="", flush=True)
