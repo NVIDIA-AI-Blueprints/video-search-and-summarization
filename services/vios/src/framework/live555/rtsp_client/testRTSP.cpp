@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,7 +34,7 @@ void continueAfterPLAY(RTSPClient* rtspClient, int resultCode, char* resultStrin
 void subsessionAfterPlaying(void* clientData); // called when a stream's subsession (e.g., audio or video substream) ends
 void subsessionByeHandler(void* clientData, char const* reason);
   // called when a RTCP "BYE" is received for a subsession
-void subsessionSRHandler(void* clientData);
+void subsessionSRHandler(MediaSubsession* subsession);
 void streamTimerHandler(void* clientData);
   // called at the end of a stream's expected duration (if the stream has not already signaled its end using a RTCP "BYE")
 
@@ -378,7 +378,9 @@ void continueAfterSETUP(RTSPClient* rtspClient, int resultCode, char* resultStri
     if (scs.subsession->rtcpInstance() != nullptr) {
       scs.subsession->rtcpInstance()->setByeWithReasonHandler(subsessionByeHandler, scs.subsession);
       if (((ourRTSPClient*)rtspClient)->m_enableSR == true) {
-        scs.subsession->rtcpInstance()->setSRHandler(subsessionSRHandler, scs.subsession);
+        scs.subsession->rtcpInstance()->setSRHandler(
+            [](void* clientData) { subsessionSRHandler(static_cast<MediaSubsession*>(clientData)); },
+            scs.subsession);
       }
     }
   } while (0);
@@ -537,8 +539,7 @@ void subsessionByeHandler(void* clientData, char const* reason) {
   subsessionAfterPlaying(subsession);
 }
 
-void subsessionSRHandler(void* clientData) {
-  MediaSubsession* subsession = (MediaSubsession*)clientData;
+void subsessionSRHandler(MediaSubsession* subsession) {
   RTSPClient* rtspClient = (RTSPClient*)subsession->miscPtr;
   UsageEnvironment& env = rtspClient->envir(); // alias
 

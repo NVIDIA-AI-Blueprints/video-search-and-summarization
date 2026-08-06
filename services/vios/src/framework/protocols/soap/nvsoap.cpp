@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -62,7 +62,6 @@ typedef unsigned char BYTE;
 std::mutex g_probeMutex;
 std::mutex g_probeMatchMutex;
 
-typedef int (*composeMethodXml) (xmlTextWriterPtr& writer, nvsoap_& soap);
 static int composeGetMethodXml(xmlTextWriterPtr& writer, nvsoap_& soap);
 static int composeGetUriXml(xmlTextWriterPtr& writer, nvsoap_& soap);
 static int composeGetCapabilitiesMethodXml(xmlTextWriterPtr& writer, nvsoap_& soap);
@@ -146,7 +145,7 @@ int NvSoap::GetSystemDateAndTime(nvsoap_& soap, string& res)
     string out;
     soap.method = "GetSystemDateAndTime";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXmlWithoutUsertoken(soap, (void*)&composeGetMethodXml);
+    soap.xmlData = composeXmlWithoutUsertoken(soap, &composeGetMethodXml);
     ret = createAndSendRequest(soap, out);
     if (ret == 0)
     {
@@ -4390,7 +4389,7 @@ string NvSoap::composeXml(nvsoap_& soap, void* methodxml)
       return retString;
 }
 
-string NvSoap::composeXmlWithoutUsertoken(nvsoap_& soap, void* methodxml)
+string NvSoap::composeXmlWithoutUsertoken(nvsoap_& soap, composeMethodXml methodxml)
 {
       int rc;
       xmlTextWriterPtr writer;
@@ -4434,8 +4433,7 @@ string NvSoap::composeXmlWithoutUsertoken(nvsoap_& soap, void* methodxml)
         return retString;
       }
 
-      composeMethodXml func = (composeMethodXml)methodxml;
-      if (func(writer, soap) < 0)
+      if (methodxml(writer, soap) < 0)
       {
           return retString;
       }

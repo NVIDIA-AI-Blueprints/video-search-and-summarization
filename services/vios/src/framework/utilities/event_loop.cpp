@@ -43,20 +43,9 @@ struct EventLoopMsg
     std::shared_ptr<void> msg;
 };
 
-EventLoop::EventLoop(std::string threadName, process_message func) 
-                    : m_thread(nullptr)
-                    , m_threadName(threadName)
-                    , m_processMsg(func)
-                    , m_parent(nullptr)
-{
-    CreateThread();
-}
-
 EventLoop::EventLoop(std::string threadName, process_message_handler handler)
                     : m_thread(nullptr)
                     , m_threadName(threadName)
-                    , m_processMsg(nullptr)
-                    , m_parent(nullptr)
                     , m_processMsgHandler(std::move(handler))
 {
     CreateThread();
@@ -113,10 +102,6 @@ void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData)
         if (m_processMsgHandler)
         {
             m_processMsgHandler(userData);
-        }
-        else if (m_processMsg)
-        {
-            m_processMsg(userData, m_parent);
         }
         {
             std::unique_lock<std::mutex> l(m_mutexProceeFunc);
@@ -185,7 +170,7 @@ void EventLoop::Process()
 
                 EVENT_LOOP_LOG
 
-                if ((m_processMsg && m_parent) || m_processMsgHandler)
+                if (m_processMsgHandler)
                 {
                     if (msg->id == MSG_POST_USER_DATA)
                     {
@@ -267,7 +252,6 @@ void EventLoop::ExitThread()
         m_queue.push(eventLoopMsg);
         m_cv.notify_all();
     }
-    m_processMsg = nullptr;
     m_processMsgHandler = nullptr;
     LOG(info) << "Waiting for process thread to finish" << endl;
     if (m_thread->joinable())

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -285,6 +285,7 @@ struct nvsoap_
     string jsonData;
 };
 
+typedef int (*composeMethodXml) (xmlTextWriterPtr& writer, nvsoap_& soap);
 
 class NvSoap
 {
@@ -377,7 +378,7 @@ private:
     bool setCameraNetworkInterfacesResponse(const string& xmlData);
     string rebootCameraResponse(const string& xmlData);
     string composeXml(nvsoap_& soap, void* methodxml);
-    string composeXmlWithoutUsertoken(nvsoap_& soap, void* methodxml);
+    string composeXmlWithoutUsertoken(nvsoap_& soap, composeMethodXml methodxml);
     string composeProbeXml();
     int sendProbe(map<string, SensorInfo>& deviceList);
     int receiveProbeMatch(string& outData);

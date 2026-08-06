@@ -29,6 +29,10 @@
 constexpr const char* MICROSERVICE_DEFAULT_ADAPTOR_NAME = "microservice";
 constexpr const char* MICROSERVICE_DEFAULT_ID = "640c3667-81e6-460f-b926-b8008a130dbd";
 
+namespace nv_vms {
+struct SharedLibrary;
+}
+
 using namespace nv_vms;
 
 static void writeToFile(const string data)
@@ -48,7 +52,7 @@ static void writeToFile(const string data)
     }
 }
 
-static void* loadLibrary(const string& path)
+static SharedLibrary* loadLibrary(const string& path)
 {
     string lib_path(path);
     replaceString(lib_path, "arch", ARCH);
@@ -69,7 +73,7 @@ static void* loadLibrary(const string& path)
 
     // reset errors
     dlerror();
-    return lib_handle;
+    return static_cast<SharedLibrary*>(lib_handle);
 }
 
 AdaptorLoader::AdaptorLoader()

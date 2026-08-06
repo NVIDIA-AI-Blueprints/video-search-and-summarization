@@ -48,19 +48,14 @@ struct EventLoopData
 
 struct EventLoopMsg;
 
-typedef void (*process_message)(std::shared_ptr<EventLoopData>, void*);
-
-/// Type-safe alternative to the process_message callback: the handler carries its own
-/// context (e.g. a capturing lambda), so no untyped parent pointer has to be threaded through.
+/// Message handler: it carries its own context (e.g. a capturing lambda), so no
+/// untyped parent pointer has to be threaded through.
 using process_message_handler = std::function<void(std::shared_ptr<EventLoopData>)>;
 
 class EventLoop
 {
 public:
     /// Constructor
-    EventLoop(std::string threadName, process_message);
-
-    /// Constructor taking a self-contained handler; no setParent() call is required.
     EventLoop(std::string threadName, process_message_handler handler);
 
     /// Destructor
@@ -85,8 +80,6 @@ public:
     /// @param[in] data - thread specific message information
     bool postMsg(std::shared_ptr<EventLoopData> msg);
 
-    void setParent(void* parent) { m_parent = parent; }
-
     int getPendingMessages();
 
     bool testEventLoopRunning();
@@ -109,8 +102,6 @@ private:
     std::condition_variable m_cv;
     std::queue<std::shared_ptr<EventLoopOutData>> m_outDataQueue;
     std::string m_threadName;
-    process_message m_processMsg;
-    void* m_parent;
     process_message_handler m_processMsgHandler;
     std::mutex m_mutexProceeFunc;
     std::condition_variable m_cvProcessFunc;

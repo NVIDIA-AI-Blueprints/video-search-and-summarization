@@ -79,7 +79,6 @@ struct DecoderData : public EventLoopData
 struct DecoderOutData : public EventLoopOutData
 {
     map<string, string> data;
-    void* data2;
     int result;
 };
 
