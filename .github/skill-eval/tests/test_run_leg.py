@@ -1126,8 +1126,112 @@ class PoolCandidates(unittest.TestCase):
 
         self.assertEqual(
             [instance["name"] for instance in instances],
-            ["vss-eval-rtx-2g-VM1b"],
+            ["vss-eval-rtx-2g-VM1b", "vss-eval-rtx-2g-vm2b"],
         )
+        self.assertNotIn(
+            "vss-eval-rtx-2g-skybridge",
+            [instance["name"] for instance in instances],
+        )
+        self.assertTrue(instances[1]["_inventory_fallback"])
+
+    def test_empty_api_inventory_uses_registered_ssh_allowlist(self):
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(
+                run_leg, "_list_brev_instances", return_value=[]
+            ),
+            mock.patch.object(
+                run_leg, "_list_registered_nodes", return_value=[]
+            ),
+        ):
+            instances = self._orig("RTX PRO 6000")
+
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0]["name"], "vss-eval-rtx-2g-vm1b")
+        self.assertTrue(instances[0]["_registered"])
+        self.assertTrue(instances[0]["_inventory_fallback"])
+
+    def test_expired_brev_auth_falls_back_to_registered_ssh_allowlist(self):
+        auth_error = run_leg.BrevAuthenticationError("expired")
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "BREV_REGISTERED_POOL": (
+                        "vss-eval-rtx-2g-VM1b,vss-eval-rtx-2g-VM2b"
+                    )
+                },
+                clear=True,
+            ),
+            mock.patch.object(
+                run_leg, "_list_brev_instances", side_effect=auth_error
+            ),
+            mock.patch.object(
+                run_leg, "_list_registered_nodes", side_effect=auth_error
+            ),
+        ):
+            instances = self._orig("RTX PRO 6000")
+
+        self.assertEqual(
+            [instance["name"] for instance in instances],
+            ["vss-eval-rtx-2g-vm1b", "vss-eval-rtx-2g-vm2b"],
+        )
+        self.assertTrue(all(instance["_registered"] for instance in instances))
+        self.assertTrue(
+            all(instance["_inventory_fallback"] for instance in instances)
+        )
+        self.assertTrue(all(instance["status"] == "RUNNING" for instance in instances))
+
+    def test_expired_brev_auth_without_allowlist_still_fails_closed(self):
+        auth_error = run_leg.BrevAuthenticationError("expired")
+        with (
+            mock.patch.dict(run_leg.os.environ, {}, clear=True),
+            mock.patch.object(
+                run_leg, "_list_brev_instances", side_effect=auth_error
+            ),
+        ):
+            with self.assertRaisesRegex(
+                run_leg.BrevAuthenticationError, "expired"
+            ):
+                self._orig("RTX PRO 6000")
+
+    def test_allowlisted_worker_uses_ssh_without_brev_inventory(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(run_leg, "_list_brev_instances") as managed,
+            mock.patch.object(run_leg, "_list_registered_nodes") as registered,
+        ):
+            self.assertTrue(run_leg._worker_uses_ssh("VSS-EVAL-RTX-2G-VM1B"))
+
+        managed.assert_not_called()
+        registered.assert_not_called()
+
+    def test_allowlisted_4090_worker_uses_ssh_without_brev_inventory(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_RTX4090_POOL": "vss-eval-geforce-rtx4090-vm1"},
+                clear=True,
+            ),
+            mock.patch.object(run_leg, "_list_brev_instances") as managed,
+            mock.patch.object(run_leg, "_list_registered_nodes") as registered,
+        ):
+            self.assertTrue(
+                run_leg._worker_uses_ssh("vss-eval-geforce-rtx4090-vm1")
+            )
+
+        managed.assert_not_called()
+        registered.assert_not_called()
 
     def test_4090_pool_is_gated_by_explicit_gpu_type(self):
         env = {
