@@ -290,6 +290,73 @@ class PhaseBudgets(unittest.TestCase):
             )
 
 
+class BrevAuthenticationFailures(unittest.TestCase):
+    AUTH_TRACE = (
+        "github.com/brevdev/brev-cli/pkg/auth.Auth.PromptForLogin\n"
+        "/go/src/github.com/brevdev/brev-cli/pkg/auth/auth.go:247\n"
+        ": [error]\n"
+        "github.com/brevdev/brev-cli/pkg/auth.shouldLogin\n"
+        ": EOF\nEOF\n"
+    )
+
+    def test_managed_inventory_fails_fast_on_headless_login_eof(self):
+        result = subprocess.CompletedProcess(
+            ["brev", "ls", "--json"],
+            1,
+            "",
+            self.AUTH_TRACE,
+        )
+        with (
+            mock.patch.object(
+                run_leg.subprocess,
+                "run",
+                return_value=result,
+            ) as run,
+            mock.patch.object(run_leg.time, "sleep") as sleep,
+            self.assertRaisesRegex(
+                run_leg.BrevAuthenticationError,
+                "PromptForLogin reached EOF",
+            ),
+        ):
+            run_leg._list_brev_instances()
+
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_registered_inventory_fails_fast_on_headless_login_eof(self):
+        result = subprocess.CompletedProcess(
+            ["brev", "ls", "nodes", "--json"],
+            1,
+            "",
+            self.AUTH_TRACE,
+        )
+        with (
+            mock.patch.object(
+                run_leg.subprocess,
+                "run",
+                return_value=result,
+            ) as run,
+            mock.patch.object(run_leg.time, "sleep") as sleep,
+            self.assertRaisesRegex(
+                run_leg.BrevAuthenticationError,
+                "PromptForLogin reached EOF",
+            ),
+        ):
+            run_leg._list_registered_nodes()
+
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_generic_transport_eof_is_not_classified_as_auth(self):
+        reason = run_leg._brev_auth_failure_reason(
+            "",
+            "rpc error: error reading from server: EOF",
+            "brev exec worker",
+        )
+
+        self.assertIsNone(reason)
+
+
 class HarborEnvironment(unittest.TestCase):
     def test_brev_exec_timeout_outlives_harbor_agent_budget(self):
         with mock.patch.dict(
