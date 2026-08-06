@@ -185,11 +185,54 @@ Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list 
 | `Connection refused` on broker port | `vss-broker-health-check` | Kafka/Redis not listening — broker crashed |
 | `RTSP connection failed` / `Cannot open resource` | `vss-vios-nvstreamer` | RTSP source (camera / video file) unreachable |
 | `Health check failed` (after 60 s) | `vss-configurator` | Stream config bad — check `NUM_STREAMS`, `MODE` and `HARDWARE_PROFILE` in the active `generated.env` (not the checked-in `.env`, which holds none of them) |
+| `Error adding sensor <name>. Received status code 400 from VMS` repeating on **one** name | `vss-configurator` | Partial stream registration — see [Partial stream registration](#partial-stream-registration-400-from-vms) below. The stack stays fully healthy while running fewer streams than `NUM_STREAMS` |
 | `authentication required` / `401` | any | `NGC_CLI_API_KEY` invalid or expired |
 | `no space left on device` | any | Disk full — free space before redeploy |
 | `OOMKilled` (exit code 137) | any | Container OOM — check RAM (`free -h`) and GPU memory |
 
 > **Don't `docker restart vss-rtvi-cv` to "fix" stream issues during normal operation.** The SDR-to-CV stream re-registration after a CV restart is fragile — it often drops streams instead of recovering them. If perception is misbehaving, better to do a full clean redeploy.
+
+### Partial stream registration (`400 from VMS`)
+
+**Symptom.** Every container is `Up` or `Exited (0)`, nothing is unhealthy or restarting — but
+`docker logs vss-rtvi-cv | grep "Active sources"` reports fewer than `NUM_STREAMS`, and only the
+registered cameras appear on `mdx-raw`. No documented container-state check catches this.
+
+**Cause.** `vss-configurator` discovers all streams correctly (`final_stream_count` in its log
+confirms the intended number), then adds them to VST **sequentially**. If a transient
+`VST sensor add API unreachable` lands mid-sequence after the sensor was already created, the
+retry receives `400` (`Sensor exists already`) and the configurator loops on that one name
+indefinitely — without honoring its own "Retrying in 30 seconds" backoff — never reaching the
+remaining sensors.
+
+**Diagnose:**
+
+```bash
+# Which name is it stuck on, and what did it intend to add?
+docker logs vss-configurator 2>&1 | grep -aoE "Error adding sensor [A-Za-z_0-9]+" | sort | uniq -c
+docker logs vss-configurator 2>&1 | grep -a "final_stream_count"
+# What actually made it into VST:
+curl -s http://localhost:30888/vst/api/v1/sensor/list | grep -oE '"name" : "[^"]+"'
+```
+
+**Recover.** Add only the *missing* sensors directly to VST. Do not restart `vss-configurator`
+(it re-discovers and hits the same `400` on the already-added sensors), and do not restart
+`vss-rtvi-cv` — see the warning above. Take the `sensorUrl` values from the configurator's own
+discovery line; each stream has its own nvstreamer port:
+
+```bash
+curl -X POST http://localhost:30888/vst/api/v1/sensor/add \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Camera_01","password":"","sensorUrl":"rtsp://vss-vios-nvstreamer:31557/nvstream/tmp/nv_streamer/videos/Camera_01.mp4","username":""}'
+```
+
+Space adds ~20 s apart — back-to-back adds can stall the perception pipeline during caps
+negotiation. Perception attaches each new source dynamically; expect `0.00000` FPS at first
+while RTSP falls back from UDP to TCP (`Could not receive any UDP packets ... Retrying using a
+tcp connection`), then a climb to the source framerate. Re-check `Active sources` to confirm.
+
+The configurator keeps looping after this (roughly a quarter of a core) until the next redeploy;
+its config-file generation has already completed, so the loop is noise rather than a blocker.
 
 ## Elasticsearch Indices
 
@@ -478,21 +521,35 @@ Check whether perception is producing output.
 
 ```bash
 echo "--- Perception FPS (last 60 s) ---"
-docker logs --since 60s vss-rtvi-cv 2>&1 | grep -i fps | tail -10
+docker logs --since 60s vss-rtvi-cv 2>&1 | grep -aE "stream_name" | tail -10
+echo "--- Active source count (must equal NUM_STREAMS) ---"
+docker logs --since 60s vss-rtvi-cv 2>&1 | grep -a "Active sources" | tail -1
 ```
 
 **MV3DT** — check per-camera perception and BEV Fusion separately:
 
 ```bash
 echo "--- MV3DT Per-Camera Perception FPS ---"
-docker logs --since 60s vss-rtvi-cv-mv3dt 2>&1 | grep -i fps | tail -10
+docker logs --since 60s vss-rtvi-cv-mv3dt 2>&1 | grep -aE "stream_name" | tail -10
+echo "--- MV3DT Active source count ---"
+docker logs --since 60s vss-rtvi-cv-mv3dt 2>&1 | grep -a "Active sources" | tail -1
 echo "--- BEV Fusion FPS ---"
 docker logs --since 60s vss-rtvi-cv-bev-fusion 2>&1 | grep -i fps | tail -10
 ```
 
+> **Match `stream_name`, not `fps`, for the DeepStream perception containers.** They print
+> the string `FPS` only in a *header* row — `**PERF:  FPS 1 (Avg)	FPS 0 (Avg)` — while the
+> numeric per-stream rows (`29.80000 (30.00634)	source_id : 3 stream_name Camera_01`)
+> contain no `fps` at all. `grep -i fps` thus yields value-free header rows that look like
+> healthy output regardless of actual throughput, and the "very low FPS" branch below can
+> never trigger. The count of `FPS N` columns in that header *is* meaningful, though — it
+> tracks the live source count. `vss-rtvi-cv-bev-fusion` is a separate binary and keeps the
+> `fps` matcher.
+
 - **FPS lines present and non-zero** → perception is running; issue is likely downstream (broker, analytics, BEV sync).
 - **No FPS lines** → perception is stalled or not receiving streams. Proceed to Phase 3.
 - **FPS present but very low** → GPU saturation or stream count too high. Check Phase 4.
+- **FPS healthy but `Active sources` < `NUM_STREAMS`** → streams were never registered, not a perception fault. The containers will all look healthy. Go to [Key Log Patterns](#key-log-patterns-and-root-causes) and check `vss-configurator` for a repeating sensor-add error.
 - **MV3DT: per-camera FPS OK but BEV Fusion FPS zero** → broker path problem, **not** MQTT: BEV Fusion consumes `mdx-raw` over Kafka/Redis and has no MQTT config. Confirm `vss-rtvi-cv-mv3dt` is publishing `mdx-raw` and that `vss-rtvi-cv-bev-fusion` can reach `kafka:29092` / `redis:6379`. (MQTT is used *between* per-camera trackers — suspect `mosquitto` when `vss-rtvi-cv-mv3dt` itself shows no FPS.)
 
 ---
