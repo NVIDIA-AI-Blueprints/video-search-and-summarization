@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -94,7 +94,18 @@ ADTSByteStreamSource::~ADTSByteStreamSource()
      * side so it doesn't deadlock waiting for a now-gone audio. */
     if (m_avLoopSync)
     {
-        m_avLoopSync->unregisterParticipant(this);
+        try
+        {
+            m_avLoopSync->unregisterParticipant(this);
+        }
+        catch (const std::exception& e)
+        {
+            LOG(error) << "~ADTSByteStreamSource unregisterParticipant threw: " << e.what() << endl;
+        }
+        catch (...)
+        {
+            LOG(error) << "~ADTSByteStreamSource unregisterParticipant threw (unknown)" << endl;
+        }
         m_avLoopSync.reset();
     }
 }

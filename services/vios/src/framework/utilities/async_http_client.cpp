@@ -51,7 +51,18 @@ std::string loggableUrl(const std::string& url)
 
 AsyncHttpClient::~AsyncHttpClient()
 {
-    stop();
+    try
+    {
+        stop();
+    }
+    catch (const std::exception& e)
+    {
+        LOG(error) << "AsyncHttpClient shutdown failed: " << e.what() << endl;
+    }
+    catch (...)
+    {
+        LOG(error) << "AsyncHttpClient shutdown failed" << endl;
+    }
 }
 
 bool AsyncHttpClient::start()

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -473,8 +473,14 @@ public:
     }
     virtual ~QosMeasurementRecord()
     {
-        LOG(info) << "~QosMeasurementRecord - " << m_fName << endl;
-        stopQoS();
+        try {
+            LOG(info) << "~QosMeasurementRecord - " << m_fName << endl;
+            stopQoS();
+        } catch (const std::exception& e) {
+            try { LOG(error) << "Exception in ~QosMeasurementRecord: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+        } catch (...) {
+            try { LOG(error) << "Unknown exception in ~QosMeasurementRecord" << endl; } catch (...) { (void)std::current_exception(); }
+        }
     }
 
     void startQoS(const string& url, RTPSource* rtpSrcProxy)
