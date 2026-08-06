@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,7 +51,7 @@ using vstserver::IceCandidate;
 class  GrpcUdpService final : public VstGrpcServer::Service
 {
 public:
-    GrpcUdpService(std::shared_ptr<nv_vms::DeviceManager> deviceMngr): m_deviceManager(deviceMngr)
+    explicit GrpcUdpService(std::shared_ptr<nv_vms::DeviceManager> deviceMngr): m_deviceManager(deviceMngr)
     {}
 
     ~GrpcUdpService()

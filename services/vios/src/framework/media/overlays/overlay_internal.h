@@ -92,7 +92,9 @@ struct Point3D
     float y;
     float z;
     
-    Point3D(float _x = 0, float _y = 0, float _z = 0) 
+    Point3D()
+        : x(0), y(0), z(0) {}
+    Point3D(float _x, float _y, float _z)
         : x(_x), y(_y), z(_z) {}
 };
 
