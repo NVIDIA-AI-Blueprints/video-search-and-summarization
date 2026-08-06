@@ -206,6 +206,82 @@ def test_events_from_persisted_ext_only() -> None:
         service.events(asset_id="missing")
 
 
+def test_events_match_scans_beyond_former_record_cap() -> None:
+    """Filters run after a wide record scan so older matching events are not dropped.
+
+    The previous ``limit * 4`` job cap (200 when ``limit=50``) truncated before
+    ``match``, so a hit only present on an older record was omitted.
+    """
+    store = InMemoryStore()
+    service = MemoryService(store)
+    asset = "cam-scan"
+    # Newest-first store ordering: create many recent non-matching jobs, then
+    # one older job that holds the only matching event.
+    for index in range(250):
+        service.upsert(
+            _sample_record(
+                job={
+                    "job_id": f"summary-recent-{index:03d}",
+                    "group": "summary",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": f"2026-07-22T13:{index // 60:02d}:{index % 60:02d}Z",
+                    "updated_at": f"2026-07-22T14:{index // 60:02d}:{index % 60:02d}Z",
+                    "backend_ref": None,
+                },
+                input={
+                    "query": "noise",
+                    "sensors": [{"id": asset, "type": "video", "info": {"source": "vst"}}],
+                    "window": None,
+                    "params": {},
+                },
+                output={
+                    "answer": "noise",
+                    "Embedding": [],
+                    "handles": {"media_urls": [], "related_job_ids": []},
+                    "ext": {"events": [{"id": f"n-{index}", "description": "unrelated activity"}]},
+                },
+            )
+        )
+    service.upsert(
+        _sample_record(
+            job={
+                "job_id": "summary-old-match",
+                "group": "summary",
+                "operation": "run",
+                "status": "completed",
+                "created_at": "2026-07-22T10:00:00Z",
+                "updated_at": "2026-07-22T10:00:00Z",
+                "backend_ref": None,
+            },
+            input={
+                "query": "find forklift",
+                "sensors": [{"id": asset, "type": "video", "info": {"source": "vst"}}],
+                "window": None,
+                "params": {},
+            },
+            output={
+                "answer": "forklift crossed bay",
+                "Embedding": [],
+                "handles": {"media_urls": [], "related_job_ids": []},
+                "ext": {
+                    "events": [
+                        {
+                            "id": "evt-old",
+                            "description": "yellow forklift entered loading bay",
+                        }
+                    ]
+                },
+            },
+        )
+    )
+
+    events = service.events(asset_id=asset, match="forklift", limit=50)
+    assert len(events) == 1
+    assert events[0]["id"] == "evt-old"
+    assert events[0]["_source_job_id"] == "summary-old-match"
+
+
 def test_search_and_summary_adapters_map_results() -> None:
     summary_out = SummaryAdapter.build_output(
         answer="text",

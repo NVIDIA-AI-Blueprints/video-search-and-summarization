@@ -34,6 +34,12 @@ class MemoryNotFoundError(LookupError):
     """Raised when a requested job/asset/event handle is absent from memory."""
 
 
+#: Max jobs scanned per ``events()`` call for one asset. ``limit`` applies to
+#: filtered *events* only; applying it (or ``limit * 4``) to the job query first
+#: drops older records before match / time / anchor filters run.
+_EVENTS_RECORD_SCAN_CAP = 10_000
+
+
 class MemoryService:
     """Orchestrates memory writes and memory-first reads.
 
@@ -106,7 +112,7 @@ class MemoryService:
         ``output.ext.results`` only — never pipeline Elasticsearch indices.
         """
         del window  # reserved for duration windows per design FR-5
-        records = self._store.query(MemoryQuery(sensor_id=asset_id, limit=max(limit * 4, 50)))
+        records = self._store.query(MemoryQuery(sensor_id=asset_id, limit=_EVENTS_RECORD_SCAN_CAP))
         if not records:
             raise MemoryNotFoundError(f"no persisted memory for asset_id={asset_id!r}")
         collected: list[dict[str, Any]] = []
