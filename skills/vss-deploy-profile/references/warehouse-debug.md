@@ -17,11 +17,19 @@ broker (kafka / redis)
   └── vss-broker-health-check
         └── vss-vios-nvstreamer
               └── vss-rtvi-cv                  (perception — 2D RT-DETR or 3D Sparse4D, same container)
-                    ├── vss-rtvi-cv-sdr        (stream data router)
                     ├── vss-rtvi-cv-config-adaptor (3D only — DeepStream config adaptor)
                     ├── vss-configurator       (blueprint / stream / hardware config)
                     └── vss-behavior-analytics (ROI, tripwire, proximity events)
                           └── (extended only: logstash, kibana, vss-video-analytics-api)
+
+NOTE: there is no `vss-rtvi-cv-sdr` container. Its service is commented out in
+warehouse-3d-app.yml and it is in no COMPOSE_PROFILES_WH_* list. HAProxy's
+/perception-sdr route still points at that hostname, so it answers 503 — that is
+expected, not a fault.
+
+`redis` runs in EVERY warehouse variant (it backs sdr-controller), so seeing redis
+up does not mean STREAM_TYPE=redis. `vss-turnserver` (+ vss-turnserver-init) is also
+in every list, for VST WebRTC playback.
 
 MV3DT variant (MODE=mv3dt) — same dependency shape, all containers use -mv3dt suffix:
   broker → vss-broker-health-check → vss-vios-nvstreamer-mv3dt
@@ -43,8 +51,16 @@ VST (VIOS) stack — independent of perception, feeds RTSP into it:
                                        router on :10000; replaces the deprecated vss-vios-sdr +
                                        vss-vios-envoy pair. vss-vios-mcp was also removed.)
 
-elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), OR kafka/redis with MINIMAL_PROFILE="" (extended; ELK + bounding-box overlays + analytics API; any mode).
-NOTE: minimal does NOT deploy ES — so the mdx-bev index isn't persisted and Phase 5 BEV-sync check has no data to read (applies to 3D and MV3DT).
+elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), OR kafka/redis
+extended, i.e. a COMPOSE_PROFILES_WH_* list WITHOUT the _MINIMAL suffix (ELK + bounding-box
+overlays + analytics API; any mode).
+NOTE: a _MINIMAL list does NOT deploy ES — so the mdx-bev index isn't persisted and the Phase 5
+BEV-sync check has no data to read (applies to 3D and MV3DT).
+NOTE: "minimal vs extended" is purely which COMPOSE_PROFILES_WH_* list is selected. MINIMAL_PROFILE
+is not read by anything under deploy/docker — do not diagnose from its value.
+
+monitoring (dcgm-exporter, prometheus, grafana, node-exporter, cadvisor) — BP_PROFILE=bp_wh, or
+2D/3D kafka/redis extended. The MV3DT lists contain no monitoring services.
 
 `BP_PROFILE=bp_wh`-only stack (RTVI VLM + agent):
   vss-rtvi-vlm                                  (RTVI VLM — always local; rtvi-vlm is included in COMPOSE_PROFILES_WH_2D; VLM_MODE=none)
@@ -66,22 +82,23 @@ vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/
 
 | Container | Role |
 |---|---|
-| `kafka` or `redis` (`STREAM_TYPE`) | Message broker |
-| `vss-broker-health-check` | Gate — waits for broker before releasing dependents |
+| `kafka` (kafka variants) / `redis` (always deployed; also the broker when `STREAM_TYPE=redis`) | Message broker |
+| `vss-broker-health-check` | One-shot gate — waits for broker, then exits `0`, releasing dependents |
 | `vss-vios-nvstreamer` | RTSP stream server |
 | `vss-rtvi-cv` | DeepStream perception (RT-DETR for 2D, Sparse4D for 3D) |
-| `vss-rtvi-cv-sdr` | Stream data router |
 | `vss-rtvi-cv-config-adaptor` | DeepStream config adaptor (3D only) |
 | `vss-configurator` | Stream and hardware config |
 | `vss-behavior-analytics` | ROI / tripwire / proximity analytics |
 | `vss-vios-postgres` / `-sensor` / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
+| `vss-turnserver` | TURN / WebRTC relay for VST playback |
+| one-shot: `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads`, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-configurator-2d-init` / `-3d-init`, `vss-elasticsearch-init`, `vss-kibana-init`, `vss-import-calibration-output` | Init jobs — `Exited (0)` is success, not a failure. Only a **non-zero** exit is a finding |
 
 ### MV3DT CV core (`MODE=mv3dt` with `BP_PROFILE=bp_wh_kafka` or `bp_wh_redis`)
 
 | Container | Role |
 |---|---|
-| `kafka` or `redis` (`STREAM_TYPE`) | Message broker |
-| `vss-broker-health-check` | Gate — waits for broker before releasing dependents |
+| `kafka` (kafka variants) / `redis` (always deployed; also the broker when `STREAM_TYPE=redis`) | Message broker |
+| `vss-broker-health-check` | One-shot gate — waits for broker, then exits `0`, releasing dependents |
 | `vss-vios-nvstreamer-mv3dt` | RTSP stream server |
 | `vss-rtvi-cv-mv3dt` | DeepStream perception (per-camera) |
 | `vss-rtvi-cv-bev-fusion` | BEV Fusion — fuses per-camera detections into unified 3D BEV frame |
@@ -120,7 +137,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
   --overwrite
 ```
 
-### Extended Kafka/Redis service lists (`MINIMAL_PROFILE=""`, any mode) — add
+### Extended Kafka/Redis service lists (non-`_MINIMAL`, any mode) — add
 
 | Container | Role |
 |---|---|
@@ -128,7 +145,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 | `kibana` | Dashboard UI |
 | `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` | REST API for analytics data |
 
-`elasticsearch`, `kibana`, `logstash`, `vss-video-analytics-api` are also deployed for `BP_PROFILE=bp_wh` (always — independent of `MINIMAL_PROFILE`). See [Phase 1](#phase-1-stack-snapshot) for the consolidated trigger table.
+`elasticsearch`, `kibana`, `logstash`, `vss-video-analytics-api` are also deployed for `BP_PROFILE=bp_wh` (always — independent of deployment size). See [Phase 1](#phase-1-stack-snapshot) for the consolidated trigger table.
 
 ### `BP_PROFILE=bp_wh` only — adds
 
@@ -149,12 +166,14 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 
 | Container | Start period | Interval | Retries | Impact if failing |
 |---|---|---|---|---|
-| `vss-broker-health-check` | 10 s | 5 s | 12 | All downstream containers will not start |
-| `vss-configurator` | **60 s** | 10 s | 6 | Streams not configured — perception gets no input |
-| `vss-rtvi-cv` | 30 s | 10 s | 6 | No detections produced |
-| `elasticsearch` | 30 s | 10 s | 5 | BEV index unavailable (3D); no overlays (2D extended); agent storage broken |
+| `vss-configurator` / `-mv3dt` | **60 s** | 10 s | 30 | Streams not configured — perception gets no input |
+| `elasticsearch` | **60 s** | 10 s | 60 | BEV index unavailable (3D); no overlays (2D extended); agent storage broken |
 
 > `vss-configurator` failing in the **first 60 seconds** is expected — do not flag this as an error.
+
+> **`vss-broker-health-check` is a one-shot job, not a long-running healthchecked service.** It has `restart: "no"`, polls the broker up to `MAX_RETRIES=60` every `RETRY_INTERVAL=2` s, and exits. Dependents wait on `service_completed_successfully`. So the healthy state is **`Exited (0)`** — treat `Up` as transient and a **non-zero exit** as the failure. If it exits non-zero, nothing downstream starts.
+
+> **`vss-rtvi-cv` / `vss-rtvi-cv-mv3dt` define no healthcheck.** `docker ps` will never show `(healthy)` for perception — judge it from FPS/PERF log output (Phase 2), not container health.
 
 ## Key Log Patterns and Root Causes
 
@@ -202,11 +221,13 @@ curl -s "http://localhost:9200/_cat/indices?v"
 | `mdx-events` | `vss-behavior-analytics` | downstream / UI | ROI, tripwire, proximity events |
 | `mdx-vlm-incidents` | `vss-rtvi-vlm` | `vss-alert-bridge`, `vss-agent` | Realtime VLM incident detections (`bp_wh` only) |
 
-**Check messages are flowing (Kafka):**
+**Check messages are flowing (Kafka):** the image is `confluentinc/cp-kafka`, whose CLI tools have
+**no `.sh` suffix**. Use the internal listener `kafka:29092` — `localhost:9092` is the EXTERNAL
+listener and advertises `${HOST_IP}:9092`, which does not route from inside the container.
 
 ```bash
-docker exec kafka kafka-console-consumer.sh \
-  --bootstrap-server localhost:9092 \
+docker exec kafka kafka-console-consumer \
+  --bootstrap-server kafka:29092 \
   --topic mdx-raw --from-beginning --max-messages 5 2>/dev/null
 ```
 
@@ -241,40 +262,50 @@ Expected access points after a successful deploy.
 
 ```
 HAProxy:             http://<host_ip>:7777
-Kibana:              http://<host_ip>:7777/kibana
-VST:                 http://<host_ip>:30888/vst/
-Grafana:             http://<host_ip>:35000
-NvStreamer:          http://<host_ip>:31000
-Video Analytics API: http://<host_ip>:7777/video-analytics-api
+VSS UI:              http://<host_ip>:7777/            (bp_wh only; 503 otherwise)
+VST:                 http://<host_ip>:7777/vst/        (proxied) or http://<host_ip>:30888/vst/
+Kibana:              http://<host_ip>:7777/kibana      (direct: http://<host_ip>:5601/kibana)
+Video Analytics API: http://<host_ip>:7777/video-analytics-api   (direct: :8081)
+NvStreamer:          http://<host_ip>:31000            (no HAProxy route)
+Grafana:             http://<host_ip>:35000            (no HAProxy route; not deployed for MV3DT)
+Auto-calibration UI: http://<host_ip>:5000             (no HAProxy route; bp_wh_auto_calib)
 ```
 
 **Brev (secure-link domain):**
 
+The domain is `brevlab.com` on classic Brev, or `apps.run.brev.nvidia.com` on Skybridge/NetBird
+instances (`netbird status -d` shows a `skybridge` / `brev.nvidia.com` marker). Substitute the
+right one below.
+
 ```
 Access Points (Brev):
 
-HAProxy:             https://7777-<BREV_ENV_ID>.brevlab.com
-VSS UI:              https://7777-<BREV_ENV_ID>.brevlab.com
-Kibana:              https://7777-<BREV_ENV_ID>.brevlab.com/kibana
-VST:                 https://30888-<BREV_ENV_ID>.brevlab.com/vst/
-NvStreamer:          https://31000-<BREV_ENV_ID>.brevlab.com
-Video Analytics API: https://7777-<BREV_ENV_ID>.brevlab.com/video-analytics-api
+HAProxy:             https://7777-<BREV_ENV_ID>.<brev-domain>
+VSS UI:              https://7777-<BREV_ENV_ID>.<brev-domain>
+VST:                 https://7777-<BREV_ENV_ID>.<brev-domain>/vst/
+Kibana:              https://7777-<BREV_ENV_ID>.<brev-domain>/kibana
+Video Analytics API: https://7777-<BREV_ENV_ID>.<brev-domain>/video-analytics-api
+NvStreamer:          https://31000-<BREV_ENV_ID>.<brev-domain>
 
-Brev Secure Links — each exposed port requires its own secure-link hostname:
-  Port 7777  (HAProxy)    → https://7777-<BREV_ENV_ID>.brevlab.com
-  Port 30888 (VST)        → https://30888-<BREV_ENV_ID>.brevlab.com
-  Port 31000 (NvStreamer)  → https://31000-<BREV_ENV_ID>.brevlab.com
-  Port 35000  (Grafana)     → https://35000-<BREV_ENV_ID>.brevlab.com
+Brev Secure Links — only the ingress port is required:
+  Port 7777  (HAProxy)     → https://7777-<BREV_ENV_ID>.<brev-domain>    [required]
+  Port 30888 (VST direct)  → https://30888-<BREV_ENV_ID>.<brev-domain>   [optional]
+  Port 31000 (NvStreamer)  → https://31000-<BREV_ENV_ID>.<brev-domain>   [optional]
+  Port 35000 (Grafana)     → https://35000-<BREV_ENV_ID>.<brev-domain>   [optional]
 
-HAProxy-routed paths (/, /kibana, /api, /chat, /websocket, /alert-bridge,
-/video-analytics-api, /phoenix, /va-mcp, /static) all go through
-the port-7777 secure link. Direct-port services (VST, NvStreamer, Grafana)
-each need their own secure link opened in the Brev dashboard.
+HAProxy-routed paths (/, /vst, /storage, /kibana, /elasticsearch, /api, /chat,
+/websocket, /static, /alert-bridge, /video-analytics-api, /behavior-analytics,
+/rtvi-cv, /rtvi-vlm, /phoenix, /va-mcp) all go through the port-7777 secure link.
+Direct-port services (NvStreamer, Grafana, auto-calibration UI) each need their own
+secure link opened in the Brev dashboard.
+
+Known limitation: VST live/recorded video playback does not render through a Brev
+secure link — the UI loads and streams/recordings list correctly.
 ```
 
 If URLs still show the old `http://...:7777` form, the `VSS_PUBLIC_*` overrides were not applied — see [`warehouse.md` § Brev Secure Link Overrides](warehouse.md#brev-secure-link-overrides).
 
-VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
+VST **is** proxied: HAProxy routes `/vst` and `/vst/…` to `vst-ingress`, and `/storage` rewrites to `/vst/storage`. Port `30888` remains published for direct access.
 
 For the full HAProxy ingress route table, direct-port diagnostics table, and
 the `h_main` Host-header ACL rules, see
@@ -304,7 +335,7 @@ tables live there to avoid drift when ports/services change.
 
 Before starting, collect two pieces of information (ask if unknown):
 
-1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. Cleanup reads `generated.env` because it carries the runtime data paths. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
+1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml --env-file containers.env --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env` (the exact set `blueprint-deploy.sh` uses). Cleanup reads `generated.env` because it carries the runtime data paths. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
 2. **`MODE`** — `2d`, `3d`, or `mv3dt`. Detect from the running perception container:
 
 ```bash
@@ -340,16 +371,29 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 
 | Variant | Required containers |
 |---|---|
-| 2D / 3D Kafka/Redis variants | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, the `vss-vios-*` VST stack |
+| 2D / 3D Kafka/Redis variants | broker (`kafka` and/or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
-| MV3DT Kafka/Redis variants | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, the `vss-vios-*` VST stack |
-| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, VST stack (subset) — no broker, no perception, no analytics |
-| `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
-| Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` |
+| MV3DT Kafka/Redis variants | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
+| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker health check, no perception, no analytics |
+| `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, `node-exporter`, `cadvisor`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
+| Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt`; monitoring too, but **2D/3D only** |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |
-| `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode). **Minimal does NOT deploy ES** |
+| `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode). **A `…_MINIMAL` list does NOT deploy ES** |
 
 Record which containers are **Down**, **Restarting**, or have a non-zero exit code — these are the primary suspects.
+
+> **Do not flag one-shot jobs that exited `0`.** `vss-broker-health-check`, every `sdrc-*` job, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-configurator-*-init`, `vss-elasticsearch-init`, `vss-kibana-init` and `vss-import-calibration-output` are expected to appear under "Exited" with code `0`. Only a **non-zero** exit is a finding.
+
+To get the authoritative expected-container list for the running deployment instead of reading it off a table, ask Compose:
+
+```bash
+cd $REPO/deploy/docker
+docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  config --format json | python3 -c 'import json,sys; [print(s.get("container_name","")) for s in json.load(sys.stdin)["services"].values()]' | sort
+```
 
 ---
 
@@ -431,10 +475,12 @@ Common issues:
 - `CUDA out of memory` → GPU saturation; reduce `NUM_STREAMS`.
 - MV3DT: MQTT connection errors in `vss-rtvi-cv-mv3dt` → check `mosquitto` container first.
 
-### 3.4 Perception SDR + Config Adaptor
+### 3.4 Config Adaptor + SDR controller
+
+There is no `vss-rtvi-cv-sdr` container in warehouse deployments — stream routing is handled by
+`sdr-controller` (see 3.7).
 
 ```bash
-docker logs --tail 50 vss-rtvi-cv-sdr 2>&1 | grep -E "ERROR|error|fail" | tail -20
 # 3D only:
 docker logs --tail 50 vss-rtvi-cv-config-adaptor 2>&1 | grep -E "ERROR|error|fail" | tail -20
 ```
@@ -521,7 +567,7 @@ df -h / /tmp 2>/dev/null
 
 ## Phase 5 (3D / MV3DT extended only): BEV Camera Timestamp Sync
 
-For `MODE=3d` or `MODE=mv3dt` **with `MINIMAL_PROFILE=""` (extended)**, check that all cameras contributing to the BEV frame are synchronized. Skip this phase in 3D/MV3DT minimal: `elasticsearch` is not deployed there, so `mdx-bev` is never persisted and the query below will fail with a connection error.
+For `MODE=3d` or `MODE=mv3dt` **on an extended (non-`_MINIMAL`) service list**, check that all cameras contributing to the BEV frame are synchronized. Skip this phase in 3D/MV3DT minimal: `elasticsearch` is not deployed there, so `mdx-bev` is never persisted and the query below will fail with a connection error.
 
 ```bash
 curl -s "http://localhost:9200/mdx-bev/_search?size=1" \
@@ -606,7 +652,9 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | Brev: UI loads but API calls fail / mixed-content errors in browser console | `VSS_PUBLIC_*` overrides not applied — browser-facing URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com` | Apply [Brev secure link overrides](warehouse.md#brev-secure-link-overrides): set `VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss`, `VSS_PUBLIC_HOST=7777-<BREV_ENV_ID>.brevlab.com`, `VSS_PUBLIC_PORT=443`; redeploy |
 | Brev: HAProxy returns 404 on all paths | `Host:` header in the request doesn't match HAProxy `h_main` ACL | Verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`); redeploy |
 | Brev: WebSocket chat connection refused / falls back to HTTP | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not `443` | Fix the active `generated.env` overrides and redeploy |
-| `error from registry: Incorrect Repository Format` during `docker compose up` | Docker 29.x multi-arch pull regression | Pin to Docker 28.3.3 and Docker Compose v2.39.1+ (warehouse.md §2.2). |
+| `error from registry: Incorrect Repository Format` during `docker compose up` | Docker version outside the tested range | Re-pin Docker into **[28.3.3, 29.5.0)** — the known-good set is CE 29.4.3 / buildx 0.33.0 / compose 5.1.3 / containerd 2.2.3 (warehouse.md §2.2). Do not downgrade an already-in-range engine. |
+| Compose reports missing images / an image override in `containers.env` had no effect | `--env-file containers.env` was omitted from the compose invocation | Pass all three env files (`containers.env`, warehouse `.env`, `generated.env`) and both `-f` files (`compose.yml`, `services/infra/compose-no-turn-tcp-relay.yml`); redeploy |
+| `/perception-sdr` or `/rtvi-embed` returns 503 through HAProxy | Those backends are not deployed by any warehouse variant | Not a fault — ignore |
 
 Present the summary in this format:
 
@@ -635,10 +683,11 @@ If yes:
 
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml \
+docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
+  --env-file containers.env \
   --env-file industry-profiles/warehouse-operations/.env \
   --env-file industry-profiles/warehouse-operations/generated.env \
-  down
+  down --remove-orphans
 docker volume prune -f
 docker system prune -f
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
@@ -650,10 +699,11 @@ bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
-nohup docker compose -f compose.yml \
+nohup docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
+  --env-file containers.env \
   --env-file industry-profiles/warehouse-operations/.env \
   --env-file industry-profiles/warehouse-operations/generated.env \
-  up --detach --pull always --force-recreate --build \
+  up --detach --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"
 ```
