@@ -116,7 +116,7 @@ infra:
           nodePort: 31001
     image:
       repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-      tag: 3.3.3-2026.08.2
+      tag: 3.3.0-2026.08.2-2
       pullPolicy: IfNotPresent
     imagePullSecrets:
       - name: ngc-docker-reg-secret
