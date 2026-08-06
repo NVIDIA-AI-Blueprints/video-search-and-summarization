@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -900,10 +900,11 @@ int stopOnvifDiscovery()
     return 0;
 }
 
-static size_t curlWriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
+static size_t curlWriteCallback(const char *contents, size_t size, size_t nmemb, std::string *userp)
 {
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
-    return size * nmemb;
+    const size_t totalBytes(size * nmemb);
+    userp->append(contents, totalBytes);
+    return totalBytes;
 }
 
 bool curlGetRequest(const string& url, long& http_code)
