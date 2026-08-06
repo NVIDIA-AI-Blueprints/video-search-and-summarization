@@ -167,20 +167,19 @@ def deploy_profile(eval_profile: str) -> str:
 #
 # Without a fixed placement at task-generation time, we always reserve disk
 # and require a current driver. Reasoning: a deploy that ends up using
-# remote LLM + remote VLM has zero local-NIM footprint, but the eval pool
-# instances already have headroom for these defaults, and trying to
-# negotiate dynamically would just leak the placement decision back into
-# the adapter. Cost of over-reserving disk on a stoppable instance is
-# negligible compared to a failed pull.
+# remote LLM + remote VLM has zero local-NIM footprint, but trying to
+# negotiate dynamically would leak the placement decision back into the
+# adapter. The managed NemoClaw warm-pool workflow may replace this generic
+# worst-case reservation with its own total + free Docker-storage contract;
+# it does so without changing the eval's model-placement instructions.
 
 _DEFAULT_MIN_ROOT_DISK_GB = 220        # base stack ~80GB + 2 local NIMs ~70GB each
 _DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
 # Caveats — both defaults are enforced unconditionally by
 # `envs/brev_env.py::_check_live_resources` on the resolved pool box:
-# - The disk default would reject otherwise-eligible smaller-root
-#   pool members for trials that end up running fully remote and would
-#   actually fit on <220GB. Acceptable today because every `vss-eval-*`
-#   pool member has ≥220GB.
+# - The disk default rejects smaller-root pool members. A workflow that owns
+#   a pre-warmed fleet may override it only after enforcing an explicit free
+#   space floor on the filesystem that backs Docker.
 # - The driver default is skipped when `nvidia-smi` is absent (the
 #   resource check warns instead of erroring), so CPU-only boxes still
 #   pass; don't tighten that branch to a hard error without revisiting

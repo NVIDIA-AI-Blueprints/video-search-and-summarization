@@ -423,6 +423,98 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
 
 class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
+    async def test_docker_storage_total_and_free_floors_accept_warm_pool(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="117G\n42G\nvss-eval-rtx-1g-2\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {
+                    "min_root_disk_gb": 110,
+                    "min_root_disk_free_gb": 20,
+                },
+            )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "vss-eval-rtx-1g-2")
+        self.assertEqual(calls[0][2], 30)
+        self.assertIn(
+            "docker info --format '{{.DockerRootDir}}'",
+            calls[0][1],
+        )
+        self.assertIn("awk '{print $2; print $4}'", calls[0][1])
+
+    async def test_docker_storage_free_floor_rejects_low_headroom(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout="117G\n10G\nvss-eval-rtx-1g-2\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with (
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "Docker storage has 10 GB free; task requires at least "
+                "20 GB free",
+            ),
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {
+                    "min_root_disk_gb": 110,
+                    "min_root_disk_free_gb": 20,
+                },
+            )
+
+    async def test_required_docker_storage_free_check_fails_closed(self):
+        for stdout in (
+            "117G\nnot-a-size\nvss-eval-rtx-1g-2\n",
+            "117G\nvss-eval-rtx-1g-2\n",
+        ):
+            with self.subTest(stdout=stdout):
+                with (
+                    mock.patch.object(
+                        brev_env,
+                        "_run_brev_exec",
+                        new=mock.AsyncMock(
+                            return_value=brev_env.ExecResult(
+                                stdout=stdout,
+                                stderr=None,
+                                return_code=0,
+                            )
+                        ),
+                    ),
+                    self.assertRaisesRegex(
+                        RuntimeError,
+                        "Docker storage free space could not be determined",
+                    ),
+                ):
+                    await brev_env._check_live_resources(
+                        "vss-eval-rtx-1g-2",
+                        {
+                            "min_root_disk_gb": 110,
+                            "min_root_disk_free_gb": 20,
+                        },
+                    )
+
     async def test_root_disk_parser_ignores_brev_workspace_suffix(self):
         async def fake_run_brev_exec(instance, command, timeout=30):
             return brev_env.ExecResult(

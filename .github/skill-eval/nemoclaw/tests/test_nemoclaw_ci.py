@@ -8704,6 +8704,19 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 "determined: df returned no standalone GB size"
             ),
             (
+                "Brev instance 'vss-eval-rtx-1g-3' Docker storage "
+                "filesystem is 100 GB; task requires at least 110 GB"
+            ),
+            (
+                "Brev instance 'vss-eval-rtx-1g-3' Docker storage has 10 GB "
+                "free; task requires at least 20 GB free"
+            ),
+            (
+                "Brev instance 'vss-eval-rtx-1g-3' Docker storage free space "
+                "could not be determined: df returned no standalone "
+                "available-GB size"
+            ),
+            (
                 "Brev instance 'vss-eval-rtx-1g-3' not found "
                 "(is it deleted? wrong org?)"
             ),
@@ -11358,6 +11371,102 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn('expected_skill = "vss-ask-video"', task_toml)
         self.assertIn("vss_orchestrator__docker_status", task_toml)
 
+    def test_managed_brev_storage_contract_preserves_local_model_placement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "base_profile_report" / "rtxpro6000bw" / "step-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "instruction.md").write_text(
+                "Deploy the base profile with `VLM_MODE=local_shared`, a "
+                "non-`none` local CR3 `MODEL_PATH`, and do NOT use a remote "
+                "VLM.",
+                encoding="utf-8",
+            )
+            (task_dir / "task.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [task]
+                    name = "nvidia-vss/vss-generate-video-report-base-step-1"
+
+                    [metadata]
+                    skill = "vss-generate-video-report"
+                    deployment_profile = "base"
+                    platform = "RTXPRO6000BW"
+                    gpu_count = 1
+                    min_root_disk_gb = 220
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(
+                os.environ,
+                {smoke_runner.BREV_POOL_STORAGE_CONTRACT_ENV: "1"},
+                clear=True,
+            ):
+                smoke_runner._wrap_task_for_nemoclaw(
+                    task_dir=task_dir,
+                    skill="vss-generate-video-report",
+                    spec_path=(
+                        REPO_ROOT
+                        / "skills"
+                        / "vss-generate-video-report"
+                        / "evals"
+                        / "base_profile_report.json"
+                    ),
+                    platform="RTXPRO6000BW",
+                )
+
+            prompt = (task_dir / "tests" / "nemoclaw_prompt.md").read_text(
+                encoding="utf-8"
+            )
+            task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+
+        self.assertIn("`VLM_MODE=local_shared`", prompt)
+        self.assertIn("do NOT use a remote VLM", prompt)
+        self.assertNotIn("remote-all", prompt)
+        self.assertNotIn("model_placement", task_toml)
+        self.assertIn("min_root_disk_gb = 110", task_toml)
+        self.assertIn("min_root_disk_free_gb = 20", task_toml)
+
+    def test_managed_brev_storage_contract_is_workflow_scoped(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "deploy_search_and_alerts" / "any" / "step-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "instruction.md").write_text(
+                "Set up behavior analytics without model endpoints.",
+                encoding="utf-8",
+            )
+            original_toml = textwrap.dedent(
+                """
+                [task]
+                name = "nvidia-vss/vss-setup-behavior-analytics-step-1"
+
+                [metadata]
+                skill = "vss-setup-behavior-analytics"
+                platform = "ANY"
+                gpu_count = 0
+                min_root_disk_gb = 220
+                """
+            ).strip() + "\n"
+            (task_dir / "task.toml").write_text(original_toml, encoding="utf-8")
+            spec_path = root / "deploy_search_and_alerts.json"
+            spec_path.write_text('{"expects": []}\n', encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                smoke_runner._wrap_task_for_nemoclaw(
+                    task_dir=task_dir,
+                    skill="vss-setup-behavior-analytics",
+                    spec_path=spec_path,
+                    platform="ANY",
+                )
+            task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+
+        self.assertIn("min_root_disk_gb = 220", task_toml)
+        self.assertNotIn("min_root_disk_free_gb", task_toml)
+
     def test_dense_captioning_launcher_has_no_runtime_value_argument(self):
         instruction = smoke_runner._headless_launcher_instruction(
             "vss-deploy-dense-captioning",
@@ -12537,6 +12646,11 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=3300", source)
         self.assertNotIn("NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE=0", source)
         self.assertIn("export NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE=1", source)
+        self.assertIn(
+            "export NEMOCLAW_BREV_POOL_STORAGE_CONTRACT=1",
+            source,
+        )
+        self.assertNotIn("NEMOCLAW_REMOTE_MODEL_PLACEMENT", source)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=19080", source)
         self.assertIn("unset NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR", source)
         self.assertIn(
