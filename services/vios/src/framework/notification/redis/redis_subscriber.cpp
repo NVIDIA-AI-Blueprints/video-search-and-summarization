@@ -175,7 +175,7 @@ void RedisSubscriber::redisInit()
     LOG(info) << "Redis Subscriber connect success." << endl;
 
     //Subscribe to topic
-    if(nvds_msgapi_subscribe(m_connHandle, topic, 1, subscribe_cb, (void*)this) != NVDS_MSGAPI_OK)
+    if(nvds_msgapi_subscribe(m_connHandle, topic, 1, subscribe_cb, static_cast<void*>(this)) != NVDS_MSGAPI_OK)
     {
         LOG(error) << "Redis subscription to topic[s] failed. Exiting" << endl;
         goto error;

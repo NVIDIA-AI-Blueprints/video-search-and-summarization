@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,7 +30,7 @@ class SignalHandler
 {
 public:
     SignalHandler() {}
-    SignalHandler(void (*handler)(int))
+    explicit SignalHandler(void (*handler)(int))
     {
         signal(SIGINT, handler);
         signal(SIGTERM, handler);

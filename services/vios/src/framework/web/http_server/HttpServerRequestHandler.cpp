@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -369,19 +369,24 @@ class RequestHandler : public CivetHandler
         return (method != HTTP_METHOD_POST && method != HTTP_METHOD_PUT && method != HTTP_METHOD_PATCH);
     }
     
-    bool handleGet(CivetServer *server, struct mg_connection *conn)
+    using CivetHandler::handleGet;
+    using CivetHandler::handlePost;
+    using CivetHandler::handlePut;
+    using CivetHandler::handleDelete;
+
+    bool handleGet(CivetServer *server, struct mg_connection *conn) override
     {
         return handle(server, conn);
     }
-    bool handlePost(CivetServer *server, struct mg_connection *conn)
+    bool handlePost(CivetServer *server, struct mg_connection *conn) override
     {
         return handle(server, conn);
     }
-    bool handlePut(CivetServer *server, struct mg_connection *conn)
+    bool handlePut(CivetServer *server, struct mg_connection *conn) override
     {
         return handle(server, conn);
     }
-    bool handleDelete(CivetServer *server, struct mg_connection *conn)
+    bool handleDelete(CivetServer *server, struct mg_connection *conn) override
     {
         return handle(server, conn);
     }

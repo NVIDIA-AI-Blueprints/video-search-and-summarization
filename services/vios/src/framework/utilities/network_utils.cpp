@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -71,7 +71,7 @@ struct curlData {
 class AutoDestroyXml
 {
 public:
-    AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
+    explicit AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
     ~AutoDestroyXml() { xmlBufferFree(m_xml); }
 private:
     xmlBufferPtr m_xml;
@@ -250,7 +250,7 @@ static bool getProbeResponse(const string& xmlData, SensorInfo& sensor)
         return false;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
