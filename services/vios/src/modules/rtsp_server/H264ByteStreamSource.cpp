@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -504,13 +504,11 @@ void H264ByteStreamSource::doGetNextFrame()
 }
 
 void H264ByteStreamSource
-  ::afterGettingFrame(void* clientData,
+  ::afterGettingFrame(H264ByteStreamSource* source,
 		      unsigned frameSize, unsigned numTruncatedBytes,
 		      struct timeval presentationTime,
 		      unsigned durationInMicroseconds)
 {
-    H264ByteStreamSource* source
-      = (H264ByteStreamSource*)clientData;
     source->fFrameSize = frameSize;
     source->fNumTruncatedBytes = numTruncatedBytes;
     source->fPresentationTime = presentationTime;
@@ -518,10 +516,8 @@ void H264ByteStreamSource
     FramedSource::afterGetting(source);
 }
 
-void H264ByteStreamSource::onSourceClosure(void* clientData)
+void H264ByteStreamSource::onSourceClosure(H264ByteStreamSource* source)
 {
-    H264ByteStreamSource* source
-      = (H264ByteStreamSource*)clientData;
     source->onSourceClosure1();
 }
 

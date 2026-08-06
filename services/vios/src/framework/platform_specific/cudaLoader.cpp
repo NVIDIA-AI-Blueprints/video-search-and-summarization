@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,7 +81,7 @@ CudaLoader::CudaLoader()
 #endif
     for (const char* cand : cudaCandidates)
     {
-        m_handleCuda = dlopen(cand, RTLD_LAZY);
+        m_handleCuda = static_cast<SharedLibraryHandle*>(dlopen(cand, RTLD_LAZY));
         if (m_handleCuda)
         {
             break;
@@ -90,7 +90,7 @@ CudaLoader::CudaLoader()
     }
     for (const char* cand : cudartCandidates)
     {
-        m_handleCudart = dlopen(cand, RTLD_LAZY);
+        m_handleCudart = static_cast<SharedLibraryHandle*>(dlopen(cand, RTLD_LAZY));
         if (m_handleCudart)
         {
             break;

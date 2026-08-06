@@ -100,7 +100,7 @@ private:
 
     /// Entry point for timer thread
     void TimerThread();
-    void processFunctionWrapper(std::shared_ptr<EventLoopData> userdata, void *parent);
+    void processFunctionWrapper(std::shared_ptr<EventLoopData> userdata);
 
     std::unique_ptr<std::thread> m_thread;
     std::queue<std::shared_ptr<EventLoopMsg>> m_queue;

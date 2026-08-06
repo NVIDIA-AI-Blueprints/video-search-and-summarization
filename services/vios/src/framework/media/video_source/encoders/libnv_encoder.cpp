@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1454,10 +1454,10 @@ int NvVideoEncoder::GetEncodedPartitions(unsigned char** data, ssize_t *size, bo
     }
     else
     {
-        void* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
+        unsigned char* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
         if (surface_data_ptr)
         {
-            memcpy(*data,  (unsigned char*)surface_data_ptr,  capplane_buffer->planes[0].bytesused);
+            memcpy(*data,  surface_data_ptr,  capplane_buffer->planes[0].bytesused);
         }
     }
 

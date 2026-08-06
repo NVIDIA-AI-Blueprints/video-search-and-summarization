@@ -105,7 +105,7 @@ std::thread::id EventLoop::GetCurrentThreadId()
 	return this_thread::get_id();
 }
 
-void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData, void *parent)
+void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData)
 {
     m_isProcessFuncDone = false;
     std::thread t([&]()
@@ -189,7 +189,7 @@ void EventLoop::Process()
                 {
                     if (msg->id == MSG_POST_USER_DATA)
                     {
-                        processFunctionWrapper(userData, m_parent);
+                        processFunctionWrapper(userData);
                     }
                     if (userData->m_expectResult)
                     {

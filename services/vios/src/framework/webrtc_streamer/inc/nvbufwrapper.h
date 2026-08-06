@@ -696,7 +696,7 @@ class NvBufWrapper
             return static_cast<unsigned char *>(nvbuf_surf->surfaceList[0].mappedAddr.addr[plane]);
         }
 
-        void* extractSurface (int fd)
+        unsigned char* extractSurface (int fd)
         {
             if (!NvBufSurfaceFromFd)
             {
@@ -713,7 +713,7 @@ class NvBufWrapper
             }
             else
             {
-                return nvbuf_surf->surfaceList->dataPtr;
+                return static_cast<unsigned char*>(nvbuf_surf->surfaceList->dataPtr);
             }
         }
 
