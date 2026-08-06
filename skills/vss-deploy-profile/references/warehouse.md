@@ -27,7 +27,7 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
 > **`MINIMAL_PROFILE` is not an env var the stack reads.** No file under `deploy/docker/` references it — minimal vs. extended is selected *only* by which `COMPOSE_PROFILES_WH_*` list `COMPOSE_PROFILES` points at (`…_MINIMAL` or not). This doc uses "minimal"/"extended" as shorthand for that choice; setting `MINIMAL_PROFILE` in `generated.env` changes nothing on its own.
 >
-> **The launchable notebook's minimal option is silently ignored — do not rely on it.** `deploy/docker/scripts/deploy_warehouse_launchable.ipynb` exposes a `MINIMAL_PROFILE` setting and writes it into `overrides.env`, but it deploys via `blueprint-deploy.sh`, which then overwrites `COMPOSE_PROFILES` with the **non-`_MINIMAL`** list for the chosen `BP_PROFILE`/`MODE` (`blueprint-deploy.sh:944-960` has no `_MINIMAL` branch). Selecting minimal there yields a **full extended stack**, while the notebook's own verification and access-point cells compute `HAS_ELK`/`HAS_INGRESS` from `MINIMAL_PROFILE` and therefore *under-report* what is actually running.
+> **The launchable notebook cannot deploy minimal — it no longer offers the choice.** `deploy/docker/scripts/deploy_warehouse_launchable.ipynb` deploys via `blueprint-deploy.sh`, which always overwrites `COMPOSE_PROFILES` with the **non-`_MINIMAL`** list for the chosen `BP_PROFILE`/`MODE` (`blueprint-deploy.sh:944-960` has no `_MINIMAL` branch). The notebook previously exposed a `MINIMAL_PROFILE` setting that was silently ignored — selecting minimal produced a full extended stack while the verification cells under-reported it. That knob has been removed; the notebook now states plainly that every deployment it makes is extended.
 >
 > To genuinely deploy minimal, use this skill's path: set `COMPOSE_PROFILES` to the `…_MINIMAL` list in `generated.env` and bring the stack up with `docker compose` directly ([Lifecycle: Bring up](#lifecycle-bring-up)) — not through `blueprint-deploy.sh` or the launchable.
 
@@ -239,7 +239,7 @@ Ask the user which source they want and whether they already have the assets on 
 
 `VSS_DATA_DIR` must be the directory that holds `videos/`, `playback/`, `models/` and `data_log/`, not its parent. Compose creates and permissions `models/` and `data_log/*` on bring-up.
 
-> **Org:** this bundle lives in the **`nvstaging`** org (team `vss-warehouse`), not the public `nvidia` org. Set `NGC_CLI_ORG=nvstaging` — or just pass the fully-qualified `org/team/name:version` path, as below. A `403 Access Denied` means the NGC key has no access to `nvstaging`.
+> **Org:** the bundle lives in the **`nvstaging`** org (team `vss-warehouse`). Set `NGC_CLI_ORG=nvstaging`, or just pass the fully-qualified `org/team/name:version` path as below. A `403 Access Denied` means the NGC key has no access to that org.
 
 > **The doubled `vv` is correct.** `ngc registry resource download-version` names the directory `<resource>_v<version>`, prefixing `_v` unconditionally; this version already starts with `v`, so the result is `vss-warehouse-app-data_vv3.3.0-08052026`. Verified against NGC CLI 4.13.0. Do not "fix" it to a single `v`.
 
@@ -292,8 +292,11 @@ cd <repo>/deploy/docker
 
 # Hard teardown — `-v` ensures named volumes are also removed.
 # Containers + network + project's named volumes all go.
-# `-p vss` = COMPOSE_PROJECT_NAME from overrides.env; using -p avoids needing the
-# env files to resolve, which is what blueprint-deploy.sh does on `down`.
+# The project name comes from COMPOSE_PROJECT_NAME in generated.env (default `vss`),
+# which Compose reads out of the --env-file below — so do not drop those flags here.
+# If you prefer the project-scoped form, resolve the name first:
+#   set -a; . industry-profiles/warehouse-operations/generated.env; set +a
+#   docker compose -p "${COMPOSE_PROJECT_NAME:?}" down -v --remove-orphans
 docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
   --env-file containers.env \
   --env-file industry-profiles/warehouse-operations/.env \
