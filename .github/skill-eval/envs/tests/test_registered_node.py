@@ -14,6 +14,8 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import importlib.util
 import json
 import os
 import shlex
@@ -310,6 +312,93 @@ class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
 
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
+
+    async def test_coordinator_cli_payload_is_verified_uploaded_and_activated(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="Activated coordinator-built NemoClaw 0.0.103\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "nemoclaw-cli.tar.gz"
+            archive.write_bytes(b"exact coordinator payload")
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock()
+            with (
+                mock.patch.object(
+                    brev_env,
+                    "_run_brev_exec",
+                    new=fake_run_brev_exec,
+                ),
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "NEMOCLAW_INSTALL_REF": "v0.0.103",
+                        "NEMOCLAW_COORDINATOR_CLI_ARCHIVE": str(archive),
+                        "NEMOCLAW_COORDINATOR_CLI_SHA256": digest,
+                        "NEMOCLAW_COORDINATOR_CLI_VERSION": "0.0.103",
+                        "NEMOCLAW_COORDINATOR_CLI_REVISION": (
+                            "db31c286129e878c3356eed49f76ab259561e47e"
+                        ),
+                    },
+                    clear=False,
+                ),
+            ):
+                await env._install_coordinator_nemoclaw_cli()
+
+        env.upload_file.assert_awaited_once()
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/install_cli_payload.py",
+            command,
+        )
+        self.assertIn(f"--sha256 {digest}", command)
+        self.assertIn("--ref v0.0.103", command)
+        self.assertIn("--version 0.0.103", command)
+        self.assertIn(
+            "--revision db31c286129e878c3356eed49f76ab259561e47e",
+            command,
+        )
+        self.assertNotIn("curl", command)
+        self.assertNotIn("npm", command)
+        self.assertNotIn("git clone", command)
+
+    async def test_coordinator_cli_payload_rejects_incomplete_metadata(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with mock.patch.dict(
+            os.environ,
+            {"NEMOCLAW_COORDINATOR_CLI_ARCHIVE": "/tmp/payload.tar.gz"},
+            clear=False,
+        ):
+            for key in (
+                "NEMOCLAW_COORDINATOR_CLI_SHA256",
+                "NEMOCLAW_COORDINATOR_CLI_VERSION",
+                "NEMOCLAW_COORDINATOR_CLI_REVISION",
+            ):
+                os.environ.pop(key, None)
+            with self.assertRaisesRegex(RuntimeError, "metadata is incomplete"):
+                await env._install_coordinator_nemoclaw_cli()
 
     def test_sample_fixture_metadata_is_closed_over_published_bundle(self):
         self.assertEqual(
@@ -1168,6 +1257,133 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(extract_commands), 1)
         self.assertNotIn("sudo rm -rf /tmp/payload", extract_commands[0])
+
+    async def test_gateway_release_recognizes_exact_schema3_launcher(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with (
+            mock.patch.object(brev_env, "_run_brev_exec", new=fake_run_brev_exec),
+            mock.patch.dict(
+                os.environ,
+                {
+                    "NEMOCLAW_COORDINATOR_CLI_ARCHIVE": "",
+                    "NEMOCLAW_COORDINATOR_CLI_SHA256": "",
+                    "NEMOCLAW_COORDINATOR_CLI_VERSION": "",
+                    "NEMOCLAW_COORDINATOR_CLI_REVISION": "",
+                },
+                clear=False,
+            ),
+        ):
+            await env._ensure_nemoclaw_ready({})
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        resolver_marker = (
+            "python3 - \"$cli_path\" <<'__NEMOCLAW_CLI_ROOT__'\n"
+        )
+        resolver_start = command.index(resolver_marker) + len(resolver_marker)
+        resolver_end = command.index(
+            "\n__NEMOCLAW_CLI_ROOT__",
+            resolver_start,
+        )
+        resolver = command[resolver_start:resolver_end]
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            bin_dir = home / ".local" / "bin"
+            bin_dir.mkdir(parents=True)
+            source = home / ".nemoclaw" / "source"
+            node = (
+                home
+                / ".nemoclaw"
+                / "runtime"
+                / "node-v22.22.1-linux-x64"
+                / "bin"
+                / "node"
+            )
+            cli = source / "bin" / "nemoclaw.js"
+            openshell = bin_dir / "openshell"
+            gateway = bin_dir / "openshell-gateway"
+            sandbox = bin_dir / "openshell-sandbox"
+            safe_path = (
+                f"{node.parent}:{bin_dir}:/usr/local/sbin:/usr/local/bin:"
+                "/usr/sbin:/usr/bin:/sbin:/bin"
+            )
+            installer_path = (
+                Path(__file__).resolve().parents[4]
+                / ".github"
+                / "skill-eval"
+                / "nemoclaw"
+                / "install_cli_payload.py"
+            )
+            installer_spec = importlib.util.spec_from_file_location(
+                "registered_node_schema3_installer",
+                installer_path,
+            )
+            assert installer_spec is not None and installer_spec.loader is not None
+            installer = importlib.util.module_from_spec(installer_spec)
+            installer_spec.loader.exec_module(installer)
+            launcher_contents = installer._launcher_content(
+                node=node,
+                script=cli,
+                bin_dir=bin_dir,
+            )
+            launcher = bin_dir / "nemoclaw"
+
+            def resolve(contents, candidate=launcher):
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                candidate.write_text(contents, encoding="utf-8")
+                candidate.chmod(0o755)
+                return subprocess.run(
+                    [sys.executable, "-c", resolver, str(candidate)],
+                    env={**os.environ, "HOME": str(home)},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            accepted = resolve(launcher_contents)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                accepted.stdout.splitlines(),
+                [str(source), str(node)],
+            )
+
+            deviations = {
+                "path": launcher_contents.replace(
+                    f"export PATH={shlex.quote(safe_path)}\n",
+                    f"export PATH={shlex.quote(safe_path + ':/tmp')}\n",
+                ),
+                "openshell export": launcher_contents.replace(
+                    f"export NEMOCLAW_OPENSHELL_GATEWAY_BIN={gateway}\n",
+                    f"export NEMOCLAW_OPENSHELL_GATEWAY_BIN={bin_dir / 'other'}\n",
+                ),
+                "node exec": launcher_contents.replace(
+                    f"exec {node} {cli} \"$@\"\n",
+                    f"exec {node}.other {cli} \"$@\"\n",
+                ),
+                "extra command": launcher_contents + "true\n",
+            }
+            for label, contents in deviations.items():
+                with self.subTest(label=label):
+                    refused = resolve(contents)
+                    self.assertNotEqual(refused.returncode, 0)
+                    self.assertEqual(refused.stdout, "")
+
+            outside = home / "nemoclaw"
+            refused_location = resolve(launcher_contents, outside)
+            self.assertNotEqual(refused_location.returncode, 0)
+            self.assertEqual(refused_location.stdout, "")
 
     async def test_nemoclaw_setup_sources_profile_without_nounset(self):
         calls = []

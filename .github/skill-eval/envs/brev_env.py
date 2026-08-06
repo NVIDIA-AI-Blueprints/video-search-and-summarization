@@ -28,6 +28,7 @@ import asyncio
 import base64
 import contextlib
 from enum import Enum
+import hashlib
 import json
 import logging
 import os
@@ -88,6 +89,10 @@ NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
 # its direct-container preflight contract changes so a warm worker cannot
 # bind a rebuilt image to stale same-name runtime state.
 NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc103-c1"
+NEMOCLAW_COORDINATOR_CLI_ARCHIVE_ENV = "NEMOCLAW_COORDINATOR_CLI_ARCHIVE"
+NEMOCLAW_COORDINATOR_CLI_SHA256_ENV = "NEMOCLAW_COORDINATOR_CLI_SHA256"
+NEMOCLAW_COORDINATOR_CLI_VERSION_ENV = "NEMOCLAW_COORDINATOR_CLI_VERSION"
+NEMOCLAW_COORDINATOR_CLI_REVISION_ENV = "NEMOCLAW_COORDINATOR_CLI_REVISION"
 MAX_SETUP_DIAGNOSTIC_INPUT_CHARS = 4 * 1024 * 1024
 NEMOCLAW_SAMPLE_FILES_ALLOWLIST = frozenset(
     {
@@ -1201,6 +1206,122 @@ echo "host data purge OK:${purged:- nothing to purge}"
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _install_coordinator_nemoclaw_cli(self) -> None:
+        """Install the coordinator-built exact CLI without worker egress.
+
+        The workflow builds this archive from the immutable NVIDIA/NemoClaw
+        release before Harbor starts.  Only that trusted coordinator artifact
+        crosses the Brev control plane; the worker validates its checksum and
+        manifest before atomically replacing a partial/stale managed source.
+        Direct Harbor callers that do not provide a payload retain the
+        notebook's official installer path for compatibility.
+        """
+        raw = {
+            "archive": os.environ.get(NEMOCLAW_COORDINATOR_CLI_ARCHIVE_ENV, "").strip(),
+            "sha256": os.environ.get(NEMOCLAW_COORDINATOR_CLI_SHA256_ENV, "").strip().lower(),
+            "version": os.environ.get(NEMOCLAW_COORDINATOR_CLI_VERSION_ENV, "").strip(),
+            "revision": os.environ.get(NEMOCLAW_COORDINATOR_CLI_REVISION_ENV, "").strip().lower(),
+            "ref": os.environ.get("NEMOCLAW_INSTALL_REF", "v0.0.103").strip(),
+        }
+        present = {key for key, value in raw.items() if value and key != "ref"}
+        if not present:
+            logger.info(
+                "No coordinator-built NemoClaw CLI payload was provided; "
+                "retaining the notebook installer path"
+            )
+            return
+        required = {"archive", "sha256", "version", "revision"}
+        if present != required:
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload metadata is incomplete"
+            )
+        archive = Path(raw["archive"])
+        try:
+            archive_info = archive.lstat()
+        except OSError as exc:
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload is unavailable"
+            ) from exc
+        if archive.is_symlink() or not archive.is_file() or archive_info.st_size <= 0:
+            raise RuntimeError("coordinator NemoClaw CLI payload is unsafe")
+        if (
+            len(raw["sha256"]) != 64
+            or any(char not in "0123456789abcdef" for char in raw["sha256"])
+            or len(raw["revision"]) != 40
+            or any(char not in "0123456789abcdef" for char in raw["revision"])
+        ):
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload identity is invalid"
+            )
+        version_parts = raw["version"].split(".")
+        if (
+            len(version_parts) != 3
+            or any(not part.isascii() or not part.isdigit() for part in version_parts)
+            or raw["ref"] != f"v{raw['version']}"
+        ):
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload version is invalid"
+            )
+        digest = hashlib.sha256()
+        with archive.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != raw["sha256"]:
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload checksum mismatch"
+            )
+
+        transfer_root = f"/tmp/skill-eval/uploads/nemoclaw-cli-{uuid.uuid4().hex}"
+        remote_archive = f"{transfer_root}/nemoclaw-cli.tar.gz"
+        await self.upload_file(archive, remote_archive)
+        command = f"""set -eo pipefail
+set +u
+source ~/.profile 2>/dev/null || true
+set -u
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+REPO="$HOME/video-search-and-summarization"
+TRANSFER_ROOT={shlex.quote(transfer_root)}
+ARCHIVE={shlex.quote(remote_archive)}
+cleanup_nemoclaw_payload() {{ rm -rf -- "$TRANSFER_ROOT"; }}
+trap cleanup_nemoclaw_payload EXIT
+helper="$(realpath -- "$REPO/.github/skill-eval/nemoclaw/install_cli_payload.py" 2>/dev/null || true)"
+case "$helper" in
+  "$REPO"/*) ;;
+  *) echo "NemoClaw CLI payload helper escapes the synced repository" >&2; exit 1 ;;
+esac
+if [ ! -f "$helper" ] || [ -L "$helper" ]; then
+  echo "NemoClaw CLI payload helper is unavailable or unsafe" >&2
+  exit 1
+fi
+if [ ! -x /usr/bin/python3 ]; then
+  echo "NemoClaw CLI payload activation requires system Python" >&2
+  exit 1
+fi
+/usr/bin/python3 "$helper" \
+  --archive "$ARCHIVE" \
+  --sha256 {shlex.quote(raw['sha256'])} \
+  --ref {shlex.quote(raw['ref'])} \
+  --version {shlex.quote(raw['version'])} \
+  --revision {shlex.quote(raw['revision'])} \
+  --home "$HOME"
+"""
+        logger.info(
+            "Installing coordinator-built NemoClaw %s on %s",
+            raw["version"],
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, command, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-1000:]
+            raise RuntimeError(
+                f"coordinator NemoClaw CLI activation failed on "
+                f"{self._instance_name}: exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Coordinator-built NemoClaw CLI activated on %s",
+            self._instance_name,
+        )
+
     async def _ensure_nemoclaw_ready(self, meta: dict) -> None:
         """Run the setup-only notebook subset and readiness probes.
 
@@ -1209,6 +1330,8 @@ echo "host data purge OK:${purged:- nothing to purge}"
         the Brev worker under /tmp/skill-eval/nemoclaw for artifact collection
         and operator debugging.
         """
+        await self._install_coordinator_nemoclaw_cli()
+
         required_tools = meta.get("required_mcp_tools") or []
         if isinstance(required_tools, str):
             required_tools = [required_tools]
@@ -1330,6 +1453,7 @@ if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
       python3 - "$cli_path" <<'__NEMOCLAW_CLI_ROOT__'
 import os
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -1354,6 +1478,65 @@ for _ in range(3):
             contents = handle.read()
     except (OSError, UnicodeError):
         break
+    schema3_home = Path.home()
+    schema3_bin = schema3_home / ".local" / "bin"
+    schema3_source = schema3_home / ".nemoclaw" / "source"
+    schema3_node = (
+        schema3_home
+        / ".nemoclaw"
+        / "runtime"
+        / "node-v22.22.1-linux-x64"
+        / "bin"
+        / "node"
+    )
+    schema3_cli = schema3_source / "bin" / "nemoclaw.js"
+    schema3_openshell = schema3_bin / "openshell"
+    schema3_gateway = schema3_bin / "openshell-gateway"
+    schema3_sandbox = schema3_bin / "openshell-sandbox"
+    schema3_path = ":".join(
+        (
+            str(schema3_node.parent),
+            str(schema3_bin),
+            "/usr/local/sbin",
+            "/usr/local/bin",
+            "/usr/sbin",
+            "/usr/bin",
+            "/sbin",
+            "/bin",
+        )
+    )
+    schema3_contents = "".join(
+        (
+            "#!/bin/sh\n",
+            "export PATH=" + shlex.quote(schema3_path) + "\n",
+            "export NEMOCLAW_OPENSHELL_BIN="
+            + shlex.quote(str(schema3_openshell))
+            + "\n",
+            "export NEMOCLAW_OPENSHELL_GATEWAY_BIN="
+            + shlex.quote(str(schema3_gateway))
+            + "\n",
+            "export NEMOCLAW_OPENSHELL_SANDBOX_BIN="
+            + shlex.quote(str(schema3_sandbox))
+            + "\n",
+            "export OPENSHELL_DOCKER_SUPERVISOR_BIN="
+            + shlex.quote(str(schema3_sandbox))
+            + "\n",
+            "exec "
+            + shlex.quote(str(schema3_node))
+            + " "
+            + shlex.quote(str(schema3_cli))
+            + ' "$@"\n',
+        )
+    )
+    schema3_launcher = Path(os.path.realpath(schema3_bin / "nemoclaw"))
+    if (
+        pinned_node is None
+        and resolved == schema3_launcher
+        and contents == schema3_contents
+    ):
+        print(schema3_source)
+        print(schema3_node)
+        raise SystemExit(0)
     installer_shim = re.fullmatch(
         r'#!/usr/bin/env bash\n'
         r'export PATH="(/[^"\n]*):\$PATH"\n'

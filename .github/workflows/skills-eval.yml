@@ -473,6 +473,27 @@ jobs:
         with:
           python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
+      - name: Set up pinned NemoClaw build runtime
+        if: matrix.kind == 'eval'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22.22.1
+
+      - name: Prepare exact NemoClaw CLI payload
+        if: matrix.kind == 'eval'
+        env:
+          NEMOCLAW_INSTALL_REF: v0.0.103
+          NEMOCLAW_CLI_PAYLOAD: ${{ runner.temp }}/nemoclaw-cli-${{ github.run_id }}-${{ matrix.slug }}.tar.gz
+          # Cache only within one immutable workflow attempt. A re-run must
+          # rebuild instead of trusting a mutable artifact from an older SHA.
+          NEMOCLAW_CLI_CACHE: ${{ runner.temp }}/nemoclaw-cli-cache-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 .github/skill-eval/nemoclaw/prepare_cli_payload.py \
+            --ref "$NEMOCLAW_INSTALL_REF" \
+            --output "$NEMOCLAW_CLI_PAYLOAD" \
+            --cache-root "$NEMOCLAW_CLI_CACHE" \
+            --github-env "$GITHUB_ENV"
+
       - name: Prepare NemoClaw result scope
         env:
           RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}

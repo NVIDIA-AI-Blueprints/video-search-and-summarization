@@ -1287,6 +1287,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "ANTHROPIC_BASE_URL",
             "ANTHROPIC_MODEL",
             "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
             "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL",
             "COMPATIBLE_API_KEY",
@@ -1423,6 +1424,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "ANTHROPIC_BASE_URL",
             "ANTHROPIC_MODEL",
             "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
             "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL",
             "COMPATIBLE_API_KEY",
@@ -1436,6 +1438,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         os.environ["ANTHROPIC_BASE_URL"] = "https://ci-agent.example/v1"
         os.environ["ANTHROPIC_MODEL"] = "aws/anthropic/bedrock-claude-opus-4-8"
         os.environ["ANTHROPIC_API_KEY"] = "anthropic-ci"
+        os.environ["OPENAI_API_KEY"] = "unrelated-openai-key"
         os.environ["NVIDIA_API_KEY"] = "nvapi-ci"
         try:
             exec(notebook_adapter.PARAMETER_SOURCE, defaults)
@@ -1682,6 +1685,108 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             ):
                 ensure_agent_venv()
             self.assertEqual(len(commands), 4)
+
+    def test_composed_agent_setup_omits_unused_torch_runtime(self):
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy"
+                / "docker"
+                / "scripts"
+                / "deploy_vss_orchestrator.ipynb"
+            ).read_text()
+        )
+        setup_cells = [
+            cell for cell in notebook["cells"] if cell.get("id") == "c13aaf5e"
+        ]
+        self.assertEqual(len(setup_cells), 1)
+
+        patched = notebook_adapter._patch_ci_cell(
+            "c13aaf5e",
+            notebook_adapter._normalize_cell_source(setup_cells[0]),
+        )
+        source = patched["source"]
+
+        self.assertIn(
+            '["uv", "sync", "--no-dev", "--extra", "agent", '
+            '"--no-install-package", "torch"]',
+            source,
+        )
+        self.assertNotIn(
+            '["uv", "sync", "--no-dev", "--extra", "agent"]',
+            source,
+        )
+        self.assertIn('UV_NO_SYNC = "1"', source)
+        self.assertIn(
+            'os.environ["UV_NO_SYNC"] = UV_NO_SYNC\n'
+            'agent_env = uv_env_for_agent()',
+            source,
+        )
+        self.assertIn('"UV_NO_SYNC",', notebook_adapter.PERSIST_SOURCE)
+        compile(source, "composed:c13aaf5e", "exec")
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            env_path = Path(tempdir) / "nemoclaw.env"
+            token_path = Path(tempdir) / "hooks-token"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "NEMOCLAW_CI_ENV_OUT": str(env_path),
+                    "NEMOCLAW_HOOKS_TOKEN_FILE": str(token_path),
+                },
+                clear=True,
+            ):
+                exec(notebook_adapter.PERSIST_SOURCE, {"UV_NO_SYNC": "1"})
+            self.assertIn("export UV_NO_SYNC=1\n", env_path.read_text())
+
+        tree = ast.parse(source)
+        run_uv_sync_nodes = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "run_uv_sync"
+        ]
+        self.assertEqual(len(run_uv_sync_nodes), 1)
+        run_uv_sync_module = ast.fix_missing_locations(
+            ast.Module(body=run_uv_sync_nodes, type_ignores=[])
+        )
+        agent_dir = Path("/tmp/vss-agent")
+        run = mock.Mock(
+            return_value=subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        )
+        namespace = {
+            "AGENT_DIR": agent_dir,
+            "subprocess": mock.Mock(run=run),
+            "uv_env_for_agent": lambda: {"PATH": "/usr/bin"},
+        }
+        exec(
+            compile(run_uv_sync_module, "composed:c13aaf5e:run_uv_sync", "exec"),
+            namespace,
+        )
+
+        result = namespace["run_uv_sync"]()
+
+        self.assertEqual(result.returncode, 0)
+        run.assert_called_once_with(
+            [
+                "uv",
+                "sync",
+                "--no-dev",
+                "--extra",
+                "agent",
+                "--no-install-package",
+                "torch",
+            ],
+            cwd=str(agent_dir),
+            env={"PATH": "/usr/bin"},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
     def test_rtsp_sample_probe_is_wired_without_mcp_secret_argument(self):
         config = (
@@ -12311,6 +12416,27 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             270 * 60,
         )
         self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.103", source)
+        node_setup_index = nemoclaw_eval_source.index(
+            "Set up pinned NemoClaw build runtime"
+        )
+        payload_index = nemoclaw_eval_source.index(
+            "Prepare exact NemoClaw CLI payload"
+        )
+        agent_index = nemoclaw_eval_source.index(
+            "Run NemoClaw skills eval agent"
+        )
+        self.assertLess(node_setup_index, payload_index)
+        self.assertLess(payload_index, agent_index)
+        self.assertIn(
+            "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+            nemoclaw_eval_source,
+        )
+        self.assertIn("node-version: 22.22.1", nemoclaw_eval_source)
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/prepare_cli_payload.py",
+            nemoclaw_eval_source,
+        )
+        self.assertIn('--github-env "$GITHUB_ENV"', nemoclaw_eval_source)
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=1200", source)
@@ -12358,7 +12484,12 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn('rm -rf "$REPORT_ROOT"', source)
         self.assertIn("Enforce complete result publication", source)
         self.assertIn("overwrite: true", source)
-        self.assertNotIn("github.run_attempt", nemoclaw_eval_source)
+        self.assertEqual(nemoclaw_eval_source.count("github.run_attempt"), 1)
+        self.assertIn(
+            "nemoclaw-cli-cache-${{ github.run_id }}-${{ github.run_attempt }}",
+            nemoclaw_eval_source,
+        )
+        self.assertIn('--cache-root "$NEMOCLAW_CLI_CACHE"', nemoclaw_eval_source)
         self.assertIn("PLAN_RESULT: ${{ needs.nemoclaw_plan.result }}", source)
         self.assertIn("nemoclaw-plan__missing", source)
 
