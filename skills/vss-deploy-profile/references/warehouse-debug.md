@@ -322,12 +322,21 @@ tables live there to avoid drift when ports/services change.
 
 ## Documentation Reference
 
-- Warehouse overview: https://docs.nvidia.com/vss/3.2.0/warehouse-docs/warehouse-toc.html
-- 2D profile: https://docs.nvidia.com/vss/3.2.0/warehouse-docs/2D-profile.html
-- 2D profile with Agents: https://docs.nvidia.com/vss/3.2.0/warehouse-docs/2D-profile-with-agents.html
-- 3D profile: https://docs.nvidia.com/vss/3.2.0/warehouse-docs/3D-profile.html
-- RT-DETR model (2D): https://docs.nvidia.com/vss/3.2.0/warehouse-docs/RT-DETR.html
-- Sparse4D model (3D): https://docs.nvidia.com/vss/3.2.0/warehouse-docs/Sparse4D.html
+Use the version-agnostic **`/latest/`** paths — they track whatever release is published, so
+they neither 404 before 3.3.0 ships nor go stale after. (`/latest/` serves 3.2.1 today; a pinned
+`/3.3.0/` path 404s until that docs site publishes.)
+
+- VSS docs root: https://docs.nvidia.com/vss/latest/index.html
+- Warehouse overview: https://docs.nvidia.com/vss/latest/warehouse-docs/warehouse-toc.html
+- 2D profile: https://docs.nvidia.com/vss/latest/warehouse-docs/2D-profile.html
+- 2D profile with Agents: https://docs.nvidia.com/vss/latest/warehouse-docs/2D-profile-with-agents.html
+- 3D profile: https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html
+- RT-DETR model (2D): https://docs.nvidia.com/vss/latest/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR.html
+- Sparse4D model (3D): https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html
+- MV3DT (multi-view 3D tracking): https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT.html
+
+> The previous `RT-DETR.html` / `Sparse4D.html` / `mv3dt-profile.html` filenames in this list were
+> wrong — they 404 at every published version. The pages above are the real ones, verified live.
 
 ---
 
@@ -367,33 +376,62 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
   --format 'table {{.Names}}\t{{.Status}}\t{{.ExitCode}}'
 ```
 
-**Expected `Up` containers (flag any missing or restarting):**
+**Expected long-running containers (flag any missing or restarting).** One-shot jobs are *not* in this table — see the note below it; classifying a completed gate as missing is the most common false positive here.
 
 | Variant | Required containers |
 |---|---|
-| 2D / 3D Kafka/Redis variants | broker (`kafka` and/or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
+| 2D / 3D Kafka/Redis variants | broker (`kafka` and/or `redis`), `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
-| MV3DT Kafka/Redis variants | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
-| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker health check, no perception, no analytics |
+| MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
+| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
 | `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, `node-exporter`, `cadvisor`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt`; monitoring too, but **2D/3D only** |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |
 | `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode). **A `…_MINIMAL` list does NOT deploy ES** |
 
-Record which containers are **Down**, **Restarting**, or have a non-zero exit code — these are the primary suspects.
+**Expected `Exited (0)` — these are jobs, not services. A completed gate is a success, never a missing container:**
 
-> **Do not flag one-shot jobs that exited `0`.** `vss-broker-health-check`, every `sdrc-*` job, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-configurator-*-init`, `vss-elasticsearch-init`, `vss-kibana-init` and `vss-import-calibration-output` are expected to appear under "Exited" with code `0`. Only a **non-zero** exit is a finding.
+| Container | Why it exits |
+|---|---|
+| `vss-broker-health-check` | Polls the broker (`MAX_RETRIES=60`, `RETRY_INTERVAL=2` s), then exits. `restart: "no"`, and every dependent waits on `service_completed_successfully` — so `Exited (0)` is precisely what "the broker gate passed" looks like. It appears in the `docker ps -a` exited list on a **healthy** stack |
+| `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads` | SDR-controller setup / wait jobs |
+| `sensor-bp-wait-bp-configurator` | Waits for the configurator before the sensor microservice starts |
+| `vss-kafka-topics` | Creates the `mdx-*` topics |
+| `vss-configurator-2d-init` / `-3d-init` / `-mv3dt-init` | Renders the blueprint config |
+| `vss-elasticsearch-init`, `vss-kibana-init` | Index templates / dashboard import |
+| `vss-import-calibration-output` | Imports `calibration.json` |
 
-To get the authoritative expected-container list for the running deployment instead of reading it off a table, ask Compose:
+Record as suspects only: containers that are **Down** or **Restarting**, long-running containers from the table above that are **missing**, and any container with a **non-zero** exit code. Do not open an investigation because a job from this second table shows `Exited`.
+
+To get the authoritative expected-container list for the running deployment instead of reading it off a table, ask Compose.
+
+> **Resolve and export `COMPOSE_PROFILES` first.** `blueprint-deploy.sh` writes it into
+> `generated.env` as the literal `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_<VARIANT>}`
+> (`blueprint-deploy.sh:960`), and not every Docker Compose version expands `${...}` inside an
+> `--env-file` value. Unexpanded, it matches **no** service profiles and `config` returns a
+> near-empty list — which reads as "almost nothing is deployed" and sends you chasing a
+> non-existent outage. Source the warehouse `.env` then `generated.env` under `set -a` so the
+> resolved value is exported into the same shell that runs Compose.
 
 ```bash
 cd $REPO/deploy/docker
+
+set -a
+. industry-profiles/warehouse-operations/.env
+. industry-profiles/warehouse-operations/generated.env
+set +a
+echo "COMPOSE_PROFILES=$COMPOSE_PROFILES"   # must be a service list, not '${COMPOSE_PROFILES_WH_*}'
+
 docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
   --env-file containers.env \
   --env-file industry-profiles/warehouse-operations/.env \
   --env-file industry-profiles/warehouse-operations/generated.env \
   config --format json | python3 -c 'import json,sys; [print(s.get("container_name","")) for s in json.load(sys.stdin)["services"].values()]' | sort
 ```
+
+The same `set -a` prelude applies to **every** raw `docker compose` command in this reference —
+`config`, `ps`, `logs`, `up`, `down`. If a Compose command reports far fewer services than you
+expect, check `echo "$COMPOSE_PROFILES"` before concluding anything about the stack.
 
 ---
 
@@ -683,11 +721,11 @@ If yes:
 
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
-  --env-file containers.env \
-  --env-file industry-profiles/warehouse-operations/.env \
-  --env-file industry-profiles/warehouse-operations/generated.env \
-  down --remove-orphans
+
+# Project-scoped teardown, as blueprint-deploy.sh does it. This needs no env-file
+# resolution, so an unexpanded COMPOSE_PROFILES cannot leave containers behind.
+# COMPOSE_PROJECT_NAME defaults to `vss` (overrides.env).
+docker compose -p "${COMPOSE_PROJECT_NAME:-vss}" down --remove-orphans
 docker volume prune -f
 docker system prune -f
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
@@ -698,12 +736,23 @@ bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/
 ```bash
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
+
+# Resolve COMPOSE_PROFILES into this shell before Compose runs -- generated.env stores it
+# as the literal ${COMPOSE_PROFILES_WH_*}, which not every Compose version expands.
+set -a
+. industry-profiles/warehouse-operations/.env
+. industry-profiles/warehouse-operations/generated.env
+set +a
+case "$COMPOSE_PROFILES" in
+  ''|*'${'*) echo "COMPOSE_PROFILES did not resolve: '$COMPOSE_PROFILES'" >&2; exit 1 ;;
+esac
+
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 nohup docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
   --env-file containers.env \
   --env-file industry-profiles/warehouse-operations/.env \
   --env-file industry-profiles/warehouse-operations/generated.env \
-  up --detach --force-recreate --build \
+  up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"
 ```

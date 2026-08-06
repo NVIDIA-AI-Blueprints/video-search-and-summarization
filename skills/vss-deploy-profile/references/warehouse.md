@@ -25,7 +25,11 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 
 Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
-> **`MINIMAL_PROFILE` is not an env var the stack reads.** No file under `deploy/docker/` references it — minimal vs. extended is selected *only* by which `COMPOSE_PROFILES_WH_*` list `COMPOSE_PROFILES` points at (`…_MINIMAL` or not). This doc uses "minimal"/"extended" as shorthand for that choice; do not expect setting `MINIMAL_PROFILE` in `generated.env` to change anything.
+> **`MINIMAL_PROFILE` is not an env var the stack reads.** No file under `deploy/docker/` references it — minimal vs. extended is selected *only* by which `COMPOSE_PROFILES_WH_*` list `COMPOSE_PROFILES` points at (`…_MINIMAL` or not). This doc uses "minimal"/"extended" as shorthand for that choice; setting `MINIMAL_PROFILE` in `generated.env` changes nothing on its own.
+>
+> **The launchable notebook's minimal option is silently ignored — do not rely on it.** `deploy/docker/scripts/deploy_warehouse_launchable.ipynb` exposes a `MINIMAL_PROFILE` setting and writes it into `overrides.env`, but it deploys via `blueprint-deploy.sh`, which then overwrites `COMPOSE_PROFILES` with the **non-`_MINIMAL`** list for the chosen `BP_PROFILE`/`MODE` (`blueprint-deploy.sh:944-960` has no `_MINIMAL` branch). Selecting minimal there yields a **full extended stack**, while the notebook's own verification and access-point cells compute `HAS_ELK`/`HAS_INGRESS` from `MINIMAL_PROFILE` and therefore *under-report* what is actually running.
+>
+> To genuinely deploy minimal, use this skill's path: set `COMPOSE_PROFILES` to the `…_MINIMAL` list in `generated.env` and bring the stack up with `docker compose` directly ([Lifecycle: Bring up](#lifecycle-bring-up)) — not through `blueprint-deploy.sh` or the launchable.
 
 | Feature | Minimal (`…_MINIMAL` list) | Extended (plain list) |
 |---|---|---|
@@ -223,7 +227,7 @@ App data (sample videos, playback, and calibration assets) is **not** bundled wi
 |---|---|---|
 | `<repo>/data` | Quick start — drop assets into the repo's `data/` directory | `<repo>/data` |
 | Custom local path | Existing dataset on a non-repo path (e.g. `/mnt/warehouse-data`) | user-provided path |
-| NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` |
+| NGC app-data resource | Reproducing the sample-video deployment | extracted path of `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026` |
 
 Ask the user which source they want and whether they already have the assets on disk. Only run the NGC app-data download (next subsection) when they explicitly choose the NGC source. Perception models are independent of this choice and are downloaded by `ds-start.sh` phase 0 inside the perception container when a `models-download.json` manifest is mounted.
 
@@ -231,11 +235,13 @@ Ask the user which source they want and whether they already have the assets on 
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| App data (videos, playback, calibration) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` (current pin: `3.2.0`) | `vss-warehouse-app-data_v<version>/vss-warehouse-app-data/` — **this inner directory is `VSS_DATA_DIR`** |
+| App data (videos, playback, calibration) | `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026` | `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data/` — **this inner directory is `VSS_DATA_DIR`** |
 
 `VSS_DATA_DIR` must be the directory that holds `videos/`, `playback/`, `models/` and `data_log/`, not its parent. Compose creates and permissions `models/` and `data_log/*` on bring-up.
 
-> **Org:** use the canonical `nvidia/...` resource path for the published 3.2.0 bundle. If you get `403 Access Denied`, confirm the NGC key has access to the published VSS warehouse resource.
+> **Org:** this bundle lives in the **`nvstaging`** org (team `vss-warehouse`), not the public `nvidia` org. Set `NGC_CLI_ORG=nvstaging` — or just pass the fully-qualified `org/team/name:version` path, as below. A `403 Access Denied` means the NGC key has no access to `nvstaging`.
+
+> **The doubled `vv` is correct.** `ngc registry resource download-version` names the directory `<resource>_v<version>`, prefixing `_v` unconditionally; this version already starts with `v`, so the result is `vss-warehouse-app-data_vv3.3.0-08052026`. Verified against NGC CLI 4.13.0. Do not "fix" it to a single `v`.
 
 ## Known Limitations
 
@@ -320,6 +326,12 @@ set -a
 . industry-profiles/warehouse-operations/generated.env
 set +a
 
+# Fail loudly rather than deploying an empty stack: an unresolved COMPOSE_PROFILES
+# matches no service profiles, so `up` would start almost nothing and still exit 0.
+case "$COMPOSE_PROFILES" in
+  ''|*'${'*) echo "COMPOSE_PROFILES did not resolve: '$COMPOSE_PROFILES'" >&2; exit 1 ;;
+esac
+
 # Brev only: expose BREV_ENV_ID for variable substitution. Skip on non-Brev hosts.
 export BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment 2>/dev/null)
 
@@ -329,14 +341,16 @@ nohup docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.
   --env-file containers.env \
   --env-file industry-profiles/warehouse-operations/.env \
   --env-file industry-profiles/warehouse-operations/generated.env \
-  up --detach --force-recreate --build \
+  up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"
 ```
 
-`blueprint-deploy.sh` deliberately does **not** pass `--pull always`, and `containers.env`
-defaults to a moving tag — so a redeploy reuses whatever was pulled the first time. To force a
-refresh, run the same command with `pull` instead of `up …` first.
+> **`--pull always` is intentional here and differs from `blueprint-deploy.sh`**, which omits it.
+> `containers.env` defaults to the moving tag `develop-latest`, so without it a redeploy silently
+> reuses whatever was pulled the first time — the stale-image trap. Drop `--pull always` only when
+> you deliberately want to pin to the images already on the host (air-gapped host, or reproducing
+> a known-good local state).
 
 ### Lifecycle: Monitor
 
@@ -348,16 +362,16 @@ tail -20 "$LOG"
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 ```
 
-**Stack is ready when these show `Up`** (same container names in 2D and 3D; MV3DT uses `-mv3dt` suffix). `vss-broker-health-check` is a **one-shot job** — its healthy end state is `Exited (0)`, not `Up`:
+**Stack is ready when these long-running containers show `Up`** (same container names in 2D and 3D; MV3DT uses `-mv3dt` suffix). The one-shot jobs listed at the end are expected to be `Exited (0)` — do not read a completed job as a missing container:
 
-- 2D / 3D Kafka/Redis variants: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `kafka` and/or `redis`, `vss-broker-health-check`, `vss-turnserver`, plus the VST stack (`vss-vios-postgres`, `vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-controller`)
+- 2D / 3D Kafka/Redis variants: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `kafka` and/or `redis`, `vss-turnserver`, plus the VST stack (`vss-vios-postgres`, `vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-controller`)
 - 3D extra: `vss-rtvi-cv-config-adaptor`
-- MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker, `vss-broker-health-check`, `vss-turnserver`, plus the same VST stack
+- MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker, `vss-turnserver`, plus the same VST stack
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, `node-exporter`, `cadvisor`), plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
 - Extended extra (kafka/redis): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`); monitoring in 2D/3D only
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode)
 - `BP_PROFILE=bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration (+ UI), `vss-haproxy-ingress`, `vss-turnserver`, `redis` and a VST subset — no broker health check, no perception, no analytics
-- One-shot init containers (`sdrc-*`, `*-init`, `vss-kafka-topics`, `sensor-bp-wait-bp-configurator`, `vss-import-calibration-output`) show `Exited (0)`; that is success
+- **Expected `Exited (0)`, not `Up`:** `vss-broker-health-check` (the broker gate — it polls, exits, and releases its dependents via `service_completed_successfully`), plus `sdrc-*`, `*-init`, `vss-kafka-topics`, `sensor-bp-wait-bp-configurator` and `vss-import-calibration-output`. A non-zero exit on any of these *is* a finding; `Exited (0)` is not
 
 Check FPS (same container for 2D/3D; use `vss-rtvi-cv-mv3dt` for MV3DT):
 
@@ -608,13 +622,13 @@ docker compose version --short
 ##### When to re-pin Docker
 
 Re-pin if the installed engine is **outside [28.3.3, 29.5.0)** — that is where compose/buildx
-incompatibilities show up — or if you hit this failure during `docker compose up`:
+incompatibilities show up — or if you hit this failure during `docker compose up --pull always`:
 
 ```
 error from registry: Incorrect Repository Format
 ```
 
-Then re-run `docker compose up` after the pinned install succeeds.
+Then re-run the bring-up command after the pinned install succeeds.
 
 **Non-root Docker:**
 ```bash
@@ -847,15 +861,20 @@ Compose files ship in the repo. Only non-model app data may need to be acquired 
 ```bash
 export NGC_CLI_API_KEY='<your-ngc-api-key>'
 
-ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<APP_DATA_VERSION>"
-cd vss-warehouse-app-data_v<APP_DATA_VERSION>
+export NGC_CLI_ORG=nvstaging
+
+APP_DATA_RESOURCE="nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026"
+ngc registry resource download-version "$APP_DATA_RESOURCE"
+
+# NGC prefixes _v to the version, which already starts with v -> doubled _vv.
+cd vss-warehouse-app-data_vv3.3.0-08052026
 tar -xvf vss-warehouse-app-data.tar.gz
 
 sudo mkdir -p /path/to/vss-warehouse-app-data/models /path/to/vss-warehouse-app-data/data_log
 sudo chmod 0777 /path/to/vss-warehouse-app-data/models /path/to/vss-warehouse-app-data/data_log
 ```
 
-See [App Data → NGC app-data download](#ngc-app-data-download-optional) for the current version pin.
+`VSS_DATA_DIR` is then `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data`. The bundle ships `videos/` for all three datasets (`nv-warehouse-4cams`, `warehouse-loading-dock-3cams-synthetic`, `warehouse-4cams-20mx20m-synthetic`), plus `playback/`, `models/`, `auto-calib/` and a pre-seeded `data_log/`. See [App Data → NGC app-data download](#ngc-app-data-download-optional) for the current version pin.
 
 ---
 
@@ -1206,7 +1225,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
   --overwrite
 ```
 
-Docs: 3D https://docs.nvidia.com/vss/3.2.0/warehouse-docs/3D-profile.html#camera-clustering and for mv3dt, https://docs.nvidia.com/vss/3.2.0/warehouse-docs/mv3dt-profile.html#camera-clustering
+Docs: the clustering procedure is on the 3D profile page — https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html#camera-clustering — and applies to MV3DT as well; the MV3DT page (https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT.html) covers the MV3DT-specific `camInfo` / pub-sub config updates. `/latest/` tracks the published release, so these do not need re-pinning for 3.3.0.
 
 ### MV3DT-specific configuration updates
 
