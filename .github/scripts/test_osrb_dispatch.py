@@ -75,6 +75,26 @@ class DispatchTests(unittest.TestCase):
         self.assertIn('LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}', workflow)
         self.assertIn('--run-url "$LICENSE_RUN_URL"', workflow)
 
+    def test_check_is_created_before_anything_that_can_fail(self) -> None:
+        """A failure before the check exists would be an invisible fail-open.
+
+        `workflow_run` jobs are not listed in the pull request, so if no check
+        run is created the gate simply does not happen and nothing says so.
+        """
+        workflow = WORKFLOW.read_text()
+        steps = re.findall(r"^      - name: (.+)$", workflow, re.M)
+        self.assertEqual(steps[1], "Start OSRB check", steps)
+
+        start_block = workflow.split("- name: Start OSRB check", 1)[1]
+        start_block = start_block.split("- name:", 1)[0]
+        self.assertNotIn("if:", start_block, "Start OSRB check must be unconditional")
+
+    def test_dispatch_job_wiring_is_exercised_in_ci(self) -> None:
+        self.assertIn(
+            "python3 .github/scripts/test_osrb_dispatch.py",
+            (DIRECTORY.parent / "workflows" / "ci.yml").read_text(),
+        )
+
     def test_workflow_supplies_every_variable_the_helpers_require(self) -> None:
         """The poller reads DOWNSTREAM_PROJECT_PATH even when given a project id.
 

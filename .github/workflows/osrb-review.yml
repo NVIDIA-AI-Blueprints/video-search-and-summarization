@@ -50,6 +50,20 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
+      # First, so the check exists before anything that can fail. Otherwise a
+      # failure here leaves no check on the commit at all, and `workflow_run`
+      # jobs are not listed in the pull request, so the gate would silently not
+      # happen. Idempotent, which also lets the release-branch path reuse it.
+      - name: Start OSRB check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/osrb_check.py start \
+            --repo "$REPO" \
+            --sha "$HEAD_SHA" \
+            --run-url "$LICENSE_RUN_URL" \
+            --external-id "$EXTERNAL_ID"
+
       - name: Resolve source PR
         id: pr
         env:
@@ -77,17 +91,6 @@ jobs:
             --run-url "$LICENSE_RUN_URL" \
             --external-id "$EXTERNAL_ID" \
             --summary "PR targets ${{ steps.pr.outputs.base }}; OSRB was already enforced on the develop-targeted PR."
-
-      - name: Start OSRB check
-        if: steps.pr.outputs.skip != 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python3 .github/scripts/osrb_check.py start \
-            --repo "$REPO" \
-            --sha "$HEAD_SHA" \
-            --run-url "$LICENSE_RUN_URL" \
-            --external-id "$EXTERNAL_ID"
 
       - name: Trigger private OSRB pipeline
         if: steps.pr.outputs.skip != 'true'
@@ -134,10 +137,15 @@ jobs:
         run: |
           set -euo pipefail
           success=()
-          summary="This change needs attention. Read the automated PR review and linked License Diff, then correct the dependency or work with the OSRB owner before pushing an update."
           if [[ "$TRIGGER_OUTCOME" == "success" && "$POLL_OUTCOME" == "success" ]]; then
             success=(--success)
             summary="The reported dependency changes passed OSRB review. No further OSRB action is required; normal required checks and CODEOWNERS review still apply."
+          elif [[ "$TRIGGER_OUTCOME" != "success" && "$TRIGGER_OUTCOME" != "failure" ]]; then
+            # The review was never dispatched, so this says nothing about the
+            # dependencies themselves. Distinguish it from a real finding.
+            summary="The OSRB gate could not run, so these dependency changes were not reviewed. Ask a repository maintainer to rerun License Diff; do not merge on the strength of this check."
+          else
+            summary="This change needs attention. Read the automated PR review and linked License Diff, then correct the dependency or work with the OSRB owner before pushing an update."
           fi
           python3 .github/scripts/osrb_check.py complete \
             --repo "$REPO" \
