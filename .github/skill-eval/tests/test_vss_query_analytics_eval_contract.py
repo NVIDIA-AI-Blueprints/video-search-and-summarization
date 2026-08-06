@@ -63,11 +63,15 @@ def test_adapter_renders_platform_for_agent_and_verifier(
     ).read_text(encoding="utf-8")
 
 
-def test_mcp_liveness_contract_accepts_streamable_http_statuses() -> None:
+def test_liveness_contract_uses_resolved_health_endpoint() -> None:
     adapter = _load_adapter()
     skill = SKILL.read_text(encoding="utf-8")
     solution = adapter.generate_solve_script("RTXPRO6000BW")
 
-    assert "2*|3*|405|406" in solution
-    assert skill.count("2*|3*|405|406") == 2
-    assert "streamable-HTTP endpoint is live" in skill
+    assert '${VA_MCP_URL%/}/health' in solution
+    assert "2*|3*)" in solution
+    assert "405|406" not in solution
+    assert skill.count(
+        'curl -sf --max-time 5 "${VA_MCP_URL%/}/health"'
+    ) == 2
+    assert "Prefer `/health` over `GET /mcp`" in skill

@@ -7869,20 +7869,19 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         sensor_checks = representative[2]["checks"]
         self.assertIn("${HOST_IP:-localhost}", liveness_checks[0])
         self.assertIn("host.openshell.internal", liveness_checks[0])
-        self.assertIn("${HOST_IP:-localhost}", sensor_checks[0])
+        self.assertIn("${VA_MCP_URL}/mcp", sensor_checks[0])
         self.assertIn("host.openshell.internal", sensor_checks[0])
+        self.assertIn("${VSS_PUBLIC_URL}/va-mcp", sensor_checks[0])
         self.assertIn("if the tool returned `[]`", sensor_checks[-1])
         self.assertIn("no sensors are currently registered", sensor_checks[-1])
 
-        # The live verifier runs on the worker host, where localhost is the
-        # correct route. Only trajectory checks need the sandbox host alias.
+        # Liveness follows develop's public/Docker endpoint resolution and
+        # probes /health. JSON-RPC traffic still goes to /mcp after readiness.
         self.assertEqual(
             liveness_checks[1],
             "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' "
-            "http://localhost:9901/mcp` returns an HTTP code in the "
-            "2xx/3xx/405/406 range (the endpoint exists and speaks MCP; a "
-            "bare GET without `Accept: text/event-stream` legitimately gets "
-            "406 from a streamable-HTTP MCP server) — not connection refused.",
+            "${VA_MCP_URL}/health` returns an HTTP code in the 2xx/3xx range "
+            "(VA-MCP `/health` is up) — not connection refused.",
         )
 
     def test_representative_matrix_blocks_unregistered_task_prefix(self):
