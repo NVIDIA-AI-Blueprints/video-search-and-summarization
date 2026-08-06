@@ -49,6 +49,8 @@ static DynamicLibrary* openLibrary(const char* libName)
     return static_cast<DynamicLibrary*>(handle);
 }
 
+extern "C"
+{
 static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *topic, void *user_ptr)
 {
     if(flag == NVDS_MSGAPI_ERR)
@@ -57,12 +59,13 @@ static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *top
     }
     else
     {
-        RedisSubscriber* subscriber = (RedisSubscriber*) user_ptr;
+        RedisSubscriber* subscriber = static_cast<RedisSubscriber*>(user_ptr);
         if (subscriber)
         {
-            subscriber->deliverMessage(msg, len);
+            subscriber->deliverMessage(static_cast<const unsigned char*>(msg), len);
         }
     }
+}
 }
 
 RedisSubscriber* RedisSubscriber::_instance = nullptr;
@@ -176,7 +179,7 @@ void RedisSubscriber::redisInit()
     LOG(info) << "Redis Subscriber connect success." << endl;
 
     //Subscribe to topic
-    if(nvds_msgapi_subscribe(m_connHandle, (char **)topic, 1, subscribe_cb, (void*)this) != NVDS_MSGAPI_OK)
+    if(nvds_msgapi_subscribe(m_connHandle, (char **)topic, 1, reinterpret_cast<nvds_msgapi_subscribe_request_cb_t>(subscribe_cb), (void*)this) != NVDS_MSGAPI_OK)
     {
         LOG(error) << "Redis subscription to topic[s] failed. Exiting" << endl;
         goto error;
@@ -200,7 +203,7 @@ void RedisSubscriber::deregisterMessageListener(nv_vms::INotificationListener* l
     m_listeners.erase(listener);
 }
 
-void RedisSubscriber::deliverMessage(void *msg, int len)
+void RedisSubscriber::deliverMessage(const unsigned char *msg, int len)
 {
     if (!m_listeners.size())
     {
@@ -208,7 +211,7 @@ void RedisSubscriber::deliverMessage(void *msg, int len)
     }
 
     int64_t frameTimeMs = 0;
-    Json::Value payload = DsProtoParser::getInstance()->parseMessage(static_cast<const unsigned char*>(msg), len, frameTimeMs);
+    Json::Value payload = DsProtoParser::getInstance()->parseMessage(msg, len, frameTimeMs);
     if (payload == Json::nullValue)
     {
         static std::atomic<uint64_t> logError{0};

@@ -104,9 +104,9 @@ KafkaConsumer::~KafkaConsumer()
 bool KafkaConsumer::kafkaInit()
 {
 #if defined(AARCH64_PLATFORM)
-    m_libHandle = dlopen(ABSOLUTE_LIBRARY_PATH_AARCH64, RTLD_LAZY);
+    m_libHandle = static_cast<nv_vms::SharedLibrary*>(dlopen(ABSOLUTE_LIBRARY_PATH_AARCH64, RTLD_LAZY));
 #else
-    m_libHandle = dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY);
+    m_libHandle = static_cast<nv_vms::SharedLibrary*>(dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY));
 #endif
     if (!m_libHandle)
     {
@@ -239,7 +239,7 @@ bool KafkaConsumer::kafkaInit()
             }
             if (rkm->payload)
             {
-                deliverMessage((void*)rkm->payload, (int)rkm->len);
+                deliverMessage(static_cast<const unsigned char*>(rkm->payload), (int)rkm->len);
             }
             rd_kafka_message_destroy(rkm);
         }
@@ -265,7 +265,7 @@ void KafkaConsumer::deregisterMessageListener(nv_vms::INotificationListener* lis
     }
 }
 
-void KafkaConsumer::deliverMessage(void* msg, int len)
+void KafkaConsumer::deliverMessage(const unsigned char* msg, int len)
 {
     {
         std::lock_guard<std::mutex> lock(m_listenerMutex);
@@ -284,7 +284,7 @@ void KafkaConsumer::deliverMessage(void* msg, int len)
     }
 
     int64_t frameTimeMs = 0;
-    Json::Value payload = DsProtoParser::getInstance()->parseMessage(static_cast<const unsigned char*>(msg), len, frameTimeMs);
+    Json::Value payload = DsProtoParser::getInstance()->parseMessage(msg, len, frameTimeMs);
     if (payload == Json::nullValue)
     {
         return;

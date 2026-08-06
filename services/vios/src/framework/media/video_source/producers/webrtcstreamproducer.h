@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -97,7 +97,7 @@ class WebrtcStream
             m_channels = audio_metadata.get("Channels", DEFAULT_WEBRTC_IN_CHANNELS).asInt();
         }
 
-        int addFrame (const string& media, void *buffer, unsigned int size, int sample_rate = 0,
+        int addFrame (const string& media, unsigned char *buffer, unsigned int size, int sample_rate = 0,
                         size_t num_channels = 0, int codec_type = 1, int64_t latencyStartTime = 0)
         {
             LOG(verbose) << "media = " << media << " Peer ID = " << endl;
@@ -107,7 +107,7 @@ class WebrtcStream
             std::lock_guard<std::mutex> recordLock(m_webRTCConsumerLock);
             if (media == "audio" && m_consumersList.size())
             {
-                m_gstencoder->onFrame(media, codec, (const unsigned char*)buffer, size, sample_rate, num_channels);
+                m_gstencoder->onFrame(media, codec, buffer, size, sample_rate, num_channels);
             }
             if (media == "video")
             {
@@ -115,7 +115,7 @@ class WebrtcStream
                 gettimeofday(&currTime, nullptr);
                 FrameParams frame_params;
                 frame_params.m_media            = "video";
-                frame_params.m_buffer = (unsigned char*)buffer;
+                frame_params.m_buffer = buffer;
                 frame_params.m_size = size;
                 if (latencyStartTime == 0)
                 {
