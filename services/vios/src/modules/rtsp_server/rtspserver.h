@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -62,7 +62,7 @@ typedef struct _StreamDetails
 class RtspServer
 {
     public:
-        RtspServer(u_int16_t port);
+        explicit RtspServer(u_int16_t port);
         ~RtspServer();
         int16_t getPort() { return m_rtspServerPortNum; }
         std::string createProxy(const string& id, const string& name, const string& url);

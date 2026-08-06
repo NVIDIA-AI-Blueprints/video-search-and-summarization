@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1339,12 +1339,13 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
         if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
         {
             // answer with the created answer
-            webrtc::SessionDescriptionInterface *descInterface = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+            const webrtc::SessionDescriptionInterface *descInterface = localfuture.get();
             if (descInterface)
             {
                 if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
                 {
-                    string sdpLite = m_observer->getSdpWithIceLite(descInterface, m_peerid, m_clientPublicIpAddr);
+                    std::unique_ptr<webrtc::SessionDescriptionInterface> liteDesc = descInterface->Clone();
+                    string sdpLite = m_observer->getSdpWithIceLite(liteDesc.get(), m_peerid, m_clientPublicIpAddr);
                     if (sdpLite.empty() == false)
                     {
                         sdp = sdpLite;
@@ -2492,12 +2493,13 @@ VmsErrorCode PeerConnection::createOffer(const Json::Value& in, Json::Value &off
     if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
     {
         // answer with the created offer
-        webrtc::SessionDescriptionInterface *desc = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+        const webrtc::SessionDescriptionInterface *desc = localfuture.get();
         if (desc)
         {
             if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
             {
-                string sdpLite = m_observer->getSdpWithIceLite(desc, m_peerid, m_clientPublicIpAddr);
+                std::unique_ptr<webrtc::SessionDescriptionInterface> mutableDesc = desc->Clone();
+                string sdpLite = m_observer->getSdpWithIceLite(mutableDesc.get(), m_peerid, m_clientPublicIpAddr);
                 if (sdpLite.empty() == false)
                 {
                     sdp = sdpLite;
@@ -2962,12 +2964,13 @@ VmsErrorCode PeerConnection::getAnswer(const Json::Value& in, Json::Value& answe
     if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
     {
         // answer with the created answer
-        webrtc::SessionDescriptionInterface *descInterface = const_cast<webrtc::SessionDescriptionInterface *>(localfuture.get());
+        const webrtc::SessionDescriptionInterface *localDesc = localfuture.get();
+        std::unique_ptr<webrtc::SessionDescriptionInterface> descInterface = localDesc ? localDesc->Clone() : nullptr;
         if (descInterface)
         {
             if (GET_CONFIG().use_reverse_proxy == true /*&& m_peerConnectionManager->isRpStunAvailable() == false*/)
             {
-                string sdpLite = m_observer->getSdpWithIceLite(descInterface, m_peerid, m_clientPublicIpAddr);
+                string sdpLite = m_observer->getSdpWithIceLite(descInterface.get(), m_peerid, m_clientPublicIpAddr);
                 if (sdpLite.empty() == false)
                 {
                     sdp = sdpLite;
