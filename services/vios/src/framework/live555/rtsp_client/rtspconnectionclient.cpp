@@ -458,7 +458,7 @@ void RTSPConnection::RTSPClientConnection::sessionByeHandler(char const* reason)
   LOG(info) << ":Received RTCP \"BYE\"" << endl;
   if (reason != nullptr) {
     LOG(info) << " (reason:\"" << reason << "\")";
-    delete[] (char*)reason;
+    delete[] reason;
   }
 
   envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalTimeoutTask);

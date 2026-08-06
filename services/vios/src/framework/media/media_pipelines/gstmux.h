@@ -117,7 +117,8 @@ class GstMux : public IMediaDataConsumer
     bool isPlaying();
     bool isAudioSupported();
     void checkStatus();
-    virtual void onFrame(FrameParams& params);
+    using IMediaDataConsumer::onFrame;
+    void onFrame(FrameParams& params) override;
     GstMux* getSelf()
     {
         return this;
