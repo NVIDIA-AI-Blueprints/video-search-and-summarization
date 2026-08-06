@@ -294,6 +294,45 @@ Use these sections for **redeploy**, **Phase 8–9**, and **tear down**. Default
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 ```
 
+<a id="resolve-env"></a>
+### Lifecycle: Resolve env
+
+Run this **once per shell**, from `<repo>/deploy/docker`, before any `docker compose` command
+below. Everything that follows refers back to it as **the resolve-env prelude**.
+
+```bash
+eval "$(
+  set -a
+  . industry-profiles/warehouse-operations/.env
+  . industry-profiles/warehouse-operations/generated.env
+  set +a
+  printf 'COMPOSE_PROFILES=%q\nCOMPOSE_PROJECT_NAME=%q\n' \
+    "$COMPOSE_PROFILES" "${COMPOSE_PROJECT_NAME:-}"
+  # Emit the NGC key ONLY if the env files actually carry one — overrides.env ships
+  # NGC_CLI_API_KEY='' , and exporting that empty value would wipe a key you already
+  # have in your shell and hand `docker login` a zero-byte password.
+  [ -n "${NGC_CLI_API_KEY:-}" ] && printf 'NGC_CLI_API_KEY=%q\n' "$NGC_CLI_API_KEY"
+)"
+export COMPOSE_PROFILES
+[ -n "${COMPOSE_PROJECT_NAME:-}" ] && export COMPOSE_PROJECT_NAME
+[ -n "${NGC_CLI_API_KEY:-}" ] && export NGC_CLI_API_KEY
+
+# Fail loudly rather than deploying an empty stack: an unresolved COMPOSE_PROFILES
+# matches no service profiles, so `up` would start almost nothing and still exit 0.
+case "$COMPOSE_PROFILES" in
+  ''|*'${'*) echo "COMPOSE_PROFILES did not resolve: '$COMPOSE_PROFILES'" >&2; exit 1 ;;
+esac
+```
+
+Two reasons it is a subshell rather than a plain `set -a; . file`:
+
+- The warehouse `.env` holds an **unquoted JSON** value that shell quote-removal mangles, and the
+  shell environment outranks `--env-file` in Compose interpolation — so the mangled value would
+  silently win over the correct one. Only the three variables above are exported.
+- `overrides.env` (and therefore `generated.env`) ships `NGC_CLI_API_KEY=''`. Sourcing it wholesale
+  **overwrites a key already exported in your shell**, and `docker login --password-stdin` then
+  receives zero bytes. The guard above keeps whichever value is actually set.
+
 ### Lifecycle: Tear down
 
 Hard teardown — removes all containers, the project network, and all volume belonging to this stack.
@@ -305,8 +344,7 @@ cd <repo>/deploy/docker
 # Containers + network + project's named volumes all go.
 # The project name comes from COMPOSE_PROJECT_NAME in generated.env (default `vss`),
 # which Compose reads out of the --env-file below — so do not drop those flags here.
-# If you prefer the project-scoped form, resolve the name first:
-#   set -a; . industry-profiles/warehouse-operations/generated.env; set +a
+# If you prefer the project-scoped form, run the resolve-env prelude first, then:
 #   docker compose -p "${COMPOSE_PROJECT_NAME:?}" down -v --remove-orphans
 docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
   --env-file containers.env \
@@ -329,33 +367,15 @@ bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/
 
 Pulls images and builds the perception container (~10–15 min first run). If `docker compose` fails to pull from `nvcr.io`, confirm `NGC_CLI_API_KEY` is set and retry `docker login` as shown.
 
+Run the [resolve-env prelude](#resolve-env) in this shell first.
+
 ```bash
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
 
-# Resolve COMPOSE_PROFILES from the active generated.env before Compose.
-# generated.env is the per-deployment copy of the checked-in overrides.env template.
-# Resolve ONLY what this shell needs, inside a subshell. Do not `set -a; .` these files
-# directly: the warehouse .env holds an unquoted JSON value that shell quote-removal mangles,
-# and the shell environment outranks --env-file in Compose interpolation, so the mangled
-# value would silently win over the correct one.
-eval "$(
-  set -a
-  . industry-profiles/warehouse-operations/.env
-  . industry-profiles/warehouse-operations/generated.env
-  set +a
-  printf 'COMPOSE_PROFILES=%q\nNGC_CLI_API_KEY=%q\nCOMPOSE_PROJECT_NAME=%q\n' \
-    "$COMPOSE_PROFILES" "${NGC_CLI_API_KEY:-}" "${COMPOSE_PROJECT_NAME:-}"
-)"
-export COMPOSE_PROFILES NGC_CLI_API_KEY
-[ -n "$COMPOSE_PROJECT_NAME" ] && export COMPOSE_PROJECT_NAME
+# Run the resolve-env prelude first — see Lifecycle: Resolve env.
 
-# Fail loudly rather than deploying an empty stack: an unresolved COMPOSE_PROFILES
-# matches no service profiles, so `up` would start almost nothing and still exit 0.
-case "$COMPOSE_PROFILES" in
-  ''|*'${'*) echo "COMPOSE_PROFILES did not resolve: '$COMPOSE_PROFILES'" >&2; exit 1 ;;
-esac
-
+: "${NGC_CLI_API_KEY:?not set — export it, or put it in generated.env, before logging in}"
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 
 nohup docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
@@ -1127,26 +1147,13 @@ Some Docker Compose versions do not expand `${...}` references within `--env-fil
 cd <repo>/deploy/docker
 [ -f industry-profiles/warehouse-operations/generated.env ] \
   || cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
-# Resolve ONLY what this shell needs, inside a subshell. Do not `set -a; .` these files
-# directly: the warehouse .env holds an unquoted JSON value that shell quote-removal mangles,
-# and the shell environment outranks --env-file in Compose interpolation, so the mangled
-# value would silently win over the correct one.
-eval "$(
-  set -a
-  . industry-profiles/warehouse-operations/.env
-  . industry-profiles/warehouse-operations/generated.env
-  set +a
-  printf 'COMPOSE_PROFILES=%q\nNGC_CLI_API_KEY=%q\nCOMPOSE_PROJECT_NAME=%q\n' \
-    "$COMPOSE_PROFILES" "${NGC_CLI_API_KEY:-}" "${COMPOSE_PROJECT_NAME:-}"
-)"
-export COMPOSE_PROFILES NGC_CLI_API_KEY
-[ -n "$COMPOSE_PROJECT_NAME" ] && export COMPOSE_PROJECT_NAME
-# COMPOSE_PROFILES now holds the resolved service list, e.g.:
+# Now run the resolve-env prelude (Lifecycle: Resolve env).
+# COMPOSE_PROFILES then holds the resolved service list, e.g.:
 #   turnserver-init,turnserver,redis,...,vss-agent,rtvi-vlm,vss-ui,...,llm_local_nvidia-nemotron-nano-9b-v2
 echo "$COMPOSE_PROFILES"
 ```
 
-> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Source the warehouse `.env` + active `generated.env` as shown above; `set -a` exports the resolved value before `docker compose up`.
+> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Use the [resolve-env prelude](#resolve-env); it exports the resolved value before `docker compose up`.
 
 > **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variant. Comment the default `PERCEPTION_TAG="3.3.0-26.07.2"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.2"`. `PERCEPTION_TAG` is the only key with a commented `-sbsa` line in the warehouse `overrides.env` — there is nothing to uncomment for `RTVI_VLM_IMAGE_TAG`, and no warehouse variant deployable on DGX-SPARK includes `rtvi-vlm`.
 
@@ -1171,26 +1178,9 @@ ngc config current 2>/dev/null | grep -q "apikey" && echo "NGC config: key prese
 ```bash
 cd <repo>/deploy/docker
 
-# Same prelude as Bring up — without it COMPOSE_PROFILES stays the literal
-# ${COMPOSE_PROFILES_WH_*}, matches no services, and `config` returns a near-empty
-# list that reads as "almost nothing will deploy".
-# Resolve ONLY what this shell needs, inside a subshell. Do not `set -a; .` these files
-# directly: the warehouse .env holds an unquoted JSON value that shell quote-removal mangles,
-# and the shell environment outranks --env-file in Compose interpolation, so the mangled
-# value would silently win over the correct one.
-eval "$(
-  set -a
-  . industry-profiles/warehouse-operations/.env
-  . industry-profiles/warehouse-operations/generated.env
-  set +a
-  printf 'COMPOSE_PROFILES=%q\nNGC_CLI_API_KEY=%q\nCOMPOSE_PROJECT_NAME=%q\n' \
-    "$COMPOSE_PROFILES" "${NGC_CLI_API_KEY:-}" "${COMPOSE_PROJECT_NAME:-}"
-)"
-export COMPOSE_PROFILES NGC_CLI_API_KEY
-[ -n "$COMPOSE_PROJECT_NAME" ] && export COMPOSE_PROJECT_NAME
-case "$COMPOSE_PROFILES" in
-  ''|*'${'*) echo "COMPOSE_PROFILES did not resolve: '$COMPOSE_PROFILES'" >&2; exit 1 ;;
-esac
+# Run the resolve-env prelude (Lifecycle: Resolve env) first — without it
+# COMPOSE_PROFILES stays the literal ${COMPOSE_PROFILES_WH_*}, matches no services,
+# and `config` returns a near-empty list that reads as "almost nothing will deploy".
 
 docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
   --env-file containers.env \
