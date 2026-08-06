@@ -150,16 +150,10 @@ with open(src) as f:
 aa = cfg.setdefault('alert_agent', {})
 aa['pipeline_mode'] = mode
 aa['num_workers'] = int(nw)
-aa['chunk_size'] = 1
 aa['async_dispatch_workers'] = int(adw)
 aa['async_dispatch_max_in_flight'] = int(mif)
 aa['include_latency_info'] = True
 aio = aa.setdefault('async_io', {})
-if mode == 'thread_bridge':
-    aio['enabled'] = True
-    aio['vst_enabled'] = True
-    aio['elastic_enabled'] = True
-    aio['dedup_enabled'] = True
 aio['max_vlm_concurrent'] = int(vlm_cap)
 aio['max_vst_concurrent'] = int(vst_cap)
 # Sustained-stream ingest must not be poll-starved (empty second topic).

@@ -201,7 +201,6 @@ aa = cfg.setdefault('alert_agent', {})
 aa['processes'] = int(processes)
 aa['pipeline_mode'] = 'event_loop'
 aa['num_workers'] = 2
-aa['chunk_size'] = 1
 aa['async_dispatch_workers'] = 2
 aa['async_dispatch_max_in_flight'] = 200
 aa['include_latency_info'] = True
