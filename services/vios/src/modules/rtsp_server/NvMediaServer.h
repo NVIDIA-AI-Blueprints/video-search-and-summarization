@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -90,7 +90,7 @@ protected: // redefined virtual functions
                     unsigned& rtpTimestamp,
                     ServerRequestAlternativeByteHandler* serverRequestAlternativeByteHandler,
                     void* serverRequestAlternativeByteHandlerClientData);
-  void pauseStream(unsigned clientSessionId, void* streamToken);
+  virtual void pauseStream(unsigned clientSessionId, void* streamToken);
   virtual void deleteStream(unsigned clientSessionId, void*& streamToken);
   void createMediaSource(eMediaType mediaType, eSourceType sourceType);
   void destroyMediaSource();
@@ -110,7 +110,7 @@ private:
   string m_url_params;
   TaskToken m_PlayModeCheckTask;
   eStreamState m_stream_state;
-  void *m_streamToken;
+  StreamState *m_streamToken;
   eMediaType m_mediaType;
   eSourceType m_sourceType;
   H264ByteStreamSource* m_videoStreamSource = nullptr;

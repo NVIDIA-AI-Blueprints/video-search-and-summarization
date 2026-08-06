@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -269,7 +269,7 @@ void NvFileServerMediaSubsession::setRtcpBaseTime()
         ntpTime.tv_usec = (startTime % 1000) * 1000;
         LOG(info) << "Setting RTCP base time for:" << m_streamName << ", ActualStartTime:" << startTime
                 << ", ntpTime:" << ntpTime.tv_sec << "." << ntpTime.tv_usec << endl;
-        StreamState* streamState = (StreamState*)m_streamToken;
+        StreamState* streamState = m_streamToken;
         if (streamState != nullptr)
         {
             streamState->setRtcpBaseTime(ntpTime);
@@ -277,8 +277,9 @@ void NvFileServerMediaSubsession::setRtcpBaseTime()
     }
 }
 
+/* Parameter types are fixed by the live555 OnDemandServerMediaSubsession virtual. */
 void NvFileServerMediaSubsession
-::startStream(unsigned clientSessionId, void* streamToken, TaskFunc* rtcpRRHandler,
+::startStream(unsigned clientSessionId, void* streamToken, TaskFunc* rtcpRRHandler, // NOSONAR
 	      void* rtcpRRHandlerClientData, unsigned short& rtpSeqNum,
 	      unsigned& rtpTimestamp,
 	      ServerRequestAlternativeByteHandler* serverRequestAlternativeByteHandler,
@@ -286,7 +287,7 @@ void NvFileServerMediaSubsession
 {
     LOG(info) << "startStream, clientSessionId:" << clientSessionId << ", streamName:" << m_streamName
             << ", mediaType:" << mediaTypeAsString(m_mediaType) << ", m_sessionId:" << m_sessionId << endl;
-    m_streamToken = streamToken;
+    m_streamToken = static_cast<StreamState*>(streamToken);
     if (m_mediaSource)
     {
         if (m_stream_state == PauseState)

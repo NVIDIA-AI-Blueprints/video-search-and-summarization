@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -129,7 +129,7 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         std::vector<std::pair<std::string, ClientInfo>> GetAllClients();
 
 #ifdef ASYNC_API
-        friend void process_peer_message(std::shared_ptr<EventLoopData> data, void* parent);
+        friend void process_peer_message(std::shared_ptr<EventLoopData> data, PeerConnectionManager* peer);
         VmsErrorCode postToEventLoop(const string& task_name, const string& peerid,
                                     Json::Value in, Json::Value req_info,
                                     Json::Value& response, bool is_async = true, uint32_t timeout = 0);
