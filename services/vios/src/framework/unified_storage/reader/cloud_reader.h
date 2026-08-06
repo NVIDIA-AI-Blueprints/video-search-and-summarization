@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -146,7 +146,7 @@ struct AsyncDownloadSession
     {
     }
     
-    AsyncDownloadSession(const std::string& id) : sessionId(id), startTime(std::chrono::system_clock::now()),
+    explicit AsyncDownloadSession(const std::string& id) : sessionId(id), startTime(std::chrono::system_clock::now()),
                                                  completedTasks(0), successfulDownloads(0), failedDownloads(0),
                                                  totalBytesDownloaded(0), isCompleted(false) {}
 };
