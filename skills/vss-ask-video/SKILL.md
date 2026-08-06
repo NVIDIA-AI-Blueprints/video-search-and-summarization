@@ -242,15 +242,45 @@ done
 START="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].startTime // empty' 2>/dev/null)"
 END="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].endTime // empty' 2>/dev/null)"
 [ -n "$START" ] && [ -n "$END" ] || { echo "no VST timeline for ${STREAM_ID} — do NOT guess a window and do NOT answer from a local copy"; exit 1; }
-VIDEO_URL="$(curl -sf "${_VST}/storage/file/${STREAM_ID}/url?startTime=${START}&endTime=${END}&container=mp4&disableAudio=true" | jq -r '.videoUrl // empty')"
-[ -n "$VIDEO_URL" ] || { echo "empty videoUrl — do NOT fall back to base64/local file on Path B"; exit 1; }
-# VIOS /url may hand back a doubled scheme, a bare /storage path, or a localhost host that does not
-# reach VST from inside the VLM's container. Reduce to a path and restore the VIOS route — the same
-# compat mapping /vss-generate-video-report applies, so this holds on Kubernetes and Docker alike.
-CLIP_PATH="${VIDEO_URL#*://}"; CLIP_PATH="${CLIP_PATH#*://}"
+VST_VIDEO_URL="$(curl -sf "${_VST}/storage/file/${STREAM_ID}/url?startTime=${START}&endTime=${END}&container=mp4&disableAudio=true" | jq -r '.videoUrl // empty')"
+[ -n "$VST_VIDEO_URL" ] || { echo "empty videoUrl — do NOT fall back to base64/local file on Path B"; exit 1; }
+# Keep two routes for two different network namespaces. VIOS /url commonly returns an in-cluster
+# service URL such as http://vst-ingress:30888/...; that is the route a local NIM/RT-VLM container
+# can fetch and MUST remain the URL sent in its video_url block. The OpenClaw sandbox cannot resolve
+# that service name, so derive a caller/probe route separately. In NemoClaw, HOST_IP may be
+# host.openshell.internal: that alias is sandbox -> worker only and must never replace a valid raw
+# VST service URL in the request sent to the local VLM.
+#
+# VIOS /url may also hand back a doubled scheme, a bare /storage path, or a localhost host. Reduce
+# the response to a path to form the caller/probe route used for warming and remote-VLM downloads.
+# BEGIN VST_VLM_ROUTE_SELECTION
+CLIP_PATH="${VST_VIDEO_URL#*://}"; CLIP_PATH="${CLIP_PATH#*://}"
 case "$CLIP_PATH" in /*) ;; *) CLIP_PATH="/${CLIP_PATH#*/}" ;; esac
-VIDEO_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}${CLIP_PATH#/vst}"
-for _ in 1 2 3; do curl -sf -o /dev/null --max-time 60 "$VIDEO_URL" && break || sleep 3; done  # warm the lazy render (GET; HEAD 404s)
+VST_PROBE_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}${CLIP_PATH#/vst}"
+VIDEO_DOWNLOAD_URL="$VST_PROBE_URL"
+
+# Prefer a valid, non-loopback absolute URL returned by VST for local/in-cluster VLM consumption.
+# For a path-only, malformed, loopback, or OpenShell-only response, rebuild the VLM-facing route
+# from VST_INTERNAL_URL (the compose contract in services/vios/vst.env). This is deliberately NOT
+# VST_PROBE_URL: host.openshell.internal is reachable from the sandbox, not from sibling containers.
+# VST_INTERNAL_URL may be overridden for a Kubernetes namespace or another deployment topology and
+# may include the /vst suffix; normalize both forms without duplicating it.
+VST_INTERNAL_BASE="${VST_INTERNAL_URL:-http://vst-ingress:30888}"
+VST_INTERNAL_BASE="${VST_INTERNAL_BASE%/}"
+case "$VST_INTERNAL_BASE" in
+  */vst) VST_CONTAINER_URL="${VST_INTERNAL_BASE}${CLIP_PATH#/vst}" ;;
+  *)     VST_CONTAINER_URL="${VST_INTERNAL_BASE}/vst${CLIP_PATH#/vst}" ;;
+esac
+case "$VST_VIDEO_URL" in
+  http://localhost:*|https://localhost:*|http://127.*|https://127.*|http://host.openshell.internal:*|https://host.openshell.internal:*|http://http://*|http://https://*|https://http://*|https://https://*)
+    VIDEO_URL="$VST_CONTAINER_URL" ;;
+  http://*|https://*)
+    VIDEO_URL="$VST_VIDEO_URL" ;;
+  *)
+    VIDEO_URL="$VST_CONTAINER_URL" ;;
+esac
+# END VST_VLM_ROUTE_SELECTION
+for _ in 1 2 3; do curl -sf -o /dev/null --max-time 60 "$VST_PROBE_URL" && break || sleep 3; done  # warm via caller route (GET; HEAD 404s)
 VST_SOURCED=1                     # marks this run as Path B
 CLIP_SECONDS="${CLIP_SECONDS:-15}"   # endTime − startTime; default 15
 ```
@@ -445,8 +475,12 @@ base64 **string** to 10M characters, which — since base64 adds ~33% — means 
 **~7.5 MB** (a 10 MB MP4 base64-encodes to ~13.3M chars and is rejected). Set
 `UPLOAD_FORMAT` to force either one.
 
-> **VST-sourced (Path B) ⇒ `video_url`.** Use the VST `videoUrl` (in `VIDEO_URL`) as a `video_url`
-> block — an in-cluster VLM (incl. base NIM Cosmos) can fetch the `localhost:30888` URL. Never
+> **VST-sourced (Path B) ⇒ `video_url`.** Use the raw VST service `videoUrl` (kept in
+> `VST_VIDEO_URL` and selected as `VIDEO_URL` when it is a valid non-loopback absolute URL) as a
+> `video_url` block. Use `VST_PROBE_URL` only for OpenClaw-side warming/downloads; in particular,
+> never send `host.openshell.internal` to a local NIM/RT-VLM container. If the raw URL is malformed,
+> loopback, or sandbox-only, rebuild the VLM route from `VST_INTERNAL_URL` (default
+> `http://vst-ingress:30888`) rather than from `VST_PROBE_URL`. Never
 > inline a stray local copy as `file_base64`; do that only for a genuinely remote VLM, and only by
 > downloading *that* `videoUrl`. Applies to temporal questions too. (Enforced by the guard below.)
 
@@ -538,11 +572,11 @@ NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 [ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
 
 # When the clip must be inlined, work from a local file: use a user-supplied VIDEO_FILE
-# (Path A) as-is, otherwise download VIDEO_URL (Path B) once.
+# (Path A) as-is, otherwise download the caller-visible route for VIDEO_URL (Path B) once.
 LOCAL_CLIP="${VIDEO_FILE:-}"
 if [ -z "$LOCAL_CLIP" ] && [ "$UPLOAD_FORMAT" = "file_base64" ]; then
   LOCAL_CLIP=/tmp/ask_video_clip.mp4
-  curl -sf --max-time 300 "${VIDEO_URL}" -o "$LOCAL_CLIP" || { echo "Failed to fetch clip for inline upload"; exit 1; }
+  curl -sf --max-time 300 "${VIDEO_DOWNLOAD_URL:-${VIDEO_URL}}" -o "$LOCAL_CLIP" || { echo "Failed to fetch clip for inline upload"; exit 1; }
 fi
 
 # Build the media content block(s) per UPLOAD_FORMAT. (base64 -w0 is GNU coreutils.)

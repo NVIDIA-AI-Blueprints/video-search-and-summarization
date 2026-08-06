@@ -11365,6 +11365,152 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("$HOME/video-search-and-summarization", staged_text)
         self.assertNotIn("{{", staged_text)
 
+    def test_vss_ask_video_keeps_vlm_and_sandbox_media_routes_separate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            output_root = root / "datasets"
+            spec = {
+                "_source_path": "route-contract.json",
+                "profile": "base",
+                "expects": [
+                    {
+                        "query": "Ask the local VLM about a VST clip.",
+                        "checks": [],
+                    }
+                ],
+            }
+
+            ask_adapter.generate_task(
+                "RTXPRO6000BW",
+                "base",
+                spec,
+                output_root,
+                REPO_ROOT / "skills" / "vss-ask-video",
+                None,
+                None,
+            )
+
+            task_dir = output_root / "base" / "rtxpro6000bw"
+            instruction = (task_dir / "instruction.md").read_text(
+                encoding="utf-8"
+            )
+            staged_skill = (
+                task_dir / "skills" / "vss-ask-video" / "SKILL.md"
+            ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "when `HOST_IP=host.openshell.internal`, use that alias only for "
+            "OpenClaw-side worker probes",
+            instruction,
+        )
+        self.assertIn(
+            "preserve that raw URL in the `video_url` block",
+            instruction,
+        )
+        self.assertIn("rebuild the local-VLM route from", instruction)
+        self.assertIn('VST_VIDEO_URL="$(curl -sf', staged_skill)
+        self.assertIn(
+            'VST_PROBE_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}',
+            staged_skill,
+        )
+        self.assertIn('VIDEO_DOWNLOAD_URL="$VST_PROBE_URL"', staged_skill)
+        self.assertIn('VIDEO_URL="$VST_VIDEO_URL"', staged_skill)
+        self.assertIn(
+            'VST_INTERNAL_BASE="${VST_INTERNAL_URL:-http://vst-ingress:30888}"',
+            staged_skill,
+        )
+        self.assertIn('VIDEO_URL="$VST_CONTAINER_URL"', staged_skill)
+        self.assertIn(
+            'curl -sf -o /dev/null --max-time 60 "$VST_PROBE_URL"',
+            staged_skill,
+        )
+        self.assertIn(
+            '"${VIDEO_DOWNLOAD_URL:-${VIDEO_URL}}"',
+            staged_skill,
+        )
+        self.assertNotIn(
+            'VIDEO_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}',
+            staged_skill,
+        )
+
+        route_script = staged_skill.split(
+            "# BEGIN VST_VLM_ROUTE_SELECTION", 1
+        )[1].split("# END VST_VLM_ROUTE_SELECTION", 1)[0]
+
+        def select_route(
+            raw_url: str,
+            *,
+            internal_url: str | None = None,
+        ) -> tuple[str, str, str]:
+            env = os.environ.copy()
+            env.pop("BASH_ENV", None)
+            env.update(
+                {
+                    "VST_VIDEO_URL": raw_url,
+                    "HOST_IP": "host.openshell.internal",
+                    "VSS_VIOS_URL": (
+                        "http://host.openshell.internal:30888"
+                        "/vst"
+                    ),
+                }
+            )
+            if internal_url is None:
+                env.pop("VST_INTERNAL_URL", None)
+            else:
+                env["VST_INTERNAL_URL"] = internal_url
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "-eu",
+                    "-o",
+                    "pipefail",
+                    "-c",
+                    route_script
+                    + '\nprintf "%s\\t%s\\t%s\\n" "$VIDEO_URL" '
+                    '"$VST_CONTAINER_URL" "$VST_PROBE_URL"',
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            return tuple(completed.stdout.strip().split("\t"))
+
+        service_url = "http://vst-ingress:30888/vst/storage/temp_files/clip.mp4"
+        selected, container, probe = select_route(service_url)
+        self.assertEqual(selected, service_url)
+        self.assertEqual(
+            container,
+            "http://vst-ingress:30888/vst/storage/temp_files/clip.mp4",
+        )
+        self.assertEqual(
+            probe,
+            "http://host.openshell.internal:30888/vst/storage/temp_files/clip.mp4",
+        )
+
+        for unusable_url in (
+            "http://localhost:30888/vst/storage/temp_files/clip.mp4",
+            "http://http://localhost:30888/vst/storage/temp_files/clip.mp4",
+            "http://host.openshell.internal:30888/vst/storage/temp_files/clip.mp4",
+            "/vst/storage/temp_files/clip.mp4",
+        ):
+            selected, _, probe = select_route(unusable_url)
+            self.assertEqual(
+                selected,
+                "http://vst-ingress:30888/vst/storage/temp_files/clip.mp4",
+            )
+            self.assertIn("host.openshell.internal", probe)
+
+        selected, container, _ = select_route(
+            "http://localhost:30888/vst/storage/temp_files/clip.mp4",
+            internal_url="http://vst.namespace.svc:8080/vst",
+        )
+        self.assertEqual(
+            selected,
+            "http://vst.namespace.svc:8080/vst/storage/temp_files/clip.mp4",
+        )
+        self.assertEqual(selected, container)
+
     def test_generic_task_wrapper_creates_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
