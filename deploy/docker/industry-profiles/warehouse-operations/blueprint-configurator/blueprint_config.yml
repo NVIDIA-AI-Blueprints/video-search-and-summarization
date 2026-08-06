@@ -623,7 +623,7 @@ L40S:
 
 RTXA6000:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 15
   3d:
     max_streams_supported: 2
   mv3dt:
