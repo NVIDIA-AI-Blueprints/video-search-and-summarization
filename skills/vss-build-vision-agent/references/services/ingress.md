@@ -13,9 +13,11 @@ port `7777`) behind a host-header allowlist. It is infrastructure, not a
 capability producer — it only routes to owners the build already deploys. Two
 independent uses: (a) the interactive tier's public front door (UI + agent);
 (b) a single origin for a headless build, fronting its **browse** and host-CLI
-**operate** surfaces (detailed below). It is reached only when the request asks
-to expose surfaces through one origin; otherwise it is pruned. NvStreamer is
-never fronted here (see below).
+**operate** surfaces (detailed below). It is included only when the request asks
+to expose surfaces through one origin; prune it otherwise, even though the
+Foundation ships it — indexing or storing to Elasticsearch is a write path and
+does not by itself require the ingress. NvStreamer is never fronted here (see
+below).
 
 ## Required peers
 

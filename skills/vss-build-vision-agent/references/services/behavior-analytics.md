@@ -22,15 +22,15 @@
   a source profile's config happened to ship.
 - To serve more than one capability at once, run a single combined instance
   rather than two, under the selected Foundation's key for the one
-  `vss-behavior-analytics` container, never both, mounting the shipped joint config
+  `vss-behavior-analytics` container, never both. Mount the shipped joint config
   `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
-  via a service-definition patch (no developer profile mounts it by default; the
-  setup skill owns the recipe). Its `numWorkersFor*` knobs gate each processor
-  independently, so enable one only for a requested capability: incident
-  generation for detection-rule alerts, behavior creation for search analytics,
-  embed filtering for search embeddings — leave the rest at zero. In particular,
-  alerts that do not derive from this owner (see the Alerts owner) leave incident
-  generation off.
+  **verbatim as a drop-in** via a service-definition patch — do **not** hand-merge
+  the single-mode configs or hand-edit it (no developer profile mounts it by
+  default; the setup skill owns the recipe). It already encodes the combined
+  settings: its `numWorkersFor*` knobs gate each processor (incident generation for
+  detection-rule alerts, behavior creation for search analytics, embed filtering for
+  search embeddings), and its topic set unions all enabled paths — including
+  `frames`.
 - A combined instance writes more than one Elasticsearch index family, so its
   Kibana initializer must seed all of them — see `elk.md` (Kibana seeding).
 

@@ -8,12 +8,14 @@
 | Video-analytics MCP | `vss-va-mcp` |
 | Alerts analytics API | `vss-video-analytics-api-alerts` |
 
-`vss-video-analytics-api-alerts` (the `vss-video-analytics-api` container under the
-alerts profile) is an **exposed read surface**: like the ingress, include it only
-when the request asks to expose a query/browse/REST-API surface, and prune it
-otherwise even though the Foundation ships it. When included it is a per-Foundation
-singleton — use the selected Foundation's key, never a second key for the same
-container; on `alerts` that key is `vss-video-analytics-api-alerts`.
+`vss-video-analytics-api-alerts` is the **same** `vss-video-analytics-api` container
+as search's `vss-video-analytics-api-fusion`; only one exists per build. It is an
+**exposed read surface**: like the ingress, include it only when the request asks to
+expose a query/browse/REST-API surface, and prune it otherwise even though the
+Foundation ships it. When included, use `vss-video-analytics-api-alerts` **only when
+the selected Foundation is `alerts`**; on any other Foundation (e.g. a search-based
+combined build) the analytics API is that Foundation's key — never introduce the
+`-alerts` key to add a second key for the one container.
 
 ## Required peers
 

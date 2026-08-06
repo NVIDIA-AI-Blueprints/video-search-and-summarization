@@ -14,6 +14,12 @@
 - Kafka is required only when `RTVI_VLM_KAFKA_ENABLED=true`.
 - Redis is required only when `ENABLE_REDIS_ERROR_MESSAGES=true`.
 - Do not add `vlm_${VLM_MODE}_${VLM_NAME_SLUG}` for an integrated RT-VLM path.
+- Headless VLM Q&A / dense captioning is served **directly** by RT-VLM's
+  OpenAI-compatible `/v1/chat/completions` (and `/v1/models`) on `RTVI_VLM_PORT`
+  (default `8018`) — no agent tier needed.
+- Its Kafka output topic `mdx-vlm-captions` is already in the default
+  `KAFKA_TOPICS` of `kafka-topic-init-container`, so no custom topic definition is
+  required.
 
 ## Configuration knobs
 
