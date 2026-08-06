@@ -10856,6 +10856,60 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertTrue(registry_path.name.startswith("skill-eval-transport-pgids-"))
         self.assertFalse(registry_path.exists())
 
+    def test_stream_command_preserves_success_after_reaping_detached_transport(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            child_ready = root / "child-ready"
+            log_path = root / "harbor.log"
+            child_code = (
+                "import pathlib, sys, time; "
+                "pathlib.Path(sys.argv[1]).write_text('ready'); "
+                "time.sleep(60)"
+            )
+            leader_code = textwrap.dedent(
+                """
+                import pathlib
+                import subprocess
+                import sys
+                import time
+
+                subprocess.Popen(
+                    [sys.executable, "-c", sys.argv[2], sys.argv[1]],
+                    start_new_session=True,
+                )
+                deadline = time.time() + 5
+                ready = pathlib.Path(sys.argv[1])
+                while not ready.exists() and time.time() < deadline:
+                    time.sleep(0.01)
+                """
+            )
+            with mock.patch.object(
+                smoke_runner.worker_pool,
+                "_cancel_process_tree",
+                wraps=smoke_runner.worker_pool._cancel_process_tree,
+            ) as cancel_tree:
+                rc = smoke_runner._stream_command(
+                    [
+                        sys.executable,
+                        "-c",
+                        leader_code,
+                        str(child_ready),
+                        child_code,
+                    ],
+                    timeout_s=20,
+                    env=os.environ.copy(),
+                    log_path=log_path,
+                )
+
+            log = log_path.read_text(encoding="utf-8")
+            registry_path = cancel_tree.call_args.args[2]
+
+        self.assertEqual(rc, 0)
+        self.assertIn("preserving leader exit 0", log)
+        self.assertIn("without changing its result", log)
+        cancel_tree.assert_called_once()
+        self.assertFalse(registry_path.exists())
+
     def test_completed_matrix_job_lock_is_inactive_within_current_run(self):
         owner = (
             "v2__30275546898__1__"
@@ -11429,6 +11483,93 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertNotIn("model_placement", task_toml)
         self.assertIn("min_root_disk_gb = 110", task_toml)
         self.assertIn("min_root_disk_free_gb = 20", task_toml)
+
+    def test_managed_brev_storage_contract_allowlist_is_exact(self):
+        self.assertEqual(
+            smoke_runner.BREV_POOL_STORAGE_SCENARIOS,
+            {
+                (
+                    "vss-ask-video",
+                    "base_profile_video_understanding",
+                    "RTXPRO6000BW",
+                ),
+                (
+                    "vss-deploy-dense-captioning",
+                    "alerts_profile_api",
+                    "RTXPRO6000BW",
+                ),
+                ("vss-deploy-profile", "base", "RTXPRO6000BW"),
+                (
+                    "vss-generate-video-report",
+                    "base_profile_report",
+                    "RTXPRO6000BW",
+                ),
+                (
+                    "vss-manage-alerts",
+                    "alerts_vlm_real_time",
+                    "RTXPRO6000BW",
+                ),
+                (
+                    "vss-query-analytics",
+                    "query_analytics",
+                    "RTXPRO6000BW",
+                ),
+                (
+                    "vss-setup-behavior-analytics",
+                    "deploy_search_and_alerts",
+                    "ANY",
+                ),
+                (
+                    "vss-summarize-video",
+                    "lvs_api_ops",
+                    "RTXPRO6000BW",
+                ),
+            },
+        )
+
+    def test_managed_brev_storage_contract_does_not_lower_unapproved_spec(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "future_spec" / "rtxpro6000bw" / "step-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "instruction.md").write_text(
+                "Run a future eval scenario.",
+                encoding="utf-8",
+            )
+            (task_dir / "task.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [task]
+                    name = "nvidia-vss/vss-deploy-profile-future-step-1"
+
+                    [metadata]
+                    skill = "vss-deploy-profile"
+                    platform = "RTXPRO6000BW"
+                    gpu_count = 1
+                    min_root_disk_gb = 220
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            spec_path = root / "future_spec.json"
+            spec_path.write_text('{"expects": []}\n', encoding="utf-8")
+
+            with mock.patch.dict(
+                os.environ,
+                {smoke_runner.BREV_POOL_STORAGE_CONTRACT_ENV: "1"},
+                clear=True,
+            ):
+                smoke_runner._wrap_task_for_nemoclaw(
+                    task_dir=task_dir,
+                    skill="vss-deploy-profile",
+                    spec_path=spec_path,
+                    platform="RTXPRO6000BW",
+                )
+            task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+
+        self.assertIn("min_root_disk_gb = 220", task_toml)
+        self.assertNotIn("min_root_disk_free_gb", task_toml)
 
     def test_managed_brev_storage_contract_is_workflow_scoped(self):
         with tempfile.TemporaryDirectory() as td:
