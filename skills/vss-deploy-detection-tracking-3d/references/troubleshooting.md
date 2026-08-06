@@ -28,7 +28,7 @@ docker logs vss-configurator-mv3dt 2>&1 | grep -iE 'keep_count|final_stream_coun
 
 **Symptom:** Containers are all up and healthy; perception logs the configured sensor names but every PERF line shows `0.00000` FPS and `Active sources : 0`. `vss-configurator-mv3dt` logs `Error adding sensor <name>. Received status code 501 from VMS. Retrying...` and `vss-vios-sensor` logs `Sensors count limit reached`. `vss-vios-streamprocessing` may log `ProxyRTSPClient ... RTSP "DESCRIBE" command failed; trying again` for stream URLs that no longer correspond to files on disk.
 
-**Cause:** Named docker volumes (notably `mdx_vios_pg_data` — VST's Postgres) persist across `docker compose down` by design. When a redeploy switches dataset / camera set / camera names, the previous deploy's sensor records remain in the VST DB. VST enforces a per-device sensor cap that matches `max_streams_supported` for the GPU; with the cap already occupied by records from the prior deploy, new registrations from the configurator return HTTP 501. The public DELETE API only reaches sensors whose owning device is currently registered, so some prior records can sit beyond its scope.
+**Cause:** Named docker volumes (notably `vss_vios_pg_data` by default — VST's Postgres) persist across `docker compose down` by design. When a redeploy switches dataset / camera set / camera names, the previous deploy's sensor records remain in the VST DB. VST enforces a per-device sensor cap that matches `max_streams_supported` for the GPU; with the cap already occupied by records from the prior deploy, new registrations from the configurator return HTTP 501. The public DELETE API only reaches sensors whose owning device is currently registered, so some prior records can sit beyond its scope.
 
 **Diagnose:**
 ```bash
@@ -208,7 +208,7 @@ docker inspect --format '{{.State.Health.Status}}' vss-rtvi-cv-bev-fusion
 **Cause(s):**
 - `camInfo/cam_*.yaml` mount is missing or empty (calibration not landed).
 - `NUM_STREAMS` doesn't equal the count of `camInfo/*.yaml` files — DeepStream batch size mismatches model expectations.
-- `BodyPose3DNet` model files not at `${VSS_DATA_DIR}/models/mv3dt/BodyPose3DNet/` — perception can't load weights.
+- The per-file model download did not place BodyPose3DNet at `${VSS_DATA_DIR}/models/BodyPose3DNet/bodypose3dnet_accuracy.onnx` — perception can't load weights.
 
 **Diagnose:**
 ```bash
@@ -221,7 +221,7 @@ docker exec vss-rtvi-cv-mv3dt ls /opt/storage/BodyPose3DNet/ 2>/dev/null
 docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | tail -60
 ```
 
-**Fix:** Re-walk [`calibration-workflow.md`](calibration-workflow.md) Step 4 and [`configure-cameras.md`](configure-cameras.md). For missing BodyPose3DNet, confirm `VSS_DATA_DIR` points at extracted `vss-warehouse-app-data` (see [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) — `${VSS_DATA_DIR}/models/mv3dt/BodyPose3DNet/` must exist).
+**Fix:** Re-walk [`calibration-workflow.md`](calibration-workflow.md) Step 4 and [`configure-cameras.md`](configure-cameras.md). For missing models, confirm `NGC_CLI_API_KEY` is valid, `${VSS_DATA_DIR}/models/` is writable, and ds-start phase 0 completed successfully (check `vss-rtvi-cv-mv3dt` logs for download output). The required files are `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx` and `${VSS_DATA_DIR}/models/BodyPose3DNet/bodypose3dnet_accuracy.onnx`; they no longer come from the app-data model subtree.
 
 ### `mosquitto` unhealthy
 

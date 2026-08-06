@@ -45,6 +45,7 @@ from prometheus_client import (
 from sse_starlette.sse import EventSourceResponse
 
 from chunk_info import RequestSource
+from otel_helper import extract_context_from_headers
 from rtvi_vlm_client import RtviError
 from via_exception import ViaException
 from via_logger import LOG_PERF_LEVEL, TimeMeasure, logger, patch_logger_handlers
@@ -815,10 +816,9 @@ class ViaServer:
                     id=request_id,
                     model=model_info.id,
                     created=int(req_info.queue_time),
-                    media_info=MediaInfoOffset(
-                        type="offset",
-                        start_offset=int(req_info.start_timestamp or 0),
-                        end_offset=int(req_info.end_timestamp or 0),
+                    media_info=MediaInfoOffset.for_response(
+                        req_info.start_timestamp,
+                        req_info.end_timestamp,
                     ),
                     chunk_responses=(
                         [
@@ -1099,6 +1099,7 @@ class ViaServer:
         )
         async def stream_summarize(
             request_body: StreamSummarizeRequest,
+            request: Request,
         ) -> CompletionResponse:
             if not self._stream_handler._kafka_enabled:
                 raise ViaException(
@@ -1129,11 +1130,14 @@ class ViaServer:
                 request_body.end_time,
             )
 
+            trace_context = extract_context_from_headers(request.headers)
+
             loop = asyncio.get_event_loop()
             request_id = await loop.run_in_executor(
                 self._async_executor,
                 self._stream_handler.summarize_stream,
                 request_body,
+                trace_context,
             )
 
             logger.info(
@@ -1166,7 +1170,10 @@ class ViaServer:
                 model=model_info.id,
                 created=int(req_info.queue_time),
                 object=CompletionObject.SUMMARIZATION_COMPLETION,
-                media_info=MediaInfoOffset(type="offset", start_offset=0, end_offset=0),
+                media_info=MediaInfoOffset.for_response(
+                    req_info.start_timestamp,
+                    req_info.end_timestamp,
+                ),
                 choices=(
                     [
                         CompletionResponseChoice(
@@ -1245,7 +1252,7 @@ class ViaServer:
                 model=model_info.id,
                 created=int(time.time()),
                 object=CompletionObject.CHAT_COMPLETION,
-                media_info=MediaInfoOffset(type="offset", start_offset=0, end_offset=0),
+                media_info=MediaInfoOffset.for_response(),
                 choices=[
                     CompletionResponseChoice(
                         finish_reason=CompletionFinishReason.STOP,
@@ -1425,12 +1432,18 @@ class ViaServer:
             loop = asyncio.get_event_loop()
             videoId = source.source_id
 
+            # Capture the caller's trace context here, on the event loop thread.
+            # run_in_executor hands work to a ThreadPoolExecutor and contextvars
+            # do not cross that boundary, so the context must travel explicitly.
+            trace_context = extract_context_from_headers(request.headers)
+
             # File-based summarization
             request_id = await loop.run_in_executor(
                 self._async_executor,
                 self._stream_handler.summarize,
                 source,
                 query,
+                trace_context,
             )
             logger.info("Created video file query %s for source %s", request_id, videoId)
 
@@ -1491,27 +1504,16 @@ class ViaServer:
                             ]:
                                 if req_info.status == RequestInfo.Status.FAILED:
                                     # Create the response json (include media_info for API consistency)
-                                    _start = (
-                                        int(req_info.start_timestamp)
-                                        if req_info.start_timestamp is not None
-                                        else 0
-                                    )
-                                    _end = (
-                                        int(req_info.end_timestamp)
-                                        if req_info.end_timestamp is not None
-                                        else 0
-                                    )
                                     response = {
                                         "id": request_id,
                                         "video_id": videoId,
                                         "model": model_info.id,
                                         "created": int(req_info.queue_time),
                                         "object": "summarization.progressing",
-                                        "media_info": {
-                                            "type": "offset",
-                                            "start_offset": _start,
-                                            "end_offset": _end,
-                                        },
+                                        "media_info": MediaInfoOffset.for_response(
+                                            req_info.start_timestamp,
+                                            req_info.end_timestamp,
+                                        ).model_dump(),
                                         "choices": [
                                             {
                                                 "finish_reason": CompletionFinishReason.STOP.value,
@@ -1644,11 +1646,10 @@ class ViaServer:
                     "model": model_info.id,
                     "created": int(req_info.queue_time),
                     "object": "summarization.completion",
-                    "media_info": {
-                        "type": "offset",
-                        "start_offset": int(req_info.start_timestamp or 0),
-                        "end_offset": int(req_info.end_timestamp or 0),
-                    },
+                    "media_info": MediaInfoOffset.for_response(
+                        req_info.start_timestamp,
+                        req_info.end_timestamp,
+                    ).model_dump(),
                     "choices": (
                         [
                             {

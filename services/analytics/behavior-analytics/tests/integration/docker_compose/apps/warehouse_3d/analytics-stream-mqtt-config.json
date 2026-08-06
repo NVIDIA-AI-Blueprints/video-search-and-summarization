@@ -101,16 +101,16 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "20"
-		},
-		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",
 			"value": "300"
+		},
+		{
+			"name": "behaviorEmitOnce",
+			"value": "true"
 		},
 		{
 			"name": "in3dMode",

@@ -12,6 +12,41 @@ Run Compose from **`deploy/docker`** so relative paths resolve correctly.
 
 ---
 
+## Environment files and precedence
+
+The deployment files use a layered environment model. Later `--env-file`
+arguments override earlier ones, so order matters.
+
+| File | Role |
+|------|------|
+| **`containers.env`** | Shared first-party container registry and tag defaults. Pass this before profile env files when running Compose directly. |
+| **`developer-profiles/dev-profile-*/.env`** / **`industry-profiles/*/.env`** | Stable profile defaults. These files should not carry machine-specific paths, host ports, credentials, or generated runtime values. |
+| **`developer-profiles/dev-profile-*/overrides.env`** / **`industry-profiles/*/overrides.env`** | Mutable deployment-specific defaults such as hardware, model placement, endpoint URLs, host paths, credentials, public ingress, host-published ports, and active `COMPOSE_PROFILES`. |
+| **`generated.env`** | Developer-profile runtime overlay created by `dev-profile.sh` from `overrides.env`. It also receives derived values such as `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, API keys, model slugs, and compose-wide defaults. Do not edit or commit this file. |
+
+`dev-profile.sh` starts developer stacks with env files in this order:
+
+```bash
+--env-file containers.env \
+--env-file developer-profiles/dev-profile-<profile>/.env \
+--env-file developer-profiles/dev-profile-<profile>/generated.env
+```
+
+When running Compose directly, pass `containers.env`, the profile `.env`, and
+then the profile `overrides.env`:
+
+```bash
+--env-file containers.env \
+--env-file <profile>/.env \
+--env-file <profile>/overrides.env
+```
+
+Before direct Compose bring-up, update the deployment-specific placeholders in
+`overrides.env`, especially `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
+`EXTERNAL_IP`, credentials, and the active `COMPOSE_PROFILES`.
+
+---
+
 ## Developer profiles (recommended path)
 
 Use the **`dev-profile`** helper instead of hand-editing Compose for day-to-day developer stacks (**base**, **lvs**, **search**, **alerts**).
@@ -47,7 +82,7 @@ export NGC_CLI_API_KEY="<your-key>"
   --profile search \
   --hardware-profile H100
 
-# Tear down (no profile flags — brings down the Compose project `mdx`)
+# Tear down (no profile flags — cleans the managed Compose project and data dir)
 ./deploy/docker/scripts/dev-profile.sh down
 ```
 
@@ -57,13 +92,50 @@ export NGC_CLI_API_KEY="<your-key>"
 ./deploy/docker/scripts/dev-profile.sh --help
 ```
 
-Each profile may also ship a **`.env`** under **`developer-profiles/<profile>/`** for defaults; the script generates or merges runtime env (e.g. **`generated.env`**) as documented in the script help.
+Each developer profile ships a stable **`.env`** and a mutable
+**`overrides.env`** under **`developer-profiles/dev-profile-<profile>/`**. On
+`up`, the helper reads both, copies `overrides.env` to **`generated.env`**, adds
+derived runtime values, and starts Compose with `containers.env`, the profile
+`.env`, and `generated.env` in that order.
 
-### Direct Compose data directories
+The helper resets its managed state before every `up`: it stops the Compose
+project **`mdx`**, removes Compose volumes, deletes old `generated.env` files,
+cleans generated SDRC artifacts, and deletes the developer data directory
+(default: **`deploy/docker/data-dir`**) before recreating it. Use `--dry-run` to
+preview the commands and generated environment without starting containers.
 
-The helper scripts create and permission the data directories automatically. If you run
-`docker compose -f compose.yml ...` directly, set **`VSS_DATA_DIR`** and create writable
-host directories for the bind-mounted infrastructure volumes before starting the stack:
+### RTVI CV startup policy
+
+- Docker uses one canonical RTVI CV startup entrypoint: `services/rtvi/rtvi-cv/ds-start.sh`.
+- Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
+- Per-profile startup wrapper scripts are not used.
+- **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
+- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) runs as phase 0 of the perception startup script (`ds-start.sh` / MV3DT `ds-start-mv3dt.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+
+### Direct Compose usage and data directories
+
+`dev-profile.sh` creates and permissions developer-profile data directories automatically. If you run
+`docker compose` directly, you are responsible for both the env-file order and the
+host directories.
+
+For a developer profile, use a helper-created `generated.env` when possible:
+
+```bash
+cd /path/to/video-search-and-summarization/deploy/docker
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-base/.env \
+  --env-file developer-profiles/dev-profile-base/generated.env \
+  config
+```
+
+If you choose to pass `overrides.env` directly instead of `generated.env`, first
+replace its placeholder values for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
+credentials, ports, and model settings.
+
+Create writable host directories for the bind-mounted infrastructure volumes
+before starting a direct Compose stack:
 
 ```bash
 export VSS_DATA_DIR=/path/to/vss-apps-data
@@ -173,9 +245,18 @@ Those numeric values are only an example shape for reducing cache pressure; vali
 
 ## Warehouse industry profile
 
-The **warehouse** blueprint is driven by **`industry-profiles/warehouse-operations/`**
+The **warehouse** blueprint is driven by
+**`industry-profiles/warehouse-operations/`** and is started with direct Docker
+Compose from **`deploy/docker`**.
 
-1. **Download warehouse app data**
+1. **Model and app-data inputs**
+
+Warehouse uses two acquisition paths:
+
+- The `vss-warehouse-app-data` NGC resource remains the source for videos, playback, and calibration data.
+- Each RT-CV profile mounts its `models-download.json` on perception and downloads versioned NGC model packages into the flattened `$VSS_DATA_DIR/models/` tree during `ds-start` phase 0.
+
+Download and extract the warehouse app data:
 
 ```bash
 ngc \
@@ -184,69 +265,87 @@ ngc \
    download-version \
    nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
 
-# OR Manually download the tar file from NGC
-# URL https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
-
-# Extract the package
+# OR manually download the tar file from NGC:
+# https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
 
 cd vss-warehouse-app-data_v3.2.0
 tar -xvf vss-warehouse-app-data.tar.gz
 
-# Set permissions
+# Prepare the writable model destination used by ds-start phase-0 download
 
-sudo chmod -R 777 /path/to/vss-warehouse-app-data
+sudo mkdir -p /path/to/vss-warehouse-app-data/models
+sudo chmod 0777 /path/to/vss-warehouse-app-data/models
 
 # This is the path to the data directory. It is set in the industry-profiles/warehouse-operations/.env file for VSS_DATA_DIR.
 #VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
 ```
 
-2. **Edit environment**  
-   Update **`deploy/docker/industry-profiles/warehouse-operations/.env`** for your deployment:
+2. **Edit deployment overrides**
 
-   - **`MODE`**: `2d`, `3d`, or `mv3dt`
-   - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` (see comments in that file for 2d, 3d, and mv3dt combinations)
-   -**`COMPOSE_PROFILES`**: `COMPOSE_PROFILES_WH_2D`, `COMPOSE_PROFILES_WH_{KAFKA,REDIS,AUTO_CALIB}_{2D,3D,MV3DT}`, `COMPOSE_PROFILES_WH_{KAFKA,REDIS}_{2D,3D,MV3DT}_MINIMAL`, `COMPOSE_PROFILES_PLAYBACK_{KAFKA,REDIS}_{2D,3D,MV3DT}`
-   - API keys, and any other variables described in the file header
+Keep stable profile defaults in
+**`industry-profiles/warehouse-operations/.env`**. Update
+**`industry-profiles/warehouse-operations/overrides.env`** for the target
+machine and selected warehouse scenario:
+
+- **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
+- **`VSS_DATA_DIR`**: extracted warehouse app data directory
+- **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
+- **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse, Sparse4D, and BodyPose3DNet model packages required by the selected mode; also **`NVIDIA_API_KEY`**, **`OPENAI_API_KEY`** as needed
+- **`MODE`**: `2d`, `3d`, or `mv3dt`
+- **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`
+- **`HARDWARE_PROFILE`**, model settings, public ingress settings, and host-published ports
+- **`COMPOSE_PROFILES`**: one of the warehouse or playback profile lists defined in `overrides.env`
+
+`bp_wh` is valid only with `MODE=2d`. For `MODE=3d` or `MODE=mv3dt`, use
+`bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`. Keep `MODE`,
+`BP_PROFILE`, `STREAM_TYPE`, sample dataset settings, and `COMPOSE_PROFILES`
+aligned with the comments in `overrides.env`.
+
+   Model destinations are shared across profiles: RT-DETR is stored at `models/rtdetr_warehouse_v1.0.2.fp16.onnx`, Sparse4D at `models/sparse4d/sparse4d_warehouse_v2.2.onnx`, and BodyPose3DNet at `models/BodyPose3DNet/bodypose3dnet_accuracy.onnx`.
 
 3. **Start the stack**
 
 ```bash
 cd /path/to/video-search-and-summarization/deploy/docker
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env up --detach \
---pull always \
---force-recreate \
---build
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/overrides.env \
+  up --detach --pull always --force-recreate --build
 ```
 
 4. **Stop the stack**
 
 ```bash
-# Stop the running deployment
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
-
-# Alternatively to remove all the containers, images and volume
-docker compose --env-file industry-profiles/warehouse-operations/.env down -v --rmi all
-
-# Tear down all dangling volumes
-docker volume ls -q -f "dangling=true" | xargs docker volume rm
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/overrides.env \
+  down -v --remove-orphans
 ```
 
-5. **Data / backup cleanup**  
-   To reset **`data_log`** volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed, use **`deploy/docker/scripts/cleanup_all_datalog.sh`**.  
-   Pass **`-e`** / **`--env-file`** with the **same env file** you used for **`docker compose --env-file …`**.
+5. **Data / backup cleanup**
+
+To reset **`data_log`** volumes, calibration/VST data, and
+blueprint-configurator backups in a way that matches how you deployed, use
+**`deploy/docker/scripts/cleanup_all_datalog.sh`**. Pass the same final env
+overlay used for direct Compose:
 
 ```bash
-bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
+bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/overrides.env
 ```
 
-Compose profiles for warehouse slices are defined under **`warehouse-operations/compose.yml`** and related **`warehouse-2d-app`** / **`warehouse-3d-app`** includes; the **`.env`** file selects **MODE** / **BP_PROFILE** behavior as documented there.
+Compose profiles for warehouse slices are defined in
+**`industry-profiles/warehouse-operations/overrides.env`** and selected by
+`COMPOSE_PROFILES`.
 
 ---
 
 ## Requirements
 
 - **Docker** and **Docker Compose** (Compose v2: `docker compose`)
-- **bash** (for **`dev-profile.sh`**)
+- **bash** (for **`dev-profile.sh`** and cleanup scripts)
 - **NVIDIA GPU driver** on the host, at a version supported by your hardware and by the GPU containers you run (see NVIDIA release notes for CUDA / NIM images). Check with **`nvidia-smi`** before starting stacks that use GPUs.
 - **NVIDIA Container Toolkit** (nvidia-docker) so containers can access the GPU; required alongside the driver for GPU-backed Compose services.
 - Valid **NGC** credentials where images or NIMs require **`NGC_CLI_API_KEY`**

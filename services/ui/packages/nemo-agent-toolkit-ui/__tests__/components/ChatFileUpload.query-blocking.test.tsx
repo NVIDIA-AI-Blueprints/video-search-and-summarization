@@ -13,7 +13,7 @@ jest.mock('react-hot-toast', () => ({
   default: { error: jest.fn(), success: jest.fn() },
 }));
 
-jest.mock('@aiqtoolkit-ui/common', () => ({
+jest.mock('common', () => ({
   UploadFilesDialog: ({ open }: { open?: boolean }) =>
     open ? <div data-testid="upload-files-dialog" /> : null,
   copyToClipboard: jest.fn(async () => true),

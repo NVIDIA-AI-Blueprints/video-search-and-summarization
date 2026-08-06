@@ -7,7 +7,8 @@ Operational reference for **Workflow F**: one-shot VLM verification of a specifi
 **`POST $AB/api/v1/verification/ondemand`** — there is **no** `/verification/verify` route; do not use `POST /generate` or any `/api/v1/realtime*` mutation for this.
 
 ```bash
-AB="http://${HOST_IP}:9080"
+# Use $AB from parent skill (K8s: ${VSS_PUBLIC_URL}/alert-bridge; Docker: :9080).
+: "${AB:?Resolve AB from vss-manage-alerts Deployment prerequisite}"
 curl -sf -X POST "$AB/api/v1/verification/ondemand" -H 'Content-Type: application/json' -d '{
   "category": "<alert_type>",
   "info": {

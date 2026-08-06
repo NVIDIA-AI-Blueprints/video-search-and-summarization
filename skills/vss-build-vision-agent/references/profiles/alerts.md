@@ -28,13 +28,14 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vs
 
 | Owner | Service profile keys |
 |---|---|
-| Alerts | `alert-bridge`, `vss-va-mcp`, `vss-video-analytics-api-alerts` |
+| Alerts | `alert-bridge`, `vss-video-analytics-api-alerts` |
 | Behavior analytics | `vss-behavior-analytics-alerts` (`2d_cv`) |
 | RT-CV | `perception-alerts` (`2d_cv`) |
 | RT-VLM | `rtvi-vlm` (`2d_vlm`) |
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-alerts` |
 | VIOS | `nvstreamer-alerts`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
-| Agent | `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix` |
+| Agent | `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix` |
+| Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 
 ## Profile-specific environment knobs
@@ -42,7 +43,7 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vs
 | Knob | Purpose |
 |---|---|
 | `MODE` | Select `2d_cv` or `2d_vlm`; keep `COMPOSE_PROFILES` aligned with the matching checked-in set. |
-| `MODEL_TYPE`, `MODEL_NAME_2D`, `RT_CV_DEVICE_ID`, `PERCEPTION_TAG` | Configure RT-CV in `2d_cv`. |
+| `DS_MODEL_FAMILY`, `MODEL_NAME_2D`, `RT_CV_DEVICE_ID`, `PERCEPTION_TAG` | Configure RT-CV in `2d_cv`. |
 | `VLM_NAME`, `VLM_MODE`, `VLM_BASE_URL`, `RTVI_VLM_*` | Configure verification or real-time VLM routing. |
 | `VLM_AS_VERIFIER_CONFIG_FILE*` | Select mounted alert verifier and real-time rule configs. |
 | `ALERT_BRIDGE_HOST_PORT`, `VSS_VA_MCP_HOST_PORT`, `RTVI_CV_HOST_PORT`, `RTVI_VLM_PORT` | Change alert-facing host ports. |

@@ -48,13 +48,23 @@ jobs:
             project_name: video-search-and-summarization-ui
             sources: services/ui
             tests: ""
-            python_version: ""
           - name: skills
             project_key: TEGRASW_metropolis_video-search-and-summarization-skills_video-search-and-summarization
             project_name: video-search-and-summarization-skills
             sources: skills
             tests: ""
-            python_version: ""
+          - name: behavior-analytics
+            project_key: TEGRASW_metropolis_vss-behavior-analytics_py-analytics-stream
+            project_name: metropolis-vss-behavior-analytics
+            sources: services/analytics/behavior-analytics/src,services/analytics/behavior-analytics/docker
+            tests: services/analytics/behavior-analytics/tests
+            python_version: "3.13"
+          - name: video-analytics-api
+            project_key: TEGRASW_metropolis_vss-video-analytics-api_mdata_web-apis
+            project_name: metropolis-vss-video-analytics-api
+            sources: services/analytics/video-analytics-api/src,services/analytics/video-analytics-api/docker
+            tests: services/analytics/video-analytics-api/test
+            node_version: "22.22.3"
 
     steps:
       - name: Checkout source
@@ -156,6 +166,15 @@ jobs:
             echo "sonar.python.coverage.reportPaths=services/alert/coverage.xml" >> sonar-project.properties
           fi
 
+          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-behavior-analytics" ]; then
+            echo "sonar.python.coverage.reportPaths=services/analytics/behavior-analytics/coverage.xml" >> sonar-project.properties
+            echo "sonar.python.xunit.reportPath=services/analytics/behavior-analytics/test/coverage/test-results.xml" >> sonar-project.properties
+          fi
+
+          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-video-analytics-api" ]; then
+            echo "sonar.javascript.lcov.reportPaths=services/analytics/video-analytics-api/test/coverage/lcov.info" >> sonar-project.properties
+          fi
+
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-skills" ]; then
             # Skills helper scripts (skills/**/scripts/**) have no unit-test or
             # coverage harness in CI, so exclude them from the new-code coverage
@@ -176,16 +195,22 @@ jobs:
           sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
 
       - name: Install uv
-        if: matrix.python_version != ''
+        if: matrix.python_version != null
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           version: "0.6.2"
 
       - name: Set up Python
-        if: matrix.python_version != ''
+        if: matrix.python_version != null
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python_version }}
+
+      - name: Set up Node.js for Video Analytics API
+        if: matrix.node_version != null
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node_version }}
 
       - name: Generate agent coverage
         if: matrix.name == 'agent'
@@ -205,8 +230,15 @@ jobs:
         if: matrix.name == 'agent'
         working-directory: services/agent
         run: |
+          # Both packages, matching the same invocation in ci.yml. The
+          # vss_cli tests already ran here, but without --cov for its source
+          # tree none of its lines reached coverage-lib.xml, so Sonar counted
+          # every changed vss_cli line as uncovered. That stayed invisible
+          # while the package was small and surfaced as "2.9% Coverage on New
+          # Code" the first time a PR added substantially to it.
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test \
             --cov=packages/vss_core/src \
+            --cov=packages/vss_cli/src \
             --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
@@ -226,6 +258,25 @@ jobs:
             --cov=src \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
+
+      - name: Generate Behavior Analytics coverage
+        if: matrix.name == 'behavior-analytics'
+        working-directory: services/analytics/behavior-analytics
+        run: |
+          python -m pip install --upgrade pip pipenv
+          pipenv install --dev
+          mkdir -p test/coverage
+          pipenv run coverage run --source=src/mdx/analytics/core -m pytest tests/unit/ -v --junitxml=test/coverage/test-results.xml
+          pipenv run coverage xml -o coverage.xml
+          pipenv run coverage report
+
+      - name: Generate Video Analytics API coverage
+        if: matrix.name == 'video-analytics-api'
+        working-directory: services/analytics/video-analytics-api
+        run: |
+          cd src/web-api-core && npm install && cd ../..
+          cd src/app && npm install --save ../web-api-core && npm install && cd ../..
+          cd test && npm install --save ../src/web-api-core && npm install --save ../src/app && npm install && npm run ci
 
       - name: Run SonarQube scanner
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6

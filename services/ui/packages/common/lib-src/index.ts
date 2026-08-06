@@ -1,7 +1,7 @@
 /**
- * @aiqtoolkit-ui/common
+ * common
  *
- * Shared components and utilities for the AIQ Toolkit UI system.
+ * Shared components and utilities for the UI monorepo.
  * Use this package across all apps (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui, etc.)
  */
 
@@ -20,6 +20,19 @@ export type {
   UploadFilesDialogMetadataConfig,
   UploadFilesDialogOptions,
 } from './components/UploadFilesDialog';
+
+export { UploadProgressPopup } from './components/UploadProgressPopup';
+export type {
+  UploadFileStatus,
+  UploadProgressFileItem,
+  UploadProgressPopupProps,
+} from './components/UploadProgressPopup';
+
+export { UploadSuccessPopup } from './components/UploadSuccessPopup';
+export type {
+  UploadResultItem,
+  UploadSuccessPopupProps,
+} from './components/UploadSuccessPopup';
 export type {
   UploadFileConfigTemplate,
   UploadFileFieldConfig,

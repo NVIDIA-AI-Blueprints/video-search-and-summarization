@@ -46,27 +46,19 @@ services:
     command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_20x20_playback.txt
 
   nvstreamer-mv3dt:
+    extends:
+      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      service: nvstreamer-base
     container_name: vss-vios-nvstreamer-mv3dt
     networks:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
-    user: "0:0"
     runtime: nvidia
     profiles: ["nvstreamer-mv3dt"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
-    environment:
-      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
-      - ADAPTOR=streamer
-      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 2
       resources:
         reservations:
           devices:
@@ -267,13 +259,15 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: perception
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.1}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.2}
+    user: "0:0"
     profiles: ["vss-rtvi-cv-mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
 
     volumes:
-      - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
-      - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/models-download.json:/opt/config/models-download.json:ro
+      - $VSS_APPS_DIR/services/rtvi/rtvi-cv/download-models.sh:/opt/scripts/download-models.sh:ro
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/:/tmp/camInfo/
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
@@ -292,7 +286,13 @@ services:
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
-      LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libgomp.so.1:/usr/lib/x86_64-linux-gnu/libGLdispatch.so.0"
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      MODELS_MANIFEST_PATH: /opt/config/models-download.json
+      MODELS_DEST_ROOT: /opt/storage
+      STORAGE_UID: ${STORAGE_UID:-1001}
+      STORAGE_GID: ${STORAGE_GID:-1001}
+      DS_MODEL_DOWNLOAD: auto
+      DOWNLOAD_MODELS_SCRIPT: /opt/scripts/download-models.sh
     command: ["./ds-start-mv3dt.sh"]
     depends_on:
       sensor-ms-mv3dt:

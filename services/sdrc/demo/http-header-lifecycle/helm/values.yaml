@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  useReleaseNamePrefix: false
+  # Enable VIOS/VST services to generate RTSP streams from uploaded videos.
+  vios:
+    useSdrc: true
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+vios:
+  enabled: true
+  vstStorage:
+    createSharedPvcs: true
+    accessMode: ReadWriteOnce
+    vstData:
+      size: 10Gi
+      storageClass: ""
+    vstVideo:
+      size: 20Gi
+      storageClass: ""
+    streamerVideos:
+      size: 20Gi
+      storageClass: ""
+  vss-vios-postgres:
+    enabled: true
+  vss-vios-sensor:
+    enabled: true
+    streamProcessorService: sdrc
+    persistence:
+      vstData:
+        enabled: true
+        create: false
+        existingClaim: ""
+      vstVideo:
+        enabled: true
+        create: false
+        existingClaim: ""
+  vss-vios-streamprocessing:
+    enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
+    persistence:
+      vstData:
+        enabled: true
+        create: false
+        existingClaim: ""
+      vstVideo:
+        enabled: true
+        create: false
+        existingClaim: ""
+      streamerVideos:
+        enabled: true
+        create: false
+        existingClaim: ""
+  vss-vios-ingress:
+    enabled: true
+  vss-vios-nvstreamer:
+    enabled: true
+
+infra:
+  enabled: true
+  phoenix:
+    enabled: false
+  redis:
+    enabled: true
+    persistence:
+      storageClass: ""
+      size: 5Gi
+  kafka:
+    enabled: true
+    topicJob:
+      enabled: true
+    persistence:
+      storageClass: ""
+      size: 50Gi
+  vss-broker-health-check:
+    enabled: true
+    kafkaHost: ""
+    kafkaPort: "9092"
+    redisHost: ""
+    redisPort: "6379"
+  sdrc:
+    enabled: true
+    configFilePath: configs/sdrc/config.yml
+    config:
+      configMapName: sdrc-http-header-config
+      key: config.yml
+      mountPath: /config.yml
+    service:
+      # Extra Service ports for Envoy listeners generated from per-workload
+      # WDM_MS_LISTENER_PORT values. This example exposes the RTVI-CV
+      # HTTP-header lifecycle facade on 10001 so callers can use workload
+      # routes such as /api/v1/stream/add through SDRC.
+      controller:
+        type: NodePort
+        port: 5003
+        nodePort: 30003
+      workloadListeners:
+        - name: rtvi-cv-http
+          port: 10001
+          targetPort: 10001
+          nodePort: 31001
+    image:
+      repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
+      tag: 3.3.3-2026.08.2
+      pullPolicy: IfNotPresent
+    imagePullSecrets:
+      - name: ngc-docker-reg-secret
+rtvi:
+  enabled: true
+  vss-rtvi-cv:
+    enabled: true
+    profileMode: standalone-2d
+    replicas: 1
+    streamType: kafka
+    standaloneWarehouse:
+      streamType: kafka
+      kafka:
+        rawTopic: mdx-raw
+      hardwareProfile: ""
+    downloadNgcAppData: true
+    downloadModelsFromNgc: true
+    ngcApiKeySecretName: ngc-api
+    ngcApiKeySecretKey: NGC_CLI_API_KEY
+    ngcAppDataOrg: nvidia
+    ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    ngcModelsToDownload:
+      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
+    streamAffinity:
+      enabled: true
+      hashHeader: streamid
+    persistence:
+      storageClass: ""
+      models:
+        size: 80Gi

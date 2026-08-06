@@ -133,9 +133,10 @@ describe('FilterControls', () => {
     expect(screen.getByText('Alert Type...')).toBeInTheDocument();
   });
 
-  it('renders alert triggered filter dropdown', () => {
+  it('does not render alert triggered filter dropdown', () => {
     render(<FilterControls {...defaultProps} />);
-    expect(screen.getByText('Alert Triggered...')).toBeInTheDocument();
+    expect(screen.queryByText('Alert Triggered...')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('alert-triggered-select')).not.toBeInTheDocument();
   });
 
   it('calls onAddFilter when a sensor is selected', () => {

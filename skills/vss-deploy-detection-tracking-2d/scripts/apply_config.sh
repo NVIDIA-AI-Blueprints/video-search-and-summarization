@@ -169,8 +169,8 @@ case "$USECASE" in
     ;;
   warehouse-3d)
     # Co-locate labels.txt and *.npy with the ONNX when --onnx is given but
-    # --labels / --anchor are not. The warehouse NGC resource always ships
-    # all three in the same dir (vss-warehouse-app-data/models/sparse4d/ov/),
+    # --labels / --anchor are not. The warehouse NGC model package ships
+    # all three in the same dir (models/sparse4d/),
     # so this avoids RESOLVE_AMBIGUOUS when other use cases' resources are
     # cached under $RESOURCES (e.g. trafficcamnet labels.txt left over from
     # a prior smartcity-rtdetr deploy).

@@ -153,6 +153,20 @@ class Config(object):
         and os.environ["WDM_WL_THRESHOLD"].strip() != ""
         else 8 # TODO: update based on config input
     )
+    # Pod selection when adding streams: "lru_round_robin" (fewest streams,
+    # ordinal/name tie-break) or "sequential" (first eligible from getPodIps).
+    WDM_WL_ASSIGNING_METHOD = (
+        os.environ["WDM_WL_ASSIGNING_METHOD"].strip().lower()
+        if "WDM_WL_ASSIGNING_METHOD" in os.environ
+        and os.environ["WDM_WL_ASSIGNING_METHOD"].strip() != ""
+        else "sequential"
+    )
+    WDM_PROVISION_LEASE_SECONDS = (
+        int(os.environ["WDM_PROVISION_LEASE_SECONDS"])
+        if "WDM_PROVISION_LEASE_SECONDS" in os.environ
+        and os.environ["WDM_PROVISION_LEASE_SECONDS"].strip() != ""
+        else 120
+    )
 
     WDM_CONFIG_URL = (
         os.environ["WDM_CONFIG_URL"]
@@ -181,6 +195,64 @@ class Config(object):
         os.environ["WDM_WL_DELETE_URL"].strip()
         if "WDM_WL_DELETE_URL" in os.environ
         else "/api/v1/stream/remove"
+    )
+    WDM_LIFECYCLE_INGRESS_MODE = (
+        os.environ["WDM_LIFECYCLE_INGRESS_MODE"].strip()
+        if "WDM_LIFECYCLE_INGRESS_MODE" in os.environ
+        and os.environ["WDM_LIFECYCLE_INGRESS_MODE"].strip() != ""
+        else "message-bus"
+    )
+    WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER = (
+        os.environ["WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER"].strip()
+        if "WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER" in os.environ
+        and os.environ["WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER"].strip() != ""
+        else (
+            os.environ["ENVOY_ROUTE_HEADER"].strip()
+            if "ENVOY_ROUTE_HEADER" in os.environ
+            and os.environ["ENVOY_ROUTE_HEADER"].strip() != ""
+            else (
+                os.environ["ENVOYROUTEHEADER"].strip()
+                if "ENVOYROUTEHEADER" in os.environ
+                and os.environ["ENVOYROUTEHEADER"].strip() != ""
+                else "id"
+            )
+        )
+    )
+    WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH = (
+        os.environ["WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH"].strip()
+        if "WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH" in os.environ
+        and os.environ["WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH"].strip() != ""
+        else "/sdrc/v1/streams"
+    )
+    WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD = (
+        os.environ["WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD"].strip().upper()
+        if "WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD" in os.environ
+        and os.environ["WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD"].strip() != ""
+        else "POST"
+    )
+    WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH = (
+        os.environ["WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH"].strip()
+        if "WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH" in os.environ
+        and os.environ["WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH"].strip() != ""
+        else "/sdrc/v1/streams"
+    )
+    WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD = (
+        os.environ["WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD"].strip().upper()
+        if "WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD" in os.environ
+        and os.environ["WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD"].strip() != ""
+        else "DELETE"
+    )
+    WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH = (
+        os.environ["WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH"].strip()
+        if "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH" in os.environ
+        and os.environ["WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH"].strip() != ""
+        else "/sdrc/v1/streams/reprovision"
+    )
+    WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD = (
+        os.environ["WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD"].strip().upper()
+        if "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD" in os.environ
+        and os.environ["WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD"].strip() != ""
+        else "POST"
     )
     WDM_WL_CONFIG_PORT = (
         os.environ["WDM_WL_CONFIG_PORT"]

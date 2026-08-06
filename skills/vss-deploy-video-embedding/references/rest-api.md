@@ -80,6 +80,13 @@ BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
 
 ## Worked Examples
 
+> **Resolve the model id from `GET /v1/models`; do not hardcode `cosmos-embed1-448p`.**
+> That is the default id, but a build can serve a different variant — e.g.
+> `cosmos-embed1-448p-anomaly-detection` when `MODEL_PATH` points elsewhere — and
+> sending a literal the server has not loaded returns `BadParameters: No such model`.
+> The `"model"` value in the examples below is a placeholder; substitute
+> `MODEL_ID="$(curl -fsS "$BASE_URL/v1/models" | jq -r '.data[0].id // empty')"`.
+
 ### Upload a file and embed it
 
 ```bash
@@ -275,6 +282,10 @@ Differences from file mode (see the response schema under [Embed by URL](#embed-
 | Terminator | response close | `data: [DONE]` after `DELETE` |
 
 Parse `start_time` / `end_time` based on `media_info.type` — don't assume one or the other.
+
+For a **file/upload**, pass `creation_time` (ISO-8601) to get absolute timestamps
+(`media_info.type: "timestamp"`); without it, times are file-relative (epoch 0).
+Live/RTSP needs none — chunks are stamped from live NTP time.
 
 ### Single-stream control plane
 

@@ -71,6 +71,24 @@ jobs:
       # develop pushes, merge-base for PR branches, build-everything on
       # initial/force-push) and is unit-tested in CI. Never diff
       # origin/develop...HEAD on a develop push: that range is always empty.
+      # The content-tag gap check reads GHCR, so the job needs a token. Login
+      # before detection, not after: an unauthenticated probe returns "unknown",
+      # which fails open and rebuilds everything.
+      #
+      # continue-on-error is load-bearing, not defensive tidiness. A hard-failing
+      # login would stop the job before ghcr_tag_exists could degrade, so a GHCR
+      # outage would block the matrix and the release set entirely -- the exact
+      # opposite of the fail-open posture this check is built on. Letting it fail
+      # leaves detection unauthenticated, every probe returns "unknown", and the
+      # job rebuilds everything. Slower, never wrong.
+      - name: Log in to GHCR for the content-tag gap check
+        continue-on-error: true
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Resolve changed images
         id: detect
         run: |
@@ -569,15 +587,9 @@ jobs:
           retention-days: 90
 
       - name: Set up Buildx for post-merge alias publication
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
       - name: Log in to GHCR for post-merge publication
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
         with:
           registry: ghcr.io
@@ -596,16 +608,24 @@ jobs:
       # Only the pushed tip is tagged, which is sufficient: the repo allows only
       # squash and rebase merges (no merge commits), so develop is linear, and
       # every consumer resolves from the tip, never from an interior commit.
-      - name: Retag develop-latest and develop-<sha> after complete post-merge build
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
+      # develop publishes develop-latest + develop-<sha12>; a PR branch publishes
+      # pr-<N>-latest + pr-<N>-<sha12>. Both sets must cover EVERY GHCR image,
+      # not just the ones rebuilt on this ref: a consumer that derives a
+      # coordinate from the ref would otherwise 404 on the untouched images,
+      # which is why PR acceptance still needs a per-image manifest today.
+      # pr-<N>-* tags are reaped by cleanup-pr-tags.yml when the PR closes.
+      - name: Retag the candidate set for this ref
         run: |
           short="$(printf '%s' "${GITHUB_SHA}" | cut -c1-12)"
+          case "${GITHUB_REF_NAME}" in
+            develop)            prefix="develop" ;;
+            pull-request/[0-9]*) prefix="pr-${GITHUB_REF_NAME#pull-request/}" ;;
+            *) echo "::notice::no candidate set retagged for ${GITHUB_REF_NAME}"; exit 0 ;;
+          esac
           python3 .github/scripts/advance_ghcr_alias.py \
             --release-set release-set.json \
-            --alias develop-latest \
-            --alias "develop-${short}" \
+            --alias "${prefix}-latest" \
+            --alias "${prefix}-${short}" \
             --verify-tree-sha \
             --repo-root . \
             --commit "${GITHUB_SHA}"

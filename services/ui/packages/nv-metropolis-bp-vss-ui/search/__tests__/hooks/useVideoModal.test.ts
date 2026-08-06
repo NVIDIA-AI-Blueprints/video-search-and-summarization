@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { renderHook, act } from '@testing-library/react';
-import { useVideoModal, VideoModalData } from '@aiqtoolkit-ui/common';
+import { useVideoModal, VideoModalData } from 'common';
 
 const makeSearchData = (overrides: Partial<VideoModalData> = {}): VideoModalData => ({
   video_name: 'test-video.mp4',

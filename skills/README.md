@@ -46,13 +46,23 @@ VSS-based deployments are multi-layer systems. Most skills map to exactly one la
 
 **Kubernetes runtime endpoint contract.** Operate skills run on the caller's
 host, not inside VSS pods. Supply one public Ingress origin as
-`VSS_PUBLIC_URL` (Helm `global.externalHost` / main Ingress host). Canonical
-variable mapping, Docker fallbacks, and the no-port-forward rule live in
+`VSS_PUBLIC_URL` (Helm `global.externalHost` / main Ingress host — e.g.
+`vss.<ip>.nip.io` for **base**, **lvs**, and **alerts**, `vss-search.<ip>.nip.io`
+for **search**). Canonical variable mapping, Docker fallbacks, and the
+no-port-forward rule live in
 [`vss-build-vision-agent/references/deployment_resolution.md`](vss-build-vision-agent/references/deployment_resolution.md).
-Profile-specific routes also include Alert Bridge, VA-MCP, and LVS paths on
-their respective Ingress hosts. NvStreamer requires a separate
-`VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each skill retains its
-documented Docker Compose discovery or `HOST_IP` fallback.
+Base quickstart operate uses `/vst` (VIOS) and Prefix `/v1` (RT-VLM) on that
+origin for `vss-manage-video-io-storage`, `vss-ask-video`, and
+`vss-generate-video-report` Mode A. LVS operate uses Exact `/v1/ready` and
+`/v1/summarize` for `vss-summarize-video` (and report Mode A when LVS is ready),
+plus Exact `/v1/models` / `/v1/chat/completions` for RT-VLM — not a Prefix `/v1`
+and not LVS `/models` or LVS `/openapi.json` through Ingress. Alerts operate
+uses `/vst`, `/alert-bridge` (rules + incidents; never Agent `/generate` for
+rule CRUD), and `/va-mcp` for `vss-manage-alerts` / `vss-query-analytics` —
+not Elasticsearch `:9200` or RT-VLM `:8018` through Ingress. Search archive
+operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
+requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
+skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
 **Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
 
@@ -130,7 +140,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | [vss-ask-video](vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip via the VSS agent's `video_understanding` (VLM) tool. |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
-| [vss-query-analytics](vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via the VA-MCP server (port 9901). |
+| [vss-query-analytics](vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
 
 ### Middleware
 | Skill | Description |

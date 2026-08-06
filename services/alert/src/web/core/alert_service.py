@@ -22,7 +22,7 @@ Service layer for handling HTTP alert submissions.
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from schemas import EntityValidator
 from mdx.kafka_message_broker import KafkaMessageBroker
@@ -157,6 +157,35 @@ class AlertSubmissionService:
             message = nvSchemaIncident()
             message.ParseFromString(incident_bytes)
 
+            # Enforce the same required-field contract as the JSON branch so a
+            # protobuf payload cannot bypass validation and flow downstream
+            # missing fields the pipeline dereferences (e.g. ``end``). ``timestamp``
+            # and ``end`` are protobuf message fields (Timestamp) so presence is
+            # checked with ``HasField``; ``sensorId`` and ``category`` are scalars
+            # that default to the empty string when unset.
+            missing_fields = []
+            if not message.sensorId:
+                missing_fields.append("sensorId")
+            if not message.HasField("timestamp"):
+                missing_fields.append("timestamp")
+            if not message.HasField("end"):
+                missing_fields.append("end")
+            if not message.category:
+                missing_fields.append("category")
+            if missing_fields:
+                self.logger.error(
+                    "Protobuf incident submission missing required field(s)",
+                    extra={"missing_fields": missing_fields},
+                )
+                return self._build_error_response(
+                    "validation_failed",
+                    f"Request validation failed with {len(missing_fields)} error(s)",
+                    details=[
+                        {"field": field, "type": "missing", "message": "Field required"}
+                        for field in missing_fields
+                    ],
+                ), 422
+
             # Derive key: id or sensorId
             key = str(getattr(message, "id", "") or getattr(message, "sensorId", ""))
 
@@ -222,7 +251,7 @@ class AlertSubmissionService:
         self, 
         error_type: str, 
         message: str, 
-        details: Optional[Dict[str, Any]] = None
+        details: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
     ) -> Dict[str, Any]:
         """
         Build standardized error response.

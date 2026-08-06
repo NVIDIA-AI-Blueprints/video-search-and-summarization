@@ -21,6 +21,19 @@ Helm-based deployment of the VSS Developer Search Profile on Kubernetes.
 
 For full documentation, see the [Quickstart Guide - Developer Search Profile (Kubernetes)](https://docs.nvidia.com/vss/latest/agent-workflow-search.html).
 
+## RTVI CV startup policy
+
+Search uses the shared `ds-start.sh` owned by the `rtvi-cv` subchart; this
+profile's ConfigMap contains configuration data only. The pod stages the
+read-only `mounted-configs/` data into a writable `configs/` volume before the
+shared script patches vision-encoder paths.
+
+Search selects `DS_MODEL_FAMILY=rtdetr-warehouse`,
+`DS_VISION_ENCODER=true`, and `DS_TRACKER_REID=true`. Its model download Job
+writes one completion marker per destination artifact, and the RTVI CV pod
+waits for both each marker and its artifact before starting. Standalone
+warehouse and MV3DT startup scripts remain separate.
+
 ## GPU Requirements
 
 The stack requests GPUs (`nvidia.com/gpu: 1` each) for the workloads listed below. The exact total depends on whether you deploy with hosted NIMs (NVIDIA Build Endpoint) or local NIMs.

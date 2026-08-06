@@ -531,10 +531,10 @@ run_dry_run_test "edge (AGX-THOR) alerts real-time uses device ID 0 (no VLM over
 # Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION is an option (mirrors NIM hw-H100.env pattern: ${VLM_NIM_KVCACHE_PERCENT}), flows through from env (unset → empty).
 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
 # Alerts on IGX-THOR/AGX-THOR: RTVI_VLLM_GPU_MEMORY_UTILIZATION env var flows through to generated.env (option pattern, like ${VLM_NIM_KVCACHE_PERCENT} in NIM hw-H100.env).
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
@@ -704,8 +704,8 @@ run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "ba
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
-# L40S forbids local_shared for LLM/VLM; search profile default is local_shared for LLM (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
-LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d
+# L40S forbids local_shared for LLM/VLM; the search profile shares both GPUs (devices 0,1 in FIXED_SHARED), so LLM and VLM must both be remote for L40S to be allowed.
+LLM_ENDPOINT_URL=http://127.0.0.1:1 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x --use-remote-vlm --vlm my-remote-vlm -d
 
 _out_compose_env_order="$(mktemp)"
 _err_compose_env_order="$(mktemp)"
@@ -732,13 +732,33 @@ rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 # Search: RT-VLM (vss-rtvi-vlm) is always deployed because it serves both the critic and
 # video_understanding. It is activated via the explicit "rtvi-vlm" compose profile (no vlm_
 # NIM profile) and the agent is wired to it with VLM_NAME_SLUG=none, VLM_MODEL_TYPE=rtvi,
-# VLM_BASE_URL=http://rtvi-vlm:8000. RT_VLM_DEVICE_ID follows the shared/VLM device (2).
+# VLM_BASE_URL=http://rtvi-vlm:8000. RT-VLM shares GPU 0 with RT-CV, so device 0 is in
+# FIXED_SHARED_DEVICE_IDS and VLM_MODE derives to local_shared, which caps RT-VLM at the
+# 0.4 H100 shared fraction so RT-CV keeps its headroom.
 run_dry_run_up_and_check_generated_env "generated.env search default wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
-  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
-  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2" \
-  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
+  "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+_mock_brev_one_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_brev_one_gpu_dir}")
+cat > "${_mock_brev_one_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n'
+else
+  printf 'NVIDIA RTX PRO 6000 Blackwell\n'
+fi
+EOF
+chmod +x "${_mock_brev_one_gpu_dir}/nvidia-smi"
+# One GPU cannot host RT-CV + RT-VLM and RT-Embed + LLM, so local RT-VLM is rejected.
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
+  -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
+  "VLM_MODE" "remote" "RTVI_VLM_MODEL_PATH" "none" "RT_VLM_DEVICE_ID" "0"
+
 _mock_brev_two_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_two_gpu_dir}")
 cat > "${_mock_brev_two_gpu_dir}/nvidia-smi" <<'EOF'
@@ -750,8 +770,11 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
-# RT-VLM always deploys locally for search, so a 2-GPU Brev is rejected; only --use-remote-vlm avoids it.
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 2 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+# Two GPUs are enough for a local RT-VLM now that it shares GPU 0 with RT-CV.
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
+  -i 127.0.0.1 -d -- \
+  "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
 PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
@@ -769,12 +792,14 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
+# Placement comes from the profile env, not the host GPU count, so a 3-GPU host still
+# co-locates RT-VLM with RT-CV on GPU 0 and leaves GPU 2 unused.
 PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
-  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2"
+  "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
 
-# --- Setup paths: data directory and selective downloads (assert dry-run output) ---
+# --- Setup paths: data directory and profile-specific setup messaging (assert dry-run output) ---
 _out_setup="$(mktemp)"
 cd "${REPO_ROOT}"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_setup}" 2>&1
@@ -818,29 +843,200 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alerts profile: dry-run must include NGC model download steps (rtdetr-its, trafficcamnet, gdino/mask_grounding_dino)
+# Alerts profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_alerts="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m verification -d > "${_out_alerts}" 2>&1
-if grep -q "models/rtdetr-its" "${_out_alerts}" && grep -q "trafficcamnet" "${_out_alerts}" && grep -q "models/gdino" "${_out_alerts}" && grep -q "mask_grounding_dino" "${_out_alerts}" && grep -q "mgdino_mask_head_pruned_dynamic_batch.onnx" "${_out_alerts}" && grep -q "ngc registry model" "${_out_alerts}"; then
-  echo "PASS: alerts dry-run output includes NGC model download steps"
+if grep -q "Alerts model download runs in ds-start.sh phase 0 (perception)." "${_out_alerts}" && ! grep -q "ngc registry model download-version" "${_out_alerts}"; then
+  echo "PASS: alerts dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts dry-run output missing NGC model download steps (models/rtdetr-its, trafficcamnet, models/gdino, mask_grounding_dino, mgdino_mask_head_pruned_dynamic_batch.onnx, ngc registry model)"
+  echo "FAIL: alerts dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_alerts}"
 
-# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvidia TAO).
+# Search profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvidia/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvidia" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
-  echo "PASS: search dry-run output includes NGC model download steps"
+if grep -q "Search model download runs in ds-start.sh phase 0 (perception)." "${_out_search}" && ! grep -q "ngc registry model download-version" "${_out_search}"; then
+  echo "PASS: search dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvidia/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvidia, ngc registry model)"
+  echo "FAIL: search dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
+
+# --- Warehouse RT-CV model acquisition: manifests and flattened paths ---
+_warehouse_model_config_failed=0
+_warehouse_root="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations"
+_warehouse_2d_manifest="${_warehouse_root}/warehouse-2d-app/models-download.json"
+_warehouse_3d_manifest="${_warehouse_root}/warehouse-3d-app/models-download.json"
+_warehouse_mv3dt_manifest="${_warehouse_root}/warehouse-mv3dt-app/models-download.json"
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2",
+    "org": "nvidia",
+    "sourcePath": "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx",
+    "destPath": "rtdetr_warehouse_v1.0.2.fp16.onnx"
+  }]
+' "${_warehouse_2d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 2D manifest should download RT-DETR to the flattened model root"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/sparse4d_rn50:deployable_v2.2",
+    "org": "nvidia",
+    "sourcePath": "sparse4d_warehouse_v2.2_r50.onnx",
+    "destPath": "sparse4d/sparse4d_warehouse_v2.2.onnx"
+  }]
+' "${_warehouse_3d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 3D manifest should download only Sparse4D to its flattened path"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  (.downloads | length) == 2
+  and any(.downloads[]; .model == "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2" and .destPath == "rtdetr_warehouse_v1.0.2.fp16.onnx")
+  and any(.downloads[]; .model == "nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0" and .sourcePath == "bodypose3dnet_accuracy.onnx" and .destPath == "BodyPose3DNet/bodypose3dnet_accuracy.onnx")
+' "${_warehouse_mv3dt_manifest}" >/dev/null; then
+  echo "FAIL: warehouse MV3DT manifest should download flattened RT-DETR and BodyPose3DNet artifacts"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ! -s "${_warehouse_root}/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy" ]]; then
+  echo "FAIL: warehouse 3D repository anchor asset is missing or empty"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! grep -q '^onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml" \
+  || ! grep -q '^engine_file: /opt/storage/sparse4d/model.engine$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml"; then
+  echo "FAIL: warehouse 3D config should use namespaced flattened model and engine paths"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if grep -E 'models/mtmc|models/sparse4d/ov|models-download-warehouse-' \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml" >/dev/null; then
+  echo "FAIL: warehouse Compose should not use legacy app-data model mounts or download init services"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+for _wh_yml in \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"; do
+  if ! grep -q 'models-download.json:/opt/config/models-download.json:ro' "${_wh_yml}"; then
+    echo "FAIL: ${_wh_yml} should mount models-download.json for ds-start phase 0"
+    ((_warehouse_model_config_failed++)) || true
+  fi
+done
+
+_rtvi_compose="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/compose.yaml"
+if grep -q '^  download-models:' "${_rtvi_compose}" \
+  || ! grep -q 'download-models.sh' "${_rtvi_compose}" \
+  || ! grep -q 'user: "0:0"' "${_rtvi_compose}"; then
+  echo "FAIL: base rtvi-cv compose should drop download-models service and run perception as root with download script mounted"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_helm_job="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/job-download-models.yaml"
+_helm_ss="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset.yaml"
+if [[ -e "${_helm_job}" ]] \
+  || grep -q 'wait-for-models' "${_helm_ss}" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-2d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-3d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml" \
+  || ! grep -q 'ensure_models_from_manifest' \
+    "${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/ds-start.sh" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/ds-start.sh"; then
+  echo "FAIL: no-init download contract missing (Job/wait removed; ensure_models present)"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_standalone_skill_defaults="${REPO_ROOT}/skills/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
+if grep -E 'vss-warehouse-app-data/models/(mtmc|sparse4d/ov)' "${_standalone_skill_defaults}" >/dev/null \
+  || ! grep -q 'ref: *nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'ref: *nvidia/tao/sparse4d_rn50:deployable_v2.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'kind: *repo' "${_standalone_skill_defaults}"; then
+  echo "FAIL: standalone detection skill should use NGC model packages and repository Sparse4D companions"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ${_warehouse_model_config_failed} -eq 0 ]]; then
+  echo "PASS: warehouse RT-CV model manifests and flattened paths are aligned"
+  ((TESTS_PASSED++)) || true
+else
+  ((TESTS_FAILED++)) || true
+fi
+
+_mdx_volume_decl_matches="$(grep -R -n -E --include='*.yml' --include='*.yaml' '(^[[:space:]]+- mdx-(elastic|kafka|logstash|nvstreamer|calibration-toolkit)[A-Za-z0-9_-]*:|^[[:space:]]+mdx-(elastic|kafka|logstash|nvstreamer|calibration-toolkit)[A-Za-z0-9_-]*:)' "${REPO_ROOT}/deploy/docker" || true)"
+if [[ -n "${_mdx_volume_decl_matches}" ]]; then
+  echo "FAIL: Compose volume declarations should not use mdx-* names"
+  echo "${_mdx_volume_decl_matches}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: Compose volume declarations use non-mdx names"
+  ((TESTS_PASSED++)) || true
+fi
+
+_helm_mv3dt_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml"
+_helm_mv3dt_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
+_helm_mv3dt_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
+if grep -q 'downloadModelsFromNgc: true' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_mv3dt_values}" \
+  && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_mv3dt_values}" \
+  && grep -q 'DS_MODEL_DOWNLOAD' "${_helm_mv3dt_statefulset}" \
+  && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_mv3dt_statefulset}" \
+  && ! grep -q 'wait-for-models' "${_helm_mv3dt_statefulset}" \
+  && ! grep -Eq 'prepare-mv3dt-models|runtime-storage|rtdetrPvcSubPath|bodyPosePvcSubPath' \
+    "${_helm_mv3dt_statefulset}" "${_helm_mv3dt_defaults}"; then
+  echo "PASS: warehouse Helm MV3DT uses per-file models via ds-start phase 0 and direct PVC storage"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse Helm MV3DT should use flattened model downloads without wait-for-models or legacy copies"
+  ((TESTS_FAILED++)) || true
+fi
+
+BLUEPRINT_DEPLOY="${REPO_ROOT}/deploy/docker/scripts/blueprint-deploy.sh"
+if grep -Fq 'Warehouse RT-CV model download runs in ds-start phase 0' "${BLUEPRINT_DEPLOY}" \
+  && grep -q 'mkdir -p "${data_directory}/models"' "${BLUEPRINT_DEPLOY}" \
+  && ! grep -q 'models/mv3dt/BodyPose3DNet' "${BLUEPRINT_DEPLOY}"; then
+  echo "PASS: blueprint-deploy.sh prepares flattened warehouse models dir and delegates RT-CV download to ds-start"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: blueprint-deploy.sh should create flattened models/ and log ds-start warehouse model download"
+  ((TESTS_FAILED++)) || true
+fi
+
+_warehouse_3d_skill="${REPO_ROOT}/skills/vss-deploy-detection-tracking-3d"
+if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
+  "${_warehouse_3d_skill}/SKILL.md" \
+  "${_warehouse_3d_skill}/references" \
+  "${_warehouse_3d_skill}/evals" >/dev/null; then
+  echo "PASS: warehouse MV3DT skill uses flattened per-file model paths"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT skill should not reference legacy app-data model paths"
+  ((TESTS_FAILED++)) || true
+fi
+
+_compose_mv3dt_root="${_warehouse_root}/warehouse-mv3dt-app"
+_helm_mv3dt_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
+if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_mv3dt_start}" \
+  && grep -q 'PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml" \
+  && grep -q 'PERCEPTION_TAG:-3.3.0-26.07.2' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
+  echo "PASS: warehouse MV3DT startup script and perception fallback are aligned across Compose and Helm"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT Compose and Helm startup semantics or perception fallback diverged"
+  ((TESTS_FAILED++)) || true
+fi
 
 # NGC download failures must stop before kernel setup, docker login, or compose.
 run_ngc_download_fail_fast_test() {
@@ -991,25 +1187,9 @@ EOF
   fi
 }
 
-run_ngc_download_fail_fast_test \
-  "NGC search RT-DETR download failure fails fast" \
-  "search" \
-  "\\[ERROR\\] Failed to download RT-DETR model from NGC (exit 42)" \
-  -p search -i 127.0.0.1 -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts trafficcamnet download failure fails fast" \
-  "alerts-first" \
-  "\\[ERROR\\] Failed to download trafficcamnet RT-DETR model from NGC (exit 42)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts grounding DINO download failure fails fast" \
-  "alerts-second" \
-  "\\[ERROR\\] Failed to download grounding DINO model from NGC (exit 43)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
-
 # --- Profile env split: stable .env plus script-modifiable overrides.env ---
 _common_overrides_env_keys=(
-  HARDWARE_PROFILE COMPOSE_PROFILES
+  HARDWARE_PROFILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES
   LLM_DEVICE_ID VLM_DEVICE_ID LLM_MODE VLM_MODE
   LLM_NAME LLM_NAME_SLUG LLM_ENV_FILE LLM_BASE_URL LLM_MODEL_TYPE
   VLM_NAME VLM_NAME_SLUG VLM_ENV_FILE VLM_BASE_URL VLM_MODEL_TYPE
@@ -1030,10 +1210,12 @@ for _profile in base lvs search alerts; do
     continue
   fi
   _expected_override_keys=("${_common_overrides_env_keys[@]}")
+  _allowed_duplicate_keys=()
   case "${_profile}" in
     base)
-      _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_stable_keys=(MODE RTVI_VLM_MAX_MODEL_LEN)
+      _allowed_duplicate_keys=(RTVI_VLM_MAX_MODEL_LEN)
       ;;
     lvs)
       _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
@@ -1042,17 +1224,24 @@ for _profile in base lvs search alerts; do
       ;;
     search)
       _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
-      _expected_override_keys+=(RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=(MODE PERCEPTION_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
     alerts)
       _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NEXT_PUBLIC_APP_SUBTITLE PERCEPTION_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
-      _expected_override_keys+=(RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=(NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
   esac
   for _key in "${_expected_override_keys[@]}"; do
-    if grep -Eq "^${_key}=" "${_stable_env}"; then
+    _allow_duplicate=0
+    for _duplicate_key in "${_allowed_duplicate_keys[@]}"; do
+      if [[ "${_key}" == "${_duplicate_key}" ]]; then
+        _allow_duplicate=1
+        break
+      fi
+    done
+    if [[ ${_allow_duplicate} -eq 0 ]] && grep -Eq "^${_key}=" "${_stable_env}"; then
       echo "FAIL: dev-profile-${_profile}/.env should not define override-layer ${_key}"
       ((_split_failed++)) || true
     fi
@@ -1062,11 +1251,18 @@ for _profile in base lvs search alerts; do
     fi
   done
   for _key in "${_expected_stable_keys[@]}"; do
+    _allow_duplicate=0
+    for _duplicate_key in "${_allowed_duplicate_keys[@]}"; do
+      if [[ "${_key}" == "${_duplicate_key}" ]]; then
+        _allow_duplicate=1
+        break
+      fi
+    done
     if ! grep -Eq "^${_key}=" "${_stable_env}"; then
       echo "FAIL: dev-profile-${_profile}/.env should keep static ${_key}"
       ((_split_failed++)) || true
     fi
-    if grep -Eq "^${_key}=" "${_overrides_env}"; then
+    if [[ ${_allow_duplicate} -eq 0 ]] && grep -Eq "^${_key}=" "${_overrides_env}"; then
       echo "FAIL: dev-profile-${_profile}/overrides.env should not define static ${_key}"
       ((_split_failed++)) || true
     fi
@@ -1085,7 +1281,7 @@ _warehouse_stable_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-op
 _warehouse_overrides_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
 _warehouse_host_port_keys=(
   HAPROXY_HOST_PORT VSS_UI_HOST_PORT VSS_AGENT_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT
-  RTVI_CV_HOST_PORT RTVI_CV_MV3DT_HOST_PORT RTVI_VLM_PORT NVSTREAMER_HTTP_HOST_PORT PHOENIX_HOST_PORT ELASTICSEARCH_HOST_PORT
+  VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT RTVI_CV_MV3DT_HOST_PORT RTVI_VLM_PORT NVSTREAMER_HTTP_HOST_PORT PHOENIX_HOST_PORT ELASTICSEARCH_HOST_PORT
   KAFKA_HOST_PORT REDIS_HOST_PORT KIBANA_HOST_PORT TURN_HOST_PORT TURN_MIN_RELAY_HOST_PORT TURN_MAX_RELAY_HOST_PORT
   MQTT_HOST_PORT VST_INGRESS_HOST_PORT SENSOR_HTTP_HOST_PORT STREAM_PROCESSOR_HTTP_HOST_PORT RTSP_SERVER_HOST_PORT RTSP_SERVER_HOST_PORT_END
   SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT
@@ -1102,6 +1298,14 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
     COMPOSE_PROFILES
   )
+  if grep -Eq "^COMPOSE_PROJECT_NAME=" "${_warehouse_stable_env}"; then
+    echo "FAIL: warehouse .env should not define user-facing compose project name COMPOSE_PROJECT_NAME"
+    ((_split_failed++)) || true
+  fi
+  if ! grep -Eq "^COMPOSE_PROJECT_NAME=" "${_warehouse_overrides_env}"; then
+    echo "FAIL: warehouse overrides.env should define user-facing compose project name COMPOSE_PROJECT_NAME"
+    ((_split_failed++)) || true
+  fi
   for _key in "${_warehouse_compose_profile_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define user-facing compose profile value ${_key}"
@@ -1130,8 +1334,21 @@ else
   echo "FAIL: warehouse profile should have both .env and overrides.env"
   ((_split_failed++)) || true
 fi
+_smartcities_overrides_env="${REPO_ROOT}/deploy/docker/industry-profiles/smartcities/overrides.env"
+if [[ -f "${_smartcities_overrides_env}" ]]; then
+  _smartcities_inherited_override_keys=(COMPOSE_PROJECT_NAME VIDEO_ANALYTICS_API_HOST_PORT)
+  for _key in "${_smartcities_inherited_override_keys[@]}"; do
+    if grep -Eq "^${_key}=" "${_smartcities_overrides_env}"; then
+      echo "FAIL: smartcities overlay should inherit user-facing override ${_key} from the selected base profile"
+      ((_split_failed++)) || true
+    fi
+  done
+else
+  echo "FAIL: smartcities profile should have overrides.env"
+  ((_split_failed++)) || true
+fi
 _shared_service_env_specs=(
-  "deploy/docker/services/agent/agent.env:VSS_AGENT_VERSION VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
+  "deploy/docker/services/agent/agent.env:VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
   "deploy/docker/services/alert/alert.env:ALERT_BRIDGE_PORT ALERT_BRIDGE_URL"
   "deploy/docker/services/ui/ui.env:NEXT_PUBLIC_APP_TITLE NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR NEXT_PUBLIC_ENABLE_CHAT_TAB NEXT_PUBLIC_ENABLE_MAP_TAB"
   "deploy/docker/services/infra/infra.env:ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS"
@@ -1265,7 +1482,7 @@ run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
-  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "RTVI_VLM_KAFKA_ENABLED" "false"
 
 run_dry_run_up_and_check_generated_env "generated.env MODE for alerts" "alerts" \
@@ -1478,6 +1695,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasone
   "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
 
+run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasoner-fp8 maps to RT-VLM FP8 path+basename" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner-fp8 -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
+
 run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT-VLM git path+basename" "base" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
@@ -1485,6 +1708,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT
   "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
 
 # Search routes --vlm through RT-VLM (integrated checkpoint), same as base/lvs; see the base --vlm tests above.
+run_dry_run_up_and_check_generated_env "generated.env search --vlm cosmos3-reasoner-fp8 maps to RT-VLM FP8 path+basename" "search" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner-fp8 -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
+
 run_dry_run_up_and_check_generated_env "generated.env search --vlm Qwen maps to RT-VLM git path+basename" "search" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
@@ -1596,7 +1825,7 @@ run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM 
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
-  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "COMPOSE_PROFILES" "${_expected_lvs_compose_profiles}"
 
 # LVS with remote VLM: keep RT-VLM in the stack and point only RT-VLM at the remote OpenAI-compatible endpoint.
@@ -1765,8 +1994,8 @@ elif [[ ${exit_code} -ne 0 ]]; then
   echo "FAIL: down dry-run (expected exit 0, got ${exit_code})"
   cat "${out_file}" "${err_file}" | sed 's/^/    /'
   ((TESTS_FAILED++)) || true
-elif ! grep -q "\[DRY-RUN\] docker compose -p mdx down -v --remove-orphans" "${out_file}"; then
-  echo "FAIL: down dry-run (stdout missing '[DRY-RUN] docker compose -p mdx down -v --remove-orphans')"
+elif ! grep -q "\[DRY-RUN\] docker compose -p vss down -v --remove-orphans" "${out_file}"; then
+  echo "FAIL: down dry-run (stdout missing '[DRY-RUN] docker compose -p vss down -v --remove-orphans')"
   ((TESTS_FAILED++)) || true
 elif ! grep -q "State down completed" "${out_file}"; then
   echo "FAIL: down dry-run (stdout missing 'State down completed')"
@@ -1776,6 +2005,159 @@ else
   ((TESTS_PASSED++)) || true
 fi
 rm -f "${out_file}" "${err_file}"
+
+# --- Positive: dry-run down honors COMPOSE_PROJECT_NAME from persisted env state ---
+_custom_project_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/overrides.env"
+if [[ -f "${_custom_project_overrides}" ]]; then
+  _custom_project_backup="$(mktemp)"
+  cp "${_custom_project_overrides}" "${_custom_project_backup}"
+  CLEANUP_RESTORES+=("${_custom_project_backup}|${_custom_project_overrides}")
+  sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-custom-test/' "${_custom_project_overrides}"
+  _custom_project_generated_backups=()
+  for _custom_project_profile in base lvs search alerts; do
+    _custom_project_generated="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_custom_project_profile}/generated.env"
+    if [[ -f "${_custom_project_generated}" ]]; then
+      _custom_project_generated_backup="$(mktemp)"
+      cp "${_custom_project_generated}" "${_custom_project_generated_backup}"
+      CLEANUP_RESTORES+=("${_custom_project_generated_backup}|${_custom_project_generated}")
+      _custom_project_generated_backups+=("${_custom_project_generated_backup}|${_custom_project_generated}")
+      if grep -q '^COMPOSE_PROJECT_NAME=' "${_custom_project_generated}"; then
+        sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-custom-test/' "${_custom_project_generated}"
+      else
+        printf '\nCOMPOSE_PROJECT_NAME=vss-custom-test\n' >> "${_custom_project_generated}"
+      fi
+    fi
+  done
+
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" down --dry-run > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  mv "${_custom_project_backup}" "${_custom_project_overrides}"
+  for _custom_project_restore in "${_custom_project_generated_backups[@]}"; do
+    IFS='|' read -r _custom_project_generated_backup _custom_project_generated <<< "${_custom_project_restore}"
+    [[ -f "${_custom_project_generated_backup}" ]] && mv "${_custom_project_generated_backup}" "${_custom_project_generated}"
+  done
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (timed out after ${TEST_TIMEOUT}s)"
+    ((TESTS_FAILED++)) || true
+  elif [[ ${exit_code} -ne 0 ]]; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (expected exit 0, got ${exit_code})"
+    cat "${out_file}" "${err_file}" | sed 's/^/    /'
+    ((TESTS_FAILED++)) || true
+  elif ! grep -Fq "[DRY-RUN] docker compose -p vss-custom-test down -v --remove-orphans" "${out_file}"; then
+    echo "FAIL: down dry-run with custom COMPOSE_PROJECT_NAME (stdout missing custom project down command)"
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: down dry-run honors custom COMPOSE_PROJECT_NAME"
+    ((TESTS_PASSED++)) || true
+  fi
+  rm -f "${out_file}" "${err_file}"
+else
+  echo "SKIP: down dry-run honors custom COMPOSE_PROJECT_NAME (base overrides.env not found)"
+fi
+
+# --- Positive: dry-run down tears down each distinct COMPOSE_PROJECT_NAME from generated.env files ---
+_multi_project_specs=("base:vss-base-test" "lvs:vss-base-test" "alerts:vss-alerts-test")
+_multi_project_backups=()
+_multi_project_created=()
+for _multi_project_spec in "${_multi_project_specs[@]}"; do
+  _multi_project_profile="${_multi_project_spec%%:*}"
+  _multi_project_name="${_multi_project_spec#*:}"
+  _multi_project_generated="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_multi_project_profile}/generated.env"
+  if [[ -f "${_multi_project_generated}" ]]; then
+    _multi_project_backup="$(mktemp)"
+    cp "${_multi_project_generated}" "${_multi_project_backup}"
+    CLEANUP_RESTORES+=("${_multi_project_backup}|${_multi_project_generated}")
+    _multi_project_backups+=("${_multi_project_backup}|${_multi_project_generated}")
+  else
+    _multi_project_created+=("${_multi_project_generated}")
+  fi
+  printf 'COMPOSE_PROJECT_NAME=%s\n' "${_multi_project_name}" > "${_multi_project_generated}"
+done
+
+out_file="$(mktemp)"
+err_file="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" down --dry-run > "${out_file}" 2> "${err_file}"
+exit_code=$?
+set -e
+for _multi_project_restore in "${_multi_project_backups[@]}"; do
+  IFS='|' read -r _multi_project_backup _multi_project_generated <<< "${_multi_project_restore}"
+  [[ -f "${_multi_project_backup}" ]] && mv "${_multi_project_backup}" "${_multi_project_generated}"
+done
+for _multi_project_generated in "${_multi_project_created[@]}"; do
+  rm -f "${_multi_project_generated}"
+done
+if [[ ${exit_code} -eq 124 ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (timed out after ${TEST_TIMEOUT}s)"
+  ((TESTS_FAILED++)) || true
+elif [[ ${exit_code} -ne 0 ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (expected exit 0, got ${exit_code})"
+  cat "${out_file}" "${err_file}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+elif [[ "$(grep -Fc '[DRY-RUN] docker compose -p vss-base-test down -v --remove-orphans' "${out_file}")" != "1" ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (vss-base-test not torn down exactly once)"
+  ((TESTS_FAILED++)) || true
+elif [[ "$(grep -Fc '[DRY-RUN] docker compose -p vss-alerts-test down -v --remove-orphans' "${out_file}")" != "1" ]]; then
+  echo "FAIL: down dry-run with multiple generated COMPOSE_PROJECT_NAME values (vss-alerts-test not torn down exactly once)"
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: down dry-run tears down each distinct generated COMPOSE_PROJECT_NAME"
+  ((TESTS_PASSED++)) || true
+fi
+rm -f "${out_file}" "${err_file}"
+
+# --- Positive: warehouse down dry-run honors COMPOSE_PROJECT_NAME from env files ---
+_warehouse_project_overrides="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
+_warehouse_project_generated="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+if [[ -f "${_warehouse_project_overrides}" ]]; then
+  _warehouse_project_backup="$(mktemp)"
+  cp "${_warehouse_project_overrides}" "${_warehouse_project_backup}"
+  CLEANUP_RESTORES+=("${_warehouse_project_backup}|${_warehouse_project_overrides}")
+  sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-warehouse-custom-test/' "${_warehouse_project_overrides}"
+
+  _warehouse_generated_backup=""
+  if [[ -f "${_warehouse_project_generated}" ]]; then
+    _warehouse_generated_backup="$(mktemp)"
+    cp "${_warehouse_project_generated}" "${_warehouse_generated_backup}"
+    CLEANUP_RESTORES+=("${_warehouse_generated_backup}|${_warehouse_project_generated}")
+    sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-warehouse-custom-test/' "${_warehouse_project_generated}"
+  fi
+
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  timeout "${TEST_TIMEOUT}" "$BLUEPRINT_DEPLOY" down -D "${REPO_ROOT}/deploy/docker/data-dir" --dry-run > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  mv "${_warehouse_project_backup}" "${_warehouse_project_overrides}"
+  if [[ -n "${_warehouse_generated_backup}" && -f "${_warehouse_generated_backup}" ]]; then
+    mv "${_warehouse_generated_backup}" "${_warehouse_project_generated}"
+  fi
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (timed out after ${TEST_TIMEOUT}s)"
+    ((TESTS_FAILED++)) || true
+  elif [[ ${exit_code} -ne 0 ]]; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (expected exit 0, got ${exit_code})"
+    cat "${out_file}" "${err_file}" | sed 's/^/    /'
+    ((TESTS_FAILED++)) || true
+  elif ! grep -Fq "[DRY-RUN] docker compose -p vss-warehouse-custom-test down -v --remove-orphans" "${out_file}"; then
+    echo "FAIL: warehouse down dry-run with custom COMPOSE_PROJECT_NAME (stdout missing custom project down command)"
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME"
+    ((TESTS_PASSED++)) || true
+  fi
+  rm -f "${out_file}" "${err_file}"
+else
+  echo "SKIP: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME (warehouse overrides.env not found)"
+fi
 
 # --- Summary ---
 echo ""

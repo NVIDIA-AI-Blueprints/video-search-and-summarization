@@ -13,7 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 import pytest
+
+from mdx.analytics.core.stream.sink import sink_base
+from mdx.analytics.core.stream.sink.sink_base import Sink
 import json
 from datetime import datetime, timezone
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -346,3 +351,77 @@ class TestJsonBytesSerializer:
         
         assert isinstance(result, bytes)
         assert result == b"{}"
+
+
+class _Sink(Sink):
+    """Minimal concrete sink; only resolve_destination is under test."""
+
+    def write(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def write_msg(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def close(self) -> None:
+        pass
+
+
+class TestResolveDestination:
+    """
+    Configuring a destination is what enables that output.
+
+    Sinks used to raise on an unconfigured destination, which forced every app to define the union of
+    every topic any of its processors might write to -- and failed on the first batch even when there
+    was nothing to write. Treating an undefined destination as a disabled output is what lets one app
+    serve several profiles, each defining only the streams it wants.
+    """
+
+    @pytest.fixture
+    def sink(self):
+        return _Sink()
+
+    def test_returns_the_configured_destination(self, sink):
+        assert sink.resolve_destination("behavior", lambda key: "mdx-behavior") == "mdx-behavior"
+
+    @pytest.mark.parametrize("configured", [None, ""])
+    def test_undefined_destination_resolves_to_none(self, sink, configured):
+        """Both an absent key and an empty value mean 'not configured'."""
+        assert sink.resolve_destination("anomaly", lambda key: configured) is None
+
+    def test_warns_once_per_key_not_once_per_call(self, sink, caplog):
+        """A dropped output must be visible in the logs without drowning them.
+
+        These run per batch, so warning every time would produce a line per batch for the lifetime of
+        the deployment.
+        """
+        with caplog.at_level(logging.WARNING, logger=sink_base.__name__):
+            for _ in range(5):
+                sink.resolve_destination("anomaly", lambda key: None)
+
+        warnings = [r for r in caplog.records if "anomaly" in r.message]
+        assert len(warnings) == 1
+        assert "output for it is disabled" in warnings[0].message
+
+    def test_each_key_is_reported_separately(self, sink, caplog):
+        with caplog.at_level(logging.WARNING, logger=sink_base.__name__):
+            sink.resolve_destination("anomaly", lambda key: None)
+            sink.resolve_destination("incidents", lambda key: None)
+            sink.resolve_destination("anomaly", lambda key: None)
+
+        assert len([r for r in caplog.records if "anomaly" in r.message]) == 1
+        assert len([r for r in caplog.records if "incidents" in r.message]) == 1
+
+    def test_a_configured_destination_is_never_warned_about(self, sink, caplog):
+        with caplog.at_level(logging.WARNING, logger=sink_base.__name__):
+            for _ in range(3):
+                sink.resolve_destination("behavior", lambda key: "mdx-behavior")
+
+        assert caplog.records == []
+
+    def test_state_is_per_sink_instance(self, caplog):
+        """Two sinks must not share the reported-keys set, or the second would stay silent."""
+        with caplog.at_level(logging.WARNING, logger=sink_base.__name__):
+            _Sink().resolve_destination("anomaly", lambda key: None)
+            _Sink().resolve_destination("anomaly", lambda key: None)
+
+        assert len([r for r in caplog.records if "anomaly" in r.message]) == 2

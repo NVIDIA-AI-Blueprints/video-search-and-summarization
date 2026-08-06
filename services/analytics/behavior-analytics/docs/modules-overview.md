@@ -53,10 +53,8 @@ Purpose: Pydantic v2 data shapes. Configs (runtime), models (domain), protobuf
 | `schema/models.py` | Domain models: `Behavior`, `Event`, `Incident`, `Place`, `Location`, `Coordinate`, `Point2D`, `ROI`, `Tripwire`, `Line`, `IncidentCategory` (StrEnum), `AnalyticsModule`, `Action`, `AmrState`, `FrameState`, `RoiState` |
 | `schema/proto/schema_pb2.py` | Generated protobuf — **off-limits** to edit |
 | `schema/proto/ext_pb2.py` | Generated protobuf extensions — **off-limits** |
-| `schema/trajectory/trajectory_base.py` | `TrajectoryBase` — shared trajectory interface |
-| `schema/trajectory/trajectory.py` | Default `Trajectory` (haversine-based geodesic helpers) |
-| `schema/trajectory/trajectory_e.py` | Euclidean trajectory variant |
-| `schema/trajectory/trajectory_i.py` | Image-plane trajectory variant |
+| `schema/trajectory/trajectory.py` | `Trajectory` — cartesian and image, gated on calibration type |
+| `schema/trajectory/trajectory_g.py` | `TrajectoryG` — geographic and image; `enable_geo` picks the distance metric, calibration type picks the units. Adds haversine distance and map-matched bearing |
 | `schema/action/action_state.py` | `ActionState` — per-object action tracking |
 | `schema/collision/collision_state.py` | `CollisionState` — collision event state |
 
@@ -98,10 +96,9 @@ across frames.
 
 | File | What it does |
 |---|---|
-| `state/behavior/state_management_base.py` | Base for Euclidean/image-plane variants |
-| `state/behavior/state_management_e.py` | Euclidean behavior state (`StateMgmtE`, `StateMgmtEWithTripwire`) |
-| `state/behavior/state_management_i.py` | Image-plane behavior state |
-| `state/behavior/state_management.py` | Shared helpers / composition |
+| `state/behavior/state_management.py` | `StateMgmt` — `process_batch`, the `BehaviorBatch` result, cartesian and image coordinates |
+| `state/behavior/behavior_holdback.py` | `BehaviorHoldback` — holds behaviors back for `behaviorEmitOnce` |
+| `state/behavior/state_management_g.py` | `StateMgmtG` — geographic behavior state, adds map matching |
 | `state/frame/frame_state_management.py` | `FrameStateMgmt` — **all frame-level incident detection** (proximity, restricted-area, confined-area, FOV-count) |
 | `state/amr/amr_state_management.py` | `AmrStateMgmt` — AMR (autonomous mobile robot) state |
 | `state/video_embedding/video_embedding_state_mgmt.py` | Embedding aggregation for video search |
@@ -123,9 +120,9 @@ Purpose: stateless (or per-message) transforms and event emitters.
 | File | What it does |
 |---|---|
 | `calibration/calibration_base.py` | `CalibrationBase` ABC + `CalibrationFileMonitor` watchdog; hosts `reload_data` and `update_calibration_info` (upsert-all / upsert / delete merge); defines the `CalibrationType` enum |
-| `calibration/calibration.py` | Default 2D/geo calibration |
+| `calibration/calibration_g.py` | Geographic calibration (`CalibrationG`) — lat/lon |
 | `calibration/calibration_e.py` | Euclidean calibration (`CalibrationE`, `CalibrationES`) |
-| `calibration/calibration_i.py` | Image-plane calibration |
+| `calibration/calibration_i.py` | Image-plane calibration (`CalibrationI`) |
 | `calibration/calibration_dynamic.py` | One-time-switch wrapper used when the app starts with no `--calibration`; selects the typed calibration via the `CalibrationType` enum (defined in `calibration_base.py`) |
 | `calibration/calibration_listener.py` | Kafka consumer thread that drains `mdx-notification` (key `calibration`), schema-validates each payload, and atomic-writes valid per-action JSON files |
 | `calibration/calibration_validator.py` | Per-action JSON Schema gate (`upsert-all` / `upsert` full schema; `delete` minimal inline) raising `CalibrationValidationError` |
@@ -153,8 +150,8 @@ files to `CONFIG_DIR`; **each worker** runs a `ConfigFileMonitor` that watches
 
 **Add runtime-config support for a new field** → allowlist it in
 `config_validator.py`, add a value validator, and make sure the consumer
-**reads at use-time** so `invalidate_caches()` refreshes it (see CLAUDE.md +
-`docs/dynamic-config.md`).
+**reads at use-time** so `invalidate_caches()` refreshes it (see the
+`README.md` development guide and `docs/dynamic-config.md`).
 
 ### transform/detection/
 
@@ -188,7 +185,7 @@ Uses `InferenceConfig` from `schema/config.py`.
 
 ## tools/ — Dev-only CLI utilities
 
-**The only subpackage allowed to use `print()`** (see CLAUDE.md).
+**The only subpackage allowed to use `print()`** (see the `README.md` development guide).
 
 | File | What it does |
 |---|---|
@@ -256,4 +253,4 @@ Referenced in `pyrightconfig.json` via `extraPaths`.
 - Configuration details: `docs/configuration.md`
 - Building an app: `docs/building-mdx-analytics-app.md` (and the `new-app` skill)
 - Incident detection: `docs/incident-detection.md` (and the `new-incident` skill)
-- Repo rules for agents: `../CLAUDE.md`
+- Contributor conventions: `../README.md#development-guide`

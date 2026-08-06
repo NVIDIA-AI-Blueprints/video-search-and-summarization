@@ -29,7 +29,17 @@
 # Start with:
 #   nat mcp serve --config_file deploy/docker/scripts/vss_orchestrator_mcp_config.yml --port 9988
 #
-# Server listens at: http://localhost:9988/mcp
+# Server listens at: http://localhost:9988/mcp, or https://... when
+# ORCHESTRATOR_ENABLE_HTTPS=true (see the runner_class note below).
+
+general:
+  front_end:
+    _type: mcp
+    # TLS-capable worker. With ORCHESTRATOR_ENABLE_HTTPS=false (the default) it
+    # behaves exactly like the stock NAT worker; with true it serves HTTPS using
+    # ORCHESTRATOR_CERTFILE / ORCHESTRATOR_KEYFILE. Lives here rather than as a
+    # --runner_class CLI flag so every launcher gets the toggle.
+    runner_class: vss_agents.orchestrator.mcp_ssl_worker.SSLMCPWorker
 
 function_groups:
   vss_orchestrator:
@@ -113,8 +123,8 @@ function_groups:
             # force the FP8 variant that ships those files.
             LLM_NAME: nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
             LLM_NAME_SLUG: nvidia-nemotron-nano-9b-v2-fp8
-            RTVI_VLM_IMAGE_TAG: "3.2.1-sbsa"
-            PERCEPTION_TAG: "3.3.0-sbsa-26.07.1"
+            RTVI_VLM_IMAGE_TAG: "3.3.0-26.07.4-sbsa"
+            PERCEPTION_TAG: "3.3.0-sbsa-26.07.2"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             # Unified alerts value, matching dev-profile.sh
