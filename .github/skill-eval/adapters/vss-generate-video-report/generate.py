@@ -73,6 +73,24 @@ PREAMBLE = (
     "setup action the trial requires."
 )
 
+LOCAL_RT_VLM_ENV_OVERRIDES = [
+    "VLM_MODE=local_shared",
+    "VLM_MODEL_TYPE=rtvi",
+    "VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+    "VLM_NAME_SLUG=none",
+]
+
+MODE_A_DEPLOYMENT_GUIDANCE = (
+    "This Mode A report chain requires the base deployment to preserve its "
+    "local integrated CR3 RT-VLM placement. If this trial needs to regenerate "
+    "the base compose project (including when a remembered compose ID is no "
+    "longer available), call `vss_orchestrator__docker_generate` with "
+    f"`profile=base` and `env_overrides={json.dumps(LOCAL_RT_VLM_ENV_OVERRIDES)}` "
+    "exactly. Never regenerate the base profile with `profile=base` alone or "
+    "inherit the notebook's remote VLM coordinator defaults. A forced refresh "
+    "must use the compose ID returned by that override-aware generation."
+)
+
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 
@@ -219,17 +237,24 @@ def generate_task(
         # Never leak the verifier's checks[] into the instruction so the
         # agent can't write to the test rather than do the actual work.
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
-        lines = [
-            PREAMBLE,
-            "",
-            "",
-            f"## Query {idx} of {len(expects)}",
-            "",
-            expect.get("query", ""),
-            "",
-            "Run autonomously without prompting for confirmation.",
-            "",
-        ]
+        lines = [PREAMBLE, ""]
+        # Steps 1-5 are the ordered Mode A prefix. Each Harbor step starts a
+        # fresh agent, and the generic NemoClaw wrapper may refresh a warm
+        # worker with force_recreate=true. Keep the local CR3 placement in
+        # every step's instruction so a missing/stale compose ID cannot fall
+        # back to the notebook's remote coordinator defaults mid-chain.
+        if idx <= 5:
+            lines.extend([MODE_A_DEPLOYMENT_GUIDANCE, ""])
+        lines.extend(
+            [
+                f"## Query {idx} of {len(expects)}",
+                "",
+                expect.get("query", ""),
+                "",
+                "Run autonomously without prompting for confirmation.",
+                "",
+            ]
+        )
         (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
         # task.toml
