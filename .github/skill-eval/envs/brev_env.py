@@ -63,6 +63,22 @@ BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5
 BREV_UPLOAD_RETRIES = int(os.environ.get("BREV_UPLOAD_RETRIES", "3"))
 BREV_UPLOAD_BACKOFF_SEC = float(os.environ.get("BREV_UPLOAD_BACKOFF_SEC", "5"))
 
+# A worker may have healthy Brev control-plane connectivity while outbound
+# github.com traffic is unavailable.  In CI the coordinator already has the
+# exact PR commit checked out, so package a one-commit shallow Git source and
+# send it over the same bounded file-transfer path used for task inputs.  The
+# archive keeps Git's tree modes and gitlink entries (unlike a plain working-
+# tree tarball) and its shallow marker makes the intentionally omitted parent
+# history valid to clone/fetch from.
+COORDINATOR_REPO_ARCHIVE_BUILD_TIMEOUT_SEC = int(
+    os.environ.get("COORDINATOR_REPO_ARCHIVE_BUILD_TIMEOUT_SEC", "180")
+)
+COORDINATOR_REPO_ARCHIVE_REF = "refs/heads/skill-eval-exact"
+
+
+class _CoordinatorRepoInstallError(RuntimeError):
+    """Exact coordinator source reached the worker but failed verification."""
+
 NEMOCLAW_ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
 NEMOCLAW_ATTEMPT_OWNER_PATH = "/logs/artifacts/nemoclaw-attempt-owner"
 NEMOCLAW_LAUNCH_STATE_ROOT = "/tmp/skill-eval/nemoclaw/launch-attempts"
@@ -105,6 +121,173 @@ def _is_transient_brev_transport_error(message: str | None) -> bool:
             "unexpected eof",
         )
     )
+
+
+def _coordinator_repo_root() -> Path:
+    """Return the repository checkout that loaded this environment provider."""
+    workspace = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    if workspace:
+        candidate = Path(workspace).resolve()
+        if candidate.exists():
+            return candidate
+    # brev_env.py lives at .github/skill-eval/envs/brev_env.py.
+    return Path(__file__).resolve().parents[3]
+
+
+def _local_git_stdout(repo_root: Path, *args: str) -> str:
+    """Run a small read-only local Git query and return stripped stdout."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout.strip()
+
+
+async def _build_exact_head_repo_archive(
+    *,
+    repo_root: Path,
+    pr_head_sha: str,
+    archive_path: Path,
+) -> bool:
+    """Build a shallow bare Git source containing exactly ``pr_head_sha``.
+
+    Returns ``False`` when the coordinator is not checked out at the requested
+    full SHA.  That fail-closed check prevents a stale coordinator checkout
+    from being presented to the worker as the PR head.  The caller may then
+    retain the historical worker-side GitHub sync as a compatibility fallback.
+
+    A shallow bare repository is used instead of ``git bundle``: a one-commit
+    bundle cannot encode Git's shallow boundary and is therefore unclonable
+    when the parent object is intentionally absent.  The bare repository's
+    ``shallow`` file carries that boundary while its commit/tree objects retain
+    executable bits, symlinks, and any submodule gitlink object IDs.
+    """
+    normalized_sha = pr_head_sha.strip().lower()
+    if len(normalized_sha) != 40 or any(
+        char not in "0123456789abcdef" for char in normalized_sha
+    ):
+        return False
+
+    try:
+        coordinator_head = _local_git_stdout(
+            repo_root,
+            "rev-parse",
+            "--verify",
+            "HEAD^{commit}",
+        ).lower()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if coordinator_head != normalized_sha:
+        return False
+
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="skill-eval-repo-source-") as tmp:
+        bare_repo = Path(tmp) / "exact.git"
+        source_url = repo_root.resolve().as_uri()
+        timeout = COORDINATOR_REPO_ARCHIVE_BUILD_TIMEOUT_SEC
+        clean_git = [
+            "/usr/bin/env",
+            "GIT_CONFIG_GLOBAL=/dev/null",
+            "GIT_CONFIG_SYSTEM=/dev/null",
+            "GIT_LFS_SKIP_SMUDGE=1",
+            "git",
+        ]
+        await _run_local_transfer_command(
+            [
+                *clean_git,
+                "-c",
+                "init.templateDir=",
+                "init",
+                "--bare",
+                "--quiet",
+                str(bare_repo),
+            ],
+            timeout=timeout,
+        )
+        await _run_local_transfer_command(
+            [
+                *clean_git,
+                "-C",
+                str(bare_repo),
+                "fetch",
+                "--quiet",
+                "--depth=1",
+                "--no-tags",
+                source_url,
+                normalized_sha,
+            ],
+            timeout=timeout,
+        )
+        await _run_local_transfer_command(
+            [
+                *clean_git,
+                "-C",
+                str(bare_repo),
+                "update-ref",
+                COORDINATOR_REPO_ARCHIVE_REF,
+                "FETCH_HEAD",
+            ],
+            timeout=timeout,
+        )
+        # FETCH_HEAD records the coordinator's file:// checkout path. The
+        # exact ref above is the only transfer ref the worker needs.
+        (bare_repo / "FETCH_HEAD").unlink(missing_ok=True)
+
+        archived_head = _local_git_stdout(
+            bare_repo,
+            "rev-parse",
+            "--verify",
+            f"{COORDINATOR_REPO_ARCHIVE_REF}^{{commit}}",
+        ).lower()
+        shallow_heads = {
+            line.strip().lower()
+            for line in (bare_repo / "shallow").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip()
+        }
+        if archived_head != normalized_sha or normalized_sha not in shallow_heads:
+            raise RuntimeError(
+                "coordinator exact-head Git source failed its shallow-boundary "
+                "verification"
+            )
+        local_config = _local_git_stdout(
+            bare_repo,
+            "config",
+            "--local",
+            "--list",
+        )
+        sensitive_config_keys = []
+        for config_line in local_config.splitlines():
+            key = config_line.partition("=")[0].strip().lower()
+            if (
+                key.startswith("credential.")
+                or key == "http.extraheader"
+                or (key.startswith("http.") and key.endswith(".extraheader"))
+            ):
+                sensitive_config_keys.append(key)
+        if sensitive_config_keys or str(repo_root.resolve()) in local_config:
+            raise RuntimeError(
+                "coordinator exact-head Git source contains forbidden local "
+                "credential or checkout-path configuration"
+            )
+
+        await _run_local_transfer_command(
+            [
+                "tar",
+                "-czf",
+                str(archive_path),
+                "-C",
+                tmp,
+                bare_repo.name,
+            ],
+            timeout=timeout,
+        )
+    return True
 
 # Keep every file-transfer API bounded below run_leg.py's recovery headroom.
 # Remote work gets 600 seconds. The public 630-second wall-clock bound also
@@ -1681,17 +1864,26 @@ fi
         forwarded `PR_HEAD_SHA` env var has no effect on the actual
         compose/skill files the agent reads.
 
-        Handles three pre-states:
+        The preferred CI path packages the coordinator's already checked-out
+        exact head as a shallow bare Git source, uploads it over the Brev
+        control plane, and fetches it locally on the worker. This removes
+        worker github.com egress from the critical path while retaining Git's
+        exact tree/mode/gitlink contract. If that source cannot be constructed
+        or transferred, the historical worker-side GitHub sync remains as a
+        compatibility fallback.
 
-        - **Empty / missing dir** — fresh clone.
+        Handles three worker pre-states:
+
+        - **Empty / missing dir** — initialize and fetch the exact tree.
         - **Stale non-git checkout** (tarball-style, no `.git` dir) —
           this is the load-bearing fix: prior versions of the dir
           shipped from before the repo was renamed and the layout
-          changed (`deployments/` not `deploy/docker/`). Nuke and
-          re-clone; never silently fall through to `git fetch` on
-          a non-git dir.
-        - **Existing git checkout** — `git remote set-url` (handles
-          cross-fork PRs) + `git fetch <PR_HEAD_SHA>` + hard reset.
+          changed (`deployments/` not `deploy/docker/`). Replace only its
+          invalid Git metadata, fetch the exact tree, then clean it; this
+          retains the allowlisted caches even in the tarball pre-state.
+        - **Existing git checkout** — discard its untrusted per-repo Git
+          metadata (hooks, filters, alternates, and config), initialize clean
+          metadata, fetch the exact tree, and retain only allowlisted caches.
 
         Preserves `data/` (NGC sample bundle), `.mdx_data/models/`
         (orchestrator NGC artifact cache), and the repository-root `.env`
@@ -1704,32 +1896,12 @@ fi
         # them into this remote command directly instead of relying on
         # ~/.profile: _run_brev_exec() intentionally runs a non-login shell,
         # and fresh workers may not have sourced ~/.eval_env yet.
-        pr_repo = os.environ.get("PR_REPO", "NVIDIA-AI-Blueprints/video-search-and-summarization")
-        pr_head_sha = os.environ.get("PR_HEAD_SHA", "")
-        cmd = f"""set -euo pipefail
-PR_REPO={shlex.quote(pr_repo)}
-PR_HEAD_SHA={shlex.quote(pr_head_sha)}
-REPO="$HOME/video-search-and-summarization"
-VSS_REPO_URL="https://github.com/${{PR_REPO}}.git"
-
-# Case 1: dir exists but isn't a git repo (stale tarball checkout) — nuke
-#         and re-clone. Case 2: dir doesn't exist — clone fresh.
-if [ ! -d "$REPO/.git" ]; then
-  rm -rf "$REPO"
-  git clone --no-checkout --depth=1 --branch develop "$VSS_REPO_URL" "$REPO"
-fi
-cd "$REPO"
-git remote set-url origin "$VSS_REPO_URL"
-if [ -n "$PR_HEAD_SHA" ]; then
-  git fetch --depth=1 origin "$PR_HEAD_SHA"
-  git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
-  git reset --hard "$PR_HEAD_SHA"
-else
-  git fetch --depth=1 origin develop
-  git -c advice.detachedHead=false checkout --force FETCH_HEAD
-  git reset --hard FETCH_HEAD
-fi
-# Drop leftover working-tree state from a prior trial, but keep data/
+        pr_repo = os.environ.get(
+            "PR_REPO",
+            "NVIDIA-AI-Blueprints/video-search-and-summarization",
+        ).strip()
+        pr_head_sha = os.environ.get("PR_HEAD_SHA", "").strip().lower()
+        cleanup_cmd = r"""# Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract), .mdx_data/models/ (orchestrator NGC artifacts),
 # and root .env tweaks the active trial may have placed. Nested dotenv files must be removed:
 # services such as the orchestrator load them from their working directory.
@@ -1748,19 +1920,196 @@ if ! git clean -fdx -e data/ -e /.env -e /.mdx_data/models/; then
     -path "$REPO/data" -prune -o \
     -path "$REPO/.mdx_data/models" -prune -o \
     -path "$REPO/.env" -prune -o \
-    -exec chown -h "$(id -u):$(id -g)" {{}} + || true
+    -exec chown -h "$(id -u):$(id -g)" {} + || true
   git clean -fdx -e data/ -e /.env -e /.mdx_data/models/ 2>/dev/null || \
     sudo git clean -fdx -e data/ -e /.env -e /.mdx_data/models/
 fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
+
+        coordinator_failure = ""
+        if pr_head_sha:
+            with tempfile.TemporaryDirectory(
+                prefix="skill-eval-repo-archive-"
+            ) as archive_tmp:
+                archive_path = Path(archive_tmp) / "repo-source.tar.gz"
+                try:
+                    archive_built = await _build_exact_head_repo_archive(
+                        repo_root=_coordinator_repo_root(),
+                        pr_head_sha=pr_head_sha,
+                        archive_path=archive_path,
+                    )
+                except Exception as exc:  # noqa: BLE001 — fall back to GitHub
+                    archive_built = False
+                    coordinator_failure = f"archive build failed: {exc}"
+                    logger.warning(
+                        "Could not build exact-head coordinator repo source: %s",
+                        exc,
+                    )
+
+                if archive_built:
+                    transfer_root = (
+                        f"/tmp/skill-eval/uploads/repo-sync-{uuid.uuid4().hex}"
+                    )
+                    remote_archive = f"{transfer_root}/repo-source.tar.gz"
+                    try:
+                        await self.upload_file(archive_path, remote_archive)
+                        archive_ref = shlex.quote(
+                            COORDINATOR_REPO_ARCHIVE_REF
+                        )
+                        archive_cmd = f"""set -euo pipefail
+PR_REPO={shlex.quote(pr_repo)}
+PR_HEAD_SHA={shlex.quote(pr_head_sha)}
+REPO="$HOME/video-search-and-summarization"
+VSS_REPO_URL="https://github.com/${{PR_REPO}}.git"
+TRANSFER_ROOT={shlex.quote(transfer_root)}
+ARCHIVE={shlex.quote(remote_archive)}
+EXTRACT_ROOT="$TRANSFER_ROOT/extracted"
+BARE_REPO="$EXTRACT_ROOT/exact.git"
+cleanup_repo_source() {{ sudo rm -rf -- "$TRANSFER_ROOT"; }}
+trap cleanup_repo_source EXIT
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_LFS_SKIP_SMUDGE=1
+
+if [ ! -f "$ARCHIVE" ] || [ -L "$ARCHIVE" ]; then
+  echo "coordinator repo source is missing or symlinked" >&2
+  exit 1
+fi
+mkdir -p "$EXTRACT_ROOT"
+tar -xzf "$ARCHIVE" --no-same-owner -C "$EXTRACT_ROOT"
+archive_head="$(git --git-dir="$BARE_REPO" rev-parse --verify {archive_ref}^{{commit}})"
+if [ "$archive_head" != "$PR_HEAD_SHA" ]; then
+  echo "coordinator repo source head mismatch" >&2
+  exit 1
+fi
+if ! grep -Fqx "$PR_HEAD_SHA" "$BARE_REPO/shallow"; then
+  echo "coordinator repo source is missing its exact shallow boundary" >&2
+  exit 1
+fi
+git --git-dir="$BARE_REPO" fsck --connectivity-only
+
+if [ -L "$REPO" ]; then
+  echo "refusing to sync a symlinked worker repository" >&2
+  exit 1
+fi
+mkdir -p "$REPO"
+# Never inherit hooks or config from a warm worker checkout. Reinitialize only
+# Git metadata; the subsequent clean retains data/, .mdx_data/models/, and the
+# root .env from the existing working tree.
+sudo rm -rf -- "$REPO/.git"
+git -c init.templateDir= init "$REPO"
+cd "$REPO"
+git config core.hooksPath /dev/null
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "$VSS_REPO_URL"
+else
+  git remote add origin "$VSS_REPO_URL"
+fi
+git fetch --depth=1 --no-tags "file://$BARE_REPO" {archive_ref}
+git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
+git reset --hard "$PR_HEAD_SHA"
+if [ "$(git rev-parse HEAD)" != "$PR_HEAD_SHA" ]; then
+  echo "worker checkout does not match coordinator PR head" >&2
+  exit 1
+fi
+{cleanup_cmd}"""
+                        logger.info(
+                            "Syncing $REPO on %s from exact coordinator head",
+                            self._instance_name,
+                        )
+                        result = await _run_brev_exec(
+                            self._instance_name,
+                            archive_cmd,
+                            timeout=300,
+                        )
+                        if result.return_code == 0:
+                            logger.info(
+                                "Repo sync on %s: %s",
+                                self._instance_name,
+                                (
+                                    (result.stdout or "").strip().splitlines()[-1]
+                                    if result.stdout
+                                    else "<no output>"
+                                ),
+                            )
+                            return
+                        coordinator_failure = (
+                            "coordinator source install failed: "
+                            + (result.stderr or result.stdout or "")[-500:]
+                        )
+                        raise _CoordinatorRepoInstallError(
+                            f"repo sync failed on {self._instance_name}: "
+                            f"{coordinator_failure}"
+                        )
+                    except _CoordinatorRepoInstallError:
+                        # The source reached the worker, so an install failure
+                        # is an integrity/state failure rather than an egress
+                        # problem. Do not bypass its checks with another source.
+                        raise
+                    except Exception as exc:  # noqa: BLE001 — fallback path
+                        coordinator_failure = (
+                            f"coordinator source transfer failed: {exc}"
+                        )
+                        logger.warning(
+                            "Exact-head coordinator repo transfer failed on %s; "
+                            "falling back to worker GitHub sync: %s",
+                            self._instance_name,
+                            exc,
+                        )
+                elif not coordinator_failure:
+                    coordinator_failure = (
+                        "coordinator checkout was not the requested full PR head"
+                    )
+
+        cmd = f"""set -euo pipefail
+PR_REPO={shlex.quote(pr_repo)}
+PR_HEAD_SHA={shlex.quote(pr_head_sha)}
+REPO="$HOME/video-search-and-summarization"
+VSS_REPO_URL="https://github.com/${{PR_REPO}}.git"
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_LFS_SKIP_SMUDGE=1
+
+# Case 1: dir exists but isn't a valid git repo (stale tarball checkout) —
+# replace only its Git metadata so the allowlisted data/model caches and root
+# .env survive the checkout + clean. Case 2: dir doesn't exist — initialize it.
+if [ -L "$REPO" ]; then
+  echo "refusing to sync a symlinked worker repository" >&2
+  exit 1
+fi
+mkdir -p "$REPO"
+sudo rm -rf -- "$REPO/.git"
+git -c init.templateDir= init "$REPO"
+cd "$REPO"
+git config core.hooksPath /dev/null
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "$VSS_REPO_URL"
+else
+  git remote add origin "$VSS_REPO_URL"
+fi
+if [ -n "$PR_HEAD_SHA" ]; then
+  git fetch --depth=1 origin "$PR_HEAD_SHA"
+  git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
+  git reset --hard "$PR_HEAD_SHA"
+else
+  git fetch --depth=1 origin develop
+  git -c advice.detachedHead=false checkout --force FETCH_HEAD
+  git reset --hard FETCH_HEAD
+fi
+{cleanup_cmd}"""
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
         result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
+            coordinator_context = (
+                f"; coordinator fallback: {coordinator_failure}"
+                if coordinator_failure
+                else ""
+            )
             raise RuntimeError(
                 f"repo sync failed on {self._instance_name}: "
-                f"exit {result.return_code}; tail:\n{tail}"
+                f"exit {result.return_code}{coordinator_context}; tail:\n{tail}"
             )
         logger.info(
             "Repo sync on %s: %s",
