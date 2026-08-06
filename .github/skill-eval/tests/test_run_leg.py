@@ -1006,6 +1006,269 @@ class TraceUrls(unittest.TestCase):
             self.assertFalse((results_root / "trace-urls.tsv").exists())
 
 
+class CachedManagedSSH(unittest.TestCase):
+    AUTH_ERROR = run_leg.BrevAuthenticationError("expired")
+
+    def setUp(self):
+        self.original_transports = dict(run_leg._WORKER_TRANSPORTS)
+        self.original_configs = dict(run_leg._WORKER_SSH_CONFIGS)
+
+    def tearDown(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+        run_leg._WORKER_TRANSPORTS.update(self.original_transports)
+        run_leg._WORKER_SSH_CONFIGS.clear()
+        run_leg._WORKER_SSH_CONFIGS.update(self.original_configs)
+
+    @staticmethod
+    def _write_config(root: Path, source: str, mode: int = 0o600) -> Path:
+        brev_home = root / ".brev"
+        brev_home.mkdir(mode=0o700)
+        config = brev_home / "ssh_config"
+        config.write_text(source, encoding="utf-8")
+        config.chmod(mode)
+        return config
+
+    def test_cache_requires_explicit_opt_in_and_allowlist(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            base_env = {
+                "BREV_SSH_CONFIG": str(config),
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+            }
+            with mock.patch.dict(os.environ, base_env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+            enabled_without_allowlist = {
+                "BREV_SSH_CONFIG": str(config),
+                "BREV_ALLOW_CACHED_SSH": "1",
+            }
+            with mock.patch.dict(
+                os.environ, enabled_without_allowlist, clear=True
+            ):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+    def test_cache_intersects_only_exact_safe_host_aliases(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "\n".join(
+                    (
+                        "Host VSS-EVAL-RTX-2G-2",
+                        "  HostName 192.0.2.10",
+                        "Host vss-eval-rtx-2g-5-host",
+                        "Host unrelated-host",
+                    )
+                ),
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "true",
+                "BREV_DIRECT_SSH_POOL": (
+                    "vss-eval-rtx-2g-2,vss-eval-rtx-2g-3,"
+                    "vss-eval-rtx-2g-5-host,unrelated-host"
+                ),
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                # One unsafe operator entry rejects the entire allowlist.
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+                os.environ["BREV_DIRECT_SSH_POOL"] = (
+                    "vss-eval-rtx-2g-2,vss-eval-rtx-2g-3"
+                )
+                candidates = run_leg._cached_managed_ssh_candidates()
+
+        self.assertEqual(candidates, {"vss-eval-rtx-2g-2": config})
+
+    def test_cache_rejects_patterns_and_executable_proxy_stanzas(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "\n".join(
+                    (
+                        "Host *",
+                        "  ProxyCommand /tmp/untrusted-proxy %h %p",
+                        "Host vss-eval-rtx-2g-2",
+                        "  HostName 192.0.2.10",
+                    )
+                ),
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+            safe_stanza = (
+                "Host vss-eval-rtx-2g-2\n"
+                "  HostName 192.0.2.10\n"
+            )
+            unsafe_stanza = (
+                "Host vss-eval-rtx-2g-2\n"
+                "  ProxyCommand /tmp/untrusted-proxy %h %p\n"
+            )
+            for source in (
+                safe_stanza + unsafe_stanza,
+                unsafe_stanza + safe_stanza,
+            ):
+                config.write_text(source, encoding="utf-8")
+                with mock.patch.dict(os.environ, env, clear=True):
+                    self.assertEqual(
+                        run_leg._cached_managed_ssh_candidates(),
+                        {},
+                    )
+
+            config.write_text(
+                "Host vss-eval-rtx-2g-2\n"
+                "  ProxyCommand /tmp/untrusted-proxy %h %p\n",
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+    def test_cache_rejects_writable_or_symlinked_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config = self._write_config(
+                root,
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+                mode=0o666,
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+            config.chmod(0o600)
+            link = root / "cached-config-link"
+            link.symlink_to(config)
+            env["BREV_SSH_CONFIG"] = str(link)
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+    def test_auth_failure_merges_cached_alias_and_propagates_to_harbor(self):
+        config = Path("/safe/operator/.brev/ssh_config")
+        env = {
+            "BREV_ALLOW_CACHED_SSH": "1",
+            "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+        }
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(
+                run_leg,
+                "_cached_managed_ssh_candidates",
+                return_value={"vss-eval-rtx-2g-2": config},
+            ),
+            mock.patch.object(
+                run_leg,
+                "_list_brev_instances",
+                side_effect=self.AUTH_ERROR,
+            ),
+            mock.patch.object(
+                run_leg,
+                "_list_registered_nodes",
+                side_effect=self.AUTH_ERROR,
+            ),
+        ):
+            instances = run_leg._list_pool_instances("RTX PRO 6000")
+            propagated = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_ENV
+            )
+
+        self.assertEqual([item["name"] for item in instances], [
+            "vss-eval-rtx-2g-2"
+        ])
+        self.assertTrue(instances[0]["_registered"])
+        self.assertTrue(instances[0]["_cached_managed_ssh"])
+        self.assertEqual(propagated, "vss-eval-rtx-2g-2")
+        self.assertEqual(
+            run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"], "ssh"
+        )
+        self.assertEqual(
+            run_leg._WORKER_SSH_CONFIGS["vss-eval-rtx-2g-2"], str(config)
+        )
+
+    def test_empty_inventory_merges_only_allowlisted_cached_alias(self):
+        config = Path("/safe/operator/.brev/ssh_config")
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(
+                run_leg,
+                "_cached_managed_ssh_candidates",
+                return_value={"vss-eval-rtx-2g-3": config},
+            ),
+            mock.patch.object(run_leg, "_list_brev_instances", return_value=[]),
+            mock.patch.object(run_leg, "_list_registered_nodes", return_value=[]),
+        ):
+            instances = run_leg._list_pool_instances("RTX PRO 6000")
+
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0]["name"], "vss-eval-rtx-2g-3")
+        self.assertTrue(instances[0]["_cached_managed_ssh"])
+
+    def test_healthy_api_inventory_does_not_merge_different_cached_worker(self):
+        config = Path("/safe/operator/.brev/ssh_config")
+        managed = {
+            "name": "vss-eval-rtx-2g-2",
+            "status": "RUNNING",
+            "gpu": "RTX PRO 6000",
+        }
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(
+                run_leg,
+                "_cached_managed_ssh_candidates",
+                return_value={"vss-eval-rtx-2g-3": config},
+            ) as cached,
+            mock.patch.object(
+                run_leg, "_list_brev_instances", return_value=[managed]
+            ),
+            mock.patch.object(run_leg, "_list_registered_nodes", return_value=[]),
+        ):
+            instances = run_leg._list_pool_instances("RTX PRO 6000")
+            propagated = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_ENV
+            )
+
+        self.assertEqual(instances, [managed])
+        cached.assert_not_called()
+        self.assertEqual(
+            run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"], "brev"
+        )
+        self.assertIsNone(propagated)
+
+    def test_cached_worker_remote_lock_uses_explicit_ssh_config(self):
+        calls = []
+        run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"] = "ssh"
+        run_leg._WORKER_SSH_CONFIGS["vss-eval-rtx-2g-2"] = (
+            "/home/ubuntu/.brev/ssh_config"
+        )
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0, "ok\n", "")
+
+        with mock.patch.object(run_leg.subprocess, "run", side_effect=fake_run):
+            result = run_leg._remote_lock_executor(
+                "vss-eval-rtx-2g-2"
+            )("echo ok", 60)
+
+        self.assertEqual(result.returncode, 0)
+        command, kwargs = calls[0]
+        self.assertEqual(command[:4], [
+            "ssh", "-F", "/home/ubuntu/.brev/ssh_config", "-T"
+        ])
+        self.assertEqual(command[-2:], ["vss-eval-rtx-2g-2", "echo ok"])
+        self.assertEqual(kwargs["input"], "")
+
+
 class PoolCandidates(unittest.TestCase):
     FLEET = [
         {"name": "vss-eval-rtx-1g-2", "status": "RUNNING",

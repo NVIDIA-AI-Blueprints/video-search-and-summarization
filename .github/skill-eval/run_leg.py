@@ -33,8 +33,10 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import signal
+import stat as stat_module
 import subprocess
 import sys
 import tempfile
@@ -64,6 +66,21 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 RTX4090_GPU_TYPE = "GEFORCE RTX 4090"
 _WORKER_TRANSPORTS: dict[str, str] = {}
+_WORKER_SSH_CONFIGS: dict[str, str] = {}
+
+# Managed Brev workspaces are normally discovered through ``brev ls``.  The
+# CLI also keeps a directly usable SSH alias for each running workspace in
+# ~/.brev/ssh_config, but that cache outlives an API refresh token.  Using the
+# cache is intentionally a two-key opt-in: the operator must enable it and
+# separately name every workspace that may be recovered this way.  A cached
+# Host stanza is transport evidence, never authorization by itself.
+CACHED_MANAGED_SSH_OPT_IN_ENV = "BREV_ALLOW_CACHED_SSH"
+CACHED_MANAGED_SSH_POOL_ENV = "BREV_DIRECT_SSH_POOL"
+CACHED_MANAGED_SSH_ADMITTED_ENV = "BREV_ADMITTED_CACHED_SSH_POOL"
+CACHED_MANAGED_SSH_CONFIG_MAX_BYTES = 1024 * 1024
+SAFE_CACHED_MANAGED_SSH_ALIAS_RE = re.compile(
+    r"^vss-eval-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+)
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
 # 600-second base used by Harbor for environment build and verification; these
@@ -584,6 +601,261 @@ def _parse_pool_names(raw: str) -> set[str]:
     }
 
 
+def _safe_cached_managed_ssh_alias(name: str) -> str | None:
+    """Return one canonical managed-worker alias, or ``None`` if unsafe.
+
+    OpenSSH Host patterns are deliberately excluded.  ``*-host`` aliases
+    target the underlying VM rather than the Brev container Harbor expects.
+    """
+    normalized = name.strip().lower()
+    if normalized.endswith("-host"):
+        return None
+    if SAFE_CACHED_MANAGED_SSH_ALIAS_RE.fullmatch(normalized) is None:
+        return None
+    return normalized
+
+
+def _cached_brev_ssh_config_path() -> Path:
+    configured = os.environ.get("BREV_SSH_CONFIG", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".brev" / "ssh_config"
+
+
+def _safe_cached_brev_ssh_config(path: Path) -> bool:
+    """Validate ownership and write permissions before trusting Host names."""
+    try:
+        config_stat = path.lstat()
+        parent_stat = path.parent.lstat()
+    except OSError as exc:
+        print(
+            f"[run-leg] cached managed SSH config unavailable: {exc}",
+            flush=True,
+        )
+        return False
+
+    expected_uid = os.geteuid()
+    checks = (
+        (
+            stat_module.S_ISREG(config_stat.st_mode),
+            "config is not a regular file",
+        ),
+        (
+            config_stat.st_uid == expected_uid,
+            "config is not owned by the coordinator user",
+        ),
+        (
+            config_stat.st_mode & 0o022 == 0,
+            "config is group/world writable",
+        ),
+        (
+            config_stat.st_size <= CACHED_MANAGED_SSH_CONFIG_MAX_BYTES,
+            "config exceeds the size limit",
+        ),
+        (
+            stat_module.S_ISDIR(parent_stat.st_mode),
+            "config parent is not a directory",
+        ),
+        (
+            parent_stat.st_uid == expected_uid,
+            "config parent is not owned by the coordinator user",
+        ),
+        (
+            parent_stat.st_mode & 0o022 == 0,
+            "config parent is group/world writable",
+        ),
+    )
+    for passed, reason in checks:
+        if not passed:
+            print(
+                f"[run-leg] cached managed SSH config rejected: {reason}",
+                flush=True,
+            )
+            return False
+    return True
+
+
+def _exact_cached_brev_ssh_aliases(path: Path) -> set[str]:
+    """Parse exact, single-name ``Host vss-eval-*`` stanzas from *path*.
+
+    Admit only Brev's self-contained direct Hostname form. ProxyCommand,
+    Include, Match, RemoteCommand, LocalCommand, and unknown directives are
+    excluded so this secret-bearing CI process never executes config-supplied
+    local commands. OpenSSH still performs the connection after this gate.
+    """
+    if not _safe_cached_brev_ssh_config(path):
+        return set()
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        print(
+            f"[run-leg] cached managed SSH config could not be read: {exc}",
+            flush=True,
+        )
+        return set()
+
+    allowed_directives = {
+        "hostname",
+        "identityfile",
+        "user",
+        "serveraliveinterval",
+        "userknownhostsfile",
+        "identitiesonly",
+        "stricthostkeychecking",
+        "passwordauthentication",
+        "addkeystoagent",
+        "forwardagent",
+        "requesttty",
+        "controlmaster",
+        "controlpath",
+        "controlpersist",
+        "port",
+    }
+    aliases: set[str] = set()
+    seen_aliases: set[str] = set()
+    current_alias: str | None = None
+    current_safe = False
+    current_has_hostname = False
+    in_stanza = False
+
+    def finish_stanza() -> None:
+        if current_alias and current_safe and current_has_hostname:
+            aliases.add(current_alias)
+
+    for line_number, line in enumerate(source.splitlines(), 1):
+        try:
+            parts = shlex.split(line, comments=True, posix=True)
+        except ValueError:
+            print(
+                "[run-leg] cached managed SSH config rejected: "
+                f"malformed quoting on line {line_number}",
+                flush=True,
+            )
+            return set()
+        if not parts:
+            continue
+        directive = parts[0].lower()
+        if directive in {"include", "match"}:
+            print(
+                "[run-leg] cached managed SSH config rejected executable "
+                f"scope directive {parts[0]!r} on line {line_number}",
+                flush=True,
+            )
+            return set()
+        if directive == "host":
+            finish_stanza()
+            in_stanza = True
+            current_alias = None
+            current_safe = False
+            current_has_hostname = False
+            # Multiple aliases and wildcard/pattern entries are not exact
+            # cached workspace identities.
+            if len(parts) != 2:
+                print(
+                    "[run-leg] cached managed SSH config rejected non-exact "
+                    f"Host stanza on line {line_number}",
+                    flush=True,
+                )
+                return set()
+            if any(marker in parts[1] for marker in ("*", "?", "!")):
+                print(
+                    "[run-leg] cached managed SSH config rejected Host "
+                    f"pattern on line {line_number}",
+                    flush=True,
+                )
+                return set()
+            current_alias = _safe_cached_managed_ssh_alias(parts[1])
+            current_safe = current_alias is not None
+            if current_alias is not None:
+                if current_alias in seen_aliases:
+                    print(
+                        "[run-leg] cached managed SSH config rejected "
+                        f"duplicate Host {current_alias!r}",
+                        flush=True,
+                    )
+                    return set()
+                seen_aliases.add(current_alias)
+            continue
+        if not in_stanza:
+            # Brev emits no global directives. Reject a file that would let
+            # OpenSSH apply an unreviewed option to every admitted alias.
+            print(
+                "[run-leg] cached managed SSH config rejected global "
+                f"directive {parts[0]!r} on line {line_number}",
+                flush=True,
+            )
+            return set()
+        if current_alias is None:
+            # Ignore an exact unrelated Host stanza. It cannot match an
+            # admitted vss-eval-* alias; patterns were rejected above.
+            continue
+        if directive not in allowed_directives or len(parts) != 2:
+            print(
+                "[run-leg] cached managed SSH config rejected unsafe "
+                f"directive {parts[0]!r} for {current_alias!r} on line "
+                f"{line_number}",
+                flush=True,
+            )
+            return set()
+        if directive == "hostname":
+            current_has_hostname = len(parts) == 2 and bool(parts[1].strip())
+    finish_stanza()
+    return aliases
+
+
+def _cached_managed_ssh_candidates() -> dict[str, Path]:
+    """Return allowlisted cached aliases when the recovery path is enabled."""
+    enabled = os.environ.get(CACHED_MANAGED_SSH_OPT_IN_ENV, "").strip().lower()
+    if enabled not in {"1", "true", "yes"}:
+        return {}
+
+    raw_allowlist = os.environ.get(CACHED_MANAGED_SSH_POOL_ENV, "")
+    requested = _parse_pool_names(raw_allowlist)
+    if not requested:
+        print(
+            "[run-leg] cached managed SSH enabled without an operator "
+            "allowlist; ignoring cache",
+            flush=True,
+        )
+        return {}
+    invalid = sorted(
+        name for name in requested
+        if _safe_cached_managed_ssh_alias(name) is None
+    )
+    if invalid:
+        print(
+            "[run-leg] cached managed SSH allowlist rejected unsafe "
+            f"name(s): {', '.join(invalid)}",
+            flush=True,
+        )
+        return {}
+
+    config_path = _cached_brev_ssh_config_path()
+    configured = _exact_cached_brev_ssh_aliases(config_path)
+    admitted = requested & configured
+    missing = sorted(requested - configured)
+    if missing:
+        print(
+            "[run-leg] cached managed SSH allowlist name(s) absent from "
+            f"the safe cache: {', '.join(missing)}",
+            flush=True,
+        )
+    return {name: config_path for name in sorted(admitted)}
+
+
+def _propagate_cached_managed_ssh(names: set[str]) -> None:
+    """Replace Harbor's current cache-admitted direct-SSH identities.
+
+    Keep these separate from the operator's registered-node pool so a cached
+    alias cannot remain authorized after a later inventory cycle rejects the
+    cache. ``brev_env`` reads this exact admitted set for SSH/scp routing.
+    """
+    if names:
+        os.environ[CACHED_MANAGED_SSH_ADMITTED_ENV] = ",".join(sorted(names))
+    else:
+        os.environ.pop(CACHED_MANAGED_SSH_ADMITTED_ENV, None)
+
+
 def _registered_pool_allowlist(
     required_gpu_type: str | None = None,
 ) -> set[str]:
@@ -623,10 +895,14 @@ def _list_pool_instances(
     required_gpu_type: str | None = None,
 ) -> list[dict]:
     """Return managed instances plus connected registered pool nodes."""
+    _propagate_cached_managed_ssh(set())
+    cached_managed: dict[str, Path] = {}
     registered_allowlist = _registered_pool_allowlist(required_gpu_type)
     try:
         instances = list(_list_brev_instances())
     except BrevAuthenticationError:
+        cached_managed = _cached_managed_ssh_candidates()
+        registered_allowlist.update(cached_managed)
         if not registered_allowlist:
             raise
         # The registered pool uses direct SSH.  Continue with only the
@@ -638,6 +914,14 @@ def _list_pool_instances(
             flush=True,
         )
         instances = []
+    else:
+        # A healthy, nonempty Brev response is authoritative. The stale SSH
+        # cache is a control-plane outage fallback, not a higher-priority
+        # shadow inventory. This prevents a missing/stopped cached workspace
+        # from displacing a currently managed RUNNING worker.
+        if not instances:
+            cached_managed = _cached_managed_ssh_candidates()
+            registered_allowlist.update(cached_managed)
     for instance in instances:
         name = (instance.get("name") or "").strip().lower()
         if name:
@@ -683,6 +967,7 @@ def _list_pool_instances(
         inventory_fallback = True
     registered_connected = 0
     registered_merged = 0
+    cached_managed_merged: set[str] = set()
     for node in registered_nodes:
         name = (node.get("name") or "").strip()
         status = (node.get("status") or "").upper()
@@ -710,11 +995,18 @@ def _list_pool_instances(
                 "gpu": _registered_gpu_hint(name),
                 "instance_type": "registered-external-node",
                 "_registered": True,
+                "_cached_managed_ssh": name.lower() in cached_managed,
             }
         )
         _WORKER_TRANSPORTS[name.lower()] = "ssh"
+        if name.lower() in cached_managed:
+            _WORKER_SSH_CONFIGS[name.lower()] = str(
+                cached_managed[name.lower()]
+            )
+            cached_managed_merged.add(name.lower())
         seen.add(name.lower())
         registered_merged += 1
+    _propagate_cached_managed_ssh(cached_managed_merged)
     print(
         "[run-leg] worker inventory: "
         f"managed={len(instances) - registered_merged} "
@@ -722,6 +1014,7 @@ def _list_pool_instances(
         f"registered_discovered={len(registered_nodes)} "
         f"registered_connected={registered_connected} "
         f"registered_merged={registered_merged} "
+        f"cached_managed_merged={len(cached_managed_merged)} "
         f"inventory_fallback={str(inventory_fallback).lower()}",
         flush=True,
     )
@@ -837,8 +1130,12 @@ def _remote_lock_executor(
         timeout: int,
     ) -> subprocess.CompletedProcess[str]:
         if use_ssh:
-            cmd = [
-                "ssh",
+            cmd = ["ssh"]
+            ssh_config = _WORKER_SSH_CONFIGS.get(instance.lower())
+            if ssh_config:
+                cmd.extend(["-F", ssh_config])
+            cmd.extend([
+                "-T",
                 "-o",
                 "BatchMode=yes",
                 "-o",
@@ -847,9 +1144,19 @@ def _remote_lock_executor(
                 "ServerAliveInterval=30",
                 "-o",
                 "StrictHostKeyChecking=no",
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "PermitLocalCommand=no",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
                 instance.lower(),
                 command,
-            ]
+            ])
             stdin = ""
         else:
             cmd = ["brev", "exec", instance, command]
