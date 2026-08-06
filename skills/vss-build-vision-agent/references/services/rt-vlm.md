@@ -17,9 +17,11 @@
 - Headless VLM Q&A / dense captioning is served **directly** by RT-VLM's
   OpenAI-compatible `/v1/chat/completions` (and `/v1/models`) on `RTVI_VLM_PORT`
   (default `8018`) — no agent tier needed.
-- Its Kafka output topic `mdx-vlm-captions` is already in the default
-  `KAFKA_TOPICS` of `kafka-topic-init-container`, so no custom topic definition is
-  required.
+- To publish captions, wire RT-VLM's Kafka output explicitly:
+  `RTVI_VLM_KAFKA_ENABLED=true` (the `base` Foundation ships `false`) and
+  `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` — an override, since it is not RT-VLM's
+  default topic. The topic itself is already in the default `KAFKA_TOPICS` of
+  `kafka-topic-init-container`, so no topic definition is required.
 
 ## Configuration knobs
 
