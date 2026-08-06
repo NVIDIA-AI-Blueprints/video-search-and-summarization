@@ -942,7 +942,7 @@ namespace vst_common
         if (0 == dir_)
         {
             if (0 == EVP_EncryptFinal_ex(ctx_,
-                                        (unsigned char *)out.data(),
+                                        reinterpret_cast<unsigned char *>(out.data()),
                                         &resultLength))
             {
                 return false;
@@ -951,7 +951,7 @@ namespace vst_common
         else
         {
             if (0 == EVP_DecryptFinal_ex(ctx_,
-                                        (unsigned char *)out.data(),
+                                        reinterpret_cast<unsigned char *>(out.data()),
                                         &resultLength))
             {
                 return false;
@@ -971,7 +971,7 @@ namespace vst_common
         if (0 == dir_)
         {
             if (0 == EVP_EncryptUpdate(ctx_,
-                                    (unsigned char *)out.data(),
+                                    reinterpret_cast<unsigned char *>(out.data()),
                                     &resultLength,
                                     reinterpret_cast<const unsigned char *>(in.data()),
                                     in.size()))
@@ -982,7 +982,7 @@ namespace vst_common
         else
         {
             if (0 == EVP_DecryptUpdate(ctx_,
-                                    (unsigned char *)out.data(),
+                                    reinterpret_cast<unsigned char *>(out.data()),
                                     &resultLength,
                                     reinterpret_cast<const unsigned char *>(in.data()),
                                     in.size()))
