@@ -72,6 +72,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "L40S"
+DEFAULT_MIN_ROOT_DISK_GB = 220
 
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
@@ -234,6 +235,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f'gpu_count = {gpu_count}',
+            f"min_root_disk_gb = {DEFAULT_MIN_ROOT_DISK_GB}",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
