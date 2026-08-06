@@ -973,7 +973,7 @@ namespace vst_common
             if (0 == EVP_EncryptUpdate(ctx_,
                                     (unsigned char *)out.data(),
                                     &resultLength,
-                                    (unsigned char *)in.data(),
+                                    reinterpret_cast<const unsigned char *>(in.data()),
                                     in.size()))
             {
                 return false;
@@ -984,7 +984,7 @@ namespace vst_common
             if (0 == EVP_DecryptUpdate(ctx_,
                                     (unsigned char *)out.data(),
                                     &resultLength,
-                                    (unsigned char *)in.data(),
+                                    reinterpret_cast<const unsigned char *>(in.data()),
                                     in.size()))
             {
                 return false;

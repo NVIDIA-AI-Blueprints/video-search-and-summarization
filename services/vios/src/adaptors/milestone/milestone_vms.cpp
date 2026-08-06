@@ -1026,7 +1026,7 @@ int MilestoneVmsVendor::parseCameraInfo(const string& server_url, const string& 
         return -1;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "cameras");
     if (!cur)
