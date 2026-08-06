@@ -368,9 +368,9 @@ jobs:
     name: Plan NemoClaw eval matrix
     if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
     # Planning is CPU-only and does not load Brev or model credentials. Keep it
-    # off the legacy NemoClaw coordinator host so a degraded GPU control plane
-    # cannot prevent the matrix from being published.
-    runs-on: [self-hosted, downstream-pipeline]
+    # independent of self-hosted runner registration so a degraded GPU control
+    # plane cannot prevent the matrix from being published.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -701,8 +701,8 @@ jobs:
     needs: [nemoclaw_plan, nemoclaw-eval]
     if: always() && github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
     # Reconciliation only consumes GitHub artifacts and repository code; it
-    # must remain available even when every Brev coordinator is unhealthy.
-    runs-on: [self-hosted, downstream-pipeline]
+    # must remain available even when every self-hosted runner is unhealthy.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Initialize current-attempt report scope
