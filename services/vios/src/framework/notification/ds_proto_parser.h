@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,7 +29,7 @@ public:
     DsProtoParser(const DsProtoParser&) = delete;
     DsProtoParser& operator=(const DsProtoParser&) = delete;
 
-    Json::Value parseMessage(const void* msg, int len, int64_t& frameTimeMs);
+    Json::Value parseMessage(const unsigned char* msg, int len, int64_t& frameTimeMs);
 
 private:
     DsProtoParser();

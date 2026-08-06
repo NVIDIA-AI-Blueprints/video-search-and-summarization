@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -68,6 +68,9 @@ static void createMainStreamForFirstUpload(shared_ptr<StreamInfo> stream, shared
 static void createSubsequentStream(shared_ptr<StreamInfo> stream, shared_ptr<SensorInfo> sensor, const vector<SensorStreamsDBColumns>& existingStreams, Json::Value& response);
 static void updateStreamUrls(shared_ptr<StreamInfo> stream, shared_ptr<SensorInfo> sensor, const string& rtsp_url, shared_ptr<DeviceManager> deviceMngr, const vector<SensorStreamsDBColumns>& existingStreams);
 
+// Opaque handle type for a dynamically loaded shared library
+struct SharedLibraryHandle;
+
 // Function pointer types for dynamic loading
 typedef nv_vms::VideoSegmentExtractor* (*CreateVideoSegmentExtractor_t)();
 typedef void (*DestroyVideoSegmentExtractor_t)(nv_vms::VideoSegmentExtractor*);
@@ -78,7 +81,7 @@ typedef bool (*IsExtractorAvailable_t)(nv_vms::VideoSegmentExtractor*);
 // Dynamic VideoSegmentExtractor loader class
 class DynamicVideoSegmentExtractor {
 private:
-    void* m_handle;
+    SharedLibraryHandle* m_handle;
     CreateVideoSegmentExtractor_t m_createFunc;
     DestroyVideoSegmentExtractor_t m_destroyFunc;
     ExtractSegmentStreamCopy_t m_extractFunc;
@@ -87,7 +90,7 @@ private:
     nv_vms::VideoSegmentExtractor* m_instance;
 
     // Secure library loading function with path validation
-    void* tryLoadLibrary(const char* lib_path)
+    SharedLibraryHandle* tryLoadLibrary(const char* lib_path)
     {
         if (!lib_path || lib_path[0] == '\0')
         {
@@ -143,7 +146,7 @@ private:
             LOG(error) << "Failed to load library " << resolved_path << ": " << dlerror() << endl;
         }
 
-        return handle;
+        return static_cast<SharedLibraryHandle*>(handle);
     }
 
 public:

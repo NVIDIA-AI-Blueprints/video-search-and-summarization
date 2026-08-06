@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -284,7 +284,7 @@ void KafkaConsumer::deliverMessage(void* msg, int len)
     }
 
     int64_t frameTimeMs = 0;
-    Json::Value payload = DsProtoParser::getInstance()->parseMessage(msg, len, frameTimeMs);
+    Json::Value payload = DsProtoParser::getInstance()->parseMessage(static_cast<const unsigned char*>(msg), len, frameTimeMs);
     if (payload == Json::nullValue)
     {
         return;

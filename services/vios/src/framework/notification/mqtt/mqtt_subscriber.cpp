@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -180,7 +180,7 @@ void MqttSubscriber::handleMessageArrived(mqtt::const_message_ptr msg)
     }
 
     int64_t frameTimeMs = 0;
-    Json::Value payload = DsProtoParser::getInstance()->parseMessage(str_payload.c_str(), str_payload.length(), frameTimeMs);
+    Json::Value payload = DsProtoParser::getInstance()->parseMessage(reinterpret_cast<const unsigned char*>(str_payload.c_str()), str_payload.length(), frameTimeMs);
     if (payload == Json::nullValue)
     {
         static std::atomic<uint64_t> logError{0};

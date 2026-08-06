@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,7 +26,9 @@
 
 using namespace std;
 
-static void* openLibrary(const char* libName)
+struct DynamicLibrary;
+
+static DynamicLibrary* openLibrary(const char* libName)
 {
     std::string lib_path;
     void* handle = nullptr;
@@ -44,7 +46,7 @@ static void* openLibrary(const char* libName)
     handle = dlopen(lib_path.c_str(), RTLD_LAZY);
 #endif
 
-    return handle;
+    return static_cast<DynamicLibrary*>(handle);
 }
 
 static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *topic, void *user_ptr)
@@ -206,7 +208,7 @@ void RedisSubscriber::deliverMessage(void *msg, int len)
     }
 
     int64_t frameTimeMs = 0;
-    Json::Value payload = DsProtoParser::getInstance()->parseMessage(msg, len, frameTimeMs);
+    Json::Value payload = DsProtoParser::getInstance()->parseMessage(static_cast<const unsigned char*>(msg), len, frameTimeMs);
     if (payload == Json::nullValue)
     {
         static std::atomic<uint64_t> logError{0};

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -678,7 +678,7 @@ class NvBufWrapper
             return 0;
         }
 
-        void *getMappedAddr(int fd, uint32_t plane)
+        unsigned char *getMappedAddr(int fd, uint32_t plane)
         {
             if (!NvBufSurfaceFromFd)
             {
@@ -693,7 +693,7 @@ class NvBufWrapper
                 LOG(error) << "Failed to get surface from fd =" << fd << endl;
                 return nullptr;
             }
-            return nvbuf_surf->surfaceList[0].mappedAddr.addr[plane];
+            return static_cast<unsigned char *>(nvbuf_surf->surfaceList[0].mappedAddr.addr[plane]);
         }
 
         void* extractSurface (int fd)
