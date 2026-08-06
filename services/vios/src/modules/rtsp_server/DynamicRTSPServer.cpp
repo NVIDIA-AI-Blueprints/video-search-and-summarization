@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -59,9 +59,9 @@ DynamicRTSPServer::~DynamicRTSPServer()
     LOG(info) << "~DynamicRTSPServer" << endl;
 }
 
-void DynamicRTSPServer::cleanup()
+void DynamicRTSPServer::cleanupAndDestroy()
 {
-    LOG(info) << "DynamicRTSPServer::cleanup()" << endl;
+    LOG(info) << "DynamicRTSPServer::cleanupAndDestroy()" << endl;
 
     std::vector<std::string> streamNames;
     {
@@ -84,7 +84,7 @@ void DynamicRTSPServer::cleanup()
     {
         removeServerMediaSession(name.c_str());
     }
-    LOG(info) << "DynamicRTSPServer::cleanup() - deleted streams" << endl;
+    LOG(info) << "DynamicRTSPServer::cleanupAndDestroy() - deleted streams" << endl;
     delete this;
 }
 

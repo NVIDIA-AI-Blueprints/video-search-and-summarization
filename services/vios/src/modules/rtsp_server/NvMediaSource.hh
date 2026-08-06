@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -147,7 +147,8 @@ class NvMediaSource : public IMediaDataConsumer
         void stopOverlayPipeline_internal();
 
         //IMediaDataConsumer virtual function
-        virtual void onFrame(FrameParams& params);
+        using IMediaDataConsumer::onFrame;
+        virtual void onFrame(FrameParams& params) override;
         virtual eMediaType getConsumerMediaType() { return m_mediaType; }
         virtual void setConsumerMediaType(eMediaType media_type) { m_mediaType = media_type; }
 

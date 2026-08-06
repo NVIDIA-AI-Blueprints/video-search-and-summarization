@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -197,7 +197,7 @@ RtspServer::~RtspServer()
 
     if (m_rtspServer != nullptr)
     {
-        ((DynamicRTSPServer *)m_rtspServer)->cleanup();
+        ((DynamicRTSPServer *)m_rtspServer)->cleanupAndDestroy();
         m_rtspServer = nullptr;
     }
     LOG(info) << "Exited RTSP Server" << endl;
