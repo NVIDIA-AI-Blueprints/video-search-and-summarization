@@ -141,6 +141,60 @@ class RegisteredNodeDetection(unittest.TestCase):
         self.assertEqual(brev_env._ssh_alias_for("spark"), "spark")
 
 
+class ExplicitSshConfig(unittest.IsolatedAsyncioTestCase):
+    async def test_ssh_and_scp_use_explicit_config(self):
+        class FakeProcess:
+            pid = 12345
+            returncode = 0
+
+        process = FakeProcess()
+        communicate = mock.AsyncMock(return_value=(b"ok\n", b""))
+        spawn = mock.AsyncMock(return_value=process)
+        with tempfile.TemporaryDirectory() as td:
+            config = Path(td) / "ssh_config"
+            config.write_text("Host selected-worker\n", encoding="utf-8")
+            with (
+                mock.patch.dict(
+                    brev_env.os.environ,
+                    {
+                        "BREV_SSH_CONFIG": str(config),
+                        "BREV_ADMITTED_CACHED_SSH_POOL": "selected-worker",
+                    },
+                    clear=True,
+                ),
+                mock.patch.object(
+                    brev_env.asyncio,
+                    "create_subprocess_exec",
+                    new=spawn,
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_communicate_with_cancellation_cleanup",
+                    new=communicate,
+                ),
+                mock.patch.object(brev_env, "_register_transport_process"),
+            ):
+                await brev_env._run_ssh_exec("selected-worker", "true")
+                ssh_args = spawn.await_args.args
+                spawn.reset_mock()
+                await brev_env._run_scp(
+                    "/tmp/source",
+                    "selected-worker:/tmp/destination",
+                )
+                scp_args = spawn.await_args.args
+
+        self.assertEqual(ssh_args[:4], ("ssh", "-F", str(config), "-T"))
+        self.assertEqual(scp_args[:3], ("scp", "-F", str(config)))
+
+    async def test_existing_registered_pool_keeps_default_ssh_config(self):
+        with mock.patch.dict(
+            brev_env.os.environ,
+            {"BREV_REGISTERED_POOL": "registered-worker"},
+            clear=True,
+        ):
+            self.assertEqual(brev_env._ssh_config_args("registered-worker"), [])
+
+
 class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
@@ -219,11 +273,92 @@ class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
 
 class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
-    def test_registered_instance_bypasses_gpu_name_check(self):
-        """Registered nodes often have empty `gpu` field — shouldn't fail."""
+    def test_registered_instance_uses_strict_live_gpu_check(self):
         inst = {"name": "SPARK", "_registered": True, "gpu": ""}
-        # Should not raise
-        asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "GB10"}))
+        requirements = {"gpu_type": "GB10", "gpu_count": 1}
+        with mock.patch.object(
+            brev_env,
+            "_check_direct_gpu_requirements",
+            new=mock.AsyncMock(),
+        ) as check:
+            asyncio.run(brev_env._check_instance_matches(inst, requirements))
+        check.assert_awaited_once_with("SPARK", requirements)
+
+    def test_direct_gpu_inventory_accepts_matching_worker(self):
+        inventory = brev_env.ExecResult(
+            stdout=(
+                "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+                "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+            ),
+            stderr=None,
+            return_code=0,
+        )
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=inventory),
+        ):
+            asyncio.run(
+                brev_env._check_direct_gpu_requirements(
+                    "vss-eval-rtx-2g-4",
+                    {
+                        "gpu_type": "RTX PRO 6000",
+                        "gpu_count": 2,
+                        "min_vram_gb_per_gpu": 96,
+                    },
+                )
+            )
+
+    def test_direct_gpu_inventory_fails_closed_on_probe_error(self):
+        failed = brev_env.ExecResult(
+            stdout=None,
+            stderr="nvidia-smi unavailable",
+            return_code=1,
+        )
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=failed),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "could not be verified"):
+                asyncio.run(
+                    brev_env._check_direct_gpu_requirements(
+                        "vss-eval-rtx-2g-4",
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+                    )
+                )
+
+    def test_direct_gpu_inventory_rejects_wrong_model_or_count(self):
+        inventory = brev_env.ExecResult(
+            stdout="NVIDIA L40S, 46068\n",
+            stderr=None,
+            return_code=0,
+        )
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=inventory),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "requires at least 2"):
+                asyncio.run(
+                    brev_env._check_direct_gpu_requirements(
+                        "vss-eval-rtx-2g-4",
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 2},
+                    )
+                )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=inventory),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "do not satisfy"):
+                asyncio.run(
+                    brev_env._check_direct_gpu_requirements(
+                        "vss-eval-rtx-2g-4",
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+                    )
+                )
 
     def test_brev_managed_still_checks_gpu(self):
         """Non-registered instances still enforce GPU-name match."""

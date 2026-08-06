@@ -525,12 +525,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
           NEMOCLAW_INPUT_INSTANCE: ${{ inputs.nemoclaw_instance }}
+          NEMOCLAW_ALLOW_CACHED_BREV_SSH: ${{ vars.NEMOCLAW_ALLOW_CACHED_BREV_SSH }}
+          NEMOCLAW_BREV_DIRECT_SSH_POOL: ${{ vars.NEMOCLAW_BREV_DIRECT_SSH_POOL }}
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_python="$(command -v python3)"
+          readonly actions_cached_brev_ssh_opt_in="${NEMOCLAW_ALLOW_CACHED_BREV_SSH:-0}"
+          readonly actions_cached_brev_ssh_pool="${NEMOCLAW_BREV_DIRECT_SSH_POOL:-}"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # Brev's API session can expire independently of the persistent SSH
+          # entries already provisioned on the coordinator.  Admit only the
+          # operator-owned VSS worker names from protected Actions variables,
+          # and only when the exact Host
+          # alias is present in the coordinator's protected Brev SSH config.
+          # The smoke runner still requires a live SSH probe, remote lease,
+          # matching GPUs, and sufficient disk before it starts Harbor.
+          export BREV_ALLOW_CACHED_SSH="$actions_cached_brev_ssh_opt_in"
+          export BREV_SSH_CONFIG="${BREV_SSH_CONFIG:-$HOME/.brev/ssh_config}"
+          export BREV_DIRECT_SSH_POOL="$actions_cached_brev_ssh_pool"
           export PATH="$(dirname "$skill_eval_python"):$PATH"
           hash -r
           "$skill_eval_python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'

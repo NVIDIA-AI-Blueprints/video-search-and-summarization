@@ -3397,6 +3397,44 @@ async def _run_local_transfer_command(
 # first query to avoid repeated `brev ls nodes` round-trips.
 _registered_nodes_cache: dict[str, dict] | None = None
 
+# Direct SSH transports use the exact Brev-generated config that run_leg.py
+# admitted while selecting the worker. Cached managed aliases are propagated
+# through a dedicated admitted-only environment value after the selector's
+# owner/mode/allowlist validation, so a requested name alone never authorizes
+# a direct SSH destination.
+DEFAULT_BREV_SSH_CONFIG = "~/.brev/ssh_config"
+CACHED_MANAGED_SSH_ADMITTED_ENV = "BREV_ADMITTED_CACHED_SSH_POOL"
+
+
+def _ssh_config_path() -> str:
+    """Return the explicit SSH config used for every direct transport.
+
+    Brev writes aliases to ``~/.brev/ssh_config``.  Operators may instead
+    provide a dedicated immutable config with ``BREV_SSH_CONFIG``.  Passing
+    the path through ``-F`` avoids depending on coordinator-global include
+    state and makes the selected alias/config pair auditable.
+    """
+    configured = os.environ.get("BREV_SSH_CONFIG", "").strip()
+    return str(Path(configured or DEFAULT_BREV_SSH_CONFIG).expanduser())
+
+
+def _configured_cached_ssh_nodes() -> set[str]:
+    return {
+        value.lower()
+        for value in re.split(
+            r"[\s,]+",
+            os.environ.get(CACHED_MANAGED_SSH_ADMITTED_ENV, "").strip(),
+        )
+        if value
+    }
+
+
+def _ssh_config_args(alias: str) -> list[str]:
+    """Pin only cache-admitted workers to Brev's standalone SSH config."""
+    if alias.lower() in _configured_cached_ssh_nodes():
+        return ["-F", _ssh_config_path()]
+    return []
+
 
 def _configured_registered_nodes() -> set[str]:
     """Return operator-approved registered nodes that use direct SSH.
@@ -3409,6 +3447,7 @@ def _configured_registered_nodes() -> set[str]:
         (
             os.environ.get("BREV_REGISTERED_POOL", ""),
             os.environ.get("BREV_RTX4090_POOL", ""),
+            os.environ.get(CACHED_MANAGED_SSH_ADMITTED_ENV, ""),
         )
     )
     return {
@@ -3470,10 +3509,17 @@ async def _run_ssh_exec(
     """Run `ssh <alias> <command>` — for registered nodes."""
     cmd = [
         "ssh",
+        *_ssh_config_args(alias),
+        "-T",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=30",
         "-o", "StrictHostKeyChecking=no",
+        "-o", "ForwardAgent=no",
+        "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no",
+        "-o", "ControlMaster=no",
+        "-o", "ControlPath=none",
         alias, command,
     ]
     logger.debug("ssh %s: %s", alias, command[:200])
@@ -3514,11 +3560,23 @@ async def _run_scp(
 
     Expects either src or dst to be of form `<alias>:<path>`.  Uses the
     same SSH options as _run_ssh_exec."""
+    remote_alias = ""
+    for endpoint in (src, dst):
+        if ":" in endpoint:
+            remote_alias = endpoint.split(":", 1)[0]
+            break
     cmd = [
-        "scp", "-r",
+        "scp",
+        *_ssh_config_args(remote_alias),
+        "-r",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
         "-o", "StrictHostKeyChecking=no",
+        "-o", "ForwardAgent=no",
+        "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no",
+        "-o", "ControlMaster=no",
+        "-o", "ControlPath=none",
         src, dst,
     ]
     logger.debug("scp: %s -> %s", src, dst)
@@ -3925,6 +3983,92 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
     )
 
 
+async def _check_direct_gpu_requirements(instance_name: str, req: dict) -> None:
+    """Fail closed on live GPU model/count/VRAM for direct SSH workers."""
+    required_count = int(req.get("gpu_count", 1) or 0)
+    if required_count == 0:
+        return
+
+    result = await _run_brev_exec(
+        instance_name,
+        (
+            "nvidia-smi --query-gpu=name,memory.total "
+            "--format=csv,noheader,nounits"
+        ),
+        timeout=30,
+    )
+    if result.return_code != 0 or not (result.stdout or "").strip():
+        raise RuntimeError(
+            f"Brev direct-SSH worker '{instance_name}' GPU inventory could "
+            "not be verified with nvidia-smi"
+        )
+
+    gpus: list[tuple[str, int]] = []
+    for raw_line in (result.stdout or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            gpu_name, memory_mib_text = line.rsplit(",", 1)
+            memory_mib = int(memory_mib_text.strip())
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(
+                f"Brev direct-SSH worker '{instance_name}' returned an "
+                f"unparseable GPU inventory row: {line!r}"
+            ) from exc
+        gpus.append((gpu_name.strip().upper(), memory_mib))
+
+    if len(gpus) < required_count:
+        raise RuntimeError(
+            f"Brev direct-SSH worker '{instance_name}' has {len(gpus)} "
+            f"GPU(s); task requires at least {required_count}"
+        )
+
+    required_type = (req.get("gpu_type") or "").upper()
+
+    def loose_match(want: str, have: str) -> bool:
+        want_tokens = set(want.replace("-", " ").split())
+        have_tokens = set(have.replace("-", " ").split())
+        return want_tokens.issubset(have_tokens) or want in have
+
+    mismatched = [
+        name for name, _ in gpus
+        if required_type and not loose_match(required_type, name)
+    ]
+    if mismatched:
+        raise RuntimeError(
+            f"Brev direct-SSH worker '{instance_name}' GPU model(s) "
+            f"{mismatched!r} do not satisfy {required_type!r}"
+        )
+
+    required_vram_gb = int(req.get("min_vram_gb_per_gpu", 0) or 0)
+    if required_vram_gb:
+        undersized = [
+            (name, memory_mib)
+            for name, memory_mib in gpus
+            # nvidia-smi reports MiB while platform specs use manufacturers'
+            # decimal GB (for example L40S 48 GB reports about 46,068 MiB).
+            if (
+                memory_mib * 1024 * 1024
+                < required_vram_gb * 1_000_000_000
+            )
+        ]
+        if undersized:
+            raise RuntimeError(
+                f"Brev direct-SSH worker '{instance_name}' GPU VRAM does "
+                f"not satisfy {required_vram_gb} GiB per GPU: {undersized!r}"
+            )
+
+    logger.info(
+        "Direct-SSH worker '%s' live GPU inventory satisfies type=%r, "
+        "count>=%d, vram>=%d GiB",
+        instance_name,
+        required_type,
+        required_count,
+        required_vram_gb,
+    )
+
+
 async def _check_instance_matches(instance: dict, req: dict) -> None:
     """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
@@ -3938,10 +4082,9 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     live nvidia-smi check in _check_live_resources.
     """
     if instance.get("_registered"):
-        logger.info(
-            "Instance '%s' is a registered external node — "
-            "skipping catalog GPU-name match (rely on live nvidia-smi check)",
-            instance.get("name"),
+        await _check_direct_gpu_requirements(
+            str(instance.get("name") or ""),
+            req,
         )
         return
 
