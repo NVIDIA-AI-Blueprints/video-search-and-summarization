@@ -191,6 +191,39 @@ class ValidateResolvedYmlTest(unittest.TestCase):
             self.assertEqual(len(errors), 1)
             self.assertIn("mounts directory", errors[0])
 
+    def test_rejects_shared_container_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            errors = validate_document(
+                {
+                    "services": {
+                        "vss-video-analytics-api-fusion": {
+                            "container_name": "vss-video-analytics-api"
+                        },
+                        "vss-video-analytics-api-alerts": {
+                            "container_name": "vss-video-analytics-api"
+                        },
+                    }
+                },
+                Path(directory),
+            )
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("shared by services", errors[0])
+
+    def test_allows_distinct_container_names(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            errors = validate_document(
+                {
+                    "services": {
+                        "fusion": {"container_name": "vss-video-analytics-api"},
+                        "kibana": {"container_name": "vss-kibana-init"},
+                    }
+                },
+                Path(directory),
+            )
+
+            self.assertEqual(errors, [])
+
 
 if __name__ == "__main__":
     unittest.main()

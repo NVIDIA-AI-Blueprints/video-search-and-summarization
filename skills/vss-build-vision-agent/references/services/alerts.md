@@ -8,6 +8,11 @@
 | Video-analytics MCP | `vss-va-mcp` |
 | Alerts analytics API | `vss-video-analytics-api-alerts` |
 
+`vss-video-analytics-api-alerts` is the `vss-video-analytics-api` container under
+the alerts profile — a singleton whose key varies by Foundation. A build uses its
+selected Foundation's key for this container and never adds a second key for it;
+select `vss-video-analytics-api-alerts` only when the Foundation is `alerts`.
+
 ## Required peers
 
 - `alert-bridge` requires Kafka, Elasticsearch, topic initialization, and the

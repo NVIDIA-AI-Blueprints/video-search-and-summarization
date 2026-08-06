@@ -21,7 +21,8 @@
   In a combined build these follow the single converged detector, not the value
   a source profile's config happened to ship.
 - To serve more than one capability at once, run a single combined instance
-  rather than two, mounting the shipped joint config
+  rather than two, under the selected Foundation's key for the one
+  `vss-behavior-analytics` container, never both, mounting the shipped joint config
   `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
   via a service-definition patch (no developer profile mounts it by default; the
   setup skill owns the recipe). Its `numWorkersFor*` knobs gate each processor

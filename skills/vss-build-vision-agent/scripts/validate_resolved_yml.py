@@ -126,6 +126,25 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
     return errors
 
 
+def container_name_errors(document: dict[str, Any]) -> list[str]:
+    owners: dict[str, list[str]] = {}
+    for service_name, service in (document.get("services") or {}).items():
+        if not isinstance(service, dict):
+            continue
+        name = service.get("container_name")
+        if isinstance(name, str) and name:
+            owners.setdefault(name, []).append(service_name)
+    errors: list[str] = []
+    for name, service_names in owners.items():
+        if len(service_names) > 1:
+            errors.append(
+                f"container_name {name!r} is shared by services "
+                f"{', '.join(sorted(service_names))}; a resolved model must not "
+                "select two profile keys for one container"
+            )
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
@@ -165,6 +184,7 @@ def validate_document(
                 f"onto file target {target_text}"
             )
 
+    errors.extend(container_name_errors(document))
     errors.extend(secret_errors(document, extra_required or set()))
 
     return errors
@@ -213,7 +233,8 @@ def main() -> None:
 
     print(
         f"Validated {args.resolved_yml}: no stale placeholders, invalid "
-        "checked-in bind sources, or empty mode-required credentials"
+        "checked-in bind sources, shared container names, or empty "
+        "mode-required credentials"
     )
 
 
