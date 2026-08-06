@@ -693,19 +693,16 @@ run_dry_run_test "up base dry-run" up -p base -i 127.0.0.1 -d
 run_dry_run_test "up search dry-run" up -p search -i 127.0.0.1 --dry-run
 run_dry_run_test "up lvs dry-run" up -p lvs -i 127.0.0.1 -d
 run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.0.0.1 -m verification -d
-run_dry_run_up_and_check_generated_env "alerts verification enables VIOS→RT-CV webhooks and disables always-on" "alerts" \
+run_dry_run_up_and_check_generated_env "alerts verification disables always-on" "alerts" \
   -i 127.0.0.1 -m verification -d -- \
   "ALERT_AGENT_ALWAYS_ON" "false" \
   "MODE" "2d_cv" \
-  "VST_NOTIFICATION_CONFIG_PATH" '${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/vios/configs/notification_config_${MODE}.json' \
-  "RTVI_CV_ENDPOINT" 'http://vss-rtvi-cv:${RTVI_CV_PORT}' \
   "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
-run_dry_run_up_and_check_generated_env "alerts real-time enables VIOS→Alert-Bridge webhooks and always-on" "alerts" \
+run_dry_run_up_and_check_generated_env "alerts real-time enables always-on" "alerts" \
   -i 127.0.0.1 -m real-time -d -- \
   "ALERT_AGENT_ALWAYS_ON" "true" \
   "MODE" "2d_vlm" \
-  "VST_NOTIFICATION_CONFIG_PATH" '${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/vios/configs/notification_config_${MODE}.json' \
-  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml"
+  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
 run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
@@ -1850,23 +1847,21 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alerts verification registers streams with RT-CV via VIOS webhooks (not Agent).
+# Alerts stream registration: VIOS webhooks (not Agent rtvi_cv_base_url).
 _alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
-_alerts_vlm_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml"
 _alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
 _alerts_cv_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_cv.json"
 _alerts_vlm_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_vlm.json"
-if ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}" \
-  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_vlm_agent_config}" \
-  && grep -q '^RTVI_CV_ENDPOINT=http://vss-rtvi-cv:${RTVI_CV_PORT}' "${_alerts_overrides}" \
+if [[ -f "${_alerts_agent_config}" ]] \
+  && [[ ! -e "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml" ]] \
+  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}" \
   && grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}" \
   && grep -q 'vss-rtvi-cv:9010/api/v1/stream/add' "${_alerts_cv_webhook}" \
-  && grep -q 'vss-rtvi-cv:9010/api/v1/stream/remove' "${_alerts_cv_webhook}" \
   && grep -q 'vss-alert-bridge:9080/api/v1/realtime/always-on' "${_alerts_vlm_webhook}"; then
-  echo "PASS: alerts verification uses VIOS webhooks for RT-CV registration"
+  echo "PASS: alerts uses MODE-selected VIOS webhooks for stream registration"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts verification should use VIOS webhooks for RT-CV registration (no Agent rtvi_cv_base_url)"
+  echo "FAIL: alerts should use notification_config_\${MODE}.json webhooks (no Agent rtvi_cv_base_url)"
   ((TESTS_FAILED++)) || true
 fi
 

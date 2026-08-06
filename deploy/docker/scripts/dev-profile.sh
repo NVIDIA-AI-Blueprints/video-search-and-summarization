@@ -235,28 +235,17 @@ function set_alerts_rtvi_vlm_kafka_from_mode() {
   esac
 }
 
-# Derive alerts mode-specific integrations from MODE:
-# - 2d_vlm: always-on on; Agent uses config-real-time.yml
-# - 2d_cv:  always-on off; Agent uses config.yml
-# VIOS webhook target is selected via notification_config_${MODE}.json in overrides.env
-# (VST_NOTIFICATION_CONFIG_PATH) — not rewritten here.
+# Derive alerts mode-specific integrations from MODE.
 function set_alerts_integrations_from_mode() {
   local _generated_env="${1}"
-  local _mode _always_on _agent_config_file
+  local _mode _always_on
   _mode="$(get_env_value "${_generated_env}" "MODE")"
   case "${_mode}" in
-    2d_vlm)
-      _always_on="true"
-      _agent_config_file="/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml"
-      ;;
-    *)
-      _always_on="false"
-      _agent_config_file="/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
-      ;;
+    2d_vlm) _always_on="true" ;;
+    *)      _always_on="false" ;;
   esac
   sed -i "s|^ALERT_AGENT_ALWAYS_ON=.*|ALERT_AGENT_ALWAYS_ON=${_always_on}|" "${_generated_env}"
-  set_env_var "VSS_AGENT_CONFIG_FILE" "${_agent_config_file}"
-  echo "[INFO] Alerts integrations for MODE=${_mode:-2d_cv}: ALERT_AGENT_ALWAYS_ON=${_always_on}, VSS_AGENT_CONFIG_FILE=${_agent_config_file}"
+  echo "[INFO] Alerts integrations for MODE=${_mode:-2d_cv}: ALERT_AGENT_ALWAYS_ON=${_always_on}"
 }
 
 # Gets model name from remote API endpoint (works for both LLM and VLM).
