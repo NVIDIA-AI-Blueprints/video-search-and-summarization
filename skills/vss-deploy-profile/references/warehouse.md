@@ -27,8 +27,6 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
 > **`MINIMAL_PROFILE` is not an env var the stack reads.** No file under `deploy/docker/` references it — minimal vs. extended is selected *only* by which `COMPOSE_PROFILES_WH_*` list `COMPOSE_PROFILES` points at (`…_MINIMAL` or not). This doc uses "minimal"/"extended" as shorthand for that choice; setting `MINIMAL_PROFILE` in `generated.env` changes nothing on its own.
 >
-> **The launchable notebook cannot deploy minimal — it no longer offers the choice.** `deploy/docker/scripts/deploy_warehouse_launchable.ipynb` deploys via `blueprint-deploy.sh`, which always overwrites `COMPOSE_PROFILES` with the **non-`_MINIMAL`** list for the chosen `BP_PROFILE`/`MODE` (`blueprint-deploy.sh:944-960` has no `_MINIMAL` branch). The notebook previously exposed a `MINIMAL_PROFILE` setting that was silently ignored — selecting minimal produced a full extended stack while the verification cells under-reported it. That knob has been removed; the notebook now states plainly that every deployment it makes is extended.
->
 > To genuinely deploy minimal, use this skill's path: set `COMPOSE_PROFILES` to the `…_MINIMAL` list in `generated.env` and bring the stack up with `docker compose` directly ([Lifecycle: Bring up](#lifecycle-bring-up)) — not through `blueprint-deploy.sh` or the launchable.
 
 | Feature | Minimal (`…_MINIMAL` list) | Extended (plain list) |
@@ -240,8 +238,6 @@ Ask the user which source they want and whether they already have the assets on 
 `VSS_DATA_DIR` must be the directory that holds `videos/`, `playback/`, `models/` and `data_log/`, not its parent. Compose creates and permissions `models/` and `data_log/*` on bring-up.
 
 > **Org:** the bundle lives in the **`nvstaging`** org (team `vss-warehouse`). Set `NGC_CLI_ORG=nvstaging`, or just pass the fully-qualified `org/team/name:version` path as below. A `403 Access Denied` means the NGC key has no access to that org.
-
-> **The doubled `vv` is correct.** `ngc registry resource download-version` names the directory `<resource>_v<version>`, prefixing `_v` unconditionally; this version already starts with `v`, so the result is `vss-warehouse-app-data_vv3.3.0-08052026`. Verified against NGC CLI 4.13.0. Do not "fix" it to a single `v`.
 
 ## Known Limitations
 
