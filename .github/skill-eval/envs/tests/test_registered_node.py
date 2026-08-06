@@ -157,8 +157,8 @@ class ExplicitSshConfig(unittest.IsolatedAsyncioTestCase):
                 mock.patch.dict(
                     brev_env.os.environ,
                     {
-                        "BREV_SSH_CONFIG": str(config),
                         "BREV_ADMITTED_CACHED_SSH_POOL": "selected-worker",
+                        "BREV_ADMITTED_CACHED_SSH_CONFIG": str(config),
                     },
                     clear=True,
                 ),
@@ -193,6 +193,15 @@ class ExplicitSshConfig(unittest.IsolatedAsyncioTestCase):
             clear=True,
         ):
             self.assertEqual(brev_env._ssh_config_args("registered-worker"), [])
+
+    async def test_admitted_cached_worker_requires_private_config(self):
+        with mock.patch.dict(
+            brev_env.os.environ,
+            {"BREV_ADMITTED_CACHED_SSH_POOL": "selected-worker"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "private config"):
+                brev_env._ssh_config_args("selected-worker")
 
 
 class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
