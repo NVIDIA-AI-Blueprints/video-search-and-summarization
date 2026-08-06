@@ -1907,12 +1907,59 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                     cli_listener.terminate()
                     cli_listener.wait(timeout=5)
 
-            hidden_cli_module = cli_module.with_suffix(".disabled")
-            cli_module.rename(hidden_cli_module)
-            incomplete_port = unused_port()
             gateway_executable = Path(td) / "gateway-runtime" / "openshell-gateway"
             gateway_executable.parent.mkdir()
             shutil.copy2(sys.executable, gateway_executable)
+            mismatch_port = unused_port()
+            mismatch_listener = subprocess.Popen(
+                [
+                    (
+                        "openshell-gateway["
+                        f"nemoclaw=nemoclaw-{mismatch_port};port={mismatch_port}]"
+                    ),
+                    "-c",
+                    listener_source,
+                    str(mismatch_port),
+                ],
+                executable=gateway_executable,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(mismatch_port)
+                mismatched_cli = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(mismatch_port),
+                        "NEMOCLAW_INSTALL_REF": "v0.0.103",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    mismatched_cli.returncode,
+                    0,
+                    mismatched_cli.stderr,
+                )
+                self.assertIn(
+                    "expected nemoclaw v0.0.103, found nemoclaw v0.0.88",
+                    mismatched_cli.stderr,
+                )
+                self.assertIn(
+                    "using fail-closed standalone gateway release",
+                    mismatched_cli.stdout,
+                )
+                mismatch_listener.wait(timeout=5)
+            finally:
+                if mismatch_listener.poll() is None:
+                    mismatch_listener.terminate()
+                    mismatch_listener.wait(timeout=5)
+
+            hidden_cli_module = cli_module.with_suffix(".disabled")
+            cli_module.rename(hidden_cli_module)
+            incomplete_port = unused_port()
             incomplete_listener = subprocess.Popen(
                 [
                     str(gateway_executable),
