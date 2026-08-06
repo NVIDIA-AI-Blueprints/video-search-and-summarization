@@ -154,6 +154,34 @@ def _kafka_record_field(msg: Any, name: str) -> Any:
     return val
 
 
+def _kafka_topic_partition(topic: Any, partition: Any) -> Any:
+    try:
+        from kafka import TopicPartition
+
+        return TopicPartition(topic, int(partition))
+    except Exception:
+        from collections import namedtuple
+
+        return namedtuple("TopicPartition", ["topic", "partition"])(
+            topic, int(partition)
+        )
+
+
+def _kafka_offset_and_metadata(offset: int) -> Any:
+    try:
+        from kafka.structs import OffsetAndMetadata
+
+        try:
+            return OffsetAndMetadata(offset, "")
+        except TypeError:
+            # kafka-python >= 2.0.2 adds leader_epoch
+            return OffsetAndMetadata(offset, "", -1)
+    except Exception:
+        from collections import namedtuple
+
+        return namedtuple("OffsetAndMetadata", ["offset", "metadata"])(offset, "")
+
+
 def kafka_message_key(msg: Any) -> str:
     """Build a stable-ish key for Kafka retry accounting."""
     topic = _kafka_record_field(msg, "topic")
@@ -179,13 +207,37 @@ def kafka_rewind_to_message(consumer: Any, msg: Any) -> bool:
         offset = _kafka_record_field(msg, "offset")
         if topic is None or partition is None or offset is None:
             return False
-        try:
-            from kafka import TopicPartition
-        except Exception:
-            from collections import namedtuple
+        consumer.seek(_kafka_topic_partition(topic, partition), int(offset))
+        return True
+    except Exception:
+        return False
 
-            TopicPartition = namedtuple("TopicPartition", ["topic", "partition"])
-        consumer.seek(TopicPartition(topic, int(partition)), int(offset))
+
+def kafka_park_offset_on_next_commit(consumer: Any, msg: Any) -> bool:
+    """Make the next ``consumer.commit()`` park the group at ``msg``'s offset.
+
+    Used when ``seek`` fails: flask-kafka still commits after the handler, so
+    replace ``commit`` once to write this offset (next fetch = this message)
+    instead of the already-advanced position.
+    """
+    try:
+        topic = _kafka_record_field(msg, "topic")
+        partition = _kafka_record_field(msg, "partition")
+        offset = _kafka_record_field(msg, "offset")
+        if topic is None or partition is None or offset is None:
+            return False
+
+        tp = _kafka_topic_partition(topic, partition)
+        park = {tp: _kafka_offset_and_metadata(int(offset))}
+        original_commit = consumer.commit
+
+        def _park_commit(*_args: Any, **_kwargs: Any) -> Any:
+            try:
+                return original_commit(park)
+            finally:
+                consumer.commit = original_commit
+
+        consumer.commit = _park_commit
         return True
     except Exception:
         return False
