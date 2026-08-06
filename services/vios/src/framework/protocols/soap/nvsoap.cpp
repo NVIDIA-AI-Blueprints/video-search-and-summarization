@@ -6009,7 +6009,7 @@ SensorVideoEncoderSettingsValues NvSoap::getVideoEncoderConfigurationsMedia2Resp
     }
 
     Token token;
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Configurations");
     if (cur)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -94,7 +94,7 @@ public:
     virtual int setSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const SensorVideoEncoderSettingsValues& settings) { return -1; };
     virtual int getStreamSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id) { return 0;}
     virtual int setPTZ(shared_ptr<SensorInfo>& sensor, PTZAction, string x, string y) { return 0; };
-    map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo>& sensor) { map<PTZAction, ptzRange>ptz; return ptz; };
+    virtual map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo>& sensor) { map<PTZAction, ptzRange>ptz; return ptz; };
     virtual bool validateCredentials(shared_ptr<SensorInfo>& sensor, const string username, const string password) { return false; }
     virtual VmsErrorCode addSensor(const Json::Value& sensorInfo) { return VmsErrorCode::NoError; }
     virtual bool deleteSensor(shared_ptr<SensorInfo>& sensor) { return true; }

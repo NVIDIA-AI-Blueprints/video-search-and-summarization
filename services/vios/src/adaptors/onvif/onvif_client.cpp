@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -795,7 +795,7 @@ bool OnvifClient::isServerOnline(const string & url)
     return true;
 }
 
- map<PTZAction, ptzRange> OnvifClient::getPTZ(shared_ptr<SensorInfo> sensor)
+ map<PTZAction, ptzRange> OnvifClient::getPTZ(shared_ptr<SensorInfo>& sensor)
  {
     map<PTZAction, ptzRange> ptz;
     if (sensor != nullptr && sensor->streams.size() > 0)

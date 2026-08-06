@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -159,6 +159,7 @@ NvRedis::~NvRedis()
 void NvRedis::redis_init()
 {
     string payload_key;
+    char redis_config_file[] = REDIS_CONFIG_FILE;
     m_topic_vms_event = GET_CONFIG().message_broker_topic;
     m_redisEndpoint = getRedisServerEndpoint();
 
@@ -180,8 +181,8 @@ void NvRedis::redis_init()
     }
 
     LOG(info) << "Radis server address:port= " << m_redisEndpoint << endl;
-    m_conn_handle = nvds_msgapi_connect((char*)m_redisEndpoint.c_str(),
-                                        nullptr, (char*)REDIS_CONFIG_FILE);
+    m_conn_handle = nvds_msgapi_connect(m_redisEndpoint.data(),
+                                        nullptr, redis_config_file);
     if (!m_conn_handle)
     {
         LOG(error) << "Redis Connect failed. Exiting" << endl;

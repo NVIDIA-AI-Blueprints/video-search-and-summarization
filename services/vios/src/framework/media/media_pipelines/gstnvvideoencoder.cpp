@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -486,7 +486,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     std::string caps_string;
     int width, height, max_framerate;
     webrtc::scoped_refptr<NvVideoFrameBuffer> frame_buffer = nullptr;
-    webrtc::scoped_refptr<webrtc::I420BufferInterface> i420_buffer = nullptr;
+    webrtc::scoped_refptr<const webrtc::I420BufferInterface> i420_buffer = nullptr;
 
     if (buffer == nullptr || size == 0)
     {
@@ -514,7 +514,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     max_framerate = GET_CONFIG().webrtc_in_max_framerate;
     if (size == sizeof(NvBufSurface))
     {
-        frame_buffer = webrtc::scoped_refptr<NvVideoFrameBuffer>(*((webrtc::scoped_refptr<NvVideoFrameBuffer>*)buffer));
+        frame_buffer = *reinterpret_cast<const webrtc::scoped_refptr<NvVideoFrameBuffer>*>(buffer);
         buf_surf = (NvBufSurface *)frame_buffer->m_decodedData;
         width = buf_surf->surfaceList[0].width;
         height = buf_surf->surfaceList[0].height;
@@ -533,7 +533,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     }
     else
     {
-        i420_buffer = (webrtc::I420BufferInterface*)buffer;
+        i420_buffer = reinterpret_cast<const webrtc::I420BufferInterface*>(buffer);
         width  = i420_buffer->width ();
         height = i420_buffer->height();
     }
