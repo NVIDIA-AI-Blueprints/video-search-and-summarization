@@ -122,10 +122,11 @@ def generate_solve_script(platform: str) -> str:
         "# script simply asserts the VA-MCP endpoint is live, then defers.\n"
         "set -euo pipefail\n"
         "\n"
-        'code=$(curl -sf --max-time 5 -o /dev/null -w "%{http_code}" '
-        '"http://${HOST_IP:-localhost}:9901/mcp" || true)\n'
+        'VA_MCP_URL="${VA_MCP_URL:-http://${HOST_IP:-localhost}:9901}"\n'
+        'code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" '
+        '"${VA_MCP_URL%/}/health" || true)\n'
         'case "$code" in\n'
-        "    2*|3*|405|406) echo \"VA-MCP is live (HTTP $code) — verifier will drive queries.\" ;;\n"
+        "    2*|3*) echo \"VA-MCP is live (HTTP $code) — verifier will drive queries.\" ;;\n"
         "    *) echo \"VA-MCP not reachable (HTTP ${code:-000}) — cannot solve analytics task\"; exit 1 ;;\n"
         "esac\n"
     )
