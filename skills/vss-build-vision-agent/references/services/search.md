@@ -25,11 +25,15 @@
   REST query/browse surface over ES indices; the search-analytics service is the
   Behavior-Analytics container that produces `mdx-embed-filtered` and
   `mdx-behavior`. Both are in the Search Foundation's service set; do not
-  confuse or substitute one for the other. `vss-video-analytics-api-fusion` is the
-  `vss-video-analytics-api` container under the search profile — a singleton whose
-  key varies by Foundation; a build uses its selected Foundation's key and never a
-  second key for the same container. Select `vss-video-analytics-api-fusion` only
-  when the Foundation is `search`.
+  confuse or substitute one for the other, and note their different lifecycles.
+  `vss-search-analytics-2d-fusion` is on the write/index path — retain it whenever
+  detection metadata or embeddings are indexed. The analytics API
+  (`vss-video-analytics-api-fusion`, the `vss-video-analytics-api` container) is an
+  **exposed read surface**: like the ingress, include it only when the request asks
+  to expose a query/browse/REST-API surface, and prune it otherwise even though the
+  Foundation ships it. When included it is a per-Foundation singleton — use the
+  selected Foundation's key, never a second key for the same container; on `search`
+  that key is `vss-video-analytics-api-fusion`.
 
 ## Write-path topic flow
 

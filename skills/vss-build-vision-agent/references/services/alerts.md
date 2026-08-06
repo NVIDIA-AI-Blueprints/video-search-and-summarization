@@ -8,10 +8,12 @@
 | Video-analytics MCP | `vss-va-mcp` |
 | Alerts analytics API | `vss-video-analytics-api-alerts` |
 
-`vss-video-analytics-api-alerts` is the `vss-video-analytics-api` container under
-the alerts profile — a singleton whose key varies by Foundation. A build uses its
-selected Foundation's key for this container and never adds a second key for it;
-select `vss-video-analytics-api-alerts` only when the Foundation is `alerts`.
+`vss-video-analytics-api-alerts` (the `vss-video-analytics-api` container under the
+alerts profile) is an **exposed read surface**: like the ingress, include it only
+when the request asks to expose a query/browse/REST-API surface, and prune it
+otherwise even though the Foundation ships it. When included it is a per-Foundation
+singleton — use the selected Foundation's key, never a second key for the same
+container; on `alerts` that key is `vss-video-analytics-api-alerts`.
 
 ## Required peers
 
@@ -58,7 +60,7 @@ real-time alerts, and do not route CV verification through the real-time rule pa
 | `ALERT_BRIDGE_HOST_PORT`, `ALERT_BRIDGE_PORT` | Publish and bind the alert API. |
 | `VLM_BASE_URL`, `VLM_NAME`, `VLM_MODE` | Configure the verification VLM. |
 | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE` | Configure real-time VLM alerts. |
-| `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` | Select mounted verifier/rule configs. |
+| `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` | Select mounted verifier/rule configs. An `alert-bridge` `2d_cv` delta on a Foundation that lacks them (e.g. `search`) must set `VLM_AS_VERIFIER_CONFIG_FILE` and `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` to the shipped `dev-profile-alerts/vlm-as-verifier/configs/{config.yml,alert_type_config.json}` so the mounts resolve to real files, never `/path/to/*`; `..._REALTIME` follows the alerts Foundation (`2d_cv` does not load it). |
 | `HOST_IP`, `EXTERNAL_IP`, `VST_INTERNAL_URL` | Configure media URL routing. |
 | `VSS_VA_MCP_HOST_PORT`, `VSS_VA_MCP_PORT`, `VSS_VA_MCP_CONFIG_FILE` | Configure video-analytics MCP. |
 | `VIDEO_ANALYTICS_API_HOST_PORT`, `VSS_VIDEO_ANALYTICS_API_IMAGE`, `VSS_VIDEO_ANALYTICS_API_TAG` | Configure the alerts analytics API. |
