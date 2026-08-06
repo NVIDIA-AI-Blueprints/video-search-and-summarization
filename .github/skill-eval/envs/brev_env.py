@@ -14,7 +14,8 @@ Task.toml [metadata] fields consumed:
     gpu_type              — e.g. "L40S", "H100", "RTX PRO 6000"
     gpu_count             — 1 or 2
     min_vram_gb_per_gpu   — e.g. 48, 80
-    min_root_disk_gb      — root-disk floor enforced post-resolve
+    min_root_disk_gb      — storage-filesystem size floor post-resolve
+    min_root_disk_free_gb — optional free-space floor on Docker storage
     min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
     nemoclaw_sample_files — (optional) allowlisted sample MP4s staged into
@@ -614,6 +615,9 @@ class BrevEnvironment(BaseEnvironment):
             "gpu_count": int(meta.get("gpu_count", 1)),
             "min_vram_gb_per_gpu": int(meta.get("min_vram_gb_per_gpu", 0)),
             "min_root_disk_gb": int(meta.get("min_root_disk_gb", 0)),
+            "min_root_disk_free_gb": int(
+                meta.get("min_root_disk_free_gb", 0)
+            ),
             "min_gpu_driver_version": meta.get("min_gpu_driver_version"),
         }
 
@@ -4246,38 +4250,91 @@ def _parse_df_size_gb(output: str | None) -> int | None:
     return None
 
 
+def _parse_df_sizes_gb(output: str | None) -> list[int]:
+    """Return standalone ``df -BG`` values, ignoring transport suffixes."""
+    values: list[int] = []
+    for line in (output or "").splitlines():
+        value = line.strip()
+        if value.endswith("G"):
+            value = value[:-1].strip()
+        if value.isdigit():
+            values.append(int(value))
+    return values
+
+
 async def _check_live_resources(instance_name: str, req: dict) -> None:
-    """SSH into the instance and verify root disk + driver meet requirements."""
+    """SSH into the instance and verify storage + driver requirements."""
     min_disk = req.get("min_root_disk_gb", 0)
+    min_free_disk = req.get("min_root_disk_free_gb", 0)
     min_driver = req.get("min_gpu_driver_version")
 
-    if min_disk:
-        # df -BG reports total in GB; strip trailing 'G'.
+    if min_disk or min_free_disk:
+        # Managed warm-pool tasks set a free-space floor. Probe the filesystem
+        # that actually backs Docker when it is locally visible; otherwise
+        # fall back to /. Generic tasks retain the legacy root-filesystem
+        # total-size contract.
+        if min_free_disk:
+            disk_command = (
+                "docker_root=$(docker info --format "
+                "'{{.DockerRootDir}}' 2>/dev/null | tail -1 || true); "
+                "target=/; "
+                "if [ -n \"$docker_root\" ] && [ -e \"$docker_root\" ]; "
+                "then target=$docker_root; fi; "
+                "df -BG -- \"$target\" | tail -1 | "
+                "awk '{print $2; print $4}'"
+            )
+        else:
+            disk_command = "df -BG / | tail -1 | awk '{print $2}'"
         result = await _run_brev_exec(
             instance_name,
-            "df -BG / | tail -1 | awk '{print $2}'",
+            disk_command,
             timeout=30,
         )
-        total_gb = (
-            _parse_df_size_gb(result.stdout)
+        disk_values = (
+            _parse_df_sizes_gb(result.stdout)
             if result.return_code == 0
-            else None
+            else []
+        )
+        total_gb = disk_values[0] if disk_values else None
+        storage_label = (
+            "Docker storage filesystem" if min_free_disk else "root disk"
         )
         if total_gb is None:
             raise RuntimeError(
-                f"Brev instance '{instance_name}' root disk could not be "
+                f"Brev instance '{instance_name}' {storage_label} could not be "
                 "determined: df returned no standalone GB size"
             )
         if total_gb < min_disk:
             raise RuntimeError(
-                f"Brev instance '{instance_name}' root disk is {total_gb} GB; "
+                f"Brev instance '{instance_name}' {storage_label} is "
+                f"{total_gb} GB; "
                 f"task requires at least {min_disk} GB (for NIM images + VSS "
                 f"containers). Delete and reprovision with a larger-root "
                 f"instance type."
             )
+        if min_free_disk:
+            free_gb = disk_values[1] if len(disk_values) > 1 else None
+            if free_gb is None:
+                raise RuntimeError(
+                    f"Brev instance '{instance_name}' Docker storage free "
+                    "space could not be determined: df returned no standalone "
+                    "available-GB size"
+                )
+            if free_gb < min_free_disk:
+                raise RuntimeError(
+                    f"Brev instance '{instance_name}' Docker storage has "
+                    f"{free_gb} GB free; task requires at least "
+                    f"{min_free_disk} GB free for VSS containers. Clear "
+                    "unused Docker data or select another worker."
+                )
         logger.info(
-            "Instance '%s' root disk: %s GB (>= required %s GB)",
-            instance_name, total_gb, min_disk,
+            "Instance '%s' storage: total=%s GB free=%s GB "
+            "(required total=%s GB free=%s GB)",
+            instance_name,
+            total_gb,
+            disk_values[1] if len(disk_values) > 1 else "not-probed",
+            min_disk,
+            min_free_disk,
         )
 
     if min_driver:

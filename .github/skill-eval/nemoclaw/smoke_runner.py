@@ -63,6 +63,9 @@ ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
 ATTEMPT_OWNER_FILE = "nemoclaw-attempt-owner"
 ATTEMPT_OWNER_PROBE_ATTEMPTS = 3
 ATTEMPT_OWNER_PROBE_RETRY_DELAY_S = 3
+BREV_POOL_STORAGE_CONTRACT_ENV = "NEMOCLAW_BREV_POOL_STORAGE_CONTRACT"
+BREV_POOL_MIN_STORAGE_GB = 110
+BREV_POOL_MIN_FREE_STORAGE_GB = 20
 _REGISTERED_WORKERS: set[str] = set()
 
 PLATFORM_TASK = {
@@ -1044,6 +1047,13 @@ def _wrap_task_for_nemoclaw(
         "requires_mcp": True,
         "expected_skill": skill,
     }
+    if _env_flag(BREV_POOL_STORAGE_CONTRACT_ENV, default=False):
+        metadata_updates.update(
+            {
+                "min_root_disk_gb": BREV_POOL_MIN_STORAGE_GB,
+                "min_root_disk_free_gb": BREV_POOL_MIN_FREE_STORAGE_GB,
+            }
+        )
     required_mcp_tools: list[str] = []
     if deployment_profile:
         metadata_updates["deployment_profile"] = deployment_profile
@@ -2628,6 +2638,10 @@ def _worker_bound_setup_message(first_line: str, instance: str) -> bool:
             f"Brev instance '{instance}' does not meet task requirements:",
             f"Brev instance '{instance}' root disk is ",
             f"Brev instance '{instance}' root disk could not be determined:",
+            f"Brev instance '{instance}' Docker storage filesystem is ",
+            f"Brev instance '{instance}' Docker storage filesystem could not be determined:",
+            f"Brev instance '{instance}' Docker storage has ",
+            f"Brev instance '{instance}' Docker storage free space could not be determined:",
             f"Brev instance '{instance}' has NVIDIA driver ",
             f"Cannot reach Brev instance '{instance}':",
             f"Unexpected response from instance '{instance}':",
