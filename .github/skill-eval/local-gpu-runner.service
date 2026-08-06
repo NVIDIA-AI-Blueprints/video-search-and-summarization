@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=VSS skill-eval GitHub Actions GPU runner
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/actions-runner
+ExecStart=/opt/actions-runner/supervise.sh
+Restart=always
+RestartSec=10s
+KillMode=control-group
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=multi-user.target

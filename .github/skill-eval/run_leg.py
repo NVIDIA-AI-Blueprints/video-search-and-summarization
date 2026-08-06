@@ -30,7 +30,6 @@ import errno
 import fcntl
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
@@ -39,6 +38,7 @@ import sys
 import tempfile
 import time
 import urllib.parse
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -51,10 +51,14 @@ RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
 # its spec metadata declares gpu_type that matches GEFORCE RTX 4090.
 RTX4090_ALL_TESTS: frozenset[str] = frozenset()
 RTX4090_TESTS: dict[str, frozenset[str]] = {}
-# Shared root served by the coordinator's persistent `harbor-view.service`
-# (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
-# the host, not per leg, so every leg publishes its trials in here.
+# Root served by `harbor view`. Coordinators retain the historical local
+# default. Direct GPU runners must override it with a private shared POSIX/NFS
+# mount and pass the activation preflight before they can accept a job.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
+VIEWER_OWNER_MARKER = ".vss-skill-eval-viewer-job"
+VIEWER_ACTIVE_MARKER = ".vss-skill-eval-publishing"
+VIEWER_RETENTION_LOCK = ".vss-skill-eval-retention.lock"
+TRACE_FAILURES_FILE = "trace-publish-failures.tsv"
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
 # 600-second base used by Harbor for environment build and verification; these
@@ -344,6 +348,33 @@ def build_harbor_command(
 
 def harbor_env(instance: str) -> dict[str, str]:
     env = os.environ.copy()
+    # Harbor and the evaluated agent do not need GitHub's job/runner
+    # credentials. Keep only the non-secret GitHub identifiers used for
+    # result scoping; otherwise a tool call inside a trial can inherit the
+    # workflow token or Actions service credentials.
+    for key in tuple(env):
+        if (
+            key in {
+                "CI_ANTHROPIC_API_KEY",
+                "GH_CONFIG_DIR",
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "SYSTEM_ACCESSTOKEN",
+            }
+            or key.startswith("ACTIONS_")
+            or (
+                key.startswith("RUNNER_")
+                and key != "RUNNER_TRACKING_ID"
+            )
+            or (
+                key.startswith("GITHUB_")
+                and key not in {"GITHUB_RUN_ID", "GITHUB_WORKSPACE"}
+            )
+        ):
+            env.pop(key, None)
+    if env.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        env.pop("SSH_AGENT_PID", None)
+        env.pop("SSH_AUTH_SOCK", None)
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
     pythonpath = env.get("PYTHONPATH", "")
@@ -367,6 +398,7 @@ def harbor_env(instance: str) -> dict[str, str]:
     env["BREV_TRANSFER_TOTAL_TIMEOUT_SEC"] = str(
         HARBOR_TRANSFER_OPERATION_BUDGET_SEC
     )
+    env["IS_SANDBOX"] = "1"
     return env
 
 
@@ -438,6 +470,7 @@ def _list_brev_instances() -> list[dict]:
             proc = subprocess.run(
                 ["brev", "ls", "--json"],
                 capture_output=True, text=True, timeout=60,
+                check=False,
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             print(f"[run-leg] brev ls failed (attempt {attempt + 1}): {exc}", flush=True)
@@ -466,6 +499,7 @@ def _list_registered_nodes() -> list[dict]:
             proc = subprocess.run(
                 ["brev", "ls", "nodes", "--json"],
                 capture_output=True, text=True, timeout=60,
+                check=False,
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             print(
@@ -938,7 +972,7 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
     cleanup_started = False
     previous_handlers: dict[signal.Signals, object] = {}
 
-    def forward_external_signal(signum, _frame):  # noqa: ANN001
+    def forward_external_signal(signum, _frame):
         nonlocal cleanup_started, pending_signal
         # Install before Popen to close the parent-signal race. If a signal
         # lands while Popen is still constructing the child, remember it and
@@ -1058,6 +1092,10 @@ def _coordinator_env_id() -> str | None:
     Never derive this from `brev ls`: that yields a per-trial instance id,
     and the resulting URL points at a subdomain with no viewer behind it.
     """
+    if os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        # Direct GPU runners publish normal workflow artifacts but do not
+        # host the coordinator's persistent harbor-view service.
+        return None
     env_id = os.environ.get("BREV_ENV_ID", "").strip()
     if env_id:
         return env_id
@@ -1069,6 +1107,131 @@ def _coordinator_env_id() -> str | None:
     except OSError:
         pass
     return None
+
+
+def _viewer_root() -> Path:
+    configured = os.environ.get("SKILL_EVAL_VIEWER_ROOT", "").strip()
+    root = Path(configured) if configured else VIEWER_ROOT
+    if not root.is_absolute():
+        raise ValueError("SKILL_EVAL_VIEWER_ROOT must be an absolute path")
+    return root
+
+
+def _viewer_shared_requested() -> bool:
+    raw = os.environ.get("SKILL_EVAL_VIEWER_SHARED", "").strip()
+    if not raw:
+        return False
+    if raw not in {"0", "1"}:
+        raise ValueError("SKILL_EVAL_VIEWER_SHARED must be 0 or 1")
+    return raw == "1"
+
+
+def _viewer_retention_days() -> int | None:
+    raw = os.environ.get("SKILL_EVAL_VIEWER_RETENTION_DAYS", "").strip()
+    if not raw:
+        return None
+    try:
+        days = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "SKILL_EVAL_VIEWER_RETENTION_DAYS must be an integer"
+        ) from exc
+    if not 1 <= days <= 3650:
+        raise ValueError(
+            "SKILL_EVAL_VIEWER_RETENTION_DAYS must be between 1 and 3650"
+        )
+    return days
+
+
+def _configured_viewer_base_url() -> str | None:
+    configured = os.environ.get("SKILL_EVAL_VIEWER_BASE_URL", "").strip()
+    if configured:
+        parsed = urllib.parse.urlsplit(configured)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "SKILL_EVAL_VIEWER_BASE_URL must be an http(s) origin "
+                "without query or fragment"
+            )
+        return configured.rstrip("/")
+    if os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        # A direct runner never derives a per-box URL. Its activation hook
+        # requires the central URL before the listener may accept work.
+        return None
+    env_id = _coordinator_env_id()
+    return f"https://harbor-{env_id}.brevlab.com" if env_id else None
+
+
+def preflight_viewer_storage(
+    root: Path | None = None,
+    *,
+    shared_required: bool | None = None,
+) -> Path:
+    """Validate viewer storage and perform a write/read/delete probe."""
+    root = root or _viewer_root()
+    shared = (
+        _viewer_shared_requested()
+        if shared_required is None
+        else shared_required
+    )
+    if shared:
+        if not root.is_dir():
+            raise RuntimeError(f"shared viewer root is not a directory: {root}")
+        if not os.path.ismount(root):
+            raise RuntimeError(f"shared viewer root is not a mount point: {root}")
+    else:
+        root.mkdir(parents=True, exist_ok=True)
+
+    probe_path: Path | None = None
+    payload = f"vss-skill-eval-viewer-probe:{os.getpid()}:{time.time_ns()}\n"
+    try:
+        descriptor, name = tempfile.mkstemp(
+            prefix=".vss-viewer-probe-",
+            dir=root,
+        )
+        probe_path = Path(name)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if probe_path.read_text(encoding="utf-8") != payload:
+            raise RuntimeError(f"viewer storage readback mismatch: {root}")
+    except OSError as exc:
+        raise RuntimeError(f"viewer storage probe failed for {root}: {exc}") from exc
+    finally:
+        if probe_path is not None:
+            with contextlib.suppress(OSError):
+                probe_path.unlink()
+    return root
+
+
+def validate_direct_viewer_gate() -> None:
+    """Fail closed before direct-runner Harbor work without central viewer."""
+    if not os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        return
+    if not os.environ.get("SKILL_EVAL_VIEWER_ROOT", "").strip():
+        raise RuntimeError(
+            "direct GPU runner requires SKILL_EVAL_VIEWER_ROOT"
+        )
+    if not _viewer_shared_requested():
+        raise RuntimeError(
+            "direct GPU runner requires SKILL_EVAL_VIEWER_SHARED=1"
+        )
+    if not _configured_viewer_base_url():
+        raise RuntimeError(
+            "direct GPU runner requires SKILL_EVAL_VIEWER_BASE_URL"
+        )
+    if _viewer_retention_days() is None:
+        raise RuntimeError(
+            "direct GPU runner requires SKILL_EVAL_VIEWER_RETENTION_DAYS"
+        )
+    preflight_viewer_storage(shared_required=True)
 
 
 def trace_url(result_json: Path, job_name: str) -> str | None:
@@ -1084,8 +1247,8 @@ def trace_url(result_json: Path, job_name: str) -> str | None:
     That failure mode is indistinguishable from missing trace data, which is
     why the URL is built here instead of being assembled by hand.
     """
-    env_id = _coordinator_env_id()
-    if not env_id:
+    base_url = _configured_viewer_base_url()
+    if not base_url:
         return None
     try:
         data = json.loads(result_json.read_text())
@@ -1105,7 +1268,40 @@ def trace_url(result_json: Path, job_name: str) -> str | None:
     # safe="" so the slashes inside <model> and <task> encode as %2F — the
     # viewer expects them as single path segments, not extra path levels.
     encoded = "/".join(urllib.parse.quote(str(part), safe="") for part in parts)
-    return f"https://harbor-{env_id}.brevlab.com/jobs/{job_name}/tasks/{encoded}"
+    return f"{base_url}/jobs/{job_name}/tasks/{encoded}"
+
+
+def prune_viewer_root(
+    root: Path,
+    current_job: Path,
+    retention_days: int | None,
+) -> None:
+    """Delete only owned, inactive viewer jobs older than the opt-in policy."""
+    if retention_days is None:
+        return
+    cutoff = time.time() - retention_days * 86400
+    lock_path = root / VIEWER_RETENTION_LOCK
+    with lock_path.open("a") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        for candidate in root.iterdir():
+            if (
+                not candidate.is_dir()
+                or candidate == current_job
+                or candidate.name.startswith(".")
+                or not (candidate / VIEWER_OWNER_MARKER).is_file()
+                or (candidate / VIEWER_ACTIVE_MARKER).exists()
+            ):
+                continue
+            try:
+                if candidate.stat().st_mtime < cutoff:
+                    shutil.rmtree(candidate)
+                    print(
+                        f"[run-leg] viewer retention removed: {candidate}",
+                        flush=True,
+                    )
+            except FileNotFoundError:
+                # Another host may have removed it after our directory scan.
+                continue
 
 
 def publish_trace(
@@ -1132,13 +1328,21 @@ def publish_trace(
     trial_dir = max(matches, key=lambda path: path.stat().st_mtime)
     date_dir = trial_dir.parent
     job_name = f"{leg_slug}__{run_id}__{date_dir.name}"
-    viewer_job = VIEWER_ROOT / job_name
+    viewer_root = preflight_viewer_storage()
+    viewer_job = viewer_root / job_name
     viewer_job.mkdir(parents=True, exist_ok=True)
+    (viewer_job / VIEWER_OWNER_MARKER).touch(exist_ok=True)
+    active_marker = viewer_job / VIEWER_ACTIVE_MARKER
+    active_marker.touch(exist_ok=True)
     # Copy (never move) the date dir's *contents*: the workflow's "Collect
     # results" step runs after this and tars results_root for the artifact,
     # and copying the dir itself would nest a later trial under
     # <job>/<date>/ where the viewer cannot see it.
-    shutil.copytree(date_dir, viewer_job, dirs_exist_ok=True)
+    try:
+        shutil.copytree(date_dir, viewer_job, dirs_exist_ok=True)
+    finally:
+        with contextlib.suppress(OSError):
+            active_marker.unlink()
     url = trace_url(trial_dir / "result.json", job_name)
     if url:
         with (results_root / "trace-urls.tsv").open("a") as handle:
@@ -1149,7 +1353,54 @@ def publish_trace(
             f"[run-leg] trace: {invocation.include_task_name} -> {url}",
             flush=True,
         )
+    try:
+        prune_viewer_root(
+            viewer_root,
+            viewer_job,
+            _viewer_retention_days(),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        # Retention is maintenance, not publication correctness. Keep the
+        # trace and surface the cleanup failure for the operator.
+        print(
+            f"[run-leg] WARNING: viewer retention failed: {exc!r}",
+            flush=True,
+        )
     return url
+
+
+def publish_trace_safely(
+    results_root: Path,
+    invocation: HarborInvocation,
+    started_at: float,
+    leg_slug: str,
+    run_id: str,
+) -> str | None:
+    """Publish a trace without changing the evaluation verdict on failure."""
+    try:
+        return publish_trace(
+            results_root,
+            invocation,
+            started_at,
+            leg_slug,
+            run_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        results_root.mkdir(parents=True, exist_ok=True)
+        marker = results_root / TRACE_FAILURES_FILE
+        detail = str(exc).replace("\t", " ").replace("\n", " ")
+        with marker.open("a", encoding="utf-8") as handle:
+            handle.write(
+                f"{invocation.include_task_name}\t"
+                f"{type(exc).__name__}\t{detail}\n"
+            )
+        print(
+            "::warning title=Harbor trace publication failed::"
+            f"{invocation.include_task_name}: {detail}",
+            flush=True,
+        )
+        print(f"[run-leg] trace failure marker: {marker}", flush=True)
+        return None
 
 
 def _reward_value(reward: str | None) -> float:
@@ -1195,6 +1446,11 @@ def run_invocations(
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
 ) -> int:
+    try:
+        validate_direct_viewer_gate()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"FATAL: central Harbor viewer gate failed: {exc}", file=sys.stderr)
+        return 1
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
     # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
@@ -1272,12 +1528,13 @@ def run_invocations(
         rc = run_command(cmd, env, harbor_timeout_sec)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
-        try:
-            publish_trace(results_root, invocation, started_at, leg_slug, run_id)
-        except Exception as exc:  # noqa: BLE001
-            # A trace link is reporting convenience; the verdict comes from
-            # reward.txt. Never let a viewer-publish error fail the leg.
-            print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
+        publish_trace_safely(
+            results_root,
+            invocation,
+            started_at,
+            leg_slug,
+            run_id,
+        )
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
@@ -1380,9 +1637,9 @@ def main(argv: list[str] | None = None) -> int:
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)
-            candidates_fn = lambda: [pinned]  # noqa: E731
+            candidates_fn = lambda: [pinned]
         else:
-            candidates_fn = (  # noqa: E731
+            candidates_fn = (
                 lambda: pool_candidates(metadata, args.spec_stem)
             )
         try:

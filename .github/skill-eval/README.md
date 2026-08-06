@@ -6,8 +6,8 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
-3. Selects an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
-4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
+3. Pins a supported per-PR leg to its hardware-labelled direct GPU runner, or selects an operator-managed `vss-eval-*` pool member through the coordinator fallback. Daily broad-hardware evaluation always keeps the coordinator/locking path.
+4. Calls [`run_leg.py`](run_leg.py), which executes locally on a direct GPU runner or acquires and holds the per-instance `flock` on the coordinator path. Both modes invoke Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 
@@ -48,6 +48,10 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
 | `HF_TOKEN` | Required by the Edge 4B vLLM on SPARK / Thor `shared` mode |
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
+| `SKILL_EVAL_VIEWER_ROOT` | Central Harbor viewer POSIX/NFS mount. Optional on coordinators; required on direct GPU runners. |
+| `SKILL_EVAL_VIEWER_BASE_URL` | Browser origin for the central viewer. Direct runners never derive a per-box URL. |
+| `SKILL_EVAL_VIEWER_SHARED` | Set to `1` for the shared-mount preflight. Required on direct runners. |
+| `SKILL_EVAL_VIEWER_RETENTION_DAYS` | Explicit 1–3650 day retention for newly published viewer jobs. No destructive default. |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
 
@@ -210,13 +214,13 @@ python3 .github/skill-eval/run_leg.py \
     └── claude-code.txt   ← agent trace
 ```
 
-`run_leg.py` publishes each finished trial into the viewer dir itself
-(copying, not moving — the workflow's collector still tars the leg's
-results root afterwards) and appends the browsable URL to
+`run_leg.py` publishes each finished trial into the configured viewer root
+(copying, not moving — the workflow's collector still tars the leg's results
+root afterwards) and appends the browsable URL to
 `<results-root>/trace-urls.tsv`:
 
 ```
-step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.brevlab.com/jobs/<job>/tasks/<source>/<agent>/<provider>/<model>/<task>
+step-7	step-7__E6dBECL	<SKILL_EVAL_VIEWER_BASE_URL>/jobs/<job>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
 Open the URL from that file rather than composing one: the trailing
@@ -225,13 +229,36 @@ Open the URL from that file rather than composing one: the trailing
 viewer is an SPA that renders a wrong path as a **blank page**, never
 a 404.
 
-`harbor view` runs persistently on the CI runner host. If it's down:
+Coordinator compatibility retains the local
+`/tmp/skill-eval/results/_viewer` root and
+`https://harbor-<BREV_ENV_ID>.brevlab.com` fallback. Direct GPU runners use
+option B: one always-on `harbor view` on a Brev host, backed by a private
+POSIX/NFS mount reachable through Brev/NetBird. The runner job-start hook and
+`run_leg.py` both require that exact root to be mounted and writable.
+
+Viewer publication errors do not change the eval reward. They produce an
+Actions warning and `<results-root>/trace-publish-failures.tsv`. Retention is
+opt-in via `SKILL_EVAL_VIEWER_RETENTION_DAYS`; only repository-owned, inactive
+job directories are eligible, so existing history is left for a separate
+operator migration.
+
+The shared viewer copy may retain `agent/` only on the private Brev NFS host for
+Harbor's Trace tab. Workflow artifacts continue to exclude it; never publish
+that directory externally.
+
+The coordinator's existing local viewer can still be started with:
 
 ```bash
 nohup uvx --python 3.12 --from 'harbor==0.20.0' harbor view /tmp/skill-eval/results/_viewer --jobs \
   --host 0.0.0.0 --port 8080 > /tmp/harbor-view.log 2>&1 &
 disown
 ```
+
+Before direct-runner activation, operators must still choose and provision the
+always-on Brev NFS/viewer host, deploy the mount to all seven GPU VMs, publish
+the central URL through a tunnel or internal DNS, choose the retention value,
+and separately decide whether old trace history should be migrated. The
+repository intentionally does not provision or guess any of those values.
 
 ## Troubleshooting
 
