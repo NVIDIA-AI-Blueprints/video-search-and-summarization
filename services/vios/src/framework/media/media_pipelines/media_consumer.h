@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -186,7 +186,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         }
 
         // Constructor with consumer name - preferred way
-        IMediaDataConsumer(const std::string& consumerName) : m_consumerName(consumerName)
+        explicit IMediaDataConsumer(const std::string& consumerName) : m_consumerName(consumerName)
         {
             m_transcodeStats.setElementName(m_consumerName);
         }

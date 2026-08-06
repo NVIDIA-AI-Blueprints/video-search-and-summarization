@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,7 +33,7 @@ class EncoderQueue;
 class NvEncoderVideoConsumer : public IMediaDataConsumer
 {
     public:
-        NvEncoderVideoConsumer (const std::string& consumer_name);
+        explicit NvEncoderVideoConsumer (const std::string& consumer_name);
         NvEncoderVideoConsumer (const std::string& consumer_name, double frame_rate, std::string peerId_streamId, bool enable_frame_sync = false);
         ~NvEncoderVideoConsumer ();
         void stopEncoder();

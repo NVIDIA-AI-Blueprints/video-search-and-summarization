@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -78,7 +78,7 @@ struct GridLayout {
 class NvCompositor : public IMediaDataConsumer
 {
 public:
-    NvCompositor(const GridLayout& gridLayout); // Constructor that extracts URLs from GridLayout
+    explicit NvCompositor(const GridLayout& gridLayout); // Constructor that extracts URLs from GridLayout
     ~NvCompositor();
 
     void doCompositeTask();

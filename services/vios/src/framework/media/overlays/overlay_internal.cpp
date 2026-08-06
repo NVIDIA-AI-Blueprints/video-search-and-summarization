@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -3253,8 +3253,7 @@ void NvLLOverlayInternal::readCalibrationData()
     LOG(info) << "Recentering: " << recentering << endl;
 
     {
-        std::lock_guard<std::mutex> guard_id(m_idLock);
-        std::lock_guard<std::mutex> guard_classType(m_classTypeLock);
+        std::scoped_lock guard(m_idLock, m_classTypeLock);
         if (find(m_idList[BBOX].begin(), m_idList[BBOX].end(), "none") != m_idList[BBOX].end() &&
             find(m_classTypeList.begin(), m_classTypeList.end(), "none") != m_classTypeList.end())
         {
