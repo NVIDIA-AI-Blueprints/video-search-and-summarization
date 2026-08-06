@@ -2767,6 +2767,357 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Nested dotenv files must be removed", command)
 
 
+class CoordinatorRepoArchive(unittest.IsolatedAsyncioTestCase):
+
+    @staticmethod
+    def _git(repo: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+
+    def _make_repo(self, root: Path) -> tuple[Path, str]:
+        repo = root / "coordinator"
+        repo.mkdir()
+        self._git(repo, "init", "--quiet")
+        self._git(repo, "config", "user.email", "skill-eval@example.test")
+        self._git(repo, "config", "user.name", "Skill Eval Test")
+        (repo / "README.md").write_text("first\n", encoding="utf-8")
+        self._git(repo, "add", "README.md")
+        self._git(repo, "commit", "--quiet", "-m", "first")
+        first_sha = self._git(repo, "rev-parse", "HEAD")
+
+        executable = repo / "run.sh"
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o755)
+        (repo / "current-readme").symlink_to("README.md")
+        self._git(repo, "add", "run.sh", "current-readme")
+        # A gitlink proves that the transfer preserves Git's submodule object
+        # contract rather than flattening the checkout into ordinary files.
+        self._git(
+            repo,
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "160000",
+            first_sha,
+            "vendor/dependency",
+        )
+        self._git(repo, "commit", "--quiet", "-m", "exact head")
+        return repo, self._git(repo, "rev-parse", "HEAD")
+
+    async def test_archive_is_clonable_shallow_exact_git_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, head = self._make_repo(root)
+            archive = root / "repo-source.tar.gz"
+            (repo / "README.md").write_text(
+                "dirty coordinator content\n",
+                encoding="utf-8",
+            )
+            (repo / "untracked-secret.txt").write_text(
+                "must not transfer\n",
+                encoding="utf-8",
+            )
+
+            built = await brev_env._build_exact_head_repo_archive(
+                repo_root=repo,
+                pr_head_sha=head,
+                archive_path=archive,
+            )
+
+            self.assertTrue(built)
+            self.assertTrue(archive.is_file())
+            extracted = root / "extracted"
+            extracted.mkdir()
+            subprocess.run(
+                ["tar", "-xzf", str(archive), "-C", str(extracted)],
+                check=True,
+            )
+            bare_repo = extracted / "exact.git"
+            self.assertEqual(
+                self._git(
+                    bare_repo,
+                    "rev-parse",
+                    f"{brev_env.COORDINATOR_REPO_ARCHIVE_REF}^{{commit}}",
+                ),
+                head,
+            )
+            self.assertIn(
+                head,
+                (bare_repo / "shallow").read_text(encoding="utf-8").splitlines(),
+            )
+            self.assertFalse((bare_repo / "FETCH_HEAD").exists())
+            self.assertFalse((bare_repo / "objects" / "info" / "alternates").exists())
+
+            clone = root / "worker"
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--quiet",
+                    "--depth=1",
+                    "--branch",
+                    brev_env.COORDINATOR_REPO_ARCHIVE_REF.removeprefix(
+                        "refs/heads/"
+                    ),
+                    bare_repo.resolve().as_uri(),
+                    str(clone),
+                ],
+                check=True,
+            )
+            self.assertEqual(self._git(clone, "rev-parse", "HEAD"), head)
+            self.assertEqual(self._git(clone, "rev-list", "--count", "HEAD"), "1")
+            self.assertEqual(
+                (clone / "README.md").read_text(encoding="utf-8"),
+                "first\n",
+            )
+            self.assertFalse((clone / "untracked-secret.txt").exists())
+            self.assertTrue((clone / "run.sh").stat().st_mode & 0o100)
+            self.assertTrue((clone / "current-readme").is_symlink())
+            gitlink = self._git(clone, "ls-tree", "HEAD", "vendor/dependency")
+            expected_gitlink = (
+                f"160000 commit {self._git(repo, 'rev-parse', 'HEAD^')}"
+                "\tvendor/dependency"
+            )
+            self.assertEqual(gitlink, expected_gitlink)
+            bare_config = self._git(bare_repo, "config", "--local", "--list")
+            self.assertNotIn("extraheader", bare_config.lower())
+            self.assertNotIn("credential", bare_config.lower())
+            self.assertNotIn(str(repo.resolve()), bare_config)
+
+    async def test_archive_refuses_non_exact_or_abbreviated_head(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, head = self._make_repo(root)
+            for requested in (head[:-1] + ("0" if head[-1] != "0" else "1"), head[:12]):
+                archive = root / f"{len(requested)}.tar.gz"
+                self.assertFalse(
+                    await brev_env._build_exact_head_repo_archive(
+                        repo_root=repo,
+                        pr_head_sha=requested,
+                        archive_path=archive,
+                    )
+                )
+                self.assertFalse(archive.exists())
+
+    async def test_repo_sync_prefers_coordinator_archive_and_verifies_head(self):
+        calls = []
+        uploads = []
+        worker_home = None
+
+        async def fake_upload_file(source, target):
+            uploads.append((Path(source), Path(target)))
+            Path(target).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            self.assertIsNotNone(worker_home)
+            # The test checkout is user-owned, so remove only the sudo command
+            # prefix while exercising the otherwise exact worker shell script.
+            completed = subprocess.run(
+                ["bash", "-c", command.replace("sudo ", "")],
+                env={**os.environ, "HOME": str(worker_home)},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+            return brev_env.ExecResult(
+                stdout=completed.stdout,
+                stderr=completed.stderr,
+                return_code=completed.returncode,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, head = self._make_repo(root)
+            worker_home = root / "worker-home"
+            worker_repo = worker_home / "video-search-and-summarization"
+            (worker_repo / "data").mkdir(parents=True)
+            (worker_repo / "data" / "sample.cache").write_text(
+                "sample cache\n",
+                encoding="utf-8",
+            )
+            (worker_repo / ".mdx_data" / "models").mkdir(parents=True)
+            (worker_repo / ".mdx_data" / "models" / "model.cache").write_text(
+                "model cache\n",
+                encoding="utf-8",
+            )
+            (worker_repo / ".env").write_text("ACTIVE=1\n", encoding="utf-8")
+            (worker_repo / "stale.txt").write_text("stale\n", encoding="utf-8")
+            stale_hook = worker_repo / ".git" / "hooks" / "post-checkout"
+            stale_hook.parent.mkdir(parents=True)
+            stale_hook.write_text(
+                "#!/bin/sh\ntouch \"$HOME/stale-hook-fired\"\n",
+                encoding="utf-8",
+            )
+            stale_hook.chmod(0o755)
+
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock(side_effect=fake_upload_file)
+            with mock.patch.object(
+                brev_env,
+                "_coordinator_repo_root",
+                return_value=repo,
+            ), mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=fake_run_brev_exec,
+            ), mock.patch.dict(
+                os.environ,
+                {
+                    "PR_HEAD_SHA": f"  {head.upper()}  ",
+                    "PR_REPO": (
+                        "NVIDIA-AI-Blueprints/"
+                        "video-search-and-summarization"
+                    ),
+                },
+            ):
+                await env._sync_repo_to_pr_head()
+
+            env.upload_file.assert_awaited_once()
+            self.assertEqual(self._git(worker_repo, "rev-parse", "HEAD"), head)
+            self.assertEqual(
+                (worker_repo / "data" / "sample.cache").read_text(
+                    encoding="utf-8"
+                ),
+                "sample cache\n",
+            )
+            self.assertEqual(
+                (
+                    worker_repo
+                    / ".mdx_data"
+                    / "models"
+                    / "model.cache"
+                ).read_text(encoding="utf-8"),
+                "model cache\n",
+            )
+            self.assertEqual(
+                (worker_repo / ".env").read_text(encoding="utf-8"),
+                "ACTIVE=1\n",
+            )
+            self.assertFalse((worker_repo / "stale.txt").exists())
+            self.assertFalse((worker_home / "stale-hook-fired").exists())
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(uploads), 1)
+        command = calls[0][1]
+        self.assertIn(f"PR_HEAD_SHA={head}", command)
+        self.assertIn('git fetch --depth=1 --no-tags "file://$BARE_REPO"', command)
+        self.assertIn('if [ "$(git rev-parse HEAD)" != "$PR_HEAD_SHA" ]', command)
+        self.assertIn("grep -Fqx \"$PR_HEAD_SHA\" \"$BARE_REPO/shallow\"", command)
+        self.assertNotIn('git fetch --depth=1 origin "$PR_HEAD_SHA"', command)
+        self.assertIn("export GIT_LFS_SKIP_SMUDGE=1", command)
+        self.assertIn("export GIT_CONFIG_GLOBAL=/dev/null", command)
+        self.assertIn("export GIT_CONFIG_SYSTEM=/dev/null", command)
+        self.assertIn('sudo rm -rf -- "$REPO/.git"', command)
+        self.assertIn("git -c init.templateDir= init \"$REPO\"", command)
+        self.assertIn("git config core.hooksPath /dev/null", command)
+        self.assertLess(
+            command.index('sudo rm -rf -- "$REPO/.git"'),
+            command.index('git fetch --depth=1 --no-tags "file://$BARE_REPO"'),
+        )
+        self.assertEqual(command.count("-e /.env"), 3)
+        self.assertEqual(command.count("-e /.mdx_data/models/"), 3)
+
+    async def test_repo_sync_fails_closed_after_archive_install_failure(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            if len(calls) == 1:
+                return brev_env.ExecResult(
+                    stdout="",
+                    stderr="local archive rejected",
+                    return_code=1,
+                )
+            return brev_env.ExecResult(
+                stdout="synced repo from github\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            repo, head = self._make_repo(Path(td))
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock()
+            with mock.patch.object(
+                brev_env,
+                "_coordinator_repo_root",
+                return_value=repo,
+            ), mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=fake_run_brev_exec,
+            ), mock.patch.dict(
+                os.environ,
+                {"PR_HEAD_SHA": head},
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "coordinator source install failed",
+                ):
+                    await env._sync_repo_to_pr_head()
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn('"file://$BARE_REPO"', calls[0][1])
+
+    async def test_repo_sync_uses_github_when_archive_transfer_is_unavailable(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="synced repo from github\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            repo, head = self._make_repo(Path(td))
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock(
+                side_effect=RuntimeError("copy timed out"),
+            )
+            with mock.patch.object(
+                brev_env,
+                "_coordinator_repo_root",
+                return_value=repo,
+            ), mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=fake_run_brev_exec,
+            ), mock.patch.dict(
+                os.environ,
+                {"PR_HEAD_SHA": head},
+            ):
+                await env._sync_repo_to_pr_head()
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn('git fetch --depth=1 origin "$PR_HEAD_SHA"', calls[0][1])
+        self.assertIn("export GIT_LFS_SKIP_SMUDGE=1", calls[0][1])
+
+
 class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_dir_copies_tarball_and_extracts_with_short_command(self):
