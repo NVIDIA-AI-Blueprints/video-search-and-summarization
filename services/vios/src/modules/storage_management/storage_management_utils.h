@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -69,7 +69,7 @@ VmsErrorCode addFile(std::shared_ptr<DeviceManager> deviceMngr, const Json::Valu
 VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr, const struct mg_request_info *req_info, struct mg_connection *conn, Json::Value &out, bool isPutUpload = false, const std::string& filename = "", const std::string& timestamp = "", const std::string& sensorId = "", bool isLegacyUpload = false);
 VmsErrorCode deleteFile(std::shared_ptr<DeviceManager> deviceMngr, const Json::Value &req_info, const Json::Value &in, Json::Value &out);
 VmsErrorCode checkMaxSensorsLimit(std::shared_ptr<DeviceManager> deviceMngr, Json::Value& response);
-int field_stored(const char *path, long long file_size, void *user_data);
+int field_stored(const char *path, long long file_size, FileData *data);
 int field_get(const char *key, const char *value, size_t valuelen, void *user_data);
 int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data);
 void addOrRemoveInProtectList(std::vector<VideoFileInfo>& files, bool removeOrAdd);

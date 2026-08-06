@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -374,15 +374,7 @@ int RtspServer::addProxy(const string& id, const string& name, string& url)
     proxiedStreamURL = url;
 
     // Check whether we already have a "ServerMediaSession" for t file, Remove it.
-    m_rtspServer->lookupServerMediaSession(streamName.c_str(),
-      +[](void* clientData, ServerMediaSession* sessionLookedUp)
-    {
-        RtspServer *rtspServer = (RtspServer*)clientData;
-        if (rtspServer)
-        {
-            rtspServer->m_sms = sessionLookedUp;
-        }
-    }, this, false);
+    m_sms = ((DynamicRTSPServer *)m_rtspServer)->getServerMediaSessionForStream(streamName.c_str());
 
     if (m_sms != nullptr)
     {
@@ -520,17 +512,11 @@ int RtspServer::removeProxy(const string& id)
     LOG(info) << "Removing stream: " << streamName << ", id:" << id << endl;
 
     // Remove ServerMediaSession for this stream.
-    m_rtspServer->lookupServerMediaSession(streamName.c_str(),
-      +[](void* clientData, ServerMediaSession* sessionLookedUp)
-    {
-        if(sessionLookedUp) {
-            RTSPServer *rtspServer = (RTSPServer*)clientData;
-            if (rtspServer)
-            {
-                rtspServer->deleteServerMediaSession(sessionLookedUp);
-            }
-        }
-    }, m_rtspServer, false);
+    ServerMediaSession* sessionLookedUp =
+        ((DynamicRTSPServer *)m_rtspServer)->getServerMediaSessionForStream(streamName.c_str());
+    if(sessionLookedUp) {
+        m_rtspServer->deleteServerMediaSession(sessionLookedUp);
+    }
 
     m_streamsList.erase(it);
 

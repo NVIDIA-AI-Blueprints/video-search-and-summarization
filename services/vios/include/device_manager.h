@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,6 +73,8 @@ namespace nv_vms {
 class ISensorControlInterface;
 class ISensorDiscoveryInterface;
 class SensorControl;
+
+typedef void (*destroyDiscoveryObject_t) (ISensorDiscoveryInterface*);
 
 typedef void (*cb_ptr_t)(const string, shared_ptr<struct SensorInfo>, bool);
 
@@ -361,7 +363,7 @@ struct DeviceManager
     bool needRecording;
     bool needStorageMngt;
     std::pair<ISensorControlInterface*, void*> m_sensorControlobjectPair;
-    std::vector<std::pair<ISensorDiscoveryInterface*, void*>> m_sensorDiscoveryObjectPairList;
+    std::vector<std::pair<ISensorDiscoveryInterface*, destroyDiscoveryObject_t>> m_sensorDiscoveryObjectPairList;
     int httpStatusCode;
     cb_ptr_t m_callback;
     private:

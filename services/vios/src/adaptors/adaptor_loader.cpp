@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -337,9 +337,9 @@ std::shared_ptr<DeviceManager> AdaptorLoader::loadAdaptor(ModuleId module_id)
                 int ret = loadDiscoveryAdaptorLibrary(path, &discoveryObject, &destroyObject);
                 if (ret == 0 && discoveryObject != nullptr && destroyObject != nullptr)
                 {
-                    std::pair<ISensorDiscoveryInterface*, void*> objects;
+                    std::pair<ISensorDiscoveryInterface*, destroyDiscoveryObject_t> objects;
                     objects.first = discoveryObject;
-                    objects.second = destroyObject;
+                    objects.second = reinterpret_cast<destroyDiscoveryObject_t>(destroyObject);
                     device_manager->m_sensorDiscoveryObjectPairList.push_back(objects);
                 }
             }

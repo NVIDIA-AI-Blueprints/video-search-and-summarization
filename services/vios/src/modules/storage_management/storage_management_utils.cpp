@@ -339,7 +339,7 @@ typedef struct {
 /* ---------------------------------------------------------------------------
 **  Civet mg_form_data_handler callback
 ** -------------------------------------------------------------------------*/
-int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data)
+int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data) // NOSONAR
 {
     struct FileData* data = (FileData *) user_data;
     if(!data)
@@ -416,7 +416,8 @@ int field_found(const char *key, const char *filename, char *path, size_t pathle
 	return MG_FORM_FIELD_STORAGE_GET;
 }
 
-int field_get(const char *key, const char *value, size_t valuelen, void *user_data)
+/* Parameter types are fixed by the civetweb mg_form_data_handler::field_get callback. */
+int field_get(const char *key, const char *value, size_t valuelen, void *user_data) // NOSONAR
 {
 	if ((key != nullptr) && (key[0] == '\0'))
     {
@@ -489,9 +490,8 @@ int field_get(const char *key, const char *value, size_t valuelen, void *user_da
 	return 0;
 }
 
-int field_stored(const char *path, long long file_size, void *user_data)
+int field_stored(const char *path, long long file_size, FileData *data)
 {
-    struct FileData* data = (FileData *) user_data;
     if(!data)
     {
         LOG(error) << "FileData is NULL" << endl;
@@ -1453,7 +1453,10 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
         }
 
         //assign form handler callbacks
-        struct mg_form_data_handler fdh = {field_found, field_get, field_stored, (void *)&data};
+        auto field_stored_cb = [](const char *path, long long file_size, void *user_data) {
+            return field_stored(path, file_size, static_cast<FileData *>(user_data));
+        };
+        struct mg_form_data_handler fdh = {field_found, field_get, field_stored_cb, (void *)&data};
 
         mg_handle_form_request(conn, &fdh);
     }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,7 +34,7 @@ class SensorManagement;
     {
     public:
         SensorMonitoring(SensorManagement* sensorMgmt,
-                           std::vector<std::pair<ISensorDiscoveryInterface*, void*>>& objs);
+                           std::vector<std::pair<ISensorDiscoveryInterface*, destroyDiscoveryObject_t>>& objs);
         virtual ~SensorMonitoring()
         {
             std::lock_guard<std::mutex> lock(m_discoveryObjectsLock);
@@ -46,7 +46,7 @@ class SensorManagement;
             for (auto item : m_sensorDiscoveryObjectPairList)
             {
                 ISensorDiscoveryInterface* discoveryObject = item.first;
-                destroyDiscoveryObject_t delObject = (destroyDiscoveryObject_t ) item.second;
+                destroyDiscoveryObject_t delObject = item.second;
                 if (delObject)
                 {
                     delObject(discoveryObject);
@@ -71,7 +71,7 @@ class SensorManagement;
         SensorManagement* m_sensorManagement;
         std::mutex m_sensorEventMutex;
         INotificationInterface* m_notifier;
-        std::vector<std::pair<ISensorDiscoveryInterface*, void*>> m_sensorDiscoveryObjectPairList;
+        std::vector<std::pair<ISensorDiscoveryInterface*, destroyDiscoveryObject_t>> m_sensorDiscoveryObjectPairList;
         std::vector<ISensorDiscoveryInterface*> m_discoveryObjects;
         std::mutex m_discoveryObjectsLock;
     };
