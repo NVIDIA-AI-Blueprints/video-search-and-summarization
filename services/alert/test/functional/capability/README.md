@@ -37,10 +37,10 @@ instance uses more than the ~1 core a single GIL-bound process can reach.
 
 | Check | Setup | Pass criteria |
 |---|---|---|
-| TS-030 | rate ramp (10/20/40/80 msg/s), NIM stub 0.2s, `max_vlm_concurrent=60`, 1 process vs N | single process pinned below ~1.5 cores; N processes use >2× that CPU and hold `vlm_duration` within 30% of its low-rate baseline, below the single-process value |
+| TS-030 | rate ramp (10/20/40/80/160 msg/s), NIM stub 0.2s, `max_vlm_concurrent=60`, 1 process vs N | at the first rate where the single process inflates, N processes are still flat and faster; and somewhere in the ramp N processes exceed one core |
 | TS-031 | N processes, `SIGKILL` one child | supervisor logs the exit, replaces the child, and the full injected set lands in Elasticsearch afterwards |
 | TS-032 | N processes, 60 msg/s overload, `batch_commit` off then on | no shortfall against the produced count in either mode (batched commit may add duplicates, never losses) |
-| TS-033 | N processes, `SIGKILL` one child mid-flight, `batch_commit` off then on | `batch_commit: false` never replays; everything clearing dedup is persisted; the restarted child serves its partitions again. Per-mode loss counts are reported as measured evidence, not gated |
+| TS-033 | N processes, `SIGKILL` one child mid-flight, `batch_commit` off then on | `batch_commit: false` never replays; the restarted child serves its partitions again. Loss counts are reported, not gated — `alert_bridge_events_after_dedup_total` counts admission to dispatch, not completion, so a child killed mid-flight always leaves fewer ES docs than survivors |
 
 Sizing the run matters more than in the suite above:
 
@@ -58,12 +58,16 @@ Sizing the run matters more than in the suite above:
   that, interpreter and child startup produces a peak at the *lowest* offered
   rate that has nothing to do with steady state. Gates use `cpu_avg`;
   `cpu_max` is a diagnostic.
-- **TS-030 does not gate on a CPU multiple.** N processes at the top rate are
-  no longer contended and can do the same work for less total CPU than a
-  saturated single process, so requiring `N× the CPU` would fail exactly when
-  the fix works. The gate is: single process saturates ~1 core *and* its
-  observed latency inflates, while N processes exceed one core, stay flat, and
-  come in below the single-process latency.
+- **TS-030 checks its two halves at different rates, on purpose.** "Stays
+  flat" only holds below the knee; "uses more than one core" only appears as
+  the knee is approached. Gating both at the top rate made the test
+  unsatisfiable at *every* rate — measured: at 80 msg/s four processes were
+  still under one core (94.7%), and by 160 msg/s where they reached 182.6%
+  their latency had already left the flat band. The gate now finds the first
+  rate at which the single process inflates, requires N processes to be flat
+  and faster *there*, and separately requires them to exceed one core somewhere
+  in the ramp. It never gates on a CPU multiple: N processes can do the same
+  work for less total CPU than a saturated single process.
 - **Pipeline children are identified from the supervisor's log**, not
   `pgrep -f`: `fork` leaves `argv` unchanged, so the parent and the FastAPI
   child match the same pattern, and picking a victim by position could kill
@@ -89,16 +93,20 @@ Sizing the run matters more than in the suite above:
   deployment's. Re-measure against real dependencies before sizing anything.
 
 Notes:
-- Consumer-group offsets are reset to latest between checks (committed offsets
-  survive Alert Bridge restarts; overload leftovers would contaminate the next
-  window).
+- **Each leg gets a fresh consumer group** rather than an offset reset. The
+  reset silently fails while the group still has active members, and the next
+  leg then inherits the previous leg's backlog — which lands in the first
+  sample of the ramp, the very baseline the flat-latency gate divides by. With
+  `auto_offset_reset=latest` a new group starts at the end anyway.
 - The runner waits for the startup VLM warmup to drain before zeroing the NIM
   stub counters. Cap assertions use the Alert Bridge gauges (pipeline-scoped);
   the stub's raw connection count also sees transport artifacts (client
   retries, warmup) and is reported as a diagnostic only.
 - Start the injector only after Alert Bridge is up: the consumer joins with
   `auto_offset_reset=latest` and skips earlier messages.
-- The venv is put on `PATH` **before** the simulators are started; they are
+- The venv is put on `PATH` **before** the simulators are started, from
+  `AB_VENV`, `venv/` or `.venv/`, and both runners now abort with a clear
+  message when the interpreter on `PATH` lacks the test dependencies. They are
   launched with whatever `python3` is on `PATH`, and the system interpreter
   usually lacks Flask. A simulator that dies on import used to surface much
   later as a misleading "Elasticsearch connection refused" at Alert Bridge

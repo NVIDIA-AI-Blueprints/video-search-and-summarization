@@ -593,8 +593,19 @@ sys.exit(0 if (after_dedup == 1 and dropped == 19 and docs == 1) else 1)"; then
 echo "=== Event-loop capability suite (no-GPU sim harness) ==="
 # Must precede ensure_stack: the simulators are launched with whatever python3
 # is on PATH, and the system interpreter typically lacks Flask.
-if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
-    export PATH="$REPO_ROOT/venv/bin:$PATH"
+# A clean clone has no venv. Accept one from any of the usual places, or an
+# explicit AB_VENV, and say so plainly rather than silently running the system
+# interpreter - which lacks Flask and takes the simulators down on import.
+for _venv in "${AB_VENV:-}" "$REPO_ROOT/venv" "$REPO_ROOT/.venv"; do
+    if [ -n "$_venv" ] && [ -x "$_venv/bin/python3" ]; then
+        export PATH="$_venv/bin:$PATH"
+        break
+    fi
+done
+if ! python3 -c "import flask, yaml, confluent_kafka" 2>/dev/null; then
+    echo "python3 on PATH is missing test dependencies (flask, pyyaml, confluent-kafka)."
+    echo "Create a venv from services/alert/requirements.txt and re-run, or point AB_VENV at one."
+    exit 2
 fi
 
 if [ "$SKIP_SETUP" -eq 0 ]; then
