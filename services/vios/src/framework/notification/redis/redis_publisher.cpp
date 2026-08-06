@@ -227,7 +227,7 @@ bool NvRedis::sendToRedis(std::string& payload)
         return false;
     }
 
-    int ret = nvds_msgapi_send(m_conn_handle, (char*)m_topic_vms_event.c_str(),
+    int ret = nvds_msgapi_send(m_conn_handle, m_topic_vms_event.data(),
                             (const uint8_t*) payload.c_str(), payload.size());
     if(ret == 0)
     {

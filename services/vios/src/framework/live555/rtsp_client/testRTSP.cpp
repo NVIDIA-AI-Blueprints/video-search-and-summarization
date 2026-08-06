@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -529,7 +529,7 @@ void subsessionByeHandler(void* clientData, char const* reason) {
   env << *rtspClient << "Received RTCP \"BYE\"";
   if (reason != nullptr) {
     env << " (reason:\"" << reason << "\")";
-    delete[] (char*)reason;
+    delete[] reason;
   }
   env << " on \"" << *subsession << "\" subsession\n";
 

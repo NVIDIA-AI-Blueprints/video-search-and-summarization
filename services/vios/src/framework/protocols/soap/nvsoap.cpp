@@ -1122,7 +1122,7 @@ void NvSoap::getProfileResponse(const string& xmlData, SensorSettings& setting, 
     SensorVideoEncoderSettingsValues& encoderValues = setting.encoderValues;
     MultiCast& multiCast = setting.multiCast;
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -2557,7 +2557,7 @@ string NvSoap::rebootCameraResponse(const string& xmlData)
         return rebootMessage;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Message");
     if (cur)
@@ -2685,7 +2685,7 @@ SensorEncoderSettingsOptions NvSoap::getVideoEncoderConfigurationOptionsMediaRes
 
     VideoEncoderConfigurationsOptions option;
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Options");
     if (cur)
@@ -2926,7 +2926,7 @@ static void getCameraPositionResult(const string& xmlData, SensorPosition& posit
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cursor = xmlDocGetRootElement(doc);
     if (cursor == nullptr)
     {

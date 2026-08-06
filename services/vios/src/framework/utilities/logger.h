@@ -64,7 +64,7 @@ enum Level {
 
 struct CoutToString
 {
-    CoutToString( std::streambuf * new_buffer ) 
+    explicit CoutToString( std::streambuf * new_buffer )
         : old( std::cout.rdbuf( new_buffer ) )
     { }
 
