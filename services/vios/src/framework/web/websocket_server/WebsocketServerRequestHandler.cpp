@@ -34,8 +34,9 @@ bool WebsocketServerRequestHandler::handleConnection(CivetServer *server, const 
     std::string queryParamName = "connectionId";
     std::string connectionId = EMPTY_STRING;
     const char* queryParam = queryParamName.c_str();
-    struct mg_connection *connection = const_cast<struct mg_connection *>(conn);
-    if(!CivetServer::getParam(connection, queryParam, connectionId))
+    const struct mg_request_info *requestInfo = mg_get_request_info(conn);
+    const char *queryString = (requestInfo != nullptr) ? requestInfo->query_string : nullptr;
+    if(queryString == nullptr || !CivetServer::getParam(queryString, strlen(queryString), queryParam, connectionId))
     {
         LOG(error) << "Query param not found" << endl;
         return false;

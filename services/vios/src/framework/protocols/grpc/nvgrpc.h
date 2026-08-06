@@ -138,7 +138,7 @@ private:
 class GrpcClient
 {
 public:
-    GrpcClient(std::shared_ptr<Channel> channel)
+    explicit GrpcClient(std::shared_ptr<Channel> channel)
         : m_stub(VstGrpcServer::NewStub(channel)) {}
     GrpcClient();
 

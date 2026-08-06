@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -383,7 +383,7 @@ void AudioSink::OnData(const void* audio_data,
         }
     }
     size_t streamSizeBytes = (bits_per_sample / 8) * number_of_channels * number_of_frames;
-    m_producer->addFrame ("audio", (unsigned char *)audio_data, streamSizeBytes, sample_rate, number_of_channels);
+    m_producer->addAudioFrame (static_cast<const unsigned char *>(audio_data), streamSizeBytes, sample_rate, number_of_channels);
     m_webrtcAudioInDataFlow = true;
 }
 

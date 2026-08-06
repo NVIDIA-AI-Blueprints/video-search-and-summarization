@@ -136,6 +136,18 @@ class WebrtcStream
             return 0;
         }
 
+        void addAudioFrame (const unsigned char *buffer, unsigned int size, int sample_rate = 0,
+                        size_t num_channels = 0)
+        {
+            LOG(verbose) << "media = audio Peer ID = " << endl;
+
+            std::lock_guard<std::mutex> recordLock(m_webRTCConsumerLock);
+            if (m_consumersList.size())
+            {
+                m_gstencoder->onFrame("audio", "pcm", buffer, size, sample_rate, num_channels);
+            }
+        }
+
         void addConsumer (shared_ptr<IMediaDataConsumer> consumer)
         {
             std::lock_guard<std::mutex> lock(m_webRTCConsumerLock);

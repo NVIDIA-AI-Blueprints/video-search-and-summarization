@@ -83,7 +83,8 @@ class VideoWebRTCSender : public IMediaDataConsumer
         int  createPassThroughMode(string& device_id);
         void appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster);
         void removeWebrtcBroacaster(const std::string& peerid);
-        virtual void onFrame(FrameParams& params);
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override;
         void checkEarlyFramesAndSynchronize();
 
         void resume(const std::string& peerid);
