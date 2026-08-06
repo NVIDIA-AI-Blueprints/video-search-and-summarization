@@ -419,6 +419,7 @@ s_mean = [$csv_smean]
 m_mean = [$csv_mmean]
 s_cpu  = [$csv_scpu]
 m_cpu  = [$csv_mcpu]
+processes = $PROCESSES
 
 s_base, m_base = s_mean[0], m_mean[0]
 
@@ -433,7 +434,7 @@ ok = (max(s_cpu) >= 85.0             # the one-core ceiling is real
       and m_mean[brk] < s_mean[brk]    # ...and faster there
       and max(m_cpu) > 100.0)          # N processes do cross one core
 print(f'break_rate={rates[brk]}/s 1p={s_mean[brk]}s {s_cpu[brk]}% '
-      f'{len(m_cpu)}p={m_mean[brk]}s {m_cpu[brk]}% | max cpu 1p={max(s_cpu)}% Np={max(m_cpu)}%',
+      f'{processes}p={m_mean[brk]}s {m_cpu[brk]}% | max cpu 1p={max(s_cpu)}% {processes}p={max(m_cpu)}%',
       file=sys.stderr)
 sys.exit(0 if ok else 1)" 2>"$RESULTS_DIR/ts030_verdict.txt"; then
         detail="$(cat "$RESULTS_DIR/ts030_verdict.txt")"

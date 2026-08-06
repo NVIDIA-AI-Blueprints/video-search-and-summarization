@@ -314,6 +314,16 @@ drain up to `max_poll_records` messages. Both settings lose in-flight
 dispatched work on a crash; neither replaces an idempotent sink or an
 end-to-end retry if that loss matters.
 
+Measured on the simulator harness, enabling it *increased* the number of
+in-flight messages lost when a pipeline child was killed mid-batch — 5 against
+10, then 5 against 15, across two runs. The cause is unlikely to be the commit
+boundary, since the batch is flushed before any message is dispatched either
+way; the plausible mechanism is throughput, in that dropping a commit call per
+message lets the consume loop admit work faster, so more of it is in flight at
+any instant. Two samples with uncontrolled kill timing cannot size that effect,
+but the direction held in both. Worth knowing before enabling it in the belief
+that batching makes a crash cheaper: on this evidence it makes it dearer.
+
 Within that window duplicates are possible, so enable it only where they are
 tolerated:
 
