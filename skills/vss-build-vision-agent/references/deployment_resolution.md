@@ -198,8 +198,9 @@ VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
 ```
 
 **Not on stock alerts Ingress** (Docker host ports / private backends only):
-Elasticsearch `:9200`, Kafka, Redis, RT-CV, RT-VLM `:8018`, and `alert-notify`
-`:9090`. Do not `kubectl port-forward` them for operate checks. Workflow B's
+Elasticsearch `:9200`, Kafka, Redis, RT-CV (Docker `:9000`), RT-VLM
+`:8018`, and `alert-notify` `:9090`. Do not `kubectl port-forward` them for
+operate checks. Workflow B's
 interim ES verdict probe stays Docker-only unless a public route is added later.
 
 Alerts operate skills for the docs walkthrough (real-time mode):

@@ -1,10 +1,10 @@
 ---
 name: vss-manage-alerts
-description: Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, verification verdicts, on-demand verification, always-on operation, Slack notifications, incident queries, camera onboarding. Not for non-alert analytics.
+description: Use this skill when operating VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, verification verdicts, on-demand verification, always-on operation, Slack notifications, incident queries, or camera onboarding. Not for non-alert analytics.
 license: Apache-2.0
 metadata:
   version: "3.3.3"
-  author: "NVIDIA Video Search and Summarization Team <vss-team@nvidia.com>"
+  author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -153,11 +153,12 @@ both modes, so it is **not** a reliable mode signal alone):
 ```bash
 if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
   # CV verification mode (vss-behavior-analytics + vss-rtvi-cv are CV-only)
-  docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "mode=CV"
-
-  # VLM real-time mode (no CV pipeline; vss-rtvi-vlm still runs)
-  docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics || \
-    docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm && echo "mode=VLM"
+  if docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics; then
+    echo "mode=CV"
+  # VLM real-time mode has no CV pipeline; vss-rtvi-vlm runs in both modes.
+  elif docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm; then
+    echo "mode=VLM"
+  fi
 fi
 ```
 
@@ -283,7 +284,7 @@ call to "create" one.
 
 1. Check if the sensor is in VIOS via `vss-manage-video-io-storage`'s `GET /sensor/list` (idempotent — don't blindly `POST /sensor/add`).
 2. If missing, onboard via that skill's `POST /sensor/add`. The CV pipeline auto-picks up the stream once registered and online.
-3. Confirm online: `curl -s "http://<VST_ENDPOINT>/vst/api/v1/sensor/<sensorId>/status" | jq .`
+3. Confirm online: `curl -s "$VST_API_BASE/sensor/<sensorId>/status" | jq .`
 4. Verified alerts land in Elasticsearch (`mdx-vlm-alerts-*`, Behavior Analytics → `alert-bridge` verification per `alert_type_config.json`). This store has **no REST query endpoint** — Workflow C's `/incidents` covers real-time incident-kind results only; inspect these CV behavior-alert verdicts via **Workflow B**'s interim ES probe.
 
 A static-CV-pipeline alert on a VLM-only deployment is a mode mismatch — see the routing table above.
@@ -406,6 +407,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 | Time-range incident / occupancy / PPE metrics from Elasticsearch | **`vss-query-analytics`** (VA-MCP :9901) |
 | Detailed incident report from an alert | **`vss-generate-video-report`** |
 | Subscriptions / Slack sub-workflows | `references/alert-subscriptions.md`, `references/alert-notify.md` (code in `scripts/alert-notify/`) |
+| Alert Bridge deployment / integration contracts | `references/deploy-alerts.md`, `references/integrate-alerts.md` |
 
 ---
 
@@ -415,6 +417,10 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 - **Workflow scope by mode:** A, B, and F are CV-only (B/F explain-only asks answerable anywhere); **C queries the real-time incident store** (`/api/v1/realtime/incidents`; CV behavior-alert verdicts live in `mdx-vlm-alerts-*` — **no REST query endpoint yet**, use Workflow B's interim ES probe); D, E, and G are VLM real-time only (refuse on CV with the canonical text).
 - **On-demand verification is `POST /api/v1/verification/ondemand`** — not `/verification/verify`, not a realtime rule, not `/generate`. 202 = accepted (async), never a verdict.
 - **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate (default off) or a `503 ALWAYS_ON_DISABLED` from `POST /api/v1/realtime/always-on`; its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
+- **To describe how to enable always-on**, name all three required steps: set
+  `alert_agent.always_on: true`, provide a non-empty rules YAML through
+  `ALWAYS_ON_RULES_CONFIG` (or `realtime-config.yaml`), then restart
+  `alert-bridge`. Do not make those changes in this operate-only workflow.
 - **Don't use `vss-rtvi-vlm` as a mode signal** — it runs in both modes. Use `vss-behavior-analytics` (CV-only) or the `MODE` env var.
 - **A mode switch tears down the current deployment** — running VLM streams and un-persisted CV alert state are lost.
 - **Alert ops call Alert Bridge (`:9080`) directly** — the skill does not use the VSS Agent `/generate`, and never calls `rtvi-vlm` directly. The VLM trigger is a `"yes"`/`"true"` token match (case-insensitive); prompts must force a Yes/No answer.

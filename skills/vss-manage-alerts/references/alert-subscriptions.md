@@ -61,6 +61,7 @@ else
   AB="http://${HOST_IP}:9080"
   VST="http://${HOST_IP}:30888"
 fi
+VST_API_BASE="${VST}/vst/api/v1"
 : "${AB:?Resolve AB}"; : "${VST:?Resolve VST}"
 ```
 
@@ -79,7 +80,7 @@ fi
 **3. Do NOT route through the VSS Agent `/generate` endpoint under any circumstance. Workflow D MUST call Alert Bridge directly at `$AB/api/v1/realtime`. If Alert Bridge is unreachable, abort and report the connectivity error — do not fall back to `/generate`.
 
 **4. Payload must include `sensor_id` as the UUID from VIOS:**
-- Call `GET $VST/vst/api/v1/sensor/list` (same as `${VST_API_BASE}/sensor/list`)
+- Call `GET $VST_API_BASE/sensor/list`
 - Match by name, extract the `sensorId` field (UUID).
 - Put that UUID in the Alert Bridge payload's `sensor_id` field — not the name.
 
@@ -123,7 +124,7 @@ Resolve the user's sensor name to three values needed for the payload: `sensor_i
 **2a. Fetch the sensor list:**
 
 ```bash
-curl -s "$VST/vst/api/v1/sensor/list" | jq .
+curl -s "$VST_API_BASE/sensor/list" | jq .
 ```
 
 Example response (each entry has `name` and `sensorId`):
@@ -152,7 +153,7 @@ If **multiple matches** — list them and ask which one the user meant.
 **2c. Fetch RTSP URL using the `sensorId`:**
 
 ```bash
-curl -s "$VST/vst/api/v1/sensor/<sensorId>/streams" | jq .
+curl -s "$VST_API_BASE/sensor/<sensorId>/streams" | jq .
 ```
 
 Select the main stream (`isMain: true`) and extract the `url` field → this becomes `live_stream_url` in the payload.

@@ -39,7 +39,11 @@ There is **no `/always-on/health` endpoint** — never invent one. Two signals, 
    # 200-range / REMOVE_* reason           → feature on (no-op for an unknown camera)
    ```
 
-Report the state you actually observed. If the user wants it enabled, describe the path as information only — do **not** perform it: set `alert_agent.always_on: true`, provide always-on rules via env `ALWAYS_ON_RULES_CONFIG` or a rules YAML such as `realtime-config.yaml`, then restart `alert-bridge`.
+Report the state you actually observed. If the user wants it enabled, describe the path as information only — do **not** perform it. All three steps are required:
+
+1. Set `alert_agent.always_on: true` in Alert Bridge `config.yaml`.
+2. Provide a non-empty `always_on_rules` YAML through `ALWAYS_ON_RULES_CONFIG` or a rules file such as `realtime-config.yaml`.
+3. Restart `alert-bridge` so it validates and loads both the gate and the rules.
 
 ## Response envelope & reason codes
 
