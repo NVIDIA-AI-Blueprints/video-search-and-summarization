@@ -1,0 +1,64 @@
+{
+  "message_broker": {
+    "enable_notification": true,
+    "enable_notification_consumer": true,
+    "use_message_broker_consumer": "kafka",
+    "message_broker_topic_consumer": "mdx-raw",
+    "use_message_broker": "redis",
+    "message_broker_payload_key": "sensor.id",
+    "message_broker_topic": "vst.event",
+    "message_broker_metadata_topic": "mdx-raw",
+    "redis_server_env_var": "redis:6379",
+    "kafka_server_address": "kafka:29092",
+    "mqtt_broker_address": "tcp://172.17.0.1:1883"
+  },
+  "webhooks": {
+    "enabled": true,
+    "items": [
+      {
+        "enabled": true,
+        "id": "rtvi-cv-camera-streaming",
+        "camera_status_change": "camera_streaming",
+        "request": [
+          {
+            "url": "http://vss-rtvi-cv:9010/api/v1/stream/add",
+            "method": "POST",
+            "headers": {
+              "Content-Type": "application/json",
+              "x-stream-id": "{{event.camera_id}}"
+            },
+            "camera_type": ["rtsp", "file"],
+            "timeout_ms": 10000,
+            "retry": {
+              "max_attempts": 60,
+              "backoff_ms": [1000, 5000, 15000],
+              "retry_on_status": [408, 429, 500, 502, 503, 504]
+            }
+          }
+        ]
+      },
+      {
+        "enabled": true,
+        "id": "rtvi-cv-camera-remove",
+        "camera_status_change": "camera_remove",
+        "request": [
+          {
+            "url": "http://vss-rtvi-cv:9010/api/v1/stream/remove",
+            "method": "POST",
+            "headers": {
+              "Content-Type": "application/json",
+              "x-stream-id": "{{event.camera_id}}"
+            },
+            "camera_type": ["rtsp", "file"],
+            "timeout_ms": 10000,
+            "retry": {
+              "max_attempts": 60,
+              "backoff_ms": [1000, 5000, 15000],
+              "retry_on_status": [408, 429, 500, 502, 503, 504]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

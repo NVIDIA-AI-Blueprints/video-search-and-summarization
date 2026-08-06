@@ -236,8 +236,10 @@ function set_alerts_rtvi_vlm_kafka_from_mode() {
 }
 
 # Derive alerts mode-specific integrations from MODE:
-# - 2d_vlm: enable always-on/webhooks and disable the Agent → RT-CV endpoint
-# - 2d_cv:  disable always-on/webhooks and enable the Agent → RT-CV endpoint
+# - 2d_vlm: always-on on; Agent uses config-real-time.yml
+# - 2d_cv:  always-on off; Agent uses config.yml
+# VIOS webhook target is selected via notification_config_${MODE}.json in overrides.env
+# (VST_NOTIFICATION_CONFIG_PATH) — not rewritten here.
 function set_alerts_integrations_from_mode() {
   local _generated_env="${1}"
   local _mode _always_on _agent_config_file
@@ -254,23 +256,7 @@ function set_alerts_integrations_from_mode() {
   esac
   sed -i "s|^ALERT_AGENT_ALWAYS_ON=.*|ALERT_AGENT_ALWAYS_ON=${_always_on}|" "${_generated_env}"
   set_env_var "VSS_AGENT_CONFIG_FILE" "${_agent_config_file}"
-
-  case "${_always_on}" in
-    true)
-      # Uncomment the profile override (value already points at the custom file).
-      if grep -Eq '^#[[:space:]]*VST_NOTIFICATION_CONFIG_PATH=' "${_generated_env}"; then
-        sed -i -E 's|^#[[:space:]]*(VST_NOTIFICATION_CONFIG_PATH=.*)|\1|' "${_generated_env}"
-      fi
-      echo "[INFO] Enabled alerts always-on/webhooks and disabled Agent RT-CV registration (MODE=${_mode})"
-      ;;
-    false)
-      # Comment the override so Compose falls back to the shared VIOS default.
-      if grep -q '^VST_NOTIFICATION_CONFIG_PATH=' "${_generated_env}"; then
-        sed -i -E 's|^(VST_NOTIFICATION_CONFIG_PATH=.*)|# \1|' "${_generated_env}"
-      fi
-      echo "[INFO] Disabled alerts always-on/webhooks and enabled Agent RT-CV registration (MODE=${_mode:-2d_cv})"
-      ;;
-  esac
+  echo "[INFO] Alerts integrations for MODE=${_mode:-2d_cv}: ALERT_AGENT_ALWAYS_ON=${_always_on}, VSS_AGENT_CONFIG_FILE=${_agent_config_file}"
 }
 
 # Gets model name from remote API endpoint (works for both LLM and VLM).

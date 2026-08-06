@@ -8,17 +8,20 @@ Real-time alert generation and verification on RTSP / live video. VLM is **alway
 
 | Mode | CLI | `MODE` env | `ALERT_AGENT_ALWAYS_ON` | `VST_NOTIFICATION_CONFIG_PATH` | Agent `rtvi_cv_base_url` | `NEXT_PUBLIC_APP_SUBTITLE` | How it works | VLM load |
 |---|---|---|---|---|---|---|---|---|
-| **verification** | `--mode verification` | `2d_cv` | `false` | commented (shared VIOS default) | set (Agent registers UI-managed streams with RT-CV) | `Vision (Alerts - CV)` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. | Lower — VLM runs per alert |
-| **real-time** | `--mode real-time` | `2d_vlm` | `true` | uncommented (alerts webhook override) | omitted (RT-CV absent) | `Vision (Alerts - VLM)` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. Always-on rules start on `camera_streaming` via VIOS webhooks → Alert Bridge. | Higher — VLM runs continuously |
+| **verification** | `--mode verification` | `2d_cv` | `false` | `notification_config_${MODE}.json` → `…_2d_cv.json` (VIOS → RT-CV) | omitted (webhooks register streams) | `Vision (Alerts - CV)` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. Streams reach RT-CV via VIOS webhooks on `camera_streaming` / `camera_remove`. | Lower — VLM runs per alert |
+| **real-time** | `--mode real-time` | `2d_vlm` | `true` | `notification_config_${MODE}.json` → `…_2d_vlm.json` (VIOS → Alert Bridge) | omitted (RT-CV absent) | `Vision (Alerts - VLM)` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. Always-on rules start on `camera_streaming` via VIOS webhooks → Alert Bridge. | Higher — VLM runs continuously |
 
-Switch modes with `dev-profile.sh --mode verification|real-time` (or edit `MODE` in `dev-profile-alerts/generated.env` and re-resolve). `dev-profile.sh` also sets `ALERT_AGENT_ALWAYS_ON`, toggles `VST_NOTIFICATION_CONFIG_PATH`, selects `config.yml` or `config-real-time.yml`, and updates `NEXT_PUBLIC_APP_SUBTITLE` from `MODE`.
+Switch modes with `dev-profile.sh --mode verification|real-time` (or edit `MODE` in `dev-profile-alerts/generated.env` and re-resolve). `dev-profile.sh` also sets `ALERT_AGENT_ALWAYS_ON`, chooses `config.yml` or `config-real-time.yml`, and updates `NEXT_PUBLIC_APP_SUBTITLE` from `MODE`. `VST_NOTIFICATION_CONFIG_PATH` is fixed in `overrides.env` as `notification_config_${MODE}.json` — Compose picks the file from `MODE`.
 
 When deploying or switching to **real-time** without `dev-profile.sh`, also:
 1. Set `ALERT_AGENT_ALWAYS_ON=true`
-2. Uncomment `VST_NOTIFICATION_CONFIG_PATH` in `generated.env` (it already points at `developer-profiles/dev-profile-alerts/vios/configs/notification_config.json`)
+2. Set `MODE=2d_vlm` (so `notification_config_${MODE}.json` resolves to the Alert Bridge webhook file)
 3. Set `VSS_AGENT_CONFIG_FILE` to `/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml`
 
-When deploying or switching to **verification**, leave `ALERT_AGENT_ALWAYS_ON=false`, keep `VST_NOTIFICATION_CONFIG_PATH` commented so Compose uses the shared `services/vios/configs/notification_config.json`, and keep Agent `rtvi_cv_base_url` enabled so UI-managed streams are registered with RT-CV.
+When deploying or switching to **verification** without `dev-profile.sh`, also:
+1. Leave `ALERT_AGENT_ALWAYS_ON=false`
+2. Set `MODE=2d_cv` (so `notification_config_${MODE}.json` resolves to the RT-CV webhook file)
+3. Keep Agent `rtvi_cv_base_url` omitted — RT-CV ingest is webhook-driven
 
 > **Also flip `RTVI_VLM_KAFKA_ENABLED` when switching modes by hand.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false`, which is correct for verification (`2d_cv`) only: nothing consumes RT-VLM's Kafka output there, and leaving it on makes RT-VLM publish duplicate incidents whose file-relative timestamps land in `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) drives alerts from those Kafka events, so comment the line out for `2d_vlm` and let the compose default (`true`) apply. `dev-profile.sh` does this automatically for `--mode real-time`; only manual `generated.env` edits need it.
 
