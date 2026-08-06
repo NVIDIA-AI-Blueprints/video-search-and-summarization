@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -52,6 +52,16 @@ EventLoop::EventLoop(std::string threadName, process_message func)
     CreateThread();
 }
 
+EventLoop::EventLoop(std::string threadName, process_message_handler handler)
+                    : m_thread(nullptr)
+                    , m_threadName(threadName)
+                    , m_processMsg(nullptr)
+                    , m_parent(nullptr)
+                    , m_processMsgHandler(std::move(handler))
+{
+    CreateThread();
+}
+
 EventLoop::~EventLoop()
 {
     try {
@@ -100,7 +110,11 @@ void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData, 
     m_isProcessFuncDone = false;
     std::thread t([&]()
     {
-        if (m_processMsg)
+        if (m_processMsgHandler)
+        {
+            m_processMsgHandler(userData);
+        }
+        else if (m_processMsg)
         {
             m_processMsg(userData, m_parent);
         }
@@ -171,7 +185,7 @@ void EventLoop::Process()
 
                 EVENT_LOOP_LOG
 
-                if (m_processMsg && m_parent)
+                if ((m_processMsg && m_parent) || m_processMsgHandler)
                 {
                     if (msg->id == MSG_POST_USER_DATA)
                     {
@@ -254,6 +268,7 @@ void EventLoop::ExitThread()
         m_cv.notify_all();
     }
     m_processMsg = nullptr;
+    m_processMsgHandler = nullptr;
     LOG(info) << "Waiting for process thread to finish" << endl;
     if (m_thread->joinable())
     {

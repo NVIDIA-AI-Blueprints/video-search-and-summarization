@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -57,7 +57,7 @@ public:
     bool start();
     void stop();
     bool isRunning() const { return mRunning.load(); }
-    void* getPipeline() const { return mPipeline; }
+    GstElement* getPipeline() const override { return mPipeline; }
     
     // Wait on this writer's bus for EOS or ERROR. Returns true on EOS/ERROR, false on timeout.
     bool waitForCompletion(int64_t timeout_secs);

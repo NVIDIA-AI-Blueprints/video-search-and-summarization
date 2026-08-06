@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -259,7 +259,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         virtual bool waitForCompletion(int64_t /*timeout_secs*/) { return true; }
         virtual bool hasError() const { return false; }
         virtual std::shared_ptr<IMediaDataConsumer> getAudioConsumer() { return nullptr; }
-        virtual void* getPipeline() const { return nullptr; }
+        virtual GstElement* getPipeline() const { return nullptr; }
 
         // Get actual first frame PTS in milliseconds (for remux mode filename correction)
         // Returns -1 if not available/not tracked

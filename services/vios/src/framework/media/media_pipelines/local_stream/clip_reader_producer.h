@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -231,7 +231,7 @@ private:
     // Returns true if retry was posted or already in progress.
     bool postRetryPipeline(bool isError, const std::string& errorMsg);
 
-    static void process_retry_message(std::shared_ptr<EventLoopData> data, void* parent);
+    void processRetryMessage(const std::shared_ptr<EventLoopData>& data);
 
     // Cap retries for premature EOS gaps (separate from empty-stream retries)
     std::atomic<int> mPrematureEosRetryCount{0};

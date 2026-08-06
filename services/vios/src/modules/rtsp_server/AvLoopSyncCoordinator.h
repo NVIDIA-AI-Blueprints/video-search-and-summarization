@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <map>
@@ -31,6 +32,8 @@
 #include <utility>
 #include <vector>
 #include "logger.h"
+
+class FramedSource;
 
 /*
  * AvLoopSyncCoordinator
@@ -85,6 +88,7 @@ class AvLoopSyncCoordinator
 {
 public:
     using RestartFn = std::function<void()>;
+    using ParticipantToken = const FramedSource*;
 
     explicit AvLoopSyncCoordinator(std::string label = std::string())
         : m_label(std::move(label))
@@ -97,9 +101,54 @@ public:
      * the ByteStreamSource). Idempotent: re-registering the same token
      * replaces the callback and resets its arrived flag to false.
      */
-    void registerParticipant(void* token, RestartFn onRestart)
+    template <typename ParticipantT>
+    void registerParticipant(const ParticipantT* token, RestartFn onRestart)
     {
-        if (token == nullptr)
+        registerParticipantId(toId(token), std::move(onRestart));
+    }
+
+    /*
+     * Remove a participant. If after removal the remaining participants
+     * are all already at EOS, fire their restart callbacks so they
+     * don't wait forever for the now-gone participant.
+     */
+    template <typename ParticipantT>
+    void unregisterParticipant(const ParticipantT* token)
+    {
+        unregisterParticipantId(toId(token));
+    }
+
+    /*
+     * Mark a participant as arrived at EOS. If this completes the
+     * barrier (all registered participants arrived), fire every
+     * restart callback synchronously on the calling thread.
+     */
+    template <typename ParticipantT>
+    void signalEos(const ParticipantT* token)
+    {
+        signalEosId(toId(token));
+    }
+
+    size_t participantCount()
+    {
+        std::lock_guard<std::mutex> guard(m_mu);
+        return m_participants.size();
+    }
+
+private:
+    /* Stable, unique identity of a participant, derived from the
+     * address of the object that registered it. */
+    using ParticipantId = std::uintptr_t;
+
+    template <typename ParticipantT>
+    static ParticipantId toId(const ParticipantT* token)
+    {
+        return reinterpret_cast<ParticipantId>(token);
+    }
+
+    void registerParticipantId(ParticipantId token, RestartFn onRestart)
+    {
+        if (token == 0)
         {
             return;
         }
@@ -111,14 +160,9 @@ public:
                   << token << ", total=" << m_participants.size() << std::endl;
     }
 
-    /*
-     * Remove a participant. If after removal the remaining participants
-     * are all already at EOS, fire their restart callbacks so they
-     * don't wait forever for the now-gone participant.
-     */
-    void unregisterParticipant(void* token)
+    void unregisterParticipantId(ParticipantId token)
     {
-        if (token == nullptr)
+        if (token == 0)
         {
             return;
         }
@@ -146,14 +190,9 @@ public:
         fireOutsideLock(toFire);
     }
 
-    /*
-     * Mark a participant as arrived at EOS. If this completes the
-     * barrier (all registered participants arrived), fire every
-     * restart callback synchronously on the calling thread.
-     */
-    void signalEos(void* token)
+    void signalEosId(ParticipantId token)
     {
-        if (token == nullptr)
+        if (token == 0)
         {
             return;
         }
@@ -182,13 +221,6 @@ public:
         fireOutsideLock(toFire);
     }
 
-    size_t participantCount()
-    {
-        std::lock_guard<std::mutex> guard(m_mu);
-        return m_participants.size();
-    }
-
-private:
     struct Participant
     {
         RestartFn onRestart;
@@ -259,5 +291,5 @@ private:
 
     std::string                       m_label;
     std::mutex                        m_mu;
-    std::map<void*, Participant>      m_participants;
+    std::map<ParticipantId, Participant> m_participants;
 };

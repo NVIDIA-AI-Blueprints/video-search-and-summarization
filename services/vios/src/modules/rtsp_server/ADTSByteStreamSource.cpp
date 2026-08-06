@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -237,9 +237,8 @@ void ADTSByteStreamSource::restartForLoop()
         (TaskFunc*)ADTSByteStreamSource::retryGetFrame, this);
 }
 
-void ADTSByteStreamSource::retryGetFrame(void* clientData)
+void ADTSByteStreamSource::retryGetFrame(ADTSByteStreamSource* source)
 {
-    ADTSByteStreamSource* source = (ADTSByteStreamSource*)clientData;
     if (source)
     {
         source->doGetNextFrame();

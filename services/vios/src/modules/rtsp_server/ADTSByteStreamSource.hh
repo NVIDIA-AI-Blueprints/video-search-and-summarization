@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -56,7 +56,7 @@ private:
           unsigned frameSize, unsigned numTruncatedBytes,
           struct timeval presentationTime,
           unsigned durationInMicroseconds);
-    static void retryGetFrame(void* clientData);
+    static void retryGetFrame(ADTSByteStreamSource* source);
     static void dataArrivalCheck(ADTSByteStreamSource* source);
     void closeSource();
     /* Common loop-restart sequence shared by the immediate-restart path

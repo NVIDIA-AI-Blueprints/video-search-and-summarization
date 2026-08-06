@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,6 +24,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <functional>
 #include <json/json.h>
 
 struct EventLoopOutData
@@ -49,11 +50,18 @@ struct EventLoopMsg;
 
 typedef void (*process_message)(std::shared_ptr<EventLoopData>, void*);
 
+/// Type-safe alternative to the process_message callback: the handler carries its own
+/// context (e.g. a capturing lambda), so no untyped parent pointer has to be threaded through.
+using process_message_handler = std::function<void(std::shared_ptr<EventLoopData>)>;
+
 class EventLoop
 {
 public:
     /// Constructor
     EventLoop(std::string threadName, process_message);
+
+    /// Constructor taking a self-contained handler; no setParent() call is required.
+    EventLoop(std::string threadName, process_message_handler handler);
 
     /// Destructor
     ~EventLoop();
@@ -103,6 +111,7 @@ private:
     std::string m_threadName;
     process_message m_processMsg;
     void* m_parent;
+    process_message_handler m_processMsgHandler;
     std::mutex m_mutexProceeFunc;
     std::condition_variable m_cvProcessFunc;
     std::atomic<bool> m_isProcessFuncDone {false};
