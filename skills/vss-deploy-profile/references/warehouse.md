@@ -172,7 +172,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | `/kibana`, `/kibana/...` | `kibana` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
 | `/elasticsearch`, `.../...` | `elasticsearch` (path-stripped; `GET/HEAD/POST/OPTIONS` only, cluster-admin and bulk-mutating paths denied) | Same condition as `kibana` |
 | `/video-analytics-api`, `.../...` | `vss-video-analytics-api` (path-stripped) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
-| `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
+| `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | **Never** — the route is defined and the container runs, but `vss-behavior-analytics` publishes no HTTP listener (it is a broker consumer, and declares no ports), so `bk_behavior_analytics` never passes its `check` and every request logs `bk_behavior_analytics/<NOSRV>` and returns 503. Read behaviors from the `mdx-behavior` topic or the `mdx-behavior-*` Elasticsearch indices instead |
 | `/rtvi-cv`, `.../...` | `vss-rtvi-cv` (path-stripped) | `BP_PROFILE=bp_wh`, or **2D/3D** extended Kafka/Redis. **Not MV3DT** — the backend resolves `${RTVI_CV_SERVICE_HOST:-vss-rtvi-cv}`, which no warehouse env file overrides, and `vss-rtvi-cv-mv3dt` is the one MV3DT service defining no unsuffixed compat alias (nvstreamer, configurator, behavior-analytics and video-analytics-api all do), so this route 503s there. Use the direct port `RTVI_CV_MV3DT_HOST_PORT` (default `9000`), or set `RTVI_CV_SERVICE_HOST=vss-rtvi-cv-mv3dt` in `generated.env` |
 | `/rtvi-vlm`, `.../...` | `rtvi-vlm` (path-stripped) | `BP_PROFILE=bp_wh` only; 503 elsewhere |
 | `/rtvi-embed`, `.../...` | `rtvi-embed` (path-stripped) | Never deployed by warehouse — always 503 |
@@ -417,9 +417,32 @@ Check FPS (same container for 2D/3D; use `vss-rtvi-cv-mv3dt` for MV3DT):
 
 ```bash
 # 2D / 3D:
-docker logs -f vss-rtvi-cv 2>&1 | grep -i fps | head -5
+docker logs --since 60s vss-rtvi-cv 2>&1 | grep -aE "stream_name" | tail -8
 # MV3DT:
-docker logs -f vss-rtvi-cv-mv3dt 2>&1 | grep -i fps | head -5
+docker logs --since 60s vss-rtvi-cv-mv3dt 2>&1 | grep -aE "stream_name" | tail -8
+```
+
+Expect one line per stream, at roughly the source framerate:
+
+```
+29.80000 (30.00634)	source_id : 3 stream_name Camera_01
+```
+
+> **Do not grep for `fps`.** DeepStream prints only a *header* line containing that
+> string — `**PERF:  FPS 3 (Avg)	FPS 2 (Avg)	FPS 1 (Avg)	FPS 0 (Avg)` — and the numeric
+> per-stream lines do not contain `fps` at all. `grep -i fps` therefore returns header
+> rows with no values in them, which reads as "FPS present" no matter how badly
+> perception is doing. Match `stream_name` instead.
+>
+> The header is still useful for one thing: the number of `FPS N` columns is the live
+> source count, so it changes as streams attach.
+
+**Confirm the stream count matches `NUM_STREAMS`** — a short count is the signature of a
+partial stream registration ([Key Log Patterns](warehouse-debug.md#key-log-patterns-and-root-causes)),
+and every container can be healthy while it happens:
+
+```bash
+docker logs --since 60s vss-rtvi-cv 2>&1 | grep -a "Active sources" | tail -1
 ```
 
 ---
@@ -949,7 +972,9 @@ mkdir -p "$VSS_DATA_DIR"/models \
 chmod -R 0777 "$VSS_DATA_DIR"/models "$VSS_DATA_DIR"/data_log
 ```
 
-`VSS_DATA_DIR` is then `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data` — the **inner** directory. The bundle supplies the sample `videos/` and `playback/` assets. Older bundles also carried a legacy `models/` subtree that is no longer used (RT-CV weights come from ds-start phase 0); whether this version still does is not recorded in this repo. Create and `chmod` `models/` and the `data_log/` subtree yourself either way — see [App Data](#app-data). `auto-calib/vggt/` is **not** bundle content: it is a user-created directory for the optional VGGT model.
+`VSS_DATA_DIR` is then `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data` — the **inner** directory. The bundle supplies the sample `videos/` and `playback/` assets.
+
+`v3.3.0-08052026` extracts to exactly `agent_eval/`, `auto-calib/`, `data_log/`, `playback/`, `videos/` and a license PDF — it ships **no `models/`**. (Older bundles carried a legacy `models/` subtree that is no longer used.) The `mkdir` + `chmod` above is therefore **mandatory, not a no-op** on this version: ds-start phase 0 downloads the RT-CV weights into `models/` and builds the TensorRT engine there (~171 MB for 2D — `rtdetr_warehouse_v1.0.2.fp16.onnx` plus the generated `.engine`), writing as the container's UID, which is why the directory must exist and be `0777` first. `auto-calib/vggt/` is **not** bundle content: it is a user-created directory for the optional VGGT model.
 
 ---
 
