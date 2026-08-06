@@ -73,6 +73,14 @@ direct_container_preflight = load_module(
     / "nemoclaw"
     / "direct_container_preflight.py",
 )
+gateway_release = load_module(
+    "nemoclaw_gateway_release",
+    REPO_ROOT
+    / ".github"
+    / "skill-eval"
+    / "nemoclaw"
+    / "release_gateway_port.py",
+)
 nemoclaw_deploy_profile_verifier = load_module(
     "nemoclaw_deploy_profile_verifier",
     REPO_ROOT / ".github" / "skill-eval" / "verifiers" / "nemoclaw_deploy_profile.py",
@@ -684,6 +692,17 @@ class GatewayReleaseTest(unittest.TestCase):
             check=False,
         )
 
+    def test_default_port_owned_gateway_argv0_is_canonical_and_port_bound(self):
+        identity = gateway_release.ProcessIdentity(
+            pid=123,
+            start_time=456,
+            argv=("openshell-gateway[nemoclaw=nemoclaw;port=8080]",),
+            executable="/usr/local/bin/openshell-gateway",
+        )
+
+        self.assertTrue(gateway_release._is_managed_gateway(identity, 8080))
+        self.assertFalse(gateway_release._is_managed_gateway(identity, 19080))
+
     def test_incomplete_package_fallback_releases_exact_gateway_argv(self):
         with tempfile.TemporaryDirectory() as td:
             gateway_executable = Path(td) / "openshell-gateway"
@@ -713,6 +732,71 @@ class GatewayReleaseTest(unittest.TestCase):
                 if listener.poll() is None:
                     listener.terminate()
                     listener.wait(timeout=5)
+
+    def test_fallback_releases_exact_owned_gateway_argv0(self):
+        with tempfile.TemporaryDirectory() as td:
+            gateway_executable = Path(td) / "openshell-gateway"
+            shutil.copy2(sys.executable, gateway_executable)
+            port = self._unused_port()
+            listener = subprocess.Popen(
+                [
+                    f"openshell-gateway[nemoclaw=nemoclaw-{port};port={port}]",
+                    "-c",
+                    self.LISTENER_SOURCE,
+                    str(port),
+                ],
+                executable=gateway_executable,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                self._wait_until_listening(port)
+                stopped = self._run_helper(port)
+
+                self.assertEqual(stopped.returncode, 0, stopped.stderr)
+                self.assertIn(
+                    f"stopped host process {listener.pid}",
+                    stopped.stdout,
+                )
+                listener.wait(timeout=5)
+            finally:
+                if listener.poll() is None:
+                    listener.terminate()
+                    listener.wait(timeout=5)
+
+    def test_owned_gateway_argv0_for_another_port_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            gateway_executable = Path(td) / "openshell-gateway"
+            shutil.copy2(sys.executable, gateway_executable)
+            port = self._unused_port()
+            wrong_port = self._unused_port()
+            listener = subprocess.Popen(
+                [
+                    (
+                        "openshell-gateway["
+                        f"nemoclaw=nemoclaw-{wrong_port};port={wrong_port}]"
+                    ),
+                    "-c",
+                    self.LISTENER_SOURCE,
+                    str(port),
+                ],
+                executable=gateway_executable,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                self._wait_until_listening(port)
+                rejected = self._run_helper(port)
+
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertIn(
+                    "refusing to signal non-gateway listener",
+                    rejected.stderr,
+                )
+                self.assertIsNone(listener.poll())
+            finally:
+                listener.terminate()
+                listener.wait(timeout=5)
 
     def test_spoofed_gateway_argv_fails_closed_and_remains_alive(self):
         port = self._unused_port()

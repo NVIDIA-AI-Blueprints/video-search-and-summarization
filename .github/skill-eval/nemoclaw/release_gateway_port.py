@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -25,6 +26,9 @@ from typing import Callable, NamedTuple, Sequence
 DIRECT_GATEWAY_NAMES = frozenset({"openshell-gateway", "openclaw-gateway"})
 COMPAT_RUNTIME_NAMES = frozenset({"docker"})
 COMPAT_GATEWAY_TOKEN = "/opt/nemoclaw/openshell-gateway"
+OWNED_GATEWAY_ARGV0_RE = re.compile(
+    r"^openshell-gateway\[nemoclaw=(nemoclaw(?:-\d+)?);port=(\d+)\]$"
+)
 SYSTEM_LSOF_CANDIDATES = (
     Path("/usr/bin/lsof"),
     Path("/usr/sbin/lsof"),
@@ -141,12 +145,18 @@ def _clean_process_token(value: str) -> str:
     return value.strip("\"'").removesuffix(" (deleted)")
 
 
-def _is_managed_gateway(identity: ProcessIdentity) -> bool:
+def _is_managed_gateway(identity: ProcessIdentity, port: int) -> bool:
     argv = tuple(_clean_process_token(value) for value in identity.argv)
     argv0_name = Path(argv[0]).name
     executable_name = Path(_clean_process_token(identity.executable)).name
     if argv0_name == executable_name and argv0_name in DIRECT_GATEWAY_NAMES:
         return True
+    owned_match = OWNED_GATEWAY_ARGV0_RE.fullmatch(argv0_name)
+    if owned_match is not None and executable_name == "openshell-gateway":
+        gateway_name, marked_port_raw = owned_match.groups()
+        marked_port = int(marked_port_raw)
+        expected_gateway_name = "nemoclaw" if port == 8080 else f"nemoclaw-{port}"
+        return marked_port == port and gateway_name == expected_gateway_name
     return (
         argv0_name == executable_name
         and argv0_name in COMPAT_RUNTIME_NAMES
@@ -157,12 +167,13 @@ def _is_managed_gateway(identity: ProcessIdentity) -> bool:
 def _validate_listener_batch(
     pids: Sequence[int],
     *,
+    port: int,
     proc_root: Path = Path("/proc"),
 ) -> dict[int, ProcessIdentity]:
     identities: dict[int, ProcessIdentity] = {}
     for pid in pids:
         identity = _read_process_identity(pid, proc_root)
-        if not _is_managed_gateway(identity):
+        if not _is_managed_gateway(identity, port):
             argv0 = _clean_process_token(identity.argv[0])
             raise GatewayReleaseError(
                 f"refusing to signal non-gateway listener PID {pid} ({argv0})"
@@ -174,6 +185,7 @@ def _validate_listener_batch(
 def _revalidate_identity(
     expected: ProcessIdentity,
     *,
+    port: int,
     proc_root: Path = Path("/proc"),
 ) -> bool:
     try:
@@ -187,7 +199,7 @@ def _revalidate_identity(
     if (
         current.argv != expected.argv
         or current.executable != expected.executable
-        or not _is_managed_gateway(current)
+        or not _is_managed_gateway(current, port)
     ):
         raise GatewayReleaseError(
             f"listener PID {expected.pid} changed identity before it could be signaled"
@@ -198,6 +210,7 @@ def _revalidate_identity(
 def _open_pidfds(
     identities: dict[int, ProcessIdentity],
     *,
+    port: int,
     proc_root: Path = Path("/proc"),
 ) -> dict[int, int]:
     if not callable(getattr(os, "pidfd_open", None)) or not callable(
@@ -220,7 +233,7 @@ def _open_pidfds(
         # A pidfd pins the process object. Revalidation proves each descriptor
         # was opened before the originally observed PID exited or was reused.
         for identity in identities.values():
-            if not _revalidate_identity(identity, proc_root=proc_root):
+            if not _revalidate_identity(identity, port=port, proc_root=proc_root):
                 raise GatewayReleaseError(
                     f"listener PID {identity.pid} exited while its pidfd was opened"
                 )
@@ -275,31 +288,35 @@ def release_gateway_port(
 
     # Validate the entire set before signaling the first PID.  Then rescan and
     # revalidate start times to close both listener-set and PID-reuse races.
-    identities = _validate_listener_batch(initial_pids, proc_root=proc_root)
+    identities = _validate_listener_batch(
+        initial_pids,
+        port=port,
+        proc_root=proc_root,
+    )
     rescanned = _listening_pids(port, trusted_lsof)
     if rescanned != initial_pids:
         raise GatewayReleaseError(
             f"listener set on port {port} changed during validation"
         )
     for identity in identities.values():
-        if not _revalidate_identity(identity, proc_root=proc_root):
+        if not _revalidate_identity(identity, port=port, proc_root=proc_root):
             raise GatewayReleaseError(
                 f"listener PID {identity.pid} exited during validation; retry safely"
             )
 
-    pidfds = _open_pidfds(identities, proc_root=proc_root)
+    pidfds = _open_pidfds(identities, port=port, proc_root=proc_root)
     try:
         survivors = dict(identities)
         # Revalidate the entire batch after every pidfd is open and before the
         # first signal. Each individual process is then checked once more at
         # its exact signal boundary.
         for identity in survivors.values():
-            if not _revalidate_identity(identity, proc_root=proc_root):
+            if not _revalidate_identity(identity, port=port, proc_root=proc_root):
                 raise GatewayReleaseError(
                     f"listener PID {identity.pid} exited before SIGTERM; retry safely"
                 )
         for identity in tuple(survivors.values()):
-            if not _revalidate_identity(identity, proc_root=proc_root):
+            if not _revalidate_identity(identity, port=port, proc_root=proc_root):
                 raise GatewayReleaseError(
                     f"listener PID {identity.pid} changed before SIGTERM"
                 )
@@ -315,7 +332,7 @@ def release_gateway_port(
             survivors = {
                 pid: identity
                 for pid, identity in survivors.items()
-                if _revalidate_identity(identity, proc_root=proc_root)
+                if _revalidate_identity(identity, port=port, proc_root=proc_root)
             }
             if survivors:
                 sleep(0.05)
@@ -330,13 +347,13 @@ def release_gateway_port(
                     f"listener set on port {port} changed before SIGKILL"
                 )
             for identity in survivors.values():
-                if not _revalidate_identity(identity, proc_root=proc_root):
+                if not _revalidate_identity(identity, port=port, proc_root=proc_root):
                     raise GatewayReleaseError(
                         f"listener PID {identity.pid} exited before SIGKILL; "
                         "retry safely"
                     )
             for identity in tuple(survivors.values()):
-                if not _revalidate_identity(identity, proc_root=proc_root):
+                if not _revalidate_identity(identity, port=port, proc_root=proc_root):
                     raise GatewayReleaseError(
                         f"listener PID {identity.pid} changed before SIGKILL"
                     )
