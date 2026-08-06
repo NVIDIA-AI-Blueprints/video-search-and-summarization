@@ -34,9 +34,10 @@ Verified CV alerts carry an extended `info` block:
 
 ## Inspecting verification results — interim ES probe
 
-> **Interim path.** The `mdx-vlm-alerts-*` store has **no REST query endpoint yet** — Workflow C's `/incidents` reads only the real-time incident store and will NOT surface these documents. A dedicated Alert Bridge query endpoint is planned; until it lands, query Elasticsearch (`:9200`, host-published) directly.
+> **Interim path (Docker only).** The `mdx-vlm-alerts-*` store has **no REST query endpoint yet** — Workflow C's `/incidents` reads only the real-time incident store and will NOT surface these documents. A dedicated Alert Bridge query endpoint is planned; until it lands, query Elasticsearch (`:9200`, host-published) **on Docker only**. Elasticsearch is **not** on the public Ingress — on Kubernetes do not probe `:9200`, do not `kubectl port-forward`, and report that CV verdict inspection via ES is unavailable over `VSS_PUBLIC_URL`.
 
 ```bash
+# Docker only — ES is not published on Kubernetes Ingress.
 ES="http://${HOST_IP}:9200"
 
 # latest verification results
@@ -79,7 +80,8 @@ Two equivalent surfaces; prefer the REST API on a live deployment (no restart ne
 ### REST API (live)
 
 ```bash
-AB="http://${HOST_IP}:9080"
+# Use $AB from parent skill (K8s: ${VSS_PUBLIC_URL}/alert-bridge; Docker: :9080).
+: "${AB:?Resolve AB from vss-manage-alerts Deployment prerequisite}"
 
 curl -sf "$AB/api/v1/verification/config" | jq .                 # list all alert-type configs
 curl -sf "$AB/api/v1/verification/config/<alert_type>" | jq .    # read one
