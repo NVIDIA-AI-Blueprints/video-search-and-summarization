@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,16 +40,15 @@ constexpr int RTSP_SERVER_NAME_MAX_SIZE = 256;
 constexpr int DEFAULT_RTSP_PORT_NUMBER = 554;
 constexpr int RTP_INITIAL_PORT_NUMBER = 6970;
 
-char* username = nullptr;
-char* password = nullptr;
-Boolean streamRTPOverTCP = False;
-portNumBits tunnelOverHTTPPortNum = 0;
+char const* const username = nullptr;
+char const* const password = nullptr;
+const Boolean streamRTPOverTCP = False;
 #ifdef DEBUG
-int verbosityLevel = 1;
+const int verbosityLevel = 1;
 #else
-int verbosityLevel = 0;
+const int verbosityLevel = 0;
 #endif
-Boolean proxyREGISTERRequests = False;
+const Boolean proxyREGISTERRequests = False;
 
 struct AddProxyTask {
     RtspServer* server;
@@ -365,6 +364,7 @@ int RtspServer::addProxy(const string& id, const string& name, string& url)
     StreamDetails stream;
     portNumBits initialPortNumber = RTP_INITIAL_PORT_NUMBER;
     Boolean multiplexRTCPwithRTP = false;
+    portNumBits tunnelOverHTTPPortNum = 0;
 
 #ifndef RELEASE
     LOG(info) << "TaskaddStream live_url: " << secureUrlForLogging(url) << endl;

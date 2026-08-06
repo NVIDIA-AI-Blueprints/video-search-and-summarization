@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -99,7 +99,7 @@ CudaLoader::CudaLoader()
     }
     if (!m_handleCuda || !m_handleCudart)
     {
-        if (g_isGpuPresent)
+        if (isGpuPresent())
         {
             LOG(error) << "Error loading the CUDA libraries (libcuda: "
                        << (m_handleCuda ? "ok" : "missing") << ", libcudart: "

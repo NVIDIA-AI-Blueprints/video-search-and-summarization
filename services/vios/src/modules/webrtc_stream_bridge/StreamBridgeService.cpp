@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -488,7 +488,7 @@ VmsErrorCode StreamBridgeService::handleStreambridgeConfiguration(const Json::Va
         response["enableGstDebugProbes"] = config.enable_gst_debug_probes;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
         response["enableNetworkBandwidthNotification"] = config.enable_network_bandwidth_notification;
         response["enableLatencyLogging"] = config.enable_latency_logging;

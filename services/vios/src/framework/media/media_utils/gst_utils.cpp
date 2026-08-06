@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1245,7 +1245,7 @@ bool GstTranscode::transcode (TranscodeParam params)
     if (m_useHwEncoder)
     {
         // nvv4l2 encoder settings
-        g_object_set(G_OBJECT(m_enc), "gpu-id", g_gpuIndex, NULL);
+        g_object_set(G_OBJECT(m_enc), "gpu-id", getGpuIndex(), NULL);
 
         if (params.m_allIframes)
         {

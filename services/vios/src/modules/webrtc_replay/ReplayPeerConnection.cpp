@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -663,7 +663,7 @@ VmsErrorCode ReplayPeerConnection::handleReplayConfiguration(const Json::Value &
         response["enableGstDebugProbes"] = config.enable_gst_debug_probes;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
         response["enableDecLowLatencyMode"] = config.enable_dec_low_latency_mode;
         response["webrtc_video_quality_tunning"] = config.webrtc_video_quality_tunning;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,8 +49,6 @@ const std::string blue("\033[0;34m");
 const std::string magenta("\033[0;35m");
 const std::string reset("\033[0m");
 const std::string none("");
-
-using namespace std;
 
 namespace nv_logger {
 
@@ -223,7 +221,7 @@ class Logger {
             return *this;
         }
 
-        Logger& log(Level n, const string functionName, const string fileName, const int lineNumber )
+        Logger& log(Level n, const std::string functionName, const std::string fileName, const int lineNumber )
         {
 #ifdef ENABLE_LOG
             m_debugLevel = n;
@@ -264,7 +262,7 @@ class Logger {
             return m_logStream.str();
         }
 #endif
-        void log_qos(string format, ...)
+        void log_qos(std::string format, ...)
         {
             va_list args;
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
@@ -284,7 +282,7 @@ class Logger {
             else if (written < 0)
             {
                 buffer[0] = '\0';  // Handle encoding error
-                LOG(error) << "Error in vsnprintf" << endl;
+                LOG(error) << "Error in vsnprintf" << std::endl;
             }
 
             m_qosStream << buffer;
@@ -293,7 +291,7 @@ class Logger {
             va_end(args);
         }
 
-        void log_color(string color, string format, ...)
+        void log_color(std::string color, std::string format, ...)
         {
             va_list args;
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
@@ -313,7 +311,7 @@ class Logger {
             else if (written < 0)
             {
                 buffer[0] = '\0';  // Handle encoding error
-                LOG(error) << "Error in vsnprintf" << endl;
+                LOG(error) << "Error in vsnprintf" << std::endl;
             }
 
             if (m_enableFileLog)
@@ -325,11 +323,11 @@ class Logger {
             {
                 if (GET_CONFIG().enable_highlighting_logs)
                 {
-                    std::cout << color << buffer << reset << endl;
+                    std::cout << color << buffer << reset << std::endl;
                 }
                 else
                 {
-                    std::cout << buffer << endl;
+                    std::cout << buffer << std::endl;
                 }
             }
             va_end(args);

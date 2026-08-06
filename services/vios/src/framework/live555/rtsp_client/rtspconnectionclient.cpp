@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,8 +42,8 @@ using namespace std;
 constexpr int ADDON_FRAMES = 30;
 constexpr int MAX_END_ADDON_TIME_SEC = 5;
 
-unsigned fileSinkBufferSize = 400000;
-unsigned int fileOutputInterval = 20;
+constexpr unsigned fileSinkBufferSize = 400000;
+constexpr unsigned int fileOutputInterval = 20;
 
 RTSPConnection::RTSPConnection(Environment& env, Callback* callback, const char* rtspURL, int timeout, int rtptransport, int verbosityLevel) 
 				: m_startCallbackTask(nullptr)

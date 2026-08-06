@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -160,7 +160,7 @@ void ImageEnc::onFrame(std::shared_ptr<RawFrameParams> frameData)
         return;
     }
     uint64_t fd = 0;
-    bool sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
     if (frameData->m_sample)
     {

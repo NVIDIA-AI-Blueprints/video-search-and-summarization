@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,7 +37,7 @@ bool NvSurfacePool::allocateSurfaces (int num_surfaces, unsigned int target_widt
         if (isJetsonPlatform())
         {
             /* If Jetson GPU mode is enabled, use CUDA device memory */
-            if (memType == NVBUF_MEM_DEFAULT && g_useCudaDeviceMemory)
+            if (memType == NVBUF_MEM_DEFAULT && isCudaDeviceMemoryEnabled())
             {
                 memType = NVBUF_MEM_CUDA_DEVICE;
                 buf_params.memType = memType;
@@ -45,7 +45,7 @@ bool NvSurfacePool::allocateSurfaces (int num_surfaces, unsigned int target_widt
         }
         buf_params.colorFormat = format;
         buf_params.layout      = layout;
-        buf_params.gpuId       = g_gpuIndex;
+        buf_params.gpuId       = getGpuIndex();
     }
     for (int i = 0; i < num_surfaces; i++)
     {
@@ -134,7 +134,7 @@ void NvSurfacePool::addFreeSurfaceToQ (FdIndexInfo fd_index_info)
     unsigned int surface_width = m_width;
     unsigned int surface_height = m_height;
     FD_Index_Pair fd_index_pair = fd_index_info.m_fdIndexPair;
-    bool sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
     if(fd_index_pair.first > 0)
     {

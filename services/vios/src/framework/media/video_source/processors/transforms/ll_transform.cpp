@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -227,7 +227,7 @@ void NvLLTransform::doTransformTask()
         GstNvVstMeta *meta = nullptr;
         GstNvIpcMeta *ipc_meta = nullptr;
         int64_t pts = 0;
-        bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+        bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
         bool is_error = false;
         int ret = 0;
 
@@ -386,7 +386,7 @@ void NvLLTransform::doTransformTask()
 
                     // Perform transform based on config
                     NvBufSurfTransformConfigParams config_params;
-                    config_params.gpu_id       = g_gpuIndex;
+                    config_params.gpu_id       = getGpuIndex();
                     config_params.compute_mode = NvBufSurfTransformCompute_Default;
                     config_params.cuda_stream  = nullptr;
                     NvBufWrapper::getInstance()->NvBufSurfTransformSetSessionParams (&config_params);

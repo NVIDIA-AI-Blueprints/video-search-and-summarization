@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,13 +47,26 @@ constexpr const char* EXIT_MESSAGE = "exit_listener_thread";
 constexpr int CURL_REQUEST_TIMEOUT = 408;
 constexpr const char* CURL_REQUEST_TIMEOUT_MSG = "Device request timeout";
 
-std::mutex g_probeMutex;
-std::mutex g_probeMatchMutex;
-vector<int> g_probePort;
-int g_fdCtrl[2];
-
 namespace
 {
+    vector<int>& probePorts()
+    {
+        static vector<int> ports;
+        return ports;
+    }
+
+    std::mutex& probeMutex()
+    {
+        static std::mutex mutex;
+        return mutex;
+    }
+
+    int* ctrlFds()
+    {
+        static int fds[2];
+        return fds;
+    }
+
     size_t callback( const char* in, size_t size, size_t num, string* out)
     {
         const size_t totalBytes(size * num);
@@ -334,6 +347,8 @@ static bool getProbeResponse(const string& xmlData, SensorInfo& sensor)
 }
 
 #if 0
+std::mutex g_probeMatchMutex;
+
 static int sendProbe(map<string, SensorInfo>& deviceList)
 {
     struct sockaddr_in groupSock;
@@ -349,12 +364,12 @@ static int sendProbe(map<string, SensorInfo>& deviceList)
     timeout.tv_usec = 0;
     vector<string> net_interfaces = config.sensor_discovery_interfaces;
 
-    std::lock_guard<std::mutex> lock(g_probeMutex);
+    std::lock_guard<std::mutex> lock(probeMutex());
     if (net_interfaces.empty())
     {
         net_interfaces.push_back("INADDR_ANY");
     }
-    for (unsigned pt = 0; pt < g_probePort.size(); pt++)
+    for (unsigned pt = 0; pt < probePorts().size(); pt++)
     {
         sd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
         if(sd < 0)
@@ -554,16 +569,16 @@ int sendProbe(const string& inIpAddress)
     const char* ip = inIpAddress.empty() ? PROBE_IP : inIpAddress.c_str();
     int port = PROBE_PORT;
 
-    std::lock_guard<std::mutex> lock(g_probeMutex);
+    std::lock_guard<std::mutex> lock(probeMutex());
 
-    if (g_probePort.empty())
+    if (probePorts().empty())
     {
         LOG(error) << "Probe port is still not opened" << endl;
         return -1;
     }
-    for (unsigned pt = 0; pt < g_probePort.size(); pt++)
+    for (unsigned pt = 0; pt < probePorts().size(); pt++)
     {
-        sd = g_probePort[pt];
+        sd = probePorts()[pt];
         LOG(verbose) << "PROBE PORT FD : " << sd << " ip: "<< ip << endl;
         if (!inIpAddress.empty())
         {
@@ -632,7 +647,7 @@ int openProbe()
     DeviceConfig& config = GET_CONFIG();
     vector<string> net_interfaces = config.sensor_discovery_interfaces;
 
-    std::lock_guard<std::mutex> lock(g_probeMutex);
+    std::lock_guard<std::mutex> lock(probeMutex());
     if (net_interfaces.empty() || !checkIfValidInterface(net_interfaces))
     {
         LOG(error) << "Either interface list is empty or wrong interfaces provided, use INADDR_ANY" << endl;
@@ -712,7 +727,7 @@ int openProbe()
             }
         }
         LOG(info) << "PROBE PORT FD : " << sd << ", interface:" << net_interfaces[pt] << endl;
-        g_probePort.push_back(sd);
+        probePorts().push_back(sd);
 
         // set SO_REUSEADDR option before bind
         if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *)&socket_reuse, sizeof(socket_reuse)) < 0)
@@ -761,21 +776,21 @@ cleanup:
         }
     }
     // Dummy pipe desciptor to terminate the listener thread.
-    if (ret == 0 && pipe(g_fdCtrl) < 0)
+    if (ret == 0 && pipe(ctrlFds()) < 0)
     {
         perror("pipe error");
-        LOG(error) << "Failed to create pipe g_fdCtrl" << endl;
+        LOG(error) << "Failed to create pipe ctrlFds" << endl;
     }
     return ret;
 }
 
 void closeProbe()
 {
-    for (auto pt : g_probePort)
+    for (auto pt : probePorts())
     {
         close(pt);
     }
-    g_probePort.clear();
+    probePorts().clear();
 }
 
 int getProbeMatch(SensorInfo& sensor)
@@ -790,21 +805,21 @@ int getProbeMatch(SensorInfo& sensor)
     timeout.tv_sec  = config.sensor_discovery_timeout;
     timeout.tv_usec = 0;
 
-    if (g_probePort.empty())
+    if (probePorts().empty())
     {
         LOG(error) << "Probe port is still not opened" << endl;
         return -1;
     }
 
     FD_ZERO(&readfds);
-    max_sd = g_fdCtrl[0];
-    for (auto sd : g_probePort)
+    max_sd = ctrlFds()[0];
+    for (auto sd : probePorts())
     {
         FD_SET(sd, &readfds);
         if (sd > max_sd)
             max_sd = sd;
     }
-    FD_SET(g_fdCtrl[0], &readfds);
+    FD_SET(ctrlFds()[0], &readfds);
     {
         struct sockaddr_in cliaddr;
         memset(&cliaddr, 0, sizeof(cliaddr));
@@ -828,11 +843,11 @@ int getProbeMatch(SensorInfo& sensor)
         }
 
         // Check if exit message is received from pipe.
-        if (FD_ISSET(g_fdCtrl[0], &readfds))
+        if (FD_ISSET(ctrlFds()[0], &readfds))
         {
             int msg_len = 1024;
             char message[msg_len];
-            if (read(g_fdCtrl[0], message, msg_len) < 0)
+            if (read(ctrlFds()[0], message, msg_len) < 0)
             {
                 LOG(error) << "read from pipe failed" << endl;
                 return -1;
@@ -843,15 +858,15 @@ int getProbeMatch(SensorInfo& sensor)
                 if (objMsg == EXIT_MESSAGE)
                 {
                     LOG(info) << "Received exit message, terminate the thread" << endl;
-                    close(g_fdCtrl[0]);
-                    close(g_fdCtrl[1]);
+                    close(ctrlFds()[0]);
+                    close(ctrlFds()[1]);
                     return -1;
                 }
             }
         }
 
         int sd_set = -1;
-        for (auto sd : g_probePort)
+        for (auto sd : probePorts())
         {
             if (FD_ISSET(sd, &readfds))
             {
@@ -890,8 +905,8 @@ int stopOnvifDiscovery()
     int result = 0;
     string bye_message = EXIT_MESSAGE;
 
-    std::lock_guard<std::mutex> lock(g_probeMutex);
-    result = write (g_fdCtrl[1], bye_message.c_str(), sizeof(bye_message));
+    std::lock_guard<std::mutex> lock(probeMutex());
+    result = write (ctrlFds()[1], bye_message.c_str(), sizeof(bye_message));
     if (result < 0)
     {
         LOG(error) << ("writting by-message failed") << endl;

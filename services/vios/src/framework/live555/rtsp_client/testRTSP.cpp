@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -62,23 +62,35 @@ void usage(UsageEnvironment& env, char const* progName) {
   env << "\t(where each <rtsp-url-i> is a \"rtsp://\" URL)\n";
 }
 
-std::mutex g_lock;
-static int result = 0;
-static std::string video_format = "";
-static std::string video_framerate = "";
-static std::string video_width = "";
-static std::string video_height = "";
-static unsigned payloadFormat;
+namespace {
+
+// State shared between testRtspUrl() and parseSdpDescription(), serialised by SdpTestState::lock.
+struct SdpTestState {
+    std::mutex lock;
+    int result = 0;
+    std::string video_format;
+    std::string video_framerate;
+    std::string video_width;
+    std::string video_height;
+};
+
+SdpTestState& sdpTestState() {
+    static SdpTestState state;
+    return state;
+}
+
+} // namespace
 
 int testRtspUrl(const char* url, std::string& codec, std::string& frame_rate, std::string& width, std::string& height,
                 const std::string& username, const std::string& password)
 {
-    std::lock_guard<std::mutex> lck (g_lock);
-    video_format = "";
-    video_framerate = "";
-    video_width = "";
-    video_height = "";
-    result = 0;
+    SdpTestState& state = sdpTestState();
+    std::lock_guard<std::mutex> lck (state.lock);
+    state.video_format = "";
+    state.video_framerate = "";
+    state.video_width = "";
+    state.video_height = "";
+    state.result = 0;
 
     if (isRtspServerReachable(string(url)) == false)
     {
@@ -116,7 +128,7 @@ int testRtspUrl(const char* url, std::string& codec, std::string& frame_rate, st
         std::lock_guard<std::mutex> sdp_lock (((ourRTSPClient*)rtspClient)->m_sdpMonitorMutex);
         ((ourRTSPClient*)rtspClient)->m_describeState = true;
         ((ourRTSPClient*)rtspClient)->m_sdpMonitorCv.notify_all();
-        result = resultCode;
+        sdpTestState().result = resultCode;
     }, authenticator.get());
 
     /* Wait for describe response or till timeout */
@@ -130,14 +142,14 @@ int testRtspUrl(const char* url, std::string& codec, std::string& frame_rate, st
     }
     delete client;
 
-    codec = video_format;
-    frame_rate = video_framerate;
-    width = video_width;
-    height = video_height;
-    LOG(info) << "Result: " << result << endl;
-    LOG(info) << "testRtspUrl video_format: " << video_format << " frame rate: " << video_framerate
-              << " video size:  " << video_width << "x" << video_height << endl;
-    return result;
+    codec = state.video_format;
+    frame_rate = state.video_framerate;
+    width = state.video_width;
+    height = state.video_height;
+    LOG(info) << "Result: " << state.result << endl;
+    LOG(info) << "testRtspUrl video_format: " << state.video_format << " frame rate: " << state.video_framerate
+              << " video size:  " << state.video_width << "x" << state.video_height << endl;
+    return state.result;
 }
 
 // Define a data sink (a subclass of "MediaSink") to receive the data for each subsession (i.e., each audio or video 'substream').
@@ -145,7 +157,7 @@ int testRtspUrl(const char* url, std::string& codec, std::string& frame_rate, st
 // Or it might be a "FileSink", for outputting the received data into a file (as is done by the "openRTSP" application).
 // In this example code, however, we define a simple 'dummy' sink that receives incoming data, but does nothing with it.
 
-#define RTSP_CLIENT_VERBOSITY_LEVEL 0 // by default, print verbose output from each "RTSPClient"
+constexpr int RTSP_CLIENT_VERBOSITY_LEVEL = 0; // by default, print verbose output from each "RTSPClient"
 
 void openURL(UsageEnvironment& env, char const* rtspURL)
 {
@@ -170,6 +182,8 @@ void openURL(UsageEnvironment& env, char const* rtspURL)
 void parseSdpDescription(RTSPClient* rtspClient, char* resultString)
 {
     ourRTSPClient *ourRtspClient = (ourRTSPClient*)rtspClient;
+    SdpTestState& state = sdpTestState();
+    unsigned payloadFormat = 0;
     vector<std::string> arr = splitString(std::string(resultString), "\n");
     for (unsigned int i = 0; i < arr.size(); i ++)
     {
@@ -220,7 +234,7 @@ void parseSdpDescription(RTSPClient* rtspClient, char* resultString)
             {
                 if (payloadFormat == rtpmapPayloadFormat)
                 {
-                    video_format = codecName;
+                    state.video_format = codecName;
                 }
             }
         }
@@ -231,12 +245,12 @@ void parseSdpDescription(RTSPClient* rtspClient, char* resultString)
             if (sscanf(line.c_str(), "a=framerate: %f", &frate) == 1 || sscanf(line.c_str(), "a=framerate:%f", &frate) == 1)
             {
               ourRtspClient->m_framerate = frate;
-              video_framerate = std::to_string(frate);
+              state.video_framerate = std::to_string(frate);
             }
             else if (sscanf(line.c_str(), "a=x-framerate: %d", &rate) == 1)
             {
               ourRtspClient->m_framerate = rate;
-              video_framerate = std::to_string(rate);
+              state.video_framerate = std::to_string(rate);
             }
         }
         else if (line.find("framesize") != std::string::npos)
@@ -245,13 +259,13 @@ void parseSdpDescription(RTSPClient* rtspClient, char* resultString)
             unsigned w, h;
             if (sscanf(line.c_str(), "a=framesize: %u %d-%d",&rtpmapPayloadFormat, &w, &h ) == 3)
             {
-                video_width = std::to_string(w);
-                video_height = std::to_string(h);
+                state.video_width = std::to_string(w);
+                state.video_height = std::to_string(h);
             }
         }
     }
-    LOG(error) << " video_format: " << video_format << ", frame rate: " << video_framerate
-              << ", video size:  " << video_width << "x" << video_height << endl;
+    LOG(error) << " video_format: " << state.video_format << ", frame rate: " << state.video_framerate
+              << ", video size:  " << state.video_width << "x" << state.video_height << endl;
 }
 
 void continueAfterOPTIONS(RTSPClient* rtspClient, int resultCode, char* resultString) {
@@ -760,8 +774,8 @@ void DummySink::afterGettingFrame(void* clientData, unsigned frameSize, unsigned
   sink->afterGettingFrame(frameSize, numTruncatedBytes, presentationTime, durationInMicroseconds);
 }
 
-// If you don't want to see debugging output for each received frame, then comment out the following line:
-#define DEBUG_PRINT_EACH_RECEIVED_FRAME 1
+// If you don't want to see debugging output for each received frame, then set the following constant to false:
+static constexpr bool DEBUG_PRINT_EACH_RECEIVED_FRAME = true;
 
 void DummySink::afterGettingFrame(unsigned frameSize, unsigned numTruncatedBytes,
 				  struct timeval presentationTime, unsigned /*durationInMicroseconds*/) {
@@ -810,7 +824,7 @@ skip:
     }
   }
 
-#ifdef DEBUG_PRINT_EACH_RECEIVED_FRAME
+  if constexpr (DEBUG_PRINT_EACH_RECEIVED_FRAME) {
     if (fStreamId != nullptr) LOG(verbose) << "Stream \"" << fStreamId << "\"; ";
     LOG(verbose) << fSubsession.mediumName() << "/" << fSubsession.codecName() << ":\tReceived " << frameSize << " bytes";
     if (numTruncatedBytes > 0) LOG(verbose) << " (with " << numTruncatedBytes << " bytes truncated)";
@@ -824,7 +838,7 @@ skip:
     LOG(verbose) << "\tNPT: " << fSubsession.getNormalPlayTime(presentationTime);
 #endif
     LOG(verbose) << "\n";
-#endif
+  }
   m_client->m_dataArrived = true;
   // Then continue, to request the next frame of data:
   continuePlaying();

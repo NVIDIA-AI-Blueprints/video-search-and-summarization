@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,9 +20,9 @@
 #include "Websocket.h"
 #include "utils.h"
 
-#define SENSOR_MONITOR_THREAD_COUNT 1
-#define SENSOR_MONITOR_INTERVAL 20
-#define DATA_CHANNEL_WAIT_TIME 10000
+constexpr unsigned int SENSOR_MONITOR_THREAD_COUNT = 1;
+constexpr unsigned int SENSOR_MONITOR_INTERVAL = 20;
+constexpr unsigned int DATA_CHANNEL_WAIT_TIME = 10000;
 #define CHECK_VALUE_IF_ERROR_RETURN(v, l, u)                                          \
     if (!(v.empty() || l.empty() || u.empty()) && valueWithinRange(v, l, u) == false) \
     {                                                                                 \

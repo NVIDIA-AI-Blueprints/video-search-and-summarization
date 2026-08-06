@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,8 +51,8 @@ static constexpr int DEFAULT_FRAMERATE_NUM = 30;
 static constexpr int DEFAULT_FRAMERATE_DENOM = 1;
 
 const uint8_t kNaluTypeMask = 0x1F;
-static uint8_t H26X_marker_1[] = { 0, 0, 0, 1};
-static uint8_t H26X_marker_2[] = { 0, 0, 1};
+static const uint8_t H26X_marker_1[] = { 0, 0, 0, 1};
+static const uint8_t H26X_marker_2[] = { 0, 0, 1};
 
 // Helper function to check if string is a remote URL (http/https)
 static inline bool isRemoteUrl(const std::string& path)
@@ -419,7 +419,8 @@ int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_
 #endif
             if (uuid_str.find(SEI_CUSTOM_META_UUID) != string::npos)
             {
-                for (size_t i = 0; i < vect_sei_payload.size(); i++)
+                /* Copy at most the struct size; the payload may carry extra trailing bytes */
+                for (size_t i = 0; i < vect_sei_payload.size() && i < sizeof(FrameInfoSeiPayload); i++)
                 {
                     frameInfo_ptr[i] = vect_sei_payload[i];
                 }
