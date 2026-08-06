@@ -286,7 +286,7 @@ print(f"Wrote NemoClaw hook token file: {_token_file}")
 '''.strip() + "\n"
 
 DIRECT_CONTAINER_PREFLIGHT_SOURCE = rf'''
-# CI-only guard for NemoClaw v0.0.97's direct Docker mutation target.
+# CI-only guard for the pinned NemoClaw release's direct Docker mutation target.
 import subprocess as _ci_subprocess
 import sys as _ci_sys
 

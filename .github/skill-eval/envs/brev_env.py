@@ -71,7 +71,7 @@ NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
 # worker-local sandbox. Bump this when the trusted NemoClaw runtime image or
 # its direct-container preflight contract changes so a warm worker cannot
 # bind a rebuilt image to stale same-name runtime state.
-NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc097-c5"
+NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc103-c1"
 MAX_SETUP_DIAGNOSTIC_INPUT_CHARS = 4 * 1024 * 1024
 NEMOCLAW_SAMPLE_FILES_ALLOWLIST = frozenset(
     {
@@ -1133,7 +1133,7 @@ if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
       exit 1
     fi
     stage "verified trusted lsof for scoped gateway recovery: $trusted_lsof"
-    expected_nemoclaw_ref="${{NEMOCLAW_INSTALL_REF:-v0.0.97}}"
+    expected_nemoclaw_ref="${{NEMOCLAW_INSTALL_REF:-v0.0.103}}"
     if [[ "$expected_nemoclaw_ref" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
       expected_nemoclaw_version="${{BASH_REMATCH[1]}}"
     else
@@ -1382,9 +1382,9 @@ else
       exit 1
       ;;
   esac
-  # NemoClaw v0.0.97 scopes normal OpenShell RPCs to their gateway, but its
-  # post-exec permission repair discovers Docker containers globally using
-  # only the sandbox-name label. Warm workers can be reached as root or
+  # The pinned NemoClaw release scopes normal OpenShell RPCs to their owning
+  # gateway, but its post-exec permission repair discovers Docker containers
+  # globally using only the sandbox-name label. Warm workers can be reached as root or
   # ubuntu and can retain sibling-gateway `demo` containers. A stable
   # effective-uid + gateway-port name excludes both collision dimensions.
   # The runtime-contract revision prevents `--fresh` from reattaching a

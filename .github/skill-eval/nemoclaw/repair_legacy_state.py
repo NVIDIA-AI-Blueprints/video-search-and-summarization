@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Quarantine one provably stale CI-only NemoClaw onboarding session.
 
-NemoClaw v0.0.97 segregates non-default gateway state before command dispatch.
-An older shared ``onboard-session.json`` can claim the default gateway while
-the same ``demo`` sandbox's registry row already claims the skill-eval gateway.
+The pinned NemoClaw release segregates non-default gateway state before command
+dispatch. An older shared ``onboard-session.json`` can claim the default gateway
+while the same ``demo`` sandbox's registry row already claims the skill-eval gateway.
 The upstream migration correctly refuses that contradictory state before
 ``nemoclaw onboard --fresh`` gets a chance to discard the stale session.
 

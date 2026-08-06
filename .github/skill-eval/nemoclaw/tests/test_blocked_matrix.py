@@ -146,11 +146,11 @@ class BlockedMatrixTest(unittest.TestCase):
                 "profile_an_1_stored_video_summarization_api",
                 "profile_an_1_stored_video_summarization_runtime_harbor",
                 "profile_at_1_alert_verification",
+                "profile_combined_alerts_search_harbor",
                 "profile_in_1_streaming_dense_captions",
                 "profile_in_2_rt_cv_person_detection_harbor",
                 "profile_in_3_ingestion_detection_embeddings_harbor",
                 "profile_sop_1_compliance_monitoring",
-                "rt-cv-person-detection-rtdetr-harbor",
             },
         )
         self.assertTrue(rows)
