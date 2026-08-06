@@ -828,10 +828,12 @@ def _config_bool(value, default=False):
 
 
 def should_handle_config_events():
-    handle_config = app.config.get("WDM_HANDLE_CONFIG_EVENTS")
-    if handle_config is None:
-        return _config_bool(app.config.get("WDM_ENABLE_REGEX_MAPPING"), False)
-    return _config_bool(handle_config, False)
+    """Return True only when WDM_HANDLE_CONFIG_EVENTS is explicitly enabled.
+
+    Default is false (opt-in): workloads without /config must not process
+    configure events. Set WDM_HANDLE_CONFIG_EVENTS=true to enable.
+    """
+    return _config_bool(app.config.get("WDM_HANDLE_CONFIG_EVENTS"), False)
 
 
 def _event_stream_meta(original_json, wl_d=None):
