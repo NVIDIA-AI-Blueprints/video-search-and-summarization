@@ -154,9 +154,8 @@ void NvFileServerMediaSubsession::checkIfSourceInPlayMode(void* clientData)
     }
 }
 
-static void frameSourceEvent(eFrameSourceEvent sourceEvent, void *data)
+static void frameSourceEvent(eFrameSourceEvent sourceEvent, NvFileServerMediaSubsession *fileServer)
 {
-    NvFileServerMediaSubsession *fileServer = (NvFileServerMediaSubsession *) data;
     if (fileServer)
     {
         fileServer->frameSourceEventChange(sourceEvent);

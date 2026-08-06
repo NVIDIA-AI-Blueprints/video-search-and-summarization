@@ -175,12 +175,11 @@ void ADTSByteStreamSource::doGetNextFrame()
 }
 
 void ADTSByteStreamSource
-::afterGettingFrame(void* clientData, unsigned frameSize,
+::afterGettingFrame(ADTSByteStreamSource* source, unsigned frameSize,
 		unsigned numTruncatedBytes,
 		struct timeval presentationTime,
 		unsigned durationInMicroseconds)
 {
-    ADTSByteStreamSource* source = (ADTSByteStreamSource*)clientData;
     source->fFrameSize = frameSize;
     source->fNumTruncatedBytes = numTruncatedBytes;
     source->fPresentationTime = presentationTime;
@@ -188,10 +187,12 @@ void ADTSByteStreamSource
     FramedSource::afterGetting(source);
 }
 
-void ADTSByteStreamSource::onSourceClosure(void* clientData)
+void ADTSByteStreamSource::onSourceClosure(ADTSByteStreamSource* source)
 {
-  ADTSByteStreamSource* source = (ADTSByteStreamSource*)clientData;
-  source->onSourceClosure1();
+  if (source)
+  {
+    source->onSourceClosure1();
+  }
 }
 
 void ADTSByteStreamSource::onSourceClosure1() {

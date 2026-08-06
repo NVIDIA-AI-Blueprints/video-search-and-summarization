@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -57,7 +57,7 @@ namespace nv_vms
             void resume_internal();
             void destroy_internal();
             void reset_pipeline_internal ();
-            static void process_eventloop_message(std::shared_ptr<EventLoopData> data, void* parent);
+            static void process_eventloop_message(std::shared_ptr<EventLoopData> data, GstUDPVideoClient* parent);
             friend gboolean busWatchFunc (GstBus *bus, GstMessage *message, gpointer data);
             GstFlowReturn processNewSampleFromSink(GstElement * appsink);
             GstFlowReturn processNewAudioSampleFromSink(GstElement * appsink);

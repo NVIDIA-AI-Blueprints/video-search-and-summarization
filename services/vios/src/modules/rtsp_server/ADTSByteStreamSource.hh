@@ -50,9 +50,9 @@ protected:
 private:
     // redefined virtual functions:
     virtual void doGetNextFrame();
-    static void onSourceClosure(void* clientData);
+    static void onSourceClosure(ADTSByteStreamSource* source);
     void onSourceClosure1();
-    static void afterGettingFrame(void* clientData,
+    static void afterGettingFrame(ADTSByteStreamSource* source,
           unsigned frameSize, unsigned numTruncatedBytes,
           struct timeval presentationTime,
           unsigned durationInMicroseconds);

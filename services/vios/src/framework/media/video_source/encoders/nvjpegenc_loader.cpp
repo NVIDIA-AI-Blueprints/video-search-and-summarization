@@ -149,7 +149,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
         jpeg_destroy_compress(&cinfo);
         return -1;
     }
-    NvBufWrapper::getInstance()->NvBufSurfaceFromFd(fd, (void **)&buf_surf);
+    NvBufWrapper::getInstance()->NvBufSurfaceFromFd(fd, &buf_surf);
     cinfo.pVendor_buf = (unsigned char *)buf_surf;
 #endif
     cinfo.IsVendorbuf = TRUE;
