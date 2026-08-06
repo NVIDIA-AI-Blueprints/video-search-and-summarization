@@ -24,12 +24,6 @@ def _bool_env(name, default=False):
     return os.environ[name].strip().lower() == "true"
 
 
-def _optional_bool_env(name):
-    if name not in os.environ or os.environ[name].strip() == "":
-        return None
-    return os.environ[name].strip().lower() == "true"
-
-
 class Config(object):
     DEBUG = False
     TESTING = False
@@ -778,7 +772,9 @@ class Config(object):
         and os.environ["WDM_ENABLE_REGEX_MAPPING"].strip().lower() == "true"
         else False
     )
-    WDM_HANDLE_CONFIG_EVENTS = _optional_bool_env("WDM_HANDLE_CONFIG_EVENTS")
+    # Opt-in: unset/empty defaults to false. Set true only for workloads that
+    # must apply /config (e.g. warehouse 3D rtvi-cv).
+    WDM_HANDLE_CONFIG_EVENTS = _bool_env("WDM_HANDLE_CONFIG_EVENTS", False)
     ENVOY_REQUEST_TIMEOUT = (
         int(os.environ["ENVOY_REQUEST_TIMEOUT"])
         if "ENVOY_REQUEST_TIMEOUT" in os.environ and os.environ["ENVOY_REQUEST_TIMEOUT"].strip() != ""

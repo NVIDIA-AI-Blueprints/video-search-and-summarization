@@ -564,7 +564,7 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `WDM_KFK_SESSION_TIME_OUT` | `30000` | Kafka session timeout in milliseconds. |
 | `WDM_FORWARD_MSG_TYPE` | `event_message` | Whether to forward the full event envelope or only the inner event to workers. |
 | `WDM_WL_CHANGE_ID_POD_CONFIGURE` | `config` | Change value that triggers pod configuration (`/config` flow). See [Config Event Handling](#config-event-handling). |
-| `WDM_HANDLE_CONFIG_EVENTS` | unset | Explicit enable/disable for config events. When unset, effective behavior follows `WDM_ENABLE_REGEX_MAPPING`. Set `false` for workloads without a `/config` API; set `true` only for workloads that must apply config (for example warehouse 3D `rtvi-cv`). |
+| `WDM_HANDLE_CONFIG_EVENTS` | `false` | Opt-in enable for config events. Default `false` (skip `/config`). Set `true` only for workloads that must apply config (for example warehouse 3D `rtvi-cv`). |
 | `WDM_CONFIG_RETRY_ATTEMPTS` | `3` | Dedicated transport retry budget for `/config` HTTP calls only (does not use `WDM_ADD_REMOVE_RETRY_ATTEMPTS`). If unset at call time, falls back to `min(WDM_ADD_REMOVE_RETRY_ATTEMPTS, 5)`. |
 | `WDM_CONFIG_RETRY_DELAY` | `0.5` | Delay in seconds between `/config` transport retries. |
 | `WDM_CONFIG_DEFER_ON_FAILURE` | `False` | If `true`, failed config handling returns deferred status and leaves the bus message uncommitted for later retry. Default `false` treats config failures as terminal and commits the offset. |
@@ -687,15 +687,14 @@ Config handling is **opt-in per workload** so shared Redis/Kafka buses do not fo
 
 ### When config events are handled
 
-Effective handling is controlled by `WDM_HANDLE_CONFIG_EVENTS`:
+Effective handling is controlled by `WDM_HANDLE_CONFIG_EVENTS` (default **`false`**, opt-in):
 
 | `WDM_HANDLE_CONFIG_EVENTS` | Behavior |
 |---|---|
 | `true` | Handle config events: resolve the target worker and call `/config`. |
-| `false` | Skip config events for this workload (`CONFIGURE_NOOP`); do not call `/config`. |
-| unset | Fall back to `WDM_ENABLE_REGEX_MAPPING` (handle only when regex mapping is enabled). |
+| `false` / unset | Skip config events for this workload (`CONFIGURE_NOOP`); do not call `/config`. |
 
-**Deploy guidance:** set `WDM_HANDLE_CONFIG_EVENTS: false` on workloads that have no `/config` endpoint (for example streamprocessing, alerts, warehouse 2D/MV3DT RT-CV). Set `WDM_HANDLE_CONFIG_EVENTS: true` only where `/config` is required (for example warehouse 3D `rtvi-cv`).
+**Deploy guidance:** leave unset or set `WDM_HANDLE_CONFIG_EVENTS: false` on workloads that have no `/config` endpoint (for example streamprocessing, alerts, warehouse 2D/MV3DT RT-CV). Set `WDM_HANDLE_CONFIG_EVENTS: true` only where `/config` is required (for example warehouse 3D `rtvi-cv`).
 
 ### Config apply pipeline
 
