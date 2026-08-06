@@ -76,6 +76,23 @@ PREAMBLE = (
     "setup action the trial requires."
 )
 
+# NemoClaw's OpenShell sandbox reaches the worker through
+# ``host.openshell.internal``. Containers on the worker do not share that DNS
+# namespace, so a local NIM/RT-VLM must receive the raw VST service URL while
+# OpenClaw-side probes use the sandbox-to-worker route. Keep this in the task
+# instruction as well as SKILL.md so the network boundary is explicit before
+# the agent constructs a chat/completions payload.
+NEMOCLAW_MEDIA_ROUTE_GUIDANCE = (
+    "NemoClaw network boundary: when `HOST_IP=host.openshell.internal`, use "
+    "that alias only for OpenClaw-side worker probes or downloads. When VST "
+    "`/url` returns a valid "
+    "service URL such as `http://vst-ingress:30888/...`, preserve that raw URL "
+    "in the `video_url` block sent to a local NIM/RT-VLM container; do not "
+    "rewrite the VLM media URL to `host.openshell.internal`. For a malformed, "
+    "loopback, or sandbox-only VST URL, rebuild the local-VLM route from "
+    "`VST_INTERNAL_URL` (default `http://vst-ingress:30888`) instead."
+)
+
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 
@@ -214,6 +231,8 @@ def generate_task(
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         lines = [
             PREAMBLE,
+            "",
+            NEMOCLAW_MEDIA_ROUTE_GUIDANCE,
             "",
             "",
             f"## Query {idx} of {len(expects)}",
