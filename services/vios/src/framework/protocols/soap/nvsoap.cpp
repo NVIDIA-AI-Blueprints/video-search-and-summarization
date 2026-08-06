@@ -1663,7 +1663,7 @@ void NvSoap::getPTZProfilesResponse(const string& xmlData, vector<Profile>& prof
 
     Profile profile;
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -1782,7 +1782,7 @@ vector<PTZSpaces> NvSoap::getPTZNodeResponse(const string& xmlData)
         return spaces;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -1873,7 +1873,7 @@ SensorImageSettingsValues NvSoap::getCameraGetImageSettingsResponse(const string
         return values;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "ImagingSettings");
     if (cur)
@@ -2045,7 +2045,7 @@ SensorImageSettingsOptions NvSoap::getCameraGetImageOptionResponse(const string&
         return options;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "ImagingOptions");
     if (cur)
