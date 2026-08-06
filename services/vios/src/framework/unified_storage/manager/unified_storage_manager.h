@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,7 +45,7 @@ struct BucketResult
     std::chrono::milliseconds duration;
     
     BucketResult() : success(false), duration(0) {}
-    BucketResult(bool success, const std::string& message = "") 
+    explicit BucketResult(bool success, const std::string& message = "")
         : success(success), message(message), duration(0) {}
 };
 
@@ -62,7 +62,7 @@ struct DeleteResult
     std::chrono::milliseconds duration;
     
     DeleteResult() : success(false), deletedSize(0), duration(0) {}
-    DeleteResult(bool success, const std::string& message = "") 
+    explicit DeleteResult(bool success, const std::string& message = "")
         : success(success), message(message), deletedSize(0), duration(0) {}
 };
 
@@ -105,7 +105,7 @@ struct MultiDeleteResult
 class UnifiedStorageManager
 {
 public:
-    UnifiedStorageManager(StorageType type);
+    explicit UnifiedStorageManager(StorageType type);
     virtual ~UnifiedStorageManager();
 
     // Core interface

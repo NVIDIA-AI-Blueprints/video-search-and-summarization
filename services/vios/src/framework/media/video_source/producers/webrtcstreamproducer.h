@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -461,6 +461,8 @@ class WebrtcStreamProducer : public IMediaDataProducer
         {
             return getConsumerCount() > 0;
         }
+
+        using IMediaDataProducer::registerConsumer;
 
         void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& identifier = "") override
         {

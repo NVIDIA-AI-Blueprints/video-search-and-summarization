@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,7 +33,7 @@ using namespace std;
 class NvLLTransform : public IMediaDataConsumer
 {
 public:
-    NvLLTransform(const std::string& consumer_name);
+    explicit NvLLTransform(const std::string& consumer_name);
     ~NvLLTransform();
 
     void doTransformTask();
