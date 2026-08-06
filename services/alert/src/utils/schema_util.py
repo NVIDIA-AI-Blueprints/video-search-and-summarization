@@ -80,6 +80,19 @@ def convert_json_to_protobuf(anomaly_json: dict) -> nvSchemaBehavior:
             f"Error converting JSON to Protobuf: {e}", exc_info=True)
         raise
 
+def _as_dict(value: Any) -> Dict[str, Any]:
+    """Return ``value`` when it is a dict, otherwise an empty dict.
+
+    The ``/alerts`` JSON endpoint hands the request body straight to the
+    converters with no schema validation, so a nested block may arrive as
+    ``null`` or as the wrong type. ``dict.get(key, {})`` does not help there:
+    the default only fires when the key is absent, not when it is present and
+    null. Coercing keeps a malformed block from raising midway through a
+    half-built protobuf message.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def _stringify_map_values(target: Dict[str, Any]) -> None:
     for key, value in list(target.items()):
         if isinstance(value, dict) or isinstance(value, list):
@@ -162,21 +175,25 @@ def convert_behavior_to_protobuf_behavior(behavior: dict) -> nvSchemaBehavior:
     map_geo_location(protobuf_behavior.smoothLocations, behavior.get("smoothLocations"))
 
     # Place
-    protobuf_behavior.place.CopyFrom(place_to_nv_place(behavior.get("place", {})))
+    protobuf_behavior.place.CopyFrom(place_to_nv_place(behavior.get("place")))
 
     # Sensor, Analytics Module, Object, and Event
-    protobuf_behavior.sensor.id = behavior.get("sensor", {}).get("id", "")
-    protobuf_behavior.analyticsModule.id = behavior.get("analyticsModule", {}).get("id", "")
+    sensor = _as_dict(behavior.get("sensor"))
+    am = _as_dict(behavior.get("analyticsModule"))
+    obj = _as_dict(behavior.get("object"))
+
+    protobuf_behavior.sensor.id = sensor.get("id", "")
+    protobuf_behavior.analyticsModule.id = am.get("id", "")
 
     protobuf_behavior.analyticsModule.info['dropped'] = str(behavior.get("dropped", False))
-    am_info = dict(behavior.get("analyticsModule", {}).get("info", {}))
+    am_info = dict(_as_dict(am.get("info")))
     _stringify_map_values(am_info)
     for key, value in am_info.items():
         protobuf_behavior.analyticsModule.info[key] = value
 
-    protobuf_behavior.object.id = behavior.get("object", {}).get("id", "")
-    protobuf_behavior.object.type = behavior.get("object", {}).get("type", "")
-    protobuf_behavior.object.confidence = behavior.get("object", {}).get("confidence", 0.0)
+    protobuf_behavior.object.id = obj.get("id", "")
+    protobuf_behavior.object.type = obj.get("type", "")
+    protobuf_behavior.object.confidence = obj.get("confidence", 0.0)
 
     # Video path and info
     protobuf_behavior.videoPath = behavior.get("videoPath", "")
@@ -188,7 +205,7 @@ def convert_behavior_to_protobuf_behavior(behavior: dict) -> nvSchemaBehavior:
 
     # Embeddings
     for embedding in behavior.get("embeddings", []):
-        protobuf_behavior.embeddings.add().vector.extend(embedding.get("vector", []))
+        protobuf_behavior.embeddings.add().vector.extend(_as_dict(embedding).get("vector", []))
 
     
     return protobuf_behavior
@@ -212,7 +229,7 @@ def place_to_nv_place(place: Optional[dict]) -> Any:
         Place: Protobuf Place object.
     """
     proto_place = Place(
-        name=place.get("name", "")
+        name=_as_dict(place).get("name", "")
     )
     return proto_place
 
