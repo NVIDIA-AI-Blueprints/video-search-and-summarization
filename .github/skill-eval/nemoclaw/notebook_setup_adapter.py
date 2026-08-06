@@ -99,9 +99,9 @@ if not NEMOCLAW_MODEL:
     ).strip()
 if NEMOCLAW_ENDPOINT_URL and not COMPATIBLE_API_KEY:
     COMPATIBLE_API_KEY = (
-        os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
+        os.environ.get("ANTHROPIC_API_KEY")
         or os.environ.get("NVIDIA_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
         or ""
     ).strip()
 NEMOCLAW_INSTALL_REF = os.environ.get(
@@ -270,6 +270,7 @@ _keys = [
     "VSS_ORCHESTRATOR_MCP_TYPE",
     "HOST_INTERNAL_ALIAS",
     "HARDWARE_PROFILE",
+    "UV_NO_SYNC",
     "NEMOCLAW_HOOKS_TOKEN_FILE",
 ]
 NEMOCLAW_HOOKS_TOKEN_FILE = str(_token_file)
@@ -396,6 +397,45 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
         return patched
     if cell_id == "4c91fd59":
         return _patch_docker_login_cell(cell)
+    if cell_id == "c13aaf5e":
+        # The CI notebook starts only the VSS Orchestrator MCP component. Its
+        # import graph does not use the inference-time torch dependency, whose
+        # locked wheel is served from a PyTorch R2 host that the managed Brev
+        # workers cannot reach. Keep the human notebook's full environment
+        # intact while omitting that unused package from this bounded CI venv.
+        sync_command = '["uv", "sync", "--no-dev", "--extra", "agent"]'
+        if sync_command not in source:
+            raise ValueError(
+                "VSS orchestrator setup cell is missing the expected uv sync command"
+            )
+        agent_env_anchor = "agent_env = uv_env_for_agent()\n"
+        if source.count(agent_env_anchor) != 1:
+            raise ValueError(
+                "VSS orchestrator setup cell is missing the expected agent env anchor"
+            )
+        patched = deepcopy(cell)
+        patched_source = source.replace(
+            sync_command,
+            (
+                '["uv", "sync", "--no-dev", "--extra", "agent", '
+                '"--no-install-package", "torch"]'
+            ),
+            1,
+        )
+        # The notebook health helper uses `uv run nat ...`; freeze the venv
+        # after the bounded sync so that command does not restore torch. Keep
+        # the named value in notebook globals so the persisted readiness env
+        # receives the same contract in its separate process.
+        patched["source"] = patched_source.replace(
+            agent_env_anchor,
+            (
+                'UV_NO_SYNC = "1"\n'
+                'os.environ["UV_NO_SYNC"] = UV_NO_SYNC\n'
+                + agent_env_anchor
+            ),
+            1,
+        )
+        return patched
     if cell_id == "s31-code":
         runtime_onboard = (
             'onboard_cmd = "nemohermes onboard --non-interactive" '
