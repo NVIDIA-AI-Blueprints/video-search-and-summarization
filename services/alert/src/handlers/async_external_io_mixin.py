@@ -33,13 +33,24 @@ if PROMETHEUS_ENABLED:
 logger = get_logger(__name__)
 
 
+def _async_external_io_ready(instance, precondition: bool = True) -> bool:
+    """Whether an external call should be handed to the async runtime.
+
+    The three services asked the same two questions and then one of their own;
+    only that last part differs, so it is the only thing passed in. Module
+    level, like the dispatch fallback, so a test driving the mixin with a plain
+    stub still reaches the real check.
+    """
+    return (
+        instance.async_io_enabled
+        and instance.async_vlm_runtime is not None
+        and precondition
+    )
+
+
 class AsyncExternalIOMixin:
     def _is_async_redis_mode_enabled(self) -> bool:
-        return (
-            self.async_io_enabled
-            and self.async_vlm_runtime is not None
-            and self.redis_handler is not None
-        )
+        return _async_external_io_ready(self, self.redis_handler is not None)
 
     def _observe_async_external_io(
         self,
@@ -169,11 +180,7 @@ class AsyncExternalIOMixin:
         return result
 
     def _is_async_elastic_sink_mode_enabled(self) -> bool:
-        return (
-            self.async_io_enabled
-            and self.async_vlm_runtime is not None
-            and self._vlm_sink_type == "elastic"
-        )
+        return _async_external_io_ready(self, self._vlm_sink_type == "elastic")
 
     def _on_async_sink_operation_done(
         self,
@@ -445,7 +452,7 @@ class AsyncExternalIOMixin:
         **kwargs,
     ):
         sync_started_at = time.time()
-        if self.async_io_enabled and self.async_vlm_runtime is not None:
+        if _async_external_io_ready(self):
             async_started_at = time.time()
             future = self.async_vlm_runtime.submit_to_thread(
                 self._vst_handler.get_video_stream_url,
