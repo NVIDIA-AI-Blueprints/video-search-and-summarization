@@ -377,7 +377,7 @@ private:
     SensorNetworkInfo getCameraNetworkInterfacesResponse(const string& xmlData);
     bool setCameraNetworkInterfacesResponse(const string& xmlData);
     string rebootCameraResponse(const string& xmlData);
-    string composeXml(nvsoap_& soap, void* methodxml);
+    string composeXml(nvsoap_& soap, composeMethodXml methodxml);
     string composeXmlWithoutUsertoken(nvsoap_& soap, composeMethodXml methodxml);
     string composeProbeXml();
     int sendProbe(map<string, SensorInfo>& deviceList);

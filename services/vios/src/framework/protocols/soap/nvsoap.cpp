@@ -160,7 +160,7 @@ int NvSoap::GetNTP(nvsoap_& soap, string& res)
     string out;
     soap.method = "GetNTP";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetMethodXml);
     ret = createAndSendRequest(soap, out);
     if (ret == 0)
     {
@@ -175,7 +175,7 @@ int NvSoap::GetDeviceInformation(nvsoap_& soap, map<string, string>& device_info
     string out;
     soap.method = "GetDeviceInformation";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetMethodXml);
     ret = createAndSendRequest(soap, out);
     if (ret == 0 )
     {
@@ -195,7 +195,7 @@ int NvSoap::GetScopes(nvsoap_& soap, vector<string>& uris)
     string out;
     soap.method = "GetScopes";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetMethodXml);
     LOG(verbose2) << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << out << endl;
@@ -214,7 +214,7 @@ int NvSoap::GetDiscoveryMode(nvsoap_& soap, string& discovery_mode)
     soap.method = "GetDiscoveryMode";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
     LOG(verbose2) << soap.xmlData << endl;
-    soap.xmlData = composeXml(soap, (void*)&composeGetMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetMethodXml);
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << out << endl;
     if (ret == 0 )
@@ -230,7 +230,7 @@ int NvSoap::GetCapabilities(nvsoap_& soap, map<string, OnvifServiceInfo>& caps)
     string out;
     soap.method = "GetCapabilities";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetCapabilitiesMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetCapabilitiesMethodXml);
     int ret = createAndSendRequest(soap, out);
     PRINT_XML_REQUEST_IF_ERROR(ret, soap.xmlData)
     ret = getCapabilitiesResponse(out, caps);
@@ -254,7 +254,7 @@ int NvSoap::GetProfile(nvsoap_& soap, SensorSettings& settings)
         LOG(error) << "Invalid namespace: " << soap.wsdl << endl;
         return -1;
     }
-    soap.xmlData = composeXml(soap, (void*)&composeGetProfileXml);
+    soap.xmlData = composeXml(soap, &composeGetProfileXml);
 
     if (createAndSendRequest(soap, out) == 0)
     {
@@ -274,11 +274,11 @@ int NvSoap::GetProfiles(nvsoap_& soap, vector<SensorSettings>& settings)
     soap.wsdl = soap.name_space;
     if (soap.wsdl == ONVIF_MEDIA_SERVICE_NAMESPACE)
     {
-        soap.xmlData = composeXml(soap, (void*)&composeGetMethodXml);
+        soap.xmlData = composeXml(soap, &composeGetMethodXml);
     }
     else if (soap.wsdl == ONVIF_MEDIA2_SERVICE_NAMESPACE)
     {
-        soap.xmlData = composeXml(soap, (void*)&composeGetProfileXml);
+        soap.xmlData = composeXml(soap, &composeGetProfileXml);
     }
     else
     {
@@ -300,7 +300,7 @@ int NvSoap::GetPTZProfiles(nvsoap_& soap, vector<Profile>& profiles)
     string out;
     soap.method = "GetProfiles";
     soap.wsdl = ONVIF_MEDIA_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetMethodXml);
     int ret = createAndSendRequest(soap, out);
     PRINT_XML_REQUEST_IF_ERROR(ret, soap.xmlData)
     getPTZProfilesResponse(out, profiles);
@@ -313,7 +313,7 @@ int NvSoap::GetMediaUri(nvsoap_& soap, string& uri)
     soap.method = "GetStreamUri";
     soap.wsdl = soap.name_space;
     soap.tokenName = "ProfileToken";
-    soap.xmlData = composeXml(soap, (void*)&composeGetUriXml);
+    soap.xmlData = composeXml(soap, &composeGetUriXml);
     LOG(verbose2) << "GetMediaUri request: " << soap.xmlData << endl;
     int ret = createAndSendRequest(soap, out);
     PRINT_XML_REQUEST_IF_ERROR(ret, soap.xmlData)
@@ -329,7 +329,7 @@ int NvSoap::GetReplayUri(nvsoap_& soap, string& uri)
     soap.method = "GetReplayUri";
     soap.wsdl = ONVIF_REPLAY_SERVICE_NAMESPACE;
     soap.tokenName = "RecordingToken";
-    soap.xmlData = composeXml(soap, (void*)&composeGetUriXml);
+    soap.xmlData = composeXml(soap, &composeGetUriXml);
     int ret = createAndSendRequest(soap, out);
     PRINT_XML_REQUEST_IF_ERROR(ret, soap.xmlData)
     LOG(verbose2) << "GetReplayUri Result: " << out << endl;
@@ -342,7 +342,7 @@ int NvSoap::GetConfiguration(nvsoap_& soap, string& out)
 {
     soap.method = "GetConfiguration";
     soap.wsdl = ONVIF_PTZ_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetConfigurationMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetConfigurationMethodXml);
     LOG(verbose2) << "GetConfiguration: " << soap.xmlData << endl;
     int ret = createAndSendRequest(soap, out);
     PRINT_XML_REQUEST_IF_ERROR(ret, soap.xmlData)
@@ -355,7 +355,7 @@ int NvSoap::GetPTZNode(nvsoap_& soap, vector<PTZSpaces>& spaces)
     string out;
     soap.method = "GetNode";
     soap.wsdl = ONVIF_PTZ_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetNodeMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetNodeMethodXml);
     LOG(verbose2) << "GetPTZNode: " << soap.xmlData << endl;
     int ret = createAndSendRequest(soap, out);
     PRINT_XML_REQUEST_IF_ERROR(ret, soap.xmlData)
@@ -372,7 +372,7 @@ int NvSoap::ContinuousMove(nvsoap_& soap, PTZAction ptz, string x, string y)
     soap.wsdl2 = ONVIF_PTZ_SERVICE_NAMESPACE;
     soap.userData["x"] = x;
     soap.userData["y"] = y;
-    soap.xmlData = composeXml(soap, (void*)&composePTZMethodXml);
+    soap.xmlData = composeXml(soap, &composePTZMethodXml);
     LOG(verbose2) << "ContinuousMove: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     if(ret != 0)
@@ -380,7 +380,7 @@ int NvSoap::ContinuousMove(nvsoap_& soap, PTZAction ptz, string x, string y)
       return ret;
     }
     soap.method = "Stop";
-    soap.xmlData = composeXml(soap, (void*)&composePTZStopMethodXml);
+    soap.xmlData = composeXml(soap, &composePTZStopMethodXml);
     soap.userData["PanTilt"] = ptz == PTZAction::PanTilt ? "true" : "false";
     soap.userData["Zoom"] = ptz == PTZAction::Zoom ? "true" : "false";
     LOG(verbose2) << "Stop: " << soap.xmlData << endl;
@@ -397,7 +397,7 @@ int NvSoap::Stop(nvsoap_& soap, string oprtation)
     soap.wsdl2 = ONVIF_PTZ_SERVICE_NAMESPACE;
     soap.userData["PanTilt"] = oprtation == "PanTilt" ? "true" : "false";
     soap.userData["Zoom"] = oprtation == "Zoom" ? "true" : "false";
-    soap.xmlData = composeXml(soap, (void*)&composePTZStopMethodXml);
+    soap.xmlData = composeXml(soap, &composePTZStopMethodXml);
     LOG(verbose2) << "ContinuousMove: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << out << endl;
@@ -410,7 +410,7 @@ int NvSoap::getDeviceImageSettings(nvsoap_& soap, SensorImageSettingsValues& set
     int ret = -1;
     soap.method = "GetImagingSettings";
     soap.wsdl = ONVIF_IMAGING_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetCameraImageSettingsXml);
+    soap.xmlData = composeXml(soap, &composeGetCameraImageSettingsXml);
     LOG(verbose2) << "GetImagingSettings: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     if (ret != 0)
@@ -428,7 +428,7 @@ int NvSoap::getCameraImageOptions(nvsoap_& soap, SensorImageSettingsOptions& opt
     int ret = -1;
     soap.method = "GetOptions";
     soap.wsdl = ONVIF_IMAGING_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetImageOptionsXml);
+    soap.xmlData = composeXml(soap, &composeGetImageOptionsXml);
     LOG(verbose2) << "GetOptions: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << "GetOptions: " << out << endl;
@@ -443,7 +443,7 @@ int NvSoap::setDeviceImageSettings(nvsoap_& soap, const SensorImageSettingsValue
     soap.method = "SetImagingSettings";
     soap.wsdl = ONVIF_IMAGING_SERVICE_NAMESPACE;
     soap.userData2 = (void* )&settings;
-    soap.xmlData = composeXml(soap, (void*)&composeSetCameraImageSettingsXml);
+    soap.xmlData = composeXml(soap, &composeSetCameraImageSettingsXml);
     LOG(verbose2) << "SetImagingSettings: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << "SetImagingSettings: " << out << endl;
@@ -457,7 +457,7 @@ int NvSoap::setSystemDateAndTime(nvsoap_& soap, const DeviceTimeInfo& timeInfo)
     soap.method = "SetSystemDateAndTime";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
     soap.userData2 = (void* )&timeInfo;
-    soap.xmlData = composeXml(soap, (void*)&composeSetSystemDateAndTimeInfoXml);
+    soap.xmlData = composeXml(soap, &composeSetSystemDateAndTimeInfoXml);
     LOG(verbose2) << "SetSystemDateAndTime: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << "SetSystemDateAndTime out: " << out << endl;
@@ -471,7 +471,7 @@ int NvSoap::setNTP(nvsoap_& soap, const DeviceNTPInfo& ntpInfo)
     soap.method = "SetNTP";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
     soap.userData2 = (void* )&ntpInfo;
-    soap.xmlData = composeXml(soap, (void*)&composeSetNTPInfoXml);
+    soap.xmlData = composeXml(soap, &composeSetNTPInfoXml);
     LOG(verbose2) << "composeSetNTPInfoXml: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << "composeSetNTPInfoXml out: " << out << endl;
@@ -484,7 +484,7 @@ int NvSoap::getNetworkInterfaces(nvsoap_& soap, SensorNetworkInfo& networkInfo)
     int ret = -1;
     soap.method = "GetNetworkInterfaces";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetNetworkInterfacesXml);
+    soap.xmlData = composeXml(soap, &composeGetNetworkInterfacesXml);
     LOG(verbose2) << "xmData GetNetworkInterfaces: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << "out GetNetworkInterfaces: " << out << endl;
@@ -507,7 +507,7 @@ int NvSoap::setNetworkInterfaces(nvsoap_& soap, const SensorNetworkInfo& network
     soap.method = "SetNetworkInterfaces";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
     soap.userData2 = (void* )&networkInfo;
-    soap.xmlData = composeXml(soap, (void*)&composeSetNetworkInterfacesXml);
+    soap.xmlData = composeXml(soap, &composeSetNetworkInterfacesXml);
     LOG(verbose2) << "xml SetNetworkInterfaces: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose2) << "out SetNetworkInterfaces: " << out << endl;
@@ -522,7 +522,7 @@ int NvSoap::getCameraEncoderOptions(nvsoap_& soap, SensorEncoderSettingsOptions&
     int ret = -1;
     soap.method = "GetVideoEncoderConfigurationOptions";
     soap.wsdl = soap.name_space;
-    soap.xmlData = composeXml(soap, (void*)&composeGetEncoderOptionsXml);
+    soap.xmlData = composeXml(soap, &composeGetEncoderOptionsXml);
     LOG(verbose) << "GetVideoEncoderConfigurationOptions: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose) << "GetVideoEncoderConfigurationOptions: " << out << endl;
@@ -559,7 +559,7 @@ int NvSoap::getCameraEncoderConfiguration(nvsoap_& soap, SensorVideoEncoderSetti
         ret = -1;
         return ret;
     }
-    soap.xmlData = composeXml(soap, (void*)&composeGetEncoderOptionsXml);
+    soap.xmlData = composeXml(soap, &composeGetEncoderOptionsXml);
 
     LOG(verbose) << "GetVideoEncoderConfigurations: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
@@ -583,7 +583,7 @@ int NvSoap::setCameraEncoderSettings(nvsoap_& soap, const SensorVideoEncoderSett
     soap.method = "SetVideoEncoderConfiguration";
     soap.wsdl = soap.name_space;
     soap.userData2 = (void* )&settings;
-    soap.xmlData = composeXml(soap, (void*)&composeSetEncoderSettingsXml);
+    soap.xmlData = composeXml(soap, &composeSetEncoderSettingsXml);
     LOG(verbose) << "SetVideoEncoderConfiguration: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose) << "SetVideoEncoderConfiguration: " << out << endl;
@@ -608,7 +608,7 @@ int NvSoap::rebootDevice(nvsoap_& soap)
     int ret = -1;
     soap.method = "SystemReboot";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeRebootCameraXml);
+    soap.xmlData = composeXml(soap, &composeRebootCameraXml);
     LOG(info) << "xml SystemReboot: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(info) << "out SystemReboot: " << out << endl;
@@ -4320,7 +4320,7 @@ static int composeEndSearchXml(xmlTextWriterPtr& writer, nvsoap_& soap)
     return 0;
 }
 
-string NvSoap::composeXml(nvsoap_& soap, void* methodxml)
+string NvSoap::composeXml(nvsoap_& soap, composeMethodXml methodxml)
 {
       int rc;
       xmlTextWriterPtr writer;
@@ -4372,8 +4372,7 @@ string NvSoap::composeXml(nvsoap_& soap, void* methodxml)
         return retString;
       }
 
-      composeMethodXml func = (composeMethodXml)methodxml;
-      if (func(writer, soap) < 0)
+      if (methodxml(writer, soap) < 0)
       {
           return retString;
       }
@@ -5529,7 +5528,7 @@ int NvSoap::GetRecordingSummary(nvsoap_& soap, RecordingSummary& summary)
 
     soap.method = "GetRecordingSummary";
     soap.wsdl = ONVIF_SEARCH_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetRecordingSummaryXml);
+    soap.xmlData = composeXml(soap, &composeGetRecordingSummaryXml);
 
     LOG(verbose2) << "GetRecordingSummary request: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
@@ -5569,7 +5568,7 @@ int NvSoap::FindRecordings(nvsoap_& soap, const RecordingSearchScope& scope,
 
     soap.userData["KeepAliveTime"] = keepAliveTime;
 
-    soap.xmlData = composeXml(soap, (void*)&composeFindRecordingsXml);
+    soap.xmlData = composeXml(soap, &composeFindRecordingsXml);
 
     LOG(verbose2) << "FindRecordings request: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
@@ -5602,7 +5601,7 @@ int NvSoap::GetRecordingSearchResults(nvsoap_& soap, const string& searchToken,
     soap.userData["MaxResults"] = to_string(maxResults);
     soap.userData["WaitTime"] = waitTime;
 
-    soap.xmlData = composeXml(soap, (void*)&composeGetRecordingSearchResultsXml);
+    soap.xmlData = composeXml(soap, &composeGetRecordingSearchResultsXml);
 
     LOG(verbose2) << "GetRecordingSearchResults request: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
@@ -5630,7 +5629,7 @@ int NvSoap::EndSearch(nvsoap_& soap, const string& searchToken)
     soap.userData.clear();
     soap.userData["SearchToken"] = searchToken;
 
-    soap.xmlData = composeXml(soap, (void*)&composeEndSearchXml);
+    soap.xmlData = composeXml(soap, &composeEndSearchXml);
 
     LOG(verbose2) << "EndSearch request: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
@@ -5788,7 +5787,7 @@ int NvSoap::GetServices(nvsoap_& soap, map<string, OnvifServiceInfo>& caps)
     string out;
     soap.method = "GetServices";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetServicesMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetServicesMethodXml);
     int ret = createAndSendRequest(soap, out);
     PRINT_XML_REQUEST_IF_ERROR(ret, soap.xmlData)
     getServicesResponse(out, caps);
@@ -6441,7 +6440,7 @@ int NvSoap::GetServiceCapabilities(nvsoap_& soap, ServiceCapabilities& serviceCa
     string out;
     soap.method = "GetServiceCapabilities";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
-    soap.xmlData = composeXml(soap, (void*)&composeGetMethodXml);
+    soap.xmlData = composeXml(soap, &composeGetMethodXml);
     ret = createAndSendRequest(soap, out);
     LOG(verbose) << "GetServiceCapabilities: " << out << endl;
     if (ret == 0)
@@ -6458,7 +6457,7 @@ int NvSoap::setHashingAlgorithm(nvsoap_& soap, const HashingAlgorithmInfo& algor
     soap.method = "SetHashingAlgorithm";
     soap.wsdl = ONVIF_DEVICE_SERVICE_NAMESPACE;
     soap.userData2 = (void* )&algorithm;
-    soap.xmlData = composeXml(soap, (void*)&composeSetHashingAlgorithmXml);
+    soap.xmlData = composeXml(soap, &composeSetHashingAlgorithmXml);
     LOG(verbose) << "SetHashingAlgorithm: " << soap.xmlData << endl;
     ret = createAndSendRequest(soap, out);
     LOG(verbose) << "SetHashingAlgorithm: " << out << endl;
