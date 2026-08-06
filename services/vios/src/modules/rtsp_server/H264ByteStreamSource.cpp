@@ -192,21 +192,32 @@ H264ByteStreamSource
 
 H264ByteStreamSource::~H264ByteStreamSource()
 {
-    LOG(info) << __METHOD_NAME__ << ", sourceState:" << m_sourceState <<  endl;
+    try
+    {
+        LOG(info) << __METHOD_NAME__ << ", sourceState:" << m_sourceState <<  endl;
 
-    if (m_DataArrivalCheckTask)
-    {
-        envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        if (m_DataArrivalCheckTask)
+        {
+            envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        }
+        /* Unregister from the AV-loop-sync coordinator. If we were parked
+         * at EOS waiting on the audio side, this also releases the audio
+         * side so it doesn't deadlock waiting for a now-gone video. */
+        if (m_avLoopSync)
+        {
+            m_avLoopSync->unregisterParticipant(this);
+            m_avLoopSync.reset();
+        }
+        LOG(info) << "Exiting ~H264ByteStreamSource(), m_sessionId:" << m_sessionId << endl;
     }
-    /* Unregister from the AV-loop-sync coordinator. If we were parked
-     * at EOS waiting on the audio side, this also releases the audio
-     * side so it doesn't deadlock waiting for a now-gone video. */
-    if (m_avLoopSync)
+    catch (const std::exception& e)
     {
-        m_avLoopSync->unregisterParticipant(this);
-        m_avLoopSync.reset();
+        LOG(error) << "~H264ByteStreamSource() caught exception: " << e.what() << endl;
     }
-    LOG(info) << "Exiting ~H264ByteStreamSource(), m_sessionId:" << m_sessionId << endl;
+    catch (...)
+    {
+        LOG(error) << "~H264ByteStreamSource() caught unknown exception" << endl;
+    }
 }
 
 void H264ByteStreamSource::setStreamScale(float scaleFactor)

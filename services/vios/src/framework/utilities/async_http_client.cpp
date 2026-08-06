@@ -68,7 +68,18 @@ extern "C" size_t appendResponseBody(char* data, size_t size, size_t nmemb, void
 
 AsyncHttpClient::~AsyncHttpClient()
 {
-    stop();
+    try
+    {
+        stop();
+    }
+    catch (const std::exception& e)
+    {
+        LOG(error) << "AsyncHttpClient shutdown failed: " << e.what() << endl;
+    }
+    catch (...)
+    {
+        LOG(error) << "AsyncHttpClient shutdown failed" << endl;
+    }
 }
 
 bool AsyncHttpClient::start()

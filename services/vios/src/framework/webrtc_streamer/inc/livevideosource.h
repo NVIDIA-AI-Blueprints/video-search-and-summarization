@@ -101,8 +101,14 @@ public:
 
     virtual ~VideoSource()
     {
-        this->Stop();
-        LOG(info) << __func__ << endl;
+        try {
+            this->Stop();
+            LOG(info) << __func__ << endl;
+        } catch (const std::exception& e) {
+            try { LOG(error) << "Exception in ~VideoSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+        } catch (...) {
+            try { LOG(error) << "Unknown exception in ~VideoSource" << endl; } catch (...) { (void)std::current_exception(); }
+        }
     }
     void Start()
     {

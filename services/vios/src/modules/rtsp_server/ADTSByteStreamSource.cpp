@@ -94,7 +94,18 @@ ADTSByteStreamSource::~ADTSByteStreamSource()
      * side so it doesn't deadlock waiting for a now-gone audio. */
     if (m_avLoopSync)
     {
-        m_avLoopSync->unregisterParticipant(this);
+        try
+        {
+            m_avLoopSync->unregisterParticipant(this);
+        }
+        catch (const std::exception& e)
+        {
+            LOG(error) << "~ADTSByteStreamSource unregisterParticipant threw: " << e.what() << endl;
+        }
+        catch (...)
+        {
+            LOG(error) << "~ADTSByteStreamSource unregisterParticipant threw (unknown)" << endl;
+        }
         m_avLoopSync.reset();
     }
 }
