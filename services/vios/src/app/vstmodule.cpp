@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -641,7 +641,7 @@ int ModuleLoader::loadMediaAdaptor()
         LOG(error) << "Failed to load media adaptor library: " << m_mediaAdaptorLibPath << endl;
         if (handle.libraryHandle != nullptr)
         {
-            dlclose(handle.libraryHandle);
+            nv_vms::MediaAdaptorLoader::closeLibrary(handle.libraryHandle);
         }
         return -1;
     }
@@ -662,7 +662,7 @@ void ModuleLoader::unloadMediaAdaptor()
 
     if (m_mediaAdaptorHandle.libraryHandle != nullptr)
     {
-        dlclose(m_mediaAdaptorHandle.libraryHandle);
+        nv_vms::MediaAdaptorLoader::closeLibrary(m_mediaAdaptorHandle.libraryHandle);
         m_mediaAdaptorHandle.libraryHandle = nullptr;
     }
 

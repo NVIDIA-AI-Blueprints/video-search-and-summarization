@@ -122,8 +122,8 @@ public:
     void onError(std::function<void(const std::string& /*errorMsg*/, int /*errorCode*/)> cb) override;
 
     // Expose internal handles for advanced debug if needed
-    void* getGstPipeline() const { return mPipeline; }
-    void* getReaderSrc() const { return mReaderSrc; }
+    GstElement* getGstPipeline() const { return mPipeline; }
+    GstElement* getReaderSrc() const { return mReaderSrc; }
     const std::string& logPrefix() const { return mLogPrefix; }
 
     // Used by appsink collect probe (post-seek buffer queue)
