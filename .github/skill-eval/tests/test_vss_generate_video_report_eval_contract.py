@@ -262,6 +262,14 @@ def test_generated_report_dataset_preserves_rt_vlm_contract() -> None:
         step_three_instruction = (step_dirs[2] / "instruction.md").read_text()
         step_five_instruction = (step_dirs[4] / "instruction.md").read_text()
         step_six_instruction = (step_dirs[5] / "instruction.md").read_text()
+        mode_a_instructions = [
+            (step_dir / "instruction.md").read_text()
+            for step_dir in step_dirs[:5]
+        ]
+        mode_b_instructions = [
+            (step_dir / "instruction.md").read_text()
+            for step_dir in step_dirs[5:]
+        ]
         generated_spec = (
             step_dirs[3]
             / "tests/base_profile_report.json"
@@ -274,6 +282,19 @@ def test_generated_report_dataset_preserves_rt_vlm_contract() -> None:
         f"env_overrides={json.dumps(LOCAL_RT_VLM_ENV_OVERRIDES)}"
         in step_one_instruction
     )
+    for instruction in mode_a_instructions:
+        assert adapter.MODE_A_DEPLOYMENT_GUIDANCE in instruction
+        assert (
+            f"env_overrides={json.dumps(LOCAL_RT_VLM_ENV_OVERRIDES)}"
+            in instruction
+        )
+        assert (
+            "Never regenerate the base profile with `profile=base` alone"
+            in instruction
+        )
+        assert "notebook's remote VLM coordinator defaults" in instruction
+    for instruction in mode_b_instructions:
+        assert adapter.MODE_A_DEPLOYMENT_GUIDANCE not in instruction
     assert "RTXPRO6000BW" in step_one_instruction
     assert "${HOST_IP:-localhost}:8018" in step_three_instruction
     assert "new report on warehouse_safety_0001" in step_five_instruction
