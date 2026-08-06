@@ -218,14 +218,6 @@ class TestPlaceToNvPlace:
     def test_missing_name_defaults_to_empty(self):
         assert place_to_nv_place({}).name == ""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Open defect: the signature is Optional[dict] but None is "
-            "dereferenced, raising AttributeError. Fix: treat None like {}. "
-            "When that lands this test XPASSes — drop the marker then."
-        ),
-    )
     def test_none_place_yields_an_empty_name(self):
         """``Optional[dict]`` should accept ``None`` and default the name."""
         assert place_to_nv_place(None).name == ""
@@ -285,6 +277,44 @@ class TestConvertBehaviorToProtobufBehavior:
             "embeddings": [{"vector": [0.1, 0.2]}],
             "dropped": True,
         }
+
+    @pytest.mark.parametrize("block", ["sensor", "analyticsModule", "object", "place"])
+    @pytest.mark.parametrize("bad_value", [None, "cam-1", [], 7])
+    def test_malformed_nested_block_is_treated_as_absent(self, block, bad_value):
+        """A nested block that is null or the wrong type must not raise.
+
+        ``/alerts`` accepts JSON with no schema validation, so a client that
+        serialises an unset field as ``null`` reaches the converter directly.
+        ``dict.get(key, {})`` does not cover that: the default only fires when
+        the key is absent, not when it is present and null.
+        """
+        behavior = self._full_behavior()
+        behavior[block] = bad_value
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert proto.sensor.id == ("" if block == "sensor" else "cam-1")
+        assert proto.analyticsModule.id == ("" if block == "analyticsModule" else "intrusion")
+        assert proto.object.id == ("" if block == "object" else "obj-1")
+        assert proto.place.name == ("" if block == "place" else "gate-3")
+
+    def test_null_analytics_module_info_is_treated_as_empty(self):
+        behavior = self._full_behavior()
+        behavior["analyticsModule"] = {"id": "intrusion", "info": None}
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert proto.analyticsModule.id == "intrusion"
+        assert "threshold" not in proto.analyticsModule.info
+
+    def test_null_embedding_entry_yields_an_empty_vector(self):
+        behavior = self._full_behavior()
+        behavior["embeddings"] = [None, {"vector": [0.5]}]
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert list(proto.embeddings[0].vector) == []
+        assert list(proto.embeddings[1].vector) == pytest.approx([0.5])
 
     def test_maps_scalar_fields(self):
         proto = convert_behavior_to_protobuf_behavior(self._full_behavior())
