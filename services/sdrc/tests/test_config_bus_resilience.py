@@ -270,20 +270,24 @@ def _config_event(name="dock-a", remove_config=False):
 
 
 def test_should_handle_config_effective_flag_matrix(app_module):
-    app_module.app.config["WDM_ENABLE_REGEX_MAPPING"] = False
+    # Default / unset / false => disabled (opt-in only).
     app_module.app.config["WDM_HANDLE_CONFIG_EVENTS"] = None
-    assert app_module.should_handle_config_events() is False
-
     app_module.app.config["WDM_ENABLE_REGEX_MAPPING"] = True
-    assert app_module.should_handle_config_events() is True
+    assert app_module.should_handle_config_events() is False
 
     app_module.app.config["WDM_HANDLE_CONFIG_EVENTS"] = False
     assert app_module.should_handle_config_events() is False
 
+    # Explicit true enables config handling regardless of regex mapping.
     app_module.app.config["WDM_HANDLE_CONFIG_EVENTS"] = True
     app_module.app.config["WDM_ENABLE_REGEX_MAPPING"] = False
     assert app_module.should_handle_config_events() is True
 
+    app_module.app.config["WDM_HANDLE_CONFIG_EVENTS"] = "true"
+    assert app_module.should_handle_config_events() is True
+
+    app_module.app.config["WDM_HANDLE_CONFIG_EVENTS"] = "false"
+    assert app_module.should_handle_config_events() is False
 
 def test_pod_configure_skips_when_disabled(app_module):
     app_module.app.config["WDM_HANDLE_CONFIG_EVENTS"] = False
