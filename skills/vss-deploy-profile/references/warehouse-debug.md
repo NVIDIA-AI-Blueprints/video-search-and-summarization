@@ -14,13 +14,19 @@ Failures propagate downstream. Always triage in this order — a broken upstream
 
 ```
 broker (kafka / redis)
-  └── vss-broker-health-check
-        └── vss-vios-nvstreamer
-              └── vss-rtvi-cv                  (perception — 2D RT-DETR or 3D Sparse4D, same container)
-                    ├── vss-rtvi-cv-config-adaptor (3D only — DeepStream config adaptor)
-                    ├── vss-configurator       (blueprint / stream / hardware config)
-                    └── vss-behavior-analytics (ROI, tripwire, proximity events)
-                          └── (extended only: logstash, kibana, vss-video-analytics-api)
+  └── vss-configurator-<mode>-init   (one-shot broker gate; despite the name it renders no config)
+        └── vss-configurator         (blueprint / stream / hardware config — must report HEALTHY)
+              └── vss-vios-nvstreamer          (waits on the configurator: service_healthy)
+                    └── vss-rtvi-cv            (perception — 2D RT-DETR or 3D Sparse4D, same
+                        │                       container; starts after sdr-controller + sensor-ms)
+                        ├── vss-rtvi-cv-config-adaptor (3D only — DeepStream config adaptor)
+                        └── vss-behavior-analytics     (ROI, tripwire, proximity events)
+                              └── (extended only: logstash, kibana, vss-video-analytics-api)
+
+The configurator is UPSTREAM of nvstreamer, not below it: nvstreamer declares
+`depends_on: bp-configurator-<mode>: condition: service_healthy`. If the configurator
+never goes healthy, nvstreamer never starts and perception has no input — so triage the
+configurator BEFORE concluding the stream source is broken.
 
 NOTE: there is no `vss-rtvi-cv-sdr` container. Its service is commented out in
 warehouse-3d-app.yml and it is in no COMPOSE_PROFILES_WH_* list. HAProxy's
@@ -31,13 +37,18 @@ expected, not a fault.
 up does not mean STREAM_TYPE=redis. `vss-turnserver` (+ vss-turnserver-init) is also
 in every list, for VST WebRTC playback.
 
-MV3DT variant (MODE=mv3dt) — same dependency shape, all containers use -mv3dt suffix:
-  broker → vss-broker-health-check → vss-vios-nvstreamer-mv3dt
-    → mosquitto (MQTT)
-      → vss-rtvi-cv-bev-fusion
-        → vss-rtvi-cv-mv3dt (per-camera perception)
-    → vss-configurator-mv3dt
-    → vss-behavior-analytics-mv3dt
+MV3DT variant (MODE=mv3dt) — same dependency shape. The -mv3dt suffix applies ONLY to the
+containers defined in warehouse-mv3dt-app.yml (nvstreamer, rtvi-cv, configurator + -init,
+behavior-analytics, video-analytics-api, kibana-init, import-calibration-output). The
+MV3DT-only mosquitto and vss-rtvi-cv-bev-fusion are UNsuffixed, as are the VST stack,
+vss-turnserver, kafka/redis and vss-broker-health-check. mosquitto is defined in
+services/infra/compose.yml, not in warehouse-mv3dt-app.yml:
+  broker → vss-configurator-mv3dt-init → vss-configurator-mv3dt → vss-vios-nvstreamer-mv3dt
+    → vss-rtvi-cv-mv3dt (per-camera perception; uses mosquitto/MQTT to exchange tracks
+      │                  with the other per-camera trackers)
+      └→ mdx-raw on kafka/redis → vss-rtvi-cv-bev-fusion (CPU-only) → mdx-bev
+                                    → vss-behavior-analytics-mv3dt
+  NOTE: bev-fusion does NOT speak MQTT. It reads mdx-raw from the broker.
 
 Warehouse Auto-Calibration (BP_PROFILE=bp_wh_auto_calib) — minimal footprint:
   vss-vios-nvstreamer / vss-vios-nvstreamer-mv3dt → vss-configurator / vss-configurator-mv3dt
@@ -59,7 +70,8 @@ BEV-sync check has no data to read (applies to 3D and MV3DT).
 NOTE: "minimal vs extended" is purely which COMPOSE_PROFILES_WH_* list is selected. MINIMAL_PROFILE
 is not read by anything under deploy/docker — do not diagnose from its value.
 
-monitoring (dcgm-exporter, prometheus, grafana, node-exporter, cadvisor) — BP_PROFILE=bp_wh, or
+monitoring (dcgm-exporter, prometheus, grafana, and node-exporter / cadvisor, which set no
+container_name and so run as <COMPOSE_PROJECT_NAME>-node-exporter-1 / -cadvisor-1) — BP_PROFILE=bp_wh, or
 2D/3D kafka/redis extended. The MV3DT lists contain no monitoring services.
 
 `BP_PROFILE=bp_wh`-only stack (RTVI VLM + agent):
@@ -76,7 +88,9 @@ vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/
 
 ## Full Container List by Variant
 
-`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) determine which explicit `COMPOSE_PROFILES_WH_*` service list from `generated.env` is active. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (`vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
+`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) determine which explicit `COMPOSE_PROFILES_WH_*` service list from `generated.env` is active. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
+
+The **`-mv3dt` suffix is not universal** — it comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-video-analytics-api-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, only referenced by the MV3DT app file via `depends_on`) are unsuffixed, as are the VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check`. Both are MV3DT-only in practice — their profiles appear solely in the MV3DT Kafka/Redis lists.
 
 ### Warehouse CV core (2D and 3D variants)
 
@@ -101,7 +115,7 @@ vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/
 | `vss-broker-health-check` | One-shot gate — waits for broker, then exits `0`, releasing dependents |
 | `vss-vios-nvstreamer-mv3dt` | RTSP stream server |
 | `vss-rtvi-cv-mv3dt` | DeepStream perception (per-camera) |
-| `vss-rtvi-cv-bev-fusion` | BEV Fusion — fuses per-camera detections into unified 3D BEV frame |
+| `vss-rtvi-cv-bev-fusion` | BEV Fusion — fuses per-camera detections into unified 3D BEV frame. **CPU-only**: no `runtime: nvidia`, no device reservation. Reads `mdx-raw`, writes `mdx-bev` |
 | `mosquitto` | MQTT broker for cross-camera messaging |
 | `vss-configurator-mv3dt` | Stream and hardware config |
 | `vss-behavior-analytics-mv3dt` | 3D spatial analytics |
@@ -121,21 +135,6 @@ Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list 
 > **2D:** Auto-Calibration adds blank `group` and `region` fields to `calibration.json`; remove those fields before redeploying. They are not required for 2D calibration.
 
 > **3D / MV3DT:** When deploying calibration for 3D or MV3DT modes, generated calibration files must include a populated `sensors[].group` object on every camera sensor. For MV3DT, after generating `calibration.json`, also run the utility scripts under `tools/rtvi-cv-mv3dt-utils` to refresh `camInfo/<sensor_id>.yml`, `pub_sub_info_config.yml`, and the tracker `ObjectModelProjection.cameraModelFilepath` mappings. Then run camera clustering with `--n_clusters 1` for the standard single-BEV warehouse setup, and verify the group field is present under sensors in `calibration.json`. Use the standalone AMC service list to upload videos directly, or set `BP_PROFILE=bp_wh_auto_calib` and select `COMPOSE_PROFILES_WH_AUTO_CALIB_3D` / `_MV3DT` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
-
-```bash
-CALIBRATION_JSON=/path/to/calibration.json
-REPO_ROOT=/path/to/video-search-and-summarization
-SDU_DIR="${REPO_ROOT}/libs/analytics/spatialai-data-utils"
-SENSOR_COUNT=$(jq '.sensors | length' "${CALIBRATION_JSON}")
-
-PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
-  "${SDU_DIR}/tools/camera_grouping/create_camera_clusters.py" \
-  "${CALIBRATION_JSON}" \
-  --max_camera_per_group "${SENSOR_COUNT}" \
-  --n_clusters 1 \
-  --disable_param_tuning \
-  --overwrite
-```
 
 ### Extended Kafka/Redis service lists (non-`_MINIMAL`, any mode) — add
 
@@ -157,7 +156,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 | `vss-agent` | Orchestrator |
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
-| `vss-haproxy-ingress` | Front-door on `HAPROXY_HOST_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies kibana + analytics API there) |
+| `vss-haproxy-ingress` | Front-door on `HAPROXY_HOST_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies kibana + analytics API there) and in `BP_PROFILE=bp_wh_auto_calib` (where it carries no route to the auto-calibration UI — reach that on port `5000`) |
 | `phoenix` | Telemetry / observability |
 
 > **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). The `BP_PROFILE=bp_wh` variant uses **RTVI VLM only** — `vss-agent` connects to it directly. Keep `VLM_MODE=none` in the active `generated.env`. Kafka/Redis and auto-calibration warehouse variants deploy no VLM.
@@ -184,7 +183,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 | `GST pipeline error` / `Failed to start pipeline` | `vss-rtvi-cv` | No valid RTSP input — check `vss-vios-nvstreamer` first |
 | `Connection refused` on broker port | `vss-broker-health-check` | Kafka/Redis not listening — broker crashed |
 | `RTSP connection failed` / `Cannot open resource` | `vss-vios-nvstreamer` | RTSP source (camera / video file) unreachable |
-| `Health check failed` (after 60 s) | `vss-configurator` | Stream config bad — check `.env` `BP_PROFILE` and `NUM_STREAMS` |
+| `Health check failed` (after 60 s) | `vss-configurator` | Stream config bad — check `NUM_STREAMS`, `MODE` and `HARDWARE_PROFILE` in the active `generated.env` (not the checked-in `.env`, which holds none of them) |
 | `authentication required` / `401` | any | `NGC_CLI_API_KEY` invalid or expired |
 | `no space left on device` | any | Disk full — free space before redeploy |
 | `OOMKilled` (exit code 137) | any | Container OOM — check RAM (`free -h`) and GPU memory |
@@ -193,16 +192,23 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 
 ## Elasticsearch Indices
 
-| Index | Written by | Contains | Used for |
+Logstash indexes each `mdx-*` stream into **date-suffixed** indices — `index => "%{type}-YYYY-MM-DD"`.
+There is no index or alias with the bare name; always query the wildcard (`mdx-bev*`), or a bare name
+returns HTTP 404 `index_not_found_exception`.
+
+| Index pattern | Data source | Contains | Used for |
 |---|---|---|---|
-| `mdx-bev` | `vss-behavior-analytics` (3D) / `vss-behavior-analytics-mv3dt` (MV3DT) | BEV frame data, camera timestamps in `info`, detected objects | 3D / MV3DT BEV sync check, object history |
-| `mdx-raw` | perception via broker | Raw detection events per frame | Debugging detection pipeline |
-| `mdx-events` | `vss-behavior-analytics` | ROI / tripwire / proximity events | Event history and UI |
+| `mdx-bev*` | `vss-rtvi-cv` (3D Sparse4D) / `vss-rtvi-cv-bev-fusion` (MV3DT) | BEV frame data, camera timestamps in `info`, detected objects | 3D / MV3DT BEV sync check, object history |
+| `mdx-raw*` | perception (2D and MV3DT only — 3D publishes straight to `mdx-bev`) | Raw detection events per frame | Debugging detection pipeline |
+| `mdx-events*` | `vss-behavior-analytics` | ROI / tripwire / proximity events | Event history and UI |
+
+`logstash` is what actually writes the documents into Elasticsearch; the column above names the
+service whose data lands there. Behavior analytics **consumes** `mdx-bev` — it does not produce it.
 
 Query latest record from any index:
 
 ```bash
-curl -s "http://localhost:9200/<index>/_search?size=1" \
+curl -s "http://localhost:9200/<index-pattern>/_search?size=1" \
   -H 'Content-Type: application/json' \
   -d '{"sort":[{"timestamp":{"order":"desc"}}]}' | python3 -m json.tool | head -60
 ```
@@ -215,9 +221,14 @@ curl -s "http://localhost:9200/_cat/indices?v"
 
 ## Kafka / Redis Topic Reference
 
+Producer/consumer depends on `MODE` — the 2D pairing does not hold for 3D or MV3DT:
+
 | Topic | Producer | Consumer | Contains |
 |---|---|---|---|
-| `mdx-raw` | `vss-rtvi-cv` | `vss-behavior-analytics` | Raw bounding boxes + tracking IDs per frame |
+| `mdx-raw` (2D) | `vss-rtvi-cv` | `vss-behavior-analytics` | Raw bounding boxes + tracking IDs per frame |
+| `mdx-raw` (MV3DT) | `vss-rtvi-cv-mv3dt` | `vss-rtvi-cv-bev-fusion` | Per-camera detections awaiting fusion |
+| `mdx-bev` (3D) | `vss-rtvi-cv` (Sparse4D — **not** `mdx-raw`) | `vss-behavior-analytics` | BEV frames |
+| `mdx-bev` (MV3DT) | `vss-rtvi-cv-bev-fusion` | `vss-behavior-analytics-mv3dt` | Fused BEV frames |
 | `mdx-events` | `vss-behavior-analytics` | downstream / UI | ROI, tripwire, proximity events |
 | `mdx-vlm-incidents` | `vss-rtvi-vlm` | `vss-alert-bridge`, `vss-agent` | Realtime VLM incident detections (`bp_wh` only) |
 
@@ -225,27 +236,34 @@ curl -s "http://localhost:9200/_cat/indices?v"
 **no `.sh` suffix**. Use the internal listener `kafka:29092` — `localhost:9092` is the EXTERNAL
 listener and advertises `${HOST_IP}:9092`, which does not route from inside the container.
 
+Pick the topic for your `MODE` from the table above — **`mdx-raw` is empty on 3D**, where perception
+publishes straight to `mdx-bev`. Consuming `mdx-raw` on a healthy 3D stack blocks until
+`--max-messages` is satisfied and reads as "perception is dead" when it is fine.
+
 ```bash
+TOPIC=mdx-raw     # 2D / MV3DT;  use mdx-bev for 3D
 docker exec kafka kafka-console-consumer \
   --bootstrap-server kafka:29092 \
-  --topic mdx-raw --from-beginning --max-messages 5 2>/dev/null
+  --topic "$TOPIC" --from-beginning --max-messages 5 --timeout-ms 10000 2>/dev/null
 ```
 
-**Check messages are flowing (Redis):**
+**Check messages are flowing (Redis):** same per-mode topic choice. `XREVRANGE` on a missing or
+empty stream returns an empty array immediately rather than blocking, so an empty result here means
+"nothing published to this key", not "command failed".
 
 ```bash
-docker exec redis redis-cli XREVRANGE mdx-raw + - COUNT 3
+docker exec redis redis-cli XREVRANGE mdx-raw + - COUNT 3   # use mdx-bev for 3D
 ```
 
 ## GPU Device Assignment
 
 | Role | Env variable | Default device | Notes |
 |---|---|---|---|
-| RT-CV perception (RT-DETR for 2D, Sparse4D for 3D, BEV Fusion for MV3DT) | `RT_CV_DEVICE_ID` | `0` | Always local |
+| RT-CV perception (RT-DETR for 2D, Sparse4D for 3D, per-camera MV3DT for mv3dt) | `RT_CV_DEVICE_ID` | `0` | Always local. `vss-rtvi-cv-bev-fusion` is **not** placed by this var — it is CPU-only |
 | RTVI VLM | `RT_VLM_DEVICE_ID` | `1` | Always local; `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local` |
 
-`LLM_MODE`: `local` | `remote` | `none`. RTVI VLM has no mode — it is always deployed locally for `BP_PROFILE=bp_wh`. The `BP_PROFILE=bp_wh_auto_calib` variant uses no GPU for perception or LLM.
+`LLM_MODE`: `local` | `remote` | `none` (for `MODE=2d`; `3d` / `mv3dt` accept only `none`). RTVI VLM has no mode — it is always deployed locally for `BP_PROFILE=bp_wh`. The `BP_PROFILE=bp_wh_auto_calib` variant uses no GPU for perception or LLM.
 
 Check per-GPU process load:
 
@@ -344,19 +362,20 @@ they neither 404 before 3.3.0 ships nor go stale after. (`/latest/` serves 3.2.1
 
 Before starting, collect two pieces of information (ask if unknown):
 
-1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml --env-file containers.env --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env` (the exact set `blueprint-deploy.sh` uses). Cleanup reads `generated.env` because it carries the runtime data paths. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
-2. **`MODE`** — `2d`, `3d`, or `mv3dt`. Detect from the running perception container:
-
-```bash
-docker inspect vss-rtvi-cv --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
-  | grep -i "^MODE="
-```
-
-If that returns nothing (container not running or named differently), fall back to reading the env file:
+1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml --env-file containers.env --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. Cleanup reads `generated.env` because it carries the runtime data paths. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
+2. **`MODE`** — `2d`, `3d`, or `mv3dt`. Read it from the active env file, which is authoritative: Compose interpolates `MODE` from there to select the profile lists, and it works whether or not any container is up.
 
 ```bash
 grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/generated.env \
   || grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/overrides.env
+```
+
+To confirm against what is actually running, inspect the **configurator** — `MODE` is injected there, **not** into perception, so `docker inspect vss-rtvi-cv` returns nothing even on a healthy stack:
+
+```bash
+docker inspect vss-configurator --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+  | grep -i "^MODE="
+# MV3DT: use vss-configurator-mv3dt
 ```
 
 `vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`.
@@ -384,7 +403,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
 | MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
 | `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
-| `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, `node-exporter`, `cadvisor`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
+| `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt`; monitoring too, but **2D/3D only** |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |
 | `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode). **A `…_MINIMAL` list does NOT deploy ES** |
@@ -397,7 +416,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads` | SDR-controller setup / wait jobs |
 | `sensor-bp-wait-bp-configurator` | Waits for the configurator before the sensor microservice starts |
 | `vss-kafka-topics` | Creates the `mdx-*` topics |
-| `vss-configurator-2d-init` / `-3d-init` / `-mv3dt-init` | Renders the blueprint config |
+| `vss-configurator-2d-init` / `-3d-init` / `-mv3dt-init` | Per-mode **broker readiness gate**, despite the name — polls Kafka/Redis with `MAX_RETRIES=60`, `RETRY_INTERVAL=2` s, then exits. Under `BP_PROFILE=bp_wh_auto_calib` the check no-ops and it exits `0` immediately. `vss-configurator` waits on it via `service_completed_successfully`. It renders no config |
 | `vss-elasticsearch-init`, `vss-kibana-init` | Index templates / dashboard import |
 | `vss-import-calibration-output` | Imports `calibration.json` |
 
@@ -405,10 +424,10 @@ Record as suspects only: containers that are **Down** or **Restarting**, long-ru
 
 To get the authoritative expected-container list for the running deployment instead of reading it off a table, ask Compose.
 
-> **Resolve and export `COMPOSE_PROFILES` first.** `blueprint-deploy.sh` writes it into
-> `generated.env` as the literal `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_<VARIANT>}`
-> (`blueprint-deploy.sh:960`), and not every Docker Compose version expands `${...}` inside an
-> `--env-file` value. Unexpanded, it matches **no** service profiles and `config` returns a
+> **Resolve and export `COMPOSE_PROFILES` first.** `generated.env` carries it as the literal
+> `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_<VARIANT>}` — that is how the checked-in `overrides.env`
+> ships it, so a straight copy inherits it — and not every Docker Compose version expands `${...}`
+> inside an `--env-file` value. Unexpanded, it matches **no** service profiles and `config` returns a
 > near-empty list — which reads as "almost nothing is deployed" and sends you chasing a
 > non-existent outage. Source the warehouse `.env` then `generated.env` under `set -a` so the
 > resolved value is exported into the same shell that runs Compose.
@@ -416,10 +435,20 @@ To get the authoritative expected-container list for the running deployment inst
 ```bash
 cd $REPO/deploy/docker
 
-set -a
-. industry-profiles/warehouse-operations/.env
-. industry-profiles/warehouse-operations/generated.env
-set +a
+# Resolve ONLY what this shell needs, inside a subshell. Do not `set -a; .` these files
+# directly: the warehouse .env holds an unquoted JSON value that shell quote-removal mangles,
+# and the shell environment outranks --env-file in Compose interpolation, so the mangled
+# value would silently win over the correct one.
+eval "$(
+  set -a
+  . industry-profiles/warehouse-operations/.env
+  . industry-profiles/warehouse-operations/generated.env
+  set +a
+  printf 'COMPOSE_PROFILES=%q\nNGC_CLI_API_KEY=%q\nCOMPOSE_PROJECT_NAME=%q\n' \
+    "$COMPOSE_PROFILES" "${NGC_CLI_API_KEY:-}" "${COMPOSE_PROJECT_NAME:-}"
+)"
+export COMPOSE_PROFILES NGC_CLI_API_KEY
+[ -n "$COMPOSE_PROJECT_NAME" ] && export COMPOSE_PROJECT_NAME
 echo "COMPOSE_PROFILES=$COMPOSE_PROFILES"   # must be a service list, not '${COMPOSE_PROFILES_WH_*}'
 
 docker compose -f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml \
@@ -458,7 +487,7 @@ docker logs --since 60s vss-rtvi-cv-bev-fusion 2>&1 | grep -i fps | tail -10
 - **FPS lines present and non-zero** → perception is running; issue is likely downstream (broker, analytics, BEV sync).
 - **No FPS lines** → perception is stalled or not receiving streams. Proceed to Phase 3.
 - **FPS present but very low** → GPU saturation or stream count too high. Check Phase 4.
-- **MV3DT: per-camera FPS OK but BEV Fusion FPS zero** → MQTT messaging issue; check `mosquitto` container.
+- **MV3DT: per-camera FPS OK but BEV Fusion FPS zero** → broker path problem, **not** MQTT: BEV Fusion consumes `mdx-raw` over Kafka/Redis and has no MQTT config. Confirm `vss-rtvi-cv-mv3dt` is publishing `mdx-raw` and that `vss-rtvi-cv-bev-fusion` can reach `kafka:29092` / `redis:6379`. (MQTT is used *between* per-camera trackers — suspect `mosquitto` when `vss-rtvi-cv-mv3dt` itself shows no FPS.)
 
 ---
 
@@ -526,7 +555,7 @@ docker logs --tail 50 vss-rtvi-cv-config-adaptor 2>&1 | grep -E "ERROR|error|fai
 ### 3.5 Configurator
 
 ```bash
-# 2D / 3D / mv3dt:
+# 2D / 3D:
 docker logs --tail 50 vss-configurator 2>&1 | grep -E "ERROR|error|fail" | tail -20
 # MV3DT:
 docker logs --tail 50 vss-configurator-mv3dt 2>&1 | grep -E "ERROR|error|fail" | tail -20
@@ -607,15 +636,23 @@ df -h / /tmp 2>/dev/null
 
 For `MODE=3d` or `MODE=mv3dt` **on an extended (non-`_MINIMAL`) service list**, check that all cameras contributing to the BEV frame are synchronized. Skip this phase in 3D/MV3DT minimal: `elasticsearch` is not deployed there, so `mdx-bev` is never persisted and the query below will fail with a connection error.
 
+Logstash writes **date-suffixed** indices (`index => "%{type}-YYYY-MM-DD"`), so query the wildcard
+`mdx-bev*` — a request for the bare name `mdx-bev` returns HTTP 404 `index_not_found_exception`.
+The response is written to a file rather than piped, because `curl … | python3 - <<'EOF'` does not
+work: the heredoc replaces the pipe as stdin, so the script never sees the JSON and dies with
+`JSONDecodeError`.
+
 ```bash
-curl -s "http://localhost:9200/mdx-bev/_search?size=1" \
+curl -s "http://localhost:9200/mdx-bev*/_search?size=1" \
   -H 'Content-Type: application/json' \
-  -d '{"sort":[{"timestamp":{"order":"desc"}}]}' | \
-python3 - << 'EOF'
+  -d '{"sort":[{"timestamp":{"order":"desc"}}]}' -o /tmp/bev.json
+
+python3 - /tmp/bev.json << 'EOF'
 import json, sys
 from datetime import datetime
 
-data = json.load(sys.stdin)
+with open(sys.argv[1]) as f:
+    data = json.load(f)
 hits = data.get("hits", {}).get("hits", [])
 if not hits:
     print("mdx-bev: no records found — Elasticsearch may be down or index empty")
@@ -675,14 +712,14 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | Evidence | Root cause | Proposed fix |
 |---|---|---|
 | Container exited, exit code non-zero | Container crash — see its logs | Fix config or missing file; redeploy |
-| `model not found` in `vss-rtvi-cv` logs | `VSS_DATA_DIR` path wrong or models not present | Correct `.env` path or re-acquire app data (see `warehouse.md` Phase 4) |
+| `model not found` in `vss-rtvi-cv` logs | `VSS_DATA_DIR` wrong, or `models/` missing/unwritable | Fix `VSS_DATA_DIR` in the active `generated.env` (it is not in the checked-in `.env`), then ensure `$VSS_DATA_DIR/models` exists and is `0777` — RT-CV weights are downloaded there by ds-start phase 0, not shipped in the app data (see `warehouse.md` → App Data) |
 | `CUDA out of memory` on `vss-rtvi-cv` | Too many streams for GPU | Reduce `NUM_STREAMS`; redeploy |
 | `CUDA out of memory` on LLM NIM or `vss-rtvi-vlm` | LLM and RTVI VLM colliding on the same GPU | Adjust `LLM_DEVICE_ID` / `RT_VLM_DEVICE_ID`; redeploy |
 | Broker (Kafka/Redis) down | All downstream services lose messaging | Fix broker; redeploy |
 | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt` errors / no RTSP | Streams not reaching perception | Fix stream config; redeploy |
 | BEV OUT OF SYNC (3D / MV3DT) | One or more camera feeds lagging | Restart `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`; check camera RTSP sources |
 | `mosquitto` down / MQTT connection refused (MV3DT) | Cross-camera messaging broken — BEV Fusion cannot receive per-camera detections | Fix mosquitto container; redeploy |
-| `vss-rtvi-cv-bev-fusion` OOM or no output (MV3DT) | BEV Fusion cannot fuse per-camera detections | Check GPU memory; reduce cameras or streams; redeploy |
+| `vss-rtvi-cv-bev-fusion` OOM or no output (MV3DT) | BEV Fusion cannot fuse per-camera detections | This container uses **no GPU** — check host RAM (`free -h`) and broker connectivity. Verify `mdx-raw` is being produced by `vss-rtvi-cv-mv3dt`, and that `MAX_EXPECTED_SENSORS` (= `NUM_STREAMS`) and `SENSOR_TIMEOUT_MS` match the deployed camera count. If `mdx-raw` is empty, the fault is upstream on `vss-rtvi-cv-mv3dt` (row above) |
 | GPU 100 % sustained, low FPS | GPU oversaturated | Reduce `NUM_STREAMS`; redeploy |
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify the effective `.env` + `generated.env` values; redeploy |
@@ -726,19 +763,36 @@ cd <repo>/deploy/docker
 # "${COMPOSE_PROJECT_NAME:-vss}" always falls back to `vss` — and on a host that renamed the
 # project (overrides.env invites this to run two stacks side by side) that tears down nothing
 # while reporting success. `:?` fails loudly instead of guessing.
-set -a
-. industry-profiles/warehouse-operations/.env
-. industry-profiles/warehouse-operations/generated.env
-set +a
+# Resolve ONLY what this shell needs, inside a subshell. Do not `set -a; .` these files
+# directly: the warehouse .env holds an unquoted JSON value that shell quote-removal mangles,
+# and the shell environment outranks --env-file in Compose interpolation, so the mangled
+# value would silently win over the correct one.
+eval "$(
+  set -a
+  . industry-profiles/warehouse-operations/.env
+  . industry-profiles/warehouse-operations/generated.env
+  set +a
+  printf 'COMPOSE_PROFILES=%q\nNGC_CLI_API_KEY=%q\nCOMPOSE_PROJECT_NAME=%q\n' \
+    "$COMPOSE_PROFILES" "${NGC_CLI_API_KEY:-}" "${COMPOSE_PROJECT_NAME:-}"
+)"
+export COMPOSE_PROFILES NGC_CLI_API_KEY
+[ -n "$COMPOSE_PROJECT_NAME" ] && export COMPOSE_PROJECT_NAME
 : "${COMPOSE_PROJECT_NAME:?not set by generated.env — resolve it before tearing down}"
 
 # Confirm the resolved project is the one actually running before removing anything.
 echo "Tearing down Compose project: $COMPOSE_PROJECT_NAME"
 docker compose -p "$COMPOSE_PROJECT_NAME" ps --format '{{.Name}}' | head
 
-# Project-scoped teardown, as blueprint-deploy.sh does it: with -p the removal does not
-# depend on COMPOSE_PROFILES resolving, so an unexpanded list cannot leave containers behind.
-docker compose -p "$COMPOSE_PROJECT_NAME" down --remove-orphans
+# Project-scoped teardown: with -p the removal does not depend on COMPOSE_PROFILES
+# resolving, so an unexpanded list cannot leave containers behind.
+# `-v` drops EVERY named volume labeled with this project, not just the obvious data ones
+# (vios_pg_data, logstash-libs, phoenix-data, vss-turn-password). That INCLUDES the model
+# caches — RT-VLM HF/NGC caches, the per-model LLM NIM cache, the Triton model repo — so the
+# next bring-up re-downloads multiple GB. Omit -v if you want to keep warm caches.
+# `docker volume prune -f` is not a substitute: on Docker 23+ a bare prune removes anonymous
+# volumes only. Note kafka/Elasticsearch DATA is bind-mounted under $VSS_DATA_DIR/data_log and
+# survives `down -v` either way — the cleanup_all_datalog.sh line below is what clears it.
+docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans
 docker volume prune -f
 docker system prune -f
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
@@ -752,10 +806,20 @@ cd <repo>/deploy/docker
 
 # Resolve COMPOSE_PROFILES into this shell before Compose runs -- generated.env stores it
 # as the literal ${COMPOSE_PROFILES_WH_*}, which not every Compose version expands.
-set -a
-. industry-profiles/warehouse-operations/.env
-. industry-profiles/warehouse-operations/generated.env
-set +a
+# Resolve ONLY what this shell needs, inside a subshell. Do not `set -a; .` these files
+# directly: the warehouse .env holds an unquoted JSON value that shell quote-removal mangles,
+# and the shell environment outranks --env-file in Compose interpolation, so the mangled
+# value would silently win over the correct one.
+eval "$(
+  set -a
+  . industry-profiles/warehouse-operations/.env
+  . industry-profiles/warehouse-operations/generated.env
+  set +a
+  printf 'COMPOSE_PROFILES=%q\nNGC_CLI_API_KEY=%q\nCOMPOSE_PROJECT_NAME=%q\n' \
+    "$COMPOSE_PROFILES" "${NGC_CLI_API_KEY:-}" "${COMPOSE_PROJECT_NAME:-}"
+)"
+export COMPOSE_PROFILES NGC_CLI_API_KEY
+[ -n "$COMPOSE_PROJECT_NAME" ] && export COMPOSE_PROJECT_NAME
 case "$COMPOSE_PROFILES" in
   ''|*'${'*) echo "COMPOSE_PROFILES did not resolve: '$COMPOSE_PROFILES'" >&2; exit 1 ;;
 esac
