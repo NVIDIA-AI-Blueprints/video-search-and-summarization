@@ -73,6 +73,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "L40S"
+DEFAULT_MIN_ROOT_DISK_GB = 220
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
 # fires. Skills default to "ask the user" before /vss-deploy-profile; in CI
@@ -248,6 +249,7 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f"min_root_disk_gb = {DEFAULT_MIN_ROOT_DISK_GB}",
             # No profile / requires_deployed_vss / prerequisite_deploy_mode:
             # nothing in the harness reads them (the _ensure_prerequisite_deployed
             # pre-deploy hook is gone). The spec's first expects[] query deploys

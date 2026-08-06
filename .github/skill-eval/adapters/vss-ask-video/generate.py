@@ -63,6 +63,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "L40S"
+DEFAULT_MIN_ROOT_DISK_GB = 220
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
 # fires.  Skills default to "ask the user" before /vss-deploy-profile; in CI there is no
@@ -252,6 +253,7 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f"min_root_disk_gb = {DEFAULT_MIN_ROOT_DISK_GB}",
             "# vss-ask-video calls the VLM chat/completions endpoint directly (not",
             "# POST /generate). The VLM that serves the clip must be able to fetch the",
             "# VST clip URL: prefer a LOCAL VLM (NIM :30082 / RT-VLM :8018) so the",
