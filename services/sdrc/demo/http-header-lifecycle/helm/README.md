@@ -40,7 +40,7 @@ HTTP methods are defined in `helm/configs/sdrc/config.yml`; this example uses
 - `helm` v3 and `kubectl` configured for the target cluster.
 - Access to the SDRC, RTVI-CV, and VIOS images configured by the reused
   charts. The default SDRC image in `values.yaml` is
-  `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2`;
+  `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2`;
   override it if your cluster pulls from another registry.
 - Warehouse app data for RTVI-CV. The easiest fresh install path is to let the
   chart download the NGC warehouse data bundle after you create the NGC secrets.
@@ -92,7 +92,7 @@ helm upgrade --install "$RELEASE" "$CHART_DIR" \
 ```
 
 If your SDRC image is not available as
-`nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2`,
+`nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2`,
 add image overrides to the install command:
 
 ```bash
