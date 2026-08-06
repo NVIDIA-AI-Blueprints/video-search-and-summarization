@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -141,7 +141,7 @@ void NvSurfacePool::addFreeSurfaceToQ (FdIndexInfo fd_index_info)
         // Dummy FDs are created in SW overlay mode, avoid calling getNvSurface for them
         if (!sw_mode)
         {
-            nvbuf_surf = (NvBufSurface *)NvBufWrapper::getInstance()->getNvSurface(fd_index_pair.first);
+            nvbuf_surf = NvBufWrapper::getInstance()->getNvSurface(fd_index_pair.first);
         }
 
         if (nvbuf_surf != nullptr)

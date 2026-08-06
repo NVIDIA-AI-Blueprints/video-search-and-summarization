@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -376,9 +376,9 @@ std::vector<unsigned char> generate_nonce(size_t length)
 }
 
 // libcurl write callback
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+static size_t WriteCallback(char* contents, size_t size, size_t nmemb, void* userp)
 {
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    static_cast<std::string*>(userp)->append(contents, size * nmemb);
     return size * nmemb;
 }
 

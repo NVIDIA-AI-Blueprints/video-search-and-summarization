@@ -717,7 +717,7 @@ class NvBufWrapper
             }
         }
 
-        void* getNvSurface (int fd)
+        NvBufSurface* getNvSurface (int fd)
         {
             if (!NvBufSurfaceFromFd)
             {

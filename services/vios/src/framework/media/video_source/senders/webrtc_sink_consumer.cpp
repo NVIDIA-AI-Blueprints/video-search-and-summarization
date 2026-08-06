@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,7 +45,7 @@ WebrtcSinkConsumer::~WebrtcSinkConsumer()
     LOG(info) << "WebrtcSinkConsumer instance deleted for " << m_peerIdStreamId << endl;
 }
 
-void WebrtcSinkConsumer::setWebrtcBroadcaster(void* broadcaster)
+void WebrtcSinkConsumer::setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster)
 {
     {
         std::lock_guard<std::mutex> lock(m_broadcasterMutex);
@@ -53,7 +53,7 @@ void WebrtcSinkConsumer::setWebrtcBroadcaster(void* broadcaster)
     }
     if (m_videowebRTCSender)
     {
-        m_videowebRTCSender->appendWebrtcBroacaster(m_peerIdStreamId, (webrtc::VideoBroadcaster*)broadcaster);
+        m_videowebRTCSender->appendWebrtcBroacaster(m_peerIdStreamId, broadcaster);
     }
 }
 
@@ -93,7 +93,7 @@ void WebrtcSinkConsumer::onFrame(std::shared_ptr<RawFrameParams> frame_data)
             std::lock_guard<std::mutex> lock(m_broadcasterMutex);
             if (m_broadcaster != nullptr)
             {
-                ((webrtc::VideoBroadcaster *)m_broadcaster)->OnFrame(webRTC_input_video_frame);
+                m_broadcaster->OnFrame(webRTC_input_video_frame);
             }
         }
     }

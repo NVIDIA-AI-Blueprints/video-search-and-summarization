@@ -30,6 +30,11 @@
 
 using namespace std;
 
+namespace webrtc
+{
+    class VideoBroadcaster;
+}
+
 typedef enum
 {
     InvalidMedia = -1,
@@ -221,7 +226,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         bool isPpsAvailable();
         bool isSpsPpsAvailable();
 
-        virtual void setWebrtcBroadcaster(void* broadcaster) { };
+        virtual void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) { };
         virtual void onLastFrame() { }
         virtual void reset() { }
         /* Update start time for overlay */

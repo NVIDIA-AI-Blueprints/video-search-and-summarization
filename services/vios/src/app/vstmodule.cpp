@@ -235,15 +235,15 @@ int ModuleLoader::loadRtspServerLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvrtspserver.so");
-    m_handleRtspServer = dlopen(lib_path, RTLD_LAZY);
+    m_handleRtspServer = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handleRtspServer)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvrtspserver.so");
-        m_handleRtspServer = dlopen(lib_path, RTLD_LAZY);
+        m_handleRtspServer = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvrtspserver.so");
-    m_handleRtspServer = dlopen(lib_path, RTLD_LAZY);
+    m_handleRtspServer = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleRtspServer)
     {
@@ -285,15 +285,15 @@ int ModuleLoader::loadStreamRecorderLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstreamrecorder.so");
-    m_handleStreamRecorder = dlopen(lib_path, RTLD_LAZY);
+    m_handleStreamRecorder = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handleStreamRecorder)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstreamrecorder.so");
-        m_handleStreamRecorder = dlopen(lib_path, RTLD_LAZY);
+        m_handleStreamRecorder = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvstreamrecorder.so");
-    m_handleStreamRecorder = dlopen(lib_path, RTLD_LAZY);
+    m_handleStreamRecorder = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleStreamRecorder)
     {
@@ -334,15 +334,15 @@ int ModuleLoader::loadStorageManagementLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstoragemanagement.so");
-    m_handleStorageManagement = dlopen(lib_path, RTLD_LAZY);
+    m_handleStorageManagement = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handleStorageManagement)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstoragemanagement.so");
-        m_handleStorageManagement = dlopen(lib_path, RTLD_LAZY);
+        m_handleStorageManagement = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvstoragemanagement.so");
-    m_handleStorageManagement = dlopen(lib_path, RTLD_LAZY);
+    m_handleStorageManagement = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleStorageManagement)
     {
@@ -383,15 +383,15 @@ int ModuleLoader::loadPeerConnectionManagerLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvwebrtc_streamer.so");
-    m_handlePeerConnectionManager = dlopen(lib_path, RTLD_LAZY);
+    m_handlePeerConnectionManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handlePeerConnectionManager)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvwebrtc_streamer.so");
-        m_handlePeerConnectionManager = dlopen(lib_path, RTLD_LAZY);
+        m_handlePeerConnectionManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvwebrtc_streamer.so");
-    m_handlePeerConnectionManager = dlopen(lib_path, RTLD_LAZY);
+    m_handlePeerConnectionManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handlePeerConnectionManager)
     {
@@ -432,15 +432,15 @@ int ModuleLoader::loadPeerConnectionLiveLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvpeerconnection_live.so");
-    m_handlePeerConnectionLiveManager = dlopen(lib_path, RTLD_LAZY);
+    m_handlePeerConnectionLiveManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handlePeerConnectionLiveManager)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvpeerconnection_live.so");
-        m_handlePeerConnectionLiveManager = dlopen(lib_path, RTLD_LAZY);
+        m_handlePeerConnectionLiveManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvpeerconnection_live.so");
-    m_handlePeerConnectionLiveManager = dlopen(lib_path, RTLD_LAZY);
+    m_handlePeerConnectionLiveManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handlePeerConnectionLiveManager)
     {
@@ -481,15 +481,15 @@ int ModuleLoader::loadPeerConnectionReplayLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvpeerconnection_replay.so");
-    m_handlePeerConnectionReplayManager = dlopen(lib_path, RTLD_LAZY);
+    m_handlePeerConnectionReplayManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handlePeerConnectionReplayManager)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvpeerconnection_replay.so");
-        m_handlePeerConnectionReplayManager = dlopen(lib_path, RTLD_LAZY);
+        m_handlePeerConnectionReplayManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvpeerconnection_replay.so");
-    m_handlePeerConnectionReplayManager = dlopen(lib_path, RTLD_LAZY);
+    m_handlePeerConnectionReplayManager = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handlePeerConnectionReplayManager)
     {
@@ -530,15 +530,15 @@ int ModuleLoader::loadStreamBridgeLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstreambridge.so");
-    m_handleStreamBridge = dlopen(lib_path, RTLD_LAZY);
+    m_handleStreamBridge = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handleStreamBridge)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvstreambridge.so");
-        m_handleStreamBridge = dlopen(lib_path, RTLD_LAZY);
+        m_handleStreamBridge = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvstreambridge.so");
-    m_handleStreamBridge = dlopen(lib_path, RTLD_LAZY);
+    m_handleStreamBridge = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleStreamBridge)
     {
@@ -579,15 +579,15 @@ int ModuleLoader::loadSensorManagementLib()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvsensormanagement.so");
-    m_handleSensorManagement = dlopen(lib_path, RTLD_LAZY);
+    m_handleSensorManagement = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handleSensorManagement)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvsensormanagement.so");
-        m_handleSensorManagement = dlopen(lib_path, RTLD_LAZY);
+        m_handleSensorManagement = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvsensormanagement.so");
-    m_handleSensorManagement = dlopen(lib_path, RTLD_LAZY);
+    m_handleSensorManagement = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleSensorManagement)
     {
