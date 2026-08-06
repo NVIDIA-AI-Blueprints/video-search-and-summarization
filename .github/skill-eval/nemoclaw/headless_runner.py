@@ -47,8 +47,12 @@ RTSP_TOOL_ID = "openclaw:core:exec"
 OPENCLAW_LLM_TIMEOUT_TEXT = (
     "GatewayClientRequestError: FailoverError: LLM request timed out"
 )
+OPENCLAW_LLM_TIMEOUT_PAYLOAD_TEXT = "LLM request timed out."
 OPENCLAW_LLM_TIMEOUT_MARKER = re.compile(
     rf"^{re.escape(OPENCLAW_LLM_TIMEOUT_TEXT)}\.?$"
+)
+OPENCLAW_NON_SUCCESS_STATUSES = frozenset(
+    {"aborted", "error", "failed", "failure", "timeout"}
 )
 ANSI_COLOR_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 OPENCLAW_LLM_TIMEOUT_CONTINUATION_PROMPT = (
@@ -1455,28 +1459,80 @@ def collect_and_publish_openclaw_trajectory(
     return report
 
 
+def _openclaw_structured_provider_timeout_document(document: Any) -> bool:
+    """Match OpenClaw's exact rc=0 provider-timeout result envelope."""
+    if not isinstance(document, dict):
+        return False
+    result = document.get("result")
+    if not isinstance(result, dict):
+        return False
+    payloads = result.get("payloads")
+    result_meta = result.get("meta")
+    return bool(
+        document.get("status") == "timeout"
+        and document.get("summary") == "aborted"
+        and document.get("timeoutPhase") == "provider"
+        and isinstance(result_meta, dict)
+        and result_meta.get("aborted") is True
+        and isinstance(payloads, list)
+        and payloads
+        and isinstance(payloads[0], dict)
+        and payloads[0].get("text") == OPENCLAW_LLM_TIMEOUT_PAYLOAD_TEXT
+    )
+
+
+def _openclaw_structured_provider_timeout(raw: str) -> bool:
+    """Require the terminal JSON document to be the provider-timeout envelope."""
+    documents = _agent_json_documents(raw)
+    return bool(
+        documents
+        and _openclaw_structured_provider_timeout_document(documents[-1])
+    )
+
+
+def _openclaw_non_success_document(document: Any) -> bool:
+    """Return whether one OpenClaw result envelope is explicitly non-success."""
+    if not isinstance(document, dict):
+        return False
+    status = document.get("status")
+    if (
+        isinstance(status, str)
+        and status.strip().lower() in OPENCLAW_NON_SUCCESS_STATUSES
+    ):
+        return True
+    if document.get("error"):
+        return True
+    result = document.get("result")
+    if not isinstance(result, dict):
+        return False
+    result_status = result.get("status")
+    return bool(
+        (
+            isinstance(result_status, str)
+            and result_status.strip().lower() in OPENCLAW_NON_SUCCESS_STATUSES
+        )
+        or result.get("error")
+    )
+
+
+def _openclaw_terminal_non_success(raw: str) -> bool:
+    """Make the final JSON envelope authoritative over earlier progress."""
+    documents = _agent_json_documents(raw)
+    return bool(documents and _openclaw_non_success_document(documents[-1]))
+
+
 def _openclaw_visible_text(raw: str) -> list[str]:
     """Return user-visible assistant payload text from supported envelopes."""
     text: list[str] = []
     for document in _agent_json_documents(raw):
         if not isinstance(document, dict):
             continue
-        status = document.get("status")
-        if isinstance(status, str) and status.lower() in {"error", "failed", "failure"}:
-            continue
-        if document.get("error"):
+        # Non-success payloads are diagnostic help, not completed output.
+        if _openclaw_non_success_document(document):
             continue
         payloads = document.get("payloads")
         result = document.get("result")
         if payloads is None and isinstance(result, dict):
-            result_status = result.get("status")
-            if (
-                isinstance(result_status, str)
-                and result_status.lower() in {"error", "failed", "failure"}
-            ):
-                continue
-            if result.get("error"):
-                continue
             payloads = result.get("payloads")
         if not isinstance(payloads, list):
             continue
@@ -1496,7 +1552,19 @@ def _openclaw_log_completed(log_dir: Path) -> bool:
         text = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
     except OSError:
         return False
+    # Completion is determined by the terminal envelope. An earlier visible
+    # payload cannot turn a later explicit failure into success.
+    if _openclaw_terminal_non_success(text):
+        return False
     return bool(_openclaw_visible_text(text))
+
+
+def _openclaw_log_has_structured_provider_timeout(log_dir: Path) -> bool:
+    try:
+        text = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return _openclaw_structured_provider_timeout(text)
 
 
 def _openclaw_transient_llm_timeout(raw: str) -> bool:
@@ -1521,13 +1589,20 @@ def _openclaw_retryable_llm_timeout(
     error_type: str,
     raw_log: str,
 ) -> bool:
-    """Require the exact stopped/rc=1 failure observed from OpenClaw."""
-    return (
+    """Match only the two observed, terminal OpenClaw timeout contracts."""
+    legacy_timeout = (
         state == "stopped"
         and cli_returncode == 1
         and error_type == "OpenClawStopped"
         and _openclaw_transient_llm_timeout(raw_log)
     )
+    structured_timeout = (
+        state == "stopped"
+        and cli_returncode == 0
+        and error_type == "OpenClawProviderTimeout"
+        and _openclaw_structured_provider_timeout(raw_log)
+    )
+    return legacy_timeout or structured_timeout
 
 
 def _preserve_openclaw_attempt_logs(log_dir: Path, attempt: int) -> None:
@@ -1972,7 +2047,17 @@ def run_openclaw_cli(
                     break
                 continue
             if state == "stopped":
-                if cli_returncode == 0 and _openclaw_log_completed(log_dir):
+                if (
+                    cli_returncode == 0
+                    and _openclaw_log_has_structured_provider_timeout(log_dir)
+                ):
+                    returncode = 1
+                    error = (
+                        "OpenClaw provider timed out before emitting "
+                        "completed assistant output"
+                    )
+                    error_type = "OpenClawProviderTimeout"
+                elif cli_returncode == 0 and _openclaw_log_completed(log_dir):
                     returncode = 0
                     error = ""
                     error_type = ""
