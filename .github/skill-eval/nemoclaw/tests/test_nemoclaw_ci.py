@@ -4270,6 +4270,72 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 (log_dir / "openclaw-agent.log").write_text(fixture, encoding="utf-8")
                 self.assertFalse(headless_runner._openclaw_log_completed(log_dir))
 
+    def test_openclaw_completion_rejects_structured_provider_timeout(self):
+        timeout = {
+            "status": "timeout",
+            "summary": "aborted",
+            "timeoutPhase": "provider",
+            "result": {
+                "payloads": [
+                    {"text": "LLM request timed out."},
+                    {"text": "Increase the provider timeout and try again."},
+                ],
+                "meta": {"aborted": True},
+            },
+        }
+        raw = "OpenClaw warning\n" + json.dumps(timeout) + "\n"
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            (log_dir / "openclaw-agent.log").write_text(
+                raw,
+                encoding="utf-8",
+            )
+            self.assertFalse(headless_runner._openclaw_log_completed(log_dir))
+        self.assertTrue(
+            headless_runner._openclaw_structured_provider_timeout(raw)
+        )
+        self.assertEqual(headless_runner._openclaw_visible_text(raw), [])
+
+        earlier_success = json.dumps(
+            {"result": {"payloads": [{"text": "partial progress"}]}}
+        )
+        mixed = earlier_success + "\n" + json.dumps(timeout) + "\n"
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            (log_dir / "openclaw-agent.log").write_text(
+                mixed,
+                encoding="utf-8",
+            )
+            self.assertFalse(headless_runner._openclaw_log_completed(log_dir))
+
+        for key, value in (
+            ("status", "success"),
+            ("summary", "complete"),
+            ("timeoutPhase", "agent"),
+        ):
+            with self.subTest(key=key):
+                variant = json.loads(json.dumps(timeout))
+                variant[key] = value
+                self.assertFalse(
+                    headless_runner._openclaw_structured_provider_timeout(
+                        json.dumps(variant)
+                    )
+                )
+        variant = json.loads(json.dumps(timeout))
+        variant["result"]["meta"]["aborted"] = False
+        self.assertFalse(
+            headless_runner._openclaw_structured_provider_timeout(
+                json.dumps(variant)
+            )
+        )
+        variant = json.loads(json.dumps(timeout))
+        variant["result"]["payloads"][0]["text"] = "provider timed out"
+        self.assertFalse(
+            headless_runner._openclaw_structured_provider_timeout(
+                json.dumps(variant)
+            )
+        )
+
     def test_openclaw_timeout_marker_is_narrow_and_terminal(self):
         marker = (
             "GatewayClientRequestError: FailoverError: "
@@ -4339,6 +4405,60 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                         cli_returncode=returncode,
                         error_type=error_type,
                         raw_log=marker,
+                    )
+                )
+
+    def test_openclaw_timeout_retry_accepts_exact_structured_rc0_state(self):
+        structured_timeout = json.dumps(
+            {
+                "status": "timeout",
+                "summary": "aborted",
+                "timeoutPhase": "provider",
+                "result": {
+                    "payloads": [{"text": "LLM request timed out."}],
+                    "meta": {"aborted": True},
+                },
+            }
+        )
+        self.assertTrue(
+            headless_runner._openclaw_retryable_llm_timeout(
+                state="stopped",
+                cli_returncode=0,
+                error_type="OpenClawProviderTimeout",
+                raw_log=structured_timeout,
+            )
+        )
+        for state, returncode, error_type, raw_log in (
+            ("running", 0, "OpenClawProviderTimeout", structured_timeout),
+            ("stopped", 1, "OpenClawStopped", structured_timeout),
+            ("stopped", 0, "OpenClawStopped", structured_timeout),
+            (
+                "stopped",
+                0,
+                "OpenClawMissingOutput",
+                "LLM request timed out.",
+            ),
+            (
+                "stopped",
+                0,
+                "OpenClawProviderTimeout",
+                json.dumps(
+                    {"result": {"payloads": [{"text": "LLM request timed out."}]}}
+                ),
+            ),
+        ):
+            with self.subTest(
+                state=state,
+                returncode=returncode,
+                error_type=error_type,
+                raw_log=raw_log,
+            ):
+                self.assertFalse(
+                    headless_runner._openclaw_retryable_llm_timeout(
+                        state=state,
+                        cli_returncode=returncode,
+                        error_type=error_type,
+                        raw_log=raw_log,
                     )
                 )
 
@@ -4588,6 +4708,157 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             )
         finally:
             temporary.cleanup()
+
+    def test_openclaw_structured_provider_timeout_retries_in_same_session(self):
+        structured_timeout = json.dumps(
+            {
+                "status": "timeout",
+                "summary": "aborted",
+                "timeoutPhase": "provider",
+                "result": {
+                    "payloads": [
+                        {"text": "LLM request timed out."},
+                        {"text": "Increase the provider timeout and retry."},
+                    ],
+                    "meta": {"aborted": True},
+                },
+            }
+        )
+        response, calls, root_reads, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                first_log=structured_timeout,
+                first_returncode=0,
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 200)
+            self.assertEqual(response["attempts"], 2)
+            self.assertTrue(response["retry"]["attempted"])
+            self.assertTrue(response["attempt_2_launched"])
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(root_reads), 1)
+            self.assertEqual(
+                [call["session_id"] for call in calls],
+                ["run-root", "run-root"],
+            )
+            self.assertEqual(
+                calls[1]["prompt"],
+                headless_runner.OPENCLAW_LLM_TIMEOUT_CONTINUATION_PROMPT,
+            )
+            self.assertIn(
+                '"timeoutPhase": "provider"',
+                (
+                    log_dir / "openclaw-agent-attempt-1.log"
+                ).read_text(encoding="utf-8"),
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_terminal_provider_timeout_overrides_earlier_visible_payload(self):
+        earlier_success = json.dumps(
+            {"result": {"payloads": [{"text": "partial progress"}]}}
+        )
+        structured_timeout = json.dumps(
+            {
+                "status": "timeout",
+                "summary": "aborted",
+                "timeoutPhase": "provider",
+                "result": {
+                    "payloads": [{"text": "LLM request timed out."}],
+                    "meta": {"aborted": True},
+                },
+            }
+        )
+        response, calls, _, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                first_log=earlier_success + "\n" + structured_timeout,
+                first_returncode=0,
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 200)
+            self.assertEqual(response["attempts"], 2)
+            self.assertTrue(response["retry"]["attempted"])
+            self.assertEqual(len(calls), 2)
+            self.assertIn(
+                "partial progress",
+                (
+                    log_dir / "openclaw-agent-attempt-1.log"
+                ).read_text(encoding="utf-8"),
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_terminal_nonretryable_timeout_overrides_earlier_visible_payload(self):
+        earlier_success = json.dumps(
+            {"result": {"payloads": [{"text": "partial progress"}]}}
+        )
+        agent_timeout = json.dumps(
+            {
+                "status": "timeout",
+                "summary": "aborted",
+                "timeoutPhase": "agent",
+                "result": {
+                    "payloads": [{"text": "LLM request timed out."}],
+                    "meta": {"aborted": True},
+                },
+            }
+        )
+        response, calls, root_reads, _, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                first_log=earlier_success + "\n" + agent_timeout,
+                first_returncode=0,
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 500)
+            self.assertEqual(response["error_type"], "OpenClawMissingOutput")
+            self.assertEqual(response["attempts"], 1)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(root_reads, [])
+            self.assertNotIn("retry", response)
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_rc0_missing_output_requires_exact_timeout_signature(self):
+        non_retryable_logs = (
+            "LLM request timed out.",
+            json.dumps(
+                {
+                    "status": "timeout",
+                    "summary": "aborted",
+                    "timeoutPhase": "agent",
+                    "result": {
+                        "payloads": [{"text": "LLM request timed out."}],
+                        "meta": {"aborted": True},
+                    },
+                }
+            ),
+        )
+        for first_log in non_retryable_logs:
+            with self.subTest(first_log=first_log):
+                response, calls, root_reads, _, temporary = (
+                    self._run_openclaw_retry_fixture(
+                        0,
+                        first_log=first_log,
+                        first_returncode=0,
+                    )
+                )
+                try:
+                    self.assertEqual(response["status"], 500)
+                    self.assertEqual(
+                        response["error_type"],
+                        "OpenClawMissingOutput",
+                    )
+                    self.assertEqual(response["attempts"], 1)
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(root_reads, [])
+                    self.assertNotIn("retry", response)
+                finally:
+                    temporary.cleanup()
 
     def test_openclaw_timeout_retry_failure_is_not_retried_again(self):
         response, calls, _, log_dir, temporary = (
