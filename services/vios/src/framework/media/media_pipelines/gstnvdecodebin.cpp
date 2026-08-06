@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -307,14 +307,14 @@ GstPadProbeReturn NvDecodeBin::padProbeCB (GstPad * pad, GstPadProbeInfo * info)
     /* remove unlinks automatically */
     gst_bin_remove (GST_BIN (m_decodeBin), m_decoder);
     m_decoder = nullptr;
-    gchar *element_name;
+    const gchar *element_name;
     if (m_useNvV4l2Dec == false || m_playBackSpeed < 0)
     {
-        element_name = (gchar *)SW_AV_DECODER;
+        element_name = SW_AV_DECODER;
     }
     else
     {
-        element_name = (gchar *)NV_V4L2_DECODER;
+        element_name = NV_V4L2_DECODER;
     }
     m_decoder = gst_element_factory_make (element_name, nullptr);
     LOG(info) << "Selecting decoder element: " << element_name << endl;

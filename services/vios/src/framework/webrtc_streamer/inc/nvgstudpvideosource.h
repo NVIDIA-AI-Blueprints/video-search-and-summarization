@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -84,7 +84,8 @@ class VideoDataConsumer : public IMediaDataConsumer
             return m_videoSinkList.size();
         }
 
-        void onFrame(FrameParams& params)
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override
         {
             std::lock_guard<std::mutex> lock(m_videoSinkLock);
             m_sourceWidth  = params.m_width;

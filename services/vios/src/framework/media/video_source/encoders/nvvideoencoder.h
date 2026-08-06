@@ -88,7 +88,7 @@ class NvEncoderVideoConsumer : public IMediaDataConsumer
 class EncoderQueue
 {
 public:
-    EncoderQueue(NvEncoderVideoConsumer* consumer);
+    explicit EncoderQueue(NvEncoderVideoConsumer* consumer);
     ~EncoderQueue();
 
     void push(std::shared_ptr<RawFrameParams> frame_data);
