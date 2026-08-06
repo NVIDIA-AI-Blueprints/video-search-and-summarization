@@ -719,7 +719,7 @@ SDRC uses a **safe bus policy** for Redis and Kafka (always on):
 | Terminal failure / `CONFIGURE_FAILED` | Permanent/poison failure (malformed payload, permanent reject, exhausted retries) | **ERROR log** (log-based DLQ) + **Commit** |
 | Retryable / `CONFIGURE_DEFERRED` | Temporary failure (unready workers, max replicas, HTTP/Redis/Kubernetes client blips, deferred configure) | Do **not** commit; retry the same event up to `WDM_EVENT_RETRY_LIMIT`, then promote to terminal |
 
-On Kafka retryable failures, SDRC **seeks back** to the failed offset before returning so flask-kafka’s post-handler `commit()` (and any later successful commit) cannot acknowledge and skip that offset.
+On Kafka retryable failures, SDRC **seeks back** to the failed offset before returning so flask-kafka’s post-handler `commit()` (and any later successful commit) cannot acknowledge and skip that offset. If `seek` fails, SDRC installs a one-shot park commit for that offset; if that also fails, the handler raises so flask-kafka does not commit past the event.
 
 This keeps the bus moving when a message can never succeed, while still retrying temporary conditions. Enable `WDM_CONFIG_DEFER_ON_FAILURE` only when you intentionally want configure redelivery until `/config` succeeds.
 

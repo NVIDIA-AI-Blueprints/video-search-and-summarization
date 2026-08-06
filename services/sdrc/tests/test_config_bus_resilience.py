@@ -466,6 +466,76 @@ def test_kafka_max_replica_does_not_commit_until_retry_limit(app_module, monkeyp
     assert app_module._test_fake_bus.consumer.seek.call_count == 2
 
 
+@pytest.mark.parametrize("app_module", [True], indirect=True)
+def test_kafka_seek_failure_parks_offset_on_next_commit(app_module, monkeypatch):
+    """If seek fails, flask-kafka's later commit must still park at this offset."""
+    from lib.bus_outcomes import reset_retry_attempts_for_tests
+
+    reset_retry_attempts_for_tests()
+    app_module.app.config["WDM_EVENT_RETRY_LIMIT"] = 5
+    app_module.evic_q_on_no_capacity = False
+    wl_d = {
+        app_module.change_field: app_module.change_id_add,
+        app_module.app.config["WDM_WL_ID_FIELD"]: "cam-1",
+    }
+    original_json = {app_module.app.config["WDM_EVENT_OBJECT_FIELD"]: wl_d}
+    app_module._test_mock_kfk.getMessageValue.return_value = (wl_d, original_json)
+    monkeypatch.setattr(
+        app_module,
+        "provisionStreamRedis",
+        MagicMock(side_effect=app_module.MaxReplicaException(1)),
+    )
+    monkeypatch.setattr(app_module.time, "sleep", MagicMock())
+
+    consumer = app_module._test_fake_bus.consumer
+    real_commit = MagicMock()
+    consumer.commit = real_commit
+    consumer.seek.side_effect = RuntimeError("seek broken")
+
+    handler = app_module._test_fake_bus.handlers[app_module.topic]
+    msg = MagicMock()
+    msg.topic.return_value = "t"
+    msg.partition.return_value = 0
+    msg.offset.return_value = 42
+
+    handler(msg)
+    # Handler itself must not advance; flask-kafka would call commit next.
+    real_commit.assert_not_called()
+    assert consumer.commit is not real_commit
+
+    # Simulate flask-kafka post-handler commit.
+    consumer.commit()
+    real_commit.assert_called_once()
+    parked = real_commit.call_args[0][0]
+    assert len(parked) == 1
+    tp, meta = next(iter(parked.items()))
+    assert tp.topic == "t"
+    assert tp.partition == 0
+    assert meta.offset == 42
+    # One-shot wrapper must restore the original commit.
+    assert consumer.commit is real_commit
+
+
+def test_kafka_park_offset_on_next_commit_unit():
+    from lib.bus_outcomes import kafka_park_offset_on_next_commit
+
+    consumer = MagicMock()
+    original = MagicMock()
+    consumer.commit = original
+    msg = MagicMock()
+    msg.topic = "topic-a"
+    msg.partition = 1
+    msg.offset = 7
+
+    assert kafka_park_offset_on_next_commit(consumer, msg) is True
+    consumer.commit()
+    original.assert_called_once()
+    parked = original.call_args[0][0]
+    tp, meta = next(iter(parked.items()))
+    assert (tp.topic, tp.partition, meta.offset) == ("topic-a", 1, 7)
+    assert consumer.commit is original
+
+
 def test_classify_exception_and_decide_commit(monkeypatch):
     import sys
     import types

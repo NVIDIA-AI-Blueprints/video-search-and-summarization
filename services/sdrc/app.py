@@ -49,6 +49,7 @@ from lib.bus_outcomes import (
     classify_exception,
     decide_commit,
     kafka_message_key,
+    kafka_park_offset_on_next_commit,
     kafka_rewind_to_message,
     log_terminal_failure,
     redis_message_key,
@@ -3338,16 +3339,7 @@ if bus is not None:
             else:
                 # flask-kafka commits after this handler returns. Seek back so
                 # that commit (or a later success) cannot skip this offset.
-                if not kafka_rewind_to_message(bus.consumer, msg):
-                    app.logger.error(
-                        "failed to rewind Kafka consumer after retryable "
-                        "failure; offset may be skipped on next commit "
-                        "(attempt %s/%s, outcome=%s)",
-                        attempt,
-                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
-                        final_outcome,
-                    )
-                else:
+                if kafka_rewind_to_message(bus.consumer, msg):
                     app.logger.info(
                         "rewound Kafka consumer after retryable failure "
                         "(attempt %s/%s, outcome=%s); deferring commit skip "
@@ -3356,9 +3348,36 @@ if bus is not None:
                         app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
                         final_outcome,
                     )
+                elif kafka_park_offset_on_next_commit(bus.consumer, msg):
+                    # seek failed: force flask-kafka's post-handler commit to
+                    # park at this offset instead of acknowledging past it.
+                    app.logger.error(
+                        "Kafka seek failed after retryable failure; installed "
+                        "one-shot park commit for offset "
+                        "(attempt %s/%s, outcome=%s)",
+                        attempt,
+                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        final_outcome,
+                    )
+                else:
+                    # Last resort: abort before flask-kafka can commit past us.
+                    app.logger.error(
+                        "Kafka seek and park-commit install both failed after "
+                        "retryable failure (attempt %s/%s, outcome=%s); "
+                        "raising to prevent offset skip",
+                        attempt,
+                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        final_outcome,
+                    )
+                    raise RuntimeError(
+                        "kafka retryable failure: cannot rewind or park offset"
+                    )
                 time.sleep(1.0)
         except Exception as e:
             app.logger.error(f"Exception: {e}")
+            # Do not swallow rewind/park failures: flask-kafka commits after return.
+            if not should_commit:
+                raise
 
         app.logger.info("waiting for next message")
 
