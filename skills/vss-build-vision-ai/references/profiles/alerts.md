@@ -43,6 +43,8 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vs
 | Knob | Purpose |
 |---|---|
 | `MODE` | Select `2d_cv` or `2d_vlm`; keep `COMPOSE_PROFILES` aligned with the matching checked-in set. |
+| `VST_NOTIFICATION_CONFIG_PATH` | MODE-selected VIOS webhook config (`notification_config_${MODE}.json`): `2d_cv` → RT-CV stream add/remove; `2d_vlm` → Alert Bridge always-on. |
+| `ALERT_AGENT_ALWAYS_ON` | Gate always-on rules (`true` for real-time / `2d_vlm`, `false` for verification / `2d_cv`). |
 | `DS_MODEL_FAMILY`, `MODEL_NAME_2D`, `RT_CV_DEVICE_ID`, `VSS_RT_CV_TAG` | Configure RT-CV in `2d_cv`. |
 | `VLM_NAME`, `VLM_MODE`, `VLM_BASE_URL`, `RTVI_VLM_*` | Configure verification or real-time VLM routing. |
 | `VLM_AS_VERIFIER_CONFIG_FILE*` | Select mounted alert verifier and real-time rule configs. |

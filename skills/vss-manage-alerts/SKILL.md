@@ -114,10 +114,10 @@ passes, detect the mode per Step 1.
 
 | Mode | Deploy flag | Env (`.env`) | What runs | What is available |
 |---|---|---|---|---|
-| **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). VIOS webhooks register streams with RT-CV (`notification_config_2d_cv.json`); Agent `rtvi_cv_base_url` is omitted. Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
-| **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `-m real-time`). No static CV pipeline; Agent `rtvi_cv_base_url` is omitted so ingest skips RT-CV. |
+| **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). VIOS webhooks register streams with RT-CV. Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
+| **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `-m real-time`). No static CV pipeline. |
 
-**Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag. The deploy script selects `config.yml` for CV or `config-real-time.yml` for real-time; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
+**Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag. Both modes use the same agent `config.yml`; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
 
 **`RTVI_VLM_KAFKA_ENABLED` is mode-specific.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false` for verification (`2d_cv`), where nothing consumes RT-VLM's Kafka output and leaving it on makes RT-VLM publish duplicate incidents that Logstash indexes under `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) alerts depend on RT-VLM publishing to Kafka, so the line must be commented out in that mode — `dev-profile.sh` does this automatically for `-m real-time`. If a real-time deployment produces no alerts, check that this override is not still active in `generated.env`.
 
@@ -299,7 +299,7 @@ VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss
 ```
 
 1. Check if the sensor is in VIOS with `"${VSS[@]}" vios list --type stream` (idempotent — don't blindly add).
-2. If missing, onboard with `"${VSS[@]}" vios add rtsp://<url> --name <name>`. Once the sensor is online, the VIOS verification webhook registers it with RT-CV.
+2. If missing, onboard with `"${VSS[@]}" vios add rtsp://<url> --name <name>`. Once the sensor is online, VIOS posts `camera_streaming` to RT-CV (`notification_config_2d_cv.json` → `POST http://vss-rtvi-cv:9010/api/v1/stream/add`).
 3. Confirm online — assert it, do not just print it:
    ```bash
    # Each block is its own shell; define what it uses.
@@ -405,11 +405,11 @@ Load `references/on-demand-verification.md` for the full contract, media constra
 
 ## Workflow G — Always-On Operation (VLM real-time mode only)
 
-Always-on alerting starts pre-configured rules automatically when SDR announces a camera (`camera_streaming` → one realtime rule per `always_on_rules` YAML entry; `camera_remove` tears them down) via `POST $AB/api/v1/realtime/always-on`. **Operate, don't author** — this workflow never creates or edits always-on rule config; it checks status, queries results, and troubleshoots.
+Always-on alerting starts pre-configured rules automatically when VIOS posts a camera lifecycle webhook (`notification_config_2d_vlm.json` → `camera_streaming` starts one realtime rule per `always_on_rules` YAML entry; `camera_remove` tears them down) via `POST $AB/api/v1/realtime/always-on`. **Operate, don't author** — this workflow never creates or edits always-on rule config; it checks status, queries results, and troubleshoots.
 
-1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). `dev-profile.sh` sets it **true** for `-m real-time` (`MODE=2d_vlm`) and **false** for `-m verification` (`MODE=2d_cv`). VIOS webhooks follow `VST_NOTIFICATION_CONFIG_PATH=…/notification_config_${MODE}.json` in overrides (`2d_vlm` → Alert Bridge always-on; `2d_cv` → RT-CV stream add/remove). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or a `503 {"reason":"ALWAYS_ON_DISABLED"}` from the endpoint. Zero-side-effect probe options in `references/always-on.md`.
+1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). `dev-profile.sh` sets it **true** for `-m real-time` (`MODE=2d_vlm`) and **false** for `-m verification` (`MODE=2d_cv`). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or a `503 {"reason":"ALWAYS_ON_DISABLED"}` from the endpoint. Zero-side-effect probe options in `references/always-on.md`.
 2. **Query incidents** — always-on rules are ordinary realtime rules once started; their incidents surface through **Workflow C** (`GET $AB/api/v1/realtime/incidents`). The rules live in an **in-memory sidecar** (not the ES-backed rules index), so they may not appear in Workflow D's rules list — that is expected, not a bug.
-3. **Troubleshoot "no always-on alerts"** — walk the ladder in `references/always-on.md`: feature gate → rules YAML resolves/validates at boot → SDR events actually reaching Alert Bridge → stream registered on `rtvi-vlm` → incidents query.
+3. **Troubleshoot "no always-on alerts"** — walk the ladder in `references/always-on.md`: feature gate → rules YAML resolves/validates at boot → VIOS webhooks actually reaching Alert Bridge → stream registered on `rtvi-vlm` → incidents query.
 
 Load `references/always-on.md` for the event contract, reason-code table, YAML resolution chain, and the troubleshooting ladder. VLM real-time mode only; refuse on CV with the canonical text. Config authoring (editing `always_on_rules`) is **out of scope** in this pass — say so when asked.
 
