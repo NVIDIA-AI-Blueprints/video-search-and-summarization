@@ -135,10 +135,12 @@ POST http://localhost:<vios-port>/vst/api/v1/sensor/add
 Then resolve the **live proxy** the consumers must target, and treat this read as a
 **readiness gate**. VST re-publishes the stream under a stable, VIOS-managed,
 `sensorId`-keyed RTSP handle (e.g. `rtsp://$HOST_IP:30554/live/<sensorId>`),
-published asynchronously. Search and alerts builds run VIOS in **SDRC mode**, where
-the republish is gated on the SDRC Envoy, so the per-sensor
+published asynchronously. **Alerts** (and Helm search) run VIOS in **SDRC mode**,
+where the republish is gated on the SDRC Envoy, so the per-sensor
 `GET /sensor/<sensorId>/streams` → `.url` can stay empty well past the brief
-post-add race. Resolve the handle from the endpoint that carries it — the aggregate
+post-add race. **Docker search** runs VIOS in **direct** mode; the same
+aggregate/proxy read + backoff still applies for the brief post-add race.
+Resolve the handle from the endpoint that carries it — the aggregate
 `GET /sensor/streams` (match your `sensorId`) or `GET /proxy/streams` (`.proxyUrl`
 for that `sensorId`) — and **retry with backoff until it is non-empty** before
 passing it to the consumers. Read it, never construct it; do **not** fall back to

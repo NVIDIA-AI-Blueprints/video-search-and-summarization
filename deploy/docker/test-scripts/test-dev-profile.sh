@@ -1223,8 +1223,8 @@ for _profile in base lvs search alerts; do
       _expected_stable_keys=(MODE LVS_TAG RTVI_VLM_IMAGE_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
     search)
-      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
-      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT)
       _expected_stable_keys=(MODE PERCEPTION_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
     alerts)
@@ -1818,6 +1818,50 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
   "VLM_MODE" "remote" "VLM_PORT" "30082" "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
 _expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+_expected_search_compose_profiles='kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api-fusion,nvstreamer-2d-fusion,perception-2d-fusion,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+
+# Docker search: direct VIOS — no SDRC chain in Foundation env / COMPOSE_PROFILES.
+_search_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env"
+_search_overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/overrides.env"
+if grep -Eq '^VST_USE_SDRC=false$' "${_search_env}" \
+  && grep -Eq '^STREAM_PROCESSOR_MODULE_ENDPOINT=http://vss-vios-streamprocessing:30001$' "${_search_env}" \
+  && grep -Eq '^VST_NGINX_MODE=vst$' "${_search_env}"; then
+  echo "PASS: search Docker Foundation uses direct VIOS wiring"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: search Docker Foundation should set VST_USE_SDRC=false, STREAM_PROCESSOR_MODULE_ENDPOINT=http://vss-vios-streamprocessing:30001, VST_NGINX_MODE=vst"
+  ((TESTS_FAILED++)) || true
+fi
+_search_compose_profiles="$(grep -E '^COMPOSE_PROFILES=' "${_search_overrides_env}" | head -n1 | cut -d= -f2-)"
+if [[ "${_search_compose_profiles}" == "${_expected_search_compose_profiles}" ]] \
+  && ! grep -Eq '(^|,)(init-dirs|render-config|wdm-env-from-config|wait-for-redis|wait-for-docker-workloads|sdr-controller)(,|$)' <<<"${_search_compose_profiles}"; then
+  echo "PASS: search COMPOSE_PROFILES excludes SDRC tokens"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: search COMPOSE_PROFILES should match direct-VIOS set (no SDRC chain)"
+  ((TESTS_FAILED++)) || true
+fi
+if ! grep -Eq '^(SDR_CONTROLLER_CONFIG_PATH|SDRC_CONTROLLER_HOST_PORT|SDRC_PROXY_HOST_PORT|SDRC_DIRECT_HOST_PORT|SDRC_ENVOY_ADMIN_HOST_PORT)=' "${_search_overrides_env}"; then
+  echo "PASS: search overrides.env omits SDRC path/port knobs"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: search overrides.env should not define SDR_CONTROLLER_CONFIG_PATH or SDRC_*_HOST_PORT"
+  ((TESTS_FAILED++)) || true
+fi
+# The Docker flip above is deliberately Docker-only: Helm search keeps SDRC for live
+# multi-worker scale. Guard the asymmetry so a follow-up does not "align" Helm to Docker.
+_search_helm_values="${REPO_ROOT}/deploy/helm/developer-profiles/dev-profile-search/values.yaml"
+if grep -Eq '^[[:space:]]+useSdrc: true$' "${_search_helm_values}" \
+  && grep -A1 -E '^[[:space:]]+sdrc:$' "${_search_helm_values}" | grep -Eq '^[[:space:]]+enabled: true$'; then
+  echo "PASS: Helm search keeps SDRC enabled (global.vios.useSdrc + infra.sdrc.enabled)"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: Helm search should keep global.vios.useSdrc: true and infra.sdrc.enabled: true"
+  ((TESTS_FAILED++)) || true
+fi
+run_dry_run_up_and_check_generated_env "generated.env search COMPOSE_PROFILES excludes SDRC" "search" \
+ -i 127.0.0.1 -d -- \
+  "COMPOSE_PROFILES" "${_expected_search_compose_profiles}"
 
 # LVS with local/local_shared VLM: route LVS through RT-VLM and let RT-VLM load the integrated Cosmos checkpoint.
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \

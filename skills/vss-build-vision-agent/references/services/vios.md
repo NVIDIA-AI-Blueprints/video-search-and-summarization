@@ -29,6 +29,7 @@
 | `RTSP_SERVER_HOST_PORT`, `RTSP_SERVER_HOST_PORT_END` | Publish RTSP playback ports. |
 | `VST_BASE_URL`, `VST_INTERNAL_URL`, `VST_EXTERNAL_URL`, `VST_MCP_URL` | Configure internal and public routing. |
 | `VST_NGINX_MODE` | Select direct or SDRC routing supported by the Foundation. |
+| `VST_ENABLE_NOTIFICATION` | Publish VIOS lifecycle events (`camera_add` / `camera_streaming` / `camera_remove`) to Redis `vst.event`. The VIOS composes default it to `${VST_USE_SDRC:-false}`, so it flips with the routing mode unless the build pins it — pin it whenever a build changes `VST_USE_SDRC`. |
 | `SDR_CONTROLLER_CONFIG_PATH`, `SDRC_*_HOST_PORT` | Select rendered SDR config and host ports. |
 | `NVSTREAMER_HTTP_PORT`, `NVSTREAMER_HTTP_HOST_PORT`, `NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES` | Configure a profile's NvStreamer source. |
 | `NUM_SENSORS`, `STREAM_TYPE` | Configure source count and broker type where supported. |
