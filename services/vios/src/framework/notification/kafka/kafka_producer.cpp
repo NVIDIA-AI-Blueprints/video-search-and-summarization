@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -76,7 +76,7 @@ NvKafka::NvKafka()
 #endif
 {
 #if !defined(AARCH64_PLATFORM)
-    m_kafkaHandle = dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY);
+    m_kafkaHandle = static_cast<KafkaLibHandle*>(dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY));
     if (!m_kafkaHandle)
     {
         LOG(error) << "Cannot open librdkafka library: " << dlerror() << endl;

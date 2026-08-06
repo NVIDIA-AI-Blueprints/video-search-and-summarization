@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -55,7 +55,7 @@ NvLibs::NvLibs()
 #else
     lib_path = ABSOLUTE_LIBRARY_PATH_X86_64;
 #endif
-    handle_v4l2 = dlopen(lib_path, RTLD_LAZY); 
+    handle_v4l2 = static_cast<NvV4l2LibHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!handle_v4l2)
     {
         LOG(error) << "Cannot open v4l2 library: " << dlerror() << endl;

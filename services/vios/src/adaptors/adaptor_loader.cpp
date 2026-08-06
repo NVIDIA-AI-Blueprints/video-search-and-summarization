@@ -314,7 +314,7 @@ std::shared_ptr<DeviceManager> AdaptorLoader::loadAdaptor(ModuleId module_id)
     if(control_adaptor_lib_path.empty() == false)
     {
         LOG(info) << "Loading control adaptor: " << control_adaptor_lib_path << endl;
-        std::pair<ISensorControlInterface*, void*>& pair = device_manager->m_sensorControlobjectPair;
+        std::pair<ISensorControlInterface*, destroyControlObject_t>& pair = device_manager->m_sensorControlobjectPair;
         int result = loadControlAdaptorLibrary(control_adaptor_lib_path, &pair.first, &pair.second);
         assert(result == 0);
         assert(pair.first != nullptr);
@@ -332,14 +332,14 @@ std::shared_ptr<DeviceManager> AdaptorLoader::loadAdaptor(ModuleId module_id)
             {
                 LOG(info) << "Loading Discovery adaptor: " << path << endl;
 
-                ISensorDiscoveryInterface* discoveryObject;
-                void* destroyObject;
+                ISensorDiscoveryInterface* discoveryObject = nullptr;
+                destroyDiscoveryObject_t destroyObject = nullptr;
                 int ret = loadDiscoveryAdaptorLibrary(path, &discoveryObject, &destroyObject);
                 if (ret == 0 && discoveryObject != nullptr && destroyObject != nullptr)
                 {
                     std::pair<ISensorDiscoveryInterface*, destroyDiscoveryObject_t> objects;
                     objects.first = discoveryObject;
-                    objects.second = reinterpret_cast<destroyDiscoveryObject_t>(destroyObject);
+                    objects.second = destroyObject;
                     device_manager->m_sensorDiscoveryObjectPairList.push_back(objects);
                 }
             }
@@ -351,7 +351,7 @@ std::shared_ptr<DeviceManager> AdaptorLoader::loadAdaptor(ModuleId module_id)
     return deviceManager;
 }
 
-int AdaptorLoader::loadControlAdaptorLibrary(const string& path, ISensorControlInterface** object, void** delObject)
+int AdaptorLoader::loadControlAdaptorLibrary(const string& path, ISensorControlInterface** object, destroyControlObject_t* delObject)
 {
     void* lib_handle = loadLibrary(path);
     if ( lib_handle == nullptr)
@@ -377,12 +377,13 @@ int AdaptorLoader::loadControlAdaptorLibrary(const string& path, ISensorControlI
         dlclose(lib_handle);
         return -1;
     }
-    *delObject = (void *)destroyObject_;
+    *delObject = destroyObject_;
     m_libs.push_back(lib_handle);
     return 0;
 }
 
-int AdaptorLoader::loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscoveryInterface** object, void** delObject)
+int AdaptorLoader::loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscoveryInterface** object,
+                                               destroyDiscoveryObject_t* delObject)
 {
     void* lib_handle = loadLibrary(path);
     if ( lib_handle == nullptr)
@@ -408,7 +409,7 @@ int AdaptorLoader::loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscov
         dlclose(lib_handle);
         return -1;
     }
-    *delObject = (void *)destroyObject_;
+    *delObject = destroyObject_;
     m_libs.push_back(lib_handle);
     return 0;
 }

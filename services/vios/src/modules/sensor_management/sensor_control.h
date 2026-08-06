@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -67,7 +67,7 @@ class SensorControl
 
     private:
         DeviceManager* m_deviceManager;
-        std::pair<ISensorControlInterface*, void*> m_sensorControlobjectPair;
+        std::pair<ISensorControlInterface*, destroyControlObject_t> m_sensorControlobjectPair;
         ISensorControlInterface* m_adaptor;
 };
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,8 @@
 
 #ifndef NV_LIBS_H
 #define NV_LIBS_H
+
+struct NvV4l2LibHandle;
 
 typedef int (*v4l2_ioctl_t) (int , unsigned long int , ...);
 typedef int (*v4l2_open_t) (const char *, int, ...);
@@ -38,7 +40,7 @@ public:
 private:
   static NvLibs* _instance;
   bool error;
-  void* handle_v4l2;
+  NvV4l2LibHandle* handle_v4l2;
 
   NvLibs();
 
