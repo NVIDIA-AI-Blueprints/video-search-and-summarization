@@ -1706,7 +1706,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
         self.assertEqual(len(cells), 1)
         source = "".join(cells[0].get("source", ""))
-        self.assertIn('NEMOCLAW_INSTALL_REF = "v0.0.97"', source)
+        self.assertIn('NEMOCLAW_INSTALL_REF = "v0.0.103"', source)
         self.assertIn("owning-gateway routing fix from v0.0.88", source)
         self.assertIn("first-boot", source)
         self.assertNotIn('NEMOCLAW_INSTALL_REF = "v0.0.80"', source)
@@ -12226,7 +12226,7 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             13260 + smoke_runner.worker_pool.HARBOR_SHUTDOWN_GRACE_SEC,
             270 * 60,
         )
-        self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.97", source)
+        self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.103", source)
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=1200", source)

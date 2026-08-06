@@ -1214,7 +1214,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             'export NEMOCLAW_SANDBOX_NAME='
-            '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc097-c5"',
+            '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc103-c1"',
             command,
         )
         self.assertIn(
@@ -1232,13 +1232,13 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             command.index('/usr/bin/python3 "$legacy_repair_helper"'),
             command.index(
                 'export NEMOCLAW_SANDBOX_NAME='
-                '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc097-c5"'
+                '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc103-c1"'
             ),
         )
         self.assertLess(
             command.index(
                 'export NEMOCLAW_SANDBOX_NAME='
-                '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc097-c5"'
+                '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc103-c1"'
             ),
             command.index("notebook_setup_adapter.py"),
         )
@@ -1339,7 +1339,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             command,
         )
         self.assertIn(
-            'expected_nemoclaw_ref="${NEMOCLAW_INSTALL_REF:-v0.0.97}"',
+            'expected_nemoclaw_ref="${NEMOCLAW_INSTALL_REF:-v0.0.103}"',
             command,
         )
         self.assertIn(

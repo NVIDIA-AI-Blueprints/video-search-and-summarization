@@ -3,17 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Verify NemoClaw's direct Docker repair target after supported activation.
 
-NemoClaw v0.0.97 routes ordinary OpenShell RPCs through the owning gateway,
-but its post-exec mutable-config repair discovers a container from host Docker
-labels. On a warm multi-user or multi-gateway worker, a stale same-name
-container can therefore be selected independently of the sandbox that handled
+The pinned NemoClaw release routes ordinary OpenShell RPCs through the owning
+gateway, but its post-exec mutable-config repair discovers a container from
+host Docker labels. On a warm multi-user or multi-gateway worker, a stale
+same-name container can therefore be selected independently of the sandbox that handled
 the command. This preflight mirrors that label lookup, attests the mutable image
 tag against the container's immutable image ID, uses NemoClaw's supported
 start lifecycle to activate it, and runs one fixed read-only exec sentinel
 against the exact attested container ID. The later host-side ``config set`` is
 the authoritative test of NemoClaw's privileged mutation path. CI executes
 ordinary sandbox commands through the owning OpenShell gateway, avoiding
-NemoClaw v0.0.97's gateway-independent post-exec cleanup path.
+the pinned release's gateway-independent post-exec cleanup path.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ SANDBOX_NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,61}[a-z0-9]|[a-z]")
 CONTAINER_ID_RE = re.compile(r"[0-9a-f]{64}")
 IMAGE_ID_RE = re.compile(r"sha256:[0-9a-f]{64}")
 DOCKER_COMMAND_TIMEOUT_SECONDS = 15
-# NemoClaw v0.0.97's supported start probe owns a 300-second readiness
+# NemoClaw's supported start probe owns a 300-second readiness
 # budget. Leave process-launch/cleanup margin outside that internal deadline.
 SANDBOX_START_TIMEOUT_SECONDS = 360
 CONTAINER_PROBE_TIMEOUT_SECONDS = 30

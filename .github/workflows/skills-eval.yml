@@ -528,7 +528,7 @@ jobs:
           # The following 200-minute cap is strictly above that 168-minute
           # minimum and leaves Harbor time to publish a reportable outcome.
           export NEMOCLAW_HARBOR_TIMEOUT_SEC=12000
-          export NEMOCLAW_INSTALL_REF=v0.0.97
+          export NEMOCLAW_INSTALL_REF=v0.0.103
           export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500
           export NEMOCLAW_SETUP_TIMEOUT_SEC=1620
           export NEMOCLAW_SETUP_CELL_TIMEOUT=1200
