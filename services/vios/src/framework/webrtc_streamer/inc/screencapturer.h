@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +42,7 @@
 
 class DesktopCapturer : public webrtc::VideoSourceInterface<webrtc::VideoFrame>, public webrtc::DesktopCapturer::Callback  {
 	public:
-		DesktopCapturer(const std::map<std::string,std::string> & opts) : m_width(0), m_height(0) {
+		explicit DesktopCapturer(const std::map<std::string,std::string> & opts) : m_width(0), m_height(0) {
 			if (opts.find("width") != opts.end()) {
 				m_width = std::stoi(opts.at("width"));
 			}	

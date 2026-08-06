@@ -115,7 +115,7 @@ namespace
 class AutoDestroyXml
 {
 public:
-    AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
+    explicit AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
     ~AutoDestroyXml() { xmlBufferFree(m_xml); }
 private:
     xmlBufferPtr m_xml;
@@ -730,7 +730,7 @@ bool NvSoap::getProbeResponse(const string& xmlData, SensorInfo& sensor)
         return false;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar *>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -988,7 +988,7 @@ void NvSoap::getDeviceInformationResponse(const string& xmlData, map<string, str
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if (cursor)
     {
@@ -1046,7 +1046,7 @@ int NvSoap::getCapabilitiesResponse(const string& xmlData, map<string, OnvifServ
         return -1;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     xmlNodePtr cur = findNode(doc, cursor, ONVIF_MEDIA_SERVICE);
     if (cur)
@@ -1395,7 +1395,7 @@ void NvSoap::getProfilesResponse(const string& xmlData, vector<SensorSettings>& 
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -1720,7 +1720,7 @@ string NvSoap::getUriResponse(const string& xmlData)
         return value;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Uri");
     if (!cur)
