@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -6198,7 +6198,7 @@ RecordingSummary NvSoap::getRecordingSummaryResponse(const string& xmlData)
         return summary;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find GetRecordingSummaryResponse node
@@ -6249,7 +6249,7 @@ string NvSoap::getFindRecordingsResponse(const string& xmlData)
         return searchToken;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find FindRecordingsResponse node
@@ -6280,7 +6280,7 @@ RecordingSearchResults NvSoap::getRecordingSearchResultsResponse(const string& x
         return results;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find GetRecordingSearchResultsResponse node
@@ -6303,7 +6303,7 @@ RecordingSearchResults NvSoap::getRecordingSearchResultsResponse(const string& x
             while (node != nullptr)
             {
                 if (node->type == XML_ELEMENT_NODE &&
-                    xmlStrcmp(node->name, BAD_CAST "RecordingInformation") == 0)
+                    xmlStrcmp(node->name, reinterpret_cast<const xmlChar *>("RecordingInformation")) == 0)
                 {
                     RecordingInformation recInfo;
 
@@ -6375,7 +6375,7 @@ RecordingSearchResults NvSoap::getRecordingSearchResultsResponse(const string& x
                     while (trackSearchNode != nullptr)
                     {
                         if (trackSearchNode->type == XML_ELEMENT_NODE &&
-                            xmlStrcmp(trackSearchNode->name, BAD_CAST "Track") == 0)
+                            xmlStrcmp(trackSearchNode->name, (const xmlChar *)"Track") == 0)
                         {
                             RecordingTrack track;
 

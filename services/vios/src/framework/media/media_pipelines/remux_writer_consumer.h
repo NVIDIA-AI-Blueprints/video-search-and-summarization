@@ -112,6 +112,7 @@ private:
     public:
         explicit AudioAppSrcConsumer(RemuxWriterConsumer* owner) 
             : IMediaDataConsumer("RemuxAudioConsumer"), mOwner(owner) {}
+        using IMediaDataConsumer::onFrame;
         void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     private:
         RemuxWriterConsumer* mOwner;

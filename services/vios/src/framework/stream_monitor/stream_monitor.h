@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -90,6 +90,9 @@ public:
     std::string getSourceIdentifier() const override;
     size_t getConsumerCount() const override;
     bool hasConsumers() const override;
+    // Keep the base class registerConsumer overloads visible (e.g. the
+    // media-type variant) so they are not hidden by the ones declared here.
+    using IMediaDataProducer::registerConsumer;
     void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& identifier = "") override;
     // Overloaded registerConsumer for time-range playback
     void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& identifier, const std::string& startTime, const std::string& endTime) override;
