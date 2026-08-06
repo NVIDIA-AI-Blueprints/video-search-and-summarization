@@ -17,9 +17,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import prepare_downstream_release_set as module  # noqa: E402
 from prepare_downstream_release_set import (  # noqa: E402
     candidate_container_tag,
+    downstream_build_type,
     downstream_relevant,
     downstream_variables,
     pr_merge_base_sha,
+    spatialai_publish_variables,
 )
 
 
@@ -176,9 +178,69 @@ class DownstreamVariablesTest(unittest.TestCase):
             )
             self.assertEqual(
                 output_path.read_text(),
-                "has_ghcr_build_entries=false\nrun_downstream=false\n",
+                "has_ghcr_build_entries=false\n"
+                "run_downstream=false\n"
+                "publish_spatialai_data_utils=false\n"
+                "spatialai_package_version_suffix=\n"
+                "spatialai_data_utils_tree_sha=\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
+
+    def test_unrelated_develop_run_triggers_lightweight_sdu_reconciliation(self):
+        sha = "a" * 40
+        tree_sha = "b" * 40
+        suffix = f".dev123+t{tree_sha}.g{sha[:12]}.gh.r1"
+        release_set = {
+            "source": {"commit": sha, "ref": "develop"},
+            "release_set_id": "sha256:" + "1" * 64,
+            "images": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            release_path = Path(tmp) / "release-set.json"
+            env_path = Path(tmp) / "github.env"
+            output_path = Path(tmp) / "github.output"
+            release_path.write_text(json.dumps(release_set))
+            argv = [
+                "prepare_downstream_release_set.py",
+                "--sha",
+                sha,
+                "--ref-name",
+                "develop",
+                "--release-set",
+                str(release_path),
+                "--spatialai-package-version-suffix",
+                suffix,
+                "--spatialai-data-utils-tree-sha",
+                tree_sha,
+            ]
+            with mock.patch("sys.argv", argv), mock.patch.dict(
+                os.environ,
+                {
+                    "GITHUB_ENV": str(env_path),
+                    "GITHUB_OUTPUT": str(output_path),
+                },
+                clear=True,
+            ), mock.patch.object(
+                module, "validate_release_set", return_value=[]
+            ), mock.patch.object(
+                module, "resolve_diff_base", return_value=(sha, "pinned")
+            ), mock.patch.object(
+                module, "changed_paths", return_value=["docs/readme.md"]
+            ), mock.patch.object(
+                module, "load_inventory", return_value={"images": []}
+            ):
+                self.assertEqual(module.main(), 0)
+
+            env_text = env_path.read_text()
+            payload = env_text.split("<<EOF\n", 1)[1].split("\nEOF", 1)[0]
+            variables = json.loads(payload)
+            self.assertEqual(variables["BUILD_TYPE"], "spatialai-reconcile")
+            self.assertEqual(
+                variables["SPATIALAI_DATA_UTILS_RECONCILE"], "true"
+            )
+            self.assertEqual(variables["SPATIALAI_DATA_UTILS_PUBLISH"], "false")
+            self.assertEqual(variables["SPATIALAI_SOURCE_TREE_SHA"], tree_sha)
+            self.assertIn("run_downstream=true\n", output_path.read_text())
 
 
 
@@ -226,6 +288,132 @@ class DownstreamGateTest(unittest.TestCase):
     def test_source_path_prefix_is_not_matched_loosely(self):
         run, _ = downstream_relevant(["services/agent-extras/x.py"], INVENTORY)
         self.assertFalse(run)
+
+
+class SpatialAiPublishGateTest(unittest.TestCase):
+    TREE_SHA = "b" * 40
+    COMMIT_SHA = "a" * 40
+    SUFFIX = ".dev123+t" + TREE_SHA + ".gaaaaaaaaaaaa.gh.r1"
+
+    def variables(self, changed, ref_name="develop", requested=""):
+        return spatialai_publish_variables(
+            changed,
+            ref_name,
+            self.SUFFIX,
+            self.TREE_SHA,
+            self.COMMIT_SHA,
+            requested,
+        )
+
+    def test_develop_change_requests_internal_publish(self):
+        self.assertEqual(
+            self.variables(
+                ["libs/analytics/spatialai-data-utils/release/setup.py"]
+            ),
+            {
+                "SPATIALAI_DATA_UTILS_PUBLISH": "true",
+                "SPATIALAI_DATA_UTILS_RECONCILE": "true",
+                "SPATIALAI_SOURCE_TREE_SHA": self.TREE_SHA,
+                "SPATIALAI_PACKAGE_VERSION_SUFFIX": self.SUFFIX,
+            },
+        )
+
+    def test_pr_change_never_requests_publish(self):
+        self.assertEqual(
+            self.variables(
+                ["libs/analytics/spatialai-data-utils/release/setup.py"],
+                "pull-request/1562",
+            ),
+            {},
+        )
+
+    def test_unrelated_develop_change_reconciles_without_immediate_publish(self):
+        variables = self.variables(["docs/readme.md"])
+        self.assertEqual(variables["SPATIALAI_DATA_UTILS_PUBLISH"], "false")
+        self.assertEqual(variables["SPATIALAI_DATA_UTILS_RECONCILE"], "true")
+        self.assertEqual(variables["SPATIALAI_SOURCE_TREE_SHA"], self.TREE_SHA)
+
+    def test_every_develop_run_can_recover_a_missing_tree(self):
+        self.assertEqual(
+            self.variables(["services/agent/app.py"])[
+                "SPATIALAI_PACKAGE_VERSION_SUFFIX"
+            ],
+            self.SUFFIX,
+        )
+
+    def test_sdu_only_handoff_uses_lightweight_downstream_pipeline(self):
+        self.assertEqual(
+            downstream_build_type(False, self.variables(["docs/readme.md"])),
+            "spatialai-reconcile",
+        )
+        self.assertEqual(
+            downstream_build_type(True, self.variables(["services/agent/app.py"])),
+            "ghcr-acceptance",
+        )
+
+    def test_unavailable_develop_diff_fails_open(self):
+        self.assertEqual(
+            self.variables(None)["SPATIALAI_DATA_UTILS_PUBLISH"],
+            "true",
+        )
+
+    def test_publish_rejects_missing_or_malformed_suffix(self):
+        changed = ["libs/analytics/spatialai-data-utils/README.md"]
+        for suffix in ("", "dev123", ".dev0+g0123456789ab.r1"):
+            with self.subTest(suffix=suffix), self.assertRaisesRegex(
+                ValueError, "version suffix"
+            ):
+                spatialai_publish_variables(
+                    changed,
+                    "develop",
+                    suffix,
+                    self.TREE_SHA,
+                    self.COMMIT_SHA,
+                )
+
+    def test_publish_rejects_tree_or_commit_identity_mismatch(self):
+        changed = ["libs/analytics/spatialai-data-utils/README.md"]
+        for tree_sha, commit_sha, message in (
+            ("c" * 40, self.COMMIT_SHA, "source tree"),
+            (self.TREE_SHA, "c" * 40, "source commit"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(
+                ValueError, message
+            ):
+                spatialai_publish_variables(
+                    changed,
+                    "develop",
+                    self.SUFFIX,
+                    tree_sha,
+                    commit_sha,
+                )
+
+    def test_publish_rejects_malformed_full_tree_sha(self):
+        with self.assertRaisesRegex(ValueError, "full source tree SHA"):
+            spatialai_publish_variables(
+                ["libs/analytics/spatialai-data-utils/README.md"],
+                "develop",
+                self.SUFFIX,
+                "b" * 12,
+                self.COMMIT_SHA,
+            )
+
+    def test_explicit_false_keeps_reconciliation_in_handoff_job(self):
+        variables = self.variables(None, requested="false")
+        self.assertEqual(variables["SPATIALAI_DATA_UTILS_PUBLISH"], "false")
+        self.assertEqual(variables["SPATIALAI_DATA_UTILS_RECONCILE"], "true")
+
+    def test_explicit_true_preserves_first_job_decision(self):
+        self.assertEqual(
+            self.variables(["docs/readme.md"], requested="true")[
+                "SPATIALAI_DATA_UTILS_PUBLISH"
+            ],
+            "true",
+        )
+
+    def test_explicit_true_is_rejected_outside_develop(self):
+        with self.assertRaisesRegex(ValueError, "only for develop"):
+            self.variables(None, "pull-request/1562", "true")
 
 
 if __name__ == "__main__":
