@@ -34,7 +34,14 @@ export {
   type UploadFilesDialogOptions,
   type UploadFileConfigTemplate,
   type UploadFileFieldConfig,
-} from '@aiqtoolkit-ui/common';
+  UploadProgressPopup,
+  type UploadFileStatus,
+  type UploadProgressFileItem,
+  type UploadProgressPopupProps,
+  UploadSuccessPopup,
+  type UploadResultItem,
+  type UploadSuccessPopupProps,
+} from 'common';
 
 // Chat sidebar (for external rendering)
 export { ChatSidebarContent } from './components/Chatbar/components/ChatSidebarContent';
@@ -78,7 +85,7 @@ export {
   type FileUploadResult,
   type ChunkedUploadOptions,
   type ChunkedUploadResponse,
-} from '@aiqtoolkit-ui/common';
+} from 'common';
 
 // Constants
 export * from './constants/constants';

@@ -1163,6 +1163,45 @@ def load_calib(
                 f"no customized calibration file found for {use_customized_calib}"
             )
 
+            # The prefix test ``calibration_{suffix}*`` is greedy: a suffix like
+            # ``grouped`` also matches sibling *variants* such as
+            # ``calibration_grouped_default.json`` (a calibration authored for a
+            # DIFFERENT image resolution -- e.g. fx~278 for ~518x294 vs fx~1030
+            # for 1920x1080). The loop below merges every match under the same
+            # BEV group name, so an arbitrary one wins (``os.listdir`` order is
+            # not deterministic) and the wrong-resolution intrinsics get baked
+            # into the pkl silently. Disambiguate before merging:
+            #   1. If the exact file ``calibration_{suffix}.json`` exists, use
+            #      ONLY it -- the suffix names that file, not its variants.
+            #   2. Otherwise, if the prefix is still ambiguous (>1 match), fail
+            #      loudly instead of guessing a variant.
+            if len(customized_calib_file_names) > 1:
+                exact_name = f"calibration_{use_customized_calib}.json"
+                if exact_name in customized_calib_file_names:
+                    dropped = sorted(
+                        n for n in customized_calib_file_names if n != exact_name
+                    )
+                    logger.warning(
+                        "use_customized_calib=%r matched %d files (%s); using the "
+                        "exact match %r and IGNORING the resolution-variant(s) %s. "
+                        "Rename or remove the variant(s) to silence this warning.",
+                        use_customized_calib,
+                        len(customized_calib_file_names),
+                        sorted(customized_calib_file_names),
+                        exact_name,
+                        dropped,
+                    )
+                    customized_calib_file_names = [exact_name]
+                else:
+                    raise ValueError(
+                        f"use_customized_calib={use_customized_calib!r} is ambiguous "
+                        f"in {scene_dir!r}: the prefix matches "
+                        f"{sorted(customized_calib_file_names)} but there is no exact "
+                        f"'calibration_{use_customized_calib}.json'. Pass a more "
+                        f"specific suffix (or add the exact file) so a "
+                        f"resolution-mismatched variant cannot be selected silently."
+                    )
+
             calib_dict_by_group = {}
             group_area_dict = {}
             for customized_calib_file_name in customized_calib_file_names:

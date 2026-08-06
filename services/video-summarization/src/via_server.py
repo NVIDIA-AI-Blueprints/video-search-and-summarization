@@ -499,16 +499,12 @@ class ViaServer:
         )
         async def list_video_files(
             purpose: Annotated[
-                str,
+                Purpose,
                 Query(
-                    description="Only return files with the given purpose.",
-                    max_length=36,
-                    pattern=r"^[a-zA-Z]*$",
+                    description="Only return files with the given purpose. Must be 'vision'.",
                 ),
             ],
         ) -> ListFilesResponse:
-            if purpose != "vision":
-                return {"data": [], "object": "list"}
             try:
                 rtvi_resp = self._stream_handler._vlm_pipeline.list_files(purpose)
             except Exception as e:
@@ -820,10 +816,9 @@ class ViaServer:
                     id=request_id,
                     model=model_info.id,
                     created=int(req_info.queue_time),
-                    media_info=MediaInfoOffset(
-                        type="offset",
-                        start_offset=int(req_info.start_timestamp or 0),
-                        end_offset=int(req_info.end_timestamp or 0),
+                    media_info=MediaInfoOffset.for_response(
+                        req_info.start_timestamp,
+                        req_info.end_timestamp,
                     ),
                     chunk_responses=(
                         [
@@ -1175,7 +1170,10 @@ class ViaServer:
                 model=model_info.id,
                 created=int(req_info.queue_time),
                 object=CompletionObject.SUMMARIZATION_COMPLETION,
-                media_info=MediaInfoOffset(type="offset", start_offset=0, end_offset=0),
+                media_info=MediaInfoOffset.for_response(
+                    req_info.start_timestamp,
+                    req_info.end_timestamp,
+                ),
                 choices=(
                     [
                         CompletionResponseChoice(
@@ -1254,7 +1252,7 @@ class ViaServer:
                 model=model_info.id,
                 created=int(time.time()),
                 object=CompletionObject.CHAT_COMPLETION,
-                media_info=MediaInfoOffset(type="offset", start_offset=0, end_offset=0),
+                media_info=MediaInfoOffset.for_response(),
                 choices=[
                     CompletionResponseChoice(
                         finish_reason=CompletionFinishReason.STOP,
@@ -1506,27 +1504,16 @@ class ViaServer:
                             ]:
                                 if req_info.status == RequestInfo.Status.FAILED:
                                     # Create the response json (include media_info for API consistency)
-                                    _start = (
-                                        int(req_info.start_timestamp)
-                                        if req_info.start_timestamp is not None
-                                        else 0
-                                    )
-                                    _end = (
-                                        int(req_info.end_timestamp)
-                                        if req_info.end_timestamp is not None
-                                        else 0
-                                    )
                                     response = {
                                         "id": request_id,
                                         "video_id": videoId,
                                         "model": model_info.id,
                                         "created": int(req_info.queue_time),
                                         "object": "summarization.progressing",
-                                        "media_info": {
-                                            "type": "offset",
-                                            "start_offset": _start,
-                                            "end_offset": _end,
-                                        },
+                                        "media_info": MediaInfoOffset.for_response(
+                                            req_info.start_timestamp,
+                                            req_info.end_timestamp,
+                                        ).model_dump(),
                                         "choices": [
                                             {
                                                 "finish_reason": CompletionFinishReason.STOP.value,
@@ -1659,11 +1646,10 @@ class ViaServer:
                     "model": model_info.id,
                     "created": int(req_info.queue_time),
                     "object": "summarization.completion",
-                    "media_info": {
-                        "type": "offset",
-                        "start_offset": int(req_info.start_timestamp or 0),
-                        "end_offset": int(req_info.end_timestamp or 0),
-                    },
+                    "media_info": MediaInfoOffset.for_response(
+                        req_info.start_timestamp,
+                        req_info.end_timestamp,
+                    ).model_dump(),
                     "choices": (
                         [
                             {
@@ -1962,3 +1948,4 @@ if __name__ == "__main__":
 
     server = ViaServer(args)
     server.run()
+

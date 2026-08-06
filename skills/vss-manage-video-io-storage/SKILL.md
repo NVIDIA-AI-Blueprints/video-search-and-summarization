@@ -1,6 +1,6 @@
 ---
 name: vss-manage-video-io-storage
-description: Use to call the VIOS REST API (sensor list, timelines, clip extraction, snapshots, add/delete sensors and streams). Not for VLM inference or search.
+description: Use to call the VIOS REST API (sensor list, timelines, clip extraction, snapshots, add/delete sensors and streams) and to provision a source and fan it out to a headless (no-agent) build's perception consumers (RT-CV/RT-Embed/RT-VLM). Not for VLM inference, semantic search, or agent-backed ingestion.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -31,20 +31,26 @@ Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snap
 - Use NvStreamer only when the user explicitly needs a live/synthetic RTSP camera feed, asks for NvStreamer, or asks to retrieve an RTSP URL.
 - Do not substitute the NvStreamer upload -> RTSP URL -> VIOS `/sensor/add` handoff for a plain VIOS MP4 upload request.
 
+**Provisioning + fan-out routing rule:**
+- To register a source and fan it into the perception consumers a build deployed (RT-CV / RT-Embed / RT-VLM) when **no agent tier is present** — e.g. a `vss-build-vision-agent` headless `_builds/<name>` deployment — follow [`references/provision-vios-source.md`](references/provision-vios-source.md) (headless, direct REST; endpoint-parameterized).
+- If an agent `/api` tier **is** present, provisioning is agent-owned: defer to `vss-search-archive` (search ingestion) or `vss-manage-alerts` (alert rules), not this recipe.
+
 **Do NOT use this skill for:**
 - VLM inference or ad-hoc visual Q&A about a clip — use `vss-ask-video`.
-- Semantic search across the archive, or ingesting video for search — use `vss-search-archive`.
+- Semantic search across the archive — use `vss-search-archive`.
+- **Agent-backed** ingestion for search (full-stack, `/api` agent tier present) — use `vss-search-archive`. (Headless, no-agent provisioning *is* this skill — see the routing rule above.)
 - Narrative summaries of a recorded clip — use `vss-summarize-video`.
 - Incident-range or alert-window reports — use `vss-generate-video-report` Mode B.
 - Reading analytics metrics, incidents, or alerts — use `vss-query-analytics`.
 
 ## Reference contracts shipped with this skill
 
-This skill bundles four reference files under `references/`. Read whichever applies to the task in front of you:
+This skill bundles five reference files under `references/`. Read whichever applies to the task in front of you:
 
 | File | Purpose | Audience |
 |---|---|---|
 | [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this when invoking any VIOS API operation.** | Operational users + this skill itself |
+| [`references/provision-vios-source.md`](references/provision-vios-source.md) | The **headless (no-agent) write path** — register one VIOS source and fan it out by direct REST to only the consumers a build resolved (RT-CV / RT-Embed / RT-VLM), driven from the retried VIOS live-proxy URL; carries the upload `creation_time` rule, idempotency, and teardown, and defers exact consumer payloads to the deploy-* owner skills. Endpoint-parameterized: the caller injects the loopback consumer URLs. **Read this when provisioning a source into a headless build, or fanning an already-registered source into its perception consumers.** | Runtime operators, `vss-build-vision-agent` callers |
 | [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md) | The **NvStreamer REST API reference** — version, sensor list/info/status/streams, the three upload methods (PUT v2 / PUT v1 / POST multipart) with the `nvstreamer-*` custom headers, delete, snapshots (frame-indexed live, timestamp-indexed storage), storage info, filesystem scan. NvStreamer (`vss-vios-nvstreamer`, the streamer-adaptor variant of `launch_vst`) is **brought up by the same profiles that bring VIOS up** — `dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles. See `integrate-vios-service.md § Topology B` for the deployment side. **Read this when serving test / sample videos as synthetic RTSP, retrieving the RTSP URL NvStreamer generated for a file, or driving the canonical NvStreamer → VIOS handoff** (upload to NvStreamer → read RTSP URL → register that URL with VIOS via `/sensor/add`). | Operational users + skill authors composing the upload → RTSP URL → VIOS `/sensor/add` flow |
 | [`references/integrate-vios-service.md`](references/integrate-vios-service.md) | The **integration contract** — how VIOS plugs into other VSS microservices. Documents required peer services (RT-VLM, ELK, Kafka, Redis, `sdr-controller` / SDRC), the structured `component_services:` block consumed by the `vss-build-vision-agent` skill's Step 4, integration inputs/outputs (Kafka topics, REST endpoints, file paths), environment variables, network requirements, and known integration constraints (e.g. the `/url`-variant double-`http://` bug, the VIOS + SDRC patching requirement). **Read this when authoring a skill that talks to VIOS as a peer, when composing a new VSS deployment, or when debugging caption-pipeline wiring.** | Skill authors, deployment composers, pair-file maintainers |
 | [`references/deploy-vios-service.md`](references/deploy-vios-service.md) | The **deployment contract** — what it takes to bring VIOS up. Documents container images and tags (`nvcr.io/nvidia/vss-core/vss-vios-*:3.2.0`), GPU / CPU / memory / storage requirements, startup behavior + healthcheck tuning, required environment variables (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true` for the libav apt-install step that gates uploads), known deployment issues (volume drift, libav missing, 502 from leftover containers), prerequisites, dry-run, verify-deployment, and tear-down commands. **Read this when VIOS isn't running and you (or your caller) need to deploy it standalone, when debugging container-startup failures, or when authoring a deploy skill that wraps VIOS.** | Operators, deploy-skill authors |

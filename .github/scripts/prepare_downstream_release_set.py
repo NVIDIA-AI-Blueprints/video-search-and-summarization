@@ -8,10 +8,15 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
-from detect_changed_images import changed_paths, resolve_diff_base
+from detect_changed_images import (
+    changed_paths,
+    paths_changed_under,
+    resolve_diff_base,
+)
 from release_set import load_inventory, validate_release_set
 from update_pr_ghcr_candidates import GitHubApi, download_release_set
 
@@ -21,6 +26,10 @@ DEPLOY_PREFIX = "deploy/"
 # downstream coverage when its source changes -- mirrored and externally pinned
 # components are deployed by the same profiles and break the same evals.
 TRIGGER_FLAG = "trigger_downstream_from_source"
+SPATIALAI_DATA_UTILS_PATH = "libs/analytics/spatialai-data-utils"
+SPATIALAI_VERSION_SUFFIX_PATTERN = re.compile(
+    r"\.dev[1-9][0-9]*\+g[0-9a-f]{12}\.r[1-9][0-9]*"
+)
 
 
 def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[bool, str]:
@@ -77,14 +86,68 @@ def has_ghcr_build_entries(release_set: dict) -> bool:
     )
 
 
+def candidate_container_tag(release_set: dict) -> str:
+    """Return the shared immutable GHCR tag published for this release set."""
+    source = release_set.get("source") or {}
+    commit = str(source.get("commit") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("release-set source commit must be a 40-hex SHA")
+
+    ref = str(source.get("ref") or "")
+    if ref == "develop":
+        prefix = "develop"
+    elif match := re.fullmatch(r"pull-request/(\d+)", ref):
+        prefix = f"pr-{match.group(1)}"
+    else:
+        raise ValueError(
+            f"release-set source ref {ref!r} does not publish a shared candidate tag"
+        )
+    return f"{prefix}-{commit[:12]}"
+
+
 def downstream_variables(release_set: dict) -> dict[str, str]:
     encoded = base64.b64encode(
         (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
     ).decode()
     return {
         "BUILD_TYPE": "ghcr-acceptance",
+        "VSS_CONTAINER_TAG": candidate_container_tag(release_set),
         "VSS_RELEASE_SET_ID": release_set["release_set_id"],
         "VSS_RELEASE_SET_B64": encoded,
+    }
+
+
+def spatialai_publish_variables(
+    changed: list[str] | None,
+    ref_name: str,
+    version_suffix: str,
+    requested: str = "",
+) -> dict[str, str]:
+    """Return the internal-publish handoff for a merged SDU change.
+
+    PRs validate and build the package in GitHub but never request publication.
+    An unavailable diff fails open on develop, matching the GitHub test gate.
+    """
+    if requested not in {"", "true", "false"}:
+        raise ValueError("Spatial AI publish handoff must be true or false")
+    publish = (
+        requested == "true"
+        if requested
+        else ref_name == "develop"
+        and paths_changed_under(changed, SPATIALAI_DATA_UTILS_PATH)
+    )
+    if not publish:
+        return {}
+    if ref_name != "develop":
+        raise ValueError("Spatial AI publish handoff is valid only for develop")
+    if not SPATIALAI_VERSION_SUFFIX_PATTERN.fullmatch(version_suffix):
+        raise ValueError(
+            "Spatial AI publish requires a GitHub-generated version suffix "
+            "like .dev123+g0123456789ab.r1"
+        )
+    return {
+        "SPATIALAI_DATA_UTILS_PUBLISH": "true",
+        "SPATIALAI_PACKAGE_VERSION_SUFFIX": version_suffix,
     }
 
 
@@ -99,6 +162,14 @@ def main() -> int:
     parser.add_argument("--interval-seconds", type=int, default=15)
     parser.add_argument("--release-set", type=Path)
     parser.add_argument("--release-set-output", type=Path)
+    parser.add_argument(
+        "--spatialai-package-version-suffix",
+        default=os.environ.get("SPATIALAI_PACKAGE_VERSION_SUFFIX", ""),
+    )
+    parser.add_argument(
+        "--publish-spatialai-data-utils",
+        default=os.environ.get("SPATIALAI_DATA_UTILS_PUBLISH", ""),
+    )
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -138,11 +209,6 @@ def main() -> int:
             json.dumps(release_set, indent=2, sort_keys=True) + "\n"
         )
 
-    variables = downstream_variables(release_set)
-    with Path(github_env).open("a") as output:
-        output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
-        output.write(json.dumps(variables, separators=(",", ":")) + "\n")
-        output.write("EOF\n")
     has_builds = has_ghcr_build_entries(release_set)
 
     base, base_reason = resolve_diff_base(
@@ -152,18 +218,42 @@ def main() -> int:
     relevant, gate_reason = downstream_relevant(
         changed, load_inventory(args.repo_root)
     )
+    publish_variables = spatialai_publish_variables(
+        changed,
+        args.ref_name,
+        args.spatialai_package_version_suffix,
+        args.publish_spatialai_data_utils,
+    )
+    run_downstream = relevant or bool(publish_variables)
+
+    variables = downstream_variables(release_set)
+    variables.update(publish_variables)
+    with Path(github_env).open("a") as output:
+        output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
+        output.write(json.dumps(variables, separators=(",", ":")) + "\n")
+        output.write("EOF\n")
 
     if github_output:
         with Path(github_output).open("a") as output:
             output.write(
                 f"has_ghcr_build_entries={'true' if has_builds else 'false'}\n"
             )
-            output.write(f"run_downstream={'true' if relevant else 'false'}\n")
+            output.write(f"run_downstream={'true' if run_downstream else 'false'}\n")
+            output.write(
+                "publish_spatialai_data_utils="
+                f"{'true' if publish_variables else 'false'}\n"
+            )
+            output.write(
+                "spatialai_package_version_suffix="
+                f"{args.spatialai_package_version_suffix if publish_variables else ''}\n"
+            )
+    if publish_variables:
+        gate_reason += "; merged Spatial AI Data Utils change requests URM publish"
     print(
         f"Prepared release set {release_set['release_set_id']} "
         f"for downstream acceptance ({len(release_set['images'])} images, "
         f"GHCR builds: {'yes' if has_builds else 'no'}).\n"
-        f"Downstream gate: {'run' if relevant else 'skip'} "
+        f"Downstream gate: {'run' if run_downstream else 'skip'} "
         f"-- {gate_reason} (base: {base_reason})."
     )
     return 0

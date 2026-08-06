@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.2.9"
+  version: "3.2.10"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -80,7 +80,7 @@ This skill is profile-agnostic for Mode A. A specific profile does **not** have 
 
 ### Endpoint resolution (Kubernetes vs Docker)
 
-When operating against a deployed VSS stack (especially **base** on Helm), resolve
+When operating against a deployed VSS stack (**base** or **lvs** on Helm), resolve
 public endpoints once. Follow
 [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
 
@@ -90,7 +90,7 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
   VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
-  # Stock base Helm exposes RT-VLM at /v1 (not /vlm/v1).
+  # Base: Prefix /v1 → RT-VLM. LVS: Exact /v1/models + /v1/chat/completions → RT-VLM.
   : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/v1}"
 else
   DEPLOYMENT_KIND="docker"
@@ -279,7 +279,21 @@ hosts, download the clip and send inline bytes (same remote-VLM rule as
 
 ## Mode A — Report on a recorded video clip
 
-**If the VSS `lvs` profile is deployed** — `curl -sf --max-time 5 "http://${HOST_IP}:38111/v1/ready"` returns HTTP 200 — run `/vss-summarize-video` to produce the summary, then paste its output into the report template in Step 4 and skip Steps 1–3 (the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
+**If the VSS `lvs` profile is deployed** — probe LVS readiness, then hand off:
+
+```bash
+# Kubernetes public Exact path when VSS_PUBLIC_URL is set; Docker host port otherwise.
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  _lvs_ready="${VSS_PUBLIC_URL%/}/v1/ready"
+else
+  _lvs_ready="http://${HOST_IP}:38111/v1/ready"
+fi
+curl -sf --max-time 5 "${_lvs_ready}" >/dev/null
+```
+
+When that returns HTTP 200, run `/vss-summarize-video` to produce the summary,
+then paste its output into the report template in Step 4 and skip Steps 1–3
+(the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
 
 ### Step 1 — Resolve Mode A input (A1 clip URL or A2 local-file/base64)
 

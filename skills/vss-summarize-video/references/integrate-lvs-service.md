@@ -126,8 +126,8 @@ jq -e '.choices[0].message.content | length > 0'
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `LVS_BACKEND_URL` | Host-facing LVS API URL used by operators and agents | `http://${HOST_IP}:38111` | Yes |
-| `LVS_IMAGE` | LVS image repository | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | Yes |
-| `LVS_TAG` | LVS image tag | release-specific tag | Yes |
+| `LVS_IMAGE` | LVS image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Yes |
+| `LVS_TAG` | LVS image tag (multi-arch; same on every platform) | `develop-latest` | Yes |
 | `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `false` | No |
 | `LVS_DATABASE_BACKEND` | Active database backend | `elasticsearch_db` | Yes |
 | `KAFKA_ENABLED` | Enable Kafka integration | `true` in the LVS developer profile | Yes for shared VSS infra |
@@ -138,7 +138,9 @@ jq -e '.choices[0].message.content | length > 0'
 | `RTVI_VLM_BASE_URL` | Operator/agent-facing RT-VLM URL | `http://${HOST_IP}:8018` | Yes for local RT-VLM |
 | `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector | `cosmos-reason2` | Yes for integrated RT-VLM |
 | `RTVI_VLM_MODEL_PATH` | Integrated RT-VLM checkpoint | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Yes for integrated RT-VLM |
-| `RTVI_VLM_KAFKA_TOPIC` | Raw RT-VLM caption topic | `mdx-vlm-captions` | Yes when RT-VLM Kafka is enabled |
+| `RTVI_VLM_MESSAGE_BUS` | Generated-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
+| `RTVI_VLM_MESSAGE_BUS_TOPIC` | Raw RT-VLM caption topic | `mdx-vlm-captions` | Yes when RT-VLM Kafka is enabled |
+| `RTVI_VLM_ERROR_BUS` | Error-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
 | `VLM_NAME` | Model id sent to LVS | `nim_nvidia_cosmos-reason2-8b_hf-1208` | Yes |
 | `LLM_NAME` | LLM model id | `nvidia/nvidia-nemotron-nano-9b-v2` | Required for local LLM |
 | `LLM_BASE_URL` | Remote or local LLM OpenAI-compatible base URL | `http://${HOST_IP}:${LLM_PORT}` when local | Required |

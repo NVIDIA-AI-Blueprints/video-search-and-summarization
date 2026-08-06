@@ -89,6 +89,12 @@ def _safe_collection_name(stream_id) -> str:
 
 MAX_MILVUS_STRING_LEN = 65535
 
+# Extra attempts at a CA-RAG aggregation call when it returns neither events nor
+# a video summary. The aggregation LLM intermittently samples an unparseable
+# response, which surfaces to the caller as HTTP 200 with total_events=0 and
+# video_summary="". Override with LVS_AGGREGATION_EMPTY_RETRIES; 0 disables.
+DEFAULT_AGGREGATION_EMPTY_RETRIES = 2
+
 
 class RequestInfo:
     """Store information for a request"""
@@ -481,6 +487,8 @@ class ViaStreamHandler:
                 "(sse=use SSE captions for aggregation, db=retrieve from Elastic DB)",
                 self._caption_source,
             )
+
+        self._aggregation_empty_retries = self._read_aggregation_empty_retries()
 
         if not args.disable_ca_rag:
             try:
@@ -2041,7 +2049,9 @@ class ViaStreamHandler:
                 sub_state,
             )
 
-            agg_response = ctx_mgr.call({"summarization_online": sub_state})
+            agg_response = self._call_aggregation_with_empty_guard(
+                ctx_mgr, "summarization_online", sub_state, req_info.source_id
+            )
 
             if agg_response.get("error"):
                 logger.error(
@@ -3244,6 +3254,97 @@ This is very important and you must follow this strictly.
     # summarize_stream(). The file path never published from
     # _get_aggregated_summary regardless of KAFKA_ENABLED.
 
+    @staticmethod
+    def _read_aggregation_empty_retries() -> int:
+        """Retry budget for aggregation calls that come back empty."""
+        raw = os.environ.get("LVS_AGGREGATION_EMPTY_RETRIES")
+        if raw is None:
+            return DEFAULT_AGGREGATION_EMPTY_RETRIES
+        try:
+            retries = int(raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid LVS_AGGREGATION_EMPTY_RETRIES=%r, falling back to %d",
+                raw,
+                DEFAULT_AGGREGATION_EMPTY_RETRIES,
+            )
+            return DEFAULT_AGGREGATION_EMPTY_RETRIES
+        if retries < 0:
+            logger.warning(
+                "Negative LVS_AGGREGATION_EMPTY_RETRIES=%d, treating as 0 (no retry)",
+                retries,
+            )
+            return 0
+        return retries
+
+    @staticmethod
+    def _is_empty_aggregation_result(result) -> bool:
+        """True when an aggregation result carries neither events nor a summary.
+
+        A result with an empty ``events`` list but a non-empty ``video_summary``
+        is a legitimate "nothing notable happened" answer, so both fields must be
+        empty before the result is treated as a failed sample. Free-form text
+        that does not parse as JSON is a usable summary as long as it is not blank.
+        """
+        if result is None:
+            return True
+        if isinstance(result, str):
+            if not result.strip():
+                return True
+            try:
+                parsed = json.loads(result)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return False
+        elif isinstance(result, dict):
+            parsed = result
+        else:
+            return False
+
+        if not isinstance(parsed, dict):
+            return False
+        events = parsed.get("events") or []
+        video_summary = parsed.get("video_summary") or ""
+        return not events and not str(video_summary).strip()
+
+    def _call_aggregation_with_empty_guard(
+        self, ctx_mgr, function_name: str, state: dict, source_id
+    ):
+        """Run a CA-RAG aggregation function, retrying while the result is empty.
+
+        Aggregation reads already-persisted captions and runs an LLM over them,
+        so it holds no state of its own and re-running it is safe. When every
+        attempt comes back empty the last response is returned unchanged, so a
+        genuinely empty aggregation still reaches the caller instead of becoming
+        a new error path.
+        """
+        attempts = self._aggregation_empty_retries + 1
+        response = None
+        for attempt in range(1, attempts + 1):
+            response = ctx_mgr.call({function_name: state})
+            if response.get("error"):
+                return response
+            result = (response.get(function_name, {}) or {}).get("result", "")
+            if not self._is_empty_aggregation_result(result):
+                return response
+            if attempt < attempts:
+                logger.warning(
+                    "%s returned no events and no summary for %s "
+                    "(attempt %d of %d); retrying aggregation",
+                    function_name,
+                    source_id,
+                    attempt,
+                    attempts,
+                )
+            else:
+                logger.warning(
+                    "%s returned no events and no summary for %s after %d attempt(s); "
+                    "returning the empty aggregation",
+                    function_name,
+                    source_id,
+                    attempts,
+                )
+        return response
+
     def _get_aggregated_summary(
         self, req_info: RequestInfo, chunk_responses: list[VlmChunkResponse]
     ):
@@ -3435,7 +3536,12 @@ This is very important and you must follow this strictly.
                                 operation="ctx_rag_call_summarize",
                                 source_id=req_info.source_id,
                             ):
-                                agg_response = req_info._ctx_mgr.call({"summarization": sum_state})
+                                agg_response = self._call_aggregation_with_empty_guard(
+                                    req_info._ctx_mgr,
+                                    "summarization",
+                                    sum_state,
+                                    req_info.source_id,
+                                )
                         if agg_response.get("error"):
                             logger.error(
                                 f"Error for Request ID: {req_info.request_id} "
@@ -3753,6 +3859,15 @@ This is very important and you must follow this strictly.
             if "params" not in ca_rag_config["functions"]["summarization"]:
                 ca_rag_config["functions"]["summarization"]["params"] = {}
 
+            # scenario and events are always forwarded so the CA-RAG aggregation
+            # LLM has context regardless of enable_vlm_structured_output.
+            if req_info.scenario:
+                ca_rag_config["functions"]["summarization"]["params"][
+                    "scenario"
+                ] = req_info.scenario
+            if req_info.events:
+                ca_rag_config["functions"]["summarization"]["params"]["events"] = req_info.events
+
             if not req_info.enable_vlm_structured_output:
                 if req_info.schema:
                     ca_rag_config["functions"]["summarization"]["params"][
@@ -3762,14 +3877,6 @@ This is very important and you must follow this strictly.
                     ca_rag_config["functions"]["summarization"]["params"][
                         "batch_response_method"
                     ] = req_info.batch_response_method
-                if req_info.scenario:
-                    ca_rag_config["functions"]["summarization"]["params"][
-                        "scenario"
-                    ] = req_info.scenario
-                if req_info.events:
-                    ca_rag_config["functions"]["summarization"]["params"][
-                        "events"
-                    ] = req_info.events
                 if req_info.auto_generate_prompt is not None:
                     ca_rag_config["functions"]["summarization"]["params"][
                         "auto_generate_prompt"

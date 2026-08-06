@@ -5,7 +5,7 @@ import { CustomIncidents } from '@/components/Markdown/CustomIncidents';
 const mockCopyToClipboard = jest.fn();
 const mockFormatTimestamp = jest.fn((timestamp: string) => `formatted-${timestamp}`);
 
-jest.mock('@aiqtoolkit-ui/common', () => ({
+jest.mock('common', () => ({
   VideoModal: ({ isOpen, videoUrl, title, onClose }: { isOpen: boolean; videoUrl: string; title: string; onClose: () => void }) =>
     isOpen ? (
       <div data-testid="video-modal">

@@ -649,14 +649,16 @@ def do_summarize(args):
                     first_response = False
                 print("Object:", result["object"])
                 if result.get("media_info", None) and result["media_info"]["type"] == "offset":
-                    print(
-                        "Media start offset: "
-                        + convert_seconds_to_string(result["media_info"]["start_offset"])
-                    )
-                    print(
-                        "Media end offset: "
-                        + convert_seconds_to_string(result["media_info"]["end_offset"])
-                    )
+                    if result["media_info"].get("start_offset") is not None:
+                        print(
+                            "Media start offset: "
+                            + convert_seconds_to_string(result["media_info"]["start_offset"])
+                        )
+                    if result["media_info"].get("end_offset") is not None:
+                        print(
+                            "Media end offset: "
+                            + convert_seconds_to_string(result["media_info"]["end_offset"])
+                        )
                 if result.get("media_info", None) and result["media_info"]["type"] == "timestamp":
                     start_time = format_ntp_timestamp(result["media_info"]["start_timestamp"])
                     end_time = format_ntp_timestamp(result["media_info"]["end_timestamp"])
@@ -687,13 +689,16 @@ def do_summarize(args):
         print("Model:", result["model"])
         print("Object:", result["object"])
         if result["media_info"]["type"] == "offset":
-            print(
-                "Media start offset: "
-                + convert_seconds_to_string(result["media_info"]["start_offset"])
-            )
-            print(
-                "Media end offset: " + convert_seconds_to_string(result["media_info"]["end_offset"])
-            )
+            if result["media_info"].get("start_offset") is not None:
+                print(
+                    "Media start offset: "
+                    + convert_seconds_to_string(result["media_info"]["start_offset"])
+                )
+            if result["media_info"].get("end_offset") is not None:
+                print(
+                    "Media end offset: "
+                    + convert_seconds_to_string(result["media_info"]["end_offset"])
+                )
         elif result["media_info"]["type"] == "timestamp":
             start_time = format_ntp_timestamp(result["media_info"]["start_timestamp"])
             end_time = format_ntp_timestamp(result["media_info"]["end_timestamp"])
@@ -792,14 +797,16 @@ def do_generate_vlm_captions(args):
                     print("----------------------------------------")
                     first_response = False
                 if result.get("media_info", None) and result["media_info"]["type"] == "offset":
-                    print(
-                        "Media start offset: "
-                        + convert_seconds_to_string(result["media_info"]["start_offset"])
-                    )
-                    print(
-                        "Media end offset: "
-                        + convert_seconds_to_string(result["media_info"]["end_offset"])
-                    )
+                    if result["media_info"].get("start_offset") is not None:
+                        print(
+                            "Media start offset: "
+                            + convert_seconds_to_string(result["media_info"]["start_offset"])
+                        )
+                    if result["media_info"].get("end_offset") is not None:
+                        print(
+                            "Media end offset: "
+                            + convert_seconds_to_string(result["media_info"]["end_offset"])
+                        )
                 if result.get("media_info", None) and result["media_info"]["type"] == "timestamp":
                     print(f"Media start timestamp: {result['media_info']['start_timestamp']}")
                     print(f"Media end timestamp: {result['media_info']['end_timestamp']}")
@@ -837,13 +844,16 @@ def do_generate_vlm_captions(args):
         print("Model:", result["model"])
         print("Note: VLM Captions generate raw chunk responses from the VLM model (not summaries)")
         if result["media_info"]["type"] == "offset":
-            print(
-                "Media start offset: "
-                + convert_seconds_to_string(result["media_info"]["start_offset"])
-            )
-            print(
-                "Media end offset: " + convert_seconds_to_string(result["media_info"]["end_offset"])
-            )
+            if result["media_info"].get("start_offset") is not None:
+                print(
+                    "Media start offset: "
+                    + convert_seconds_to_string(result["media_info"]["start_offset"])
+                )
+            if result["media_info"].get("end_offset") is not None:
+                print(
+                    "Media end offset: "
+                    + convert_seconds_to_string(result["media_info"]["end_offset"])
+                )
         print(f"Chunks processed: {result['usage']['total_chunks_processed']}")
         print(f"Processing Time: {result['usage']['query_processing_time']} seconds")
 

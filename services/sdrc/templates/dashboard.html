@@ -85,9 +85,24 @@ limitations under the License.
     .workload .status.down { background: var(--down); }
     .workload .status.disabled { background: var(--text-muted); }
     .workload .info { flex: 1; min-width: 0; }
+    .workload .name-row { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex-wrap: wrap; }
     .workload .name { font-weight: 600; }
     .workload .name .name-plain { color: var(--text); }
     .workload .wl-name { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.15rem; }
+    .lifecycle-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 1.25rem;
+      padding: 0 0.4rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .lifecycle-badge.http-header { border-color: var(--link); color: var(--link); }
+    .lifecycle-badge.message-bus { border-color: var(--text-muted); color: var(--text-muted); }
     .workload a {
       color: var(--link);
       text-decoration: none;
@@ -234,7 +249,8 @@ limitations under the License.
       align-items: center;
       gap: 0.35rem;
     }
-    .modal-body .sensor-list .sensor-ws-test-btn {
+    .modal-body .sensor-list .sensor-ws-test-btn,
+    .modal-body .sensor-list .sensor-reprovision-btn {
       font-size: 0.75rem;
       padding: 0.2rem 0.45rem;
       background: transparent;
@@ -243,10 +259,12 @@ limitations under the License.
       border-radius: 4px;
       cursor: pointer;
     }
-    .modal-body .sensor-list .sensor-ws-test-btn:hover:not(:disabled) {
+    .modal-body .sensor-list .sensor-ws-test-btn:hover:not(:disabled),
+    .modal-body .sensor-list .sensor-reprovision-btn:hover:not(:disabled) {
       background: rgba(97, 175, 239, 0.15);
     }
-    .modal-body .sensor-list .sensor-ws-test-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .modal-body .sensor-list .sensor-ws-test-btn:disabled,
+    .modal-body .sensor-list .sensor-reprovision-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .modal-body .sensor-list .sensor-delete-btn {
       flex-shrink: 0;
       font-size: 0.75rem;
@@ -367,6 +385,18 @@ limitations under the License.
     .modal-body .config-yml-content .yaml-comment { color: var(--comment); font-style: italic; }
     .add-workload-select { width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; background: var(--card); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.9rem; }
     .add-workload-payload { width: 100%; min-height: 12rem; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--editor-bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: ui-monospace, monospace; font-size: 0.8125rem; line-height: 1.4; resize: vertical; box-sizing: border-box; }
+    .lifecycle-summary {
+      margin: 0.6rem 0 0.75rem;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      overflow-wrap: anywhere;
+    }
+    .lifecycle-warning {
+      margin: 0 0 0.75rem;
+      color: var(--key);
+      font-size: 0.8rem;
+      overflow-wrap: anywhere;
+    }
     .add-workload-msg { font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.5rem; }
     .add-workload-msg.success { color: var(--up); }
     .add-workload-msg.error { color: var(--down); }
@@ -380,10 +410,27 @@ limitations under the License.
   <p class="subtitle">Workload processing services — status refreshed every <strong id="interval">{{ health_interval_seconds }}</strong>s</p>
   <div class="workloads">
     {% for w in workloads %}
-    <div class="workload" data-wl="{{ w.wl_obj_name }}" data-enabled="{{ 'true' if w.enabled else 'false' }}" data-cluster-type="{{ w.cluster_type }}">
+    <div class="workload"
+      data-wl="{{ w.wl_obj_name }}"
+      data-enabled="{{ 'true' if w.enabled else 'false' }}"
+      data-cluster-type="{{ w.cluster_type }}"
+      data-lifecycle-mode="{{ w.lifecycle.mode }}"
+      data-lifecycle-stream-id-header="{{ w.lifecycle.stream_id_header }}"
+      data-lifecycle-add-path="{{ w.lifecycle.add_path }}"
+      data-lifecycle-add-method="{{ w.lifecycle.add_method }}"
+      data-lifecycle-delete-path="{{ w.lifecycle.delete_path }}"
+      data-lifecycle-delete-method="{{ w.lifecycle.delete_method }}"
+      data-lifecycle-reprovision-path="{{ w.lifecycle.reprovision_path }}"
+      data-lifecycle-reprovision-method="{{ w.lifecycle.reprovision_method }}"
+      data-lifecycle-id-field="{{ w.lifecycle.id_field }}"
+      data-lifecycle-reprovision-change-id="{{ w.lifecycle.reprovision_change_id }}"
+      data-lifecycle-binding-warning="{{ w.lifecycle.binding_warning }}">
       <span class="status {% if not w.enabled %}disabled{% endif %}" id="status-{{ w.wl_obj_name }}" title="{% if w.enabled %}Checking…{% else %}Disabled{% endif %}"></span>
       <div class="info">
-        <div class="name">{% if w.enabled %}<a href="{{ w.main_url }}">{{ w.name }}</a>{% else %}<span class="name-plain">{{ w.name }}</span>{% endif %}</div>
+        <div class="name-row">
+          <div class="name">{% if w.enabled %}<a href="{{ w.main_url }}">{{ w.name }}</a>{% else %}<span class="name-plain">{{ w.name }}</span>{% endif %}</div>
+          <span class="lifecycle-badge {{ w.lifecycle.mode }}">{{ w.lifecycle.mode }}</span>
+        </div>
         <div class="wl-name">{{ w.wl_obj_name }} · {{ w.main_url }}</div>
       </div>
       <span class="status-text" id="text-{{ w.wl_obj_name }}">{% if w.enabled %}—{% else %}Disabled{% endif %}</span>
@@ -412,6 +459,9 @@ limitations under the License.
   </p>
   <p class="global-add-link-wrap">
     <a href="#" id="global-add-link" class="clusterxds-link">Global message send (Redis stream or Kafka topic)</a>
+  </p>
+  <p class="global-add-link-wrap">
+    <a href="#" id="route-mapping-link" class="clusterxds-link">View route mappings</a>
   </p>
 
   <div class="modal-overlay" id="sensor-modal" aria-hidden="true">
@@ -498,6 +548,20 @@ limitations under the License.
     </div>
   </div>
 
+  <div class="modal-overlay" id="route-mapping-modal" aria-hidden="true">
+    <div class="modal-window" role="dialog" aria-labelledby="route-mapping-modal-title" style="max-width: 42rem;">
+      <div class="modal-header">
+        <h2 class="modal-title" id="route-mapping-modal-title">Route mappings</h2>
+        <button type="button" class="modal-close" id="route-mapping-modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <pre class="cache-json" id="route-mapping-json"></pre>
+        <p class="sensor-loading" id="route-mapping-loading" style="display:none">Loading…</p>
+        <p class="sensor-error" id="route-mapping-error" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="add-workload-modal" aria-hidden="true">
     <div class="modal-window" role="dialog" aria-labelledby="add-workload-modal-title" style="max-width: 42rem;">
       <div class="modal-header">
@@ -507,6 +571,12 @@ limitations under the License.
       <div class="modal-body">
         <label for="add-workload-target" style="display:block; margin-bottom: 0.25rem; font-size: 0.9rem;">Target workload</label>
         <select id="add-workload-target" class="add-workload-select"></select>
+        <div id="add-workload-lifecycle-summary" class="lifecycle-summary"></div>
+        <div id="add-workload-lifecycle-warning" class="lifecycle-warning" style="display:none"></div>
+        <div id="add-workload-stream-id-row" style="display:none; margin-bottom: 0.75rem;">
+          <label id="add-workload-stream-id-label" for="add-workload-stream-id" style="display:block; margin-bottom: 0.25rem; font-size: 0.9rem;">Stream ID header value</label>
+          <input id="add-workload-stream-id" class="add-workload-select" type="text" autocomplete="off">
+        </div>
         <label for="add-workload-payload" style="display:block; margin-bottom: 0.25rem; font-size: 0.9rem;">Payload (JSON)</label>
         <textarea id="add-workload-payload" class="add-workload-payload" spellcheck="false"></textarea>
         <div style="display:flex; align-items: center; gap: 0.75rem;">
@@ -793,12 +863,18 @@ limitations under the License.
             wsBtn.textContent = 'Test WS';
             wsBtn.title = 'WebSocket to Envoy :19000/hello (ws or wss like the page); query params for routing; CORS headers from Envoy Lua';
             wsBtn.dataset.streamId = id;
+            const reprovisionBtn = document.createElement('button');
+            reprovisionBtn.type = 'button';
+            reprovisionBtn.className = 'sensor-reprovision-btn';
+            reprovisionBtn.textContent = 'Reprovision';
+            reprovisionBtn.dataset.streamId = id;
             const delBtn = document.createElement('button');
             delBtn.type = 'button';
             delBtn.className = 'sensor-delete-btn';
             delBtn.textContent = 'Delete';
             delBtn.dataset.streamId = id;
             actions.appendChild(wsBtn);
+            actions.appendChild(reprovisionBtn);
             actions.appendChild(delBtn);
             li.appendChild(idSpan);
             li.appendChild(actions);
@@ -1181,12 +1257,162 @@ limitations under the License.
       source: 'vst'
     };
 
+    function workloadLifecycleConfig(wl) {
+      const el = document.querySelector('.workload[data-wl="' + wl + '"]');
+      if (!el) return { mode: 'message-bus', streamIdHeader: 'id', addPath: '', addMethod: 'POST', deletePath: '', deleteMethod: 'DELETE', reprovisionPath: '', reprovisionMethod: 'POST', idField: 'camera_id', reprovisionChangeId: 'reprovision', bindingWarning: '' };
+      return {
+        mode: el.dataset.lifecycleMode || 'message-bus',
+        streamIdHeader: el.dataset.lifecycleStreamIdHeader || 'id',
+        addPath: el.dataset.lifecycleAddPath || '',
+        addMethod: el.dataset.lifecycleAddMethod || 'POST',
+        deletePath: el.dataset.lifecycleDeletePath || '',
+        deleteMethod: el.dataset.lifecycleDeleteMethod || 'DELETE',
+        reprovisionPath: el.dataset.lifecycleReprovisionPath || '',
+        reprovisionMethod: el.dataset.lifecycleReprovisionMethod || 'POST',
+        idField: el.dataset.lifecycleIdField || 'camera_id',
+        reprovisionChangeId: el.dataset.lifecycleReprovisionChangeId || 'reprovision',
+        bindingWarning: el.dataset.lifecycleBindingWarning || '',
+      };
+    }
+
+    function payloadStreamId(payload, idField) {
+      if (!payload || typeof payload !== 'object') return '';
+      const eventObj = payload['event'] || payload;
+      if (typeof eventObj === 'object' && eventObj !== null) {
+        const v = eventObj[idField || 'camera_id'];
+        if (v !== undefined && v !== null) return String(v).trim();
+      }
+      return '';
+    }
+
+    function lifecycleResultMessage(result) {
+      if (!result) return '';
+      if (result.text) {
+        try {
+          const d = JSON.parse(result.text);
+          return d.error || d.reason || d.status || result.text;
+        } catch (_) {
+          return result.text;
+        }
+      }
+      return String(result.status || '');
+    }
+
+    function sendLifecycleRequest(wl, action, streamId, payload) {
+      const cfg = workloadLifecycleConfig(wl);
+      if (cfg.mode === 'http-header') {
+        let path, method, headers = {};
+        if (action === 'add') { path = cfg.addPath; method = cfg.addMethod; }
+        else if (action === 'delete') { path = cfg.deletePath; method = cfg.deleteMethod; }
+        else if (action === 'reprovision') { path = cfg.reprovisionPath; method = cfg.reprovisionMethod; }
+        else { return Promise.reject(new Error('unknown lifecycle action: ' + action)); }
+        if (streamId) headers[cfg.streamIdHeader] = streamId;
+        const fetchOpts = { method, headers: Object.assign({ 'Content-Type': 'application/json' }, headers) };
+        if (payload && method !== 'GET' && method !== 'DELETE') fetchOpts.body = JSON.stringify(payload);
+        const url = '/sdrc/' + wl + path;
+        return dashboardFetch(url, fetchOpts)
+          .then(r => r.text().then(t => ({ ok: r.ok, status: r.status, text: t })));
+      } else {
+        if (action === 'delete') {
+          const url = sdrcWorkloadUrl(wl, 'remove_stream');
+          return dashboardFetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stream_id: streamId })
+          }).then(r => r.json().then(data => ({ ok: r.ok, status: r.status, text: JSON.stringify(data) })));
+        }
+        if (action === 'reprovision') {
+          return Promise.reject(new Error('reprovision not supported in message-bus mode'));
+        }
+        const url = sdrcWorkloadUrl(wl, 'apply_metadata_payload');
+        return dashboardFetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(r => r.text().then(t => ({ ok: r.ok, status: r.status, text: t })));
+      }
+    }
+
+    const routeMappingModal = document.getElementById('route-mapping-modal');
+    const routeMappingModalClose = document.getElementById('route-mapping-modal-close');
+    const routeMappingJson = document.getElementById('route-mapping-json');
+    const routeMappingLoading = document.getElementById('route-mapping-loading');
+    const routeMappingError = document.getElementById('route-mapping-error');
+
+    function openRouteMappingModal() {
+      routeMappingModal.classList.add('visible');
+      routeMappingModal.setAttribute('aria-hidden', 'false');
+      routeMappingJson.style.display = 'none';
+      routeMappingLoading.style.display = 'block';
+      routeMappingError.style.display = 'none';
+      dashboardFetch('/current_streamid_address_mapping')
+        .then(r => r.json())
+        .then(out => {
+          routeMappingLoading.style.display = 'none';
+          routeMappingJson.innerHTML = prettyPrintJsonHtml(out);
+          routeMappingJson.style.display = 'block';
+        })
+        .catch(err => {
+          routeMappingLoading.style.display = 'none';
+          routeMappingError.textContent = err.message || 'Failed to load route mappings.';
+          routeMappingError.style.display = 'block';
+        });
+    }
+
+    function closeRouteMappingModal() {
+      routeMappingModal.classList.remove('visible');
+      routeMappingModal.setAttribute('aria-hidden', 'true');
+    }
+
+    routeMappingModalClose.addEventListener('click', closeRouteMappingModal);
+    routeMappingModal.addEventListener('click', function(e) {
+      if (e.target === routeMappingModal) closeRouteMappingModal();
+    });
+    document.getElementById('route-mapping-link').addEventListener('click', function(e) {
+      e.preventDefault();
+      openRouteMappingModal();
+    });
+
     const addWorkloadModal = document.getElementById('add-workload-modal');
+    const addWorkloadModalTitle = document.getElementById('add-workload-modal-title');
     const addWorkloadTarget = document.getElementById('add-workload-target');
+    const addWorkloadLifecycleSummary = document.getElementById('add-workload-lifecycle-summary');
+    const addWorkloadLifecycleWarning = document.getElementById('add-workload-lifecycle-warning');
+    const addWorkloadStreamIdRow = document.getElementById('add-workload-stream-id-row');
+    const addWorkloadStreamIdLabel = document.getElementById('add-workload-stream-id-label');
+    const addWorkloadStreamId = document.getElementById('add-workload-stream-id');
     const addWorkloadPayload = document.getElementById('add-workload-payload');
     const addWorkloadSubmit = document.getElementById('add-workload-submit');
     const addWorkloadMsg = document.getElementById('add-workload-msg');
     const addWorkloadModalClose = document.getElementById('add-workload-modal-close');
+
+    function updateAddWorkloadLifecycleFields() {
+      const wl = addWorkloadTarget.value;
+      const cfg = workloadLifecycleConfig(wl);
+      const headerMode = cfg.mode === 'http-header';
+      addWorkloadStreamIdRow.style.display = headerMode ? 'block' : 'none';
+      addWorkloadModalTitle.textContent = headerMode ? 'Send HTTP lifecycle request' : 'Send message';
+      addWorkloadSubmit.textContent = headerMode ? 'Send HTTP Request' : 'Send Message';
+      addWorkloadStreamIdLabel.textContent = cfg.streamIdHeader + ' header value';
+      addWorkloadLifecycleSummary.textContent = headerMode
+        ? cfg.addMethod + ' ' + cfg.addPath + ' · ' + cfg.streamIdHeader
+        : 'message-bus · apply_metadata_payload';
+      if (cfg.bindingWarning) {
+        addWorkloadLifecycleWarning.textContent = cfg.bindingWarning;
+        addWorkloadLifecycleWarning.style.display = 'block';
+      } else {
+        addWorkloadLifecycleWarning.textContent = '';
+        addWorkloadLifecycleWarning.style.display = 'none';
+      }
+      if (headerMode && !addWorkloadStreamId.value.trim()) {
+        try {
+          const payload = JSON.parse(addWorkloadPayload.value.trim());
+          addWorkloadStreamId.value = payloadStreamId(payload, cfg.idField);
+        } catch (_err) {
+          addWorkloadStreamId.value = '';
+        }
+      }
+    }
 
     function openAddWorkloadModal(preSelectedWl) {
       addWorkloadTarget.innerHTML = '';
@@ -1201,6 +1427,8 @@ limitations under the License.
       });
       if (preSelectedWl) addWorkloadTarget.value = preSelectedWl;
       addWorkloadPayload.value = JSON.stringify(DEFAULT_ADD_PAYLOAD, null, 2);
+      addWorkloadStreamId.value = '';
+      updateAddWorkloadLifecycleFields();
       addWorkloadMsg.textContent = '';
       addWorkloadMsg.className = 'add-workload-msg';
       addWorkloadModal.classList.add('visible');
@@ -1213,6 +1441,10 @@ limitations under the License.
     }
 
     addWorkloadModalClose.addEventListener('click', closeAddWorkloadModal);
+    addWorkloadTarget.addEventListener('change', updateAddWorkloadLifecycleFields);
+    addWorkloadPayload.addEventListener('input', function() {
+      if (!addWorkloadStreamId.value.trim()) updateAddWorkloadLifecycleFields();
+    });
     addWorkloadModal.addEventListener('click', function(e) {
       if (e.target === addWorkloadModal) closeAddWorkloadModal();
     });
@@ -1242,21 +1474,26 @@ limitations under the License.
       addWorkloadMsg.textContent = '';
       addWorkloadMsg.className = 'add-workload-msg';
       addWorkloadSubmit.disabled = true;
-      const url = sdrcWorkloadUrl(wl, 'apply_metadata_payload');
-      dashboardFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-        .then(r => r.text().then(t => ({ status: r.status, text: t })))
-        .then(({ status, text }) => {
+      const cfg = workloadLifecycleConfig(wl);
+      let streamId = addWorkloadStreamId.value.trim() || payloadStreamId(payload, cfg.idField);
+      if (cfg.mode === 'http-header' && !streamId) {
+        addWorkloadSubmit.disabled = false;
+        addWorkloadMsg.textContent = 'Stream ID header value is required for ' + cfg.streamIdHeader + '.';
+        addWorkloadMsg.className = 'add-workload-msg error';
+        return;
+      }
+      if (streamId && !addWorkloadStreamId.value.trim()) {
+        addWorkloadStreamId.value = streamId;
+      }
+      sendLifecycleRequest(wl, 'add', streamId, payload)
+        .then(result => {
           addWorkloadSubmit.disabled = false;
-          if (status >= 200 && status < 300) {
-            addWorkloadMsg.textContent = 'Success: ' + (text || status);
+          if (result.ok) {
+            addWorkloadMsg.textContent = 'Success: ' + lifecycleResultMessage(result);
             addWorkloadMsg.className = 'add-workload-msg success';
             updateStatuses();
           } else {
-            addWorkloadMsg.textContent = 'Error ' + status + ': ' + (text || '');
+            addWorkloadMsg.textContent = 'Error ' + result.status + ': ' + lifecycleResultMessage(result);
             addWorkloadMsg.className = 'add-workload-msg error';
           }
         })
@@ -1390,35 +1627,60 @@ limitations under the License.
           btn.textContent = prevLabel;
         });
       }
+      if (el && el.classList && el.classList.contains('sensor-reprovision-btn')) {
+        const btn = el;
+        const streamId = btn.dataset.streamId;
+        const wl = modal.dataset.wlObjName;
+        if (!streamId || !wl) return;
+        btn.disabled = true;
+        const prevLabel = btn.textContent;
+        btn.textContent = '...';
+        modalError.style.display = 'none';
+        sendLifecycleRequest(wl, 'reprovision', streamId, null)
+          .then(result => {
+            btn.disabled = false;
+            if (result.ok) {
+              btn.textContent = 'Queued';
+              updateStatuses();
+              setTimeout(function() {
+                if (!btn.disabled) btn.textContent = prevLabel;
+              }, 1200);
+            } else {
+              btn.textContent = prevLabel;
+              modalError.textContent = lifecycleResultMessage(result) || 'Reprovision failed';
+              modalError.style.display = 'block';
+            }
+          })
+          .catch(err => {
+            btn.disabled = false;
+            btn.textContent = prevLabel;
+            modalError.textContent = err.message || 'Reprovision request failed';
+            modalError.style.display = 'block';
+          });
+      }
       if (el && el.classList && el.classList.contains('sensor-delete-btn')) {
         const btn = el;
         const streamId = btn.dataset.streamId;
         const wl = modal.dataset.wlObjName;
         if (!streamId || !wl) return;
         btn.disabled = true;
-        btn.textContent = '…';
-        const removeUrl = sdrcWorkloadUrl(wl, 'remove_stream');
-        dashboardFetch(removeUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stream_id: streamId })
-        })
-          .then(r => r.json().then(data => ({ ok: r.ok, data })))
-          .then(({ ok, data }) => {
-            if (ok) {
+        btn.textContent = '...';
+        sendLifecycleRequest(wl, 'delete', streamId, null)
+          .then(result => {
+            if (result.ok) {
               btn.closest('li').remove();
               updateStatuses();
             } else {
               btn.disabled = false;
               btn.textContent = 'Delete';
-              modalError.textContent = data.error || 'Delete failed';
+              modalError.textContent = lifecycleResultMessage(result) || 'Delete failed';
               modalError.style.display = 'block';
             }
           })
-          .catch(() => {
+          .catch(err => {
             btn.disabled = false;
             btn.textContent = 'Delete';
-            modalError.textContent = 'Delete request failed';
+            modalError.textContent = err.message || 'Delete request failed';
             modalError.style.display = 'block';
           });
       }

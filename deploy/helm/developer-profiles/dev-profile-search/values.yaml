@@ -85,6 +85,31 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+  # Edge routes `vss configure` probes, mirroring the four the Docker edge
+  # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
+  # same paths resolve on Compose and Kubernetes. Each mount carries whatever
+  # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
+  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/... .
+  #
+  # Off by default. Enabling this publishes Elasticsearch on the public origin
+  # with no per-path guard, because an Ingress annotation cannot express one.
+  # The Docker edge is not a read-only baseline either: its deny rules stop
+  # PUT/DELETE, cluster-admin paths and the two-segment mutating operations, but
+  # POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
+  # there. Enable only where a writable Elasticsearch is acceptable, or front it
+  # with your own guard.
+  #
+  # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
+  # enabled -- that Ingress already publishes both paths. /rtvi-vlm is not one
+  # of them, so it follows cliRoutes.enabled alone.
+  cliRoutes:
+    enabled: false
+    elasticsearchPort: 9200
+    rtviEmbedPort: 8000
+    rtviCvPort: 9000
+    # RT-VLM's cluster Service port. Not 8018 -- that is the Compose
+    # host-published port and has no meaning in Kubernetes.
+    rtviVlmPort: 8000
 
 sharedStorage:
   streamerVideos:
@@ -310,8 +335,8 @@ rtvi:
     enabled: true
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-      tag: "3.2.1"
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+      tag: "3.3.0-26.07.4"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -324,8 +349,6 @@ rtvi:
       enabled: true
       sizeLimit: 16Gi
     clearCachedEnginesOnStart: false
-    kafkaEnabled: true
-    kafkaTopic: mdx-embed
     kafkaBootstrapServers: ''
     redisHost: ''
     redisPort: '6379'
@@ -418,6 +441,54 @@ rtvi:
         value: "false"
       - name: ERROR_MESSAGE_TOPIC
         value: "vision-llm-errors"
+      # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
+      - name: MESSAGE_BUS
+        value: "kafka"
+      - name: MESSAGE_BUS_TOPIC
+        value: "mdx-vlm-captions"
+      - name: ERROR_BUS
+        value: "kafka"
+      - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
+        value: "true"
+      # Optional EVS++ session controls.
+      - name: VIA_EVS_DECISION_LAG
+        value: ""
+      - name: VIA_EVS_SESSION
+        value: ""
+      - name: VLLM_EVS_SIMILARITY_THRESHOLD
+        value: ""
+      - name: VLLM_NUM_PREPROCESS_WORKERS
+        value: "16"
+      - name: VIA_EVS_TOKEN_BUDGET
+        value: ""
+      - name: VIA_EVS_MAX_SESSIONS
+        value: ""
+      - name: VIA_EVS_MIN_CLIPS
+        value: ""
+      - name: VIA_EVS_EVENT_ONLY
+        value: ""
+      - name: VIA_EVS_EMA_MEMORY_S
+        value: ""
+      - name: VIA_EVS_SPIKE_STD_K
+        value: ""
+      - name: VIA_EVS_SETTLING_STD_K
+        value: ""
+      - name: VIA_EVS_STD_FLOOR_RATIO
+        value: ""
+      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
+        value: ""
+      - name: VIA_EVS_STREAMING_PREFILL
+        value: ""
+      - name: VIA_PD_SERVER_URL
+        value: ""
+      - name: VIA_PD_SERVER_TIMEOUT_S
+        value: ""
+      - name: VLLM_USE_AOT_COMPILE
+        value: "0"
+      - name: VLLM_DISABLE_COMPILE_CACHE
+        value: "1"
+      - name: VLLM_LOGGING_LEVEL
+        value: "INFO"
       - name: LOG_LEVEL
         value: "INFO"
       - name: ENABLE_OTEL_MONITORING

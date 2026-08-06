@@ -15,8 +15,8 @@
 
 # Perception service — standalone and base for blueprint `extends`.
 #
-# Uses the published `vss-rt-cv` image plus bind-mounted `ds-start.sh` and
-# `download-models.sh` from this repo. Blueprints extend `perception` and add
+# Uses the published `vss-rt-cv` image plus bind-mounted `ds-start.sh`,
+# `setup-tracker-reid.sh`, and `download-models.sh` from this repo. Blueprints extend `perception` and add
 # config/model mounts. Model acquisition runs as phase 0 inside ds-start.sh
 # when a models-download.json manifest is mounted (Option A: start as root,
 # drop to STORAGE_UID/GID before exec).
@@ -56,6 +56,10 @@ services:
       - type: bind
         source: ./download-models.sh
         target: /opt/scripts/download-models.sh
+        read_only: true
+      - type: bind
+        source: ./setup-tracker-reid.sh
+        target: /opt/scripts/setup-tracker-reid.sh
         read_only: true
     environment:
       DS_MODEL_FAMILY: ${DS_MODEL_FAMILY:-rtdetr-warehouse}

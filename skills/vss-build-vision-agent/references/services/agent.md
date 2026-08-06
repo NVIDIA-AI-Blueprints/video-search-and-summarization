@@ -4,11 +4,41 @@
 
 | Capability | Canonical service profile keys |
 |---|---|
-| Agent orchestration and REST API | `vss-agent` |
+| Agentic (natural-language) orchestration and agent REST API | `vss-agent` |
 | Video-analytics MCP | `vss-va-mcp` |
 | Web UI | `vss-ui` |
-| Public ingress | `vss-haproxy-ingress` |
 | Tracing UI | `phoenix` |
+
+## Access role
+
+This owner backs the interactive surface: agentic (natural-language)
+orchestration, its own agent REST API, video-analytics MCP, Web UI, and tracing.
+Its public front door is a separate owner (`ingress.md`), so browse ingress can
+be requested without this tier.
+
+As a capability owner the agent is reached only by **agentic orchestration** — a
+request that needs an LLM to plan across tools and services (the agent's
+`/generate`), or an explicit request for the agent REST API, video-analytics
+MCP, Web UI, or tracing. It is **not** reached by two verb classes that look
+interactive but are served elsewhere: (a) structured or programmatic query,
+retrieval, and browse — owned by Elasticsearch with the host-CLI read path
+(`vss configure` / `vss search run`), Kibana for dashboards, and each backend's
+own REST API (VIOS, RT-CV, RT-Embed, Alerts); and (b) single-model VLM inference
+— VLM Q&A and dense captioning go directly to RT-VLM (`/v1/chat/completions`,
+`/v1/generate_captions`). "REST" alone is therefore not an agent cue: the agent's
+REST API is that orchestration endpoint, distinct from those service-native REST
+surfaces. The agent may also be pulled in as another owner's declared Required
+peer (for example `lvs-server` lists it). Absent both an agentic request and such
+a peer, nothing else reaches the agent, so the whole owner (and the LLM peer only
+`vss-agent` required) is pruned as unreachable. "Headless" is just the explicit
+name for that pruning, not a separate trigger.
+
+Video-analytics MCP (`vss-va-mcp`), Web UI (`vss-ui`), and tracing (`phoenix`)
+are independently gated: each is reached only by an explicit request for that
+surface, carries no capability another owner needs, and is never retained merely
+because `vss-agent` — or a Foundation that ships it — is present. Prune each
+unless itself requested. The video-analytics MCP is an agent-tier tool surface;
+browsing or operating analytics is served elsewhere and does not reach it.
 
 ## Required peers
 
@@ -17,6 +47,8 @@
 - Add a VLM owner only when the config enables video understanding, critique,
   alerts, or summarization that calls it.
 - Add `vss-va-mcp` only for agent configurations that use video-analytics MCP.
+- When the interactive surface must be reachable through a single public origin,
+  add the Ingress owner (`vss-haproxy-ingress`, `ingress.md`) as the front door.
 - ELK, Alerts, Search, and LVS peers are capability-dependent, not universal
   Agent dependencies.
 
@@ -31,13 +63,12 @@
 | `VLM_MODE`, `VLM_MODEL_TYPE`, `VLM_NAME`, `VLM_BASE_URL`, `RTVI_VLM_BASE_URL` | Configure the agent's VLM. |
 | `VST_BASE_URL`, `VST_INTERNAL_URL`, `VST_EXTERNAL_URL`, `VST_MCP_URL` | Configure video storage access. |
 | `LVS_BACKEND_URL`, `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, `ALERT_BRIDGE_URL` | Enable capability-specific tools. |
-| `ENABLE_CRITIC`, `ENABLE_AUDIO` | Toggle critique and audio-aware flows. |
+| `ENABLE_AUDIO` | Enable audio-aware flows. (Result critique has no build-time flag; it is chosen per request via the agent's `use_critic` option.) |
 | `VSS_AGENT_REPORTS_BASE_URL`, `VSS_AGENT_EXTERNAL_URL` | Generate externally reachable links. |
-| `VSS_UI_HOST_PORT`, `HAPROXY_HOST_PORT`, `VSS_PUBLIC_*` | Configure UI and public ingress. |
+| `VSS_UI_HOST_PORT` | Publish the Web UI (public-ingress knobs live with the Ingress owner, `ingress.md`). |
 
 ## Sources
 
 - `deploy/docker/services/agent/compose.yml`
 - `deploy/docker/services/ui/compose.yml`
-- `deploy/docker/services/infra/haproxy/compose.yml`
 - `services/agent/README.md`
