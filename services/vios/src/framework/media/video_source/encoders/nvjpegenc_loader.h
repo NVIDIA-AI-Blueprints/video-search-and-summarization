@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +20,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "libjpeg-8b/jpeglib.h"
+
+namespace nv_vms {
+// Opaque handle to a dynamically loaded shared library.
+struct SharedLibrary;
+}
 
 typedef struct jpeg_error_mgr* (*jpeg_std_error_t) (struct jpeg_error_mgr*);
 typedef void (*jpeg_CreateCompress_t) (j_compress_ptr, int, size_t);
@@ -62,7 +67,7 @@ public:
 private:
     static NvJpegEncLoader* m_instance;
     bool m_error;
-    void* m_handleNvJpeg;
+    nv_vms::SharedLibrary* m_handleNvJpeg;
 
     NvJpegEncLoader();
     ~NvJpegEncLoader();

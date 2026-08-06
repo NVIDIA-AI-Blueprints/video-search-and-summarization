@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -67,11 +67,11 @@ NvJpegEncLoader::NvJpegEncLoader()
         , m_handleNvJpeg(nullptr)
 {
 #if defined(AARCH64_PLATFORM)
-    m_handleNvJpeg = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvmm_jpeg.so", RTLD_LAZY);
+    m_handleNvJpeg = static_cast<nv_vms::SharedLibrary*>(dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvmm_jpeg.so", RTLD_LAZY));
 #else
 
     const char* lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "deepstream/libnvds_lljpeg.so");
-    m_handleNvJpeg = dlopen(lib_path, RTLD_LAZY);
+    m_handleNvJpeg = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleNvJpeg)
     {

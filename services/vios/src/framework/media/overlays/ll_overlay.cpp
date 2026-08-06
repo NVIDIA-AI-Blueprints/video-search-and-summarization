@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -663,7 +663,7 @@ void NvLLOverlay::doDrawTask()
         GstMetaUnion meta_union;
         int64_t pts = 0;
         bool is_drc = false;
-        void *data_ptr = nullptr;
+        unsigned char *data_ptr = nullptr;
         bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
 
         {
@@ -829,12 +829,12 @@ void NvLLOverlay::doDrawTask()
                 // Perform overlay using GPU/CPU based on config
                 if (!isJetsonPlatform() && is_sw_mode)
                 {
-                    data_ptr = (void *)m_cpuPtr[index];
+                    data_ptr = m_cpuPtr[index];
                     ret = m_overlay->doDraw(data_ptr, &meta_union, pts);
                 }
                 else
                 {
-                    ret = m_overlay->doDraw((void *)dst_surf, &meta_union, pts);
+                    ret = m_overlay->doDraw(reinterpret_cast<unsigned char *>(dst_surf), &meta_union, pts);
                 }
 
                 if (ret == false)
