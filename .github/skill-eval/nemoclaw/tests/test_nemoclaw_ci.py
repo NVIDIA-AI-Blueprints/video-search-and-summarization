@@ -12462,15 +12462,15 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         )
         self.assertIn("nemoclaw_instance:", source)
         self.assertIn(
-            "runs-on: [self-hosted, vss-skill-eval-runner, brev]",
+            "runs-on: [self-hosted, vss-eval, brev]",
             nemoclaw_plan_source,
         )
         self.assertIn(
-            "runs-on: [self-hosted, vss-skill-eval-runner, brev]",
+            "runs-on: [self-hosted, vss-eval, brev]",
             nemoclaw_report_source,
         )
         self.assertIn(
-            "runs-on: [self-hosted, vss-skill-eval-runner, brev]",
+            "runs-on: [self-hosted, vss-eval, brev]",
             nemoclaw_eval_source,
         )
         self.assertIn("timeout-minutes: 300", nemoclaw_job_header)

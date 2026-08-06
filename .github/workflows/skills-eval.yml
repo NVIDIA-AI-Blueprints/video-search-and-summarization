@@ -367,10 +367,10 @@ jobs:
   nemoclaw_plan:
     name: Plan NemoClaw eval matrix
     if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
-    # Use the same manual-workflow-approved validator pool as the eval rows.
-    # The generic downstream runners reject this branch in their runner-admin
-    # job-start hook, while legacy NemoClaw coordinators are intermittent.
-    runs-on: [self-hosted, vss-skill-eval-runner, brev]
+    # Use the Brev coordinator contract shared by both the legacy NemoClaw
+    # validators and the v2 skill validators.  The narrower v2-only selector
+    # needlessly strands the legacy pool when v2 is occupied by generic evals.
+    runs-on: [self-hosted, vss-eval, brev]
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -423,11 +423,10 @@ jobs:
     name: NemoClaw / ${{ matrix.name }}
     needs: nemoclaw_plan
     if: needs.nemoclaw_plan.outputs.has_targets == 'true'
-    # Restrict execution to the Brev-designated v2 validator coordinators.
-    # Other vss-skill-eval-runner replicas run unrelated workloads and do not
-    # consistently carry the operator-maintained Brev auth, registered-pool
-    # allowlist, and SSH aliases that this job requires.
-    runs-on: [self-hosted, vss-skill-eval-runner, brev]
+    # Both coordinator generations carry the eval environment and can drive
+    # managed workers.  v2 additionally carries registered-worker SSH aliases;
+    # the harness discovers whichever transport its selected host supports.
+    runs-on: [self-hosted, vss-eval, brev]
     strategy:
       fail-fast: false
       # Two coordinators can use the two currently healthy large-disk workers
@@ -700,10 +699,10 @@ jobs:
     name: NemoClaw results
     needs: [nemoclaw_plan, nemoclaw-eval]
     if: always() && github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
-    # Keep reporting on the same manual-workflow-approved validator pool. It
-    # runs only after every eval row, so it does not consume worker capacity
-    # while the matrix is active.
-    runs-on: [self-hosted, vss-skill-eval-runner, brev]
+    # Keep reporting on the same shared Brev coordinator pool. It runs only
+    # after every eval row, so it does not consume worker capacity while the
+    # matrix is active.
+    runs-on: [self-hosted, vss-eval, brev]
     timeout-minutes: 15
     steps:
       - name: Initialize current-attempt report scope
