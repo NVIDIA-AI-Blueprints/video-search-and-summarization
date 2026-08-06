@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -55,7 +55,7 @@ public:
                                    size_t estimated_size = 0);
 
     // Frame handling
-    bool onFrame(const std::string& session_id, const void* data, size_t size, int64_t pts = 0,
+    bool onFrame(const std::string& session_id, const unsigned char* data, size_t size, int64_t pts = 0,
                  const std::string& media_type = "video");
 
     StorageResult stopWrite(const std::string& session_id, const std::string& stream_id);
@@ -113,7 +113,7 @@ public:
     bool resetPipeline();
 
     // Buffer handling
-    bool pushBufferToPipeline(const void* data, size_t size, int64_t pts, const std::string& media_type);
+    bool pushBufferToPipeline(const unsigned char* data, size_t size, int64_t pts, const std::string& media_type);
     bool sendEOS();
     bool waitForEOSMessage(int timeout_ms = 5000);
 

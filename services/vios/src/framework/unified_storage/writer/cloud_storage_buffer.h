@@ -137,7 +137,7 @@ public:
     ~CloudStorageBuffer();
 
     // Buffer management
-    bool bufferFrame(const void* data, size_t size, int64_t timestamp, const std::string& media_type,
+    bool bufferFrame(const uint8_t* data, size_t size, int64_t timestamp, const std::string& media_type,
                      const std::string& session_id, const std::string& stream_id = "");
 
     void start(std::function<bool(const BufferedFrame&)> upload_callback);
