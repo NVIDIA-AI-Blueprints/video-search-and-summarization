@@ -167,6 +167,48 @@ fetches that URL). Browser/report links may still rewrite `/storage/...` under
 `/vst` using the base-profile rule. Deploy must mint media URLs the LVS pod can
 reach (typically `VST_EXTERNAL_URL` equal to the public origin).
 
+### Alerts profile public routes
+
+Main host pattern: `vss.<ip>.nip.io` (Helm `dev-profile-alerts`) — same family as
+base/lvs, not `vss-search.*`. Stock Ingress publishes Agent, VIOS, Alert Bridge,
+and VA-MCP (path-rewrite strips the public prefix):
+
+| Capability | Public endpoint |
+|---|---|
+| Alert Bridge health | `GET ${VSS_PUBLIC_URL}/alert-bridge/health` (not `/api/v1/health`) |
+| Realtime rules | `GET`/`POST`/`DELETE ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime` |
+| Realtime incidents | `GET ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime/incidents` |
+| On-demand / verifier config | `${VSS_PUBLIC_URL}/alert-bridge/api/v1/verification/...` |
+| VA-MCP health | `GET ${VSS_PUBLIC_URL}/va-mcp/health` (rewritten to `/health`; prefer over `/mcp` or `/`) |
+| VA-MCP | `${VSS_PUBLIC_URL}/va-mcp/mcp` (rewritten to `/mcp`) |
+| VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list`, … |
+| Agent OpenAPI / generate | `${AGENT_URL}/openapi.json`, `/generate` — **not** for rule CRUD |
+| NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate `streamer.*` host |
+
+Derive Alert Bridge and VA-MCP from the **public origin** (force; ignore leftover
+Docker host-port env):
+
+```bash
+# Kubernetes — path-rewrite strips /alert-bridge and /va-mcp on the Service.
+ALERT_BRIDGE_URL="${VSS_PUBLIC_URL%/}/alert-bridge"
+VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+# Docker Compose (unchanged host ports)
+# ALERT_BRIDGE_URL=http://${HOST_IP}:9080
+# VA_MCP_URL=http://${HOST_IP}:9901
+```
+
+**Not on stock alerts Ingress** (Docker host ports / private backends only):
+Elasticsearch `:9200`, Kafka, Redis, RT-CV (Docker `:9000`), RT-VLM
+`:8018`, and `alert-notify` `:9090`. Do not `kubectl port-forward` them for
+operate checks. Workflow B's
+interim ES verdict probe stays Docker-only unless a public route is added later.
+
+Alerts operate skills for the docs walkthrough (real-time mode):
+
+- `vss-manage-video-io-storage` — VIOS via `${VST_API_BASE}`
+- `vss-manage-alerts` — Alert Bridge via `${ALERT_BRIDGE_URL}` (Workflows C/D; never Agent `/generate` for rules)
+- `vss-query-analytics` / report Mode B — probe `${VA_MCP_URL}/health`, then MCP via `${VA_MCP_URL}/mcp`
+
 ## Docker Compose
 
 Resolve the deployment once with `vss configure`, then read the endpoints back
@@ -246,22 +288,29 @@ VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 # Resolve VLM_ENDPOINT only with the probe-before-adopt flow above.
 # LVS client base is the origin (no /v1 suffix); ignore Docker-derived values:
 LVS_BACKEND_URL="${AGENT_URL}"
+# Alerts — force public prefixes; ignore leftover Docker :9080 / :9901:
+ALERT_BRIDGE_URL="${AGENT_URL}/alert-bridge"
+VA_MCP_URL="${AGENT_URL}/va-mcp"
 ```
 
-The public Agent, VIOS (`/vst`), and — when the chart enables them — RT-VLM and
-LVS Exact `/v1/...` routes are the supported operate interfaces. Operate skills
-do not read Deployments, ConfigMaps, Services, Secrets, or Helm values, and do
-not use Service DNS, NodePorts, guessed release names, `kubectl port-forward`,
-or `kubectl`/`docker exec` into pods.
+The public Agent, VIOS (`/vst`), and — when the chart enables them — RT-VLM,
+LVS Exact `/v1/...`, Alert Bridge (`/alert-bridge`), and VA-MCP (`/va-mcp`)
+routes are the supported operate interfaces. Operate skills do not read
+Deployments, ConfigMaps, Services, Secrets, or Helm values, and do not use
+Service DNS, NodePorts, guessed release names, `kubectl port-forward`, or
+`kubectl`/`docker exec` into pods.
 
 Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, LVS `/models` /
-`/openapi.json` when not published, and RT-VLM when it is **not** on Exact
-`/v1/models`) remain agent-side dependencies. Do not expose or forward them
-merely to satisfy host-side operate checks. On the base profile, RT-VLM at
+`/openapi.json` when not published, RT-VLM when it is **not** on Exact
+`/v1/models`, and alerts `alert-notify` `:9090`) remain agent-side or
+Docker-host dependencies. Do not expose or forward them merely to satisfy
+host-side operate checks. On the base profile, RT-VLM at
 `${VSS_PUBLIC_URL}/v1` (Prefix) is a supported public operate path for
 `vss-ask-video` and `vss-generate-video-report` Mode A. On the LVS profile,
 Exact `/v1/ready` and `/v1/summarize` are the supported public operate paths for
-`vss-summarize-video`.
+`vss-summarize-video`. On the alerts profile, `${VSS_PUBLIC_URL}/alert-bridge`
+and `${VSS_PUBLIC_URL}/va-mcp` are the supported public operate paths for
+`vss-manage-alerts` and `vss-query-analytics`.
 
 ## Authentication boundary
 

@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.2.10"
+  version: "3.3.2"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -17,7 +17,7 @@ Generate a video analysis report by routing to one of three backends — **never
 |---|---|
 | **A. Video clip** | `A1` `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** OR `A2` local video file on disk or base64 video + explicit VLM endpoint |
 | **B. Incident range** | `/vss-query-analytics` → incident list → narrative report |
-| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `:9901`) → SOP compliance report |
+| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `${VA_MCP_URL}`) → SOP compliance report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range. See **Examples** below for the request phrasings that route to each mode.
 
@@ -80,8 +80,8 @@ This skill is profile-agnostic for Mode A. A specific profile does **not** have 
 
 ### Endpoint resolution (Kubernetes vs Docker)
 
-When operating against a deployed VSS stack (**base** or **lvs** on Helm), resolve
-public endpoints once. Follow
+When operating against a deployed VSS stack (**base**, **lvs**, or **alerts** on
+Helm), resolve public endpoints once. Follow
 [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
 
 ```bash
@@ -92,16 +92,19 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   # Base: Prefix /v1 → RT-VLM. LVS: Exact /v1/models + /v1/chat/completions → RT-VLM.
   : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/v1}"
+  # Alerts / Mode B — force public VA-MCP; ignore leftover Docker :9901.
+  VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 else
   DEPLOYMENT_KIND="docker"
   VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+  VA_MCP_URL="http://${HOST_IP}:9901"
 fi
 ```
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
-`docker exec` / `docker inspect` to discover VIOS or the VLM. Mode A uses
-`${VST_API_BASE}` and `${VLM_ENDPOINT}` only.
+`docker exec` / `docker inspect` to discover VIOS, the VLM, or VA-MCP. Mode A
+uses `${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B uses `${VA_MCP_URL}`.
 
 ### Mode-by-mode checklist (required)
 
@@ -110,7 +113,7 @@ On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
 | **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
 | **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
 | **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
-| **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `:9901` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
+| **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `${VA_MCP_URL}` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
 
 Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
@@ -126,11 +129,11 @@ curl -sf --max-time 5 "${VST_API_BASE}/sensor/version" >/dev/null
 # Mode A — VLM reachable (Kubernetes public /v1, or caller-supplied / Docker host port)
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null
 
-# Mode B — VA-MCP reachable (Docker / host port today; not part of base K8s operate)
-curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+# Mode B — VA-MCP reachable via /health (K8s: ${VA_MCP_URL}/health; Docker: :9901/health)
+curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
 
 # Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
-# tools/list on :9901 (two-step JSON-RPC, see Mode C Step 1) must include
+# tools/list on ${VA_MCP_URL}/mcp (two-step JSON-RPC, see Mode C Step 1) must include
 # video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
 # hand off to /vss-build-vision-agent and do NOT proceed with Mode C.
 ```
@@ -662,12 +665,22 @@ Use for "generate an SOP compliance report" over a sensor + time range. Data com
 - Confirm the SOP tools are present (once). The four `get_sop_*` tools are added by the SOP patch and are **not** in the base `/vss-query-analytics` tool set, so call the VA-MCP endpoint directly (two-step MCP JSON-RPC: `initialize` → `tools/list`):
 
 ```bash
-MCP="http://${HOST_IP}:9901/mcp"
+# Each fenced block is its own shell — re-derive VA-MCP here (do not rely on
+# Endpoint resolution above). Force public path when VSS_PUBLIC_URL is set.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
+MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
 SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
-[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
 curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
@@ -681,12 +694,20 @@ curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID"
 Call `video_analytics__get_sop_report` on the same endpoint. Each fenced block runs as its own shell, so `$MCP` / `$SID` / `$CT` / `$AC` from Step 1 do NOT carry over — re-establish them and re-`initialize` for a fresh session id here:
 
 ```bash
-MCP="http://${HOST_IP}:9901/mcp"
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
+MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
 SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
-[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
 curl -s --max-time 30 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
