@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -158,7 +158,7 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
 void DynamicRTSPServer
 ::lookupServerMediaSession(char const* streamName,
                            lookupServerMediaSessionCompletionFunc* completionFunc,
-                           void* completionClientData,
+                           void* completionClientData, // NOSONAR
                            Boolean isFirstLookupInSession)
 {
   string stream_name(streamName);

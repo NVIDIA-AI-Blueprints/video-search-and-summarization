@@ -120,20 +120,20 @@ private:
     xmlBufferPtr m_xml;
 };
 
+struct curlData {
+  char trace_ascii; /* 1 or 0 */
+};
+
 #ifdef DEBUG
 static
 int my_trace(CURL *handle, curl_infotype type,
              char *data, size_t size,
-             void *userp)
+             curlData *userp)
 {
     LOG(verbose) << string(data) << endl;
     return 0;
 }
 #endif
-
-struct curlData {
-  char trace_ascii; /* 1 or 0 */
-};
 
 int NvSoap::GetSystemDateAndTime(nvsoap_& soap, string& res)
 {
@@ -4697,7 +4697,7 @@ int NvSoap::createAndSendRequest(nvsoap_& soap, string& outData)
     }
 #ifdef DEBUG
     struct curlData config;
-    errCode = curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, my_trace);
+    errCode = curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, reinterpret_cast<curl_debug_callback>(my_trace));
     CURL_CHECK_ERROR(curl_easy_setopt, errCode, -1)
     errCode = curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &config);
     CURL_CHECK_ERROR(curl_easy_setopt, errCode, -1)
@@ -4865,7 +4865,7 @@ static int createAndSendCameraConfigurationAPIRequest(const string& url, const s
 
 #ifdef DEBUG
     struct curlData config;
-    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, my_trace);
+    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, reinterpret_cast<curl_debug_callback>(my_trace));
     CURL_CHECK_ERROR(curl_easy_setopt, errCode, -1)
     curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &config);
     CURL_CHECK_ERROR(curl_easy_setopt, errCode, -1)
