@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -213,8 +213,10 @@ class NvBufWrapper
             if (m_nvBufferMode == NvBufferModeSoftware || software_mode)
             {
                 is_transformed_needed = true;
-                NvBufSurface *sw_surf   = (NvBufSurface *) calloc (1, sizeof(NvBufSurface));
-                sw_surf->surfaceList    = (NvBufSurfaceParams *) calloc (1, sizeof(NvBufSurfaceParams));
+                auto sw_surf_owner      = std::make_unique<NvBufSurface>();
+                auto sw_surf_params     = std::make_unique<NvBufSurfaceParams>();
+                NvBufSurface *sw_surf   = sw_surf_owner.get();
+                sw_surf->surfaceList    = sw_surf_params.get();
 
                 sw_surf->gpuId                                   = g_gpuIndex;
                 sw_surf->batchSize                               = 1;
@@ -274,8 +276,6 @@ class NvBufWrapper
                 int ret = NvBufSurfaceAllocate(&hw_surf, 1, &input_params);
                 if (ret != 0)
                 {
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
                     LOG(error) << "NvBufSurfaceAllocate failed" << endl;
                     ret = -1;
                     return ret;
@@ -284,8 +284,6 @@ class NvBufWrapper
                 ret = NvBufSurfaceCopy (sw_surf, hw_surf);
                 if (ret != 0)
                 {
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
                     NvBufSurfaceDestroy(hw_surf);
                     LOG(error) << "NvBufSurfaceCopy failed" << endl;
                     ret = -1;
@@ -317,8 +315,6 @@ class NvBufWrapper
                     ret = NvBufSurfaceAllocate(&op_surf, 1, &input_params);
                     if (ret != 0)
                     {
-                        free(sw_surf->surfaceList);
-                        free (sw_surf);
                         NvBufSurfaceDestroy(hw_surf);
                         LOG(error) << "NvBufSurfaceAllocate1 failed" << endl;
                         ret = -1;
@@ -335,8 +331,6 @@ class NvBufWrapper
                         if (status < 0)
                         {
                             LOG(error) << "Failed to get surface from fd =" << *fd << endl;
-                            free(sw_surf->surfaceList);
-                            free (sw_surf);
                             NvBufSurfaceDestroy(hw_surf);
                             NvBufSurfaceDestroy(op_surf);
                             ret = -1;
@@ -372,8 +366,6 @@ class NvBufWrapper
                 if (transform_error != NvBufSurfTransformError_Success)
                 {
                     LOG(error) << "Failed to Transform" << endl;
-                    free(sw_surf->surfaceList);
-                    free (sw_surf);
                     free (dst_rect);
                     free (src_rect);
                     NvBufSurfaceDestroy(hw_surf);
@@ -388,8 +380,6 @@ class NvBufWrapper
                 }
                 free (src_rect);
                 free (dst_rect);
-                free (sw_surf->surfaceList);
-                free (sw_surf);
                 NvBufSurfaceDestroy(hw_surf);
 #ifdef DUMP_YUV
                 {

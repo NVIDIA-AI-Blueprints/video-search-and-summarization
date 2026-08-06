@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -30,7 +31,14 @@
  */
 class CompositeNotifier : public nv_vms::INotificationInterface
 {
+    // Keeps the constructor reachable from std::make_unique without making it
+    // callable outside the class.
+    struct PrivateTag
+    {
+    };
+
 public:
+    explicit CompositeNotifier(PrivateTag);
     virtual ~CompositeNotifier();
 
     CompositeNotifier(const CompositeNotifier&) = delete;
@@ -47,11 +55,9 @@ public:
     void retryConnection() override;
 
 private:
-    CompositeNotifier();
-
     mutable std::mutex m_notifiersMutex;
     std::vector<nv_vms::INotificationInterface*> m_notifiers;
 
-    static CompositeNotifier* _instance;
+    static std::unique_ptr<CompositeNotifier> _instance;
     static std::mutex _instanceMutex;
 };

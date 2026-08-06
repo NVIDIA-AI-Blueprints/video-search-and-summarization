@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -440,7 +440,8 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
     m_workerThread->Start();
 
     m_workerThread->BlockingCall([this] {
-        m_audioDeviceModule = new webrtc::FakeAudioDeviceModule();
+        m_fakeAudioDeviceModule = std::make_unique<webrtc::FakeAudioDeviceModule>();
+        m_audioDeviceModule = m_fakeAudioDeviceModule.get();
     });
 
     m_signalingThread->SetName("signaling_" + peerid, nullptr);
@@ -516,9 +517,8 @@ PeerConnection::~PeerConnection()
     m_pc = nullptr;
     m_peer_connection_factory = nullptr;
     m_workerThread->BlockingCall([this] {
-        auto* fakeAdm = static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get());
         m_audioDeviceModule = nullptr;
-        delete fakeAdm;
+        m_fakeAudioDeviceModule.reset();
     });
 }
 

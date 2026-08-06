@@ -50,7 +50,16 @@
  */
 class WebhookNotifier : public nv_vms::INotificationInterface
 {
+private:
+    // Passkey: only members can name it, so the constructor below stays
+    // unreachable from outside while std::make_unique can still call it.
+    struct ConstructTag
+    {
+    };
+
 public:
+    WebhookNotifier(ConstructTag, const Json::Value& config);
+
     virtual ~WebhookNotifier();
 
     WebhookNotifier(const WebhookNotifier&) = delete;
@@ -58,7 +67,10 @@ public:
 
 #ifdef UNIT_TEST
     // Unit-test seam; production code obtains the instance via getInstance().
-    explicit WebhookNotifier(const Json::Value& config);
+    explicit WebhookNotifier(const Json::Value& config)
+        : WebhookNotifier(ConstructTag{}, config)
+    {
+    }
 #endif
 
     // Returns nullptr when the config file defines no enabled webhooks.
@@ -71,10 +83,6 @@ public:
     size_t webhookCount() const { return m_webhooks.size(); }
 
 private:
-#ifndef UNIT_TEST
-    explicit WebhookNotifier(const Json::Value& config);
-#endif
-
     struct RequestConfig
     {
         std::string m_url;
@@ -132,6 +140,6 @@ private:
     std::vector<WebhookConfig> m_webhooks;  // immutable after construction
     std::unique_ptr<AsyncHttpClient> m_httpClient;
 
-    static WebhookNotifier* _instance;
+    static std::unique_ptr<WebhookNotifier> _instance;
     static std::mutex _instanceMutex;
 };

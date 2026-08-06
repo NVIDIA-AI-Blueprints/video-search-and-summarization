@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +27,10 @@
 #include "database.h"
 
 #include <memory>
+
+namespace webrtc {
+class FakeAudioDeviceModule;
+}
 
 inline constexpr const char* DECODER_FACTORY_PASS_THROUGH = "decoder_factory_pass_through";
 
@@ -174,6 +178,7 @@ private:
     const std::regex                                         m_publishFilter;
     webrtc::scoped_refptr<webrtc::AudioDecoderFactory>          m_audioDecoderfactory;
     webrtc::scoped_refptr<webrtc::AudioDeviceModule>            m_audioDeviceModule;
+    std::unique_ptr<webrtc::FakeAudioDeviceModule>              m_fakeAudioDeviceModule;
     std::map<std::string, AudioVideoPair, std::less<>>                    m_streamMap;
     EventLoop                                                m_eventLoop;
     std::shared_ptr<nv_vms::DeviceManager>                   m_deviceManager;

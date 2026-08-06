@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -262,9 +262,11 @@ int RtspServer::start()
     string threadName = "RtspSvrTh_" + to_string(m_rtspServerPortNum);
     prctl(PR_SET_NAME, threadName.c_str(), 0, 0, 0);
 
-    char *urlPrefix = m_rtspServer->rtspURLPrefix();
-    m_urlPrefix = urlPrefix;
-    delete[] urlPrefix;
+    std::unique_ptr<char[]> urlPrefix(m_rtspServer->rtspURLPrefix());
+    if (urlPrefix)
+    {
+        m_urlPrefix = urlPrefix.get();
+    }
 
     if (config.server_domain_name.empty())
     {
@@ -597,11 +599,10 @@ vector<string> RtspServer::getActiveStreams()
 string RtspServer::originalPrefix()
 {
     string rtspServerPrefix;
-    char *rtsp_prefix = m_rtspServer->rtspURLPrefix();
+    std::unique_ptr<char[]> rtsp_prefix(m_rtspServer->rtspURLPrefix());
     if (rtsp_prefix)
     {
-        rtspServerPrefix = rtsp_prefix;
-        delete[] rtsp_prefix;
+        rtspServerPrefix = rtsp_prefix.get();
     }
     return rtspServerPrefix;
 }

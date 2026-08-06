@@ -19,7 +19,7 @@
 
 #include <algorithm>
 
-CompositeNotifier* CompositeNotifier::_instance = nullptr;
+std::unique_ptr<CompositeNotifier> CompositeNotifier::_instance;
 std::mutex CompositeNotifier::_instanceMutex;
 
 CompositeNotifier* CompositeNotifier::getInstance()
@@ -27,19 +27,18 @@ CompositeNotifier* CompositeNotifier::getInstance()
     std::lock_guard<std::mutex> lock(_instanceMutex);
     if (_instance == nullptr)
     {
-        _instance = new CompositeNotifier();
+        _instance = std::make_unique<CompositeNotifier>(PrivateTag{});
     }
-    return _instance;
+    return _instance.get();
 }
 
 void CompositeNotifier::deleteInstance()
 {
     std::lock_guard<std::mutex> lock(_instanceMutex);
-    delete _instance;
-    _instance = nullptr;
+    _instance.reset();
 }
 
-CompositeNotifier::CompositeNotifier()
+CompositeNotifier::CompositeNotifier(PrivateTag)
 {
     // Children track their own connections; the composite itself is always ready.
     m_connected = true;
