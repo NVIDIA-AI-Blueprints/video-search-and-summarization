@@ -37,6 +37,7 @@ public:
     ~NvLLTransform();
 
     void doTransformTask();
+    using IMediaDataConsumer::onFrame;
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void setConsumer(std::shared_ptr<IMediaDataConsumer> consumer);
     void stopTransform();

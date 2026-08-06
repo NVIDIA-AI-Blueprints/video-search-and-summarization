@@ -37,6 +37,7 @@ class NvEncoderVideoConsumer : public IMediaDataConsumer
         NvEncoderVideoConsumer (const std::string& consumer_name, double frame_rate, std::string peerId_streamId, bool enable_frame_sync = false);
         ~NvEncoderVideoConsumer ();
         void stopEncoder();
+        using IMediaDataConsumer::onFrame;
         void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
         void onLastFrame()override;
         void reset() override;

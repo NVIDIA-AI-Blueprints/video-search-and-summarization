@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,7 +73,7 @@ class GstMux;
 class GstMux : public IMediaDataConsumer
 {
    public:
-    GstMux(RecordState record_state)
+    explicit GstMux(RecordState record_state)
         : IMediaDataConsumer("GstMux"),
           m_totalFileSize(0),
           m_isError(false),

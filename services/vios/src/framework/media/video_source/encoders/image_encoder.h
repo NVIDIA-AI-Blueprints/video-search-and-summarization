@@ -29,6 +29,7 @@ public:
     ImageEnc(const std::string& consumer_name, const std::map<std::string, std::string, std::less<>> &opts);
     ~ImageEnc();
 
+    using IMediaDataConsumer::onFrame;
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     std::string getImageBuffer();
     GstFlowReturn processJpegImageFromSink(GstElement *appsink);
