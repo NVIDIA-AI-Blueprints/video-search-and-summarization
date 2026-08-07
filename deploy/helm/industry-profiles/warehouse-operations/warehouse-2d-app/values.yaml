@@ -369,11 +369,6 @@ rtvi:
         rawTopic: mdx-raw
     persistence:
       storageClass: ""
-      # Persist /opt/storage so the TRT engines survive restarts instead of
-      # rebuilding for several minutes each time.
-      runtimeStorage:
-        enabled: true
-        size: 50Gi
       models:
         size: 80Gi
     resources:
