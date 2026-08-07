@@ -22,7 +22,7 @@ import VSTStreamManager from '../../../features/streamManager/StreamManager';
 import { Sensor } from '../../../interfaces/interfaces';
 import useVSTUIStore from '../../../services/StateManagement';
 import { logInfo } from '../../../utils/misc/Logs';
-import ReactApexChart from 'react-apexcharts';
+import ReactApexChart from '../../../components/charts/ApexChart';
 import { ApexOptions } from 'apexcharts';
 
 const StreamStats: React.FC = () => {
