@@ -298,6 +298,44 @@ class TestConvertBehaviorToProtobufBehavior:
         assert proto.object.id == ("" if block == "object" else "obj-1")
         assert proto.place.name == ("" if block == "place" else "gate-3")
 
+    def test_flat_sensor_id_is_used_when_the_nested_block_is_absent(self):
+        """``Behavior`` has no flat ``sensorId``, so it must land on ``sensor.id``.
+
+        Without the fallback the identifier is silently dropped and the alert is
+        discarded downstream for a missing ``sensorId``, despite the submission
+        having been accepted.
+        """
+        behavior = self._full_behavior()
+        behavior.pop("sensor")
+        behavior["sensorId"] = "cam-9"
+
+        assert convert_behavior_to_protobuf_behavior(behavior).sensor.id == "cam-9"
+
+    def test_the_nested_sensor_id_wins_over_the_flat_one(self):
+        behavior = self._full_behavior()
+        behavior["sensorId"] = "flat"
+
+        assert convert_behavior_to_protobuf_behavior(behavior).sensor.id == "cam-1"
+
+    @pytest.mark.parametrize("block", ["locations", "smoothLocations"])
+    @pytest.mark.parametrize("bad_value", [None, "Point", [], 7])
+    def test_malformed_location_block_is_treated_as_absent(self, block, bad_value):
+        behavior = self._full_behavior()
+        behavior[block] = bad_value
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert getattr(proto, block).type == ""
+
+    def test_null_coordinate_entry_is_tolerated(self):
+        behavior = self._full_behavior()
+        behavior["locations"] = {"type": "Point", "coordinates": [None, {"point": [1.0]}]}
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert list(proto.locations.coordinates[0].point) == []
+        assert list(proto.locations.coordinates[1].point) == pytest.approx([1.0])
+
     def test_null_analytics_module_info_is_treated_as_empty(self):
         behavior = self._full_behavior()
         behavior["analyticsModule"] = {"id": "intrusion", "info": None}

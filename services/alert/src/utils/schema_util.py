@@ -182,7 +182,12 @@ def convert_behavior_to_protobuf_behavior(behavior: dict) -> nvSchemaBehavior:
     am = _as_dict(behavior.get("analyticsModule"))
     obj = _as_dict(behavior.get("object"))
 
-    protobuf_behavior.sensor.id = sensor.get("id", "")
+    # ``Behavior`` has no flat ``sensorId`` field, so a client that carries the
+    # id there rather than under ``sensor`` would publish an empty sensor and be
+    # dropped downstream for a missing ``sensorId``. The Kafka key derivation in
+    # ``AlertSubmissionService`` already accepts the flat form as an identifier;
+    # honour the same fallback here so the two agree.
+    protobuf_behavior.sensor.id = sensor.get("id") or behavior.get("sensorId") or ""
     protobuf_behavior.analyticsModule.id = am.get("id", "")
 
     protobuf_behavior.analyticsModule.info['dropped'] = str(behavior.get("dropped", False))
@@ -212,10 +217,11 @@ def convert_behavior_to_protobuf_behavior(behavior: dict) -> nvSchemaBehavior:
 
 def map_geo_location(proto_geo_location, geo_location_dict):
     """Maps geo-location data from dict to protobuf."""
+    geo_location_dict = _as_dict(geo_location_dict)
     if geo_location_dict:
         proto_geo_location.type = geo_location_dict.get("type", "")
         for coord in geo_location_dict.get("coordinates", []):
-            point = GeoLocation.Point(point=coord.get("point", []))
+            point = GeoLocation.Point(point=_as_dict(coord).get("point", []))
             proto_geo_location.coordinates.append(point)
 
 def place_to_nv_place(place: Optional[dict]) -> Any:
