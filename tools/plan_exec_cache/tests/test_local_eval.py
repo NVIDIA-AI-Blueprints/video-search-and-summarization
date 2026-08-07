@@ -2,6 +2,8 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -73,6 +75,26 @@ class LocalEvalTests(unittest.TestCase):
         self.assertAlmostEqual(result["cost_usd"], 0.3)
         self.assertEqual(result["agent_seconds"], 5.0)
 
+    def test_prints_task_input_output_and_metrics(self):
+        report = {
+            "task": "/tmp/task-step", "mode": "cold", "passed": True,
+            "reward": 1.0, "total_tokens": 1234, "cost_usd": 0.25,
+            "agent_seconds": 2.0, "verifier_seconds": 1.5,
+            "input": "Do the task", "agent_output": "Task complete",
+            "output": "/tmp/output",
+        }
+        stream = StringIO()
+        with redirect_stdout(stream):
+            local_eval.print_task_report(report)
+
+        text = stream.getvalue()
+        self.assertIn("Do the task", text)
+        self.assertIn("Task complete", text)
+        self.assertIn("1,234 tokens", text)
+        self.assertIn("$0.2500", text)
+        self.assertIn("reward 1.000", text)
+        self.assertIn("total 3.5s", text)
+
     def test_claude_command_does_not_override_tools_or_effort(self):
         command = local_eval.claude_command("do it", "model-name")
         self.assertNotIn("--tools", command)
@@ -91,10 +113,56 @@ class LocalEvalTests(unittest.TestCase):
         args = local_eval.parse_args([
             "--task", "/tmp/task", "--mode", "compare",
         ])
+        self.assertEqual(args.cache_home.name, "cache")
+        self.assertEqual(args.output.name, "results")
+        self.assertEqual(args.cache_home.parent, args.output.parent)
+        self.assertEqual(args.cache_home.parent.parent,
+                         local_eval.REPO_ROOT / "local_eval")
+        self.assertRegex(args.cache_home.parent.name, r"^\d{8}t\d{6}z$")
+
+    def test_compare_accepts_selected_arms(self):
+        args = local_eval.parse_args([
+            "--task", "/tmp/task", "--mode", "compare",
+            "--arms", "cold", "warm",
+        ])
+        self.assertEqual(args.arms, ["cold", "warm"])
+
+    def test_accepts_runs_alias_and_comma_separated_arms(self):
+        args = local_eval.parse_args([
+            "--task", "/tmp/task", "--mode", "compare",
+            "--arms", "direct,", "cold,", "warm", "--repeat", "3",
+        ])
+        self.assertEqual(args.runs, 3)
         self.assertEqual(
-            args.cache_home.parent, Path("/tmp/skill-eval-local-cache")
+            local_eval.normalize_arms(args.arms),
+            ("direct", "cold", "warm"),
         )
-        self.assertRegex(args.cache_home.name, r"^\d{8}t\d{6}z$")
+
+    def test_averages_runs_and_renders_comparison_table(self):
+        def run(tokens, cost, seconds):
+            arms = {}
+            for mode, factor in (("direct", 1.0), ("cold", 0.5)):
+                task = {
+                    "task": "/tmp/task", "mode": mode, "passed": True,
+                    "reward": 1.0, "total_tokens": tokens * factor,
+                    "cost_usd": cost * factor,
+                    "agent_seconds": seconds * factor,
+                    "verifier_seconds": 100.0,
+                }
+                arms[mode] = local_eval.summarize(mode, [task])
+            return {"passed": True, "arms": arms}
+
+        average = local_eval.average_runs(
+            [run(100, 1.0, 10.0), run(200, 2.0, 20.0)],
+            ("direct", "cold"),
+        )
+        table = local_eval.comparison_table(average, ["Upload"])
+
+        self.assertEqual(average["arms"]["direct"]["total_tokens"], 150)
+        self.assertEqual(average["arms"]["cold"]["cost_usd"], 0.75)
+        self.assertIn("All 1 task", table)
+        self.assertIn("T -50.0% &#124; $ -50.0% &#124; L -50.0%", table)
+        self.assertIn("| $1.5000 | 15.0s |", table)
 
     def test_all_modes_disable_cross_session_memory_not_thinking(self):
         with mock.patch.dict(
@@ -196,6 +264,117 @@ class LocalEvalTests(unittest.TestCase):
             self.assertEqual(run_reset.call_count, 3)
             report = json.loads((output / "result.json").read_text())
             self.assertEqual(set(report["arms"]), {"direct", "cold", "warm"})
+
+    def test_compare_runs_only_selected_arms(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task = root / "task"
+            (task / "tests").mkdir(parents=True)
+            (task / "instruction.md").write_text("do it", encoding="utf-8")
+            (task / "task.toml").write_text(
+                "[metadata]\nstep_index = 1\n", encoding="utf-8"
+            )
+            (task / "tests" / "case.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            reset = root / "reset"
+            reset.write_text("reset", encoding="utf-8")
+            cache = root / "cache"
+            calls = []
+
+            def fake_evaluate(_task, mode, cache_home, _output, *_args):
+                calls.append(mode)
+                if mode == "cold":
+                    memory = cache_home / "memories" / "demo.action"
+                    memory.mkdir(parents=True)
+                    (memory / "procedure.md").write_text(
+                        "procedure", encoding="utf-8"
+                    )
+                return {
+                    "passed": True, "reward": 1.0, "total_tokens": 10,
+                    "cost_usd": 0.01, "agent_seconds": 1.0,
+                    "verifier_seconds": 0.5,
+                }
+
+            argv = [
+                "--mode", "compare", "--arms", "cold", "warm",
+                "--task", str(task), "--reset-script", str(reset),
+                "--cache-home", str(cache),
+                "--output", str(root / "output"),
+            ]
+            with mock.patch.object(local_eval, "evaluate_task",
+                                   side_effect=fake_evaluate), \
+                    mock.patch.object(local_eval, "run_reset") as run_reset:
+                returncode = local_eval.main(argv)
+
+            self.assertEqual(returncode, 0)
+            self.assertEqual(calls, ["cold", "warm"])
+            self.assertEqual(run_reset.call_count, 2)
+            report = json.loads((root / "output" / "result.json").read_text())
+            self.assertEqual(set(report["arms"]), {"cold", "warm"})
+
+    def test_repeated_compare_isolates_caches_and_records_each_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task = root / "task"
+            (task / "tests").mkdir(parents=True)
+            (task / "instruction.md").write_text("do it", encoding="utf-8")
+            (task / "task.toml").write_text(
+                "[metadata]\nstep_index = 1\n", encoding="utf-8"
+            )
+            (task / "tests" / "case.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            reset = root / "reset"
+            reset.write_text("reset", encoding="utf-8")
+            calls = []
+
+            def fake_evaluate(_task, mode, cache_home, task_output, *_args):
+                calls.append((mode, cache_home, task_output))
+                if mode == "cold":
+                    memory = cache_home / "memories" / "demo.action"
+                    memory.mkdir(parents=True)
+                    (memory / "procedure.md").write_text(
+                        "procedure", encoding="utf-8"
+                    )
+                return {
+                    "task": str(task), "mode": mode, "passed": True,
+                    "reward": 1.0, "total_tokens": 10,
+                    "cost_usd": 0.01, "agent_seconds": 1.0,
+                    "verifier_seconds": 0.5,
+                }
+
+            output = root / "output"
+            argv = [
+                "--mode", "compare", "--runs", "3",
+                "--task", str(task), "--task-label", "Upload",
+                "--reset-script", str(reset),
+                "--cache-home", str(root / "cache"),
+                "--output", str(output),
+            ]
+            with mock.patch.object(local_eval, "evaluate_task",
+                                   side_effect=fake_evaluate), \
+                    mock.patch.object(local_eval, "run_reset") as run_reset, \
+                    redirect_stdout(StringIO()):
+                returncode = local_eval.main(argv)
+
+            self.assertEqual(returncode, 0)
+            self.assertEqual(len(calls), 9)
+            self.assertEqual(run_reset.call_count, 9)
+            self.assertEqual(
+                {cache.name for _, cache, _ in calls},
+                {"run-01", "run-02", "run-03"},
+            )
+            self.assertTrue((output / "run-01" / "direct").is_dir())
+            report = json.loads((output / "result.json").read_text())
+            self.assertEqual(report["run_count"], 3)
+            self.assertEqual(len(report["runs"]), 3)
+            self.assertEqual(report["average"]["arms"]["warm"]
+                             ["total_tokens"], 10)
+            summary = (output / "summary.md").read_text()
+            self.assertIn("## Run 3", summary)
+            self.assertIn("## Average across 3 runs", summary)
+            self.assertIn("| Upload |", summary)
 
     def test_compare_records_failures_without_stopping(self):
         with tempfile.TemporaryDirectory() as directory:

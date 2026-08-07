@@ -36,6 +36,7 @@ deploy/docker/rag-secret.override.yml
 *checkpoint.*
 .orchestrator-artifacts/*
 .mdx_data/*
+/local_eval/
 
 # Generated build artifacts from the vss-build-vision-agent skill. A build name
 # labels only its _builds/<name>/ directory; it is never a Compose profile.

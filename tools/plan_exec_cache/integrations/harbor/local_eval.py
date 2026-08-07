@@ -12,6 +12,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import mean
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -24,6 +25,15 @@ TOKEN_FIELDS = (
     "output_tokens",
 )
 ARMS = ("direct", "cold", "warm")
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
 def task_step(task: Path) -> int:
     text = (task / "task.toml").read_text(encoding="utf-8")
     match = re.search(r"(?m)^step_index\s*=\s*(\d+)\s*$", text)
@@ -138,13 +148,13 @@ def check_cache(mode: str, cache_home: Path | None) -> None:
 
 def run_agent(
     task: Path,
+    instruction: str,
     mode: str,
     cache_home: Path | None,
     output: Path,
     model: str | None,
     timeout: int,
 ) -> tuple[int, float, dict]:
-    instruction = (task / "instruction.md").read_text(encoding="utf-8")
     trajectory = output / "trajectory.jsonl"
     stderr = output / "agent-stderr.log"
     env = mode_environment(mode, cache_home)
@@ -203,6 +213,33 @@ def run_verifier(
     return completed.returncode, time.monotonic() - started
 
 
+def print_task_report(report: dict) -> None:
+    reward = (
+        f"{report['reward']:.3f}"
+        if report["reward"] is not None else "unavailable"
+    )
+    cost = (
+        f"${report['cost_usd']:.4f}"
+        if report["cost_usd"] is not None else "unavailable"
+    )
+    total_seconds = report["agent_seconds"] + report["verifier_seconds"]
+    print(f"\n--- {report['mode']} {Path(report['task']).name} ---")
+    print("Input:")
+    print(report["input"].strip() or "(empty)")
+    print("Output:")
+    print(report["agent_output"].strip() or "(no agent output)")
+    print(
+        f"Result: {'PASS' if report['passed'] else 'FAIL'} | "
+        f"reward {reward} | {report['total_tokens']:,} tokens | {cost}"
+    )
+    print(
+        f"Latency: agent {report['agent_seconds']:.1f}s | "
+        f"verifier {report['verifier_seconds']:.1f}s | "
+        f"total {total_seconds:.1f}s"
+    )
+    print(f"Artifacts: {report['output']}", flush=True)
+
+
 def evaluate_task(
     task: Path,
     mode: str,
@@ -218,10 +255,11 @@ def evaluate_task(
         raise FileNotFoundError(f"not a generated Harbor task: {task}")
     resolved_spec = task_spec(task, spec)
     step = task_step(task)
+    instruction = (task / "instruction.md").read_text(encoding="utf-8")
     output.mkdir(parents=True, exist_ok=False)
     print(f"Running {mode}: {task}", flush=True)
     agent_rc, agent_seconds, result = run_agent(
-        task, mode, cache_home, output, model, agent_timeout,
+        task, instruction, mode, cache_home, output, model, agent_timeout,
     )
     print(f"Verifying {task.name}...", flush=True)
     verifier_rc, verifier_seconds = run_verifier(
@@ -247,6 +285,8 @@ def evaluate_task(
         "verifier_returncode": verifier_rc,
         "agent_seconds": round(agent_seconds, 2),
         "verifier_seconds": round(verifier_seconds, 2),
+        "input": instruction,
+        "agent_output": str(result.get("result") or ""),
         **usage(result),
         "output": str(output),
     }
@@ -254,6 +294,7 @@ def evaluate_task(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    print_task_report(report)
     return report
 
 
@@ -280,25 +321,136 @@ def summarize(mode: str, reports: list[dict]) -> dict:
     }
 
 
-def print_summary(report: dict) -> None:
-    print("\n| Arm | Passed | Reward | Tokens | Cost | Agent latency |")
-    print("|---|---:|---:|---:|---:|---:|")
-    for mode in ARMS:
-        arm = report["arms"].get(mode)
-        if not arm:
-            continue
-        cost = (
-            f"${arm['cost_usd']:.4f}"
-            if arm["cost_usd"] is not None else "unavailable"
+def mean_or_none(values: list[float | int | None]) -> float | None:
+    return (
+        mean(value for value in values if value is not None)
+        if values and all(value is not None for value in values) else None
+    )
+
+
+def average_items(items: list[dict], reward_field: str) -> dict:
+    return {
+        "passed": bool(items) and all(item["passed"] for item in items),
+        reward_field: mean_or_none([item[reward_field] for item in items]),
+        "total_tokens": mean([item["total_tokens"] for item in items]),
+        "cost_usd": mean_or_none([item["cost_usd"] for item in items]),
+        "agent_seconds": mean([item["agent_seconds"] for item in items]),
+        "verifier_seconds": mean(
+            [item["verifier_seconds"] for item in items]
+        ),
+    }
+
+
+def average_runs(runs: list[dict], modes: tuple[str, ...]) -> dict:
+    arms = {}
+    for mode in modes:
+        run_arms = [run["arms"][mode] for run in runs]
+        arm = {"mode": mode, **average_items(run_arms, "reward_mean")}
+        arm["tasks"] = []
+        for index in range(len(run_arms[0]["tasks"])):
+            task_runs = [run_arm["tasks"][index] for run_arm in run_arms]
+            task = average_items(task_runs, "reward")
+            task["task"] = task_runs[0].get("task")
+            task["mode"] = mode
+            arm["tasks"].append(task)
+        arms[mode] = arm
+    return {
+        "passed": bool(runs) and all(run["passed"] for run in runs),
+        "arms": arms,
+    }
+
+
+def normalize_arms(values: list[str] | None) -> tuple[str, ...]:
+    if not values:
+        return ARMS
+    requested = []
+    for value in values:
+        requested.extend(
+            part.strip() for part in value.split(",") if part.strip()
         )
-        reward = (
-            f"{arm['reward_mean']:.3f}"
-            if arm["reward_mean"] is not None else "unavailable"
+    invalid = sorted(set(requested) - set(ARMS))
+    if invalid:
+        raise ValueError(f"unknown arm(s): {', '.join(invalid)}")
+    if not requested:
+        raise ValueError("--arms requires at least one arm")
+    requested_set = set(requested)
+    return tuple(arm for arm in ARMS if arm in requested_set)
+
+
+def display_arm(mode: str) -> str:
+    return {"direct": "Direct", "cold": "Cold series", "warm": "Warm"}[mode]
+
+
+def percent_change(value: float | int | None,
+                   baseline: float | int | None) -> str:
+    if value is None or baseline in (None, 0):
+        return "unavailable"
+    return f"{((value / baseline) - 1) * 100:+.1f}%"
+
+
+def result_cell(item: dict, reward_field: str) -> str:
+    reward = item[reward_field]
+    formatted = f"{reward:.3f}" if reward is not None else "unavailable"
+    return f"{'PASS' if item['passed'] else 'FAIL'} {formatted}"
+
+
+def comparison_table(report: dict, labels: list[str]) -> str:
+    lines = [
+        "| Workload | Arm / result | Tokens | Cost | Latency | "
+        "Change vs Direct |",
+        "|---|---|---:|---:|---:|---|",
+    ]
+    task_word = "task" if len(labels) == 1 else "tasks"
+    workloads = [(f"All {len(labels)} {task_word}", None)]
+    workloads.extend((label, index) for index, label in enumerate(labels))
+    direct = report["arms"].get("direct")
+    for label, task_index in workloads:
+        direct_item = (
+            None if direct is None else
+            direct if task_index is None else direct["tasks"][task_index]
         )
-        print(
-            f"| {mode} | {'yes' if arm['passed'] else 'no'} | {reward} | "
-            f"{arm['total_tokens']:,} | {cost} | {arm['agent_seconds']:.1f}s |"
-        )
+        reward_field = "reward_mean" if task_index is None else "reward"
+        for mode in ARMS:
+            arm = report["arms"].get(mode)
+            if arm is None:
+                continue
+            item = arm if task_index is None else arm["tasks"][task_index]
+            tokens = item["total_tokens"]
+            cost = item["cost_usd"]
+            latency = item["agent_seconds"]
+            if mode == "direct":
+                change = "-"
+            elif direct_item is None:
+                change = "unavailable (Direct not run)"
+            else:
+                direct_latency = direct_item["agent_seconds"]
+                change = (
+                    f"T {percent_change(tokens, direct_item['total_tokens'])} "
+                    f"\u007c $ {percent_change(cost, direct_item['cost_usd'])} "
+                    f"\u007c L {percent_change(latency, direct_latency)}"
+                )
+            formatted_cost = (
+                f"${cost:.4f}" if cost is not None else "unavailable"
+            )
+            lines.append(
+                f"| {label.replace('|', '&#124;')} | {display_arm(mode)} - "
+                f"{result_cell(item, reward_field)} | {tokens:,.0f} | "
+                f"{formatted_cost} | {latency:.1f}s | "
+                f"{change.replace('|', '&#124;')} |"
+            )
+    return "\n".join(lines)
+
+
+def summary_markdown(runs: list[dict], average: dict,
+                     labels: list[str]) -> str:
+    sections = []
+    for index, run in enumerate(runs, 1):
+        sections += [f"## Run {index}", "", comparison_table(run, labels), ""]
+    sections += [
+        f"## Average across {len(runs)} runs", "",
+        comparison_table(average, labels), "",
+    ]
+    return "\n".join(sections)
 
 
 def run_reset(script: Path, output: Path, timeout: int) -> None:
@@ -318,14 +470,28 @@ def run_reset(script: Path, output: Path, timeout: int) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ").lower()
+    run_dir = REPO_ROOT / "local_eval" / stamp
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", type=Path, action="append", required=True,
                         help="generated Harbor task directory")
     parser.add_argument("--mode", choices=(*ARMS, "compare"),
                         default="direct")
     parser.add_argument(
+        "--arms", nargs="+",
+        help="arms to run with --mode compare; defaults to direct cold warm",
+    )
+    parser.add_argument(
+        "--runs", "--repeat", dest="runs", type=positive_int, default=1,
+        help="number of independent runs; defaults to 1",
+    )
+    parser.add_argument(
+        "--task-label", action="append",
+        help="display label for a --task, in the same order; repeat for each "
+             "task",
+    )
+    parser.add_argument(
         "--cache-home", type=Path,
-        default=Path("/tmp/skill-eval-local-cache") / stamp,
+        default=run_dir / "cache",
         help="shared cache for cold and warm; defaults to a new timestamped "
              "directory",
     )
@@ -337,8 +503,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--model", default=os.environ.get("ANTHROPIC_MODEL"),
                         help="Claude model; defaults to ANTHROPIC_MODEL")
-    parser.add_argument("--output", type=Path,
-                        default=Path("/tmp/skill-eval-local") / stamp)
+    parser.add_argument("--output", type=Path, default=run_dir / "results")
     parser.add_argument("--agent-timeout", type=int, default=3600)
     parser.add_argument("--verifier-timeout", type=int, default=1800)
     parser.add_argument("--reset-timeout", type=int, default=300)
@@ -359,41 +524,75 @@ def main(argv: list[str] | None = None) -> int:
                     or not (task / "task.toml").is_file():
                 raise FileNotFoundError(f"not a generated Harbor task: {task}")
             task_spec(task, args.spec)
-        modes = ARMS if args.mode == "compare" else (args.mode,)
+        if args.arms and args.mode != "compare":
+            raise ValueError("--arms is valid only with --mode compare")
+        requested = normalize_arms(args.arms)
+        modes = (
+            requested
+            if args.mode == "compare" else (args.mode,)
+        )
+        if args.task_label and len(args.task_label) != len(tasks):
+            raise ValueError(
+                "--task-label must be repeated once for every --task"
+            )
+        labels = args.task_label or [task.name for task in tasks]
         if args.mode == "compare" and not args.reset_script:
             raise ValueError("compare mode requires --reset-script")
-        if "cold" in modes:
-            check_cache("cold", cache_home)
-        elif "warm" in modes:
-            check_cache("warm", cache_home)
         reset_script = (
             args.reset_script.expanduser().resolve() if args.reset_script else None
         )
         if reset_script and not reset_script.is_file():
             raise FileNotFoundError(f"reset script not found: {reset_script}")
         output.mkdir(parents=True, exist_ok=False)
-        summaries = {}
-        for mode in modes:
-            arm_output = output / mode
-            arm_output.mkdir()
-            if reset_script:
-                run_reset(reset_script, arm_output, args.reset_timeout)
-            if mode == "warm":
-                check_cache("warm", cache_home)
-            reports = []
-            for index, task in enumerate(tasks, 1):
-                report = evaluate_task(
-                    task, mode, cache_home,
-                    arm_output / f"{index:02d}-{task.name}",
-                    args.model, args.agent_timeout, args.verifier_timeout,
-                    args.spec,
-                )
-                reports.append(report)
-            summaries[mode] = summarize(mode, reports)
+        runs = []
+        for run_index in range(1, args.runs + 1):
+            run_output = (
+                output if args.runs == 1 else output / f"run-{run_index:02d}"
+            )
+            if args.runs > 1:
+                run_output.mkdir()
+            run_cache = (
+                cache_home if args.runs == 1 or cache_home is None else
+                cache_home / f"run-{run_index:02d}"
+            )
+            if "cold" in modes:
+                check_cache("cold", run_cache)
+            elif "warm" in modes:
+                check_cache("warm", run_cache)
+            summaries = {}
+            for mode in modes:
+                arm_output = run_output / mode
+                arm_output.mkdir()
+                if reset_script:
+                    run_reset(reset_script, arm_output, args.reset_timeout)
+                if mode == "warm":
+                    check_cache("warm", run_cache)
+                reports = []
+                for index, task in enumerate(tasks, 1):
+                    report = evaluate_task(
+                        task, mode, run_cache,
+                        arm_output / f"{index:02d}-{task.name}",
+                        args.model, args.agent_timeout, args.verifier_timeout,
+                        args.spec,
+                    )
+                    reports.append(report)
+                summaries[mode] = summarize(mode, reports)
+            runs.append({
+                "run": run_index,
+                "passed": len(summaries) == len(modes) and all(
+                    value["passed"] for value in summaries.values()
+                ),
+                "arms": summaries,
+                "cache_home": str(run_cache) if run_cache else None,
+                "output": str(run_output),
+            })
+        average = average_runs(runs, modes)
         report = {
-            "passed": len(summaries) == len(modes)
-                      and all(value["passed"] for value in summaries.values()),
-            "arms": summaries,
+            "passed": average["passed"],
+            "run_count": args.runs,
+            "runs": runs,
+            "average": average,
+            "arms": average["arms"],
             "cache_home": str(cache_home) if cache_home else None,
             "output": str(output),
         }
@@ -401,8 +600,11 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(report, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        print_summary(report)
+        markdown = summary_markdown(runs, average, labels)
+        (output / "summary.md").write_text(markdown, encoding="utf-8")
+        print(f"\n{markdown}")
         print(f"\nFull result: {output / 'result.json'}")
+        print(f"Markdown summary: {output / 'summary.md'}")
         return 0 if report["passed"] else 1
     except (FileNotFoundError, RuntimeError, ValueError, OSError,
             subprocess.SubprocessError) as exc:

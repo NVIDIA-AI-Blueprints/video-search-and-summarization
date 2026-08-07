@@ -109,15 +109,59 @@ python3 tools/plan_exec_cache/integrations/harbor/local_eval.py \
   --output /tmp/local-postdeploy-comparison
 ```
 
-When `--cache-home` is omitted, the evaluator creates a fresh directory under
-`/tmp/skill-eval-local-cache/<timestamp>`. The final report records its path.
-Pass `--cache-home` only when separate cold and warm commands must share one
-specific cache.
+`compare` runs all three arms by default. Select a subset with `--arms`; the
+selected arms still share one automatically generated cache directory:
+
+```bash
+python3 tools/plan_exec_cache/integrations/harbor/local_eval.py \
+  --mode compare --arms cold warm \
+  --task /tmp/skill-eval-ask/base/l40s/step-2 \
+  --task /tmp/skill-eval-ask/base/l40s/step-3 \
+  --task /tmp/skill-eval-ask/base/l40s/step-4 \
+  --task /tmp/skill-eval-report/base/l40s/step-4 \
+  --reset-script .github/skill-eval/fixtures/reset_vios_upload.py
+```
+
+Repeat the complete comparison three times with `--runs 3`. Each run gets an
+independent cold/warm procedure cache. Optional labels make the generated
+tables use short workload names:
+
+```bash
+python3 tools/plan_exec_cache/integrations/harbor/local_eval.py \
+  --mode compare \
+  --arms direct cold warm \
+  --runs 3 \
+  --task /tmp/skill-eval-ask/base/l40s/step-2 \
+  --task-label Upload \
+  --task /tmp/skill-eval-ask/base/l40s/step-3 \
+  --task-label Readiness \
+  --task /tmp/skill-eval-ask/base/l40s/step-4 \
+  --task-label "Video QA" \
+  --task /tmp/skill-eval-report/base/l40s/step-4 \
+  --task-label Report \
+  --reset-script .github/skill-eval/fixtures/reset_vios_upload.py \
+  --output /tmp/local-postdeploy-comparison-3-runs
+```
+
+The output contains `run-01/`, `run-02/`, and `run-03/`, plus a top-level
+`summary.md` with one table per run and an average table. `result.json` keeps
+the individual results under `runs` and the aggregated metrics under
+`average`. Average tokens, cost, and agent latency are arithmetic means of the
+three complete runs; changes versus Direct are calculated from those means.
+Verifier latency remains available in `result.json` but is not included in the
+table's Latency column. A result is shown as PASS in the average only when it
+passed in every run.
+
+When paths are omitted, the evaluator stores each run under
+`local_eval/<timestamp>/`, with procedures in `cache/` and benchmark artifacts
+in `results/`. The final report records the cache path. Pass `--cache-home`
+only when separate cold and warm commands must share one specific cache.
 
 The command records failed tasks without skipping later tasks or arms. Each arm
 has its own task artifacts under the output directory, and the top-level
 `result.json` contains the direct, cold, and warm aggregate reward, tokens,
-cost, and latency.
+cost, and latency. After each task, the evaluator also prints its input, agent
+output, pass/reward, tokens, cost, and agent/verifier latency.
 
 ### Generate example tasks
 
