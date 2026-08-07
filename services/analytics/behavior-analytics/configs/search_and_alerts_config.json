@@ -159,10 +159,6 @@
 		{
 			"name": "playbackStartUpDelaySec",
 			"value": "90"
-		},
-		{
-			"name": "inSimulationMode",
-			"value": "true"
 		}
 	]
 }

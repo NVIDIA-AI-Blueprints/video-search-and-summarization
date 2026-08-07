@@ -52,7 +52,6 @@ class TestStateMgmtLogic:
     def full_config(self):
         """Config with all attributes required by StateMgmt."""
         config = Mock(spec=AppConfig)
-        config.in_simulation_mode = True
         config.traj_smooth_min_points = 3
         config.traj_smooth_window_size = 3
         config.traj_distance_stride = 1
@@ -95,22 +94,6 @@ class TestStateMgmtLogic:
             ),
             place=Place(id="place1", name="test_place"),
         )
-
-    # --- _get_current_timestamp ---
-    def test_get_current_timestamp_simulation_mode_returns_sensor_latest(self, state_mgmt, full_config):
-        """_get_current_timestamp in simulation mode returns sensor_latest_timestamp[sensor_id] or None."""
-        full_config.in_simulation_mode = True
-        state_mgmt.sensor_latest_timestamp["s1"] = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        assert state_mgmt._get_current_timestamp("s1") == datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        assert state_mgmt._get_current_timestamp("unknown_sensor") is None
-
-    def test_get_current_timestamp_non_simulation_returns_now(self, state_mgmt, full_config):
-        """_get_current_timestamp when not in simulation returns datetime.now(utc)."""
-        full_config.in_simulation_mode = False
-        before = datetime.now(timezone.utc)
-        result = state_mgmt._get_current_timestamp("s1")
-        after = datetime.now(timezone.utc)
-        assert before <= result <= after
 
     # --- _update_sensor_latest_timestamp ---
     def test_update_sensor_latest_timestamp_updates_on_new_or_newer(self, state_mgmt):
@@ -560,7 +543,6 @@ class TestStateMgmtEmitOnce:
     def emit_once_config(self):
         """Config with emit-once enabled and all attributes required by StateMgmt."""
         config = Mock(spec=AppConfig)
-        config.in_simulation_mode = True
         config.traj_smooth_min_points = 3
         config.traj_smooth_window_size = 3
         config.traj_distance_stride = 1
@@ -751,9 +733,8 @@ class TestStateMgmtEmitOnce:
         assert other_sensor_key in state_mgmt.state
         assert other_sensor_key in state_mgmt.behavior_holdback.pending
 
-    def test_ingestion_lag_does_not_end_live_tracks(self, state_mgmt, emit_once_config):
-        """In live mode the sweep uses event time, so a lagging pipeline is not mistaken for silence."""
-        emit_once_config.in_simulation_mode = False
+    def test_ingestion_lag_does_not_end_live_tracks(self, state_mgmt):
+        """The sweep uses event time, so a lagging pipeline is not mistaken for silence."""
         key = "sensor1 #-# obj1"
         # Messages arrive 30s behind the wall clock — far past the 6s valid interval. Silence is judged
         # on the sensor's own event clock, which has advanced by only 1s, so the lag is not mistaken
@@ -1023,7 +1004,6 @@ class TestStateMgmtBatchApi:
     @pytest.fixture
     def mock_config(self):
         config = Mock(spec=AppConfig)
-        config.in_simulation_mode = True
         config.traj_smooth_min_points = 3
         config.traj_smooth_window_size = 3
         config.traj_distance_stride = 1
