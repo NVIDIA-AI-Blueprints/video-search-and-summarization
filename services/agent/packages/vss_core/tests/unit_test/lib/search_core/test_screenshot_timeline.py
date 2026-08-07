@@ -11,6 +11,7 @@ point outside the recording and VST answers
 
 from __future__ import annotations
 
+from vss_core.vst import map_interval_to_timeline
 from vss_core.vst import map_timestamp_to_timeline
 
 TL_START = "2026-07-18T04:15:21.640Z"
@@ -49,6 +50,28 @@ def test_wall_clock_before_timeline_start_is_rebased_not_clamped_blindly() -> No
     # midnight-anchored offsets always rebase, never silently pin to start.
     mapped = map_timestamp_to_timeline("2025-01-01T00:00:30Z", TL_START, TL_END)
     assert mapped == "2026-07-18T04:15:51.640Z"
+
+
+def test_cross_midnight_interval_preserves_duration() -> None:
+    start, end = map_interval_to_timeline(
+        "2025-01-01T23:59:50Z",
+        "2025-01-02T00:00:10Z",
+        "2026-07-18T04:15:21.640Z",
+        "2026-07-19T04:16:21.640Z",
+    )
+    assert start == "2026-07-19T04:15:11.640Z"
+    assert end == "2026-07-19T04:15:31.640Z"
+
+
+def test_multi_day_file_offset_preserves_day_component() -> None:
+    start, end = map_interval_to_timeline(
+        "2025-01-02T01:00:00Z",
+        "2025-01-02T01:00:20Z",
+        "2026-07-18T04:15:21.640Z",
+        "2026-07-20T04:15:21.640Z",
+    )
+    assert start == "2026-07-19T05:15:21.640Z"
+    assert end == "2026-07-19T05:15:41.640Z"
 
 
 def test_unknown_stream_in_populated_timelines_means_no_url() -> None:

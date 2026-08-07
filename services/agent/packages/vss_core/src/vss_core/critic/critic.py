@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.time import datetime_to_iso8601
+from vss_core.vst.client import map_interval_to_timeline
 
 from .models import CriticAgentInput
 from .models import CriticAgentOutput
@@ -254,7 +255,26 @@ class CriticAgent:
         candidates = verifiable[:video_count]
 
         tasks = [self._evaluate_video(semaphore, v, inp.query) for v in candidates]
-        results = await asyncio.gather(*tasks)
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        results: list[VideoResult] = []
+        for index, (video, outcome) in enumerate(zip(candidates, outcomes, strict=True)):
+            if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
+                raise outcome
+            if isinstance(outcome, Exception):
+                logger.error(
+                    "Unexpected critic failure for candidate %d (%s); marking only that candidate unverified",
+                    index,
+                    type(outcome).__name__,
+                )
+                results.append(
+                    VideoResult(
+                        video_info=video,
+                        result=CriticAgentResult.UNVERIFIED,
+                        criteria_met={},
+                    )
+                )
+            else:
+                results.append(outcome)
 
         confirmed = sum(1 for r in results if r.result == CriticAgentResult.CONFIRMED)
         rejected = sum(1 for r in results if r.result == CriticAgentResult.REJECTED)
@@ -296,13 +316,42 @@ class CriticAgent:
                         )
                     clip_start_iso, clip_end_iso = await self._vst.get_timeline(stream_id)
                     clip_start_dt = _parse_iso(clip_start_iso)
-                    start_offset = _to_offset(video.start_timestamp, clip_start_dt)
-                    end_offset = _to_offset(video.end_timestamp, clip_start_dt)
+                    # File-search hits use a synthetic midnight-anchored date,
+                    # while VST records the same file at ingestion wall-clock,
+                    # so those bounds have to be rebased onto the real stream
+                    # timeline. Restrict the rebase to that case: a wall-clock
+                    # bound that falls outside the timeline (an aged-out live
+                    # segment, a re-ingested file whose timeline moved) would
+                    # otherwise be silently re-anchored onto unrelated footage
+                    # and earn a confident confirmed/rejected verdict. Left
+                    # literal, VST rejects it and the candidate fails open to
+                    # `unverified`, which is the honest answer.
+                    start_iso = datetime_to_iso8601(video.start_timestamp)
+                    end_iso = datetime_to_iso8601(video.end_timestamp)
+                    if video.source_type == "video_file":
+                        start_iso, end_iso = map_interval_to_timeline(
+                            start_iso,
+                            end_iso,
+                            clip_start_iso,
+                            clip_end_iso,
+                        )
+                    start_offset = _to_offset(start_iso, clip_start_dt)
+                    end_offset = _to_offset(end_iso, clip_start_dt)
                     # Clamp end_offset to the clip's actual end if the caller asked
                     # for more than is available (matches original L259-260).
                     clip_end_offset = _to_offset(_parse_iso(clip_end_iso), clip_start_dt)
                     if end_offset > clip_end_offset:
                         end_offset = clip_end_offset
+                    if start_offset < 0 or start_offset >= clip_end_offset or end_offset <= start_offset:
+                        # The interval is not inside this recording — a negative
+                        # offset, a start past the end, or an interval that
+                        # clamping collapsed to zero length. Any of those would
+                        # ask the VLM to judge frames the caller never retrieved,
+                        # so fail open to `unverified` instead.
+                        raise BackendUnreachableError(
+                            "vst",
+                            f"requested interval lies outside the recorded timeline for sensor {video.sensor_id}",
+                        )
                     vlm_response = await self._vlm.analyze(
                         sensor_id=video.sensor_id,
                         start_timestamp=str(start_offset),

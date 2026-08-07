@@ -3,11 +3,96 @@
     "id": "search-archive",
     "question": "Run a natural-language fusion search over archived VSS video, ingesting a clip first if needed.",
     "expected_skill": "vss-search-archive",
-    "ground_truth": "Loads vss-search-archive and runs top-level VSS fusion search on archived video (or ingests video files / RTSP streams for search); not ad-hoc Q&A or live captioning.",
+    "expected_script": null,
+    "ground_truth": "The agent searches the requested archived source with fusion retrieval, using the agent-backed ingestion lifecycle first only when the named source is absent and the user authorizes ingestion.",
     "expected_behavior": [
-      "Loads vss-search-archive and runs fusion search on archived video, ingesting first if needed.",
-      "Does not route to Q&A or live-captioning skills.",
-      "Does not print plaintext API tokens or other secrets."
+      "The agent loads vss-search-archive and preserves the requested source and visual constraints.",
+      "The agent uses the supported search interface for the selected deployment.",
+      "The agent does not expose credentials, substitute another source, or mutate a backend directly."
+    ]
+  },
+  {
+    "id": "search-archive-implicit",
+    "question": "Find up to three clips in dock_cam where a forklift crosses in front of a worker.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent resolves dock_cam, performs bounded archive retrieval for the requested forklift-and-worker action, and reports the returned candidates as retrieval evidence.",
+    "expected_behavior": [
+      "The agent loads vss-search-archive without requiring the user to name the skill.",
+      "The agent resolves dock_cam before search and preserves the action and three-result limit.",
+      "The agent does not claim that similarity alone visually confirms the event."
+    ]
+  },
+  {
+    "id": "search-archive-confirm-verification",
+    "question": "Both archive-search hits were shown and both CLI critic results are unverified. Yes, verify the two results now.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "Because every previously displayed hit is unverified, the agent treats the message as post-results confirmation and delegates those exact hits to vss-ask-video without rerunning retrieval.",
+    "expected_behavior": [
+      "The agent loads vss-search-archive and uses the exact previously displayed sources and intervals.",
+      "The agent confirms the complete displayed set contains no confirmed or rejected hit, invokes vss-ask-video with at most three calls concurrently, and does not rerun search.",
+      "The agent uses screenshot inspection only after a technical ask-video failure."
+    ]
+  },
+  {
+    "id": "search-archive-results-first",
+    "question": "Search warehouse-ladder for someone climbing a ladder and verify whatever you find.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent performs archive retrieval, reports the CLI critic verdict for every candidate, and asks about delegated verification only when every displayed hit remains unverified.",
+    "expected_behavior": [
+      "The agent loads vss-search-archive and searches the exact warehouse-ladder source.",
+      "The agent displays nonempty retrieval results with confirmed, rejected, or unverified critic states before any follow-up question.",
+      "The agent asks about fallback verification only if the complete nonempty result set is unverified and does not inspect screenshots or call vss-ask-video in the same turn."
+    ]
+  },
+  {
+    "id": "search-archive-partially-verified",
+    "question": "The three search hits are shown: one is confirmed and two are unverified. Should you verify the other two?",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent does not offer or invoke delegated ask-video verification because at least one result already has a usable CLI critic verdict.",
+    "expected_behavior": [
+      "The agent recognizes that the displayed result set is partially verified.",
+      "The agent does not invoke vss-ask-video for any hit and does not inspect screenshots.",
+      "The agent explains that fallback delegation is reserved for result sets in which every hit is unverified."
+    ]
+  },
+  {
+    "id": "search-archive-missing-source",
+    "question": "Search the airport video for forklifts.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent lists registered sources and, when no airport source exists, reports the missing source and asks for clarification or explicit ingestion instead of substituting another video.",
+    "expected_behavior": [
+      "The agent loads vss-search-archive and checks registered sources before search.",
+      "The agent does not run unrestricted retrieval when the requested source is absent.",
+      "The agent does not leak secrets or ingest media without authorization."
+    ]
+  },
+  {
+    "id": "search-archive-negative-direct-video-qa",
+    "question": "Watch /workspace/input/forklift.mp4 and tell me whether the driver is wearing a helmet.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "The agent answers the fresh visual question using a video-Q&A capability against the supplied local clip.",
+    "expected_behavior": [
+      "The agent does not load or activate vss-search-archive.",
+      "The agent routes the local-video visual question to vss-ask-video or an equivalent video-Q&A workflow."
+    ]
+  },
+  {
+    "id": "search-archive-negative-summary",
+    "question": "Summarize the full hour-long recording from loading_dock_2.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "The agent uses the video summarization workflow to summarize the requested full recording.",
+    "expected_behavior": [
+      "The agent does not load or activate vss-search-archive.",
+      "The agent routes the long-recording summary request to vss-summarize-video or an equivalent summarization workflow."
     ]
   }
 ]
