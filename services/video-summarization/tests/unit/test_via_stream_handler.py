@@ -263,6 +263,8 @@ def _make_mock_stream_handler():
         handler.num_ctx_mgr = 0
         handler.MAX_STREAMS = 4
         handler._start_time = time.time()
+        # Bypass real __init__; empty-guard needs this (0 => single attempt).
+        handler._aggregation_empty_retries = 0
         return handler
 
 
