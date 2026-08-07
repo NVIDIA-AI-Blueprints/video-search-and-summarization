@@ -4022,6 +4022,18 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             invalid_cases["valid-probe-after-env-bootstrap"] = (
                 env_bootstrap_first
             )
+            host_ip_export_first = self._rtsp_tool_trajectory(
+                command=(
+                    "export HOST_IP=host.openshell.internal && "
+                    'echo "HOST_IP=$HOST_IP"'
+                )
+            )
+            host_ip_export_first["steps"].extend(
+                self._rtsp_tool_trajectory()["steps"]
+            )
+            invalid_cases["valid-probe-after-host-ip-export"] = (
+                host_ip_export_first
+            )
             direct_exec_first = self._rtsp_tool_trajectory()
             direct_exec_first["steps"].insert(
                 0,
@@ -12214,7 +12226,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
 
         self.assertIn("`vss_orchestrator__rtsp_sample_probe`", prompt)
-        self.assertIn("As your first OpenClaw `exec` call", prompt)
+        self.assertIn("## Mandatory pre-bootstrap exec", prompt)
+        self.assertIn("make your first OpenClaw `exec` call exactly", prompt)
+        self.assertIn("Do not run the normal `export HOST_IP=...`", prompt)
+        self.assertLess(
+            prompt.index("## Mandatory pre-bootstrap exec"),
+            prompt.index("Use the `/vss-deploy-dense-captioning` skill"),
+        )
         self.assertIn("with no URL argument", prompt)
         self.assertIn("never pass the URL through MCP", prompt)
         self.assertIn("never pass the URL through MCP or print its value", prompt)
@@ -12253,13 +12271,18 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(len(first["checks"]), 5)
 
     def test_nemoclaw_workspace_runs_dense_rtsp_probe_before_env_bootstrap(self):
-        workspace_instructions = (
-            REPO_ROOT
-            / ".openclaw"
-            / "workspace"
-            / "_nemoclaw"
-            / "AGENTS.md"
-        ).read_text(encoding="utf-8")
+        workspace_root = (
+            REPO_ROOT / ".openclaw" / "workspace" / "_nemoclaw"
+        )
+        workspace_instructions = (workspace_root / "AGENTS.md").read_text(
+            encoding="utf-8"
+        )
+        bootstrap_instructions = (workspace_root / "BOOTSTRAP.md").read_text(
+            encoding="utf-8"
+        )
+        tool_instructions = (workspace_root / "TOOLS.md").read_text(
+            encoding="utf-8"
+        )
         canonical = headless_runner.RTSP_TOOL_ENV_PROBE_COMMAND
 
         self.assertIn(f"`{canonical}`", workspace_instructions)
@@ -12276,8 +12299,35 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             workspace_instructions,
         )
         self.assertIn(
-            "no other request may reorder\nthe session bootstrap",
+            "do not run\n`export HOST_IP=host.openshell.internal`",
             workspace_instructions,
+        )
+        self.assertIn(
+            "no other request may reorder the session bootstrap",
+            workspace_instructions,
+        )
+        self.assertIn(
+            "## Step 0: Automated dense-captioning RTSP gate",
+            bootstrap_instructions,
+        )
+        self.assertIn(canonical, bootstrap_instructions)
+        self.assertLess(
+            bootstrap_instructions.index(canonical),
+            bootstrap_instructions.index(
+                '## Step 1: Run AGENTS.md "Every Session"'
+            ),
+        )
+        self.assertIn(
+            "before the `AGENTS.md` Every Session checklist",
+            bootstrap_instructions,
+        )
+        self.assertIn(
+            "do not run `export HOST_IP=...` first",
+            bootstrap_instructions,
+        )
+        self.assertIn(
+            "Never run the `HOST_IP` export first in that eval",
+            tool_instructions,
         )
 
     def test_nemoclaw_wrapper_rejects_conflicting_gpu_boundary(self):

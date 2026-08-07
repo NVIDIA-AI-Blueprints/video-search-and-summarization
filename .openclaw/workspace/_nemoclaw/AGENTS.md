@@ -16,9 +16,10 @@ exact command once through the OpenClaw `exec` tool before reading or exporting
 `ENV.md`. Require exit code 0 and the sole output `RTSP_SAMPLE_URL is set`; if
 it fails, stop with a missing-prerequisite error. Do not prepend `cat ENV.md`,
 combine the probe with another command, expand the URL through another tool,
-or print the variable's value. This exception does not apply to another skill,
-an interactive request, or a different command; no other request may reorder
-the session bootstrap.
+or print the variable's value. In particular, do not run
+`export HOST_IP=host.openshell.internal` or an `echo $HOST_IP` check first.
+This exception does not apply to another skill, an interactive request, or a
+different command; no other request may reorder the session bootstrap.
 
 After that prerequisite (or immediately when it does not apply):
 
