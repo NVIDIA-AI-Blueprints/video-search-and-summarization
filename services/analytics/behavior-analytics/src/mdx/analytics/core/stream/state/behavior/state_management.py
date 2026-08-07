@@ -15,7 +15,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import Behavior, Message, ObjectState, Coordinate
@@ -183,26 +183,6 @@ class StateMgmt:
             >>> detector.update_live_object(state_manager.live_object_ids())
         """
         return list(self.state.keys())
-
-    def _get_current_timestamp(self, sensorId: str) -> datetime | None:
-        """
-        Get the current timestamp for a sensor.
-
-        In simulation mode, returns the latest timestamp for the sensor.
-        Otherwise, returns the current UTC time.
-
-        :param str sensorId: The sensor ID to get timestamp for.
-        :return datetime | None: Current timestamp for the sensor, or None if not found in simulation mode.
-        :raises ValueError: If in simulation mode and no timestamp exists for sensor.
-
-        Examples::
-            >>> state_manager = StateMgmt(config)
-            >>> timestamp = state_manager._get_current_timestamp("sensor1")
-            >>> print(f"Current timestamp: {timestamp}")
-        """
-        if not self.config.in_simulation_mode:
-            return datetime.now(timezone.utc)
-        return self.sensor_latest_timestamp.get(sensorId)
 
     def _update_sensor_latest_timestamp(self, messages: list[Message]) -> None:
         """
