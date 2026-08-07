@@ -16,7 +16,7 @@
  */
 import LOG from '../../../utils/misc/Logger';
 import React, { useState, useEffect } from 'react';
-import ReactApexChart from 'react-apexcharts';
+import ReactApexChart from '../../../components/charts/ApexChart';
 import { Button, Grid2 as Grid, Paper, Typography, useTheme } from '@mui/material';
 import config from '../../../config';
 import nvAxios from '../../../services/Axios';
