@@ -108,6 +108,14 @@ class StateMgmt:
         """
         batch = BehaviorBatch()
 
+        # One call is one batch, and that has to cover the policy as well as the data.
+        # ``behaviorEmitOnce`` is runtime-updatable, so reading it once to retain and again to decide
+        # what to write lets an update land between the two and tear the branch: flipping off->on in
+        # that window retains nothing and then writes ``take_ended()``, so this batch's behaviors are
+        # dropped for good rather than delayed. Latched here, a flip costs at most a one-batch delay,
+        # which is what every other runtime-updatable key already does.
+        emit_once = self.config.behavior_emit_once
+
         for message_key, messages in messages_map.items():
             behavior, trip_behavior = self._process_key(message_key, messages)
             if behavior:
@@ -117,14 +125,14 @@ class StateMgmt:
 
         # Retain before ending, so a track that both produced a behavior and fell silent in the same
         # batch still reaches the stream: the sweep below releases whatever was just retained.
-        if self.config.behavior_emit_once:
+        if emit_once:
             self.behavior_holdback.retain(batch.active_behaviors)
 
         # Runs in both modes -- ending a track is what reclaims its state, so per-batch mode depends
         # on it too, even though it holds nothing back.
         self._end_inactive_behaviors()
 
-        if self.config.behavior_emit_once:
+        if emit_once:
             batch.behaviors_to_write = self.behavior_holdback.take_ended()
         else:
             batch.behaviors_to_write = (

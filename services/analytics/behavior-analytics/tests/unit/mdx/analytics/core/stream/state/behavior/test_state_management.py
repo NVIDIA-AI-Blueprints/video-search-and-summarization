@@ -976,6 +976,60 @@ class TestStateMgmtEmitOnce:
         assert written[0].end == base + timedelta(seconds=1)
         assert len(written[0].locations.coordinates) == 2
 
+    def _flip_inside_batch(self, state_mgmt, emit_once_config, to_value: bool) -> None:
+        """Land a config update *inside* process_batch, between the retain and the write decision.
+
+        ``_end_inactive_behaviors`` is called between the two, so wrapping it puts the flip in exactly
+        the window a dynamic update can land in.
+        """
+        original = state_mgmt._end_inactive_behaviors
+
+        def flip_then_end():
+            emit_once_config.behavior_emit_once = to_value
+            original()
+
+        state_mgmt._end_inactive_behaviors = flip_then_end
+
+    def test_emit_once_flip_inside_a_batch_does_not_drop_behaviors(self, state_mgmt, emit_once_config):
+        """A flip landing mid-batch costs a one-batch delay, never the batch itself.
+
+        ``behaviorEmitOnce`` is runtime-updatable, so an update can land between the retain and the
+        decision about what to write. Read separately at both points, an off->on flip in that window
+        retained nothing and then wrote ``take_ended()``, so the batch's behaviors were dropped for
+        good rather than delayed. process_batch latches the value once, so a batch finishes under the
+        value it started with.
+        """
+        emit_once_config.behavior_emit_once = False
+        key = "sensor1 #-# obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        self._flip_inside_batch(state_mgmt, emit_once_config, to_value=True)
+        written = self._feed(state_mgmt, key, "obj1", base, 0.0)
+
+        # Started off, so it finishes off -- written per-batch rather than swallowed.
+        assert [b.id for b in written] == [key]
+        assert state_mgmt.behavior_holdback.pending == {}
+
+        # The update still lands; it just takes effect from the next batch.
+        assert self._feed(state_mgmt, key, "obj1", base + timedelta(seconds=1), 1.0) == []
+        assert list(state_mgmt.behavior_holdback.pending) == [key]
+
+    def test_emit_once_flip_off_inside_a_batch_does_not_duplicate(self, state_mgmt, emit_once_config):
+        """The same latch in reverse: an on->off flip mid-batch must not also write per-batch.
+
+        Unlatched, the batch would retain the behavior and then take the else-branch, writing the
+        active behavior too -- so the track goes out once now and again when it ends.
+        """
+        key = "sensor1 #-# obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        self._flip_inside_batch(state_mgmt, emit_once_config, to_value=False)
+        written = self._feed(state_mgmt, key, "obj1", base, 0.0)
+
+        # Started on, so it finishes on -- held back, nothing written twice.
+        assert written == []
+        assert list(state_mgmt.behavior_holdback.pending) == [key]
+
     def test_emit_once_round_trip_leaves_nothing_held(self, state_mgmt, emit_once_config):
         """Toggling on, off and on again settles cleanly, holding nothing stale from earlier phases."""
         key = "sensor1 #-# obj1"

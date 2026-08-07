@@ -49,11 +49,16 @@ class StateMgmt:
         self.config = config             # reference, not value
 
     def some_method(self):
-        if self.config.behavior_emit_once:       # read-at-use
+        if idle_sec >= self.config.behavior_state_valid_interval:   # read-at-use
             ...
 ```
 
 **Behavior under dynamic updates:** `ConfigApplier.apply(...)` mutates `config.app` then calls `config.invalidate_caches()`. The next read returns the new value. **No additional code needed.**
+
+That last sentence is about *value propagation* only. A key that changes what a component
+**does** may still need transition code for state accumulated under the old value —
+`behaviorEmitOnce` is the example, and `StateMgmt._carry_over_held_behaviors` is what it needs.
+Read-at-use gets the new value to you; it does not decide what to do with the old one.
 
 ### Per-call value-capture (rotates within seconds)
 
