@@ -149,60 +149,6 @@ const PutFileUpload: React.FC = () => {
         return true;
     }, [isLegacy, sensorId, timestampInput, enqueueSnackbar]);
 
-<<<<<<< ours
-=======
-    const formatTimestamp = (input: string): string => {
-        try {
-            const numericTimestamp = Number(input);
-            const parsedTimestamp = !Number.isNaN(numericTimestamp) && numericTimestamp > 0 ? new Date(numericTimestamp) : new Date(input);
-            if (Number.isNaN(parsedTimestamp.getTime())) {
-                throw new Error('Invalid timestamp');
-            }
-            return parsedTimestamp.toISOString();
-        } catch (error) {
-            throw new Error('Invalid timestamp format. Use Unix timestamp or ISO 8601');
-        }
-    };
-
-    const handleUploadError = useCallback(
-        (error: unknown, file: File): void => {
-            LOG.error('PUT upload error:', error);
-            LOG.error('Error details:', {
-                message: error instanceof Error ? error.message : 'Unknown error',
-                response: error instanceof AxiosError ? error.response : null,
-                request: error instanceof AxiosError ? error.request : null,
-            });
-
-            setUploadFailed(true);
-            LOG.info('Upload failed, states updated, ready for next upload');
-
-            // Store error response data if available
-            if (error instanceof AxiosError && error.response) {
-                const errorResponse = error.response;
-                setUploadResponse({
-                    fileName: file.name,
-                    response: {
-                        status: errorResponse.status,
-                        statusText: errorResponse.statusText,
-                        headers: errorResponse.headers as Record<string, string>,
-                        data: errorResponse.data,
-                        error: true,
-                    },
-                    timestamp: new Date().toISOString(),
-                });
-            }
-
-            if (error instanceof AxiosError) {
-                const errorMsg = error.response?.data?.message || error.message;
-                enqueueSnackbar(`Upload failed for "${file.name}": ${errorMsg}`, { variant: 'error' });
-            } else {
-                enqueueSnackbar(`Upload failed for "${file.name}": Unknown error`, { variant: 'error' });
-            }
-        },
-        [enqueueSnackbar]
-    );
-
->>>>>>> theirs
     const uploadFileWithPut = useCallback(
         async (file: File): Promise<boolean> => {
             try {
@@ -263,7 +209,6 @@ const PutFileUpload: React.FC = () => {
                 enqueueSnackbar(`File "${fileName}" uploaded successfully`, { variant: 'success' });
                 return true;
             } catch (error) {
-<<<<<<< ours
                 logUploadError(error);
 
                 setUploadFailed(true);
@@ -276,13 +221,10 @@ const PutFileUpload: React.FC = () => {
                 }
 
                 enqueueSnackbar(`Upload failed for "${file.name}": ${getUploadErrorMessage(error)}`, { variant: 'error' });
-=======
-                handleUploadError(error, file);
->>>>>>> theirs
                 return false;
             }
         },
-        [sensorId, timestampInput, customFilename, isLegacy, enqueueSnackbar, handleUploadError]
+        [sensorId, timestampInput, customFilename, isLegacy, enqueueSnackbar, validateInputs]
     );
 
     const handleFileUpload = useCallback(

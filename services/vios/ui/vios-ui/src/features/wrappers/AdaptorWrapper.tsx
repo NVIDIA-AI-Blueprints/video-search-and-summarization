@@ -52,14 +52,6 @@ export const VstAdaptorWrapper: React.FC<VstAdaptorWrapperProps> = ({ children }
     useEffect(() => {
         logInfo('Fetching VST adaptor type and version');
 
-<<<<<<< ours
-        const fetchVersion = (url: string) =>
-            nvAxios.get(url).then(response => {
-                if (!isNil(response.data)) {
-                    if (has(response.data, 'type') && has(response.data, 'version')) {
-                        setVstAdaptorType(response.data.type);
-                        setVstVersion(response.data.version);
-=======
         fetchVersion(`${config.sensorManagementEndpoint}/api/v1/sensor/version`)
             .catch(() => {
                 logError('Failed to fetch VST version and type from sensor/version, trying replay/version');
@@ -76,27 +68,11 @@ export const VstAdaptorWrapper: React.FC<VstAdaptorWrapperProps> = ({ children }
                     if (has(data, 'type') && has(data, 'version')) {
                         setVstAdaptorType(data.type);
                         setVstVersion(data.version);
->>>>>>> theirs
                         updateSensorsAndStreams();
                     }
                 }
-            });
-
-        fetchVersion(`${config.sensorManagementEndpoint}/api/v1/sensor/version`)
-            .catch(() => {
-<<<<<<< ours
-                logError('Failed to fetch VST version and type from sensor/version, trying replay/version');
-                // Try replay/version as fallback
-                return fetchVersion(`${config.replayStreamEndpoint}/api/v1/replay/version`);
             })
             .catch(() => {
-                logError('Failed to fetch VST version and type from replay/version, trying live/version');
-                // Try live/version as final fallback
-                return fetchVersion(`${config.liveStreamEndpoint}/api/v1/live/version`);
-            })
-            .catch(() => {
-=======
->>>>>>> theirs
                 logError(
                     'Failed to fetch VST version and type from all endpoints: sensor/version, replay/version, and live/version'
                 );

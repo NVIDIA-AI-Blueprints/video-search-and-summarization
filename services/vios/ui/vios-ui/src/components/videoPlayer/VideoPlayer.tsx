@@ -79,7 +79,6 @@ const DEFAULT_QUALITY = 'auto';
 // Delay before auto-hiding the overlay controls while in fullscreen (YouTube/VLC style).
 const CONTROLS_HIDE_DELAY_MS = 3000;
 
-<<<<<<< ours
 interface SensorTimelineEntry {
     sensorId?: string;
     timelines?: Timeline[];
@@ -147,7 +146,6 @@ const fetchSensorTimelines = async (
 const formatTimelineRange = (startTime?: string, endTime?: string): string =>
     startTime && endTime ? `${startTime} to ${endTime}` : 'full range';
 
-=======
 const getNextPlaybackSpeed = (type: string, currentSpeed: number): number => {
     if (type === 'fastForward') {
         if (currentSpeed >= 1) {
@@ -161,7 +159,6 @@ const getNextPlaybackSpeed = (type: string, currentSpeed: number): number => {
     return currentSpeed === 1 ? -1 : currentSpeed / 2;
 };
 
->>>>>>> theirs
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElementId, onWebRTCStatsUpdate, sensors, onClose }) => {
     // WebRTC and stream management
     const [inboundPeerId, setInboundPeerId] = useState<string>('');

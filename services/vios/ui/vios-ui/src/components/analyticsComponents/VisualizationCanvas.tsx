@@ -137,53 +137,20 @@ const transformTripwireImageCalibrationCoords = (tripwireCoords: TripwireCoords,
     return result;
 };
 
-<<<<<<< ours
 // Transform coordinates if they have negative Y values
 const resolveROICoords = (coords: Point[] | undefined, frameHeight: number): Point[] | undefined =>
     coords && needsCoordinateTransformation(coords) ? transformImageCalibratonCoords(coords, frameHeight) : coords;
 
 const resolveTripwireCoords = (coords: TripwireCoords | undefined, frameHeight: number): TripwireCoords | undefined =>
     coords && tripwireNeedsCoordinateTransformation(coords) ? transformTripwireImageCalibrationCoords(coords, frameHeight) : coords;
-=======
-type CanvasPoint = { x: number; y: number };
-
-type TripwireCoords = {
-    wire: { p1: CanvasPoint; p2: CanvasPoint };
-    direction?: { p1: CanvasPoint; p2: CanvasPoint };
-};
-
-type CanvasGeometry = {
-    canvasWidth: number;
-    canvasHeight: number;
-    frameWidth: number;
-    frameHeight: number;
-    scaleX: number;
-    scaleY: number;
-};
-
-// Label colors that stay readable in both themes
-const getLabelColors = (theme: Theme) => ({
-    fill: theme.palette.mode === 'dark' ? theme.palette.common.white : theme.palette.common.black,
-    stroke: theme.palette.mode === 'dark' ? theme.palette.common.black : theme.palette.common.white,
-});
->>>>>>> theirs
 
 const drawBackground = (
     ctx: CanvasRenderingContext2D,
     theme: Theme,
-<<<<<<< ours
     { canvasWidth, canvasHeight }: CanvasGeometry,
     backgroundImage: HTMLImageElement | null,
     showLiveBackground: boolean
 ) => {
-=======
-    geo: CanvasGeometry,
-    backgroundImage: HTMLImageElement | null,
-    showLiveBackground: boolean
-) => {
-    const { canvasWidth, canvasHeight } = geo;
-
->>>>>>> theirs
     // Clear canvas
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
@@ -193,7 +160,6 @@ const drawBackground = (
         ctx.drawImage(backgroundImage, 0, 0, canvasWidth, canvasHeight);
 
         // Add a subtle overlay to improve contrast for overlays
-<<<<<<< ours
         ctx.fillStyle = alpha(theme.palette.background.paper, modeValue(theme, 0.1, 0.05));
     } else {
         // Draw solid background with better theme integration
@@ -212,27 +178,6 @@ const drawFrameAndGrid = (ctx: CanvasRenderingContext2D, theme: Theme, geometry:
 
     // Draw grid for reference with better visibility
     ctx.strokeStyle = modeValue(theme, alpha(theme.palette.grey[500], 0.3), alpha(theme.palette.grey[400], 0.4));
-=======
-        ctx.fillStyle = alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.1 : 0.05);
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    } else {
-        // Draw solid background with better theme integration
-        ctx.fillStyle = theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50];
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    }
-
-    // Draw frame border with better contrast
-    ctx.strokeStyle = theme.palette.mode === 'dark' ? theme.palette.grey[600] : theme.palette.grey[400];
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, canvasWidth, canvasHeight);
-};
-
-const drawGrid = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry) => {
-    const { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY } = geo;
-
-    // Draw grid for reference with better visibility
-    ctx.strokeStyle = theme.palette.mode === 'dark' ? alpha(theme.palette.grey[500], 0.3) : alpha(theme.palette.grey[400], 0.4);
->>>>>>> theirs
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 2]);
 
@@ -257,20 +202,11 @@ const drawGrid = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeomet
     ctx.setLineDash([]); // Reset line dash
 };
 
-<<<<<<< ours
 const drawROI = (ctx: CanvasRenderingContext2D, theme: Theme, { scaleX, scaleY }: CanvasGeometry, coords?: Point[]) => {
     if (!coords?.length) return;
 
     ctx.strokeStyle = theme.palette.primary.main;
     ctx.fillStyle = alpha(theme.palette.primary.main, modeValue(theme, 0.25, 0.15));
-=======
-const drawRoi = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry, coords: CanvasPoint[]) => {
-    const { scaleX, scaleY } = geo;
-    const labels = getLabelColors(theme);
-
-    ctx.strokeStyle = theme.palette.primary.main;
-    ctx.fillStyle = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.25 : 0.15);
->>>>>>> theirs
     ctx.lineWidth = 3;
 
     ctx.beginPath();
@@ -288,11 +224,7 @@ const drawRoi = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometr
 
     // Draw ROI points with better visibility
     ctx.fillStyle = theme.palette.primary.main;
-<<<<<<< ours
     ctx.strokeStyle = contrastColor(theme);
-=======
-    ctx.strokeStyle = labels.fill;
->>>>>>> theirs
     ctx.lineWidth = 2;
 
     coords.forEach((point, index) => {
@@ -302,13 +234,8 @@ const drawRoi = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometr
         ctx.stroke();
 
         // Draw point labels with better contrast
-<<<<<<< ours
         ctx.fillStyle = contrastColor(theme);
         ctx.strokeStyle = invertedContrastColor(theme);
-=======
-        ctx.fillStyle = labels.fill;
-        ctx.strokeStyle = labels.stroke;
->>>>>>> theirs
         ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'center';
         ctx.lineWidth = 3;
@@ -319,24 +246,12 @@ const drawRoi = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometr
     });
 };
 
-<<<<<<< ours
 const drawDirectionArrow = (
     ctx: CanvasRenderingContext2D,
     theme: Theme,
     { scaleX, scaleY }: CanvasGeometry,
     direction: { p1: Point; p2: Point }
 ) => {
-=======
-const drawTripwireDirection = (
-    ctx: CanvasRenderingContext2D,
-    theme: Theme,
-    geo: CanvasGeometry,
-    direction: { p1: CanvasPoint; p2: CanvasPoint }
-) => {
-    const { scaleX, scaleY } = geo;
-    const labels = getLabelColors(theme);
-
->>>>>>> theirs
     ctx.strokeStyle = theme.palette.warning.main;
     ctx.fillStyle = theme.palette.warning.main;
     ctx.lineWidth = 3;
@@ -368,13 +283,8 @@ const drawTripwireDirection = (
     ctx.stroke();
 
     // Draw direction point labels with better contrast
-<<<<<<< ours
     ctx.fillStyle = contrastColor(theme);
     ctx.strokeStyle = invertedContrastColor(theme);
-=======
-    ctx.fillStyle = labels.fill;
-    ctx.strokeStyle = labels.stroke;
->>>>>>> theirs
     ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'center';
     ctx.lineWidth = 3;
@@ -386,18 +296,11 @@ const drawTripwireDirection = (
     ctx.fillText('D2', direction.p2.x * scaleX, direction.p2.y * scaleY - 12);
 };
 
-<<<<<<< ours
 const drawTripwire = (ctx: CanvasRenderingContext2D, theme: Theme, geometry: CanvasGeometry, coords?: TripwireCoords) => {
     if (!coords) return;
 
     const { scaleX, scaleY } = geometry;
     const { wire, direction } = coords;
-=======
-const drawTripwire = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry, tripwire: TripwireCoords) => {
-    const { wire, direction } = tripwire;
-    const { scaleX, scaleY } = geo;
-    const labels = getLabelColors(theme);
->>>>>>> theirs
 
     // Draw tripwire line with better visibility
     ctx.strokeStyle = theme.palette.secondary.main;
@@ -409,11 +312,7 @@ const drawTripwire = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGe
 
     // Draw tripwire endpoints with better contrast
     ctx.fillStyle = theme.palette.secondary.main;
-<<<<<<< ours
     ctx.strokeStyle = contrastColor(theme);
-=======
-    ctx.strokeStyle = labels.fill;
->>>>>>> theirs
     ctx.lineWidth = 2;
 
     // P1
@@ -429,13 +328,8 @@ const drawTripwire = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGe
     ctx.stroke();
 
     // Draw wire point labels with better contrast
-<<<<<<< ours
     ctx.fillStyle = contrastColor(theme);
     ctx.strokeStyle = invertedContrastColor(theme);
-=======
-    ctx.fillStyle = labels.fill;
-    ctx.strokeStyle = labels.stroke;
->>>>>>> theirs
     ctx.font = 'bold 14px Arial';
     ctx.textAlign = 'center';
     ctx.lineWidth = 3;
@@ -448,32 +342,19 @@ const drawTripwire = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGe
 
     // Draw direction arrow if provided
     if (direction) {
-<<<<<<< ours
         drawDirectionArrow(ctx, theme, geometry, direction);
     }
 };
 
 const drawInfoBox = (ctx: CanvasRenderingContext2D, theme: Theme, geometry: CanvasGeometry) => {
     const { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY } = geometry;
-=======
-        drawTripwireDirection(ctx, theme, geo, direction);
-    }
-};
-
-const drawInfoBox = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeometry) => {
-    const { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY } = geo;
->>>>>>> theirs
 
     // Draw coordinate info with better theme integration
     const infoBoxHeight = 55;
     const infoBoxWidth = 200;
 
     // Draw semi-transparent background for info text (more transparent for better visibility)
-<<<<<<< ours
     ctx.fillStyle = alpha(theme.palette.background.paper, modeValue(theme, 0.4, 0.3));
-=======
-    ctx.fillStyle = alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.4 : 0.3);
->>>>>>> theirs
     ctx.fillRect(5, 5, infoBoxWidth, infoBoxHeight);
 
     // Draw border around info box (more subtle)
@@ -490,7 +371,6 @@ const drawInfoBox = (ctx: CanvasRenderingContext2D, theme: Theme, geo: CanvasGeo
     ctx.fillText(`Scale: ${scaleX.toFixed(3)}x, ${scaleY.toFixed(3)}y`, 10, 55);
 };
 
-<<<<<<< ours
 interface CanvasHeaderActionProps {
     sensor?: Sensor;
     showLiveBackground: boolean;
@@ -632,8 +512,6 @@ const CanvasLegend: React.FC<{ roiCoords?: Point[]; tripwireCoords?: TripwireCoo
     );
 };
 
-=======
->>>>>>> theirs
 const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
     frameWidth,
     frameHeight,
@@ -736,7 +614,6 @@ const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
         const ctx = canvasRef.current?.getContext('2d');
         if (!ctx) return;
 
-<<<<<<< ours
         const geometry: CanvasGeometry = { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY };
 
         drawBackground(ctx, theme, geometry, backgroundImage, showLiveBackground);
@@ -744,24 +621,6 @@ const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
         drawROI(ctx, theme, geometry, transformedROICoords);
         drawTripwire(ctx, theme, geometry, transformedTripwireCoords);
         drawInfoBox(ctx, theme, geometry);
-=======
-        const geo: CanvasGeometry = { canvasWidth, canvasHeight, frameWidth, frameHeight, scaleX, scaleY };
-
-        drawBackground(ctx, theme, geo, backgroundImage, showLiveBackground);
-        drawGrid(ctx, theme, geo);
-
-        // Draw ROI if provided
-        if (transformedROICoords && transformedROICoords.length > 0) {
-            drawRoi(ctx, theme, geo, transformedROICoords);
-        }
-
-        // Draw Tripwire if provided
-        if (transformedTripwireCoords) {
-            drawTripwire(ctx, theme, geo, transformedTripwireCoords);
-        }
-
-        drawInfoBox(ctx, theme, geo);
->>>>>>> theirs
     }, [
         canvasWidth,
         canvasHeight,

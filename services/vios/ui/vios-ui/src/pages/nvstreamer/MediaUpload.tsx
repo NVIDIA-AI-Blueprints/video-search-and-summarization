@@ -615,8 +615,6 @@ const MediaUpload = () => {
         [tags, enqueueSnackbar, selectedSensor]
     );
 
-<<<<<<< ours
-=======
     const updateFileProgress = useCallback((fileName: string, percent: number) => {
         setFileProgress(prev => ({
             ...prev,
@@ -639,7 +637,6 @@ const MediaUpload = () => {
         // Keep the last progress value on error
     }, []);
 
->>>>>>> theirs
     const uploadDroppedFile = useCallback(
         (file: File) => {
             if (hasWhiteSpace(file.name)) {

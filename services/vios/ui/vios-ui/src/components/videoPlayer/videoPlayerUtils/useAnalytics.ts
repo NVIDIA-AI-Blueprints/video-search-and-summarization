@@ -42,7 +42,6 @@ interface ExistingTripwireDisplay {
 }
 
 type CalibrationSensor = CalibrationData['sensors'][number];
-<<<<<<< ours
 type CalibrationROI = NonNullable<CalibrationSensor['rois']>[number];
 
 // For image calibration, coordinates might have negative Y values that need transformation
@@ -78,7 +77,8 @@ const toImageCalibrationROICoords = (sensorData: CalibrationSensor, roi: Calibra
     });
 
     return imageCoords;
-=======
+};
+
 type CalibrationTripwire = NonNullable<CalibrationSensor['tripwires']>[number];
 
 interface TripwireImageCoordinates {
@@ -226,7 +226,6 @@ const resolveTripwireImageCoordinates = (
     }
 
     return transformTripwireFor3DCalibration(reverseCalibration, sensorId, tripwire);
->>>>>>> theirs
 };
 
 export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyticsProps) => {
