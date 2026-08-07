@@ -223,6 +223,10 @@ def main() -> int:
         "--spatialai-data-utils-tree-sha",
         default=os.environ.get("SPATIALAI_SOURCE_TREE_SHA", ""),
     )
+    parser.add_argument(
+        "--build-type",
+        default=os.environ.get("DOWNSTREAM_BUILD_TYPE", ""),
+    )
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -293,7 +297,18 @@ def main() -> int:
 
     variables = downstream_variables(release_set)
     variables.update(publish_variables)
-    variables["BUILD_TYPE"] = downstream_build_type(relevant, publish_variables)
+    # The trigger job unpacks a source archive without `.git`, so it cannot
+    # recompute the gate. It replays the build type decided by the job that
+    # still had the diff instead.
+    build_type = args.build_type or downstream_build_type(
+        relevant, publish_variables
+    )
+    if build_type not in {"ghcr-acceptance", "spatialai-reconcile"}:
+        raise ValueError(
+            "Downstream build type must be ghcr-acceptance or "
+            "spatialai-reconcile"
+        )
+    variables["BUILD_TYPE"] = build_type
     with Path(github_env).open("a") as output:
         output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
         output.write(json.dumps(variables, separators=(",", ":")) + "\n")
@@ -305,6 +320,7 @@ def main() -> int:
                 f"has_ghcr_build_entries={'true' if has_builds else 'false'}\n"
             )
             output.write(f"run_downstream={'true' if run_downstream else 'false'}\n")
+            output.write(f"build_type={variables['BUILD_TYPE']}\n")
             output.write(
                 "publish_spatialai_data_utils="
                 f"{publish_variables.get('SPATIALAI_DATA_UTILS_PUBLISH', 'false')}\n"
