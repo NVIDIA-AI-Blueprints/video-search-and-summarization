@@ -2863,27 +2863,60 @@ def _iter_json_objects_from_log(path: Path) -> Iterable[dict[str, Any]]:
         index = start + max(offset, 1)
 
 
+def _optional_token_count(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+_PROMPT_TOKEN_KEYS = (
+    "inputTokens",
+    "input_tokens",
+    "input",
+    "prompt_tokens",
+    "promptTokens",
+)
+_CACHE_READ_TOKEN_KEYS = (
+    "cacheReadInputTokens",
+    "cache_read_input_tokens",
+    "cacheRead",
+)
+_CACHE_WRITE_TOKEN_KEYS = (
+    "cacheCreationInputTokens",
+    "cache_creation_input_tokens",
+    "cacheWrite",
+)
+
+
+def _token_count_from_mapping(data: dict[str, Any], keys: tuple[str, ...]) -> int:
+    for key in keys:
+        if key not in data:
+            continue
+        parsed = _optional_token_count(data[key])
+        if parsed is not None:
+            return parsed
+    return 0
+
+
+def _usage_mapping_has_tokens(data: dict[str, Any]) -> bool:
+    return any(
+        key in data and _optional_token_count(data[key]) is not None
+        for key in (
+            *_PROMPT_TOKEN_KEYS,
+            *_CACHE_READ_TOKEN_KEYS,
+            *_CACHE_WRITE_TOKEN_KEYS,
+        )
+    )
+
+
 def _usage_from_mapping(data: dict[str, Any]) -> tuple[int, int]:
-    prompt_tokens = int(
-        data.get("inputTokens")
-        or data.get("input_tokens")
-        or data.get("input")
-        or data.get("prompt_tokens")
-        or data.get("promptTokens")
-        or 0
-    )
-    cached_tokens = int(
-        data.get("cacheReadInputTokens")
-        or data.get("cache_read_input_tokens")
-        or data.get("cacheRead")
-        or 0
-    )
-    cached_tokens += int(
-        data.get("cacheCreationInputTokens")
-        or data.get("cache_creation_input_tokens")
-        or data.get("cacheWrite")
-        or 0
-    )
+    prompt_tokens = _token_count_from_mapping(data, _PROMPT_TOKEN_KEYS)
+    cached_tokens = _token_count_from_mapping(data, _CACHE_READ_TOKEN_KEYS)
+    cached_tokens += _token_count_from_mapping(data, _CACHE_WRITE_TOKEN_KEYS)
     return prompt_tokens, cached_tokens
 
 
@@ -2910,18 +2943,176 @@ def _format_estimated_tokens(chars: int) -> str:
     return f"~{_format_number(math.ceil(chars / 4))}"
 
 
-def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
-    candidates = [
-        trial_dir / "artifacts" / "nemoclaw" / "openclaw-agent.log",
-        trial_dir / "artifacts" / "artifacts" / "nemoclaw" / "openclaw-agent.log",
-    ]
+def _load_openclaw_session_metrics(path: Path) -> tuple[str, str, str] | None:
+    """Read exact turn and usage totals from a merged OpenClaw session."""
+
     turns = 0
     prompt_tokens = 0
     cached_tokens = 0
+    saw_usage = False
+    seen_messages: dict[str, dict[str, Any]] = {}
+    for event in _iter_json_objects_from_log(path):
+        if event.get("type") != "message":
+            continue
+        message = event.get("message")
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        raw_message_id = event.get("id")
+        if raw_message_id is not None and str(raw_message_id):
+            message_id = str(raw_message_id)
+            prior = seen_messages.get(message_id)
+            if prior is not None:
+                if prior != message:
+                    return None
+                continue
+            seen_messages[message_id] = message
+        turns += 1
+        usage = message.get("usage")
+        if not isinstance(usage, dict) or not _usage_mapping_has_tokens(usage):
+            continue
+        saw_usage = True
+        prompt, cached = _usage_from_mapping(usage)
+        prompt_tokens += prompt
+        cached_tokens += cached
+
+    if not turns and not saw_usage:
+        return None
+    return (
+        str(turns) if turns else "n/a",
+        _format_number(prompt_tokens) if saw_usage else "n/a",
+        _format_number(cached_tokens) if saw_usage else "n/a",
+    )
+
+
+def _load_openclaw_atif_metrics(path: Path) -> tuple[str, str, str] | None:
+    """Read report metrics from the normalized ATIF OpenClaw trajectory.
+
+    NemoClaw's ATIF converter records total context input in
+    ``prompt_tokens`` and the cached subset in ``cached_tokens``.  The report
+    contract calls the uncached remainder ``Prompt tok`` and combines cache
+    reads and writes in ``Cached tok``.
+    """
+
+    data = _read_json(path)
+    agent = data.get("agent") if isinstance(data, dict) else None
+    if not isinstance(agent, dict) or agent.get("name") != "openclaw":
+        return None
+
+    steps = data.get("steps")
+    turns = 0
+    prompt_candidates: list[int] = []
+    cached_candidates: list[int] = []
+    step_prompt_tokens = 0
+    step_cached_tokens = 0
+    saw_step_usage = False
+    if isinstance(steps, list):
+        for step in steps:
+            if not isinstance(step, dict) or step.get("source") != "agent":
+                continue
+            turns += 1
+            metrics = step.get("metrics")
+            if not isinstance(metrics, dict):
+                continue
+            total_prompt = _optional_token_count(metrics.get("prompt_tokens"))
+            cache_read = _optional_token_count(metrics.get("cached_tokens"))
+            extra = metrics.get("extra")
+            cache_write = (
+                _optional_token_count(extra.get("cache_write_tokens"))
+                if isinstance(extra, dict)
+                else None
+            )
+            if total_prompt is None and cache_read is None and cache_write is None:
+                continue
+            saw_step_usage = True
+            total_prompt = total_prompt or 0
+            cache_read = cache_read or 0
+            cache_write = cache_write or 0
+            if total_prompt < cache_read:
+                return None
+            step_prompt_tokens += total_prompt - cache_read
+            step_cached_tokens += cache_read + cache_write
+
+    if saw_step_usage:
+        prompt_candidates.append(step_prompt_tokens)
+        cached_candidates.append(step_cached_tokens)
+
+    final_metrics = data.get("final_metrics")
+    if isinstance(final_metrics, dict):
+        total_prompt = _optional_token_count(
+            final_metrics.get("total_prompt_tokens")
+        )
+        cache_read = _optional_token_count(
+            final_metrics.get("total_cached_tokens")
+        )
+        final_extra = final_metrics.get("extra")
+        cache_write = (
+            _optional_token_count(final_extra.get("total_cache_write_tokens"))
+            if isinstance(final_extra, dict)
+            else None
+        )
+        if total_prompt is not None or cache_read is not None or cache_write is not None:
+            total_prompt = total_prompt or 0
+            cache_read = cache_read or 0
+            cache_write = cache_write or 0
+            if total_prompt < cache_read:
+                return None
+            prompt_candidates.append(total_prompt - cache_read)
+            cached_candidates.append(cache_read + cache_write)
+
+    if not turns and not prompt_candidates and not cached_candidates:
+        return None
+    return (
+        str(turns) if turns else "n/a",
+        _format_number(max(prompt_candidates)) if prompt_candidates else "n/a",
+        _format_number(max(cached_candidates)) if cached_candidates else "n/a",
+    )
+
+
+def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
+    artifact_dir = _nemoclaw_artifact_dir(trial_dir)
+    session_fallback: tuple[str, str, str] | None = None
+    if artifact_dir is not None:
+        # Prefer the normalized ATIF trajectory when it contains usage.  A
+        # merged session can survive a crash with only some assistant messages
+        # carrying usage, while ATIF final_metrics still has the cumulative
+        # totals for the run.
+        atif_metrics = _load_openclaw_atif_metrics(artifact_dir / "trajectory.json")
+        if atif_metrics is not None and (
+            atif_metrics[1] != "n/a" or atif_metrics[2] != "n/a"
+        ):
+            return atif_metrics
+        for session_name in (
+            "openclaw.session.jsonl",
+            "openclaw.failure-session.jsonl",
+        ):
+            session_metrics = _load_openclaw_session_metrics(
+                artifact_dir / session_name
+            )
+            if session_metrics is not None:
+                if session_metrics[1] != "n/a" or session_metrics[2] != "n/a":
+                    return session_metrics
+                session_fallback = session_fallback or session_metrics
+        if atif_metrics is not None:
+            return atif_metrics
+        if session_fallback is not None:
+            return session_fallback
+
+    candidates = (
+        [artifact_dir / "openclaw-agent.log"]
+        if artifact_dir is not None
+        else []
+    )
+    turns = 0
+    event_prompt_tokens = 0
+    event_cached_tokens = 0
+    aggregate_prompt_candidates: list[int] = []
+    aggregate_cached_candidates: list[int] = []
     estimated_prompt_chars = 0
     saw_usage = False
-    for log_path in candidates:
+    for log_path in dict.fromkeys(candidates):
         for event in _iter_json_objects_from_log(log_path):
+            prompt_candidates: list[int] = []
+            cached_candidates: list[int] = []
             role = event.get("role")
             event_type = str(event.get("type") or event.get("event") or "")
             if role == "assistant" or "assistant" in event_type:
@@ -2939,36 +3130,77 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
                         _prompt_chars_from_openclaw_meta(meta),
                     )
                 agent_meta = meta.get("agentMeta") if isinstance(meta, dict) else None
+                aggregate_usage = (
+                    agent_meta.get("usage")
+                    if isinstance(agent_meta, dict)
+                    else None
+                )
+                aggregate_has_usage = (
+                    isinstance(aggregate_usage, dict)
+                    and _usage_mapping_has_tokens(aggregate_usage)
+                )
+                if aggregate_has_usage:
+                    saw_usage = True
+                    assert isinstance(aggregate_usage, dict)
+                    prompt, cached = _usage_from_mapping(aggregate_usage)
+                    aggregate_prompt_candidates.append(prompt)
+                    aggregate_cached_candidates.append(cached)
                 last_call_usage = (
                     agent_meta.get("lastCallUsage")
                     if isinstance(agent_meta, dict)
                     else None
                 )
-                if isinstance(last_call_usage, dict):
+                if (
+                    not aggregate_has_usage
+                    and isinstance(last_call_usage, dict)
+                    and _usage_mapping_has_tokens(last_call_usage)
+                ):
                     saw_usage = True
                     prompt, cached = _usage_from_mapping(last_call_usage)
-                    prompt_tokens += prompt
-                    cached_tokens += cached
+                    prompt_candidates.append(prompt)
+                    cached_candidates.append(cached)
 
             usage = event.get("usage")
-            if isinstance(usage, dict):
+            if isinstance(usage, dict) and _usage_mapping_has_tokens(usage):
                 saw_usage = True
                 prompt, cached = _usage_from_mapping(usage)
-                prompt_tokens += prompt
-                cached_tokens += cached
+                prompt_candidates.append(prompt)
+                cached_candidates.append(cached)
 
             model_usage = event.get("modelUsage") or event.get("model_usage")
             if isinstance(model_usage, dict):
+                model_prompt = 0
+                model_cached = 0
+                saw_model_usage = False
                 for usage_value in model_usage.values():
-                    if not isinstance(usage_value, dict):
+                    if (
+                        not isinstance(usage_value, dict)
+                        or not _usage_mapping_has_tokens(usage_value)
+                    ):
                         continue
                     saw_usage = True
+                    saw_model_usage = True
                     prompt, cached = _usage_from_mapping(usage_value)
-                    prompt_tokens += prompt
-                    cached_tokens += cached
+                    model_prompt += prompt
+                    model_cached += cached
+                if saw_model_usage:
+                    prompt_candidates.append(model_prompt)
+                    cached_candidates.append(model_cached)
+
+            if prompt_candidates:
+                event_prompt_tokens += max(prompt_candidates)
+                event_cached_tokens += max(cached_candidates)
 
     if not turns and not saw_usage:
         return None
+    prompt_tokens = max(
+        [event_prompt_tokens, *aggregate_prompt_candidates],
+        default=0,
+    )
+    cached_tokens = max(
+        [event_cached_tokens, *aggregate_cached_candidates],
+        default=0,
+    )
     if saw_usage and not prompt_tokens and estimated_prompt_chars:
         return (
             str(turns) if turns else "n/a",
@@ -2982,14 +3214,86 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
     )
 
 
+def _safe_trial_directory(trial_dir: Path, relative: Path) -> Path | None:
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(part in {"", ".", ".."} for part in relative.parts)
+        or trial_dir.is_symlink()
+    ):
+        return None
+    cursor = trial_dir
+    try:
+        for part in relative.parts:
+            cursor /= part
+            info = cursor.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                return None
+    except OSError:
+        return None
+    return cursor
+
+
+def _collected_artifact_directory(trial_dir: Path, source: str) -> Path | None:
+    artifacts_root = trial_dir / "artifacts"
+    manifest_path = artifacts_root / "manifest.json"
+    try:
+        if artifacts_root.is_symlink():
+            return None
+        manifest_info = manifest_path.lstat()
+        if not stat.S_ISREG(manifest_info.st_mode):
+            return None
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(manifest, list):
+        return None
+    matches = [
+        item
+        for item in manifest
+        if isinstance(item, dict) and item.get("source") == source
+    ]
+    if len(matches) != 1:
+        return None
+    entry = matches[0]
+    destination = entry.get("destination")
+    if (
+        entry.get("status") != "ok"
+        or entry.get("type") != "directory"
+        or not isinstance(destination, str)
+        or not destination
+    ):
+        return None
+    return _safe_trial_directory(trial_dir, Path(destination))
+
+
 def _nemoclaw_artifact_dir(trial_dir: Path | None) -> Path | None:
     if trial_dir is None:
         return None
-    candidates = [
-        trial_dir / "artifacts" / "nemoclaw",
-        trial_dir / "artifacts" / "artifacts" / "nemoclaw",
-    ]
-    return next((path for path in candidates if path.is_dir()), None)
+    manifest_path = trial_dir / "artifacts" / "manifest.json"
+    try:
+        manifest_path.lstat()
+    except FileNotFoundError:
+        candidates = [
+            trial_dir / "artifacts" / "nemoclaw",
+            trial_dir / "artifacts" / "artifacts" / "nemoclaw",
+        ]
+    except OSError:
+        return None
+    else:
+        collected = _collected_artifact_directory(trial_dir, "/logs/artifacts")
+        if collected is None:
+            return None
+        candidates = [collected / "nemoclaw"]
+    for candidate in dict.fromkeys(candidates):
+        try:
+            relative = candidate.relative_to(trial_dir)
+        except ValueError:
+            continue
+        safe = _safe_trial_directory(trial_dir, relative)
+        if safe is not None:
+            return safe
+    return None
 
 
 def _load_nemoclaw_async_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
