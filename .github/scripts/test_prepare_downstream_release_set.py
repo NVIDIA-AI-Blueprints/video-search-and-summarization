@@ -19,6 +19,7 @@ from prepare_downstream_release_set import (  # noqa: E402
     candidate_container_tag,
     downstream_relevant,
     downstream_variables,
+    pr_merge_base_sha,
     spatialai_publish_variables,
 )
 
@@ -61,6 +62,35 @@ class GhcrBuildEntriesTest(unittest.TestCase):
                 }
             )
         )
+
+
+class PrMergeBaseShaTest(unittest.TestCase):
+    def test_uses_compare_merge_base_not_target_tip(self):
+        target = "b" * 40
+        head = "c" * 40
+        merge_base = "a" * 40
+        api = mock.Mock()
+        api.request.side_effect = [
+            {"base": {"sha": target}, "head": {"sha": head}},
+            {"merge_base_commit": {"sha": merge_base}},
+        ]
+        self.assertEqual(
+            pr_merge_base_sha(api, "NVIDIA-AI-Blueprints/vss", "pull-request/1601"),
+            merge_base,
+        )
+        self.assertEqual(
+            api.request.call_args_list,
+            [
+                mock.call("GET", "/repos/NVIDIA-AI-Blueprints/vss/pulls/1601"),
+                mock.call("GET", f"/repos/NVIDIA-AI-Blueprints/vss/compare/{target}...{head}"),
+            ],
+        )
+
+    def test_invalid_pr_metadata_fails_open_at_the_caller(self):
+        api = mock.Mock()
+        api.request.return_value = {"base": {"sha": "invalid"}}
+        with self.assertRaisesRegex(RuntimeError, "valid base and head SHAs"):
+            pr_merge_base_sha(api, "owner/repo", "pull-request/1")
 
 
 class DownstreamVariablesTest(unittest.TestCase):
