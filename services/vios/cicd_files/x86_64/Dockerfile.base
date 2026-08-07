@@ -92,6 +92,57 @@ RUN rm -f /usr/lib/x86_64-linux-gnu/libswscale.* \
         /usr/lib/x86_64-linux-gnu/libswresample.* \
         /usr/lib/x86_64-linux-gnu/libpostproc.*
 
+# Prune codec libraries and GStreamer codec plugins not selected by VIOS.  Keep
+# the JPEG/PNG and XML dependencies required by the packaged application.
+RUN rm -f /usr/lib/x86_64-linux-gnu/libaom.so* \
+        /usr/lib/x86_64-linux-gnu/libdv.so* \
+        /usr/lib/x86_64-linux-gnu/libflite.so* \
+        /usr/lib/x86_64-linux-gnu/libfluidsynth.so* \
+        /usr/lib/x86_64-linux-gnu/libfreeaptx.so* \
+        /usr/lib/x86_64-linux-gnu/libgme.so* \
+        /usr/lib/x86_64-linux-gnu/libgsm.so* \
+        /usr/lib/x86_64-linux-gnu/libgssdp-1.6.so* \
+        /usr/lib/x86_64-linux-gnu/libinstpatch-1.0.so* \
+        /usr/lib/x86_64-linux-gnu/libjbig.so* \
+        /usr/lib/x86_64-linux-gnu/liblcms2.so* \
+        /usr/lib/x86_64-linux-gnu/libogg.so* \
+        /usr/lib/x86_64-linux-gnu/libOpenEXR*.so* \
+        /usr/lib/x86_64-linux-gnu/libopenjp2.so* \
+        /usr/lib/x86_64-linux-gnu/libopus.so* \
+        /usr/lib/x86_64-linux-gnu/libspandsp.so* \
+        /usr/lib/x86_64-linux-gnu/libspeex.so* \
+        /usr/lib/x86_64-linux-gnu/libSvtAv1Enc.so* \
+        /usr/lib/x86_64-linux-gnu/libtheora*.so* \
+        /usr/lib/x86_64-linux-gnu/libtiff.so* \
+        /usr/lib/x86_64-linux-gnu/libtwolame.so* \
+        /usr/lib/x86_64-linux-gnu/libvo-amrwbenc.so* \
+        /usr/lib/x86_64-linux-gnu/libvorbis*.so* \
+        /usr/lib/x86_64-linux-gnu/libwavpack.so* \
+        /usr/lib/x86_64-linux-gnu/libwebp.so* \
+        /usr/lib/x86_64-linux-gnu/libwebpmux.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaom.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcolormanagement.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstdv.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstflite.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstfluidsynthmidi.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstgme.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstgsm.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstogg.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenaptx.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenexr.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenjpeg.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopus.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopusparse.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstspandsp.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstspeex.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstsvtav1.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgsttheora.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgsttwolame.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvoamrwbenc.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvorbis.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstwavpack.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstwebp.so*
+
 RUN rm -f /usr/lib/x86_64-linux-gnu/liba52* /usr/lib/x86_64-linux-gnu/libcdio.so* /usr/lib/x86_64-linux-gnu/libsidplay.so* \
         /usr/lib/x86_64-linux-gnu/liblrdf.so*  /usr/lib/x86_64-linux-gnu/libneon.so* \
         /usr/lib/x86_64-linux-gnu/libbs2b.so* /usr/lib/x86_64-linux-gnu/libdca.so* /usr/lib/x86_64-linux-gnu/libdvdnav.so* \
