@@ -109,8 +109,14 @@ the path prefixes, since each app then owns the root of its own port.
 
 ## Alerts
 
-The alerts stack (`vss-alert-bridge`, `agent`, and `rtvi.vss-rtvi-vlm`) is off by
-default. Enable all three together — they depend on each other at runtime.
+The alerts stack is off by default. Four components must be enabled together:
+
+| Component | Flag | Notes |
+| --- | --- | --- |
+| Alert bridge | `vss-alert-bridge.enabled=true` | Core orchestrator |
+| Agent | `agent.enabled=true` | Enables `vss-agent` + `vss-va-mcp` (MCP already on in this profile) |
+| Agent UI | `vss-agent-ui.enabled=true` | Separate subchart; not enabled by `agent.enabled` |
+| Real-time VLM | `rtvi.vss-rtvi-vlm.enabled=true` | In-cluster VLM endpoint; omit only if supplying an external `vlmBaseUrl` |
 
 Required values to supply:
 
@@ -118,7 +124,6 @@ Required values to supply:
 | --- | --- |
 | `vss-alert-bridge.kafkaBootstrapServers` | Kafka broker address |
 | `vss-alert-bridge.elasticHosts` | Elasticsearch host(s) |
-| `vss-alert-bridge.vlmBaseUrl` | Base URL of the VLM inference endpoint |
 | `vss-alert-bridge.vstBaseUrl` | Base URL of the VST service |
 
 ```bash
@@ -127,14 +132,15 @@ helm install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-
   --set vss-alert-bridge.enabled=true \
   --set vss-alert-bridge.kafkaBootstrapServers=<KAFKA_HOST>:9092 \
   --set vss-alert-bridge.elasticHosts=<ELASTIC_HOST>:9200 \
-  --set vss-alert-bridge.vlmBaseUrl=http://<VLM_HOST>:<PORT> \
   --set vss-alert-bridge.vstBaseUrl=http://<VST_HOST>:<PORT> \
   --set agent.enabled=true \
+  --set vss-agent-ui.enabled=true \
   --set rtvi.vss-rtvi-vlm.enabled=true
 ```
 
 `vss-alert-bridge.vlmName` defaults to `nim_nvidia_cosmos3-nano-reasoner_bf16-final`.
-Override it if pointing at a different model.
+If you have an external VLM, skip `rtvi.vss-rtvi-vlm.enabled` and set
+`vss-alert-bridge.vlmBaseUrl` to the external endpoint instead.
 
 ## Monitoring
 
