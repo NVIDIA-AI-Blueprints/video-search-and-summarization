@@ -20,31 +20,32 @@ RUN apt-get update && \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         libcurl4 \
         libxml2 \
-        libssl-dev \
-        libjsoncpp-dev \
-        sqlite3 \
-        uuid \
+        libssl3t64 \
+        libjsoncpp25 \
+        libsqlite3-0 \
+        libuuid1 \
         gstreamer1.0-plugins-base \
         gstreamer1.0-plugins-good \
-        gstreamer1.0-plugins-ugly \
         gstreamer1.0-plugins-bad \
-        gstreamer1.0-libav \
         libgstreamer1.0-0 \
-        libgstreamer-plugins-base1.0 \
-        libboost-filesystem-dev \
-        libboost-regex-dev \
-        libboost-thread-dev \
-        libyaml-cpp-dev \
+        libgstreamer-plugins-base1.0-0 \
+        libboost-filesystem1.83.0 \
+        libboost-thread1.83.0 \
         gstreamer1.0-tools \
-        libjansson-dev \
-        librdkafka-dev \
-        libcogl-pango-dev \
-        libopencv-dev \
-        libpq-dev \
-        libpqxx-dev \
+        libjansson4 \
+        librdkafka1 \
+        libcairo2 \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libpqxx-7.8t64 \
         libhiredis1.1.0 \
-	libpaho-mqttpp-dev \
+	libpaho-mqttpp3-1 \
         && apt-get clean
+
+# Kafka producer/consumer load the unversioned name with dlopen(). The runtime
+# package only ships the SONAME; provide the linker-name symlink without
+# installing librdkafka-dev in the release image.
+RUN ln -s /usr/lib/x86_64-linux-gnu/librdkafka.so.1 /usr/lib/x86_64-linux-gnu/librdkafka.so
 
 # To get video driver libraries at runtime (libnvidia-encode.so/libnvcuvid.so)
 ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video,compute,graphics,utility
