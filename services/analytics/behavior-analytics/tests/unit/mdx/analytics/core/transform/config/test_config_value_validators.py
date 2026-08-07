@@ -336,9 +336,35 @@ class TestSampleAppRules(unittest.TestCase):
                 self.assertTrue(rule("0.2")[0])
                 self.assertTrue(rule("1")[0])
                 self.assertTrue(rule("2.0")[0])
-                self.assertTrue(rule("0")[0])
                 self.assertFalse(rule("-0.1")[0])
                 self.assertFalse(rule("abc")[0])
+
+    def test_violation_incident_threshold_allows_zero(self) -> None:
+        # 0 means "report as soon as the violation is seen" -- a real choice for
+        # intrusion-style detection, so it stays valid.
+        for key in (
+            "proximityViolationIncidentThreshold",
+            "restrictedAreaViolationIncidentThreshold",
+            "confinedAreaViolationIncidentThreshold",
+            "fovCountViolationIncidentThreshold",
+        ):
+            with self.subTest(key=key):
+                self.assertTrue(APP_VALUE_VALIDATORS[key]("0")[0])
+
+    def test_violation_incident_expiration_window_floor(self) -> None:
+        # A window of 0 closes every run at the next frame, so every run spans a
+        # single frame and lasts 0s -- an incident per frame, or none at all.
+        for key in (
+            "proximityViolationIncidentExpirationWindow",
+            "restrictedAreaViolationIncidentExpirationWindow",
+            "confinedAreaViolationIncidentExpirationWindow",
+            "fovCountViolationIncidentExpirationWindow",
+        ):
+            with self.subTest(key=key):
+                rule = APP_VALUE_VALIDATORS[key]
+                self.assertFalse(rule("0")[0])
+                self.assertFalse(rule("0.05")[0])
+                self.assertTrue(rule("0.1")[0])
 
     def test_fov_count_violation_object_threshold_stays_int(self) -> None:
         # An object count, not a duration -- fractional values are meaningless.
