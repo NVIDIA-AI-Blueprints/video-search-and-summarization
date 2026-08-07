@@ -52,7 +52,7 @@ COPY --from=builder /usr/src/app/.venv/lib/python3.13/site-packages /usr/src/app
 ENV PYTHONPATH=/usr/src/app/site-packages
 
 # Application code (entrypoint.py is used because distroless has no shell).
-# Source retains Apache-2.0 SPDX headers; shipped binary also includes NVIDIA SLA PDF.
+# Source retains Apache-2.0 SPDX headers; third-party licenses ship in-image.
 COPY services/configurators/vss-configurator/app/ .
 COPY services/configurators/vss-configurator/3rdParty_Licenses.md \
     /usr/src/app/3rdParty_Licenses.md
