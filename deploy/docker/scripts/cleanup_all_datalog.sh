@@ -174,7 +174,7 @@ function run_revert_from_oldest_backup() {
 }
 
 function cleanup() {
-  local _vst_volume _nvstreamer_volume
+  local _vst_volume _nvstreamer_volume _vios_config_dir _warehouse_vios_file
 
   if [ -d "${VSS_DATA_DIR}/data_log/kafka" ]; then
     sudo rm -rf ${VSS_DATA_DIR}/data_log/kafka/*
@@ -245,6 +245,19 @@ function cleanup() {
       if [ -d "${_nvstreamer_volume}" ]; then
           sudo rm -rf "${_nvstreamer_volume}"
       fi
+  fi
+
+  # Warehouse stream-processing mounts these generated assets into the shared
+  # VST config directory. They are not repository-managed files and should not
+  # persist after warehouse data is cleaned.
+  if [[ "${env_file}" == *industry-profiles/warehouse-operations/* ]]; then
+    _vios_config_dir="$(dirname "${script_dir}")/services/vios/configs"
+    for _warehouse_vios_file in Top.png calibration.json labels.txt; do
+      if [[ -f "${_vios_config_dir}/${_warehouse_vios_file}" ]]; then
+        echo "Deleting warehouse VST config: ${_vios_config_dir}/${_warehouse_vios_file}"
+        sudo rm -f "${_vios_config_dir}/${_warehouse_vios_file}"
+      fi
+    done
   fi
 
   # Delete blueprint-configurator backup files (*.backup_YYYYMMDD_HHMMSS*)
