@@ -93,6 +93,14 @@ services:
       LVS_LLM_BASE_URL: http://${LVS_LLM_HOST}:${LVS_LLM_PORT}/v1
       LVS_ENABLE_LLM_MERGING: ${LVS_ENABLE_LLM_MERGING:-false}
       LVS_DROP_EMPTY_EVENT_FIELDS: ${LVS_DROP_EMPTY_EVENT_FIELDS:-false}
+      # EVS knobs (typically set on RTVI-VLM). Pass through to LVS so
+      # `_create_vlm_prompt` can append the structured-output schema guard
+      # that prevents grounding/detection JSON CA-RAG cannot ingest.
+      VIA_EVS_SESSION: ${VIA_EVS_SESSION:-}
+      VLM_VIDEO_PRUNING_RATE: ${VLM_VIDEO_PRUNING_RATE:-}
+      VIA_EVS_EVENT_ONLY: ${VIA_EVS_EVENT_ONLY:-}
+      VIA_EVS_TOKEN_BUDGET: ${VIA_EVS_TOKEN_BUDGET:-}
+      VLLM_IGNORE_EOS: ${VLLM_IGNORE_EOS:-}
       ES_HOST: elasticsearch
       ES_PORT: '9200'
       LVS_DATABASE_BACKEND: ${LVS_DATABASE_BACKEND:-elasticsearch_db}
