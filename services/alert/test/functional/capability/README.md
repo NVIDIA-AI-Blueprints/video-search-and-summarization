@@ -116,11 +116,17 @@ Sizing the run matters more than in the suite above:
   `"10 80 160 320 640 1280"`.
 
 Notes:
-- **Each leg gets a fresh consumer group** rather than an offset reset. The
-  reset silently fails while the group still has active members, and the next
-  leg then inherits the previous leg's backlog — which lands in the first
-  sample of the ramp, the very baseline the flat-latency gate divides by. With
-  `auto_offset_reset=latest` a new group starts at the end anyway.
+- **Each leg gets a consumer group unique to the run**, rather than an offset
+  reset. The reset silently fails while the group still has active members, and
+  the leg then inherits a backlog — which lands in the first sample of the
+  ramp, the very baseline the flat-latency gate divides by. Note the group must
+  be unique per *run*, not merely per leg: a leg counter restarts at 1 every
+  invocation, so a second run on the same broker rejoins groups that already
+  carry committed offsets and resumes from them. `auto_offset_reset=latest`
+  only applies to a group that is genuinely new. Measured when this was wrong:
+  the first ramp point read 0.641 s / 100.7% CPU instead of 0.206 s / 14%.
+  Leftover groups are also purged at startup, which Kafka refuses to do for any
+  group that still has members.
 - The runner waits for the startup VLM warmup to drain before zeroing the NIM
   stub counters. Cap assertions use the Alert Bridge gauges (pipeline-scoped);
   the stub's raw connection count also sees transport artifacts (client

@@ -43,7 +43,12 @@ BOOTSTRAP="${BOOTSTRAP:-127.0.0.1:9092}"
 TOPIC="${TOPIC:-mdx-incidents}"
 BASE_CONFIG="$P1_ROOT/shared/config_base.yaml"
 CONSUMER_GROUP_BASE="${CONSUMER_GROUP_BASE:-alert-bridge-vlm-group-p1}"
-CONSUMER_GROUP="$CONSUMER_GROUP_BASE"
+# Unique per invocation, not just per leg. A leg counter alone restarts at 1
+# every run, so the second run on the same broker rejoins groups that already
+# carry committed offsets and resumes from them - auto_offset_reset=latest only
+# applies to a group that is genuinely new.
+RUN_ID="$(date +%s)"
+CONSUMER_GROUP="${CONSUMER_GROUP_BASE}-${RUN_ID}"
 LEG=0
 KAFKA_CONTAINER="alert-agent-kafka-test"
 METRICS_URL="http://127.0.0.1:9081/metrics"
@@ -193,6 +198,25 @@ start_nim_stub() {
     nc -z 127.0.0.1 18081 2>/dev/null || { print_status "fail" "NIM stub did not bind 18081"; return 1; }
 }
 
+purge_stale_consumer_groups() {
+    # Groups from earlier runs keep their committed offsets and would otherwise
+    # accumulate on the broker. Kafka refuses to delete a group that still has
+    # members, so this cannot disturb anything running.
+    local groups purged=0 group
+    groups=$(docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
+        --bootstrap-server localhost:9092 --list 2>/dev/null \
+        | grep "^${CONSUMER_GROUP_BASE}" || true)
+    [ -z "$groups" ] && return 0
+    while read -r group; do
+        [ -z "$group" ] && continue
+        docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
+            --bootstrap-server localhost:9092 --delete --group "$group" >/dev/null 2>&1 \
+            && purged=$((purged + 1))
+    done <<< "$groups"
+    [ "$purged" -gt 0 ] && print_status "ok" "purged $purged stale consumer group(s) from earlier runs"
+    return 0
+}
+
 # ─── Alert Bridge lifecycle ──────────────────────────────────────────────────
 
 build_config() {
@@ -291,7 +315,7 @@ prepare_run() {
     # the ramp, i.e. exactly the baseline the flat-latency gate divides by.
     # With auto_offset_reset=latest a new group starts at the end regardless.
     LEG=$((LEG + 1))
-    CONSUMER_GROUP="${CONSUMER_GROUP_BASE}-${LEG}"
+    CONSUMER_GROUP="${CONSUMER_GROUP_BASE}-${RUN_ID}-${LEG}"
     start_nim_stub "$3" || return 1
     reset_es
     build_config "$cfg" "$1" "$cap" "$2"
@@ -706,6 +730,11 @@ fi
 if [ "$SKIP_SETUP" -eq 0 ]; then
     ensure_stack
 fi
+
+# Runs unconditionally: the backlog problem shows up precisely when re-running
+# against a broker left over from a previous session, which is also when
+# --skip-setup is most likely to be used.
+purge_stale_consumer_groups
 
 for ts in ts_030 ts_031 ts_032 ts_033; do
     ts_id="TS-${ts#ts_}"
