@@ -22,8 +22,9 @@ services:
     image: ${VST_SENSOR_IMAGE}
     user: "0:0"
     runtime: nvidia
-    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=sensor-ms
       - ADAPTOR=${VST_ADAPTOR}
       - NEED_RECORDING=false
