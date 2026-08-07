@@ -311,6 +311,19 @@ class TestConvertBehaviorToProtobufBehavior:
 
         assert convert_behavior_to_protobuf_behavior(behavior).sensor.id == "cam-9"
 
+    @pytest.mark.parametrize("flat_id", [7, None, ["cam-9"], {"id": "cam-9"}])
+    def test_a_non_string_flat_sensor_id_is_ignored_rather_than_raising(self, flat_id):
+        """These submissions were accepted before the fallback existed.
+
+        Assigning a non-string straight into the protobuf field would raise and
+        turn a 202 into a 500, so the fallback takes a string only.
+        """
+        behavior = self._full_behavior()
+        behavior.pop("sensor")
+        behavior["sensorId"] = flat_id
+
+        assert convert_behavior_to_protobuf_behavior(behavior).sensor.id == ""
+
     def test_the_nested_sensor_id_wins_over_the_flat_one(self):
         behavior = self._full_behavior()
         behavior["sensorId"] = "flat"
@@ -327,14 +340,19 @@ class TestConvertBehaviorToProtobufBehavior:
 
         assert getattr(proto, block).type == ""
 
-    def test_null_coordinate_entry_is_tolerated(self):
+    @pytest.mark.parametrize("coord", [None, [1.0, 2.0], "1.0,2.0"])
+    def test_a_coordinate_in_an_unknown_shape_raises(self, coord):
+        """Coordinates are left uncoerced on purpose.
+
+        Defaulting an entry the mapper cannot read would publish a trajectory
+        with empty geometry and a 202, losing the client's data quietly. A bare
+        ``[lon, lat]`` pair is the shape most likely to arrive this way.
+        """
         behavior = self._full_behavior()
-        behavior["locations"] = {"type": "Point", "coordinates": [None, {"point": [1.0]}]}
+        behavior["locations"] = {"type": "Point", "coordinates": [coord]}
 
-        proto = convert_behavior_to_protobuf_behavior(behavior)
-
-        assert list(proto.locations.coordinates[0].point) == []
-        assert list(proto.locations.coordinates[1].point) == pytest.approx([1.0])
+        with pytest.raises(AttributeError):
+            convert_behavior_to_protobuf_behavior(behavior)
 
     def test_null_analytics_module_info_is_treated_as_empty(self):
         behavior = self._full_behavior()

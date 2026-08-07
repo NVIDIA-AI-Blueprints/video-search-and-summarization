@@ -186,8 +186,13 @@ def convert_behavior_to_protobuf_behavior(behavior: dict) -> nvSchemaBehavior:
     # id there rather than under ``sensor`` would publish an empty sensor and be
     # dropped downstream for a missing ``sensorId``. The Kafka key derivation in
     # ``AlertSubmissionService`` already accepts the flat form as an identifier;
-    # honour the same fallback here so the two agree.
-    protobuf_behavior.sensor.id = sensor.get("id") or behavior.get("sensorId") or ""
+    # honour the same fallback here so the two agree. Only a string is taken:
+    # assigning any other type straight into the protobuf field would turn a
+    # submission that used to be accepted into a 500.
+    flat_sensor_id = behavior.get("sensorId")
+    protobuf_behavior.sensor.id = sensor.get("id") or (
+        flat_sensor_id if isinstance(flat_sensor_id, str) else ""
+    )
     protobuf_behavior.analyticsModule.id = am.get("id", "")
 
     protobuf_behavior.analyticsModule.info['dropped'] = str(behavior.get("dropped", False))
@@ -220,8 +225,12 @@ def map_geo_location(proto_geo_location, geo_location_dict):
     geo_location_dict = _as_dict(geo_location_dict)
     if geo_location_dict:
         proto_geo_location.type = geo_location_dict.get("type", "")
+        # The entries are deliberately not coerced. A coordinate carried in a
+        # shape this does not understand — a bare ``[lon, lat]`` pair, say —
+        # would silently become an empty point and publish a trajectory with no
+        # geometry. Raising keeps that visible to the caller.
         for coord in geo_location_dict.get("coordinates", []):
-            point = GeoLocation.Point(point=_as_dict(coord).get("point", []))
+            point = GeoLocation.Point(point=coord.get("point", []))
             proto_geo_location.coordinates.append(point)
 
 def place_to_nv_place(place: Optional[dict]) -> Any:
