@@ -38,6 +38,48 @@ SECRET_TEXT_PATTERNS = (
     ),
 )
 
+CI_NEMOCLAW_ONBOARD_RECOVERY_SOURCE = r'''
+import shlex as _ci_shlex
+import subprocess as _ci_subprocess
+import time as _ci_time
+
+
+def _ci_run_nemoclaw_onboard(command):
+    process = _ci_subprocess.Popen(
+        _ci_shlex.split(command),
+        cwd=str(HOME_DIR),
+        stdin=_ci_subprocess.DEVNULL,
+        stdout=_ci_subprocess.PIPE,
+        stderr=_ci_subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    if process.stdout is None:
+        raise RuntimeError("NemoClaw onboarding output pipe is unavailable")
+    output = []
+    for line in process.stdout:
+        print(line, end="", flush=True)
+        output.append(line)
+    return process.wait(), "".join(output)
+
+
+def _ci_should_resume_nemoclaw_onboard(
+    return_code,
+    agent_runtime,
+    output,
+    sandbox_name,
+):
+    expected = (
+        f"Cannot continue sandbox {sandbox_name!r} recreation: "
+        "OpenShell still reports the journaled source after delete."
+    )
+    return (
+        return_code != 0
+        and agent_runtime == "openclaw"
+        and expected in output
+    )
+'''.strip()
+
 PARAMETER_SOURCE = r'''
 # Injected by .github/skill-eval/nemoclaw/notebook_setup_adapter.py.
 # Keep values in environment variables so the executed notebook source does
@@ -455,21 +497,91 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
         )
         patched = deepcopy(cell)
         if runtime_onboard in source:
-            patched["source"] = source.replace(
+            patched_source = source.replace(
                 runtime_onboard,
                 runtime_fresh,
                 1,
             )
+            initial_onboard = "    !cd ~ && {onboard_cmd}\n"
+            initial_replacement = "\n".join(
+                [
+                    "    _ci_onboard_returncode, _ci_onboard_output = (",
+                    "        _ci_run_nemoclaw_onboard(onboard_cmd)",
+                    "    )",
+                    "    _exit_code = _ci_onboard_returncode",
+                ]
+            ) + "\n"
         elif legacy_onboard in source:
-            patched["source"] = source.replace(
+            patched_source = source.replace(
                 legacy_onboard,
                 legacy_fresh,
                 1,
             )
+            initial_onboard = f"    {legacy_fresh}\n"
+            initial_replacement = "\n".join(
+                [
+                    "    onboard_cmd = (",
+                    '        f"nemoclaw onboard --fresh --non-interactive "',
+                    '        f"--agent {AGENT_RUNTIME}"',
+                    "    )",
+                    "    _ci_onboard_returncode, _ci_onboard_output = (",
+                    "        _ci_run_nemoclaw_onboard(onboard_cmd)",
+                    "    )",
+                    "    _exit_code = _ci_onboard_returncode",
+                ]
+            ) + "\n"
         else:
             raise ValueError(
                 "NemoClaw setup cell is missing the expected onboard command"
             )
+        recovery_anchor = "_recreate_sandbox = os.environ.get("
+        if patched_source.count(recovery_anchor) != 1:
+            raise ValueError(
+                "NemoClaw setup cell is missing the recreation anchor"
+            )
+        if patched_source.count(initial_onboard) != 1:
+            raise ValueError(
+                "NemoClaw setup cell is missing the initial onboard invocation"
+            )
+        patched_source = patched_source.replace(
+            recovery_anchor,
+            CI_NEMOCLAW_ONBOARD_RECOVERY_SOURCE
+            + "\n\n"
+            + recovery_anchor,
+            1,
+        ).replace(
+            initial_onboard,
+            initial_replacement,
+            1,
+        )
+        recovery_after_initial = "\n".join(
+            [
+                "    for _ci_resume_delay in (5, 10, 20):",
+                "        if not _ci_should_resume_nemoclaw_onboard(",
+                "            _exit_code,",
+                "            AGENT_RUNTIME,",
+                "            _ci_onboard_output,",
+                "            NEMOCLAW_SANDBOX_NAME,",
+                "        ):",
+                "            break",
+                "        print(",
+                '            "NemoClaw sandbox deletion is still converging; "',
+                '            f"resuming onboarding after {_ci_resume_delay} seconds...",',
+                "            flush=True,",
+                "        )",
+                "        _ci_time.sleep(_ci_resume_delay)",
+                "        _ci_onboard_returncode, _ci_onboard_output = (",
+                '            _ci_run_nemoclaw_onboard("nemoclaw onboard --resume")',
+                "        )",
+                "        _exit_code = _ci_onboard_returncode",
+                "",
+            ]
+        )
+        patched["source"] = patched_source.replace(
+            initial_replacement,
+            initial_replacement + recovery_after_initial,
+            1,
+        )
         return patched
     if cell_id == "s35-code":
         legacy_workspace_cleanup = (

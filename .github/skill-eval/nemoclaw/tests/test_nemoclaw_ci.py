@@ -847,6 +847,102 @@ class GatewayReleaseTest(unittest.TestCase):
 
 
 class NotebookSetupAdapterTest(unittest.TestCase):
+    def test_ci_onboard_recovery_matches_only_exact_openclaw_failure(self):
+        namespace = {}
+        exec(
+            notebook_adapter.CI_NEMOCLAW_ONBOARD_RECOVERY_SOURCE,
+            namespace,
+        )
+        should_resume = namespace["_ci_should_resume_nemoclaw_onboard"]
+        sandbox_name = "vss-eval-u1000-p19080-nc103-c1"
+        exact_error = (
+            f"Cannot continue sandbox {sandbox_name!r} recreation: "
+            "OpenShell still reports the journaled source after delete."
+        )
+
+        self.assertTrue(
+            should_resume(
+                1,
+                "openclaw",
+                f"onboard output\n{exact_error}\n",
+                sandbox_name,
+            )
+        )
+        self.assertFalse(
+            should_resume(0, "openclaw", exact_error, sandbox_name)
+        )
+        self.assertFalse(
+            should_resume(1, "hermes", exact_error, sandbox_name)
+        )
+        self.assertFalse(
+            should_resume(
+                1,
+                "openclaw",
+                "Sandbox was created but did not become ready within 180s.",
+                sandbox_name,
+            )
+        )
+        self.assertFalse(
+            should_resume(
+                1,
+                "openclaw",
+                exact_error.replace("after delete.", "after delete"),
+                sandbox_name,
+            )
+        )
+
+    def test_ci_onboard_runner_streams_output_and_preserves_contract(self):
+        namespace = {}
+        exec(
+            notebook_adapter.CI_NEMOCLAW_ONBOARD_RECOVERY_SOURCE,
+            namespace,
+        )
+        calls = []
+
+        class FakeProcess:
+            stdout = iter(("first line\n", "second line\n"))
+
+            @staticmethod
+            def wait():
+                return 7
+
+        class FakeSubprocess:
+            DEVNULL = object()
+            PIPE = object()
+            STDOUT = object()
+
+            @staticmethod
+            def Popen(args, **kwargs):
+                calls.append((args, kwargs))
+                return FakeProcess()
+
+        namespace["_ci_subprocess"] = FakeSubprocess
+        namespace["HOME_DIR"] = Path("/tmp/nemoclaw-ci-home")
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            return_code, output = namespace["_ci_run_nemoclaw_onboard"](
+                "nemoclaw onboard --resume"
+            )
+
+        self.assertEqual(return_code, 7)
+        self.assertEqual(output, "first line\nsecond line\n")
+        self.assertEqual(stdout.getvalue(), output)
+        self.assertEqual(
+            calls[0][0],
+            ["nemoclaw", "onboard", "--resume"],
+        )
+        self.assertEqual(
+            calls[0][1],
+            {
+                "cwd": "/tmp/nemoclaw-ci-home",
+                "stdin": FakeSubprocess.DEVNULL,
+                "stdout": FakeSubprocess.PIPE,
+                "stderr": FakeSubprocess.STDOUT,
+                "text": True,
+                "bufsize": 1,
+            },
+        )
+
     def test_ci_confirms_only_the_managed_sandbox_it_recreates(self):
         with mock.patch.dict(
             os.environ,
@@ -939,6 +1035,40 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertIn(
             "NEMOCLAW_SANDBOX_BASE_IMAGE_REFRESH=1 "
             "nemohermes onboard --fresh --non-interactive",
+            onboard_cell["source"],
+        )
+        self.assertIn(
+            "_ci_should_resume_nemoclaw_onboard(",
+            onboard_cell["source"],
+        )
+        self.assertIn(
+            "OpenShell still reports the journaled source after delete.",
+            onboard_cell["source"],
+        )
+        self.assertEqual(
+            onboard_cell["source"].count(
+                '_ci_run_nemoclaw_onboard("nemoclaw onboard --resume")'
+            ),
+            1,
+        )
+        self.assertLess(
+            onboard_cell["source"].index(
+                "_ci_run_nemoclaw_onboard(onboard_cmd)"
+            ),
+            onboard_cell["source"].index(
+                '_ci_run_nemoclaw_onboard("nemoclaw onboard --resume")'
+            ),
+        )
+        self.assertIn(
+            "for _ci_resume_delay in (5, 10, 20):",
+            onboard_cell["source"],
+        )
+        self.assertIn(
+            "if not _ci_should_resume_nemoclaw_onboard(",
+            onboard_cell["source"],
+        )
+        self.assertIn(
+            "_ci_time.sleep(_ci_resume_delay)",
             onboard_cell["source"],
         )
         self.assertLess(
