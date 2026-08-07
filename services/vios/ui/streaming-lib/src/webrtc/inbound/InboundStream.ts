@@ -131,11 +131,7 @@ export default class InboundStream {
 
     public addStreamDataListener(): void {
         const videoElement = document.getElementById(this.streamManager.getConfig().inboundStreamVideoElementId);
-<<<<<<< ours
         if (videoElement && videoElement.dataset.listenerAdded === undefined) {
-=======
-        if (videoElement && !videoElement.dataset.listenerAdded) {
->>>>>>> theirs
             videoElement.dataset.listenerAdded = 'true';
             videoElement.addEventListener('loadeddata', () => {
                 logger.info('[INBOUND_STREAM] First frame loaded.');
