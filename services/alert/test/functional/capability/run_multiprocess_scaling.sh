@@ -50,6 +50,7 @@ METRICS_URL="http://127.0.0.1:9081/metrics"
 RESULTS_DIR="$PID_DIR/scaling_results"
 INJECTOR="$SCRIPT_DIR/incident_stream_publisher.py"
 CPU_SAMPLER="$SCRIPT_DIR/process_tree_cpu.py"
+VERDICT="$SCRIPT_DIR/ts030_verdict.py"
 AB_PATTERN="enhance_alert_with_vlm.py"
 SIM_PATTERNS="${SIM_PATTERNS:-elastic_sim.py,vst_sim.py,nim_stub_server.py}"
 SIM_SATURATED_PCT="${SIM_SATURATED_PCT:-85}"
@@ -421,68 +422,9 @@ ts_030() {
     csv_scpu=$(IFS=,; echo "${single_cpu[*]}")
     csv_mcpu=$(IFS=,; echo "${multi_cpu[*]}")
 
-    if python3 -c "
-import sys
-import glob, os
-results_dir = "$RESULTS_DIR"
-sim_limit = float("$SIM_SATURATED_PCT")
-processes_arg = $PROCESSES
-
-def sim_peaks(rate):
-    """Peak CPU per simulator at one offered rate, across both variants."""
-    worst = {}
-    for variant in (1, processes_arg):
-        path = os.path.join(results_dir, f"sims_P{variant}R{rate}.txt")
-        if not os.path.exists(path):
-            continue
-        for line in open(path):
-            parts = line.split()
-            if len(parts) >= 3:
-                try:
-                    peak = float(parts[2])
-                except ValueError:
-                    continue
-                worst[parts[0]] = max(worst.get(parts[0], 0.0), peak)
-    return worst
-
-rates  = [$csv_rates]
-s_mean = [$csv_smean]
-m_mean = [$csv_mmean]
-s_cpu  = [$csv_scpu]
-m_cpu  = [$csv_mcpu]
-processes = $PROCESSES
-
-s_base, m_base = s_mean[0], m_mean[0]
-
-# Where does one process first buckle?
-brk = next((i for i, v in enumerate(s_mean) if v >= s_base * 1.5), None)
-if brk is None:
-    print('single process never inflated: it is already saturated at the first '
-          'rate, so there is no flat baseline to grow from. LOWER the first '
-          'entry in RAMP_RATES, do not raise it.', file=sys.stderr)
-    sys.exit(1)
-
-# Only the break-rate comparison is corrupted by a saturated simulator. At
-# higher rates a throttled simulator makes Alert Bridge use *less* CPU, so the
-# "crosses one core" half stays conservative - it cannot pass falsely.
-at_break = sim_peaks(rates[brk])
-blocked = [f'{name} {peak:.1f}%' for name, peak in sorted(at_break.items()) if peak >= sim_limit]
-if blocked:
-    print('simulator saturated at the break rate '
-          f'({rates[brk]}/s): {", ".join(blocked)} of one core. The latency '
-          'comparison there describes the harness, not Alert Bridge. Give the '
-          'simulators more capacity, or start the ramp lower.', file=sys.stderr)
-    sys.exit(1)
-
-ok = (max(s_cpu) >= 85.0             # the one-core ceiling is real
-      and m_mean[brk] <= m_base * 1.3  # N processes unaffected where 1 broke
-      and m_mean[brk] < s_mean[brk]    # ...and faster there
-      and max(m_cpu) > 100.0)          # N processes do cross one core
-print(f'break_rate={rates[brk]}/s 1p={s_mean[brk]}s {s_cpu[brk]}% '
-      f'{processes}p={m_mean[brk]}s {m_cpu[brk]}% | max cpu 1p={max(s_cpu)}% {processes}p={max(m_cpu)}%'
-      f' | sims@top {", ".join(f"{n} {v:.0f}%" for n, v in sorted(sim_peaks(rates[-1]).items()))}',
-      file=sys.stderr)
-sys.exit(0 if ok else 1)" 2>"$RESULTS_DIR/ts030_verdict.txt"; then
+    if python3 "$VERDICT" "$RESULTS_DIR" "$SIM_SATURATED_PCT" "$PROCESSES" \
+            "$csv_rates" "$csv_smean" "$csv_mmean" "$csv_scpu" "$csv_mcpu" \
+            > "$RESULTS_DIR/ts030_verdict.txt" 2>&1; then
         detail="$(cat "$RESULTS_DIR/ts030_verdict.txt")"
         record_result TS-030 PASS "$detail"
     else
