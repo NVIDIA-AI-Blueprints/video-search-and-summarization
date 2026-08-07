@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,7 +41,8 @@ public:
     void retryConnection () override {}
 
 private:
-    static RedisSubscriber*                         _instance;
+    friend struct std::default_delete<RedisSubscriber>;
+    static std::unique_ptr<RedisSubscriber>         _instance;
     msgapi_connect_ptr                              nvds_msgapi_connect;
     msgapi_subscribe_ptr                            nvds_msgapi_subscribe;
     msgapi_disconnect_ptr                           nvds_msgapi_disconnect;

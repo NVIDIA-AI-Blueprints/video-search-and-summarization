@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -66,11 +66,6 @@ UnifiedStorageWriter::UnifiedStorageWriter(StorageType type) : m_storageMode(typ
 UnifiedStorageWriter::~UnifiedStorageWriter()
 {
     try {
-        if (m_format)
-        {
-            free(m_format);
-            m_format = nullptr;
-        }
         destroyPipeline();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~UnifiedStorageWriter: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
@@ -669,7 +664,7 @@ bool UnifiedStorageWriter::destroyPipeline()
     return destroyPipelineInternal();
 }
 
-bool UnifiedStorageWriter::destroyPipelineInternal()
+bool UnifiedStorageWriter::destroyPipelineInternal(bool call_cleanup_session)
 {
     // Store stream ID before clearing it for logging purposes
     std::string stream_id = m_streamId;
@@ -687,7 +682,10 @@ bool UnifiedStorageWriter::destroyPipelineInternal()
     // Clean up session state without calling stopWrite (which could cause recursion)
     if (!m_current_session_id.empty())
     {
-        cleanupSession(m_current_session_id);
+        if (call_cleanup_session)
+        {
+            cleanupSession(m_current_session_id);
+        }
         m_current_session_id.clear();
         m_current_remote_path.clear();
     }
@@ -886,11 +884,7 @@ bool UnifiedStorageWriter::destroyPipelineInternal()
     m_height = 0;
     m_numerator = 0;
     m_denominator = 0;
-    if (m_format)
-    {
-        free(m_format);
-        m_format = nullptr;
-    }
+    m_format.clear();
 
     // Reset session state
     m_session_active = false;
@@ -1342,11 +1336,7 @@ void UnifiedStorageWriter::setVideoMetadata(int width, int height, int numerator
     m_height = height;
     m_numerator = numerator;
     m_denominator = denominator;
-    if (m_format)
-    {
-        free(m_format);
-    }
-    m_format = format ? strdup(format) : nullptr;
+    m_format = format ? format : "";
 }
 
 void UnifiedStorageWriter::setResolution(const std::string& resolution)
@@ -1572,7 +1562,7 @@ GstPadProbeReturn event_probe(GstPad* pad, GstPadProbeInfo* info, gpointer user_
         format = gst_structure_get_string(gstStruct, "stream-format");
 
         // Store video metadata
-        if (writer->getWidth() == 0 && writer->getHeight() == 0 && writer->getFormat() == nullptr)
+        if (writer->getWidth() == 0 && writer->getHeight() == 0 && writer->getFormat().empty())
         {
             writer->setVideoMetadata(width, height, numerator, denominator, format);
 
@@ -1592,8 +1582,8 @@ GstPadProbeReturn event_probe(GstPad* pad, GstPadProbeInfo* info, gpointer user_
         }
 
         // Drop caps events if only framerate changed
-        if (writer->getWidth() == width && writer->getHeight() == height && writer->getFormat() && format &&
-            !strcmp(writer->getFormat(), format) &&
+        if (writer->getWidth() == width && writer->getHeight() == height && !writer->getFormat().empty() && format &&
+            writer->getFormat() == format &&
             (writer->getNumerator() != numerator || writer->getDenominator() != denominator))
         {
             LOG(verbose) << "Dropping framerate-only caps change for stream ID: "

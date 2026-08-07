@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,12 +43,12 @@ constexpr long long DEFAULT_RECORDING_DURATION_MS = 157680000000LL;
 
 extern "C" ISensorControlInterface* createObject()
 {
-    return new OnvifClient;
+    return std::make_unique<OnvifClient>().release();
 }
 
 extern "C" void destroyObject( OnvifClient* object )
 {
-    delete object;
+    std::unique_ptr<OnvifClient> owner{ object };
 }
 
 static bool isDuplicateUrl(vector<shared_ptr<StreamInfo>>streams, string url)
@@ -64,9 +64,7 @@ static bool isDuplicateUrl(vector<shared_ptr<StreamInfo>>streams, string url)
     return false;
 }
 
-OnvifClient::OnvifClient()
-{
-}
+OnvifClient::OnvifClient() = default;
 
 OnvifClient::~OnvifClient()
 {

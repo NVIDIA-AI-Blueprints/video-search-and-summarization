@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,24 +63,20 @@ static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *top
     }
 }
 
-RedisSubscriber* RedisSubscriber::_instance = nullptr;
+std::unique_ptr<RedisSubscriber> RedisSubscriber::_instance = nullptr;
 
 RedisSubscriber* RedisSubscriber::getInstance()
 {
     if (_instance == nullptr)
     {
-        _instance = new RedisSubscriber();
+        _instance.reset(new RedisSubscriber());
     }
-    return _instance;
+    return _instance.get();
 }
 
 void RedisSubscriber::deleteInstance()
 {
-    if (_instance != nullptr)
-    {
-        delete _instance;
-        _instance = nullptr;
-    }
+    _instance.reset();
 }
 
 RedisSubscriber::RedisSubscriber()

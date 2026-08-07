@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -87,10 +87,7 @@ NvFileServerMediaSubsession::~NvFileServerMediaSubsession()
         }
         m_stream_state = DestroyState;
         setDoneFlag();
-        if (fAuxSDPLine != nullptr)
-        {
-            delete[] fAuxSDPLine;
-        }
+        fAuxSDPLine.reset();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~NvFileServerMediaSubsession: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
     } catch (...) {
@@ -470,7 +467,7 @@ void NvFileServerMediaSubsession::checkForAuxSDPLine1()
         dasl = fDummyRTPSink ? fDummyRTPSink->auxSDPLine() : nullptr;
         if (fDummyRTPSink != nullptr && dasl != nullptr)
         {
-            fAuxSDPLine = strDup(dasl);
+            fAuxSDPLine.reset(strDup(dasl));
             fDummyRTPSink = nullptr;
 
             // Signal the event loop that we're done:
@@ -495,7 +492,7 @@ char const* NvFileServerMediaSubsession::getAuxSDPLine(RTPSink* rtpSink, FramedS
 {
     if (fAuxSDPLine != nullptr)
     {
-        return fAuxSDPLine; // it's already been set up (for a previous client)
+        return fAuxSDPLine.get(); // it's already been set up (for a previous client)
     }
 
     if (m_mediaSource && m_mediaSource->isError())
@@ -529,7 +526,7 @@ char const* NvFileServerMediaSubsession::getAuxSDPLine(RTPSink* rtpSink, FramedS
         m_PlayModeCheckTask = envir().taskScheduler().scheduleDelayedTask(_delay,
                 (TaskFunc*)checkIfSourceInPlayMode, this);
     }
-    return fAuxSDPLine;
+    return fAuxSDPLine.get();
 }
 
 std::pair<uint64_t, uint64_t> NvFileServerMediaSubsession::getRangeFromUrlParams(const string& url_params)
@@ -621,6 +618,11 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
 void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
         char*& absStart, char*& absEnd)
 {
+    std::unique_ptr<char[]> absStartOwner(absStart);
+    std::unique_ptr<char[]> absEndOwner(absEnd);
+    absStart = nullptr;
+    absEnd = nullptr;
+
     if (inputSource == nullptr)
     {
         LOG(error) << "input source is null" << endl;
@@ -630,22 +632,20 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
     /* Ignore this seek in case of sync_playback, It will be handled while createNewStreamSource */
     if (GET_CONFIG().nv_streamer_sync_playback == true || m_vodEnableOverlay)
     {
-        delete[] absStart; absStart = nullptr;
-        delete[] absEnd; absEnd = nullptr;
         return;
     }
 
     FramedFilter* fSource = static_cast<FramedFilter*>(inputSource);
     H264ByteStreamSource* source = static_cast<H264ByteStreamSource *> (fSource->inputSource());
     uint64_t start = 0;
-    if (absStart != nullptr)
+    if (absStartOwner != nullptr)
     {
-        start = getEpocTimeInMS(absStart, false);
+        start = getEpocTimeInMS(absStartOwner.get(), false);
     }
     uint64_t end = 0;
-    if (absEnd != nullptr)
+    if (absEndOwner != nullptr)
     {
-        end = getEpocTimeInMS(absEnd, false);
+        end = getEpocTimeInMS(absEndOwner.get(), false);
     }
 
     start = m_startTime;
@@ -669,8 +669,6 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
             m_isSeekStreamDone = true;
         }
     }
-    delete[] absStart; absStart = nullptr;
-    delete[] absEnd; absEnd = nullptr;
 }
 
 static void checkAndSeekToGlobalFrameId(void* clientData)

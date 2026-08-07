@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,6 +39,11 @@ class SensorControl
     public:
         SensorControl(DeviceManager* deviceMngr);
         ~SensorControl();
+
+        SensorControl(const SensorControl&) = delete;
+        SensorControl& operator=(const SensorControl&) = delete;
+        SensorControl(SensorControl&&) = delete;
+        SensorControl& operator=(SensorControl&&) = delete;
 
         int connect();
         int getSensorsStreamInfo();

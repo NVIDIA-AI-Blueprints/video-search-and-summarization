@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +31,6 @@ class CudaLoader
 {
 public:
     static CudaLoader* getInstance();
-    static void deleteInstance();
 
     cuInit_t cuInit;
     cuDeviceGet_t cuDeviceGet;
@@ -41,7 +40,6 @@ public:
     bool isError()  { return m_error; }
 
 private:
-    static CudaLoader* m_instance;
     bool m_error;
     void* m_handleCuda;
     void* m_handleCudart;

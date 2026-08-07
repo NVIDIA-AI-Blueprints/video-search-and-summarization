@@ -101,6 +101,10 @@ private:
         std::string m_responseBody;
         char m_errorBuffer[CURL_ERROR_SIZE]{};
 
+        RequestContext() = default;
+        RequestContext(const RequestContext&) = delete;
+        RequestContext& operator=(const RequestContext&) = delete;
+
         ~RequestContext()
         {
             if (m_headerList != nullptr)

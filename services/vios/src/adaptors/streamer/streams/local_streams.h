@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,8 +29,8 @@ using namespace std;
 class LocalStreams : public ISensorControlInterface
 {
     public:
-        LocalStreams();
-        virtual ~LocalStreams() {}
+        LocalStreams() = default;
+        virtual ~LocalStreams() = default;
 
         int connect();
         int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);

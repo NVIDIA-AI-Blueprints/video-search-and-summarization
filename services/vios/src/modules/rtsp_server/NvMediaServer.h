@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -101,7 +101,7 @@ protected: // redefined virtual functions
   std::string getSessionId() { return m_sessionId; }
 private:
   void setDoneFlagAndResetSource();
-  char* fAuxSDPLine;
+  std::unique_ptr<char[]> fAuxSDPLine;
   EventLoopWatchVariable fDoneFlag{0}; // used when setting up "fAuxSDPLine"
   RTPSink* fDummyRTPSink; // ditto
   std::string m_streamName;

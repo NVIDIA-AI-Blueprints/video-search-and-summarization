@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,7 @@
 #include <chrono>
 #include <iostream>
 #include <fstream>
+#include <memory>
 #include <utility>
 #include <functional>
 #include <math.h>
@@ -132,14 +133,14 @@ extern "C" void* createPeerConnectionManagerObject()
 {
     std::string publishFilter(".*");
     webrtc::AudioDeviceModule::AudioLayer audioLayer = webrtc::AudioDeviceModule::kPlatformDefaultAudio;
-    return static_cast<void*>(static_cast<IVstModule*>(
-        new PeerConnectionManager("", audioLayer, publishFilter, ModuleLoader::getInstance()->getDeviceManagerObject())));
+    auto pcm = std::make_unique<PeerConnectionManager>(
+        "", audioLayer, publishFilter, ModuleLoader::getInstance()->getDeviceManagerObject());
+    return static_cast<void*>(static_cast<IVstModule*>(pcm.release()));
 }
 
 extern "C" void deletePeerConnectionManagerObject(IVstModule* object)
 {
-    PeerConnectionManager* pcm = static_cast<PeerConnectionManager*>(object);
-    delete pcm;
+    std::unique_ptr<PeerConnectionManager>(static_cast<PeerConnectionManager*>(object));
 }
 
 // character to remove from url to make webrtc label
@@ -664,7 +665,8 @@ PeerConnectionManager::PeerConnectionManager(std::string pcType,
 #ifdef HAVE_SOUND
       m_audioDeviceModule(webrtc::AudioDeviceModule::Create(audioLayer, m_taskQueueFactory.get())),
 #else
-      m_audioDeviceModule(new webrtc::FakeAudioDeviceModule()),
+      m_fakeAudioDeviceModule(std::make_unique<webrtc::FakeAudioDeviceModule>()),
+      m_audioDeviceModule(m_fakeAudioDeviceModule.get()),
 #endif
       m_publishFilter(publishFilter), m_deviceManager(deviceManager)
 #ifdef ASYNC_API
@@ -708,9 +710,8 @@ PeerConnectionManager::~PeerConnectionManager()
 #ifdef HAVE_SOUND
     m_audioDeviceModule = nullptr;
 #else
-    auto* fakeAdm = static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get());
     m_audioDeviceModule = nullptr;
-    delete fakeAdm;
+    m_fakeAudioDeviceModule.reset();
 #endif
     webrtc::CleanupSSL();
 }
@@ -929,7 +930,7 @@ VmsErrorCode PeerConnectionManager::createOffer(unordered_map<string, string> ur
         rtcoptions.offer_to_receive_audio = 0;
         std::promise<const webrtc::SessionDescriptionInterface *> promise;
         std::string sdp;
-        rtcPeerConnection->CreateOffer(vst_webrtc::CreateSessionDescriptionObserver::Create(rtcPeerConnection.get(), promise, sdp), rtcoptions);
+        rtcPeerConnection->CreateOffer(vst_webrtc::CreateSessionDescriptionObserver::Create(rtcPeerConnection.get(), promise, sdp).get(), rtcoptions);
 
         // waiting for offer
         std::future<const webrtc::SessionDescriptionInterface *> future = promise.get_future();

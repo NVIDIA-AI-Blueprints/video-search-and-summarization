@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -143,6 +143,11 @@ class ClientSession
     public:
         virtual ~ClientSession();
         ClientSession();
+
+        ClientSession(const ClientSession&) = delete;
+        ClientSession& operator=(const ClientSession&) = delete;
+        ClientSession(ClientSession&&) = delete;
+        ClientSession& operator=(ClientSession&&) = delete;
 
         CURL* getCurlClient();
         std::shared_ptr<NvSoap> getNvSoap();
@@ -327,7 +332,6 @@ struct SensorPosition
     string fieldOfView;
     string depth;
     SensorPosition();
-    void operator=(const SensorPosition& pos);
     void printInfo();
 };
 

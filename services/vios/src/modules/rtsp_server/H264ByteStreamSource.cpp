@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -243,11 +243,11 @@ H264ByteStreamSource* H264ByteStreamSource
       string url_params, string sourceState, string sessionId,
 	    unsigned preferredFrameSize, unsigned playTimePerFrame)
 {
-    H264ByteStreamSource* newSource
-      = new H264ByteStreamSource(env, streamName, mediasource, url_params, sourceState, sessionId,
+    auto newSource
+      = std::make_unique<H264ByteStreamSource>(env, streamName, mediasource, url_params, sourceState, sessionId,
               preferredFrameSize, playTimePerFrame);
 
-    return newSource;
+    return newSource.release();
 }
 
 void H264ByteStreamSource::doGetNextFrame()

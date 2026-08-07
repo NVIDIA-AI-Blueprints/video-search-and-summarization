@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,13 +46,12 @@ extern "C" void* createStreamBridgeObject()
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
     std::shared_ptr<PeerConnectionManager> pcm = std::make_shared<PeerConnectionManager>("streambridge", audioLayer, publishFilter, deviceManager, true);
 
-    return static_cast<void*>(static_cast<IVstModule*>(new StreamBridgeService(pcm, deviceManager)));
+    return static_cast<void*>(static_cast<IVstModule*>(std::make_unique<StreamBridgeService>(pcm, deviceManager).release()));
 }
 
 extern "C" void deleteStreamBridgeObject(IVstModule* object)
 {
-    StreamBridgeService* stream_bridge = static_cast<StreamBridgeService*>(object);
-    delete stream_bridge;
+    std::unique_ptr<StreamBridgeService>(static_cast<StreamBridgeService*>(object));
 }
 
 StreamBridgeService::StreamBridgeService(std::shared_ptr<PeerConnectionManager> peerConnectionManager,

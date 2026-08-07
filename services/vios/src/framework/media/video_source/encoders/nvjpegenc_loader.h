@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <memory>
 #include "libjpeg-8b/jpeglib.h"
 
 typedef struct jpeg_error_mgr* (*jpeg_std_error_t) (struct jpeg_error_mgr*);
@@ -60,7 +61,9 @@ public:
     int nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigned long &out_buf_size);
     int nvjpegEncodeFromBuffer(unsigned char* buffer, uint32_t width, uint32_t height, unsigned char **out_buf, unsigned long &out_buf_size);
 private:
-    static NvJpegEncLoader* m_instance;
+    friend struct std::default_delete<NvJpegEncLoader>;
+
+    static std::unique_ptr<NvJpegEncLoader> m_instance;
     bool m_error;
     void* m_handleNvJpeg;
 

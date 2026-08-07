@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -453,13 +453,13 @@ static void gst_buffer_object_free_cb(gpointer data, GstMiniObject *obj)
     if (!encoder)
     {
         LOG(error) << "gst_buffer_object_free_cb: consumer is null" << endl;
-        free(buffer_data);
+        delete buffer_data;
         return;
     }
 
     encoder->freeVideoFrameData(buffer_data->m_decoderFd);
 
-    free (buffer_data);
+    delete buffer_data;
 }
 
 void GstNvVideoEncoder::freeVideoFrameData(int fd)
@@ -601,7 +601,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     if (is_zero_copy)
     {
         mem = gst_buffer_peek_memory (gstbuffer, 0);
-        struct WebrtcVideoDecoderBufferData* buffer_data = (WebrtcVideoDecoderBufferData*) malloc(sizeof (WebrtcVideoDecoderBufferData));
+        WebrtcVideoDecoderBufferData* buffer_data = new WebrtcVideoDecoderBufferData();
         buffer_data->m_videoEncInstance = this;
         buffer_data->m_decoderFd = buf_surf->surfaceList[0].bufferDesc;
         gst_mini_object_weak_ref(GST_MINI_OBJECT(mem), (GstMiniObjectNotify)gst_buffer_object_free_cb, (void*)buffer_data);

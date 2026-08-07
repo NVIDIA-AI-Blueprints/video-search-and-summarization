@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,23 +30,20 @@ constexpr int JPEG_DEFAULT_QUALITY = 75;
 #endif
 #define ROUND_UP_4(num)  (((num) + 3) & ~3)
 
-NvJpegEncLoader* NvJpegEncLoader::m_instance = nullptr;
+std::unique_ptr<NvJpegEncLoader> NvJpegEncLoader::m_instance = nullptr;
 
 NvJpegEncLoader* NvJpegEncLoader::getInstance()
 {
     if (m_instance == nullptr)
     {
-        m_instance = new NvJpegEncLoader();
+        m_instance.reset(new NvJpegEncLoader());
     }
-    return m_instance;
+    return m_instance.get();
 }
 
 void NvJpegEncLoader::deleteInstance()
 {
-    if (m_instance)
-    {
-        delete m_instance;
-    }
+    m_instance.reset();
 }
 
 NvJpegEncLoader::NvJpegEncLoader()

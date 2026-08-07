@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -435,7 +435,7 @@ void printQoSData();
 void printBackendQoSData();
 
 std::map<string, shared_ptr<QosMeasurementRecord>, std::less<>> g_records;
-std::map<string, QosRtspClient *, std::less<>> g_rtspSources;
+std::map<string, std::unique_ptr<QosRtspClient>, std::less<>> g_rtspSources;
 std::map<string, struct timeval, std::less<>> g_blackList;
 std::multimap<string, pair<string, string>, std::less<>> g_streamFailureCount;
 std::mutex g_streamFailureMapMutex, g_qosDumpMutex, g_rtspSourceMutex;
@@ -625,9 +625,9 @@ public:
         struct timeval m_latencyStartTime;
     };
 
-    static QosRtspClient *Create(const std::string &url, const std::string& name, const std::map<std::string, std::string, std::less<>> &opts)
+    static std::unique_ptr<QosRtspClient> Create(const std::string &url, const std::string& name, const std::map<std::string, std::string, std::less<>> &opts)
     {
-        return new QosRtspClient(url, name, opts);
+        return std::make_unique<QosRtspClient>(url, name, opts);
     }
 
     void restartConnection(bool no_delay = false)
@@ -1368,26 +1368,24 @@ QosRtspClient *startRtspClient(string uri, string devName = "")
 
     std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
     // Check if rtsp client for given url is present, remove it.
-    std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(uri);
+    auto it = g_rtspSources.find(uri);
     if (it != g_rtspSources.end())
     {
-        QosRtspClient *oldRtspSrc = it->second;
-        if (oldRtspSrc)
+        if (it->second)
         {
-            old_retryCount = oldRtspSrc->m_retryCount;
-            tryTcpTransport = oldRtspSrc->m_tryTcpStreaming;
+            old_retryCount = it->second->m_retryCount;
+            tryTcpTransport = it->second->m_tryTcpStreaming;
             removeRecord(uri);
-            delete oldRtspSrc;
             g_rtspSources.erase(uri);
         }
     }
 
-    rtspSrc = QosRtspClient::Create(uri, devName, opts);
+    rtspSrc = QosRtspClient::Create(uri, devName, opts).release();
     if (rtspSrc)
     {
         rtspSrc->m_retryCount = old_retryCount;
         rtspSrc->m_tryTcpStreaming = tryTcpTransport;
-        g_rtspSources[uri] = rtspSrc;
+        g_rtspSources[uri] = std::unique_ptr<QosRtspClient>(rtspSrc);
     }
     LOG(verbose) << "[streamMonitor] Created rtspClient for " << devName << ", uri:" << uri << endl;
     return rtspSrc;
@@ -1395,21 +1393,17 @@ QosRtspClient *startRtspClient(string uri, string devName = "")
 
 void removeRtspClient(string uri)
 {
-    QosRtspClient *rtspSrc = nullptr;
+    std::unique_ptr<QosRtspClient> rtspSrc;
     {
         std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
-        std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(uri);
+        auto it = g_rtspSources.find(uri);
         if (it != g_rtspSources.end())
         {
             LOG(verbose) << "[streamMonitor] Removing rtspClient for "
                     << it->second->getDevName() << ", uri:" << uri << endl;
-            rtspSrc = it->second;
+            rtspSrc = std::move(it->second);
             g_rtspSources.erase(uri);
         }
-    }
-    if (rtspSrc)
-    {
-        delete rtspSrc;
     }
 }
 
@@ -1417,10 +1411,10 @@ QosRtspClient *getRtspClient(string uri)
 {
     QosRtspClient *rtspSrc = nullptr;
     std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
-    std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(uri);
+    auto it = g_rtspSources.find(uri);
     if (it != g_rtspSources.end())
     {
-        rtspSrc = it->second;
+        rtspSrc = it->second.get();
     }
     return rtspSrc;
 }
@@ -1943,7 +1937,7 @@ void StreamMonitor::qosMeasurementTask()
                 -> 3. If stream is not blacklisted due to multiple failures.
                 */
                 bool createRecord = false;
-                std::map<std::string, QosRtspClient*, std::less<>>::iterator it = g_rtspSources.find(stream.m_url);
+                auto it = g_rtspSources.find(stream.m_url);
                 if (it == g_rtspSources.end() && stream.m_isMainStream)
                 {
                     QosRtspClient *rtspSource = startRtspClient(stream.m_url, stream.m_devName);
@@ -2033,7 +2027,7 @@ void StreamMonitor::qosMeasurementTask()
             }
 
             // Check if any url to be removed from monitoring.
-            std::map<std::string, QosRtspClient *, std::less<>>::iterator it_record = g_rtspSources.begin();
+            auto it_record = g_rtspSources.begin();
             while (it_record != g_rtspSources.end())
             {
                 bool found = false;
@@ -2049,7 +2043,6 @@ void StreamMonitor::qosMeasurementTask()
                 {
                     LOG(info) << "Proxy url not present in streamList, removing " << it_record->second->getDevName() << endl;
                     removeRecord(it_record->first);
-                    delete it_record->second;
                     it_record = g_rtspSources.erase(it_record);
                     if (g_blackList.size() > 0)
                     {
@@ -2102,10 +2095,6 @@ void StreamMonitor::cleanupQoSThread()
     g_streamFailureCount.clear();
 
     // Delete the rtsp sources
-    for (const auto& source : g_rtspSources)
-    {
-        delete source.second;
-    }
     g_rtspSources.clear();
 }
 
@@ -2410,7 +2399,7 @@ void StreamMonitor::waitForCompleteRemoval(const string& url)
 bool StreamMonitor::isRtspSourceDestroyed(const string& url)
 {
     std::lock_guard<std::mutex> devicesLock(g_rtspSourceMutex);
-    std::map<string, QosRtspClient *, std::less<>>::iterator it = g_rtspSources.find(url);
+    auto it = g_rtspSources.find(url);
     if (it == g_rtspSources.end())
     {
        return true;

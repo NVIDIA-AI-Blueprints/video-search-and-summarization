@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,7 +20,7 @@
 #include "sensor_info.h"
 #include "utils.h"
 
-NativeStreamMonitor*  NativeStreamMonitor::m_pInstance = nullptr;
+std::unique_ptr<NativeStreamMonitor>  NativeStreamMonitor::m_pInstance;
 
 bool NativeStreamMonitor::addNativeStream(std::shared_ptr<StreamInfo> stream, const string location)
 {

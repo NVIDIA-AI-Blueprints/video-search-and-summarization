@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,12 +26,12 @@ using namespace nv_vms;
 
 extern "C" ISensorDiscoveryInterface* createObject()
 {
-    return new NativeSensorsDiscovery;
+    return std::make_unique<NativeSensorsDiscovery>().release();
 }
 
 extern "C" void destroyObject(NativeSensorsDiscovery* object)
 {
-    delete object;
+    std::unique_ptr<NativeSensorsDiscovery> deleter(object);
 }
 
 //function to remove the spaces from string
@@ -248,15 +248,13 @@ void NativeSensorsDiscovery::doNativeSensorDiscovery(vector<SensorInfo>& sensors
     LOG(verbose) << "Total Number of Video Capture Devices: " << sensor_count << endl;
 }
 
-NativeSensorsDiscovery::NativeSensorsDiscovery()
-{
-}
+NativeSensorsDiscovery::NativeSensorsDiscovery() = default;
 
 NativeSensorsDiscovery::~NativeSensorsDiscovery()
 {
     try {
         LOG(info) << "Destroying NativeSensorsDiscovery" << endl;
-        stop();
+        NativeSensorsDiscovery::stop();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~NativeSensorsDiscovery: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
     } catch (...) {

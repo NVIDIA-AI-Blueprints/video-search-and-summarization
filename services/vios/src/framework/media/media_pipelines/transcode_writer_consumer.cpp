@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -280,7 +280,7 @@ TranscodeWriterConsumer::TranscodeWriterConsumer(const TranscodeWriterConfig& cf
 TranscodeWriterConsumer::~TranscodeWriterConsumer()
 {
     try {
-        stop();
+        TranscodeWriterConsumer::stop();
         teardown();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~TranscodeWriterConsumer: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
