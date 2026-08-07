@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions). Not for prior tool output, search hits, or metadata-answerable questions.
+description: Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions), including a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL. Not for retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -44,6 +44,10 @@ it, or you pass `VLM_ENDPOINT` / `VLM_MODEL` yourself.
 - The user asks for **details** that **cannot be answered** from existing messages, summaries,
   Elasticsearch/MCP results, or filenames alone—you need **model inference on the video**.
 - Follow-up questions about **content details** after a coarse summary or after report generation.
+- `vss-search-archive` has already displayed only `unverified` results, the user
+  explicitly confirmed visual verification, and the caller supplies one exact
+  bounded clip as `VIDEO_URL`. Treat that URL as Path A; do not rerun search or
+  resolve a different interval.
 
 ---
 
@@ -51,10 +55,14 @@ it, or you pass `VLM_ENDPOINT` / `VLM_MODEL` yourself.
 
 Do **not** use this skill when the request is one of the following:
 
-- A **database / MCP / prior tool output** already answers the question, unless the user
-  explicitly wants **verification** against the video → use `/vss-query-analytics`.
+- A **database / MCP / prior tool output** already answers the question, unless
+  the user explicitly wants fresh visual verification. The confirmed bounded
+  `vss-search-archive` handoff above is the only search-result exception; use
+  `/vss-query-analytics` for analytics-result verification.
 - Archive/semantic similarity retrieval ("find forklifts", "search all videos for tailgating")
-  → use `/vss-search-archive`.
+  → use `/vss-search-archive`. This skill may inspect only the pre-resolved
+  bounded clip that search hands off after confirmation; it never performs the
+  retrieval itself.
 - A request for a **formatted/structured report** ("generate a report", "analysis report")
   → use `/vss-generate-video-report`.
 - Summarizing a long recording → use `/vss-summarize-video`.
@@ -72,6 +80,12 @@ Do **not** use this skill when the request is one of the following:
    the video in the format the target VLM requires and ask the user's question) →
    *Step 4* (return the answer).
 3. **Return only the final answer text** to the user (strip any `<think>…</think>` block).
+
+For a confirmed search-result handoff, use only the caller-supplied `VIDEO_URL`
+and visual question. Do not consume similarity scores, filenames, object IDs,
+or other retrieval metadata as visual evidence, and do not rerun search,
+resolve a sensor, broaden the clip, or choose another interval. The caller owns
+verdict validation and any fallback after this skill returns.
 
 ---
 
@@ -186,6 +200,10 @@ If the user hands you a file path or a URL, use it directly — **VST/VIOS is no
   (`file_base64`) so the VLM ingests the video directly. Nothing is downloaded.
 - **URL the VLM can fetch** → set `VIDEO_URL=<url>`. Step 3 sends it as a `video_url` block; if the
   VLM is remote and can't reach the URL, inline it instead (`file_base64`).
+
+A user-confirmed search-result handoff with a pre-resolved bounded `VIDEO_URL`
+uses this same path. Do not discard that URL and enter Path B merely because
+the caller also retains a sensor ID or timestamps for reporting.
 
 Then go straight to Step 2 — **skip the Sensor check**.
 
