@@ -249,7 +249,9 @@ export default class StreamManager {
             successCallback: (): void => {
                 // Default implementation does nothing with the parameters
             },
-            firstFrameReceivedCallback: () => void {},
+            firstFrameReceivedCallback: (): void => {
+                // Default implementation does nothing on first frame
+            },
         };
     }
 
