@@ -18,7 +18,7 @@ import LOG from '../../utils/misc/Logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Card, CardHeader, IconButton, Typography, TextField, Skeleton, useTheme } from '@mui/material';
 import { KeyboardArrowLeft, KeyboardArrowRight } from '@mui/icons-material';
-import ReactApexChart from 'react-apexcharts';
+import ReactApexChart from '../../components/charts/ApexChart';
 import useVSTUIStore from '../../services/StateManagement';
 import { useSnackbar } from 'notistack';
 import { copyToClipboard } from '../../utils/misc/utils';
