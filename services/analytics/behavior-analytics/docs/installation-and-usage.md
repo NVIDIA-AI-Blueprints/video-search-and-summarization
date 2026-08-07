@@ -53,6 +53,11 @@ pipenv run python3 apps/public_safety/main_public_safety_app.py --config <path>
 
 # Search and Alerts (behaviors + embeddings + incidents)
 pipenv run python3 apps/search_and_alerts/main_search_and_alerts_app.py --config <path>
+
+# Composite — an example app; capabilities come from the numWorkersFor* counts, and the
+# shipped configs/composite_config.json has every one at 0 -- enable what you want first, or the
+# app logs "FATAL - Error in app: No processors registered" and exits 0 without doing anything
+pipenv run python3 apps/composite/main_composite_app.py --config <path>
 ```
 > Most apps expect a config JSON; see `configs/` examples or `docs/configuration.md`.
 > Apps that use spatial calibration also require `--calibration <path>` (see calibration examples under `configs/`).
@@ -66,6 +71,7 @@ python3 apps/analytics/main_analytics_2d_app.py --config <path>
 python3 apps/analytics/main_analytics_3d_app.py --config <path>
 python3 apps/public_safety/main_public_safety_app.py --config <path>
 python3 apps/search_and_alerts/main_search_and_alerts_app.py --config <path>
+python3 apps/composite/main_composite_app.py --config <path>
 ```
 > Add `--calibration <path>` for apps that need calibration files (e.g., spatial analytics).
 
@@ -75,6 +81,7 @@ python3 apps/search_and_alerts/main_search_and_alerts_app.py --config <path>
 - Spatial Analytics 2D/3D: `apps/analytics/main_analytics_2d_app.py` / `_3d_app.py`
 - Public Safety: `apps/public_safety/main_public_safety_app.py`
 - Search and Alerts (behaviors + embeddings + incidents): `apps/search_and_alerts/main_search_and_alerts_app.py`
+- Composite (all capabilities in one app, combinable across workloads): `apps/composite/main_composite_app.py` — `configs/composite_config.json` is an example: it defines every topic the processors could write but sets each `numWorkersFor*` to `0`, so adjust it before running — with none set it logs a FATAL and exits 0
 - Tools: under `src/mdx/analytics/core/tools/`
 
 ## Configuration files

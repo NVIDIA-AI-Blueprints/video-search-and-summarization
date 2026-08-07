@@ -178,7 +178,10 @@ class AppRunner:
                     ))
 
             if not self._tasks:
-                raise RuntimeError(f"FATAL - No processors registered in app {self._app_cls}, refer BaseApp.register_processor(...)")
+                # No "FATAL - " prefix here: the handler below already adds one, and it used to read
+                # "FATAL - Error in app: FATAL - No processors registered ...".
+                raise RuntimeError(
+                    f"No processors registered in app {self._app_cls}, refer BaseApp.register_processor(...)")
 
             self._calibration_listener.start()
             self._config_listener.start()
