@@ -3968,6 +3968,89 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(report["response"]["error_type"], "RuntimeError")
         self.assertIn("does not reference expected skill", report["response"]["error"])
 
+    def test_cli_main_canonicalizes_terminal_prompt_line_endings(self):
+        canonical_prompt = (
+            "Use the `/vss-manage-alerts` skill.\n\n"
+            "Preserve substantive terminal spaces.  "
+        )
+        for line_ending in (b"", b"\n", b"\r\n"):
+            with self.subTest(line_ending=line_ending):
+                captured: dict[str, str] = {}
+
+                def fake_run_openclaw(
+                    sandbox,
+                    message,
+                    timeout,
+                    logs,
+                    wait_profile="",
+                    deadline=None,
+                ):
+                    captured["message"] = message
+                    return {
+                        "status": 200,
+                        "body": {"ok": True},
+                        "stdout_tail": "",
+                        "stderr_tail": "",
+                    }
+
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    prompt = root / "prompt.md"
+                    prompt.write_bytes(
+                        canonical_prompt.encode("utf-8") + line_ending
+                    )
+                    log_dir = root / "logs"
+                    with (
+                        mock.patch.object(
+                            headless_runner,
+                            "run_openclaw_cli",
+                            side_effect=fake_run_openclaw,
+                        ),
+                        mock.patch.object(
+                            headless_runner,
+                            "wait_for_profile",
+                            return_value={"waited": False},
+                        ),
+                        mock.patch.object(
+                            headless_runner,
+                            "stop_openclaw_cli",
+                            return_value=None,
+                        ),
+                        mock.patch.object(
+                            headless_runner,
+                            "collect_openclaw_cli_log",
+                            return_value=None,
+                        ),
+                        mock.patch.object(
+                            headless_runner,
+                            "collect_and_publish_openclaw_trajectory",
+                            return_value={},
+                        ),
+                        contextlib.redirect_stdout(io.StringIO()),
+                    ):
+                        rc = headless_runner.main(
+                            [
+                                "--prompt-file",
+                                str(prompt),
+                                "--log-dir",
+                                str(log_dir),
+                                "--agent-log-dir",
+                                str(log_dir),
+                                "--launch-mode",
+                                "cli",
+                                "--expected-skill",
+                                "vss-manage-alerts",
+                            ]
+                        )
+
+                    published_prompt = (
+                        log_dir / "nemoclaw_prompt.md"
+                    ).read_text(encoding="utf-8")
+
+                self.assertEqual(rc, 0)
+                self.assertEqual(captured["message"], canonical_prompt)
+                self.assertEqual(published_prompt, canonical_prompt)
+
     def test_rtsp_attestation_requires_exact_exec_tool_envelope(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "trajectory.json"
@@ -4618,6 +4701,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         convergence_sleeps: list[tuple[float | None, int]] | None = None,
         convergence_sleep_error: BaseException | None = None,
         second_start_ok: bool = True,
+        prompt: str = "Deploy base and verify its endpoints.",
     ) -> tuple[
         dict[str, Any],
         list[dict[str, Any]],
@@ -4652,10 +4736,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": (
-                                        "Deploy base and verify its "
-                                        "endpoints."
-                                    ),
+                                    "text": prompt,
                                 }
                             ],
                         },
@@ -4794,7 +4875,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
             response = headless_runner.run_openclaw_cli(
                 "demo",
-                "Deploy base and verify its endpoints.",
+                prompt,
                 900,
                 log_dir,
                 wait_profile=wait_profile,
@@ -4815,6 +4896,14 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             self.assertEqual(response["attempts"], 2)
             self.assertTrue(response["retry"]["attempted"])
             self.assertTrue(response["attempt_2_launched"])
+            self.assertEqual(
+                response["retry"]["root_session_validation_attempts"],
+                1,
+            )
+            self.assertNotIn(
+                "root_session_validation_last_error_category",
+                response["retry"],
+            )
             self.assertEqual(len(calls), 2)
             self.assertEqual(
                 root_reads,
@@ -4873,11 +4962,18 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             temporary.cleanup()
 
     def test_openclaw_timeout_waits_for_root_session_convergence(self):
-        transient_roots: tuple[tuple[str, str | BaseException], ...] = (
-            ("missing", RuntimeError("root session is not visible yet")),
-            ("malformed", "{partial-json\n"),
+        transient_roots: tuple[
+            tuple[str, str | BaseException, str],
+            ...,
+        ] = (
+            (
+                "missing",
+                RuntimeError("root session is not visible yet"),
+                "read_failed",
+            ),
+            ("malformed", "{partial-json\n", "validation_failed"),
         )
-        for label, transient_root in transient_roots:
+        for label, transient_root, error_category in transient_roots:
             with self.subTest(label=label):
                 sleeps: list[tuple[float | None, int]] = []
                 response, calls, root_reads, _, temporary = (
@@ -4891,6 +4987,18 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                     self.assertEqual(response["status"], 200)
                     self.assertTrue(response["retry"]["attempted"])
                     self.assertTrue(response["attempt_2_launched"])
+                    self.assertEqual(
+                        response["retry"][
+                            "root_session_validation_attempts"
+                        ],
+                        2,
+                    )
+                    self.assertEqual(
+                        response["retry"][
+                            "root_session_validation_last_error_category"
+                        ],
+                        error_category,
+                    )
                     self.assertEqual(len(calls), 2)
                     self.assertEqual(
                         root_reads,
@@ -4905,6 +5013,27 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                     self.assertEqual(sleeps, [(1000.0, 1)])
                 finally:
                     temporary.cleanup()
+
+    def test_openclaw_timeout_retries_with_canonical_prompt(self):
+        raw_prompt = "Deploy base and verify its endpoints.\r\n"
+        canonical_prompt = raw_prompt.rstrip("\r\n")
+        response, calls, _, _, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                prompt=canonical_prompt,
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 200)
+            self.assertTrue(response["retry"]["attempted"])
+            self.assertTrue(response["attempt_2_launched"])
+            self.assertEqual(calls[0]["prompt"], canonical_prompt)
+            self.assertEqual(
+                response["retry"]["root_session_validation_attempts"],
+                1,
+            )
+        finally:
+            temporary.cleanup()
 
     def test_openclaw_retry_root_convergence_deadline_is_fail_closed(self):
         sleeps: list[tuple[float | None, int]] = []
@@ -4930,6 +5059,16 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             self.assertEqual(
                 response["retry"]["skipped"],
                 "invalid_retry_root_session",
+            )
+            self.assertEqual(
+                response["retry"]["root_session_validation_attempts"],
+                1,
+            )
+            self.assertEqual(
+                response["retry"][
+                    "root_session_validation_last_error_category"
+                ],
+                "read_failed",
             )
             self.assertFalse(
                 (log_dir / "openclaw-agent-attempt-2.log").exists()
@@ -5298,6 +5437,33 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 + "\n",
             ),
             (
+                "terminal-space-mismatch",
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "session",
+                                "id": "run-root",
+                                "parentSession": None,
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "message": {
+                                    "role": "user",
+                                    "content": (
+                                        "Deploy base and verify its "
+                                        "endpoints. "
+                                    ),
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+            ),
+            (
                 "mismatched-session-id",
                 "\n".join(
                     [
@@ -5389,6 +5555,22 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                     self.assertEqual(
                         response["retry"]["skipped"],
                         "invalid_retry_root_session",
+                    )
+                    self.assertEqual(
+                        response["retry"][
+                            "root_session_validation_attempts"
+                        ],
+                        convergence_attempts,
+                    )
+                    self.assertEqual(
+                        response["retry"][
+                            "root_session_validation_last_error_category"
+                        ],
+                        (
+                            "read_failed"
+                            if label == "missing"
+                            else "validation_failed"
+                        ),
                     )
                     self.assertFalse(
                         (

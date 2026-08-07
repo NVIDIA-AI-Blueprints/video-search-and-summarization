@@ -1330,10 +1330,13 @@ def _wait_for_valid_openclaw_retry_root_session(
     expected_session_id: str,
     expected_prompt: str,
     deadline: float | None,
+    telemetry: dict[str, Any] | None = None,
 ) -> None:
     """Wait briefly for the exact retry root transcript to finish flushing."""
     delays = OPENCLAW_RETRY_ROOT_CONVERGENCE_DELAYS_SECONDS
     for attempt_index in range(len(delays) + 1):
+        if telemetry is not None:
+            telemetry["root_session_validation_attempts"] = attempt_index + 1
         try:
             root_session_jsonl = _read_managed_openclaw_session(
                 sandbox_name,
@@ -1341,20 +1344,34 @@ def _wait_for_valid_openclaw_retry_root_session(
                 OPENCLAW_SESSION_MAX_BYTES,
                 deadline,
             )
-            _validate_openclaw_retry_root_session(
-                root_session_jsonl,
-                expected_session_id=expected_session_id,
-                expected_prompt=expected_prompt,
-            )
-            return
         except (
             OSError,
             RuntimeError,
             subprocess.SubprocessError,
             ValueError,
         ):
+            if telemetry is not None:
+                telemetry["root_session_validation_last_error_category"] = (
+                    "read_failed"
+                )
             if attempt_index >= len(delays):
                 raise
+        else:
+            try:
+                _validate_openclaw_retry_root_session(
+                    root_session_jsonl,
+                    expected_session_id=expected_session_id,
+                    expected_prompt=expected_prompt,
+                )
+            except (RuntimeError, ValueError):
+                if telemetry is not None:
+                    telemetry[
+                        "root_session_validation_last_error_category"
+                    ] = "validation_failed"
+                if attempt_index >= len(delays):
+                    raise
+            else:
+                return
         _sleep_before_deadline(deadline, delays[attempt_index])
 
     raise AssertionError("OpenClaw retry root convergence loop was exhausted")
@@ -2261,6 +2278,7 @@ def run_openclaw_cli(
                 expected_session_id=candidate_session_id,
                 expected_prompt=prompt,
                 deadline=retry_deadline_cap,
+                telemetry=retry_report,
             )
         except (
             OSError,
@@ -2469,7 +2487,9 @@ def main(argv: list[str] | None = None) -> int:
     response: dict[str, Any] = {"status": 0, "body": "", "error": ""}
     wait_report = {"waited": False}
     try:
-        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8").rstrip(
+            "\r\n"
+        )
         (log_dir / "nemoclaw_prompt.md").write_text(prompt, encoding="utf-8")
         if expected_skill and f"`/{expected_skill}`" not in prompt and f"/{expected_skill}" not in prompt:
             raise RuntimeError(
