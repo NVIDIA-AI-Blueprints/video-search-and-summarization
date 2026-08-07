@@ -304,6 +304,26 @@ class TestFrameStateMgmt(unittest.TestCase):
         self.assertEqual(violation.primary_object_id, "obj1")
         self.assertIn("obj2", violation.object_ids)
 
+    def test_merge_object_ids_is_order_stable(self):
+        """Merged IDs keep the primary first and the tail in a stable order.
+
+        The tail is built from a set, whose iteration order follows per-process
+        string hashing, so an unsorted tail differs between processes for the same
+        violation. Sorting is what makes recorded incident output comparable.
+        """
+        merged = self.frame_mgmt._merge_object_ids(["p", "b", "a"], ["c", "a"])
+        self.assertEqual(merged[0], "p")
+        self.assertEqual(merged, ["p", "a", "b", "c"])
+
+        # Same inputs presented in a different order produce the same result.
+        self.assertEqual(
+            self.frame_mgmt._merge_object_ids(["p", "c"], ["a", "b"]),
+            self.frame_mgmt._merge_object_ids(["p", "b"], ["c", "a"]),
+        )
+
+        # The primary is never duplicated into the tail.
+        self.assertEqual(self.frame_mgmt._merge_object_ids(["p"], ["p", "a"]), ["p", "a"])
+
     def test_safety_violation_expiration_window(self):
         """Test that violations expire if gap exceeds expiration window."""
         # First violation at t=0
