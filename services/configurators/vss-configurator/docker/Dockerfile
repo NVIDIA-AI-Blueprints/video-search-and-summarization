@@ -54,11 +54,6 @@ ENV PYTHONPATH=/usr/src/app/site-packages
 # Application code (entrypoint.py is used because distroless has no shell).
 # Source retains Apache-2.0 SPDX headers; shipped binary also includes NVIDIA SLA PDF.
 COPY services/configurators/vss-configurator/app/ .
-
-# Legal artifacts for container distribution (legal requirement).
-
-COPY services/configurators/vss-configurator/NVIDIA-Software-License-Agreement.pdf \
-    /usr/src/app/NVIDIA-Software-License-Agreement.pdf
 COPY services/configurators/vss-configurator/3rdParty_Licenses.md \
     /usr/src/app/3rdParty_Licenses.md
 
