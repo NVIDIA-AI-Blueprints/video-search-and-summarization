@@ -12,17 +12,26 @@
 
 VIOS is a **multi-image microservice**. Source: `vst.env` lines 64–66 (canonical image names + tag-var convention).
 
+> **Resolve SDRC images from compose (required).** Do not invent older pins from memory.
+> Source of truth: [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
+> Prefer `docker compose -f deploy/docker/services/infra/sdrc/docker-compose.yaml config` and read the resolved `image:` for each service.
+>
+> | Service | Compose key | Current compose default (example — bump when compose changes) |
+> |---|---|---|
+> | `sdr-controller` | `${SDR_MW_L_IMAGE:-…}` | `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2` |
+> | `wait-for-redis` | `image:` on that service | `redis:8.10.0-alpine` |
+
 | Image | Tag pattern | Registry | Role |
 |---|---|---|---|
 | `nvcr.io/nvidia/vss-core/vss-vios-sensor:${VST_SENSOR_IMAGE_TAG}` | `3.2.0` | `nvcr.io` | sensor-ms |
 | `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:${VST_STREAM_PROCESSOR_IMAGE_TAG}` | same | `nvcr.io` | streamprocessing-ms |
 | `nvcr.io/nvidia/vss-core/vss-vios-ingress:${VST_INGRESS_IMAGE_TAG}` | same | `nvcr.io` | vst-ingress |
-| `nvcr.io/nvidia/vss-core/sdr-mw-l:${SDR_MW_L_IMAGE_TAG:-3.2.0}` | `3.2.0` | `nvcr.io` | `sdr-controller` — combined WDM SDRC controller + Envoy router. **Replaces the legacy `sdr:3.1.0` + `envoy-proxy:3.1.0` pair** that previously ran as `vss-vios-sdr` / `vss-vios-envoy`; the legacy pair is deprecated and the source tree has been removed from `develop` (was kept around for the now-removed smart-city profile). Image source: [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) `sdr-controller` service. |
+| `${SDR_MW_L_IMAGE}` (see compose) | compose default | `nvcr.io` | `sdr-controller` — combined WDM SDRC controller + Envoy router. **Replaces the legacy `sdr:3.1.0` + `envoy-proxy:3.1.0` pair** that previously ran as `vss-vios-sdr` / `vss-vios-envoy`. **SSOT:** [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml). **Example default:** `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2` |
 | `alpine:3.24.1` | pinned | Docker Hub | SDRC init containers (`init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-docker-workloads`) |
-| `redis:8.6.2-alpine` | pinned | Docker Hub | SDRC `wait-for-redis` init container (separate from the Redis broker peer) |
+| `wait-for-redis` image (see compose) | compose default | Docker Hub | SDRC `wait-for-redis` init (separate from the Redis broker peer). **SSOT:** [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) `wait-for-redis`. **Example default:** `redis:8.10.0-alpine` |
 | `postgres:17.9-alpine` | upstream Postgres tag | Docker Hub | centralizedb |
 
-- **NGC pull:** the four `nvcr.io/nvidia/vss-core/*` images (`vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-mw-l`) require `docker login nvcr.io` with `NGC_CLI_API_KEY` (`$oauthtoken` username), and the deploying key must have access to the published artifacts. The Docker Hub support images (`alpine:3.24.1`, `redis:8.6.2-alpine`, `postgres:17.9-alpine`) pull without authentication.
+- **NGC pull:** VIOS trio images under `nvcr.io/nvidia/vss-core/*` (`vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`) require `docker login nvcr.io` with `NGC_CLI_API_KEY` (`$oauthtoken` username). `sdr-mw-l` follows `SDR_MW_L_IMAGE` in [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) (may be `nvstaging` during develop; expected to promote to `nvidia` later) — pull access must match that org. Docker Hub support images (`alpine:3.24.1`, `postgres:17.9-alpine`, and `wait-for-redis` — **example:** `redis:8.10.0-alpine` from the same compose file) pull without authentication.
 - **Architecture support:** x86_64 + aarch64 (Jetson Thor / IGX Thor / AGX Thor). SBSA Grace/Spark uses a separate suffix when applicable (the VIOS rst note is "see canonical `vios-microservices.rst` § VIOS Microservices table" for per-arch container-name suffixes `-smc`, `-2d`, `-3d`, `-dev`).
 - **Canonical naming (Finding 2 — IMPORTANT):** the legacy `vss-vst-*` image names are **deprecated**. Always use the `vss-vios-*` names from `vst.env`.
 - **SDR → SDRC migration:** the legacy `nvcr.io/nvidia/vss-core/sdr:3.1.0` (Flask WDM agent on port 4003) and `nvcr.io/nvidia/vss-core/envoy-proxy:3.1.0` (L7 proxy on port 10000) that previously ran as `vss-vios-sdr` + `vss-vios-envoy` are **deprecated** in 3.2. Their roles are now combined in a single `sdr-controller` workload (image `sdr-mw-l`) defined at [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
@@ -142,9 +151,9 @@ bring-up. It is not a profile-level endpoint setting.
 | `SDR_CONTROLLER_CONFIG_PATH` | host path containing `configs/*.tmpl` | Compose-time bind source for the rendered config dir; see [`dev-profile-alerts/sdrc/2d_vlm/configs/`](../../../deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/) for the reference 2d_vlm template pair. Standalone VIOS uses the same shape with a single `docker-workload-streamprocessing` entry. | `sdrc/docker-compose.yaml` line 71, 88, 157 |
 | `NUM_STREAMS` / `NUM_SENSORS` | `1` each (standalone single-stream) | Substituted into `config.yml.tmpl` and `docker_cluster_config-streamprocessing.json.tmpl` by `render-config` (lines 67-68 of `sdrc/docker-compose.yaml`). Defaults to `1` if unset; raise to match the actual stream count. | `sdrc/docker-compose.yaml` |
 | `WDM_CONTROLLER_PORT` / `WDM_SDRC_DIRECT_LISTENER_PORT` / `ENVOY_ADMIN_PORT` | `5003` / `8011` / `9902` (hardcoded inside the SDRC compose `sdr-controller.environment:` — NOT `${VAR:-default}`, so a consumer `.env` cannot override them) | `sdr-controller` listen ports for the WDM control plane, SDRC direct listener, and Envoy admin. To change them, patch [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 147, 149, 150 in the build-output's patched tree. The Envoy listener that actually fronts streamprocessing-ms is `WDM_MS_LISTENER_PORT` from inside the rendered `config.yml` (default `10000` — must match `STREAM_PROCESSOR_MODULE_ENDPOINT` on `vss-vios-sensor`, set to `http://localhost:10000` so the sensor routes through the SDRC Envoy listener). | `sdrc/docker-compose.yaml` lines 147-151 + `dev-profile-alerts/sdrc/2d_vlm/configs/config.yml.tmpl:40` |
-| `SDR_MW_L_IMAGE` | `nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0` (default in compose) | `sdr-controller` image. Override to pin a different published `sdr-mw-l` tag. | `sdrc/docker-compose.yaml` line 138 |
+| `SDR_MW_L_IMAGE` | default from [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) (`sdr-controller.image`); **example:** `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2` | Full `sdr-controller` image override (repo + tag). Resolve from compose before pull/deploy. | `sdrc/docker-compose.yaml` `sdr-controller` |
 
-> **Image registry path:** VIOS 3.2.0 components ship under `nvcr.io/nvidia/vss-core/*`; the current repo defaults point at the published org. Source: `vst.env` lines 70–72 + the VSS 3.2.0 publishing manifests.
+> **Image registry path:** VIOS core defaults live under `nvcr.io/nvidia/vss-core/*` (`vst.env`). The SDRC controller image is **not** pinned only here — use `SDR_MW_L_IMAGE` from [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) (example default above; nvstaging on develop today, expected to promote to `nvcr.io/nvidia/vss-core` later).
 
 ## Known Deployment Issues
 
