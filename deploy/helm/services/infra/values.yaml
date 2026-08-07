@@ -47,7 +47,7 @@ redis:
   replicas: 1
   image:
     repository: docker.io/library/redis
-    tag: 8.6.2-alpine
+    tag: 8.10.0-alpine
     pullPolicy: IfNotPresent
   port: 6379
   persistence:
