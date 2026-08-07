@@ -82,10 +82,6 @@
 			"value": "0.5"
 		},
 		{
-			"name": "inSimulationMode",
-			"value": "false"
-		},
-		{
 			"name": "playbackSimulationTimedeltaInMin",
 			"value": "60"
 		},

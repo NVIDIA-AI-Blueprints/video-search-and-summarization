@@ -49,7 +49,7 @@ class StateMgmt:
         self.config = config             # reference, not value
 
     def some_method(self):
-        if not self.config.in_simulation_mode:   # read-at-use
+        if self.config.behavior_emit_once:       # read-at-use
             ...
 ```
 
