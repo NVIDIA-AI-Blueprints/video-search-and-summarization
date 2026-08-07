@@ -1,3 +1,19 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
 # Helm example
 
 This Helm testapp deploys SDRC, Redis, RTVI-CV, and the VIOS/VST services
@@ -24,7 +40,7 @@ HTTP methods are defined in `helm/configs/sdrc/config.yml`; this example uses
 - `helm` v3 and `kubectl` configured for the target cluster.
 - Access to the SDRC, RTVI-CV, and VIOS images configured by the reused
   charts. The default SDRC image in `values.yaml` is
-  `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2`;
+  `nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2`;
   override it if your cluster pulls from another registry.
 - Warehouse app data for RTVI-CV. The easiest fresh install path is to let the
   chart download the NGC warehouse data bundle after you create the NGC secrets.
@@ -76,7 +92,7 @@ helm upgrade --install "$RELEASE" "$CHART_DIR" \
 ```
 
 If your SDRC image is not available as
-`nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2`,
+`nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2`,
 add image overrides to the install command:
 
 ```bash

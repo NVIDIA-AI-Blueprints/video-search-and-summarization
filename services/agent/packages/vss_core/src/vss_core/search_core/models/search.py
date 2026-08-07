@@ -94,6 +94,19 @@ class SearchInput(BaseModel):
             raise InvalidInputError("object_ids require search_mode='object'")
 
 
+class SearchVerification(BaseModel):
+    """Visual verification attached to one retrieval hit.
+
+    Retrieval is useful even when no VLM is deployed or verification fails.
+    Consequently every hit starts as ``unverified`` and is upgraded only after
+    the critic successfully evaluates that exact interval.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    result: Literal["confirmed", "rejected", "unverified"] = "unverified"
+    criteria_met: dict[str, bool] | None = None
+
+
 class SearchResult(BaseModel):
     """A single search result item."""
 
@@ -106,6 +119,7 @@ class SearchResult(BaseModel):
     screenshot_url: str
     similarity: float
     object_ids: list[str] = Field(default_factory=list)
+    verification: SearchVerification = Field(default_factory=SearchVerification)
 
 
 class SearchOutput(BaseModel):

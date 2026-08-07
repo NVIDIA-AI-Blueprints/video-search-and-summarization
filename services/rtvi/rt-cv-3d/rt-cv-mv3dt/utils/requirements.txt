@@ -1,0 +1,18 @@
+# Python dependencies for the rt-cv-mv3dt helper scripts (one shared utils/venv,
+# installed by scripts/ensure-venv.sh on first use; add new deps here).
+
+# config generation (scripts/generate-configs.sh → tools/rtvi-cv-mv3dt-utils generators)
+numpy==2.2.6
+PyYAML==6.0.2
+tqdm==4.67.1
+
+# Kafka consumers: utils/kafka-dump.py + utils/kafka_bev_visualizer.py
+# (confluent-kafka — kafka-python cannot fetch from Kafka 4.0 brokers; the
+# utils/kafka/ shim adapts the KafkaConsumer API on top of confluent-kafka)
+# and nv.Frame protobuf parsing (utils/schema_pb2.py)
+confluent-kafka==2.14.2
+protobuf==7.35.1
+
+# BEV visualizer rendering (full opencv build — the live window needs GUI support;
+# offline mp4 mode works with either build)
+opencv-python~=4.12.0

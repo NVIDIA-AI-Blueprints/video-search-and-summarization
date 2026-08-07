@@ -34,7 +34,9 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from api_models.captions import VlmQuery
 from common.chunk_info import ChunkInfo
+from common.service_exception import ServiceException
 from models.base_vlm_model import VlmModelOutput
 from server.rtvi_stream_handler import RequestInfo, RTVIStreamHandler
 from tests.tests_common import TempEnv
@@ -53,7 +55,7 @@ class TestStreamHandlerInitialization:
 
     def test_handler_initialization(self, mock_args):
         """Test handler can be initialized"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             # Mock VlmPipeline to avoid hanging on GPU initialization
             with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
                 mock_pipeline = MagicMock()
@@ -65,17 +67,14 @@ class TestStreamHandlerInitialization:
                 mock_pipeline.get_models_info.return_value = mock_model_info
                 mock_pipeline.get_health_status.return_value = []
                 mock_vlm_pipeline_class.return_value = mock_pipeline
-                try:
-                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
-                    assert handler._request_info_map is not None
-                    assert handler._metrics is not None
-                    handler.stop(force=True)
-                except Exception as e:
-                    pytest.skip(f"Initialization failed: {e}")
+                handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                assert handler._request_info_map is not None
+                assert handler._metrics is not None
+                handler.stop(force=True)
 
     def test_kafka_disabled_by_default(self, mock_args):
-        """Test Kafka is disabled by default"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1"}):
+        """Test generated-message output is disabled by default."""
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             # Mock VlmPipeline to avoid hanging on GPU initialization
             with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
                 mock_pipeline = MagicMock()
@@ -87,24 +86,212 @@ class TestStreamHandlerInitialization:
                 mock_pipeline.get_models_info.return_value = mock_model_info
                 mock_pipeline.get_health_status.return_value = []
                 mock_vlm_pipeline_class.return_value = mock_pipeline
-                try:
-                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
-                    assert handler._kafka_enabled is False
-                    assert handler._kafka_producer is None
-                    handler.stop(force=True)
-                except Exception as e:
-                    pytest.skip(f"Initialization failed: {e}")
+                handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                assert handler._kafka_enabled is False
+                assert handler._kafka_producer is None
+                handler.stop(force=True)
 
-    def test_kafka_enabled_via_env(self, mock_args):
-        """Test Kafka can be enabled via environment variable"""
+    def test_kafka_message_bus_enabled_via_env(self, mock_args):
+        """Test Kafka can be selected via MESSAGE_BUS."""
         with TempEnv(
             {
                 "SKIP_PIPELINE_WARMUP": "1",
-                "KAFKA_ENABLED": "true",
+                "MESSAGE_BUS": "kafka",
+                "MESSAGE_BUS_TOPIC": "mdx-init-kafka",
                 "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
             }
         ):
             # Mock VlmPipeline to avoid hanging on GPU initialization
+            with patch("server.rtvi_stream_handler.KafkaProducer") as mock_kafka_class:
+                kafka_producer = MagicMock()
+                kafka_producer.config = {"bootstrap_servers": ["localhost:9092"]}
+                mock_kafka_class.return_value = kafka_producer
+                with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                    mock_pipeline = MagicMock()
+                    mock_model_info = MagicMock()
+                    mock_model_info.id = "test-model"
+                    mock_model_info.created = 1234567890
+                    mock_model_info.owned_by = "test"
+                    mock_model_info.api_type = "test"
+                    mock_pipeline.get_models_info.return_value = mock_model_info
+                    mock_pipeline.get_health_status.return_value = []
+                    mock_vlm_pipeline_class.return_value = mock_pipeline
+                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                    assert handler.get_message_bus_config()["messagingbus"] == "kafka"
+                    assert handler.get_message_bus_config()["kafka_topic"] == "mdx-init-kafka"
+                    assert handler._kafka_enabled is True
+                    assert handler._kafka_producer is kafka_producer
+                    handler.stop(force=True)
+
+    def test_redis_message_bus_enabled_via_env(self, mock_args):
+        """Test Redis Streams can be selected as the startup output bus."""
+        with TempEnv(
+            {
+                "SKIP_PIPELINE_WARMUP": "1",
+                "MESSAGE_BUS": "redis",
+                "MESSAGE_BUS_TOPIC": "mdx-init-redis",
+            }
+        ):
+            with patch("server.rtvi_stream_handler.redis.Redis") as mock_redis_class:
+                redis_client = MagicMock()
+                redis_client.ping.return_value = True
+                mock_redis_class.return_value = redis_client
+                with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                    mock_pipeline = MagicMock()
+                    mock_model_info = MagicMock()
+                    mock_model_info.id = "test-model"
+                    mock_model_info.created = 1234567890
+                    mock_model_info.owned_by = "test"
+                    mock_model_info.api_type = "test"
+                    mock_pipeline.get_models_info.return_value = mock_model_info
+                    mock_pipeline.get_health_status.return_value = []
+                    mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                    assert handler.get_message_bus_config()["messagingbus"] == "redis"
+                    assert handler.get_message_bus_config()["redis_stream"] == "mdx-init-redis"
+                    assert handler._redis_client is redis_client
+                    handler.stop(force=True)
+
+    def test_kafka_message_bus_topic_enabled_via_env(self, mock_args):
+        """Test the generic startup topic env can select the Kafka topic."""
+        with TempEnv(
+            {
+                "SKIP_PIPELINE_WARMUP": "1",
+                "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
+                "MESSAGE_BUS": "kafka",
+                "MESSAGE_BUS_TOPIC": "mdx-init-kafka",
+            }
+        ):
+            with patch("server.rtvi_stream_handler.KafkaProducer") as mock_kafka_class:
+                kafka_producer = MagicMock()
+                kafka_producer.config = {"bootstrap_servers": ["localhost:9092"]}
+                mock_kafka_class.return_value = kafka_producer
+                with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                    mock_pipeline = MagicMock()
+                    mock_model_info = MagicMock()
+                    mock_model_info.id = "test-model"
+                    mock_model_info.created = 1234567890
+                    mock_model_info.owned_by = "test"
+                    mock_model_info.api_type = "test"
+                    mock_pipeline.get_models_info.return_value = mock_model_info
+                    mock_pipeline.get_health_status.return_value = []
+                    mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                    assert handler.get_message_bus_config()["messagingbus"] == "kafka"
+                    assert handler.get_message_bus_config()["kafka_topic"] == "mdx-init-kafka"
+                    assert handler._kafka_producer is kafka_producer
+                    handler.stop(force=True)
+
+    def test_kafka_error_bus_enabled_via_env(self, mock_args):
+        """Test Kafka can be selected via ERROR_BUS without generated output."""
+        with TempEnv(
+            {
+                "SKIP_PIPELINE_WARMUP": "1",
+                "MESSAGE_BUS": "",
+                "ERROR_BUS": "kafka",
+                "ERROR_MESSAGE_TOPIC": "mdx-init-errors",
+                "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
+            }
+        ):
+            with patch("server.rtvi_stream_handler.KafkaProducer") as mock_kafka_class:
+                kafka_producer = MagicMock()
+                kafka_producer.config = {"bootstrap_servers": ["localhost:9092"]}
+                mock_kafka_class.return_value = kafka_producer
+                with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                    mock_pipeline = MagicMock()
+                    mock_model_info = MagicMock()
+                    mock_model_info.id = "test-model"
+                    mock_model_info.created = 1234567890
+                    mock_model_info.owned_by = "test"
+                    mock_model_info.api_type = "test"
+                    mock_pipeline.get_models_info.return_value = mock_model_info
+                    mock_pipeline.get_health_status.return_value = []
+                    mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                    assert handler.get_message_bus_config()["messagingbus"] is None
+                    assert handler.get_error_bus_config()["errorbus"] == "kafka"
+                    assert handler.get_error_bus_config()["kafka_topic"] == "mdx-init-errors"
+                    assert handler._kafka_producer is kafka_producer
+                    handler.stop(force=True)
+
+    def test_redis_error_bus_enabled_via_env(self, mock_args):
+        """Test Redis can be selected via ERROR_BUS without generated output."""
+        with TempEnv(
+            {
+                "SKIP_PIPELINE_WARMUP": "1",
+                "MESSAGE_BUS": "",
+                "ERROR_BUS": "redis",
+                "ERROR_MESSAGE_TOPIC": "mdx-init-errors",
+            }
+        ):
+            with patch("server.rtvi_stream_handler.redis.Redis") as mock_redis_class:
+                redis_client = MagicMock()
+                redis_client.ping.return_value = True
+                mock_redis_class.return_value = redis_client
+                with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                    mock_pipeline = MagicMock()
+                    mock_model_info = MagicMock()
+                    mock_model_info.id = "test-model"
+                    mock_model_info.created = 1234567890
+                    mock_model_info.owned_by = "test"
+                    mock_model_info.api_type = "test"
+                    mock_pipeline.get_models_info.return_value = mock_model_info
+                    mock_pipeline.get_health_status.return_value = []
+                    mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                    assert handler.get_message_bus_config()["messagingbus"] is None
+                    assert handler.get_error_bus_config()["errorbus"] == "redis"
+                    assert handler.get_error_bus_config()["redis_channel"] == "mdx-init-errors"
+                    assert handler._redis_client is redis_client
+                    assert handler._use_redis_error_bus is True
+                    handler.stop(force=True)
+
+    def test_error_bus_empty_disables_inherited_kafka_errors(self, mock_args):
+        """ERROR_BUS can explicitly disable error output while MESSAGE_BUS uses Kafka."""
+        with TempEnv(
+            {
+                "SKIP_PIPELINE_WARMUP": "1",
+                "MESSAGE_BUS": "kafka",
+                "ERROR_BUS": "",
+                "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
+            }
+        ):
+            with patch("server.rtvi_stream_handler.KafkaProducer") as mock_kafka_class:
+                kafka_producer = MagicMock()
+                kafka_producer.config = {"bootstrap_servers": ["localhost:9092"]}
+                mock_kafka_class.return_value = kafka_producer
+                with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                    mock_pipeline = MagicMock()
+                    mock_model_info = MagicMock()
+                    mock_model_info.id = "test-model"
+                    mock_model_info.created = 1234567890
+                    mock_model_info.owned_by = "test"
+                    mock_model_info.api_type = "test"
+                    mock_pipeline.get_models_info.return_value = mock_model_info
+                    mock_pipeline.get_health_status.return_value = []
+                    mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                    assert handler.get_message_bus_config()["messagingbus"] == "kafka"
+                    assert handler.get_error_bus_config()["errorbus"] is None
+                    handler._send_error_message_to_kafka("test error", "test-id")
+                    kafka_producer.send.assert_not_called()
+                    handler.stop(force=True)
+
+    def test_kafka_message_bus_without_bootstrap_is_disabled(self, mock_args):
+        """Startup Kafka selection must not mark Kafka active without bootstrap servers."""
+        with TempEnv(
+            {
+                "SKIP_PIPELINE_WARMUP": "1",
+                "KAFKA_BOOTSTRAP_SERVERS": "",
+                "MESSAGE_BUS": "kafka",
+                "MESSAGE_BUS_TOPIC": "mdx-init-kafka",
+            }
+        ):
             with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
                 mock_pipeline = MagicMock()
                 mock_model_info = MagicMock()
@@ -115,13 +302,12 @@ class TestStreamHandlerInitialization:
                 mock_pipeline.get_models_info.return_value = mock_model_info
                 mock_pipeline.get_health_status.return_value = []
                 mock_vlm_pipeline_class.return_value = mock_pipeline
-                try:
-                    handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
-                    # Kafka producer may be None if connection fails, but enabled flag should be True
-                    assert handler._kafka_enabled is True
-                    handler.stop(force=True)
-                except Exception as e:
-                    pytest.skip(f"Initialization failed: {e}")
+
+                handler = RTVIStreamHandler(mock_args, service_name="rtvi-vlm-test")
+                assert handler.get_message_bus_config()["messagingbus"] is None
+                assert handler._kafka_enabled is False
+                assert handler._kafka_producer is None
+                handler.stop(force=True)
 
 
 class TestRequestInfo:
@@ -190,6 +376,42 @@ class TestLiveStreamManagement:
         except Exception as e:
             pytest.skip(f"Models info not available: {e}")
 
+    def test_live_request_setup_failure_ends_otel_spans(self, stream_handler, monkeypatch):
+        """Live setup failures must unwind request state and close started spans."""
+        asset = Asset(
+            asset_id=str(uuid.uuid4()),
+            path="rtsp://example.com/live",
+            purpose="",
+            media_type="",
+            asset_dir="",
+        )
+        query = VlmQuery(
+            id=uuid.UUID(asset.asset_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+        e2e_span = MagicMock()
+        pipeline_span = MagicMock()
+        tracer = MagicMock()
+        tracer.start_span.side_effect = [e2e_span, pipeline_span]
+        stream_handler._vlm_pipeline.add_live_stream.side_effect = ServiceException(
+            "decode settings mismatch",
+            "BadParameters",
+            400,
+        )
+        monkeypatch.setattr("server.rtvi_stream_handler.get_tracer", lambda: tracer)
+
+        with pytest.raises(ServiceException):
+            stream_handler.generate_vlm_captions([asset], query, is_rtsp=True)
+
+        assert stream_handler._request_info_map == {}
+        assert asset.use_count == 0
+        pipeline_span.end.assert_called_once()
+        e2e_span.end.assert_called_once()
+        e2e_span.set_attribute.assert_any_call("error_message", "decode settings mismatch")
+
     def test_get_health_status(self, stream_handler):
         """Test getting health status"""
         health_status = stream_handler.get_health_status()
@@ -205,6 +427,69 @@ class TestMetrics:
     def test_metrics_initialization(self, stream_handler):
         """Test metrics are initialized"""
         assert stream_handler._metrics is not None
+
+    def test_average_chunk_latency_tracking(self, stream_handler):
+        """Test average chunk latency gauges are maintained with latest values."""
+        metrics = stream_handler._metrics
+
+        metrics.record_chunk_latency(2.0)
+        metrics.record_chunk_latency(4.0)
+        assert metrics._chunk_latency_latest_value == 4.0
+        assert metrics._chunk_latency_count_value == 2
+        assert metrics._chunk_latency_avg_value == pytest.approx(3.0)
+
+        metrics.record_live_stream_chunk_latency(1.0)
+        metrics.record_live_stream_chunk_latency(3.0)
+        assert metrics._live_stream_chunk_latency_latest_value == 3.0
+        assert metrics._live_stream_chunk_latency_count_value == 2
+        assert metrics._live_stream_chunk_latency_avg_value == pytest.approx(2.0)
+
+    def test_live_chunk_response_records_live_chunk_latency(self, stream_handler):
+        """Live VLM chunk completion should populate live-stream chunk metrics."""
+        asset = Asset(
+            asset_id="live-metrics-stream",
+            path="rtsp://example.com/live",
+            purpose="",
+            media_type="",
+            asset_dir="",
+            camera_id="cam-live-metrics",
+        )
+        req_info = RequestInfo(
+            request_id="request-live-metrics",
+            assets=[asset],
+            is_live=True,
+        )
+        req_info.status = RequestInfo.Status.PROCESSING
+
+        chunk = ChunkInfo(
+            file=asset.path,
+            chunkIdx=1,
+            start_pts=0,
+            end_pts=1_000_000_000,
+        )
+        chunk.streamId = asset.asset_id
+        chunk.start_ntp = "2026-05-05T00:00:00.000Z"
+        chunk.end_ntp = "2026-05-05T00:00:01.000Z"
+        chunk_result = PipelineChunkResult(
+            chunk=chunk,
+            vlm_model_output=VlmModelOutput(
+                output="The scene is active.",
+                input_tokens=10,
+                output_tokens=4,
+            ),
+            decode_start_time=1.0,
+            decode_end_time=1.5,
+            vlm_start_time=1.5,
+            vlm_end_time=4.0,
+            frame_times=[0.0, 0.5],
+        )
+
+        stream_handler._on_vlm_chunk_response(chunk_result, req_info)
+
+        assert stream_handler._metrics._chunk_latency_latest_value == pytest.approx(3.0)
+        assert stream_handler._metrics._live_stream_chunk_latency_latest_value == pytest.approx(3.0)
+        assert stream_handler._metrics._live_stream_chunk_latency_count_value == 1
+        assert stream_handler._metrics._live_stream_chunk_latency_avg_value == pytest.approx(3.0)
 
     def test_histogram_views(self):
         """Test histogram views configuration"""
@@ -276,12 +561,21 @@ class TestKafkaIntegration:
             self.release_publish = Event()
             self.publish_started = Event()
             self.publish_calls = []
+            self.release_xadd = Event()
+            self.xadd_started = Event()
+            self.xadd_calls = []
 
         def publish(self, *args, **kwargs):
             self.publish_calls.append((args, kwargs))
             self.publish_started.set()
             self.release_publish.wait(timeout=2)
             return 0
+
+        def xadd(self, *args, **kwargs):
+            self.xadd_calls.append((args, kwargs))
+            self.xadd_started.set()
+            self.release_xadd.wait(timeout=2)
+            return b"1-0"
 
         def close(self):
             return None
@@ -377,6 +671,136 @@ class TestKafkaIntegration:
         assert kwargs == {}
 
         redis_client.release_publish.set()
+        stream_handler._redis_send_queue.join()
+
+    def test_configure_message_bus_updates_redis_stream(self, stream_handler):
+        """Config events can switch generated protobuf output to a Redis Stream."""
+        redis_client = self._BlockingRedisClient()
+        stream_handler._redis_client = redis_client
+
+        result = stream_handler.configure_message_bus("redis", "mdx-bev")
+
+        assert result == {"messagingbus": "redis", "topic": "mdx-bev"}
+        assert stream_handler.get_message_bus_config()["messagingbus"] == "redis"
+        assert stream_handler.get_message_bus_config()["redis_stream"] == "mdx-bev"
+
+    def test_configure_message_bus_updates_kafka_topic(self, stream_handler):
+        """Config events can switch generated protobuf output back to Kafka."""
+        producer = self._BlockingKafkaProducer()
+        stream_handler._kafka_producer = producer
+
+        result = stream_handler.configure_message_bus("kafka", "mdx-configured")
+
+        assert result == {"messagingbus": "kafka", "topic": "mdx-configured"}
+        assert stream_handler.get_message_bus_config()["messagingbus"] == "kafka"
+        assert stream_handler.get_message_bus_config()["kafka_topic"] == "mdx-configured"
+        assert stream_handler._kafka_enabled is True
+
+    def test_configure_error_bus_updates_redis_channel(self, stream_handler):
+        """Config events can switch error output to a Redis channel."""
+        redis_client = self._BlockingRedisClient()
+        stream_handler._redis_client = redis_client
+
+        result = stream_handler.configure_error_bus("redis", "mdx-errors")
+
+        assert result == {"errorbus": "redis", "topic": "mdx-errors"}
+        assert stream_handler.get_error_bus_config()["errorbus"] == "redis"
+        assert stream_handler.get_error_bus_config()["redis_channel"] == "mdx-errors"
+        assert stream_handler._use_redis_error_bus is True
+
+    def test_configure_error_bus_updates_kafka_topic(self, stream_handler):
+        """Config events can switch error output to Kafka."""
+        producer = self._BlockingKafkaProducer()
+        stream_handler._kafka_producer = producer
+
+        result = stream_handler.configure_error_bus("kafka", "mdx-error-configured")
+
+        assert result == {"errorbus": "kafka", "topic": "mdx-error-configured"}
+        assert stream_handler.get_error_bus_config()["errorbus"] == "kafka"
+        assert stream_handler.get_error_bus_config()["kafka_topic"] == "mdx-error-configured"
+        assert stream_handler._use_redis_error_bus is False
+        assert stream_handler._kafka_enabled is True
+
+    def test_configure_message_bus_warns_when_media_generation_active(self, stream_handler):
+        """Config changes warn when active file or RTSP requests may straddle routes."""
+        redis_client = self._BlockingRedisClient()
+        stream_handler._message_bus = "kafka"
+        stream_handler._kafka_topic = "mdx-existing"
+        stream_handler._redis_client = redis_client
+
+        req_info = RequestInfo()
+        req_info.status = RequestInfo.Status.PROCESSING
+        req_info.assets = [Mock()]
+        stream_handler._request_info_map[req_info.request_id] = req_info
+
+        result = stream_handler.configure_message_bus("redis", "mdx-new")
+
+        assert result["messagingbus"] == "redis"
+        assert result["topic"] == "mdx-new"
+        assert "warnings" in result
+        assert "mdx-existing" in result["warnings"][0]
+        assert "mdx-new" in result["warnings"][0]
+        assert "subsequent chunk messages will use the updated route" in result["warnings"][0]
+
+    def test_failed_redis_config_preserves_current_message_bus(self, stream_handler):
+        """Failed Redis config must not partially switch the active output bus."""
+        stream_handler._message_bus = "kafka"
+        stream_handler._kafka_topic = "mdx-existing"
+
+        with patch.object(stream_handler, "_ensure_redis_client", return_value=False):
+            with pytest.raises(ServiceException):
+                stream_handler.configure_message_bus("redis", "mdx-redis-fail")
+
+        assert stream_handler.get_message_bus_config()["messagingbus"] == "kafka"
+        assert stream_handler.get_message_bus_config()["kafka_topic"] == "mdx-existing"
+        assert stream_handler.get_message_bus_config()["redis_stream"] == "mdx-vlm-captions"
+
+    def test_failed_kafka_config_preserves_current_message_bus(self, stream_handler):
+        """Failed Kafka config must not partially switch away from Redis."""
+        stream_handler._message_bus = "redis"
+        stream_handler._redis_stream = "mdx-existing-redis"
+        stream_handler._kafka_topic = "mdx-existing-kafka"
+
+        with patch.object(stream_handler, "_ensure_kafka_producer", return_value=False):
+            with pytest.raises(ServiceException):
+                stream_handler.configure_message_bus("kafka", "mdx-kafka-fail")
+
+        assert stream_handler.get_message_bus_config()["messagingbus"] == "redis"
+        assert stream_handler.get_message_bus_config()["redis_stream"] == "mdx-existing-redis"
+        assert stream_handler.get_message_bus_config()["kafka_topic"] == "mdx-existing-kafka"
+
+    def test_protobuf_redis_stream_send_does_not_block_caller(self, stream_handler):
+        """Redis Stream xadd is offloaded like Kafka sends."""
+        redis_client = self._BlockingRedisClient()
+        stream_handler._message_bus = "redis"
+        stream_handler._redis_stream = "mdx-bev"
+        stream_handler._redis_client = redis_client
+        stream_handler._redis_payload_key = "metadata"
+
+        req_info = RequestInfo()
+        req_info.request_id = "request-redis"
+        chunk_result = Mock()
+        chunk_result.chunk = Mock()
+        chunk_result.chunk.chunkIdx = 9
+
+        start_time = monotonic()
+        stream_handler._send_protobuf_to_message_bus(b"payload", chunk_result, req_info)
+        elapsed = monotonic() - start_time
+
+        assert elapsed < 0.2
+        assert redis_client.xadd_started.wait(timeout=1)
+        assert len(redis_client.xadd_calls) == 1
+
+        args, kwargs = redis_client.xadd_calls[0]
+        assert args[0] == "mdx-bev"
+        assert args[1] == {
+            "metadata": b"payload",
+            "message_type": b"vision_llm",
+            "key": b"request-redis:9",
+        }
+        assert kwargs == {"maxlen": 10000, "approximate": True}
+
+        redis_client.release_xadd.set()
         stream_handler._redis_send_queue.join()
 
     def test_late_kafka_submit_after_stop_is_rejected(self, stream_handler):
@@ -780,17 +1204,21 @@ class TestArgumentParser:
         RTVIStreamHandler.populate_argument_parser(parser)
         args = parser.parse_args(
             [
-                "--kafka-enabled",
-                "--kafka-topic",
+                "--message-bus",
+                "kafka",
+                "--message-bus-topic",
                 "test-topic",
+                "--error-bus",
+                "redis",
                 "--max-file-duration",
                 "60",
                 "--vlm-model-type",
                 "openai-compat",
             ]
         )
-        assert args.kafka_enabled is True
-        assert args.kafka_topic == "test-topic"
+        assert args.message_bus == "kafka"
+        assert args.message_bus_topic == "test-topic"
+        assert args.error_bus == "redis"
         assert args.max_file_duration == 60
         assert args.vlm_model_type == VlmModelType.OPENAI_COMPATIBLE
 
@@ -806,7 +1234,7 @@ class TestStopHandler:
 
     def test_stop_handler_without_pipeline(self, mock_args):
         """Test stopping handler without pipeline"""
-        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "KAFKA_ENABLED": "false"}):
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
             # Mock VlmPipeline to avoid hanging on GPU initialization
             with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
                 mock_pipeline = MagicMock()

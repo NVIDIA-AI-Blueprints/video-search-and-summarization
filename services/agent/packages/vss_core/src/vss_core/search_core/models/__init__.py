@@ -27,6 +27,7 @@ from .embed_search import EmbedSearchResultItem
 from .search import SearchInput
 from .search import SearchOutput
 from .search import SearchResult
+from .search import SearchVerification
 
 __all__ = [
     "AttributeSearchInput",
@@ -39,5 +40,6 @@ __all__ = [
     "SearchInput",
     "SearchOutput",
     "SearchResult",
+    "SearchVerification",
     "SourceType",
 ]
