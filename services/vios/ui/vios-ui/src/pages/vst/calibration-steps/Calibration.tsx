@@ -368,66 +368,64 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
         }
     };
 
-    const handleAcceptCalibration = async () => {
-        if (project?.calibrationType === 'image') {
-            // For image calibration type, validate directly without requiring calibration step
-            if (!selectedSensorId) {
-                setError('Please select a sensor');
-                return;
-            }
-
-            try {
-                setError(null);
-
-                // Separate figures by type and apply coordinate transformation
-                const roiFigures = figures.filter(f => f.class === 'roi');
-                const tripwireFigures = figures.filter(f => f.class === 'tripwire');
-                const tripDirectionFigures = figures.filter(f => f.class === 'tripDirection');
-
-                // Apply Y-coordinate flip transformation like ReactJS project does for image calibration
-                // This converts from drawing coordinate system (bottom-left origin) to image coordinate system (top-left origin)
-                const sensorHeight = selectedSensor?.height || 1080;
-                const transformedRoiFigures = flipY(roiFigures, sensorHeight);
-                const transformedTripwireFigures = flipY(tripwireFigures, sensorHeight);
-                const transformedTripDirectionFigures = flipY(tripDirectionFigures, sensorHeight);
-
-                const payload = {
-                    roiPolygon: JSON.stringify(transformedRoiFigures),
-                    tripwireLines: JSON.stringify(transformedTripwireFigures),
-                    tripDirLines: JSON.stringify(transformedTripDirectionFigures),
-                    isCalibrated: true,
-                    isValidated: true,
-                };
-
-                const sensorResponse = await fetch(`${config.analyticsUIServerEndpoint}/api/sensors/${selectedSensorId}/`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        streamId: selectedSensorId,
-                    },
-                    body: JSON.stringify(payload),
-                });
-
-                if (!sensorResponse.ok) {
-                    throw new Error(`Failed to update sensor: ${sensorResponse.status} ${sensorResponse.statusText}`);
-                }
-
-                // Refresh project data
-                await fetchProjectData();
-
-                // Clear drawings after successful validation
-                setFigures([]);
-                setUnfinishedFigure(null);
-                setRealWorldCoordinates([]);
-                setHomographyMatrix([]);
-                setIsCalibrated(false);
-            } catch (err) {
-                setError(`Failed to validate sensor: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            }
+    const handleAcceptImageCalibration = async () => {
+        // For image calibration type, validate directly without requiring calibration step
+        if (!selectedSensorId) {
+            setError('Please select a sensor');
             return;
         }
 
-        // Original cartesian calibration logic
+        try {
+            setError(null);
+
+            // Separate figures by type and apply coordinate transformation
+            const roiFigures = figures.filter(f => f.class === 'roi');
+            const tripwireFigures = figures.filter(f => f.class === 'tripwire');
+            const tripDirectionFigures = figures.filter(f => f.class === 'tripDirection');
+
+            // Apply Y-coordinate flip transformation like ReactJS project does for image calibration
+            // This converts from drawing coordinate system (bottom-left origin) to image coordinate system (top-left origin)
+            const sensorHeight = selectedSensor?.height || 1080;
+            const transformedRoiFigures = flipY(roiFigures, sensorHeight);
+            const transformedTripwireFigures = flipY(tripwireFigures, sensorHeight);
+            const transformedTripDirectionFigures = flipY(tripDirectionFigures, sensorHeight);
+
+            const payload = {
+                roiPolygon: JSON.stringify(transformedRoiFigures),
+                tripwireLines: JSON.stringify(transformedTripwireFigures),
+                tripDirLines: JSON.stringify(transformedTripDirectionFigures),
+                isCalibrated: true,
+                isValidated: true,
+            };
+
+            const sensorResponse = await fetch(`${config.analyticsUIServerEndpoint}/api/sensors/${selectedSensorId}/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    streamId: selectedSensorId,
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!sensorResponse.ok) {
+                throw new Error(`Failed to update sensor: ${sensorResponse.status} ${sensorResponse.statusText}`);
+            }
+
+            // Refresh project data
+            await fetchProjectData();
+
+            // Clear drawings after successful validation
+            setFigures([]);
+            setUnfinishedFigure(null);
+            setRealWorldCoordinates([]);
+            setHomographyMatrix([]);
+            setIsCalibrated(false);
+        } catch (err) {
+            setError(`Failed to validate sensor: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+    };
+
+    const handleAcceptCartesianCalibration = async () => {
         if (!selectedSensorId || !isCalibrated) {
             setError('Please complete calibration first');
             return;
@@ -517,6 +515,15 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
         } catch (err) {
             setError(`Failed to save calibration: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
+    };
+
+    const handleAcceptCalibration = async () => {
+        if (project?.calibrationType === 'image') {
+            await handleAcceptImageCalibration();
+            return;
+        }
+
+        await handleAcceptCartesianCalibration();
     };
 
     const handleRedrawPolygons = () => {
