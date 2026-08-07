@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,7 +39,7 @@ import {
 import Grid2 from '@mui/material/Grid2';
 import { useTheme } from '@mui/material/styles';
 import { Refresh, Calculate } from '@mui/icons-material';
-import { Project } from './types';
+import { Project, Sensor } from './types';
 import config from '../../../config';
 import CalibrationCanvas from './CalibrationCanvas';
 import CoordinateInput, { RealWorldCoordinate } from './CoordinateInput';
@@ -72,6 +72,9 @@ export interface CalibrationLabel {
     draw: boolean;
     class: string;
 }
+
+const isSensorVisible = (sensor: Sensor, nonCalibratedOnly: boolean, nonValidatedOnly: boolean): boolean =>
+    !(nonCalibratedOnly && sensor.isCalibrated) && !(nonValidatedOnly && sensor.isValidated);
 
 const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }) => {
     const [project, setProject] = useState<Project | null>(null);
@@ -111,27 +114,13 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
     // Handle filter changes - auto-select appropriate sensor when filters change
     useEffect(() => {
         if (project && project.sensor_set.length > 0) {
-            const filteredSensors = project.sensor_set.filter(sensor => {
-                let showSensor = true;
-
-                if (showNonCalibratedOnly && sensor.isCalibrated) {
-                    showSensor = false;
-                }
-
-                if (showNonValidatedOnly && sensor.isValidated) {
-                    showSensor = false;
-                }
-
-                return showSensor;
-            });
+            const filteredSensors = project.sensor_set.filter(sensor =>
+                isSensorVisible(sensor, showNonCalibratedOnly, showNonValidatedOnly)
+            );
 
             // If current selection is not in filtered list, select first available or clear
             if (selectedSensorId && !filteredSensors.some(sensor => sensor.id === selectedSensorId)) {
-                if (filteredSensors.length > 0) {
-                    setSelectedSensorId(filteredSensors[0].id);
-                } else {
-                    setSelectedSensorId('');
-                }
+                setSelectedSensorId(filteredSensors.length > 0 ? filteredSensors[0].id : '');
             } else if (!selectedSensorId && filteredSensors.length > 0) {
                 // Auto-select first sensor if none selected
                 setSelectedSensorId(filteredSensors[0].id);
@@ -539,6 +528,11 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
     };
 
     const selectedSensor = project?.sensor_set.find(s => s.id === selectedSensorId);
+    const isImageCalibration = project?.calibrationType === 'image';
+    const resolvedCalibrationType = project?.calibrationType || 'cartesian';
+    const hasFigures = figures.length > 0;
+    const canAcceptCalibration = isImageCalibration ? hasFigures : isCalibrated;
+    const hasCalibrationResult = isImageCalibration ? hasFigures : isCalibrated && homographyMatrix.length > 0;
 
     // Apply flipY transformation like React UI does before sending to backend
     const flipY = (figures: CalibrationFigure[], height: number): CalibrationFigure[] => {
@@ -607,20 +601,8 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                                         <InputLabel>Select Sensor</InputLabel>
                                         <Select value={selectedSensorId} label='Select Sensor' onChange={handleSensorChange}>
                                             {project.sensor_set
-                                                .filter(sensor => {
-                                                    // Apply filters based on checkbox states
-                                                    let showSensor = true;
-
-                                                    if (showNonCalibratedOnly && sensor.isCalibrated) {
-                                                        showSensor = false;
-                                                    }
-
-                                                    if (showNonValidatedOnly && sensor.isValidated) {
-                                                        showSensor = false;
-                                                    }
-
-                                                    return showSensor;
-                                                })
+                                                // Apply filters based on checkbox states
+                                                .filter(sensor => isSensorVisible(sensor, showNonCalibratedOnly, showNonValidatedOnly))
                                                 .map(sensor => (
                                                     <MenuItem key={sensor.id} value={sensor.id}>
                                                         <Box
@@ -858,14 +840,14 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                                                         </Typography>
                                                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                                             {/* Only show Calculate Calibration button for cartesian calibration type */}
-                                                            {project?.calibrationType !== 'image' && !isCalibrated && (
+                                                            {!isImageCalibration && !isCalibrated && (
                                                                 <Button
                                                                     variant='outlined'
                                                                     startIcon={
                                                                         isCalculating ? <CircularProgress size={16} /> : <Calculate />
                                                                     }
                                                                     onClick={handleCalculateCalibration}
-                                                                    disabled={figures.length === 0 || !!unfinishedFigure || isCalculating}
+                                                                    disabled={!hasFigures || !!unfinishedFigure || isCalculating}
                                                                     fullWidth
                                                                 >
                                                                     {isCalculating ? 'Calculating...' : 'Calculate Calibration'}
@@ -873,22 +855,19 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                                                             )}
 
                                                             {/* Accept Calibration / Validate button */}
-                                                            {((project?.calibrationType === 'image' && figures.length > 0) ||
-                                                                (project?.calibrationType !== 'image' && isCalibrated)) && (
+                                                            {canAcceptCalibration && (
                                                                 <Button
                                                                     variant='contained'
                                                                     color='success'
                                                                     onClick={handleAcceptCalibration}
                                                                     fullWidth
                                                                 >
-                                                                    {project?.calibrationType === 'image'
-                                                                        ? 'Validate'
-                                                                        : 'Accept Calibration'}
+                                                                    {isImageCalibration ? 'Validate' : 'Accept Calibration'}
                                                                 </Button>
                                                             )}
 
                                                             {/* Redraw Polygons button */}
-                                                            {figures.length > 0 && (
+                                                            {hasFigures && (
                                                                 <Button
                                                                     variant='outlined'
                                                                     startIcon={<Refresh />}
@@ -926,7 +905,7 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                             {/* Main Content Area */}
                             <Grid2 container spacing={3}>
                                 {/* Calibration Canvas */}
-                                <Grid2 size={{ xs: 12, lg: project?.calibrationType === 'image' ? 12 : 7 }}>
+                                <Grid2 size={{ xs: 12, lg: isImageCalibration ? 12 : 7 }}>
                                     <Card variant='outlined'>
                                         <CardContent sx={{ p: 0 }}>
                                             <Box
@@ -952,13 +931,13 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                                 </Grid2>
 
                                 {/* Coordinate Input Panel - Only show for cartesian calibration type */}
-                                {project?.calibrationType !== 'image' && (
+                                {!isImageCalibration && (
                                     <Grid2 size={{ xs: 12, lg: 5 }}>
                                         <CoordinateInput
                                             figures={figures}
                                             coordinates={realWorldCoordinates}
                                             onCoordinateChange={handleCoordinateChange}
-                                            calibrationType={project?.calibrationType || 'cartesian'}
+                                            calibrationType={resolvedCalibrationType}
                                             disabled={isCalculating || isCalibrated}
                                         />
                                         {isCalibrated && (
@@ -973,12 +952,11 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                                 )}
 
                                 {/* Calibration Results - For cartesian: shown when calibrated, For image: shown when figures exist */}
-                                {((project?.calibrationType === 'image' && figures.length > 0) ||
-                                    (project?.calibrationType !== 'image' && isCalibrated && homographyMatrix.length > 0)) && (
+                                {hasCalibrationResult && (
                                     <>
                                         {/* Validation UI */}
                                         <Grid2 size={{ xs: 12 }}>
-                                            {project?.calibrationType === 'image' ? (
+                                            {isImageCalibration ? (
                                                 // Simple validation UI for image calibration type
                                                 <Box
                                                     sx={{
@@ -1022,7 +1000,7 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                                                             return { lat: y, lng: x };
                                                         }
                                                     })}
-                                                    calibrationType={project?.calibrationType || 'cartesian'}
+                                                    calibrationType={resolvedCalibrationType}
                                                     height={selectedSensor?.height || 720}
                                                 />
                                             )}

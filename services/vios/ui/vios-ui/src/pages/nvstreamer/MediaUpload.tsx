@@ -616,48 +616,6 @@ const MediaUpload = () => {
     );
 
 <<<<<<< ours
-    const uploadDroppedFile = useCallback(
-        (file: File) => {
-            if (hasWhiteSpace(file.name)) {
-                enqueueSnackbar(`Error - whitespaces not allowed in file name: ${file.name}`, {
-                    variant: 'error',
-                    anchorOrigin: {
-                        horizontal: 'right',
-                        vertical: 'bottom',
-                    },
-                });
-                setFailedFiles(prev => [...prev, file.name]);
-                setUploadedFiles(prev => prev + 1);
-                return;
-            }
-
-            customFileUpload({
-                file,
-                onSuccess: () => {
-                    setUploadedFiles(prev => prev + 1);
-                    // Set progress to 100% on success
-                    setFileProgress(prev => ({
-                        ...prev,
-                        [file.name]: 100,
-                    }));
-                },
-                onError: ({ error }) => {
-                    LOG.error('Upload error:', error);
-                    setFailedFiles(prev => [...prev, file.name]);
-                    setUploadedFiles(prev => prev + 1);
-                    // Keep the last progress value on error
-                },
-                onProgress: ({ percent }) => {
-                    setFileProgress(prev => ({
-                        ...prev,
-                        [file.name]: percent,
-                    }));
-                },
-            });
-        },
-        [customFileUpload, enqueueSnackbar]
-    );
-
 =======
     const updateFileProgress = useCallback((fileName: string, percent: number) => {
         setFileProgress(prev => ({
@@ -682,6 +640,37 @@ const MediaUpload = () => {
     }, []);
 
 >>>>>>> theirs
+    const uploadDroppedFile = useCallback(
+        (file: File) => {
+            if (hasWhiteSpace(file.name)) {
+                enqueueSnackbar(`Error - whitespaces not allowed in file name: ${file.name}`, {
+                    variant: 'error',
+                    anchorOrigin: {
+                        horizontal: 'right',
+                        vertical: 'bottom',
+                    },
+                });
+                markFileFailed(file.name);
+                return;
+            }
+
+            customFileUpload({
+                file,
+                onSuccess: () => {
+                    markFileUploaded(file.name);
+                },
+                onError: ({ error }) => {
+                    LOG.error('Upload error:', error);
+                    markFileFailed(file.name);
+                },
+                onProgress: ({ percent }) => {
+                    updateFileProgress(file.name, percent);
+                },
+            });
+        },
+        [customFileUpload, enqueueSnackbar, markFileFailed, markFileUploaded, updateFileProgress]
+    );
+
     const handleFileDrop = useCallback(
         (e: React.DragEvent<HTMLDivElement>) => {
             e.preventDefault();
@@ -710,37 +699,7 @@ const MediaUpload = () => {
             const currentState = stateRef.current;
             LOG.info('Processing multiple files with state:', currentState);
 
-<<<<<<< ours
             files.forEach(file => uploadDroppedFile(file));
-=======
-            files.forEach(file => {
-                if (hasWhiteSpace(file.name)) {
-                    enqueueSnackbar(`Error - whitespaces not allowed in file name: ${file.name}`, {
-                        variant: 'error',
-                        anchorOrigin: {
-                            horizontal: 'right',
-                            vertical: 'bottom',
-                        },
-                    });
-                    markFileFailed(file.name);
-                    return;
-                }
-
-                customFileUpload({
-                    file,
-                    onSuccess: () => {
-                        markFileUploaded(file.name);
-                    },
-                    onError: ({ error }) => {
-                        LOG.error('Upload error:', error);
-                        markFileFailed(file.name);
-                    },
-                    onProgress: ({ percent }) => {
-                        updateFileProgress(file.name, percent);
-                    },
-                });
-            });
->>>>>>> theirs
         },
         [uploadDroppedFile]
     );
