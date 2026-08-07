@@ -957,7 +957,7 @@ def _openclaw_session_jsonl_to_atif(
         output_tokens = _json_int(usage.get("output"))
         cache_read = _json_int(usage.get("cacheRead"))
         cache_write = _json_int(usage.get("cacheWrite"))
-        if not (input_tokens or output_tokens or cache_read):
+        if not (input_tokens or output_tokens or cache_read or cache_write):
             return None
         metrics: dict[str, Any] = {
             "prompt_tokens": input_tokens + cache_read or None,
@@ -1108,9 +1108,48 @@ def _openclaw_session_jsonl_to_atif(
         and isinstance(agent_meta.get("usage"), dict)
         else {}
     )
-    input_tokens = _json_int(final_usage.get("input"))
-    output_tokens = _json_int(final_usage.get("output"))
-    cache_read = _json_int(final_usage.get("cacheRead"))
+    step_prompt_tokens = 0
+    step_output_tokens = 0
+    step_cache_read = 0
+    step_cache_write = 0
+    for step in steps:
+        if not isinstance(step, dict) or step.get("source") != "agent":
+            continue
+        metrics = step.get("metrics")
+        if not isinstance(metrics, dict):
+            continue
+        step_prompt_tokens += _json_int(metrics.get("prompt_tokens"))
+        step_output_tokens += _json_int(metrics.get("completion_tokens"))
+        step_cache_read += _json_int(metrics.get("cached_tokens"))
+        extra = metrics.get("extra")
+        if isinstance(extra, dict):
+            step_cache_write += _json_int(extra.get("cache_write_tokens"))
+
+    envelope_input = _json_int(final_usage.get("input"))
+    envelope_output = _json_int(final_usage.get("output"))
+    envelope_cache_read = _json_int(final_usage.get("cacheRead"))
+    envelope_cache_write = _json_int(final_usage.get("cacheWrite"))
+    # The published steps come from the deduplicated session lineage.  The
+    # envelope is another cumulative view which may cover more calls or only
+    # the post-compaction leaf, so reconcile each dimension without adding the
+    # two cumulative sources together.
+    prompt_tokens = max(
+        step_prompt_tokens,
+        envelope_input + envelope_cache_read,
+    )
+    output_tokens = max(step_output_tokens, envelope_output)
+    cache_read = max(step_cache_read, envelope_cache_read)
+    cache_write = max(step_cache_write, envelope_cache_write)
+    final_metrics: dict[str, Any] = {
+        "total_prompt_tokens": prompt_tokens or None,
+        "total_completion_tokens": output_tokens or None,
+        "total_cached_tokens": cache_read or None,
+        "total_steps": len(steps),
+    }
+    if cache_write:
+        final_metrics["extra"] = {
+            "total_cache_write_tokens": cache_write,
+        }
     return {
         "schema_version": "ATIF-v1.7",
         "session_id": session_id,
@@ -1121,12 +1160,7 @@ def _openclaw_session_jsonl_to_atif(
             "model_name": model_name,
         },
         "steps": steps,
-        "final_metrics": {
-            "total_prompt_tokens": input_tokens + cache_read or None,
-            "total_completion_tokens": output_tokens or None,
-            "total_cached_tokens": cache_read or None,
-            "total_steps": len(steps),
-        },
+        "final_metrics": final_metrics,
     }
 
 

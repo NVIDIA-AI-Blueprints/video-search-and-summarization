@@ -5862,6 +5862,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 "total_completion_tokens": 25,
                 "total_cached_tokens": 200,
                 "total_steps": 3,
+                "extra": {"total_cache_write_tokens": 3},
             },
         )
         with tempfile.TemporaryDirectory() as td:
@@ -5873,6 +5874,194 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             headless_runner._assert_rtsp_tool_shell_visibility(
                 trajectory_path
             )
+
+    def test_openclaw_atif_preserves_cache_write_only_usage(self):
+        session_jsonl = "\n".join(
+            json.dumps(row)
+            for row in (
+                {
+                    "type": "message",
+                    "message": {"role": "user", "content": "prompt"},
+                },
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "done"}],
+                        "usage": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 7,
+                        },
+                    },
+                },
+            )
+        )
+        envelope = {
+            "meta": {
+                "agentMeta": {
+                    "sessionId": "run-cache-write",
+                    "model": "aws/anthropic/test-model",
+                    "usage": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 7,
+                    },
+                }
+            }
+        }
+
+        trajectory = headless_runner._openclaw_session_jsonl_to_atif(
+            session_jsonl,
+            instruction="current eval prompt",
+            envelope=envelope,
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        self.assertEqual(
+            trajectory["steps"][1]["metrics"]["extra"],
+            {"cache_write_tokens": 7},
+        )
+        self.assertEqual(
+            trajectory["final_metrics"]["extra"],
+            {"total_cache_write_tokens": 7},
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "trajectory.json"
+            path.write_text(json.dumps(trajectory), encoding="utf-8")
+            metrics = smoke_runner._load_openclaw_atif_metrics(path)
+
+        self.assertEqual(metrics, ("1", "0", "7"))
+
+    def test_openclaw_atif_final_metrics_prefer_larger_step_usage(self):
+        session_jsonl = "\n".join(
+            json.dumps(row)
+            for row in (
+                {
+                    "type": "message",
+                    "message": {"role": "user", "content": "prompt"},
+                },
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "one"}],
+                        "usage": {
+                            "input": 100,
+                            "output": 10,
+                            "cacheRead": 20,
+                            "cacheWrite": 3,
+                        },
+                    },
+                },
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "two"}],
+                        "usage": {
+                            "input": 50,
+                            "output": 4,
+                            "cacheRead": 5,
+                            "cacheWrite": 7,
+                        },
+                    },
+                },
+            )
+        )
+        envelope = {
+            "meta": {
+                "agentMeta": {
+                    "sessionId": "run-step-larger",
+                    "model": "aws/anthropic/test-model",
+                    "usage": {
+                        "input": 60,
+                        "output": 8,
+                        "cacheRead": 10,
+                        "cacheWrite": 2,
+                    },
+                }
+            }
+        }
+
+        trajectory = headless_runner._openclaw_session_jsonl_to_atif(
+            session_jsonl,
+            instruction="current eval prompt",
+            envelope=envelope,
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        self.assertEqual(
+            trajectory["final_metrics"],
+            {
+                "total_prompt_tokens": 175,
+                "total_completion_tokens": 14,
+                "total_cached_tokens": 25,
+                "total_steps": 3,
+                "extra": {"total_cache_write_tokens": 10},
+            },
+        )
+
+    def test_openclaw_atif_final_metrics_prefer_larger_envelope_usage(self):
+        session_jsonl = "\n".join(
+            json.dumps(row)
+            for row in (
+                {
+                    "type": "message",
+                    "message": {"role": "user", "content": "prompt"},
+                },
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "done"}],
+                        "usage": {
+                            "input": 10,
+                            "output": 2,
+                            "cacheRead": 3,
+                            "cacheWrite": 4,
+                        },
+                    },
+                },
+            )
+        )
+        envelope = {
+            "meta": {
+                "agentMeta": {
+                    "sessionId": "run-envelope-larger",
+                    "model": "aws/anthropic/test-model",
+                    "usage": {
+                        "input": 100,
+                        "output": 20,
+                        "cacheRead": 30,
+                        "cacheWrite": 40,
+                    },
+                }
+            }
+        }
+
+        trajectory = headless_runner._openclaw_session_jsonl_to_atif(
+            session_jsonl,
+            instruction="current eval prompt",
+            envelope=envelope,
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        self.assertEqual(
+            trajectory["final_metrics"],
+            {
+                "total_prompt_tokens": 130,
+                "total_completion_tokens": 20,
+                "total_cached_tokens": 30,
+                "total_steps": 2,
+                "extra": {"total_cache_write_tokens": 40},
+            },
+        )
 
     def test_openclaw_trajectory_uses_unique_ids_for_missing_tool_ids(self):
         session_jsonl = "\n".join(
@@ -12922,6 +13111,365 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(metrics, ("2", "9.5k", "175"))
 
+    def test_nemoclaw_report_reads_manifest_collected_openclaw_session(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            artifact_dir = (
+                trial_dir / "artifacts" / "logs" / "artifacts" / "nemoclaw"
+            )
+            artifact_dir.mkdir(parents=True)
+            (trial_dir / "artifacts" / "manifest.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "source": "/logs/artifacts",
+                            "destination": "artifacts/logs/artifacts",
+                            "type": "directory",
+                            "status": "ok",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (artifact_dir / "openclaw.session.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "message": {"role": "user", "content": "prompt"},
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "id": "assistant-1",
+                                "message": {
+                                    "role": "assistant",
+                                    "usage": {
+                                        "input": 100,
+                                        "cacheRead": 20,
+                                        "cacheWrite": 3,
+                                    },
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "id": "assistant-1",
+                                "message": {
+                                    "role": "assistant",
+                                    "usage": {
+                                        "input": 100,
+                                        "cacheRead": 20,
+                                        "cacheWrite": 3,
+                                    },
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "id": "assistant-2",
+                                "message": {
+                                    "role": "assistant",
+                                    "usage": {
+                                        "input": 50,
+                                        "cacheRead": 5,
+                                        "cacheWrite": 7,
+                                    },
+                                },
+                            }
+                        ),
+                        '{"type":"message","id":"truncated"',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            stale_dir = trial_dir / "artifacts" / "nemoclaw"
+            stale_dir.mkdir()
+            (stale_dir / "openclaw-agent.log").write_text(
+                json.dumps(
+                    {
+                        "type": "assistant_message",
+                        "usage": {"input": 999},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("2", "150", "35"))
+
+    def test_nemoclaw_report_falls_back_to_manifest_collected_atif(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            artifact_dir = (
+                trial_dir / "artifacts" / "logs" / "artifacts" / "nemoclaw"
+            )
+            artifact_dir.mkdir(parents=True)
+            (trial_dir / "artifacts" / "manifest.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "source": "/logs/artifacts",
+                            "destination": "artifacts/logs/artifacts",
+                            "type": "directory",
+                            "status": "ok",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (artifact_dir / "trajectory.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "ATIF-v1.7",
+                        "agent": {"name": "openclaw"},
+                        "steps": [
+                            {"step_id": 1, "source": "user", "message": "prompt"},
+                            {
+                                "step_id": 2,
+                                "source": "agent",
+                                "metrics": {
+                                    "prompt_tokens": 120,
+                                    "cached_tokens": 20,
+                                    "extra": {"cache_write_tokens": 3},
+                                },
+                            },
+                            {
+                                "step_id": 3,
+                                "source": "agent",
+                                "metrics": {
+                                    "prompt_tokens": 55,
+                                    "cached_tokens": 5,
+                                    "extra": {"cache_write_tokens": 7},
+                                },
+                            },
+                        ],
+                        "final_metrics": {
+                            "total_prompt_tokens": 175,
+                            "total_cached_tokens": 25,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("2", "150", "35"))
+
+    def test_nemoclaw_report_prefers_complete_atif_over_partial_session_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            artifact_dir = (
+                trial_dir / "artifacts" / "logs" / "artifacts" / "nemoclaw"
+            )
+            artifact_dir.mkdir(parents=True)
+            (trial_dir / "artifacts" / "manifest.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "source": "/logs/artifacts",
+                            "destination": "artifacts/logs/artifacts",
+                            "type": "directory",
+                            "status": "ok",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (artifact_dir / "openclaw.session.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "id": "assistant-1",
+                                "message": {
+                                    "role": "assistant",
+                                    "usage": {"input": 10},
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "id": "assistant-2",
+                                "message": {"role": "assistant"},
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (artifact_dir / "trajectory.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "ATIF-v1.7",
+                        "agent": {"name": "openclaw"},
+                        "steps": [
+                            {"step_id": 1, "source": "agent"},
+                            {"step_id": 2, "source": "agent"},
+                        ],
+                        "final_metrics": {
+                            "total_prompt_tokens": 100,
+                            "total_cached_tokens": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("2", "100", "0"))
+
+    def test_nemoclaw_report_ignores_invalid_session_usage_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            artifact_dir = (
+                trial_dir / "artifacts" / "logs" / "artifacts" / "nemoclaw"
+            )
+            artifact_dir.mkdir(parents=True)
+            (trial_dir / "artifacts" / "manifest.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "source": "/logs/artifacts",
+                            "destination": "artifacts/logs/artifacts",
+                            "type": "directory",
+                            "status": "ok",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (artifact_dir / "openclaw.session.jsonl").write_text(
+                "\n".join(
+                    json.dumps(row)
+                    for row in (
+                        {
+                            "type": "message",
+                            "id": "assistant-1",
+                            "message": {
+                                "role": "assistant",
+                                "usage": {
+                                    "input": "not-a-number",
+                                    "cacheRead": -3,
+                                    "cacheWrite": True,
+                                },
+                            },
+                        },
+                        {
+                            "type": "message",
+                            "id": "assistant-2",
+                            "message": {
+                                "role": "assistant",
+                                "usage": {
+                                    "input": 12,
+                                    "cacheRead": 2,
+                                    "cacheWrite": 1,
+                                },
+                            },
+                        },
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("2", "12", "3"))
+
+    def test_nemoclaw_report_rejects_unsafe_manifest_destination(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            trial_dir = root / "trial"
+            (trial_dir / "artifacts").mkdir(parents=True)
+            foreign = root / "foreign" / "nemoclaw"
+            foreign.mkdir(parents=True)
+            (foreign / "openclaw.session.jsonl").write_text(
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {
+                            "role": "assistant",
+                            "usage": {"input": 999},
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            stale_dir = trial_dir / "artifacts" / "nemoclaw"
+            stale_dir.mkdir()
+            (stale_dir / "openclaw-agent.log").write_text(
+                json.dumps(
+                    {
+                        "type": "assistant_message",
+                        "usage": {"input": 888},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (trial_dir / "artifacts" / "link").symlink_to(
+                root / "foreign",
+                target_is_directory=True,
+            )
+            valid_entry = {
+                "source": "/logs/artifacts",
+                "destination": "artifacts/logs/artifacts",
+                "type": "directory",
+                "status": "ok",
+            }
+            manifests = (
+                [{**valid_entry, "destination": "../foreign"}],
+                [{**valid_entry, "destination": "/tmp/foreign"}],
+                [{**valid_entry, "destination": "."}],
+                [{**valid_entry, "destination": "artifacts/link"}],
+                [valid_entry, valid_entry],
+                [{**valid_entry, "status": "error"}],
+            )
+            for manifest in manifests:
+                with self.subTest(manifest=manifest):
+                    (trial_dir / "artifacts" / "manifest.json").write_text(
+                        json.dumps(manifest),
+                        encoding="utf-8",
+                    )
+
+                    metrics = smoke_runner._load_trajectory_metrics(
+                        trial_dir,
+                        {
+                            "agent_result": {
+                                "n_input_tokens": None,
+                                "n_cache_tokens": None,
+                            }
+                        },
+                    )
+
+                    self.assertEqual(metrics, ("n/a", "n/a", "n/a"))
+
     def test_nemoclaw_report_reads_pretty_openclaw_result_payloads(self):
         with tempfile.TemporaryDirectory() as td:
             trial_dir = Path(td) / "trial"
@@ -12958,6 +13506,49 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             )
 
         self.assertEqual(metrics, ("2", "42", "12"))
+
+    def test_nemoclaw_report_prefers_aggregate_completion_usage_without_double_counting(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            log_dir = trial_dir / "artifacts" / "nemoclaw"
+            log_dir.mkdir(parents=True)
+            (log_dir / "openclaw-agent.log").write_text(
+                json.dumps(
+                    {
+                        "result": {
+                            "payloads": [{"text": "done"}],
+                            "meta": {
+                                "agentMeta": {
+                                    "usage": {
+                                        "input": 100,
+                                        "cacheRead": 20,
+                                        "cacheWrite": 5,
+                                    },
+                                    "lastCallUsage": {
+                                        "input": 42,
+                                        "cacheRead": 5,
+                                        "cacheWrite": 7,
+                                    },
+                                }
+                            },
+                        },
+                        "usage": {"input": 10, "cacheRead": 2},
+                        "modelUsage": {
+                            "main": {"inputTokens": 10, "cacheReadInputTokens": 2}
+                        },
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("1", "100", "25"))
 
     def test_nemoclaw_report_preserves_zero_openclaw_usage(self):
         with tempfile.TemporaryDirectory() as td:
