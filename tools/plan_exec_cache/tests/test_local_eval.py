@@ -123,9 +123,9 @@ class LocalEvalTests(unittest.TestCase):
     def test_compare_accepts_selected_arms(self):
         args = local_eval.parse_args([
             "--task", "/tmp/task", "--mode", "compare",
-            "--arms", "cold", "warm",
+            "--arms", "cold_true", "warm",
         ])
-        self.assertEqual(args.arms, ["cold", "warm"])
+        self.assertEqual(args.arms, ["cold_true", "warm"])
 
     def test_accepts_runs_alias_and_comma_separated_arms(self):
         args = local_eval.parse_args([
@@ -201,6 +201,8 @@ class LocalEvalTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 local_eval.check_cache("cold", cold)
             with self.assertRaises(ValueError):
+                local_eval.check_cache("cold_true", cold)
+            with self.assertRaises(ValueError):
                 local_eval.check_cache("warm", cold)
 
             memory = cold / "memories" / "demo.action"
@@ -210,6 +212,83 @@ class LocalEvalTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 local_eval.check_cache("warm", root / "missing")
+
+    def test_true_cold_isolates_tasks_then_populates_warm_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tasks = []
+            for name in ("upload", "video-qa"):
+                task = root / name
+                (task / "tests").mkdir(parents=True)
+                (task / "instruction.md").write_text(
+                    "do it", encoding="utf-8"
+                )
+                (task / "task.toml").write_text(
+                    "[metadata]\nstep_index = 1\n", encoding="utf-8"
+                )
+                (task / "tests" / "case.json").write_text(
+                    "{}", encoding="utf-8"
+                )
+                tasks.append(task)
+            reset = root / "reset"
+            reset.write_text("reset", encoding="utf-8")
+            cache = root / "cache"
+            calls = []
+
+            def keys(cache_home):
+                memories = cache_home / "memories"
+                return sorted(
+                    path.name for path in memories.iterdir()
+                    if path.is_dir()
+                ) if memories.is_dir() else []
+
+            def fake_evaluate(task, mode, cache_home, _output, *_args):
+                calls.append((mode, task.name, cache_home, keys(cache_home)))
+                if mode == "cold_true":
+                    memory = cache_home / "memories" / f"{task.name}.action"
+                    memory.mkdir(parents=True)
+                    (memory / "procedure.md").write_text(
+                        f"procedure for {task.name}", encoding="utf-8"
+                    )
+                    (memory / "metadata.json").write_text(
+                        "{}", encoding="utf-8"
+                    )
+                return {
+                    "task": str(task), "mode": mode, "passed": True,
+                    "reward": 1.0, "total_tokens": 10,
+                    "cost_usd": 0.01, "agent_seconds": 1.0,
+                    "verifier_seconds": 0.5,
+                }
+
+            output = root / "output"
+            argv = ["--mode", "compare", "--arms", "cold_true", "warm"]
+            for task in tasks:
+                argv += ["--task", str(task)]
+            argv += [
+                "--reset-script", str(reset),
+                "--cache-home", str(cache),
+                "--output", str(output),
+            ]
+            with mock.patch.object(
+                local_eval, "evaluate_task", side_effect=fake_evaluate
+            ), mock.patch.object(local_eval, "run_reset") as run_reset, \
+                    redirect_stdout(StringIO()):
+                returncode = local_eval.main(argv)
+
+            self.assertEqual(returncode, 0)
+            cold_calls = [call for call in calls if call[0] == "cold_true"]
+            warm_calls = [call for call in calls if call[0] == "warm"]
+            self.assertEqual([call[3] for call in cold_calls], [[], []])
+            self.assertNotEqual(cold_calls[0][2], cold_calls[1][2])
+            self.assertEqual(
+                [call[3] for call in warm_calls],
+                [["upload.action", "video-qa.action"]] * 2,
+            )
+            self.assertTrue((cache / "memories" / "upload.action").is_dir())
+            self.assertTrue((cache / "memories" / "video-qa.action").is_dir())
+            self.assertEqual(run_reset.call_count, 2)
+            report = json.loads((output / "result.json").read_text())
+            self.assertEqual(set(report["arms"]), {"cold_true", "warm"})
 
     def test_compare_resets_each_arm_and_reuses_cold_cache(self):
         with tempfile.TemporaryDirectory() as directory:

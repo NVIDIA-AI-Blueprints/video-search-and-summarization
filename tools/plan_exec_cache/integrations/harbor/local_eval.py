@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -24,7 +25,8 @@ TOKEN_FIELDS = (
     "cache_creation_input_tokens",
     "output_tokens",
 )
-ARMS = ("direct", "cold", "warm")
+ARMS = ("direct", "cold", "cold_true", "warm")
+DEFAULT_COMPARE_ARMS = ("direct", "cold", "warm")
 
 
 def positive_int(value: str) -> int:
@@ -110,7 +112,9 @@ def mode_environment(mode: str, cache_home: Path | None) -> dict[str, str]:
     env.pop("CLAUDE_CODE_DISABLE_THINKING", None)
     if mode != "direct":
         if cache_home is None:
-            raise ValueError("--cache-home is required for cold and warm modes")
+            raise ValueError(
+                "--cache-home is required for cold, cold_true, and warm modes"
+            )
         env["PLAN_EXECUTE_CACHE_HOME"] = str(cache_home)
     return env
 
@@ -133,17 +137,44 @@ def check_cache(mode: str, cache_home: Path | None) -> None:
     if mode == "direct":
         return
     if cache_home is None:
-        raise ValueError("--cache-home is required for cold and warm modes")
+        raise ValueError(
+            "--cache-home is required for cold, cold_true, and warm modes"
+        )
     populated = cache_home.is_dir() and any(cache_home.iterdir())
     memories = cache_home / "memories"
     reusable = memories.is_dir() and any(
         path.is_dir() and (path / "procedure.md").is_file()
         for path in memories.iterdir()
     )
-    if mode == "cold" and populated:
-        raise ValueError(f"cold cache is not empty: {cache_home}")
+    if mode in {"cold", "cold_true"} and populated:
+        raise ValueError(f"{mode} cache is not empty: {cache_home}")
     if mode == "warm" and not reusable:
         raise ValueError(f"warm cache has no reusable procedures: {cache_home}")
+
+
+def merge_procedure_cache(source: Path, destination: Path) -> list[str]:
+    """Collect independently learned procedures for a later warm arm.
+
+    If isolated tasks produce the same action key, the later task's version
+    wins. This mirrors the final-value behavior of a sequential cold cache
+    without exposing an earlier task's procedure to a later cold_true task.
+    """
+    source_memories = source / "memories"
+    if not source_memories.is_dir():
+        return []
+    destination_memories = destination / "memories"
+    destination_memories.mkdir(parents=True, exist_ok=True)
+    merged = []
+    for memory in sorted(source_memories.iterdir()):
+        if not memory.is_dir() or not (memory / "procedure.md").is_file():
+            continue
+        shutil.copytree(
+            memory,
+            destination_memories / memory.name,
+            dirs_exist_ok=True,
+        )
+        merged.append(memory.name)
+    return merged
 
 
 def run_agent(
@@ -277,6 +308,7 @@ def evaluate_task(
     report = {
         "task": str(task),
         "mode": mode,
+        "cache_home": str(cache_home) if cache_home else None,
         "step": step,
         "reward": reward,
         "passed": agent_succeeded and verifier_rc == 0 and reward == 1.0,
@@ -362,7 +394,7 @@ def average_runs(runs: list[dict], modes: tuple[str, ...]) -> dict:
 
 def normalize_arms(values: list[str] | None) -> tuple[str, ...]:
     if not values:
-        return ARMS
+        return DEFAULT_COMPARE_ARMS
     requested = []
     for value in values:
         requested.extend(
@@ -378,7 +410,12 @@ def normalize_arms(values: list[str] | None) -> tuple[str, ...]:
 
 
 def display_arm(mode: str) -> str:
-    return {"direct": "Direct", "cold": "Cold series", "warm": "Warm"}[mode]
+    return {
+        "direct": "Direct",
+        "cold": "Cold series",
+        "cold_true": "True cold",
+        "warm": "Warm",
+    }[mode]
 
 
 def percent_change(value: float | int | None,
@@ -478,7 +515,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         default="direct")
     parser.add_argument(
         "--arms", nargs="+",
-        help="arms to run with --mode compare; defaults to direct cold warm",
+        help="arms to run with --mode compare; defaults to direct cold warm; "
+             "use cold_true instead of cold to isolate each task's cache",
     )
     parser.add_argument(
         "--runs", "--repeat", dest="runs", type=positive_int, default=1,
@@ -492,8 +530,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--cache-home", type=Path,
         default=run_dir / "cache",
-        help="shared cache for cold and warm; defaults to a new timestamped "
-             "directory",
+        help="collected cache for cold/cold_true and warm; defaults to a new "
+             "timestamped directory",
     )
     parser.add_argument("--spec", type=Path,
                         help="eval JSON; valid only with one --task")
@@ -531,6 +569,11 @@ def main(argv: list[str] | None = None) -> int:
             requested
             if args.mode == "compare" else (args.mode,)
         )
+        if "cold" in modes and "cold_true" in modes:
+            raise ValueError(
+                "cold and cold_true cannot run together because Warm would "
+                "not have a single unambiguous source cache"
+            )
         if args.task_label and len(args.task_label) != len(tasks):
             raise ValueError(
                 "--task-label must be repeated once for every --task"
@@ -557,6 +600,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             if "cold" in modes:
                 check_cache("cold", run_cache)
+            elif "cold_true" in modes:
+                check_cache("cold_true", run_cache)
             elif "warm" in modes:
                 check_cache("warm", run_cache)
             summaries = {}
@@ -569,13 +614,22 @@ def main(argv: list[str] | None = None) -> int:
                     check_cache("warm", run_cache)
                 reports = []
                 for index, task in enumerate(tasks, 1):
+                    task_cache = run_cache
+                    if mode == "cold_true":
+                        task_cache = (
+                            arm_output / "isolated-caches" /
+                            f"{index:02d}-{task.name}"
+                        )
+                        check_cache("cold_true", task_cache)
                     report = evaluate_task(
-                        task, mode, run_cache,
+                        task, mode, task_cache,
                         arm_output / f"{index:02d}-{task.name}",
                         args.model, args.agent_timeout, args.verifier_timeout,
                         args.spec,
                     )
                     reports.append(report)
+                    if mode == "cold_true":
+                        merge_procedure_cache(task_cache, run_cache)
                 summaries[mode] = summarize(mode, reports)
             runs.append({
                 "run": run_index,

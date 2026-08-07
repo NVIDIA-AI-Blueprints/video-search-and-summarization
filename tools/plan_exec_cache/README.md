@@ -122,6 +122,27 @@ python3 tools/plan_exec_cache/integrations/harbor/local_eval.py \
   --reset-script .github/skill-eval/fixtures/reset_vios_upload.py
 ```
 
+Use `cold_true` in place of `cold` to measure true per-query cold starts. Every
+`cold_true` task receives a separate empty procedure cache, so it cannot recall
+a procedure learned by an earlier query. After each task, the runner collects
+its learned procedures into the shared cache; `warm` can therefore reuse the
+combined learned cache. Application state remains sequential within the arm
+and is still restored only by `--reset-script` before each arm.
+
+```bash
+python3 tools/plan_exec_cache/integrations/harbor/local_eval.py \
+  --mode compare \
+  --arms direct cold_true warm \
+  --task /tmp/skill-eval-ask/base/l40s/step-2 \
+  --task /tmp/skill-eval-ask/base/l40s/step-3 \
+  --task /tmp/skill-eval-ask/base/l40s/step-4 \
+  --task /tmp/skill-eval-report/base/l40s/step-4 \
+  --reset-script .github/skill-eval/fixtures/reset_vios_upload.py
+```
+
+`cold` and `cold_true` cannot be selected in the same comparison because that
+would make the source of the subsequent Warm cache ambiguous.
+
 Repeat the complete comparison three times with `--runs 3`. Each run gets an
 independent cold/warm procedure cache. Optional labels make the generated
 tables use short workload names:

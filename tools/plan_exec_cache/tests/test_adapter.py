@@ -76,10 +76,18 @@ inspect-target "$TARGET"
             self.assertIn("Never call `recall` with an invented key", context)
             self.assertIn("recall --key", context)
             self.assertIn("form a compact working plan in\ncontext", context)
-            self.assertIn("Do not\n   spend a separate tool call writing", context)
+            self.assertIn("Do not spend a separate tool call writing", context)
             self.assertIn("revise only the remaining checkpoints", context)
             self.assertIn("distill the shortest reusable procedure", context)
             self.assertIn("preserve mandatory and forbidden source rules", context)
+            self.assertIn(
+                "Treat every required output template as part of the task",
+                context,
+            )
+            self.assertIn(
+                "never replace it with a reconstructed approximation",
+                context,
+            )
             self.assertIn("Preconditions and constraints", context)
             self.assertIn("remember --key", context)
             self.assertIn("--procedure-file - <<'PROCEDURE'", context)

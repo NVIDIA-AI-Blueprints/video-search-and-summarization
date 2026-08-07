@@ -11,6 +11,11 @@ Caching requires both a verified outcome and a source-compliant procedure.
 Recovery that happens to work does not authorize dropping an interface,
 constraint, or verification required by the instructions.
 
+Treat every required output template as part of the task contract, not as
+optional presentation guidance. Preserve the template's required title,
+headings, sections, field names, ordering, placeholders, and output format
+exactly unless the source instructions explicitly allow a change.
+
 {{RECALL_GUIDANCE}}
 
 ## Cache miss
@@ -21,9 +26,10 @@ constraint, or verification required by the instructions.
    already known in the current run.
 2. Before the first action that performs the requested operation, form a compact
    working plan in context. Identify the meaningful checkpoints, required
-   interfaces, request-bound values, and observable success conditions. Do not
-   spend a separate tool call writing this unverified plan.
-3. Execute the next checkpoint with normal tools and inspect its result. Group
+   interfaces, request-bound values, required output template and structure,
+   and observable success conditions. Do not spend a separate tool call writing
+   this unverified plan.
+3. Execute the next checkpoint with normal tools and inspect its result based on your plan. Group
    uninterrupted deterministic actions when safe. Preserve explicit resource
    identity: a named ID or resource is not a file, URL, service, or substitute
    merely because a similarly named one exists.
@@ -35,8 +41,11 @@ constraint, or verification required by the instructions.
 6. After success, distill the shortest reusable procedure from the path that
    actually worked. Compare it with every instruction dependency before
    storing it: preserve required phases and interfaces, preserve prohibitions,
-   and preserve the checks that prove success. Exclude failed attempts,
-   explanations, and current request values.
+   preserve every required output template and structural constraint, and
+   preserve the checks that prove success. Exclude failed attempts,
+   explanations, and current request values. If a source supplies a template,
+   the procedure must require loading or reproducing that template faithfully;
+   never replace it with a reconstructed approximation.
 7. Remember the procedure only after both the outcome check and this source
    compliance check pass.
 
@@ -88,7 +97,8 @@ One sentence stating when this applies and its outcome.
 ## Source compliance
 
 - Required: map each source-mandated phase, interface, and check to the step
-  that preserves it.
+  that preserves it. Map every required output template to the step that loads
+  or reproduces it without changing its required structure.
 - Forbidden: name each relevant prohibited action and confirm it is excluded.
 
 ## Steps
@@ -109,7 +119,9 @@ Group uninterrupted deterministic actions when safe.
 
 ## Verification
 
-- Minimum observable checks that prove success.
+- Minimum observable checks that prove success. When a template is required,
+  verify the produced artifact preserves its required title, headings,
+  sections, fields, ordering, placeholders, and format.
 ```
 
 Pass every instruction dependency as a separate `--source`; prefer the owning
@@ -117,7 +129,8 @@ instruction directory so any relevant change invalidates the procedure. The
 procedure must preserve mandatory and forbidden source rules, contain no
 credentials or request-specific artifacts, replace the current
 workspace root with a runtime value, and record the exact
-verified interfaces—not an idealized or reconstructed summary.
+verified interfaces and required output template—not an idealized or
+reconstructed summary.
 
 Never assign a request-bound variable to a literal in a cached action block.
 The executing agent binds it from the current request before using the block.
