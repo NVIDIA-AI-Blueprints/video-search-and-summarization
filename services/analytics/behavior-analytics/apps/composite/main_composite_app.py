@@ -47,6 +47,22 @@ class CompositeApp(BaseApp):
     """
     One app whose capabilities are chosen by configuration, in any combination.
 
+    .. important::
+       **Prefer a per-profile app unless you actually need to mix capabilities.** This is the
+       heavyweight option: it constructs every capability's state -- behavior state management, frame
+       state, ROI and tripwire event generators, the space analyzer, the video-embedding state -- at
+       ``__init__``, before it knows which processors you enabled, so an instance carries all of it
+       whatever the worker counts say. Each enabled processor then runs its own worker processes on
+       top, and several are CPU-hungry per batch: space estimation runs polygon intersection per
+       object per zone, clustering does a Triton inference round trip per behavior, and behavior
+       creation with anomaly detection loads a road-network graph.
+
+       Reproducing a shipped profile through this app therefore costs more than running that
+       profile's own entrypoint, for identical output. Reach for it when the capability set you want
+       does not exist as a single shipped app -- and reach for
+       :class:`Analytics2DApp`, :class:`Analytics3DApp`, :class:`SearchAndAlertsApp`,
+       :class:`PublicSafetyApp` or :class:`SmartCityApp` when it does.
+
     The per-profile apps each hard-wire one set of processors, so a deployment that wants
     capabilities from two of them has no entrypoint to run -- the sets are only available in the
     combinations someone happened to ship. This registers all of them and lets configuration decide,
