@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
 import { Button as KaizenButton } from '@nvidia/foundations-react-core';
-import { VideoModalTooltip } from '@aiqtoolkit-ui/common';
+import { VideoModalTooltip } from 'common';
 import { SearchByImageFrameData } from '../types';
 
 interface SearchByImageOverlayInfoProps {

@@ -47,44 +47,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
-        {{- if .Values.downloadModelsFromNgc }}
-        - name: wait-for-models
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - /bin/bash
-            - -c
-            - |
-              set -e
-              MODELS_ROOT="/models-data"
-              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
-              ELAPSED=0
-              while true; do
-                READY=true
-                {{- range .Values.ngcModelsToDownload }}
-                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
-                  READY=false
-                fi
-                {{- end }}
-                if [[ "${READY}" == "true" ]]; then
-                  break
-                fi
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
-                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
-                  exit 1
-                fi
-                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
-                sleep 15
-                ELAPSED=$((ELAPSED + 15))
-              done              
-              echo "[INFO] Model files present, proceeding."
-          volumeMounts:
-            - name: models
-              mountPath: /models-data
-        {{- end }}
         {{- if $engineCacheEnabled }}
         - name: prepare-engine-cache
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -97,19 +62,9 @@ spec:
             - name: models
               mountPath: /models-data
         {{- end }}
-        - name: copy-scripts
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "-c", "cp -r /scripts-ro/. /wdm-scripts/ && chmod +x /wdm-scripts/ds-start.sh"]
-          volumeMounts:
-            - name: scripts
-              mountPath: /scripts-ro
-              readOnly: true
-            - name: scripts-writable
-              mountPath: /wdm-scripts
         {{- if $waitForKafka }}
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -125,23 +80,61 @@ spec:
         - name: vss-rtvi-cv
           image: {{ include "vss-rtvi-cv.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
           workingDir: {{ .Values.workingDir | quote }}
           command:
             - bash
-            - /wdm-scripts/ds-start.sh
-            - /wdm-scripts/run_config-api-rtdetr-protobuf.txt
+            - /startup-script/ds-start.sh
           env:
+            - name: DS_MODEL_FAMILY
+              value: {{ .Values.env.DS_MODEL_FAMILY | quote }}
+            - name: DS_CONFIG_FILE
+              value: {{ .Values.env.DS_CONFIG_FILE | default "" | quote }}
+            - name: DS_VISION_ENCODER
+              value: {{ .Values.env.DS_VISION_ENCODER | default "false" | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ .Values.env.DS_TRACKER_REID | default "false" | quote }}
+            - name: DS_SHOW_SENSOR_ID
+              value: {{ .Values.env.DS_SHOW_SENSOR_ID | default "false" | quote }}
             - name: MODEL_NAME_2D
               value: {{ .Values.env.MODEL_NAME_2D | quote }}
-            - name: MODEL_TYPE
-              value: {{ .Values.env.MODEL_TYPE | quote }}
             - name: NUM_SENSORS
               value: {{ .Values.env.NUM_SENSORS | quote }}
             - name: STREAM_TYPE
               value: {{ .Values.env.STREAM_TYPE | quote }}
+            - name: HARDWARE_PROFILE
+              value: {{ .Values.env.HARDWARE_PROFILE | default "" | quote }}
+            - name: DS_MODE_FLAG
+              value: {{ .Values.env.DS_MODE_FLAG | default "1" | quote }}
+            - name: DS_MESSAGE_RATE
+              value: {{ .Values.env.DS_MESSAGE_RATE | default "1" | quote }}
+            {{- if .Values.downloadModelsFromNgc }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | quote }}
+                  key: {{ .Values.ngcApiKeySecretKey | quote }}
+            - name: MODELS_MANIFEST_PATH
+              value: "/startup-script/models-download.json"
+            - name: MODELS_DEST_ROOT
+              value: "/opt/storage"
+            - name: STORAGE_UID
+              value: {{ (.Values.ngcDownload.storageUid | default 1001) | quote }}
+            - name: STORAGE_GID
+              value: {{ (.Values.ngcDownload.storageGid | default 1001) | quote }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "auto"
+            - name: DOWNLOAD_MODELS_SCRIPT
+              value: "/startup-script/download-models.sh"
+            {{- else }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "never"
+            {{- end }}
           volumeMounts:
-            - name: scripts-writable
-              mountPath: /wdm-scripts
+            - name: startup-script
+              mountPath: /startup-script
+              readOnly: true
             - name: models
               mountPath: /opt/storage
             {{- if $engineCacheEnabled }}
@@ -150,31 +143,25 @@ spec:
               subPath: {{ $engineCacheSubPath | quote }}
             {{- end }}
             {{- $wd := .Values.workingDir }}
-            - name: scripts
-              mountPath: {{ $wd }}/rtdetr-960x544.txt
-              subPath: rtdetr-960x544.txt
-            - name: scripts
-              mountPath: {{ $wd }}/rtdetr-960x544-labels.txt
-              subPath: rtdetr-960x544-labels.txt
-            - name: scripts
-              mountPath: {{ $wd }}/config_triton_nvinferserver_gdino.txt
-              subPath: config_triton_nvinferserver_gdino.txt
-            - name: scripts
-              mountPath: {{ $wd }}/coco_classmap.txt
-              subPath: coco_classmap.txt
-            - name: scripts
-              mountPath: {{ $wd }}/cfg_kafka.txt
-              subPath: cfg_kafka.txt
+            - name: profile-configs
+              mountPath: {{ $wd }}/mounted-configs
+              readOnly: true
+            - name: runtime-configs
+              mountPath: {{ $wd }}/configs
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
-        - name: scripts
+        - name: startup-script
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-ds-start
+            defaultMode: 493
+        - name: profile-configs
           configMap:
             name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
-            defaultMode: 493
-        - name: scripts-writable
+            defaultMode: 420
+        - name: runtime-configs
           emptyDir: {}
         - name: models
           {{- if .Values.modelsVolume }}
@@ -229,43 +216,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
-        {{- if .Values.downloadModelsFromNgc }}
-        - name: wait-for-models
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - /bin/bash
-            - -c
-            - |
-              set -e
-              MODELS_ROOT="/models-data"
-              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
-              ELAPSED=0
-              while true; do
-                READY=true
-                {{- range .Values.ngcModelsToDownload }}
-                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
-                  READY=false
-                fi
-                {{- end }}
-                if [[ "${READY}" == "true" ]]; then
-                  break
-                fi
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
-                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
-                  exit 1
-                fi
-                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
-                sleep 15
-                ELAPSED=$((ELAPSED + 15))
-              done
-              echo "[INFO] Model files present, proceeding."
-          volumeMounts:
-            - name: models
-              mountPath: /models-data
-        {{- end }}
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -280,11 +232,12 @@ spec:
         - name: vss-rtvi-cv
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
           workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
           command:
             - bash
-            - -c
-            - ./ds-start.sh
+            - /startup-script/ds-start.sh
           {{- if .Values.httpPort }}
           ports:
             - name: http
@@ -311,10 +264,32 @@ spec:
             timeoutSeconds: 5
           {{- end }}
           env:
-            - name: MODEL_TYPE
-              value: {{ .Values.modelType | quote }}
+            - name: DS_MODEL_FAMILY
+              value: {{ .Values.env.DS_MODEL_FAMILY | quote }}
+            - name: DS_CONFIG_FILE
+              value: {{ .Values.env.DS_CONFIG_FILE | default "" | quote }}
+            - name: MODEL_NAME_2D
+              value: {{ .Values.env.MODEL_NAME_2D | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ .Values.env.DS_TRACKER_REID | default "false" | quote }}
+            - name: DS_SHOW_SENSOR_ID
+              value: {{ .Values.env.DS_SHOW_SENSOR_ID | default "false" | quote }}
+            - name: NUM_SENSORS
+              value: {{ .Values.env.NUM_SENSORS | quote }}
+            - name: DS_VISION_ENCODER
+              value: {{ .Values.env.DS_VISION_ENCODER | default "false" | quote }}
+            - name: VISION_ENCODER_MODEL
+              value: {{ .Values.env.VISION_ENCODER_MODEL | default "" | quote }}
+            - name: VISION_ENCODER_VERSION
+              value: {{ .Values.env.VISION_ENCODER_VERSION | default "" | quote }}
             - name: STREAM_TYPE
-              value: {{ .Values.streamType | quote }}
+              value: {{ .Values.env.STREAM_TYPE | default .Values.streamType | quote }}
+            - name: HARDWARE_PROFILE
+              value: {{ .Values.env.HARDWARE_PROFILE | default "" | quote }}
+            - name: DS_MODE_FLAG
+              value: {{ .Values.env.DS_MODE_FLAG | default "1" | quote }}
+            - name: DS_MESSAGE_RATE
+              value: {{ .Values.env.DS_MESSAGE_RATE | default "1" | quote }}
             - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
               value: {{ .Values.deepstreamEnableSensorIdExtraction | quote }}
             - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
@@ -335,35 +310,53 @@ spec:
               value: "otlp"
             - name: MDX_KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+            {{- if .Values.downloadModelsFromNgc }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | quote }}
+                  key: {{ .Values.ngcApiKeySecretKey | quote }}
+            - name: MODELS_MANIFEST_PATH
+              value: "/startup-script/models-download.json"
+            - name: MODELS_DEST_ROOT
+              value: "/opt/storage"
+            - name: STORAGE_UID
+              value: {{ (.Values.ngcDownload.storageUid | default 1001) | quote }}
+            - name: STORAGE_GID
+              value: {{ (.Values.ngcDownload.storageGid | default 1001) | quote }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "auto"
+            - name: DOWNLOAD_MODELS_SCRIPT
+              value: "/startup-script/download-models.sh"
+            {{- else }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "never"
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: models
               mountPath: /opt/storage
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
-              subPath: ds-start.sh
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config.txt
-              subPath: ds-main-config.txt
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-pgie-config.yml
-              subPath: ds-pgie-config.yml
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-nvdcf-accuracy-tracker-config.yml
-              subPath: ds-nvdcf-accuracy-tracker-config.yml
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-detector-labels.txt
-              subPath: ds-detector-labels.txt
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-kafka-config.txt
-              subPath: ds-kafka-config.txt
+            - name: startup-script
+              mountPath: /startup-script
+              readOnly: true
+            - name: profile-configs
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs
+              readOnly: true
+            - name: runtime-configs
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
       volumes:
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
-        - name: ds-scripts
+        - name: startup-script
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-ds-start
+            defaultMode: 493
+        - name: profile-configs
           configMap:
             name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
-            defaultMode: 0755
+            defaultMode: 420
+        - name: runtime-configs
+          emptyDir: {}
 {{- end }}

@@ -27,22 +27,15 @@ services:
     command: python3 apps/smart_city/main_smart_city_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
 
   nvstreamer-alerts:
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
-    user: "0:0"
+    extends:
+      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      service: nvstreamer-base
     profiles: ["nvstreamer-alerts"]
-    entrypoint: [ '/bin/bash', '-c', 'if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst' ]
-    environment:
-      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
-      - ADAPTOR=streamer
-      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
     network_mode: "host"
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 2
     container_name: vss-vios-nvstreamer
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $NVSTREAMER_VIDEO_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
@@ -136,7 +129,7 @@ services:
     profiles: ["calibration-toolkit-smartcities"]
     network_mode: "host"
     volumes:
-      - mdx-calibration-toolkit-alerts:/calibration/server/data:rw
+      - calibration-toolkit-alerts:/calibration/server/data:rw
     container_name: mdx-calibration-toolkit
     command: "deploy.sh 8003"
 
@@ -151,7 +144,7 @@ services:
       REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS: ${REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS:-false}
       REACT_APP_MEDIA_STREAMING_URL_BASE: http://$EXTERNAL_IP:30888/vst/api/v1
       REACT_APP_GOOGLE_MAPS_API_KEY: $GOOGLE_MAPS_API_KEY
-      REACT_APP_API_URL_BASE: http://$EXTERNAL_IP:${MDX_PORT}
+      REACT_APP_API_URL_BASE: http://$EXTERNAL_IP:${VIDEO_ANALYTICS_API_HOST_PORT}
       PORT: "3002"
     container_name: vss-video-analytics-ui-smc
     restart: always
@@ -160,9 +153,7 @@ services:
       - sensor-ms
 
 volumes:
-  mdx-nvstreamer-data:
-  mdx-nvstreamer-videos:
-  mdx-calibration-toolkit-alerts:
+  calibration-toolkit-alerts:
     driver: local
     driver_opts:
       type: none

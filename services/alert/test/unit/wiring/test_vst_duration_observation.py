@@ -369,7 +369,7 @@ class TestVstDurationValueAccumulation:
         # Three-decimal rounding is part of the C12 contract (operators
         # comparing `vst_duration_seconds_sum / _count` to the per-event
         # latency dict should see matching precision).
-        assert round(delta, 3) == delta
+        assert delta == pytest.approx(round(delta, 3), abs=1e-12)
 
 
 class TestVideoLengthObservedOncePerEvent:

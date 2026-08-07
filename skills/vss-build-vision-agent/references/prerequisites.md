@@ -172,10 +172,10 @@ user will browse from, ask before setting `EXTERNAL_IP`.**
 ## Firewall — Docker bridge → host services
 <a id="firewall"></a>
 
-Pick `HOST_IP` / `EXTERNAL_IP` first — see [Network addressing](#addressing).
+Pick `HOST_IP` / `EXTERNAL_IP` first — see [Network addressing](#network-addressing--host_ip--external_ip).
 
 VSS runs a mixed network topology: VST and `vss-agent` use host networking, but
-the VLM/LLM NIMs run on the `mdx_default` Docker bridge. The agent hands the VLM a
+the VLM/LLM NIMs run on the Compose Docker bridge (`<project>_default`, default `vss_default`). The agent hands the VLM a
 `http://$HOST_IP:30888/...` VST URL, so the bridge must reach host ports. If `ufw`
 is active it blocks the bridge subnet by default — the VLM then can't download
 clips and `video_understanding` returns HTTP 500 (`fetch_video_async TimeoutError`).
@@ -187,14 +187,14 @@ ranges); **do not disable ufw**:
 ```bash
 if sudo ufw status 2>/dev/null | grep -q "Status: active"; then
   sudo ufw allow from 172.17.0.0/16   # docker default bridge
-  sudo ufw allow from 172.18.0.0/16   # mdx_default (first compose bridge)
+  sudo ufw allow from 172.18.0.0/16   # vss_default (first compose bridge, unless COMPOSE_PROJECT_NAME is changed)
   sudo ufw reload
 fi
 ```
 
-If `mdx_default` already exists and landed on a different subnet (multiple Docker
-stacks on the host), allow that one instead:
-`docker network inspect mdx_default -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
+If the Compose project network already exists and landed on a different subnet
+(multiple Docker stacks on the host), allow that one instead:
+`docker network inspect "${COMPOSE_PROJECT_NAME:-vss}_default" -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
 This applies to every profile on an active-ufw host, including Brev.
 
 **Browser access from another machine.** The bridge rule above only lets *containers*
@@ -216,7 +216,7 @@ sudo ufw allow 31000/tcp
 sudo ufw reload
 ```
 
-(Reachability still depends on `EXTERNAL_IP` — see [Network addressing](#addressing).)
+(Reachability still depends on `EXTERNAL_IP` — see [Network addressing](#network-addressing--host_ip--external_ip).)
 
 ## GPU Module Loading
 

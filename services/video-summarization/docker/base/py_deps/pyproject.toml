@@ -18,7 +18,7 @@ name = "lvs"
 version = "3.2.0rc1"
 requires-python = ">=3.10"
 dependencies = [
-    "pillow==12.2.0",
+    "pillow==12.3.0",
     "iopath==0.1.10",
     "portalocker==3.2.0",
     "sseclient-py==1.9.0",

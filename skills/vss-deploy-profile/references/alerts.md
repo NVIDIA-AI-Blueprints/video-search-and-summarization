@@ -47,7 +47,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 |---|---|---|---|
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
 | VLM | Cosmos Reason3 Nano BF16 (integrated) | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** / slug **`none`** | RT-VLM (port 8018), `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
-| Perception (2d_cv only) | Grounding DINO | (`MODEL_NAME_2D=GDINO`, `MODEL_TYPE=cnn`) | RT-CV (DeepStream) |
+| Perception (2d_cv only) | Grounding DINO | (`DS_MODEL_FAMILY=rtdetr-gdino`, `MODEL_NAME_2D=GDINO`) | RT-CV (DeepStream) |
 
 LLM alternates: same as `base` — `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
 
@@ -170,7 +170,7 @@ On GPUs where the script gives RT-VLM a high share — **OTHER (0.7)**,
 32 GB VRAM is too little to host RT-VLM **and** a local Nano 9B LLM together. The supported layout is the default Cosmos Reason3 Nano BF16 RT-VLM checkpoint with the LLM remote. Full env block for `dev-profile-alerts/generated.env`:
 
 ```env
-HARDWARE_PROFILE=RTX4500
+HARDWARE_PROFILE=RTXPRO4500BW
 LLM_MODE=remote
 VLM_MODE=local
 # RT-VLM sizing: cap context + lift utilization to fit on 32 GB.
@@ -241,7 +241,7 @@ docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "behav
 curl -sf http://${HOST_IP}:9000/v1/health                        && echo "rt-cv health ok"
 ```
 
-RT-CV builds TensorRT engines on first start (3–5 min) — `:9000/v1/health` won't answer until that finishes. See [Stage perception models](#stage-perception-models-rtdetr-its--gdino); if the ONNX files weren't staged, RT-CV never becomes healthy.
+RT-CV builds TensorRT engines on first start (3–5 min) — `:9000/v1/health` won't answer until that finishes. See [Perception model download](#perception-model-download-automatic); if `NGC_CLI_API_KEY` is missing or `${VSS_DATA_DIR}/models` is not writable, ds-start phase 0 cannot download the ONNX files and RT-CV never becomes healthy.
 
 **`MODE=2d_vlm` (real-time) — RT-CV / behavior-analytics are intentionally absent:**
 
@@ -262,67 +262,32 @@ deploy/docker/developer-profiles/dev-profile-alerts/.env
 deploy/docker/developer-profiles/dev-profile-alerts/generated.env
 ```
 
-## Stage perception models (RTDETR-ITS + GDINO)
+## Perception model download (automatic)
 
-**MUST run before `docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d` for verification mode (`MODE=2d_cv`).** The alerts compose has no init container that downloads the perception detector models — `dev-profile.sh` stages them via NGC CLI, and since this skill doesn't run that script, the agent stages them directly.
+The RTDETR-ITS and Grounding DINO detector models are downloaded automatically by `ds-start.sh` phase 0 at perception container startup when `DS_MODEL_DOWNLOAD=auto` is set (the default in the compose file). No manual model staging or separate init container is needed.
 
 Real-time mode (`MODE=2d_vlm`) doesn't deploy RT-CV and skips this entirely.
 
-Symptom if skipped (verification mode): RT-CV starts but its TensorRT engine build fails because the ONNX detector files are missing under `${VSS_DATA_DIR}/models/`.
+Ensure `NGC_CLI_API_KEY` is exported and the required directories exist and are writable before first deploy:
 
 ```bash
-# Source: deploy/docker/scripts/dev-profile.sh (alerts profile, model staging block).
-# Requires NGC_CLI_API_KEY exported and ngc CLI on PATH (see references/ngc.md).
+DATA="$VSS_DATA_DIR"
+APPS="$VSS_APPS_DIR"
 
-DATA="$VSS_DATA_DIR"                                     # e.g. <repo>/data
-APPS="$VSS_APPS_DIR"                              # e.g. <repo>/deploy/docker
-
-# Profile-specific dirs
 mkdir -p \
     "$DATA/data_log/vss_video_analytics_api" \
     "$DATA/videos/dev-profile-alerts" \
+    "$DATA/models" \
     "$APPS/engines/gdino" \
     "$APPS/engines/rtdetr-its"
-chmod -R 777 "$APPS/engines"
-
-# DESTRUCTIVE: dev-profile.sh wipes $DATA/models before re-staging. If the host
-# also runs other profiles whose models live under $DATA/models, gate this on
-# whether you really want a clean slate.
-rm -rf "$DATA/models"
-mkdir -p "$DATA/models/rtdetr-its" "$DATA/models/gdino"
-
-# 1. RTDETR-ITS (TrafficcamNet)
-NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
-    download-version \
-    nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
-mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
-    "$DATA/models/rtdetr-its/model_epoch_035.fp16.onnx"
-rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
-
-# 2. Mask Grounding DINO
-NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
-    download-version \
-    nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
-    "$DATA/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
-
-chmod -R 777 "$DATA/models"
-```
-
-**Verify** before deploying:
-
-```bash
-ls -l "$VSS_DATA_DIR/models/rtdetr-its/model_epoch_035.fp16.onnx" \
-      "$VSS_DATA_DIR/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-# expected: both files present, mode 777
+chmod -R 777 "$APPS/engines" "$DATA/models"
 ```
 
 After RT-CV starts, it builds TensorRT engines from these ONNX files (3–5 min on first start), cached under `$VSS_APPS_DIR/engines/`.
 
 ## First-run note
 
-RT-VLM downloads `cosmos3-nano-reasoner:bf16-final` from NGC on first start (~10–20 min depending on bandwidth). For verification mode (`MODE=2d_cv`), RT-CV builds TensorRT engines from the ONNX models staged in [Stage perception models](#stage-perception-models-rtdetr-its--gdino) above. Real-time mode skips RT-CV entirely.
+RT-VLM downloads `cosmos3-nano-reasoner:bf16-final` from NGC on first start (~10–20 min depending on bandwidth). For verification mode (`MODE=2d_cv`), ds-start phase 0 downloads the detector ONNX files and RT-CV builds TensorRT engines from them (3–5 min). Real-time mode skips RT-CV entirely.
 
 ## Debugging
 

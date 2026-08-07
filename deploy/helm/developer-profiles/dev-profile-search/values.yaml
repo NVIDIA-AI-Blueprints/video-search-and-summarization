@@ -85,6 +85,31 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+  # Edge routes `vss configure` probes, mirroring the four the Docker edge
+  # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
+  # same paths resolve on Compose and Kubernetes. Each mount carries whatever
+  # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
+  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/... .
+  #
+  # Off by default. Enabling this publishes Elasticsearch on the public origin
+  # with no per-path guard, because an Ingress annotation cannot express one.
+  # The Docker edge is not a read-only baseline either: its deny rules stop
+  # PUT/DELETE, cluster-admin paths and the two-segment mutating operations, but
+  # POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
+  # there. Enable only where a writable Elasticsearch is acceptable, or front it
+  # with your own guard.
+  #
+  # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
+  # enabled -- that Ingress already publishes both paths. /rtvi-vlm is not one
+  # of them, so it follows cliRoutes.enabled alone.
+  cliRoutes:
+    enabled: false
+    elasticsearchPort: 9200
+    rtviEmbedPort: 8000
+    rtviCvPort: 9000
+    # RT-VLM's cluster Service port. Not 8018 -- that is the Compose
+    # host-published port and has no meaning in Kubernetes.
+    rtviVlmPort: 8000
 
 sharedStorage:
   streamerVideos:
@@ -223,13 +248,23 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      # For multi-arch: 3.3.0-26.07.1
-      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.1
-      tag: 3.3.0-26.07.1
+      # For multi-arch: 3.3.0-26.07.2
+      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
+      tag: 3.3.0-26.07.2
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
-    modelType: cnn
+    env:
+      DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_CONFIG_FILE: ds-main-config.txt
+      DS_VISION_ENCODER: "true"
+      DS_TRACKER_REID: "true"
+      DS_SHOW_SENSOR_ID: "false"
+      DS_MODE_FLAG: "1"
+      DS_MESSAGE_RATE: "1"
+      VISION_ENCODER_MODEL: siglip_v2
+      VISION_ENCODER_VERSION: v1.1
+      STREAM_TYPE: kafka
     otelSdkDisabled: 'true'
     otelServiceName: rtvi-cv
     downloadModelsFromNgc: true
@@ -251,15 +286,19 @@ rtvi:
     # here to match models.visionEncoder.model / .version when swapping encoders.
     ngcModelsToDownload:
       - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
         destPath: siglip_v2_v1.1.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
         destPath: siglip_v2_v1.1_weights.bin
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
         destPath: siglip_v2_v1.1_tokenizer
     models:
@@ -296,8 +335,8 @@ rtvi:
     enabled: true
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-      tag: "3.2.1"
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+      tag: "3.3.0-26.07.4"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -310,8 +349,6 @@ rtvi:
       enabled: true
       sizeLimit: 16Gi
     clearCachedEnginesOnStart: false
-    kafkaEnabled: true
-    kafkaTopic: mdx-embed
     kafkaBootstrapServers: ''
     redisHost: ''
     redisPort: '6379'
@@ -382,7 +419,7 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
-    modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+    modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
     sharedNimPort: "8000"
     waitForKafka:
       enabled: false
@@ -404,6 +441,54 @@ rtvi:
         value: "false"
       - name: ERROR_MESSAGE_TOPIC
         value: "vision-llm-errors"
+      # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
+      - name: MESSAGE_BUS
+        value: "kafka"
+      - name: MESSAGE_BUS_TOPIC
+        value: "mdx-vlm-captions"
+      - name: ERROR_BUS
+        value: "kafka"
+      - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
+        value: "true"
+      # Optional EVS++ session controls.
+      - name: VIA_EVS_DECISION_LAG
+        value: ""
+      - name: VIA_EVS_SESSION
+        value: ""
+      - name: VLLM_EVS_SIMILARITY_THRESHOLD
+        value: ""
+      - name: VLLM_NUM_PREPROCESS_WORKERS
+        value: "16"
+      - name: VIA_EVS_TOKEN_BUDGET
+        value: ""
+      - name: VIA_EVS_MAX_SESSIONS
+        value: ""
+      - name: VIA_EVS_MIN_CLIPS
+        value: ""
+      - name: VIA_EVS_EVENT_ONLY
+        value: ""
+      - name: VIA_EVS_EMA_MEMORY_S
+        value: ""
+      - name: VIA_EVS_SPIKE_STD_K
+        value: ""
+      - name: VIA_EVS_SETTLING_STD_K
+        value: ""
+      - name: VIA_EVS_STD_FLOOR_RATIO
+        value: ""
+      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
+        value: ""
+      - name: VIA_EVS_STREAMING_PREFILL
+        value: ""
+      - name: VIA_PD_SERVER_URL
+        value: ""
+      - name: VIA_PD_SERVER_TIMEOUT_S
+        value: ""
+      - name: VLLM_USE_AOT_COMPILE
+        value: "0"
+      - name: VLLM_DISABLE_COMPILE_CACHE
+        value: "1"
+      - name: VLLM_LOGGING_LEVEL
+        value: "INFO"
       - name: LOG_LEVEL
         value: "INFO"
       - name: ENABLE_OTEL_MONITORING
@@ -446,6 +531,10 @@ rtvi:
         value: "60"
       - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
         value: "10"
+      # Intentionally empty: under K8s each rtvi-vlm pod holds a dedicated GPU
+      # (nvidia.com/gpu: 1 in services/rtvi/charts/rtvi-vlm), so vLLM's own
+      # default applies. Docker's 0.4 compensates for sharing device 0 with
+      # RT-CV in local_shared mode, which has no Kubernetes equivalent.
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
       - name: VLM_BATCH_SIZE
@@ -519,8 +608,8 @@ analytics:
           },
           "sensors": [],
           "app": [
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
-            {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "objectConfidenceThreshold", "value": "0.5"},
             {"name": "embedEnableDownsampling", "value": "false"},
@@ -566,7 +655,7 @@ agent:
     # The VLM is served by rtvi-vlm (see rtvi.vss-rtvi-vlm) for both the critic and
     # video_understanding. Model id must match the rtvi-vlm /v1/models advertisement,
     # not the cosmos3-reasoner NIM id.
-    vlmName: nim_nvidia_cosmos3-nano-reasoner_bf16-final
+    vlmName: nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix
     # Search routes VLM calls (critic and video_understanding) through vss-rtvi-vlm.
     # rtviVlmServiceName feeds the RTVI_VLM_BASE_URL env below; leave rtviVlmBaseUrl empty
     # to use the in-cluster service.
@@ -689,7 +778,7 @@ agent:
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_bf16-final") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix") }}'
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
@@ -888,6 +977,7 @@ nims:
     replicas: 1
     nimModelSize: 'nano'
     # Empty so the NIM uses its built-in manifest; BF16 pinned via nimModelProfile.
+    # This standalone path stays BF16 while rtvi.vss-rtvi-vlm defaults to the FP8 checkpoint.
     nimModelName: ''
     nimModelProfile: 'e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3'
     resources:

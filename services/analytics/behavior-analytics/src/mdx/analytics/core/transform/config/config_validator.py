@@ -120,9 +120,9 @@ ALLOWED_SECTIONS: frozenset[str] = frozenset({"app", "sensors"})
 
 ALLOWED_APP_KEYS: frozenset[str] = frozenset({
     # Behavior / object processing
+    "behaviorEmitOnce",
     "behaviorMaxPoints",
     "behaviorStateEndToleranceSec",
-    "behaviorStateTimeout",
     "behaviorStateValidInterval",
     "behaviorTimeThreshold",
     "behaviorWatermarkSec",

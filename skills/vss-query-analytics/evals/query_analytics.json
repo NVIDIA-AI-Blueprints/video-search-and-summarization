@@ -12,7 +12,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **alerts** profile in `real-time` mode on `{{platform}}` via `/vss-deploy-profile -p alerts -m real-time`. Run autonomously.\n\n**Environment & prerequisites:** The first step deploys the VSS **alerts** profile in `real-time` mode; the remaining steps query analytics read-only over the VA-MCP server it brings up at `http://localhost:9901/mcp` (backed by Elasticsearch). After deploy, at least one sensor should be registered in VIOS (e.g. `warehouse_sample` onboarded through NVStreamer) and a few incidents written to Elasticsearch so analytics tools return non-empty results. `curl` + `jq` available on the caller. `/vss-query-analytics` itself is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
+      "query": "Deploy the VSS **alerts** profile in `real-time` mode on `{{platform}}` via `/vss-deploy-profile -p alerts -m real-time`. Run autonomously.\n\n**Environment & prerequisites:** The first step deploys the VSS **alerts** profile in `real-time` mode; the remaining steps query analytics read-only over the VA-MCP server it brings up (Docker `http://localhost:9901`; probe liveness at `/health`, then JSON-RPC at `/mcp`, backed by Elasticsearch). After deploy, at least one sensor should be registered in VIOS (e.g. `warehouse_sample` onboarded through NVStreamer) and a few incidents written to Elasticsearch so analytics tools return non-empty results. `curl` + `jq` available on the caller. `/vss-query-analytics` itself is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
@@ -23,9 +23,9 @@
     {
       "query": "Verify the VA-MCP analytics endpoint is reachable and ready to answer queries.",
       "checks": [
-        "The trajectory probed VA-MCP liveness with `curl -sf --max-time 5 http://localhost:9901/mcp` (or a `GET /` fallback) before issuing any `tools/call`.",
-        "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:9901/mcp` returns an HTTP code in the 2xx/3xx/405/406 range (the endpoint exists and speaks MCP; a bare GET without `Accept: text/event-stream` legitimately gets 406 from a streamable-HTTP MCP server) — not connection refused.",
-        "The final assistant reply states that VA-MCP is reachable and ready (or, if it is not, names the failure mode — `connection refused` vs `timeout` vs `404` — per the skill's MCP connection guidance) rather than silently moving on."
+        "The trajectory probed VA-MCP liveness with `curl -sf --max-time 5 http://localhost:9901/health` (or `${VA_MCP_URL}/health`) before issuing any `tools/call`. Do not require `GET /mcp` or the service root as the readiness probe.",
+        "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:9901/health` returns an HTTP code in the 2xx/3xx range (VA-MCP `/health` is up) — not connection refused.",
+        "The final assistant reply states that VA-MCP is reachable and ready (or, if it is not, names the failure mode — `connection refused` vs `timeout` vs non-2xx — per the skill's MCP connection guidance) rather than silently moving on."
       ]
     },
     {

@@ -190,6 +190,27 @@ class EventLoopPipelineMixin:
         worker_start_time: float,
     ) -> Optional[tuple]:
         """Async mirror of ``_prepare_message_context``."""
+        # Reject messages missing fields the downstream VST stage dereferences
+        # directly (``message['timestamp']`` / ``message['end']``). Mirrors the
+        # sync guard in ``_prepare_message_context`` so producers that bypass the
+        # HTTP JSON validation (protobuf endpoint, raw Kafka producer, replay
+        # tooling) cannot trigger a ``KeyError`` deep in ``_resolve_video_url``.
+        missing_fields = [
+            field for field in ("sensorId", "timestamp", "end") if not message.get(field)
+        ]
+        if missing_fields:
+            logger.error(
+                "Dropping malformed message missing required field(s) %s [sensor=%s]",
+                missing_fields, message.get('sensorId', 'N/A'),
+            )
+            record_event_complete(
+                worker_start_time,
+                message,
+                latency,
+                failure_reason="malformed_message",
+            )
+            return None
+
         try:
             if await self._set_message_id_and_should_skip_async(message, sensor_id):
                 return None

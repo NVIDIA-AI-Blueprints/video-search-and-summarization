@@ -77,7 +77,7 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   event_filters:
-    dedup_ttl_seconds: 3
+    dedup_ttl_seconds: 300
     end_time_in_dedup_key_categories: []
     protect_confirmed_verdicts:
       enabled: false

@@ -43,8 +43,8 @@ RUN apt-get update && \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl https://bootstrap.pypa.io/get-pip.py | python3 - "pip==23.1.1" "setuptools==78.1.1" "wheel>=0.46.2" && \
-    rm -rf get-pip.py
+RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - && \
+    pip3 install --no-cache-dir --timeout 120 "setuptools==78.1.1" "wheel>=0.46.2"
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends gawk bison gcc make && \
@@ -59,21 +59,9 @@ WORKDIR /wdm
 
 COPY pyproject.toml uv.lock /wdm/
 COPY ./requirements.txt /wdm/requirements.txt
-COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
+# CI license injection anchor: COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
+COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md
 
-# Mirror wheels + source distributions (pip only).
-# PIP_CONSTRAINT keeps build-time setuptools patched while preserving pkg_resources:
-# google.rpc still imports pkg_resources, and protobuf 3.20 sdists need it for builds.
-RUN mkdir -p /wdm/wheels /wdm/ThirdPartySourceCodes && \
-    printf '%s\n' 'setuptools>=78.1.1,<81' > /wdm/pip-build-constraints.txt && \
-    echo "Downloading wheels..." && \
-    PIP_CONSTRAINT=/wdm/pip-build-constraints.txt pip3 download -r /wdm/requirements.txt -d /wdm/wheels --prefer-binary && \
-    PIP_CONSTRAINT=/wdm/pip-build-constraints.txt pip3 download pyinstaller==6.11.1 pyinstaller-hooks-contrib==2024.10 -d /wdm/wheels --prefer-binary && \
-    echo "Downloading source distributions..." && \
-    PIP_CONSTRAINT=/wdm/pip-build-constraints.txt pip3 download -r /wdm/requirements.txt -d /wdm/ThirdPartySourceCodes --no-binary :all: --no-deps && \
-    PIP_CONSTRAINT=/wdm/pip-build-constraints.txt pip3 download pyinstaller==6.11.1 pyinstaller-hooks-contrib==2024.10 -d /wdm/ThirdPartySourceCodes --no-binary :all: --no-deps && \
-    rm -f /wdm/pip-build-constraints.txt && \
-    echo "Downloaded $(ls /wdm/wheels | wc -l) wheels and $(ls /wdm/ThirdPartySourceCodes | wc -l) source packages"
 
 # Install runtime + dev (pyinstaller) deps from the lock file via uv into /wdm/.venv.
 RUN uv sync --frozen --no-install-project && \
@@ -138,7 +126,8 @@ RUN luarocks install luasocket --lua-version=5.1 \
 RUN apt remove build-essential -y
 
 RUN mkdir -p wdm /etc/envoy /opt/wdm-runtime/envoy
-COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
+# CI license injection anchor: COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
+COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md
 
 COPY ./envoy/generate_envoy_config_xds_mw.py /opt/wdm-runtime/envoy/generate_envoy_config_xds_mw.py
 COPY ./envoy/templates /opt/wdm-runtime/envoy/templates

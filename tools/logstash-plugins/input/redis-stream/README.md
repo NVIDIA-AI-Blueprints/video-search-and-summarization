@@ -38,10 +38,10 @@ src/
 
 ### Dependencies
 
-1. [JDK 21](https://adoptium.net/) — the build compiles against Java 21 (Temurin recommended), matching Logstash 9.4.3
+1. [JDK 21](https://adoptium.net/) — the build compiles against Java 21 (Temurin recommended), matching Logstash 9.4.4
 2. [Git](https://git-scm.com/)
 3. Network access — the build downloads JRuby, Gradle, and Java dependencies (Maven Central)
-4. A [Logstash](https://github.com/elastic/logstash) **source tree at `v9.4.3`** — provides
+4. A [Logstash](https://github.com/elastic/logstash) **source tree at `v9.4.4`** — provides
    `logstash-core.jar`, `versions.yml`, and `rubyUtils.gradle`, which the plugin build requires
    (see [Provide the Logstash core dependency](#1-provide-the-logstash-core-dependency))
 
@@ -82,10 +82,10 @@ the runtime image), all resolved relative to `LOGSTASH_CORE_PATH`:
 Clone the matching Logstash release and build its core:
 
 ```bash
-git clone --depth 1 --branch v9.4.3 https://github.com/elastic/logstash.git
+git clone --depth 1 --branch v9.4.4 https://github.com/elastic/logstash.git
 cd logstash
 
-# Build logstash-core (produces logstash-core/build/libs/logstash-core-9.4.3.jar)
+# Build logstash-core (produces logstash-core/build/libs/logstash-core-9.4.4.jar)
 ./gradlew assemble
 
 # The plugin build looks for a file literally named 'logstash-core.jar' under
@@ -199,10 +199,10 @@ data_codec => {
 
 | Component  | Version | Notes |
 |------------|---------|-------|
-| Logstash   | 9.4.3   | Build against the matching Logstash core |
-| JDK        | 21      | `build.gradle` sets source/target compatibility to 21 (Logstash 9.4.3 runs on JDK 21) |
+| Logstash   | 9.4.4   | Build against the matching Logstash core |
+| JDK        | 21      | `build.gradle` sets source/target compatibility to 21 (Logstash 9.4.4 runs on JDK 21) |
 | Gradle     | 8.7     | Provided by the included wrapper (`./gradlew`) |
-| JRuby      | bundled with Logstash 9.4.3 (10.0.5.0) | Downloaded automatically from `versions.yml` |
+| JRuby      | bundled with Logstash 9.4.4 (10.0.6.0) | Downloaded automatically from `versions.yml` |
 
 ## Licenses
 

@@ -51,12 +51,12 @@ ANOMALY_CLASSES = "[]"
 
 # Default values for behavior config
 STATE_MANAGEMENT_FILTER = "[]"
-BEHAVIOR_STATE_TIMEOUT = "10"
 BEHAVIOR_STATE_VALID_INTERVAL = "6"
 BEHAVIOR_WATERMARK_SEC = "30"
 BEHAVIOR_TIME_THRESHOLD = "1970-01-01T00:00:00.000Z"
 BEHAVIOR_MAX_POINTS = "200"
 BEHAVIOR_STATE_END_TOLERANCE_SEC = "0.1"
+BEHAVIOR_EMIT_ONCE = "false"
 CLUSTER_THRESHOLD = "0.9"
 OBJECT_CONFIDENCE_THRESHOLD = "0.5"
 
@@ -537,7 +537,8 @@ class GraphConfig(BaseModel):
     :ivar float osmQueryPointDistMeters: Distance radius for OSM query
     :ivar list[RoadNetworkPointConfig] osmQueryPolygon: Polygon for OSM query
     :ivar str osmQueryPlace: Place name for OSM query
-    :ivar str osmQueryFile: Path to OSM data file
+    :ivar str osmQueryFile: Path to a road network graph saved by ``osmnx.save_graphml``, used when
+        ``osmLoadMethod`` is ``from_file``. ``.graphml`` or ``.graphml.gz``; not a raw OSM extract.
 
     Examples::
         >>> graph_config = GraphConfig(
@@ -557,7 +558,7 @@ class GraphConfig(BaseModel):
     osmQueryPointDistMeters: float = 500.0
     osmQueryPolygon: list[RoadNetworkPointConfig] = list()
     osmQueryPlace: str = "Dubuque, Iowa, USA"
-    osmQueryFile: str = "sample_data/iowa-latest.osm.pbf"
+    osmQueryFile: str = "sample_data/road_network.graphml.gz"
 
 
 class VisualizationConfig(BaseModel):
@@ -1265,15 +1266,25 @@ class AppConfig(BaseModel):
 
     @computed_field
     @cached_property
-    def behavior_state_timeout(self) -> int:
-        """Get the behavior state timeout."""
-        return int(self.get_app_config("behaviorStateTimeout", BEHAVIOR_STATE_TIMEOUT))
-
-    @computed_field
-    @cached_property
     def behavior_state_valid_interval(self) -> int:
         """Get the behavior state valid interval."""
         return int(self.get_app_config("behaviorStateValidInterval", BEHAVIOR_STATE_VALID_INTERVAL))
+
+    @computed_field
+    @cached_property
+    def behavior_emit_once(self) -> bool:
+        """
+        Whether a behavior is written once per track instead of on every batch.
+
+        When enabled, state management retains the latest behavior of a track and writes it only
+        once the track ends, which is after ``behaviorStateValidInterval`` seconds of inactivity --
+        the same gap that makes a continuation invalid, and the point at which the track's state is
+        reclaimed. Events, anomalies and incidents keep using the per-batch behaviors and are
+        unaffected.
+
+        :return bool: True when emit-once output is enabled.
+        """
+        return str_to_bool(self.get_app_config("behaviorEmitOnce", BEHAVIOR_EMIT_ONCE))
 
     @computed_field
     @cached_property

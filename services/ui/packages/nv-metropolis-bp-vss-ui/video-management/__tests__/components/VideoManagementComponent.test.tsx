@@ -6,9 +6,25 @@ import { videoStream, rtspStream } from '../helpers/streamFixtures';
 
 const mockOpenVideoModal = jest.fn(() => Promise.resolve());
 const mockCloseVideoModal = jest.fn();
+const mockChunkedUpload = jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' });
+const mockNotifyUploadComplete = jest.fn().mockResolvedValue(undefined);
+let lastUploadDialogProps: any = null;
+let lastUploadProgressPopupProps: any = null;
+let lastUploadSuccessPopupProps: any = null;
 
 jest.mock('@nemo-agent-toolkit/ui', () => ({
-  UploadFilesDialog: () => null,
+  UploadFilesDialog: (props: any) => {
+    lastUploadDialogProps = props;
+    return null;
+  },
+  UploadProgressPopup: (props: any) => {
+    lastUploadProgressPopupProps = props;
+    return <div data-testid="upload-progress-popup" />;
+  },
+  UploadSuccessPopup: (props: any) => {
+    lastUploadSuccessPopupProps = props;
+    return <div data-testid="upload-success-popup" />;
+  },
   useChatVideoUploadCompleteSubscription: jest.fn(),
   VideoModal: ({ isOpen, title }: { isOpen: boolean; title: string }) =>
     isOpen ? <div data-testid="video-modal">{title}</div> : null,
@@ -24,8 +40,8 @@ jest.mock('@nemo-agent-toolkit/ui', () => ({
 }));
 
 jest.mock('../../lib-src/chunkedUpload', () => ({
-  chunkedUpload: jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' }),
-  notifyUploadComplete: jest.fn().mockResolvedValue(undefined),
+  chunkedUpload: (...args: any[]) => mockChunkedUpload(...args),
+  notifyUploadComplete: (...args: any[]) => mockNotifyUploadComplete(...args),
 }));
 
 const mockTimelines = new Map([
@@ -46,12 +62,28 @@ const mockTimelines = new Map([
   }],
 ]);
 
+// Mutable so a test can simulate VST dropping a stream and it reappearing later
+let mockStreamsList = [videoStream, rtspStream];
+const mockRefetch = jest.fn(() => Promise.resolve());
+const mockWaitUntilStreamsRemoved = jest.fn(async () => ({ remainingSensorIds: [] as string[] }));
+const mockDeleteRtspStream = jest.fn(() => Promise.resolve({ status: 'success' }));
+const mockDeleteVideo = jest.fn(() => Promise.resolve({ status: 'success' }));
+
+jest.mock('../../lib-src/rtspStream', () => ({
+  deleteRtspStream: (...args: unknown[]) => mockDeleteRtspStream(...(args as [])),
+}));
+
+jest.mock('../../lib-src/videoDelete', () => ({
+  deleteVideo: (...args: unknown[]) => mockDeleteVideo(...(args as [])),
+}));
+
 jest.mock('../../lib-src/hooks', () => ({
   useStreams: () => ({
-    streams: [videoStream, rtspStream],
+    streams: mockStreamsList,
     isLoading: false,
     error: null,
-    refetch: jest.fn(),
+    refetch: mockRefetch,
+    waitUntilStreamsRemoved: mockWaitUntilStreamsRemoved,
   }),
   useStorageTimelines: () => ({
     timelines: mockTimelines,
@@ -84,6 +116,7 @@ jest.mock('../../lib-src/api', () => ({
   createApiEndpoints: () => ({
     LIVE_PICTURE: jest.fn(),
     REPLAY_PICTURE: jest.fn(),
+    UPLOAD_FILE: 'https://vst.example.com/vst/v1/storage/file',
   }),
 }));
 
@@ -107,6 +140,9 @@ function renderComponent(props: Partial<Parameters<typeof VideoManagementCompone
 describe('VideoManagementComponent — video playback', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    lastUploadDialogProps = null;
+    lastUploadProgressPopupProps = null;
+    lastUploadSuccessPopupProps = null;
   });
 
   it('renders play buttons for all streams', async () => {
@@ -185,5 +221,486 @@ describe('VideoManagementComponent — video playback', () => {
     renderComponent();
 
     expect(screen.queryByTestId('video-modal')).not.toBeInTheDocument();
+  });
+
+  it('uses uploadFilename from dialog for VST upload and complete notification', async () => {
+    renderComponent();
+
+    expect(lastUploadDialogProps).toBeTruthy();
+    const file = new File(['123'], 'wh_test_6.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-1',
+          file,
+          uploadFilename: 'renamed_video.mp4',
+          formData: { embedding: false },
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(mockChunkedUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file,
+          fileName: 'renamed_video.mp4',
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockNotifyUploadComplete).toHaveBeenCalledWith(
+        'https://agent.example.com',
+        'renamed_video.mp4',
+        expect.any(Object),
+        { embedding: false },
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it('uses uploadFilename as-is without appending extension (matches Chat behavior)', async () => {
+    renderComponent();
+
+    expect(lastUploadDialogProps).toBeTruthy();
+    const file = new File(['123'], 'wh_test_6.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-2',
+          file,
+          uploadFilename: 'renamed_video',
+          formData: {},
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(mockChunkedUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file,
+          fileName: 'renamed_video',
+        }),
+      );
+    });
+  });
+
+  it('falls back to file.name when uploadFilename is empty', async () => {
+    renderComponent();
+
+    const file = new File(['123'], 'original_name.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-fallback',
+          file,
+          uploadFilename: '',
+          formData: {},
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(mockChunkedUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file,
+          fileName: 'original_name.mp4',
+        }),
+      );
+    });
+  });
+
+  it('passes onCancelSingle to UploadProgressPopup for per-file cancel', async () => {
+    mockChunkedUpload.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ sensorId: 'mock-sensor' }), 500)),
+    );
+
+    renderComponent();
+    const file = new File(['data'], 'slow.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        { id: 'cancel-test', file, uploadFilename: 'slow', formData: {} },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(lastUploadProgressPopupProps).toBeTruthy();
+      expect(typeof lastUploadProgressPopupProps.onCancelSingle).toBe('function');
+      expect(typeof lastUploadProgressPopupProps.onCancelAll).toBe('function');
+    });
+
+    mockChunkedUpload.mockResolvedValue({ sensorId: 'mock-sensor' });
+  });
+
+  it('renders common progress and success popups in upload flow', async () => {
+    renderComponent();
+    const file = new File(['123'], 'demo.mp4', { type: 'video/mp4' });
+
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([
+        {
+          id: 'entry-3',
+          file,
+          uploadFilename: 'demo_renamed.mp4',
+          formData: {},
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument();
+      expect(lastUploadSuccessPopupProps?.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            filename: 'demo_renamed.mp4',
+          }),
+        ]),
+      );
+    });
+  });
+});
+
+// NVBug 6243148: selecting an RTSP stream and an uploaded video together and
+// hitting Select All → Delete left the RTSP entry in the grid, stale and
+// unplayable, because VST's stream list still reported it when the UI refetched.
+describe('VideoManagementComponent — Select All delete of mixed RTSP and uploaded videos', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    mockWaitUntilStreamsRemoved.mockResolvedValue({ remainingSensorIds: [] });
+    mockDeleteRtspStream.mockResolvedValue({ status: 'success' });
+    mockDeleteVideo.mockResolvedValue({ status: 'success' });
+  });
+
+  async function reopenDeleteDialogAndConfirm() {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Select All' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+  }
+
+  async function selectAllAndConfirmDelete() {
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select All' })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Select All' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+  }
+
+  it('routes each selected stream to the delete API for its type', async () => {
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    expect(mockDeleteVideo).toHaveBeenCalledWith('https://agent.example.com', videoStream.sensorId);
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith('https://agent.example.com', rtspStream.name);
+  });
+
+  it('waits for VST to stop listing deleted sensors before closing the dialog', async () => {
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledTimes(1);
+    expect(mockWaitUntilStreamsRemoved.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([videoStream.sensorId, rtspStream.sensorId]),
+    );
+    expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps the dialog open with an error when VST still lists a deleted stream', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
+    // The agent accepted this delete, so it must not be reported as a failure
+    expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent(
+      `Deletion was accepted but these are still listed by VST: ${rtspStream.name}`,
+    );
+    expect(screen.getByTestId('delete-confirm-error')).not.toHaveTextContent(
+      'Unable to remove the following streams',
+    );
+  });
+
+  // A convergence timeout is not a failed delete: re-sending it would target a
+  // sensor the agent already removed.
+  it('re-polls without re-sending the delete when VST has not converged yet', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    mockDeleteVideo.mockClear();
+    mockDeleteRtspStream.mockClear();
+    mockWaitUntilStreamsRemoved.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+
+    expect(mockDeleteRtspStream).not.toHaveBeenCalled();
+    expect(mockDeleteVideo).not.toHaveBeenCalled();
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledWith([rtspStream.sensorId]);
+    expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
+  });
+
+  // Cancelling only dismisses the dialog — the agent still accepted the delete, so
+  // a later attempt must not repeat the destructive request.
+  it('does not re-send the delete after the dialog is cancelled and reopened', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+
+    mockDeleteRtspStream.mockClear();
+    mockDeleteVideo.mockClear();
+    mockWaitUntilStreamsRemoved.mockClear();
+
+    await reopenDeleteDialogAndConfirm();
+
+    expect(mockDeleteRtspStream).not.toHaveBeenCalled();
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledWith(
+      expect.arrayContaining([rtspStream.sensorId]),
+    );
+  });
+
+  // An acknowledgement belongs to the backend that gave it. A sensor id reused on a
+  // different VST/agent has not been deleted there, so the new backend must still get
+  // the request instead of the dialog polling it to a timeout.
+  it('re-sends the delete when the component is pointed at a different backend', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    const { rerender } = renderComponent();
+    await selectAllAndConfirmDelete();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+
+    await act(async () => {
+      rerender(
+        <VideoManagementComponent
+          videoManagementData={{
+            systemStatus: 'ok',
+            vstApiUrl: 'https://other-vst.example.com/vst',
+            agentApiUrl: 'https://other-agent.example.com',
+          }}
+        />,
+      );
+    });
+
+    mockDeleteRtspStream.mockClear();
+
+    await reopenDeleteDialogAndConfirm();
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith(
+      'https://other-agent.example.com',
+      rtspStream.name,
+    );
+  });
+
+  // Clearing on backend change is not enough on its own: a delete already awaiting its
+  // agent response would otherwise record that answer afterwards, leaving the new
+  // backend's identical sensor id looking accepted and its Retry stuck polling.
+  it('discards an acknowledgement that arrives after the backend changed', async () => {
+    let settleRtspDelete: (value: unknown) => void = () => {};
+    mockDeleteRtspStream.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        settleRtspDelete = resolve;
+      }),
+    );
+    mockWaitUntilStreamsRemoved.mockResolvedValue({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    const { rerender } = renderComponent();
+    await selectAllAndConfirmDelete();
+
+    // The tab is pointed elsewhere while the agent call is still outstanding
+    await act(async () => {
+      rerender(
+        <VideoManagementComponent
+          videoManagementData={{
+            systemStatus: 'ok',
+            vstApiUrl: 'https://other-vst.example.com/vst',
+            agentApiUrl: 'https://other-agent.example.com',
+          }}
+        />,
+      );
+    });
+
+    await act(async () => {
+      settleRtspDelete({ status: 'success' });
+    });
+
+    mockDeleteRtspStream.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith(
+      'https://other-agent.example.com',
+      rtspStream.name,
+    );
+  });
+
+  // Forgetting a settled delete matters: a stream recreated under the same sensor
+  // id must be deletable again rather than polled forever.
+  it('re-sends the delete once VST has dropped the sensor and it reappears', async () => {
+    mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
+      remainingSensorIds: [rtspStream.sensorId],
+    });
+
+    const { rerender } = renderComponent();
+    await selectAllAndConfirmDelete();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+
+    // VST finally drops the stream, settling the delete
+    mockStreamsList = [videoStream];
+    await act(async () => {
+      rerender(<VideoManagementComponent {...defaultProps} />);
+    });
+
+    // A new stream shows up reusing the same sensor id
+    mockStreamsList = [videoStream, rtspStream];
+    await act(async () => {
+      rerender(<VideoManagementComponent {...defaultProps} />);
+    });
+
+    mockDeleteRtspStream.mockClear();
+
+    await reopenDeleteDialogAndConfirm();
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith('https://agent.example.com', rtspStream.name);
+  });
+
+  it('keeps a failed stream selected and reports it without waiting for VST on that id', async () => {
+    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VST'));
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    // Only the successful video delete is waited on
+    expect(mockWaitUntilStreamsRemoved).toHaveBeenCalledWith([videoStream.sensorId]);
+    expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent(rtspStream.name);
+  });
+
+  it('retries only the failed stream when the user confirms again', async () => {
+    mockDeleteRtspStream.mockRejectedValueOnce(new Error('Stream not found in VST'));
+
+    renderComponent();
+    await selectAllAndConfirmDelete();
+
+    mockDeleteVideo.mockClear();
+    mockDeleteRtspStream.mockClear();
+    mockWaitUntilStreamsRemoved.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('delete-confirm-button'));
+    });
+
+    expect(mockDeleteRtspStream).toHaveBeenCalledTimes(1);
+    expect(mockDeleteVideo).not.toHaveBeenCalled();
+  });
+});
+
+// The RTSP and delete dialogs overlay the pane but not the toolbar above it, so their
+// trigger buttons stay clickable while a dialog is open. A second dialog opened that way
+// could end up stacked behind the first and be unreachable until the top one was closed.
+describe('VideoManagementComponent — only one dialog at a time', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    lastUploadDialogProps = null;
+  });
+
+  const uploadButton = () => screen.getByRole('button', { name: '+ Upload Video' });
+  const addRtspButton = () => screen.getByRole('button', { name: '+ Add RTSP' });
+
+  it('blocks the upload dialog while the Add RTSP dialog is open', async () => {
+    renderComponent();
+
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+
+    expect(uploadButton()).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(uploadButton());
+    });
+
+    expect(lastUploadDialogProps.open).toBe(false);
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+  });
+
+  it('blocks the Add RTSP dialog while the upload dialog is open', async () => {
+    renderComponent();
+
+    await act(async () => {
+      fireEvent.click(uploadButton());
+    });
+    expect(lastUploadDialogProps.open).toBe(true);
+
+    expect(addRtspButton()).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+    expect(lastUploadDialogProps.open).toBe(true);
+  });
+
+  it('re-enables the toolbar once the open dialog is closed', async () => {
+    renderComponent();
+
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    });
+
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+    expect(uploadButton()).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(uploadButton());
+    });
+    expect(lastUploadDialogProps.open).toBe(true);
   });
 });

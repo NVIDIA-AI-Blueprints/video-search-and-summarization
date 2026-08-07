@@ -24,49 +24,6 @@ metadata:
     app.kubernetes.io/name: vss-rtvi-cv
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
-  ds-start.sh: |
-    #!/bin/bash
-    # OpenShift/RHCOS: the GPU Operator injects the real driver libraries (e.g.
-    # libnvidia-ml.so.1) into /usr/lib64 (RHEL layout), while this Ubuntu-based
-    # DeepStream image looks under /usr/lib/x86_64-linux-gnu where it only finds
-    # a 0-byte stub -> "libnvidia-ml.so.1: file too short" and the GStreamer
-    # pipeline fails to create src_nvmultiurisrcbin. Prepend /usr/lib64 so the
-    # loader resolves the real libs first; the image's path is preserved, so
-    # vanilla Kubernetes behavior is unchanged.
-    export LD_LIBRARY_PATH=/usr/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
-    if [[ $MODEL_TYPE == "cnn" ]]; then
-          echo "##### $MODEL_TYPE models will be used. #####"
-          echo "##### Copying onnx-files to DS docker volume for preserving PVCs... #####"
-          if ls /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/mtmc/*.onnx 1>/dev/null 2>&1; then
-            cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/mtmc/*.onnx /opt/storage/
-          else
-            echo "No local onnx models found, checking /opt/storage for existing models..."
-            ls -la /opt/storage/*.onnx 2>/dev/null || echo "WARNING: No onnx models found in /opt/storage - models will be downloaded on first inference"
-          fi
-
-          echo -e "\nds pgie configs\n"
-          cat ds-pgie-config.yml
-
-          if [ "$STREAM_TYPE" = "kafka" ]; then
-              echo "Running metropolis_perception_app with kafka configuration..."
-              echo -e "\nds main configs\n"
-              cat ds-main-config.txt
-              ./metropolis_perception_app -c ds-main-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
-          elif [ "$STREAM_TYPE" = "redis" ]; then
-              echo "Running metropolis_perception_app with redis configuration..."
-              echo -e "\nds main configs\n"
-              cat ds-main-redis-config.txt
-              ./metropolis_perception_app -c ds-main-redis-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
-          else
-              echo "STREAM_TYPE not set or invalid. Defaulting to kafka configuration..."
-              echo -e "\nds main configs\n"
-              cat ds-main-config.txt
-              ./metropolis_perception_app -c ds-main-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
-          fi
-    else
-        echo "##### Invalid value $MODEL_TYPE for MODEL_TYPE variable. Valid values are: 'cnn'. #####"
-    fi
-
   ds-detector-labels.txt: |
     Person
     Agility_Digit_Humanoid

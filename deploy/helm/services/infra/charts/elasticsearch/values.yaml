@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/elasticsearch/elasticsearch
-  tag: "9.4.3"
+  tag: "9.4.4"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -30,7 +30,7 @@ persistence:
     size: 5Gi
 
 volumeInit:
-  image: busybox
+  image: docker.io/library/busybox
   tag: "1.37.0"
 
 gpu:
@@ -52,7 +52,7 @@ init:
   # Empty: inherits elasticsearch.nodeSelector from the Job template coalesce.
   nodeSelector: {}
   image:
-    repository: alpine
+    repository: docker.io/library/alpine
     tag: "3.24.1"
     pullPolicy: IfNotPresent
   backoffLimit: 10

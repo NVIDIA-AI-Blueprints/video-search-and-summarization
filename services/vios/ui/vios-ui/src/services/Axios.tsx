@@ -14,38 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import axios, { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
-import useVSTUIStore from './StateManagement';
+import axios, { AxiosError, AxiosResponse } from 'axios';
 
 const nvAxios = axios.create({
     timeout: 60000,
 });
-
-// Add a request interceptor
-nvAxios.interceptors.request.use(
-    (config: InternalAxiosRequestConfig) => {
-        // Do something before request is sent
-        let proxy = window.location.pathname;
-        if (proxy !== '/' && proxy.length > 0) {
-            if (proxy[proxy.length - 1] === '/') {
-                proxy = proxy.slice(0, -1);
-            }
-            const emdxEndpoint = useVSTUIStore.getState().emdxEndpoint;
-            // If URL exists and either:
-            // 1. There is no EMDX endpoint configured, or
-            // 2. EMDX endpoint exists but URL doesn't contain it
-            // Then replace /api with {proxy}/api in the URL to handle proxy deployments
-            if (config.url && (!emdxEndpoint || (emdxEndpoint && !config.url.includes(emdxEndpoint)))) {
-                config.url = config.url.replace('/api', `${proxy}/api`);
-            }
-        }
-        return config;
-    },
-    (error: AxiosError) => {
-        // Do something with request error
-        return Promise.reject(error);
-    }
-);
 
 // Add a response interceptor
 nvAxios.interceptors.response.use(

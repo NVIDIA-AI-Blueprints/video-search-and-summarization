@@ -352,7 +352,7 @@ The canonical harbor command is in § Harbor invocation.
       all step-1..N invocations), and releases it only when the wrapper
       exits or dies:
       ```bash
-      python3 .github/skill-eval/run_leg.py \
+      "$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py \
         --dataset-root "$DS" \
         --results-root "$RES" \
         --scratch "$SCRATCH" \
@@ -360,9 +360,9 @@ The canonical harbor command is in § Harbor invocation.
         --platform "$EVAL_PLATFORM"
       ```
 
-      The wrapper's selection/lock budget (21000s ≈ 5.8 h) sits just under
-      the per-leg job timeout (`skills-eval.yml` `timeout-minutes: 360` =
-      6 h), so the agent always reaches the `BLOCKED: lock timeout` line
+      The wrapper's selection/lock budget (21000s ≈ 5.8 h) sits under
+      the per-leg job timeout (`skills-eval.yml` `timeout-minutes: 840` =
+      14 h), so the agent reaches the `BLOCKED: lock timeout` line
       before the job-killer fires. Do not wrap the call in retry loops —
       the pool-wait and candidate rescan live inside the wrapper.
    c. The wrapper drives Harbor one trial at a time (they share GPU/ports
@@ -479,7 +479,9 @@ The canonical harbor command is in § Harbor invocation.
 ## Tools you have
 
 - `Bash` — shell on the CI runner host. Has `brev`, `gh`, `docker`,
-  `uvx`, `python3`, `git`. PATH includes `/home/ubuntu/.local/bin`.
+  `uvx`, `python3`, `git`. The workflow pins `python3` to Python 3.12 in a
+  per-leg virtual environment, and `run_leg.py` pins Harbor's separate uvx
+  interpreter to the same minor version. PATH includes `/home/ubuntu/.local/bin`.
 - `Read`, `Write`, `Edit` — file ops on the workspace checkout.
   Obviously bounded by the hard rule above (no `skills/` writes).
 - `Glob`, `Grep` — search the workspace and host.
@@ -570,7 +572,7 @@ shape verbatim — no instance argument; the wrapper selects and locks
 the box itself:
 
 ```bash
-python3 .github/skill-eval/run_leg.py \
+"$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py \
   --dataset-root "$DS" \
   --results-root "$RES" \
   --scratch "$SCRATCH" \
@@ -632,8 +634,11 @@ Notes that have burned prior runs:
 - `--max-retries 0 -n 1` means one trial, one attempt. Harbor retries
   on harness errors (not agent errors) if `--max-retries > 0`, which
   double-counts in the reward table. Keep it 0.
-- **Timeout multipliers** lift harbor's 600s defaults for cold-box
-  realities — keep them verbatim:
+- **Timeout budgets** cover cold-box realities. Every adapter-generated
+  `task.toml` MUST set `[agent] timeout_sec = 600.0`; without that explicit
+  base, Harbor treats the agent timeout as unbounded and
+  `--agent-timeout-multiplier` is a no-op. Keep the section and multipliers
+  verbatim:
   - `--environment-build-timeout-multiplier 3.0` → 1800s env start.
     Massedcompute L40S provisioning can exceed 10 min; 600s fires
     `EnvironmentStartTimeoutError` before the box is READY.
@@ -650,7 +655,7 @@ Notes that have burned prior runs:
 
 ### Wait contract — run_leg.py blocks until Harbor exits
 
-`python3 .github/skill-eval/run_leg.py ...` MUST run in the foreground
+`"$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py ...` MUST run in the foreground
 until the trial or ordered multi-step chain exits. Do NOT background it
 and poll progress (line counts, `brev exec`, etc.) — each poll burns a
 tool turn and a trial that out-runs the budget exits with no comment (a
@@ -659,9 +664,21 @@ real failure: the wrapper exits 4, see § Output requirements).
 Don't background the trial (`run_in_background`, `&`/`nohup`/`disown`):
 the harness blocks those and raises the Bash timeout cap so the long
 foreground wrapper call is not auto-backgrounded into a pollable task.
-`run_leg.py` applies a 7800s hard backstop to each internal Harbor
-subprocess. To peek at a stuck trial, do it ONCE after the wrapper
-returns, never in a loop while it is running.
+`run_leg.py` applies a 12000s (200 min) hard backstop to each internal Harbor
+subprocess: 7560s for environment build + agent setup + agent + verifier,
+2520s for four bounded artifact-transfer/recovery windows, and 1920s of
+scheduling/non-transfer teardown headroom. `brev_env.py` caps each transfer's
+active work at 600s and its total process-reap wall time at 630s, so that
+recovery term is real rather than aspirational. The normal
+3600s agent deadline should fire first; the outer backstop is emergency-only
+and requests SIGINT before bounded TERM/KILL escalation. The agent publishes a
+12-hour SDK deadline inside the 14-hour job and an earlier 11.5-hour Harbor
+deadline, reserving 30 minutes for result inspection, the PR comment, and the
+terminal marker. The wrapper reserves a full invocation plus teardown before
+taking a lock or starting each chain step and marks unstarted steps instead of
+letting the SDK or Actions kill Harbor mid-cleanup. To
+peek at a stuck trial, do it ONCE after the wrapper returns, never in a loop
+while it is running.
 
 If a trial errors out, read `$RES/<date>/<trial>/trial.log` —
 it has the harness + adapter traceback. Fix the adapter
@@ -678,50 +695,63 @@ to pick up a trial, its directory must live under
 `/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>/` as a
 **real dir (not a symlink)**, flattened — no nested `<date>/` level.
 The `<leg-slug>` keeps concurrent legs from colliding on one viewer
-entry. **Copy** (don't move) from this leg's scoped results root:
+entry.
 
-```bash
-VIEWER_JOB="/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
-mkdir -p "$VIEWER_JOB"
-cp -a "$RES/<date>/." "$VIEWER_JOB/"
-```
+**`run_leg.py` does this publish for you** (`publish_trace`), after
+every trial including timed-out ones. It copies (never moves) the
+date dir's *contents* into a pre-made job dir — the workflow's
+"Collect results" step runs *after* this agent and tars `$RES` for
+the artifact, so a `mv` would upload an artifact with no
+`result.json`. Copying keeps `$RES` intact for the collector (which
+excludes `agent/` from the public tarball) while the `_viewer` copy
+keeps `agent/` for the live Harbor Trace tab. You do not run `cp`
+yourself.
 
-`cp -a`, **not `mv`** — the workflow's "Collect results" step runs
-*after* this agent and scans + tars `$RES` for the artifact. A `mv`
-would leave `$RES` empty and the uploaded artifact would have no
-`result.json` or traces. Copying keeps `$RES` intact for the collector
-(which excludes `agent/` from the public tarball) while the `_viewer`
-copy keeps `agent/` for the live Harbor Trace tab.
+### Trace URLs — read them, never build them
 
-**Use the `mkdir -p` + `cp -a "$RES/<date>/."` (trailing `/.`) form
-above, not `cp -a "$RES/<date>" "$VIEWER_JOB"`** — the latter is not
-idempotent: on the *second* trial of a multi-step spec, `$VIEWER_JOB`
-already exists, so `cp -a <date> <existing-dir>` nests the trial as
-`$VIEWER_JOB/<date>/...` and Harbor only sees the first (top-level)
-trial. Copying the directory *contents* into a pre-made `$VIEWER_JOB`
-keeps every trial at the job's top level.
-
-Do this between trials so each new trial's traces are reachable
-via the SPA URL:
+`run_leg.py` writes one row per finished trial to
+`<results-root>/trace-urls.tsv`:
 
 ```
-https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+<include-task-name>\t<trial-dir>\t<url>
 ```
 
-**CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
-env id** (the CI runner, set by Brev in `/etc/environment` — on the
-current coordinator it's `13xh5gpe7`). It is **NOT** a per-trial
-instance id you see in `brev ls --json` (the `id` field of
-`vss-eval-*` or `harbor-*` entries). The coordinator runs
-`harbor view`; per-trial boxes do not. Mixing these up produces a
-trace URL that resolves to the wrong brevlab subdomain and 404s.
-When generating the URL, read the value from the runner env
-(`echo "$BREV_ENV_ID"`) and paste it verbatim — never substitute
-from `brev ls` output.
+and echoes `[run-leg] trace: <step> -> <url>` to the job log. **Read
+the URL from there and paste it verbatim into the comment. Never
+assemble a Harbor URL by hand.** A step with no row errored before
+producing `result.json` — report it without a trace link rather than
+inventing one.
 
-Values for `<source>` / `<agent>` / `<model>` / `<task>` come from
-`GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`;
-slashes in `<model>` and `<task>` must be URL-encoded (`%2F`).
+The URL shape is:
+
+```
+https://harbor-<COORDINATOR_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+```
+
+Two things make hand-assembly unreliable, which is why it moved into
+the wrapper:
+
+- **`<task>` is Harbor's fully-qualified `task_name`**
+  (`nvidia-vss/<dataset>-step-N`), *not* the `--include-task-name`
+  filter (`step-N`) used to select the task. A bare `step-N` matches
+  no task, and because the viewer is a client-side SPA — every route
+  returns the same HTTP 200 shell — the page renders **blank** rather
+  than 404ing. That is indistinguishable from missing trace data.
+  (Observed on PR #1254, run 30284131217: all seven step links were
+  built with the filter and every one opened empty.)
+- **`BREV_ENV_ID` is the coordinator host's env id** (the CI runner,
+  set by Brev in `/etc/environment`). It is **NOT** a per-trial
+  instance id from `brev ls --json` (the `id` field of `vss-eval-*`
+  or `harbor-*` entries). The coordinator runs `harbor view`;
+  per-trial boxes do not. `run_leg.py` reads the runner env and falls
+  back to `/etc/environment` — never substitute from `brev ls`.
+
+Every segment `run_leg.py` emits comes from the trial's own
+`result.json` (`source`, `agent_info.name`,
+`agent_info.model_info.provider|name`, `task_name`), so the link
+cannot drift from what the viewer indexes, and it is produced even
+when `harbor-view.service` is down. To inspect the index by hand:
+`GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`.
 
 ### Per-trial trajectory isolation
 
@@ -872,9 +902,11 @@ separate; don't conflate the two.
 
 ## Failure modes
 
-- **Harbor trial times out / crashes.** Record it as failed with
-  `NonZeroAgentExitCodeError` in the comment. The verifier may still
-  have run; include the reward if present.
+- **Harbor trial times out / crashes.** Record it as failed with Harbor's
+  actual exception (for example `AgentTimeoutError`) in the comment. The
+  verifier may still have run; include the reward if present. If no Claude
+  session JSONL exists, the environment provider preserves a bounded tail of
+  `/logs/agent/claude-code.txt` as the fallback agent artifact.
 - **Pool exhausted for the trial's platform.** `brev ls` shows zero
   RUNNING `^vss-eval-*` boxes whose `gpu_type` matches. `run_leg.py`
   waits internally (60s fleet rescan, up to its 21000s budget) and
@@ -908,7 +940,8 @@ loop. Two leg kinds:
   dataset, lock a box matching `$EVAL_PLATFORM` (§ 5a), run harbor for
   that platform (§ Harbor invocation), and post the **one** comment for
   this spec (§ Result comment format). Never touch another spec, skill,
-  or platform. End with `DONE:` (after the comment) or `BLOCKED:`.
+  or platform. End with `DONE: N/N specs passed; ...` (after the comment) or
+  `BLOCKED:`.
 
 - **`EVAL_KIND=missing_adapter`** — `EVAL_SKILL` has eval specs but no
   `adapters/<skill>/generate.py`. The plan collapsed the skill's specs
@@ -951,13 +984,14 @@ the PR-driven path.
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
 - **Mandatory final marker.** Your last printed line MUST start with
-  either `DONE:` or `BLOCKED:`. The Python wrapper checks for this
-  and **fails the workflow with exit code 4** if neither appears —
-  so a workflow that "completed successfully" but didn't reach a
-  verdict is treated as a real failure (it isn't a green ✓ anymore).
+  either `DONE:` or `BLOCKED:`. A `DONE:` marker MUST report a positive
+  complete count as `DONE: N/N specs passed; ...`. The Python wrapper fails
+  malformed markers with exit code 4 and completed partial/zero-pass outcomes
+  with exit code 5. Neither a missing verdict nor a reported eval failure can
+  produce a green check.
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
-    - `DONE: 2/3 specs passed; 1 spec failed (vss-deploy-dense-captioning/step-2 reward=0.83)`
+    - `DONE: 0/1 specs passed; timeout` (valid syntax, failing exit code 5)
     - `BLOCKED: anthropic rate limit after 3 retries`
     - `BLOCKED: lock timeout on vss-eval-l40s`
   If you ran trials, you MUST also have posted the per-spec result before

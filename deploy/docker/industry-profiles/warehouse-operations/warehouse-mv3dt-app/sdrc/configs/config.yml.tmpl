@@ -28,6 +28,7 @@ docker-workload-streamprocessing:
   WDM_MSG_TOPIC: vst_events
   WDM_DS_SWAP_ID_NAME: false
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 500
+  WDM_HANDLE_CONFIG_EVENTS: false
   WDM_DISABLE_WERKZEUG_LOGGING: true
   WDM_WL_OBJECT_NAME: vss-vios-streamprocessing
   VST_STREAMS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/streams
@@ -65,6 +66,7 @@ docker-workload-rtvi-cv-mv3dt:
   WDM_MS_LISTENER_PORT: 10001
   NOHEADERTARGETROUTE: false
   HEADERLESS_SERVICE_ENDPOINTS: "[]"
+  WDM_KFK_BOOTSTRAP_URL: "kafka:29092"
   WDM_KFK_ENABLE: ${RTVI_CV_WDM_KFK_ENABLE}
   WDM_INITIALIZE_FROM_VST: false
   WDM_PRELOAD_DELAY_FOR_DS_API: true
@@ -73,6 +75,7 @@ docker-workload-rtvi-cv-mv3dt:
   WDM_CONFIG_PORT: 9000
   WDM_KAFKA_MSG_KEY: vst.event
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 15000
+  WDM_HANDLE_CONFIG_EVENTS: false
   WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv-mv3dt"]'
   WDM_REAPPLY_ON_WL_RESTART: true
   WDM_WL_ADD_URL: /api/v1/stream/add

@@ -7,20 +7,20 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Selects an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
-4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes `uvx harbor run` with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
+4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 
-The whole thing runs inside the 8-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
+The whole thing runs inside the 14-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
 
 ## Prerequisites
 
 The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill-validator` (a long-running Brev CPU instance in the NVIDIA org). That host needs:
 
-- **[uv](https://github.com/astral-sh/uv)** — harbor is invoked as `uvx harbor`.
+- **[uv](https://github.com/astral-sh/uv)** — Harbor 0.20.0 is invoked in an isolated Python 3.12 environment.
 - **[Brev CLI](https://docs.nvidia.com/brev/latest/cli/cli-overview)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
 - **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo.
-- **Python 3** — for the adapters.
+- **Python 3.12** — the workflows pin this runtime for the coordinator, adapters, `run_leg.py`, and Harbor. Each matrix leg installs Claude Agent SDK 0.2.128 in its own virtual environment so parallel jobs never mutate a shared interpreter.
 - **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file.
 
 ### GPU targets (operator-managed `vss-eval-*` pool)
@@ -210,22 +210,25 @@ python3 .github/skill-eval/run_leg.py \
     └── claude-code.txt   ← agent trace
 ```
 
-To view in the browser, **copy** (not move — the workflow's collector
-still tars the leg's results root after the agent) into the viewer dir,
-flattened with the leg slug:
+`run_leg.py` publishes each finished trial into the viewer dir itself
+(copying, not moving — the workflow's collector still tars the leg's
+results root afterwards) and appends the browsable URL to
+`<results-root>/trace-urls.tsv`:
 
-```bash
-VIEWER_JOB="/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>"
-mkdir -p "$VIEWER_JOB"
-cp -a "<leg-slug>/<run_id>/<date>/." "$VIEWER_JOB/"   # contents into a pre-made dir — idempotent
+```
+step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.brevlab.com/jobs/<job>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
-Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>`.
+Open the URL from that file rather than composing one: the trailing
+`<task>` is Harbor's fully-qualified `task_name`
+(`nvidia-vss/<dataset>-step-N`), not the `step-N` filter, and the
+viewer is an SPA that renders a wrong path as a **blank page**, never
+a 404.
 
 `harbor view` runs persistently on the CI runner host. If it's down:
 
 ```bash
-nohup uvx harbor view /tmp/skill-eval/results/_viewer --jobs \
+nohup uvx --python 3.12 --from 'harbor==0.20.0' harbor view /tmp/skill-eval/results/_viewer --jobs \
   --host 0.0.0.0 --port 8080 > /tmp/harbor-view.log 2>&1 &
 disown
 ```

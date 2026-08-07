@@ -5,6 +5,11 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 source = "vcs"
 raw-options.root = "../../../.."
+# Keep in sync with services/agent/pyproject.toml [tool.hatch.version].
+raw-options.git_describe_command = [
+  "git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*",
+]
+raw-options.version_scheme = "no-guess-dev"
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -31,7 +36,7 @@ authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 # The base install is intentionally light (NAT-free). Keep sorted!!!
 dependencies = [
-  "aiohttp~=3.13",
+  "aiohttp~=3.14",
   "elasticsearch~=8.17.0",
   "httpx~=0.28",
   "opencv-python-headless>=4.13.0.92",

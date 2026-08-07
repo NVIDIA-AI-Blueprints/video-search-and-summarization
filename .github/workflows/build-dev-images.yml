@@ -56,6 +56,11 @@ jobs:
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
       count: ${{ steps.detect.outputs.count }}
+      standard-matrix: ${{ steps.detect.outputs.standard_matrix }}
+      standard-count: ${{ steps.detect.outputs.standard_count }}
+      native-matrix: ${{ steps.detect.outputs.native_matrix }}
+      native-platform-matrix: ${{ steps.detect.outputs.native_platform_matrix }}
+      native-count: ${{ steps.detect.outputs.native_count }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -66,6 +71,24 @@ jobs:
       # develop pushes, merge-base for PR branches, build-everything on
       # initial/force-push) and is unit-tested in CI. Never diff
       # origin/develop...HEAD on a develop push: that range is always empty.
+      # The content-tag gap check reads GHCR, so the job needs a token. Login
+      # before detection, not after: an unauthenticated probe returns "unknown",
+      # which fails open and rebuilds everything.
+      #
+      # continue-on-error is load-bearing, not defensive tidiness. A hard-failing
+      # login would stop the job before ghcr_tag_exists could degrade, so a GHCR
+      # outage would block the matrix and the release set entirely -- the exact
+      # opposite of the fail-open posture this check is built on. Letting it fail
+      # leaves detection unauthenticated, every probe returns "unknown", and the
+      # job rebuilds everything. Slower, never wrong.
+      - name: Log in to GHCR for the content-tag gap check
+        continue-on-error: true
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Resolve changed images
         id: detect
         run: |
@@ -78,17 +101,22 @@ jobs:
           {
             echo "matrix=$(jq -c '.matrix' detection.json)"
             echo "count=$(jq -r '.count' detection.json)"
+            echo "standard_matrix=$(jq -c '.standard_matrix' detection.json)"
+            echo "standard_count=$(jq -r '.standard_count' detection.json)"
+            echo "native_matrix=$(jq -c '.native_matrix' detection.json)"
+            echo "native_platform_matrix=$(jq -c '.native_platform_matrix' detection.json)"
+            echo "native_count=$(jq -r '.native_count' detection.json)"
           } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.name }} → GHCR
     needs: changes
-    if: fromJSON(needs.changes.outputs.count) > 0
+    if: fromJSON(needs.changes.outputs.standard-count) > 0
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.standard-matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -237,16 +265,283 @@ jobs:
             echo "- **source_tree_sha:** \`${{ steps.meta.outputs.tree_sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Behavior analytics compiles native dependencies (notably OpenCV). Build
+  # each architecture on its matching GitHub-hosted runner so arm64 never runs
+  # through QEMU, then combine the platform images without rebuilding.
+  build-native-behavior-platforms:
+    name: Build ${{ matrix.name }} (${{ matrix.arch }}, native)
+    needs: changes
+    if: fromJSON(needs.changes.outputs.native-count) > 0
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.native-platform-matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Verify native runner architecture
+        run: |
+          uname -a
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          test "$(uname -m)" = "${{ matrix.kernel_arch }}"
+          test "$RUNNER_ARCH" = "${{ matrix.runner_arch }}"
+
+      - name: Fetch required LFS build assets
+        if: matrix.lfs_include != ''
+        run: |
+          git lfs install --local
+          git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
+
+      - name: Compute immutable candidate coordinates
+        id: meta
+        run: |
+          python3 .github/scripts/container_build_plan.py metadata \
+            --ref-name "$GITHUB_REF_NAME" \
+            --commit-sha "$GITHUB_SHA" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --image-name "${{ matrix.name }}" \
+            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Compute platform staging tag
+        id: platform-meta
+        run: echo "tag=${{ steps.meta.outputs.tag }}-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preflight — refuse to overwrite an existing candidate
+        id: candidate-preflight
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py preflight \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+
+      - name: Check for reusable multiarch image (identical content)
+        id: reuse
+        if: steps.candidate-preflight.outputs.skip != 'true'
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py reuse \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+
+      - name: Preflight — refuse to overwrite platform staging tag
+        id: platform-preflight
+        if: >-
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true'
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py preflight \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+
+      - name: Set up Buildx
+        if: >-
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
+
+      - name: Build and push native platform staging image
+        if: >-
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.arch }}
+          tags: ${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}
+          labels: |
+            com.nvidia.vss.image_name=${{ matrix.name }}
+            com.nvidia.vss.source_path=${{ matrix.source_path }}
+            com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
+
+      - name: Verify platform staging labels
+        if: >-
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true'
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py verify \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}" \
+            --expect-source-path "${{ matrix.source_path }}" \
+            --expect-image-name "${{ matrix.name }}"
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Native platform build: ${{ matrix.name }}"
+            echo "- **Runner:** \`${{ matrix.runner }}\`"
+            echo "- **Platform:** \`${{ matrix.platform }}\`"
+            echo "- **Staging tag:** \`${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-native-behavior:
+    name: Publish ${{ matrix.name }} multiarch manifest
+    needs: [changes, build-native-behavior-platforms]
+    if: >-
+      always() &&
+      needs.changes.result == 'success' &&
+      fromJSON(needs.changes.outputs.native-count) > 0 &&
+      (needs.build-native-behavior-platforms.result == 'success' ||
+       needs.build-native-behavior-platforms.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.native-matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Compute immutable candidate coordinates
+        id: meta
+        run: |
+          python3 .github/scripts/container_build_plan.py metadata \
+            --ref-name "$GITHUB_REF_NAME" \
+            --commit-sha "$GITHUB_SHA" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --image-name "${{ matrix.name }}" \
+            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preflight — refuse to overwrite an existing candidate
+        id: preflight
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py preflight \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+
+      - name: Check for reusable image (identical content)
+        id: reuse
+        if: steps.preflight.outputs.skip != 'true'
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py reuse \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+
+      - name: Set up Buildx
+        if: steps.preflight.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
+
+      - name: Re-tag existing content onto the immutable candidate tag
+        if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse == 'true'
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}"
+
+      - name: Merge native platform images into multiarch candidate
+        if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
+        run: |
+          docker buildx imagetools create \
+            --annotation "index:com.nvidia.vss.image_name=${{ matrix.name }}" \
+            --annotation "index:com.nvidia.vss.source_path=${{ matrix.source_path }}" \
+            --annotation "index:com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}" \
+            --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-amd64" \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-arm64"
+
+      - name: Verify pushed labels satisfy the container-source gate
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py verify \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}" \
+            --expect-source-path "${{ matrix.source_path }}" \
+            --expect-image-name "${{ matrix.name }}"
+
+      - name: Resolve manifest digest
+        id: digest
+        run: |
+          python3 .github/scripts/container_build_plan.py verify-manifest \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            --platforms "${{ matrix.platforms }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Emit release-set fragment
+        run: |
+          mkdir -p fragments
+          python3 .github/scripts/release_set.py fragment \
+            --name "${{ matrix.name }}" \
+            --image "${{ steps.meta.outputs.image }}" \
+            --tag "${{ steps.meta.outputs.tag }}" \
+            --digest "${{ steps.digest.outputs.digest }}" \
+            --platforms "${{ matrix.platforms }}" \
+            --strategy build \
+            --source-tree-sha "${{ steps.meta.outputs.tree_sha }}" \
+            --out "fragments/${{ matrix.name }}.json"
+
+      - name: Upload fragment
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: fragment-${{ matrix.name }}
+          path: fragments/
+          retention-days: 30
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Published native multiarch ${{ matrix.name }}"
+            echo "- **Image:** \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}\`"
+            echo "- **Digest:** \`${{ steps.digest.outputs.digest }}\`"
+            echo "- **Platforms:** \`${{ matrix.platforms }}\`"
+            echo "- **source_tree_sha:** \`${{ steps.meta.outputs.tree_sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Assemble ONE complete release set for this commit: freshly built images
   # from the fragments, everything else carried forward explicitly as
   # reuse-pinned entries. Runs even when nothing was built (docs-only push):
   # the resulting set is still complete and testable.
   assemble:
     name: Assemble release set
-    needs: [changes, build]
+    needs: [changes, build, publish-native-behavior]
     if: >-
       always() && needs.changes.result == 'success' &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.publish-native-behavior.result == 'success' ||
+       needs.publish-native-behavior.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -292,26 +587,45 @@ jobs:
           retention-days: 90
 
       - name: Set up Buildx for post-merge alias publication
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
       - name: Log in to GHCR for post-merge publication
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Advance develop-latest after complete post-merge build
-        if: >-
-          github.ref_name == 'develop' &&
-          fromJSON(needs.changes.outputs.count) > 0
+      # Publishes BOTH aliases for every GHCR image in the set:
+      #   develop-latest      — moving developer convenience alias
+      #   develop-<sha12>     — immutable per-commit tag
+      # The per-commit tag is the point: with it published for every image at
+      # every develop push tip, a consumer derives the whole coordinate set from
+      # the commit SHA alone and never needs the release-set manifest. The
+      # tree-SHA gate makes that derivation trustworthy — it refuses to publish
+      # a tag for an image that was not built from this commit's source.
+      #
+      # Only the pushed tip is tagged, which is sufficient: the repo allows only
+      # squash and rebase merges (no merge commits), so develop is linear, and
+      # every consumer resolves from the tip, never from an interior commit.
+      # develop publishes develop-latest + develop-<sha12>; a PR branch publishes
+      # pr-<N>-latest + pr-<N>-<sha12>. Both sets must cover EVERY GHCR image,
+      # not just the ones rebuilt on this ref: a consumer that derives a
+      # coordinate from the ref would otherwise 404 on the untouched images,
+      # which is why PR acceptance still needs a per-image manifest today.
+      # pr-<N>-* tags are reaped by cleanup-pr-tags.yml when the PR closes.
+      - name: Retag the candidate set for this ref
         run: |
+          short="$(printf '%s' "${GITHUB_SHA}" | cut -c1-12)"
+          case "${GITHUB_REF_NAME}" in
+            develop)            prefix="develop" ;;
+            pull-request/[0-9]*) prefix="pr-${GITHUB_REF_NAME#pull-request/}" ;;
+            *) echo "::notice::no candidate set retagged for ${GITHUB_REF_NAME}"; exit 0 ;;
+          esac
           python3 .github/scripts/advance_ghcr_alias.py \
             --release-set release-set.json \
-            --alias develop-latest
+            --alias "${prefix}-latest" \
+            --alias "${prefix}-${short}" \
+            --verify-tree-sha \
+            --repo-root . \
+            --commit "${GITHUB_SHA}"

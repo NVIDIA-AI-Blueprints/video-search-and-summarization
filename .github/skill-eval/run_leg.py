@@ -28,16 +28,21 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import json
 import os
+from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
-from pathlib import Path
-
+import urllib.parse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SKILL_EVAL_PYTHON_VERSION = (3, 12)
+HARBOR_REQUIREMENT = "harbor==0.20.0"
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
@@ -46,6 +51,85 @@ RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
 # its spec metadata declares gpu_type that matches GEFORCE RTX 4090.
 RTX4090_ALL_TESTS: frozenset[str] = frozenset()
 RTX4090_TESTS: dict[str, frozenset[str]] = {}
+# Shared root served by the coordinator's persistent `harbor-view.service`
+# (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
+# the host, not per leg, so every leg publishes its trials in here.
+VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
+
+# Harbor phase budgets. Adapters set the task's base agent timeout to the same
+# 600-second base used by Harbor for environment build and verification; these
+# multipliers are also passed on the command line below. Keep the outer process
+# backstop strictly beyond every phase plus recovery time so Harbor gets a
+# chance to record the real phase outcome, download logs, and stop the Brev
+# environment before this wrapper intervenes.
+HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
+HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
+HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
+HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
+HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
+    HARBOR_BASE_PHASE_TIMEOUT_SEC
+    * HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+)
+# Harbor applies a separate six-minute ceiling while installing/configuring
+# the selected agent, before the task's [agent] timeout begins.
+HARBOR_AGENT_SETUP_BUDGET_SEC = 360
+HARBOR_AGENT_BUDGET_SEC = int(
+    HARBOR_BASE_PHASE_TIMEOUT_SEC * HARBOR_AGENT_TIMEOUT_MULTIPLIER
+)
+HARBOR_VERIFIER_BUDGET_SEC = int(
+    HARBOR_BASE_PHASE_TIMEOUT_SEC * HARBOR_VERIFIER_TIMEOUT_MULTIPLIER
+)
+HARBOR_PHASE_BUDGET_SEC = (
+    HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC
+    + HARBOR_AGENT_SETUP_BUDGET_SEC
+    + HARBOR_AGENT_BUDGET_SEC
+    + HARBOR_VERIFIER_BUDGET_SEC
+)
+# brev_env.py caps each upload/download API, including active work and process
+# reaping, to this duration. These VSS tasks serially perform no more than four
+# transfer windows around post-agent output/recovery, so reserve all four before
+# the outer backstop.
+HARBOR_TRANSFER_OPERATION_BUDGET_SEC = 630
+HARBOR_RECOVERY_TRANSFER_OPERATION_COUNT = 4
+HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC = (
+    HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+    * HARBOR_RECOVERY_TRANSFER_OPERATION_COUNT
+)
+MIN_HARBOR_BACKSTOP_SEC = (
+    HARBOR_PHASE_BUDGET_SEC + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
+)
+# Stay strictly above the minimum rather than making the validation boundary
+# itself the default.  The round 200-minute backstop leaves another 32 minutes
+# for scheduling jitter and bounded teardown that does not transfer files.
+DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
+
+# A single remote agent command must not be killed by Brev before Harbor's own
+# agent deadline can fire and drive normal artifact/environment cleanup.
+MIN_BREV_EXEC_TIMEOUT_SEC = (
+    HARBOR_AGENT_BUDGET_SEC + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+)
+
+# Emergency-only escalation after the outer backstop. SIGINT gives Harbor's
+# asyncio runner enough time to complete Harbor 0.20's two serialized recovery
+# pulls (agent logs, then task artifacts) before TERM/KILL. This preserves the
+# primary timeout record instead of interrupting artifact recovery halfway.
+HARBOR_SIGINT_GRACE_SEC = (
+    2 * HARBOR_TRANSFER_OPERATION_BUDGET_SEC + 120
+)
+HARBOR_SIGTERM_GRACE_SEC = 30
+HARBOR_SIGKILL_GRACE_SEC = 10
+PROCESS_GROUP_POLL_INTERVAL_SEC = 0.1
+HARBOR_SHUTDOWN_GRACE_SEC = (
+    HARBOR_SIGINT_GRACE_SEC
+    + HARBOR_SIGTERM_GRACE_SEC
+    + HARBOR_SIGKILL_GRACE_SEC
+)
+HARBOR_POSTPROCESS_HEADROOM_SEC = 60
+AGENT_VERDICT_RESERVE_SEC = 30 * 60
+DEFAULT_WHOLE_LEG_BUDGET_SEC = 12 * 60 * 60 - AGENT_VERDICT_RESERVE_SEC
+WORK_DEADLINE_ENV = "SKILL_EVAL_HARBOR_DEADLINE_MONOTONIC"
+SDK_DEADLINE_ENV = "SKILL_EVAL_WORK_DEADLINE_MONOTONIC"
+TRANSPORT_PGID_REGISTRY_ENV = "BREV_TRANSPORT_PGID_FILE"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -61,6 +145,16 @@ class HarborInvocation:
 
 class LockTimeoutError(RuntimeError):
     pass
+
+
+class LegDeadlineError(RuntimeError):
+    pass
+
+
+class _RunCommandInterrupted(BaseException):
+    def __init__(self, signum: int):
+        self.signum = signum
+        super().__init__(f"run_leg received signal {signum}")
 
 
 def _read_step_count(task_toml: Path) -> int | None:
@@ -144,6 +238,52 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
+def validate_harbor_timeout_sec(timeout_sec: int) -> int:
+    """Require the outer backstop to leave every Harbor phase recovery room."""
+    if timeout_sec <= MIN_HARBOR_BACKSTOP_SEC:
+        raise ValueError(
+            "harbor timeout must be greater than "
+            f"{MIN_HARBOR_BACKSTOP_SEC}s: environment "
+            f"{HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC}s + agent setup "
+            f"{HARBOR_AGENT_SETUP_BUDGET_SEC}s + agent "
+            f"{HARBOR_AGENT_BUDGET_SEC}s + verifier "
+            f"{HARBOR_VERIFIER_BUDGET_SEC}s + cleanup/recovery "
+            f"{HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC}s"
+        )
+    return timeout_sec
+
+
+def resolve_work_deadline() -> float:
+    """Return the Harbor deadline, preserving time for the agent's verdict."""
+    raw_deadline = os.environ.get(WORK_DEADLINE_ENV)
+    if raw_deadline is None and SDK_DEADLINE_ENV in os.environ:
+        try:
+            deadline = float(os.environ[SDK_DEADLINE_ENV])
+        except ValueError as exc:
+            raise ValueError(
+                f"{SDK_DEADLINE_ENV} must be a monotonic timestamp"
+            ) from exc
+        raw_deadline = str(deadline - AGENT_VERDICT_RESERVE_SEC)
+    if raw_deadline is None:
+        return time.monotonic() + DEFAULT_WHOLE_LEG_BUDGET_SEC
+    try:
+        deadline = float(raw_deadline)
+    except ValueError as exc:
+        raise ValueError(f"{WORK_DEADLINE_ENV} must be a monotonic timestamp") from exc
+    if deadline <= time.monotonic():
+        raise LegDeadlineError("skill-eval work deadline has already expired")
+    return deadline
+
+
+def invocation_reserve_sec(harbor_timeout_sec: int) -> int:
+    """Wall-clock room required before safely starting one Harbor child."""
+    return (
+        harbor_timeout_sec
+        + HARBOR_SHUTDOWN_GRACE_SEC
+        + HARBOR_POSTPROCESS_HEADROOM_SEC
+    )
+
+
 def build_harbor_command(
     invocation: HarborInvocation,
     results_root: Path,
@@ -173,6 +313,10 @@ def build_harbor_command(
         raise ValueError(f"unsupported agent {agent!r} (expected claude-code | codex)")
     return [
         "uvx",
+        "--python",
+        sys.executable,
+        "--from",
+        HARBOR_REQUIREMENT,
         "harbor",
         "run",
         "--environment-import-path",
@@ -183,11 +327,11 @@ def build_harbor_command(
         invocation.include_task_name,
         *agent_flags,
         "--environment-build-timeout-multiplier",
-        "3.0",
+        str(HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
         "--agent-timeout-multiplier",
-        "6.0",
+        str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
         "--verifier-timeout-multiplier",
-        "3.0",
+        str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         "--max-retries",
         "0",
         "-n",
@@ -209,6 +353,20 @@ def harbor_env(instance: str) -> dict[str, str]:
     env["PATH"] = f"{Path.home() / '.local' / 'bin'}:{env.get('PATH', '')}"
     env["BREV_INSTANCE"] = instance
     env["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+    try:
+        configured_brev_timeout = int(env.get("BREV_EXEC_TIMEOUT", "0"))
+    except ValueError as exc:
+        raise ValueError(
+            "BREV_EXEC_TIMEOUT must be an integer number of seconds"
+        ) from exc
+    env["BREV_EXEC_TIMEOUT"] = str(
+        max(configured_brev_timeout, MIN_BREV_EXEC_TIMEOUT_SEC)
+    )
+    # The outer backstop's recovery budget is derived from this exact per-call
+    # cap. Do not let a larger inherited runner value invalidate that bound.
+    env["BREV_TRANSFER_TOTAL_TIMEOUT_SEC"] = str(
+        HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+    )
     return env
 
 
@@ -561,21 +719,323 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
         print(f"[run-leg] lock released: {chosen}", flush=True)
 
 
+def _process_group_exists(pgid: int) -> bool:
+    """Return whether any process still belongs to *pgid*."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # We own the spawned group in normal operation. If permissions ever
+        # change, fail safe by treating an unprobeable group as still alive.
+        return True
+    except OSError as exc:
+        print(f"[run-leg] process-group probe failed for {pgid}: {exc!r}", flush=True)
+        return True
+    return True
+
+
+def _process_start_ticks(pid: int) -> str | None:
+    """Return Linux /proc start ticks, which disambiguate PID reuse."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+        return None
+    closing_paren = stat.rfind(")")
+    if closing_paren < 0:
+        return None
+    fields_from_state = stat[closing_paren + 2 :].split()
+    # /proc/<pid>/stat field 3 is the first token after the command; starttime
+    # is field 22, therefore index 19 in this tail.
+    return fields_from_state[19] if len(fields_from_state) > 19 else None
+
+
+def _registry_environment_groups(registry_path: Path) -> set[int]:
+    """Find every process group carrying this invocation's unique marker."""
+    expected_env = (
+        f"{TRANSPORT_PGID_REGISTRY_ENV}={registry_path}".encode()
+    )
+    try:
+        proc_entries = Path("/proc").iterdir()
+    except OSError:
+        return set()
+    groups: set[int] = set()
+    for entry in proc_entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text()
+            closing_paren = stat.rfind(")")
+            fields_from_state = stat[closing_paren + 2 :].split()
+            member_pgid = int(fields_from_state[2])
+            environ = (entry / "environ").read_bytes().split(b"\0")
+        except (
+            FileNotFoundError,
+            ProcessLookupError,
+            PermissionError,
+            OSError,
+            ValueError,
+            IndexError,
+        ):
+            continue
+        if expected_env in environ and _process_group_exists(member_pgid):
+            groups.add(member_pgid)
+    return groups
+
+
+def _registered_transport_groups(registry_path: Path | None) -> list[int]:
+    """Return still-live, identity-matched detached Brev transport PGIDs."""
+    if registry_path is None:
+        return []
+    try:
+        lines = registry_path.read_text().splitlines()
+    except (FileNotFoundError, PermissionError, OSError):
+        return []
+
+    # Scanning the unique inherited environment marker catches grandchildren
+    # that create another session internally (for example a CLI spawning its
+    # own setsid ssh), not only the direct PGIDs written by brev_env.py.
+    groups = _registry_environment_groups(registry_path)
+    for line in lines:
+        try:
+            pid_text, expected_start = line.split(maxsplit=1)
+            pid = int(pid_text)
+        except (TypeError, ValueError):
+            continue
+        if not _process_group_exists(pid):
+            continue
+        leader_matches = _process_start_ticks(pid) == expected_start
+        if leader_matches:
+            groups.add(pid)
+    return sorted(groups)
+
+
+def _signal_registered_transport_groups(
+    registry_path: Path | None,
+    sig: signal.Signals,
+    exclude_pgid: int | None = None,
+) -> None:
+    for pgid in _registered_transport_groups(registry_path):
+        if pgid == exclude_pgid:
+            continue
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            print(
+                f"[run-leg] {sig.name} delivery to transport PGID {pgid} "
+                f"failed: {exc!r}",
+                flush=True,
+            )
+
+
+def _wait_for_process_group_exit(
+    proc: subprocess.Popen,
+    pgid: int,
+    grace_sec: float,
+    registry_path: Path | None = None,
+) -> bool:
+    """Wait for Harbor's group and every registered transport group to exit."""
+    deadline = time.monotonic() + max(grace_sec, 0)
+    try:
+        proc.wait(timeout=max(grace_sec, 0))
+    except subprocess.TimeoutExpired:
+        pass
+    except OSError as exc:
+        print(f"[run-leg] wait for Harbor leader failed: {exc!r}", flush=True)
+
+    # The Harbor leader can exit while a `brev exec`/SSH descendant remains in
+    # its original group. Do not report successful cancellation until PGID 0
+    # probing says the whole group is gone.
+    while (
+        _process_group_exists(pgid)
+        or _registered_transport_groups(registry_path)
+    ):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(PROCESS_GROUP_POLL_INTERVAL_SEC, remaining))
+    return True
+
+
+def _signal_process_group_and_wait(
+    proc: subprocess.Popen,
+    pgid: int,
+    sig: signal.Signals,
+    grace_sec: float,
+    registry_path: Path | None = None,
+) -> bool:
+    """Signal Harbor plus detached transports and wait a bounded time."""
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        # The Harbor leader/group won the race. Detached registered transport
+        # sessions can still exist, so continue through the combined probe.
+        with contextlib.suppress(OSError):
+            proc.poll()
+    except OSError as exc:
+        print(f"[run-leg] {sig.name} delivery failed: {exc!r}", flush=True)
+    _signal_registered_transport_groups(registry_path, sig, exclude_pgid=pgid)
+
+    return _wait_for_process_group_exit(
+        proc, pgid, grace_sec, registry_path
+    )
+
+
+def _cancel_process_tree(
+    proc: subprocess.Popen,
+    pgid: int,
+    registry_path: Path,
+) -> bool:
+    """Escalate INT → TERM → KILL across Harbor and detached transports."""
+    exited = _signal_process_group_and_wait(
+        proc,
+        pgid,
+        signal.SIGINT,
+        HARBOR_SIGINT_GRACE_SEC,
+        registry_path,
+    )
+    if not exited:
+        print(
+            "[run-leg] Harbor tree did not exit after SIGINT; escalating to SIGTERM",
+            flush=True,
+        )
+        exited = _signal_process_group_and_wait(
+            proc,
+            pgid,
+            signal.SIGTERM,
+            HARBOR_SIGTERM_GRACE_SEC,
+            registry_path,
+        )
+    if not exited:
+        print(
+            "[run-leg] Harbor tree did not exit after SIGTERM; escalating to SIGKILL",
+            flush=True,
+        )
+        exited = _signal_process_group_and_wait(
+            proc,
+            pgid,
+            signal.SIGKILL,
+            HARBOR_SIGKILL_GRACE_SEC,
+            registry_path,
+        )
+    return exited
+
+
 def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
     print(f"[run-leg] exec: {' '.join(cmd)}", flush=True)
-    proc = subprocess.Popen(cmd, cwd=str(REPO_ROOT), env=env, start_new_session=True)
-    try:
-        return proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        print(f"[run-leg] timeout after {timeout_sec}s; terminating harbor", flush=True)
+    registry_fd, registry_name = tempfile.mkstemp(
+        prefix="skill-eval-transport-pgids-",
+    )
+    os.close(registry_fd)
+    registry_path = Path(registry_name)
+    child_env = env.copy()
+    child_env[TRANSPORT_PGID_REGISTRY_ENV] = str(registry_path)
+    proc: subprocess.Popen | None = None
+    pgid: int | None = None
+    pending_signal: int | None = None
+    cleanup_started = False
+    previous_handlers: dict[signal.Signals, object] = {}
+
+    def forward_external_signal(signum, _frame):  # noqa: ANN001
+        nonlocal cleanup_started, pending_signal
+        # Install before Popen to close the parent-signal race. If a signal
+        # lands while Popen is still constructing the child, remember it and
+        # start teardown immediately after Popen returns a usable handle.
+        if proc is None or pgid is None:
+            pending_signal = signum
+            return
+        if cleanup_started:
+            return
+        cleanup_started = True
+        raise _RunCommandInterrupted(signum)
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            proc.wait(timeout=30)
-        except (ProcessLookupError, subprocess.TimeoutExpired):
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
-        return 124
+            previous_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, forward_external_signal)
+        except ValueError:
+            # Defensive for library callers that invoke run_command off the
+            # main thread. The production wrapper always runs on MainThread.
+            for installed_sig, previous in previous_handlers.items():
+                with contextlib.suppress(ValueError):
+                    signal.signal(installed_sig, previous)
+            previous_handlers.clear()
+            break
+
+    try:
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(REPO_ROOT),
+                env=child_env,
+                start_new_session=True,
+            )
+            # start_new_session=True makes the Harbor leader's PID its PGID.
+            # Preserve it now so a leader exit cannot hide descendants.
+            pgid = proc.pid
+            if pending_signal is not None:
+                cleanup_started = True
+                raise _RunCommandInterrupted(pending_signal)
+
+            try:
+                rc = proc.wait(timeout=timeout_sec)
+            except subprocess.TimeoutExpired:
+                cleanup_started = True
+                outcome = 124
+                reason = f"outer timeout after {timeout_sec}s"
+            else:
+                if rc < 0:
+                    cleanup_started = True
+                    outcome = 128 + abs(rc)
+                    try:
+                        signal_name = signal.Signals(abs(rc)).name
+                    except ValueError:
+                        signal_name = str(abs(rc))
+                    reason = f"Harbor exited from signal {signal_name}"
+                else:
+                    detached = _registered_transport_groups(registry_path)
+                    if not detached:
+                        cleanup_started = True
+                        return rc
+                    cleanup_started = True
+                    outcome = 124
+                    reason = (
+                        "Harbor exited while detached transport groups remained: "
+                        + ", ".join(map(str, detached))
+                    )
+        except _RunCommandInterrupted as exc:
+            cleanup_started = True
+            outcome = 128 + exc.signum
+            reason = f"external {signal.Signals(exc.signum).name}"
+
+        if proc is None or pgid is None:
+            return outcome
+
+        cleanup_started = True
+        print(
+            f"[run-leg] {reason}; "
+            "requesting graceful Harbor cancellation with SIGINT",
+            flush=True,
+        )
+        # Ignore repeated workflow signals while bounded cleanup owns the
+        # process tree. A later SIGKILL remains the unavoidable hard ceiling.
+        for sig in previous_handlers:
+            signal.signal(sig, signal.SIG_IGN)
+        exited = _cancel_process_tree(proc, pgid, registry_path)
+        if not exited:
+            print(
+                "[run-leg] Harbor tree could not be reaped after SIGKILL; "
+                "preserving primary outcome",
+                flush=True,
+            )
+        return outcome
+    finally:
+        for sig, previous in previous_handlers.items():
+            with contextlib.suppress(ValueError):
+                signal.signal(sig, previous)
+        registry_path.unlink(missing_ok=True)
 
 
 def latest_reward(
@@ -590,6 +1050,106 @@ def latest_reward(
         return None
     latest = max(matches, key=lambda p: p.stat().st_mtime)
     return latest.read_text().strip()
+
+
+def _coordinator_env_id() -> str | None:
+    """Brev env id of the COORDINATOR host — the box running `harbor view`.
+
+    Never derive this from `brev ls`: that yields a per-trial instance id,
+    and the resulting URL points at a subdomain with no viewer behind it.
+    """
+    env_id = os.environ.get("BREV_ENV_ID", "").strip()
+    if env_id:
+        return env_id
+    try:
+        for line in Path("/etc/environment").read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "BREV_ENV_ID":
+                return value.strip().strip('"').strip("'") or None
+    except OSError:
+        pass
+    return None
+
+
+def trace_url(result_json: Path, job_name: str) -> str | None:
+    """Harbor viewer deep-link for one finished trial.
+
+    Every segment is read from the trial's own result.json, so the link
+    cannot drift from what the viewer indexes. `task_name` in particular is
+    Harbor's fully-qualified name (`nvidia-vss/<dataset>-step-N`), NOT the
+    `--include-task-name` filter (`step-N`) that selects the task here — the
+    viewer resolves its task route by the former. A bare `step-N` matches
+    nothing and renders a BLANK PAGE rather than a 404, because the viewer
+    is a client-side SPA where every route returns the same HTTP 200 shell.
+    That failure mode is indistinguishable from missing trace data, which is
+    why the URL is built here instead of being assembled by hand.
+    """
+    env_id = _coordinator_env_id()
+    if not env_id:
+        return None
+    try:
+        data = json.loads(result_json.read_text())
+    except (OSError, ValueError):
+        return None
+    agent_info = data.get("agent_info") or {}
+    model_info = agent_info.get("model_info") or {}
+    parts = [
+        data.get("source"),
+        agent_info.get("name"),
+        model_info.get("provider"),
+        model_info.get("name"),
+        data.get("task_name"),
+    ]
+    if not all(parts):
+        return None
+    # safe="" so the slashes inside <model> and <task> encode as %2F — the
+    # viewer expects them as single path segments, not extra path levels.
+    encoded = "/".join(urllib.parse.quote(str(part), safe="") for part in parts)
+    return f"https://harbor-{env_id}.brevlab.com/jobs/{job_name}/tasks/{encoded}"
+
+
+def publish_trace(
+    results_root: Path,
+    invocation: HarborInvocation,
+    started_at: float,
+    leg_slug: str,
+    run_id: str,
+) -> str | None:
+    """Copy a finished trial into the viewer root and record its trace URL.
+
+    Returns None when the trial produced no result.json (errored or timed
+    out before the verifier ran) — such a step has no trace to link.
+    """
+    matches = [
+        path.parent
+        for path in results_root.glob(
+            f"*/{invocation.include_task_name}__*/result.json"
+        )
+        if path.stat().st_mtime >= started_at
+    ]
+    if not matches:
+        return None
+    trial_dir = max(matches, key=lambda path: path.stat().st_mtime)
+    date_dir = trial_dir.parent
+    job_name = f"{leg_slug}__{run_id}__{date_dir.name}"
+    viewer_job = VIEWER_ROOT / job_name
+    viewer_job.mkdir(parents=True, exist_ok=True)
+    # Copy (never move) the date dir's *contents*: the workflow's "Collect
+    # results" step runs after this and tars results_root for the artifact,
+    # and copying the dir itself would nest a later trial under
+    # <job>/<date>/ where the viewer cannot see it.
+    shutil.copytree(date_dir, viewer_job, dirs_exist_ok=True)
+    url = trace_url(trial_dir / "result.json", job_name)
+    if url:
+        with (results_root / "trace-urls.tsv").open("a") as handle:
+            handle.write(
+                f"{invocation.include_task_name}\t{trial_dir.name}\t{url}\n"
+            )
+        print(
+            f"[run-leg] trace: {invocation.include_task_name} -> {url}",
+            flush=True,
+        )
+    return url
 
 
 def _reward_value(reward: str | None) -> float:
@@ -633,6 +1193,7 @@ def run_invocations(
     spec_stem: str,
     platform: str,
     harbor_timeout_sec: int,
+    work_deadline: float | None = None,
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -666,6 +1227,10 @@ def run_invocations(
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
+    # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
+    # the env vars are the authoritative source when the agent exports them.
+    leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
+    run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 
@@ -677,9 +1242,42 @@ def run_invocations(
         ):
             continue
 
+        if work_deadline is not None:
+            remaining = work_deadline - time.monotonic()
+            required = invocation_reserve_sec(harbor_timeout_sec)
+            if remaining < required:
+                print(
+                    "[run-leg] whole-leg deadline leaves only "
+                    f"{max(0, int(remaining))}s; refusing to start "
+                    f"{invocation.include_task_name}, which requires "
+                    f"{required}s including teardown",
+                    flush=True,
+                )
+                if (
+                    invocation.step_index is not None
+                    and invocation.step_count is not None
+                ):
+                    write_skip_markers(
+                        scratch,
+                        spec_stem,
+                        platform or invocation.chain_key,
+                        invocation.step_index - 1,
+                        "whole-leg-deadline",
+                        invocation.step_count,
+                    )
+                return 124
+
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
         rc = run_command(cmd, env, harbor_timeout_sec)
+        # Publish before the rc checks below: a timed-out (rc=124) trial
+        # returns early, and its partial trace is exactly what needs reading.
+        try:
+            publish_trace(results_root, invocation, started_at, leg_slug, run_id)
+        except Exception as exc:  # noqa: BLE001
+            # A trace link is reporting convenience; the verdict comes from
+            # reward.txt. Never let a viewer-publish error fail the leg.
+            print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
@@ -691,7 +1289,7 @@ def run_invocations(
                 f"rc={rc} reward={reward if reward is not None else 'missing'}",
                 flush=True,
             )
-            if rc == 124 or reward_value < 1.0:
+            if rc == 124 or rc >= 128 or reward_value < 1.0:
                 write_skip_markers(
                     scratch,
                     spec_stem,
@@ -701,8 +1299,14 @@ def run_invocations(
                     invocation.step_count,
                 )
                 skipped_after[invocation.chain_key] = invocation.step_index
-                if rc == 124:
-                    return 124
+
+        # An outer Harbor timeout is terminal for the entire locked leg, not
+        # only a multi-step chain. Continuing could wipe/reuse the same Brev
+        # box while descendants from the timed-out process are still settling.
+        # For chained tasks the block above writes every applicable skip marker
+        # before this return.
+        if rc == 124 or rc >= 128:
+            return rc
 
     return overall_rc
 
@@ -728,11 +1332,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--platform", default=os.environ.get("EVAL_PLATFORM", ""))
     parser.add_argument("--lock-dir", default=Path("/tmp/brev"), type=Path)
     parser.add_argument("--lock-timeout-sec", default=21000, type=int)
-    parser.add_argument("--harbor-timeout-sec", default=7800, type=int)
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--harbor-timeout-sec",
+        default=DEFAULT_HARBOR_TIMEOUT_SEC,
+        type=int,
+    )
+    args = parser.parse_args(argv)
+    try:
+        validate_harbor_timeout_sec(args.harbor_timeout_sec)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
+    actual_python = sys.version_info[:2]
+    if actual_python != SKILL_EVAL_PYTHON_VERSION:
+        expected = ".".join(map(str, SKILL_EVAL_PYTHON_VERSION))
+        found = ".".join(map(str, actual_python))
+        print(
+            f"FATAL: run_leg requires Python {expected}.x; found {found}",
+            file=sys.stderr,
+        )
+        return 1
     args = parse_args(argv or sys.argv[1:])
     try:
         invocations = discover_invocations(args.dataset_root)
@@ -744,6 +1366,14 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
         metadata = _read_dataset_metadata(args.dataset_root)
+        work_deadline = resolve_work_deadline()
+        required = invocation_reserve_sec(args.harbor_timeout_sec)
+        max_lock_wait = int(work_deadline - time.monotonic() - required)
+        if max_lock_wait <= 0:
+            raise LegDeadlineError(
+                "whole-leg deadline cannot fit one complete Harbor invocation"
+            )
+        effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
         pinned = args.instance or metadata.get("brev_instance") or None
@@ -755,22 +1385,33 @@ def main(argv: list[str] | None = None) -> int:
             candidates_fn = (  # noqa: E731
                 lambda: pool_candidates(metadata, args.spec_stem)
             )
-        with hold_pool_lock(
-            candidates_fn, args.lock_dir, args.lock_timeout_sec
-        ) as instance:
-            return run_invocations(
-                invocations,
-                instance,
-                args.results_root,
-                args.scratch,
-                args.spec_stem,
-                args.platform,
-                args.harbor_timeout_sec,
-            )
+        try:
+            with hold_pool_lock(
+                candidates_fn, args.lock_dir, effective_lock_timeout
+            ) as instance:
+                return run_invocations(
+                    invocations,
+                    instance,
+                    args.results_root,
+                    args.scratch,
+                    args.spec_stem,
+                    args.platform,
+                    args.harbor_timeout_sec,
+                    work_deadline,
+                )
+        except LockTimeoutError:
+            if effective_lock_timeout < args.lock_timeout_sec:
+                raise LegDeadlineError(
+                    "whole-leg deadline expired while reserving room for Harbor"
+                )
+            raise
     except LockTimeoutError:
         target = args.instance or f"pool ({args.platform or 'platform'})"
         print(f"BLOCKED: lock timeout on {target}", flush=True)
         return 75
+    except LegDeadlineError as exc:
+        print(f"FATAL: {exc}", file=sys.stderr)
+        return 124
     except Exception as exc:  # noqa: BLE001
         print(f"FATAL: run_leg failed: {exc!r}", file=sys.stderr)
         return 1

@@ -75,6 +75,8 @@ markers = [
     "upload: marks tests as upload tests",
     "download: marks tests as download tests",
     "picture: marks tests as picture tests",
+    "notification: marks tests as notification tests",
+    "webhook: marks tests as webhook notification tests",
     "webrtc: marks tests as WebRTC tests",
     "perf: marks tests as performance tests",
     "unit_test: marks tests as unit tests (API endpoint validation)",
@@ -105,4 +107,3 @@ extend-exclude = '''
   | dist
 )/
 '''
-
