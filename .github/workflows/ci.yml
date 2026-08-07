@@ -1417,6 +1417,20 @@ jobs:
               "${{ needs.spatialai-data-utils-test.outputs.package-version-suffix }}" \
             --release-set-output downstream-release-set.json
 
+      # TEMPORARY probe -- do not merge. Shows the literal bytes the script wrote,
+      # which is what the gate comparison actually reads.
+      - name: Probe release-set step outputs
+        if: always()
+        env:
+          STEP_RUN_DOWNSTREAM: ${{ steps.release-set.outputs.run_downstream }}
+          STEP_HAS_BUILDS: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
+        run: |
+          printf 'steps.release-set.outputs.run_downstream ......: [%s]\n' "$STEP_RUN_DOWNSTREAM"
+          printf 'steps.release-set.outputs.has_ghcr_build_entries: [%s]\n' "$STEP_HAS_BUILDS"
+          printf '\n-- raw $GITHUB_OUTPUT --\n'
+          cat "$GITHUB_OUTPUT"
+          printf -- '-- end --\n'
+
       - name: Upload downstream release-set handoff
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
@@ -1450,22 +1464,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Values go through env, never interpolated into script text: toJSON is
+      # multi-line and would otherwise break out of the surrounding command.
       - name: Dump gate inputs
+        env:
+          RUN_DOWNSTREAM: ${{ needs.wait-for-build-dev-images.outputs.run-downstream }}
+          HAS_BUILDS: ${{ needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries }}
+          WAIT_RESULT: ${{ needs.wait-for-build-dev-images.result }}
+          EQUALS_TRUE: ${{ needs.wait-for-build-dev-images.outputs.run-downstream == 'true' }}
+          WAIT_OUTPUTS: ${{ toJSON(needs.wait-for-build-dev-images.outputs) }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
-          echo "run-downstream raw ......: '${{ needs.wait-for-build-dev-images.outputs.run-downstream }}'"
-          echo "has-ghcr-build-entries ..: '${{ needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries }}'"
-          echo "== equality test =="
-          echo "== '${{ needs.wait-for-build-dev-images.outputs.run-downstream }}' == 'true' ? ${{ needs.wait-for-build-dev-images.outputs.run-downstream == 'true' }}"
-          echo "== success() ? ${{ success() }}"
-          echo "== wait result ? ${{ needs.wait-for-build-dev-images.result }}"
-          echo "== all outputs of wait job =="
-          cat <<'JSON'
-          ${{ toJSON(needs.wait-for-build-dev-images.outputs) }}
-          JSON
-          echo "== all needs results =="
-          cat <<'JSON'
-          ${{ toJSON(needs) }}
-          JSON
+          printf 'run-downstream ..........: [%s]\n' "$RUN_DOWNSTREAM"
+          printf 'has-ghcr-build-entries ..: [%s]\n' "$HAS_BUILDS"
+          printf 'wait job result .........: [%s]\n' "$WAIT_RESULT"
+          printf "== 'true' ? ............: [%s]\n" "$EQUALS_TRUE"
+          printf '\n-- wait job outputs --\n%s\n' "$WAIT_OUTPUTS"
+          printf '\n-- all needs --\n%s\n' "$NEEDS_JSON"
+
+      # success() is only legal in an `if:`, never inside `run:` -- that is what
+      # made GitHub reject this file outright on the first attempt.
+      - name: success() was true
+        if: success()
+        run: echo "success() == true"
+
+      - name: success() was false
+        if: '!success()'
+        run: echo "success() == false"
 
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
