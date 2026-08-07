@@ -72,7 +72,7 @@ src/mdx/analytics/core/transform/calibration/
 ├── calibration_validator.py   # Per-action JSON Schema gate
 ├── calibration_base.py        # CalibrationBase + watchdog (on_moved -> reload_data
 │                              # -> _read_config -> validate -> update_calibration_info)
-├── calibration.py             # Geo (lat/lng) calibration
+├── calibration_g.py           # Geo (lat/lng) calibration
 ├── calibration_e.py           # Cartesian calibration
 ├── calibration_i.py           # Image-plane calibration
 ├── calibration_dynamic.py     # Wrapper that one-time-switches from
@@ -121,17 +121,6 @@ Both layers raise `CalibrationValidationError`; the listener catches
 it locally to drop the notification, the watcher relies on the outer
 `try/except` to keep the worker running.
 
-### Schema vendoring
-
-The vendored `calibration.schema.json` is a one-way mirror of `video-search-and-summarization/services/analytics/video-analytics-api/src/web-api-core/schemas/ajv/calibration.json` with two normalizations:
-
-1. AJV's non-standard `errorMessage` keyword stripped (Python's `jsonschema` ignores it; removing keeps the file readable).
-2. Top-level `additionalProperties` relaxed from `false` to `true` for forward-compatibility with any new top-level field video analytics api may add. Nested `additionalProperties: false` is preserved.
-
-When video analytics api's schema changes, re-vendor and re-apply both normalizations. There's no automation for this yet; it's a manual sync.
-
----
-
 ## DynamicCalibration: the one-time switch
 
 `DynamicCalibration` is a thin wrapper used when the app starts with **no** `--calibration` argument. It begins as a `CalibrationI` (image-plane) placeholder and, on the first calibration event, switches to the typed subclass (`Calibration` / `CalibrationE` / `CalibrationI`) inferred from the payload's `calibrationType` field.
@@ -167,34 +156,6 @@ See `video-search-and-summarization/services/analytics/behavior-analytics/src/md
 3. **Stale-timestamp filter is monotone.** `CalibrationListener` rejects any notification whose `timestamp` is `<= last_insert_timestamp`. After a Kafka offset reset (or replay from offset 0), old notifications are silently skipped. This is intentional — out-of-order deliveries would otherwise corrupt the in-memory map.
 4. **`globalROIs` is not read.** Legacy test fixtures use `globalROIs` (CamelCase). Production code reads `rois` (lowercase). The vendored schema follows `rois`. Migration of legacy data is operator-owned.
 5. **No ACK back to video analytics api.** The dynamic-config flow publishes `ack` after applying; the calibration flow does not. A worker-side validation failure is observable only via container logs (`calibration schema violation (...)`).
-6. **No schema-sync automation between repos.** The vendored `calibration.schema.json` must be manually re-synced when `video-search-and-summarization/services/analytics/video-analytics-api/src/web-api-core/schemas/ajv/calibration.json` changes.
 
 ---
 
-## Testing approach
-
-Test files live under `video-search-and-summarization/services/analytics/behavior-analytics/`:
-
-| Layer | Test file | What to add |
-|---|---|---|
-| Validator | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_validator.py` | Test new schema rules or action-dispatch paths. |
-| Listener | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_listener.py` | Test new notification shapes, atomic-write behavior, pruning. |
-| Watcher | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_base.py` (`CalibrationFileMonitor`) | Test new event-handling paths in `on_moved`. |
-| Base reload | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_base.py` | Test new `update_calibration_info` branches, `_load_sensors` extraction. |
-| Typed subclasses | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration.py`, `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_e.py`, `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_i.py` | Test sensor-type-specific logic. |
-| DynamicCalibration | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_dynamic.py` | Test the one-time switch and `reload_data` override. |
-| End-to-end | `tests/integration/dynamic_calibration/dynamic_calibration_e2e.py` | Add a scenario for new wire-level behavior. See its README. |
-
-Aim for 100% line + branch coverage on new code under `src/mdx/analytics/core/transform/calibration/`. Keep parity with the dynamic-config side.
-
----
-
-## Where to find canonical examples
-
-Consumer-side paths are under `video-search-and-summarization/services/analytics/behavior-analytics/`; the producer-side path is under `video-search-and-summarization/services/analytics/video-analytics-api/`.
-
-- Listener (atomic-write contract): `src/mdx/analytics/core/transform/calibration/calibration_listener.py`.
-- Watcher (`on_moved` + dotfile filter): `src/mdx/analytics/core/transform/calibration/calibration_base.py::CalibrationFileMonitor`.
-- Validator (per-action dispatch + minimal delete schema): `src/mdx/analytics/core/transform/calibration/calibration_validator.py`.
-- One-time switch on `DynamicCalibration`: `src/mdx/analytics/core/transform/calibration/calibration_dynamic.py::reload_data`.
-- Producer side (for reference, in `video-analytics-api/`): `src/web-api-core/Services/Calibration.js::upsert`, `::deleteSensors`, plus `src/web-api-core/Services/NotificationManager.js::produceCalibrationNotification`.

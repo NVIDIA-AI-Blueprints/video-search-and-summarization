@@ -39,15 +39,39 @@ workflow (entrypoint pick, config source, dynamic updates).
 
 ## Limitations
 
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+- **No HTTP API.** This is a broker stream processor — it reads and writes Kafka / Redis Streams / MQTT and serves
+  no REST endpoint, so there is nothing to `curl` and no `/health` to probe. Verify it through container logs and
+  the output topics.
+- **CPU-only.** It loads no models and reserves no GPU (`gpu_count: 0` in this skill's own evals), so GPU memory and
+  NIM rate-limits are not constraints here.
+- **At least one processor must be enabled, and forgetting is quiet.** With every `numWorkersFor*`
+  at `0` the runner logs `FATAL - Error in app: No processors registered`, closes its listeners and returns — the
+  process exits **0**, so to anything watching exit codes it looks like a clean shutdown. Only the
+  log distinguishes it.
+- **A destination the config omits is a disabled output, not an error.** The sink logs
+  `No destination configured for '<key>'; output for it is disabled` once per key and drops the rest, so a missing
+  topic looks like an empty stream rather than a failure.
+- **One behavior producer per deployment.** Two instances producing behaviors for the same sensors write every
+  behavior twice, from processes with independent state. Nothing detects this.
 
 ## Troubleshooting
 
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
-- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
-- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
+- **Error**: container restart-loops immediately; log shows `FATAL - Config file ... contains invalid JSON` or
+  `... has invalid structure`. **Cause**: the mounted config is malformed or fails `AppConfig` validation.
+  **Solution**: fix the JSON / schema — the app calls `exit(1)`, so compose's restart policy cycles it forever.
+- **Error**: container exits almost immediately with status `Exited (0)` and the log ends in
+  `FATAL - Error in app: No processors registered in app ...`. **Cause**: every `numWorkersFor*` is `0` (the shipped
+  `composite_config.json` ships this way on purpose). **Solution**: set the worker count for the capabilities you
+  want. Note the exit code is 0, so a `restart: on-failure` policy will *not* cycle it — it just stays stopped.
+- **Error**: container shows `Restarting (N)` and the log ends in a Kafka/Redis connection error. **Cause**: no
+  broker reachable. The client retries a bounded number of times, then the worker raises and the scheduler shuts the
+  whole app down. **Solution**: bring up the broker, or expect the restart loop until one exists.
+- **Error**: an expected topic stays empty. **Cause**: either the destination is not defined in the config (look for
+  the one-time `No destination configured` warning) or the processor that writes it has `0` workers.
+  **Solution**: define the topic and set the worker count.
+- **Error**: log shows `Error reading calibration type from ...: defaulting to IMAGE`. **Cause**: `--calibration`
+  was omitted or unreadable. **Solution**: this is not fatal — the app runs image-calibrated, which silently changes
+  coordinate semantics. Mount a calibration if you meant a cartesian or geo deployment.
 
 # VSS Setup Behavior Analytics — Standalone
 

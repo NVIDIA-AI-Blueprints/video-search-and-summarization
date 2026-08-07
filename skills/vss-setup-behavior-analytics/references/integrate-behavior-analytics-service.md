@@ -54,7 +54,7 @@ Source-of-truth definitions: `deploy/docker/services/analytics/behavior-analytic
 
 - **Method:** Dynamic config / calibration (consume) — runtime updates
   **Topic:** `notification` → `mdx-notification`.
-  **Schema:** JSON config/calibration update notifications. Lets operators push `AppConfig` changes and calibration reloads without a restart (read-at-use-time properties auto-refresh). See `dynamic-config.md` / `dynamic-calibration.md`.
+  **Schema:** JSON config/calibration update notifications. Lets operators push `AppConfig` changes and calibration reloads without a restart (values are re-read at use time, so they take effect on the next access). See `dynamic-config.md` / `dynamic-calibration.md`.
 
 - **Method:** Mounted file — calibration JSON (optional at startup)
   **Path:** `--calibration <path>` (host bind). Defines the sensor map, ROIs, tripwires, geo/homography.
