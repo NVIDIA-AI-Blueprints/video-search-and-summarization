@@ -93,6 +93,14 @@ services:
       LVS_LLM_BASE_URL: http://${LVS_LLM_HOST}:${LVS_LLM_PORT}/v1
       LVS_ENABLE_LLM_MERGING: ${LVS_ENABLE_LLM_MERGING:-false}
       LVS_DROP_EMPTY_EVENT_FIELDS: ${LVS_DROP_EMPTY_EVENT_FIELDS:-false}
+      # EVS knobs (typically set on RTVI-VLM). Pass through to LVS so
+      # `_create_vlm_prompt` can append the structured-output schema guard
+      # that prevents grounding/detection JSON CA-RAG cannot ingest.
+      VIA_EVS_SESSION: ${VIA_EVS_SESSION:-}
+      VLM_VIDEO_PRUNING_RATE: ${VLM_VIDEO_PRUNING_RATE:-}
+      VIA_EVS_EVENT_ONLY: ${VIA_EVS_EVENT_ONLY:-}
+      VIA_EVS_TOKEN_BUDGET: ${VIA_EVS_TOKEN_BUDGET:-}
+      VLLM_IGNORE_EOS: ${VLLM_IGNORE_EOS:-}
       ES_HOST: elasticsearch
       ES_PORT: '9200'
       LVS_DATABASE_BACKEND: ${LVS_DATABASE_BACKEND:-elasticsearch_db}
@@ -371,6 +379,24 @@ services:
       RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE: ${RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE:-}
       RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE: ${RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE:-}
       RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS: true
+      # EVS / EVS++ (video pruning + session knobs). Empty defaults keep
+      # stock behavior; set VIA_EVS_SESSION / VLM_VIDEO_PRUNING_RATE in
+      # .env to enable. LVS also receives these for the structured-prompt
+      # schema guard (see via service env above).
+      VLM_VIDEO_PRUNING_RATE: ${VLM_VIDEO_PRUNING_RATE:-}
+      VIA_EVS_SESSION: ${VIA_EVS_SESSION:-}
+      VLLM_EVS_SIMILARITY_THRESHOLD: ${VLLM_EVS_SIMILARITY_THRESHOLD:-}
+      VLLM_NUM_PREPROCESS_WORKERS: ${VLLM_NUM_PREPROCESS_WORKERS:-}
+      VIA_EVS_TOKEN_BUDGET: ${VIA_EVS_TOKEN_BUDGET:-}
+      VIA_EVS_MIN_CLIPS: ${VIA_EVS_MIN_CLIPS:-}
+      VIA_EVS_EVENT_ONLY: ${VIA_EVS_EVENT_ONLY:-}
+      VIA_EVS_EMA_MEMORY_S: ${VIA_EVS_EMA_MEMORY_S:-}
+      VIA_EVS_SPIKE_STD_K: ${VIA_EVS_SPIKE_STD_K:-}
+      VIA_EVS_SETTLING_STD_K: ${VIA_EVS_SETTLING_STD_K:-}
+      VIA_EVS_STD_FLOOR_RATIO: ${VIA_EVS_STD_FLOOR_RATIO:-}
+      VIA_EVS_DOWNWARD_BASELINE_MIN: ${VIA_EVS_DOWNWARD_BASELINE_MIN:-}
+      VIA_EVS_STREAMING_PREFILL: ${VIA_EVS_STREAMING_PREFILL:-}
+      VLLM_IGNORE_EOS: ${VLLM_IGNORE_EOS:-}
     ulimits:
       memlock:
         soft: -1

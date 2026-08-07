@@ -2744,6 +2744,62 @@ class ViaStreamHandler:
             skip_ca_rag=True,
         )
 
+    @staticmethod
+    def _is_evs_enabled() -> bool:
+        """Return True when EVS / EVS++ is active for this LVS process.
+
+        EVS is considered enabled when ``VIA_EVS_SESSION`` is truthy, or when
+        ``VLM_VIDEO_PRUNING_RATE`` is set to a value in ``(0, 1)``. These env
+        vars are normally set on RTVI-VLM; they must also be passed through to
+        LVS for this prompt guard to take effect.
+        """
+        if os.environ.get("VIA_EVS_SESSION", "").strip().lower() in (
+            "true",
+            "1",
+            "yes",
+            "on",
+        ):
+            return True
+        rate_str = os.environ.get("VLM_VIDEO_PRUNING_RATE", "").strip()
+        if not rate_str:
+            return False
+        try:
+            rate = float(rate_str)
+        except ValueError:
+            return False
+        return 0.0 < rate < 1.0
+
+    @staticmethod
+    def _evs_structured_output_constraints() -> str:
+        """Extra constraints that keep EVS/CR3 outputs CA-RAG-parseable.
+
+        Under EVS, Cosmos Reason often emits grounding/detection JSON
+        (``bbox_2d`` / ``label`` / trajectories / ``no visible …``) instead of
+        timeline events. CA-RAG then silently drops those docs. This text is
+        appended to the VLM prompt when EVS is enabled and structured output
+        is requested.
+        """
+        return (
+            "EVS/output-format constraints (mandatory): "
+            "Output ONLY a JSON array of timeline event objects. "
+            "Each object MUST contain exactly these keys: "
+            "'start_time', 'end_time', 'type', 'description' "
+            "(all mandatory; description must be non-empty prose). "
+            "Do NOT emit grounding/detection schemas: never use "
+            "bbox_2d, box_2d, point_2d, trajector, trajectory, "
+            "label-only objects, category/clothing/location entity fields, "
+            "or bare numeric values. "
+            "Do NOT emit negative findings such as "
+            "'no visible smoke or flames' / 'no anomalies' as standalone "
+            "objects or free-form prose. "
+            "If none of the requested event types are present, return one "
+            "event with type chosen from the allowed list (prefer "
+            "'normal activity' when available) covering the chunk time "
+            "range and a brief scene description in 'description'. "
+            "Do not wrap the array in an object, do not prefix with "
+            "'Assistant', and do not include any text outside the JSON array."
+        )
+
     def _create_vlm_prompt(
         self,
         prompt: str,
@@ -2762,6 +2818,10 @@ class ViaStreamHandler:
         - LVS_PROMPT_VLM_INSTRUCTION: Override the instruction section
         - LVS_PROMPT_VLM_CONSTRAINTS: Add additional constraints (empty by default)
         - LVS_PROMPT_VLM_STRUCTURED_OUTPUT: Override output format and JSON template
+
+        When EVS is enabled (``VIA_EVS_SESSION`` or ``VLM_VIDEO_PRUNING_RATE``),
+        additional constraints are appended automatically to discourage
+        grounding/detection JSON that CA-RAG cannot ingest.
 
         Template variables available for substitution in custom prompts:
         - {scenario}: The scenario parameter
@@ -2844,6 +2904,12 @@ This is very important and you must follow this strictly.
         structured_output = (
             env_structured_output if env_structured_output else default_structured_output
         )
+
+        # Under EVS, CR3 often drifts into grounding JSON; reinforce event schema.
+        if self._is_evs_enabled():
+            evs_guard = self._evs_structured_output_constraints()
+            constraints = f"{constraints}\n\n{evs_guard}".strip() if constraints else evs_guard
+            logger.info("EVS enabled: appending structured-output schema guard to VLM prompt")
 
         # Helper function for safe template variable substitution
         # Uses str.replace() instead of .format() to handle literal braces in JSON
