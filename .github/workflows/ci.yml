@@ -1428,6 +1428,45 @@ jobs:
   # ---------------------------------------------------------------------------
   # Job 13: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
+  # TEMPORARY probe -- do not merge. Prints exactly what the expression engine
+  # sees for the gate, to settle why trigger-downstream-pipeline skips while the
+  # release-set step reports "Downstream gate: run".
+  downstream-gate-probe:
+    name: Downstream Gate Probe
+    needs:
+      - prepare-source
+      - lint
+      - codec-installer-test
+      - typecheck
+      - security
+      - frontend-lint
+      - copyright-headers
+      - dco
+      - license-check-python
+      - license-check-ui
+      - folder-structure
+      - wait-for-build-dev-images
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dump gate inputs
+        run: |
+          echo "run-downstream raw ......: '${{ needs.wait-for-build-dev-images.outputs.run-downstream }}'"
+          echo "has-ghcr-build-entries ..: '${{ needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries }}'"
+          echo "== equality test =="
+          echo "== '${{ needs.wait-for-build-dev-images.outputs.run-downstream }}' == 'true' ? ${{ needs.wait-for-build-dev-images.outputs.run-downstream == 'true' }}"
+          echo "== success() ? ${{ success() }}"
+          echo "== wait result ? ${{ needs.wait-for-build-dev-images.result }}"
+          echo "== all outputs of wait job =="
+          cat <<'JSON'
+          ${{ toJSON(needs.wait-for-build-dev-images.outputs) }}
+          JSON
+          echo "== all needs results =="
+          cat <<'JSON'
+          ${{ toJSON(needs) }}
+          JSON
+
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
     # Intentionally NOT depending on `test` (pytest) or `frontend-build`
