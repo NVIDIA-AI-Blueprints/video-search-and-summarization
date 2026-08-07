@@ -33,24 +33,24 @@ if PROMETHEUS_ENABLED:
 logger = get_logger(__name__)
 
 
-def _async_external_io_ready(instance, precondition: bool = True) -> bool:
-    """Whether an external call should be handed to the async runtime.
+def _async_external_io_ready(instance) -> bool:
+    """Whether external calls can be handed to the async runtime at all.
 
-    The three services asked the same two questions and then one of their own;
-    only that last part differs, so it is the only thing passed in. Module
-    level, like the dispatch fallback, so a test driving the mixin with a plain
-    stub still reaches the real check.
+    Only the part every service shares. Each service ``and``s its own
+    precondition onto this at the call site rather than passing it in, so the
+    precondition keeps short-circuiting: as an argument it would be evaluated
+    eagerly, and reading an attribute that need not exist when async I/O is off
+    turns a disabled path into an AttributeError.
+
+    Module level, like the dispatch fallback, so a test driving the mixin with
+    a plain stub still reaches the real check.
     """
-    return (
-        instance.async_io_enabled
-        and instance.async_vlm_runtime is not None
-        and precondition
-    )
+    return instance.async_io_enabled and instance.async_vlm_runtime is not None
 
 
 class AsyncExternalIOMixin:
     def _is_async_redis_mode_enabled(self) -> bool:
-        return _async_external_io_ready(self, self.redis_handler is not None)
+        return _async_external_io_ready(self) and self.redis_handler is not None
 
     def _observe_async_external_io(
         self,
@@ -180,7 +180,7 @@ class AsyncExternalIOMixin:
         return result
 
     def _is_async_elastic_sink_mode_enabled(self) -> bool:
-        return _async_external_io_ready(self, self._vlm_sink_type == "elastic")
+        return _async_external_io_ready(self) and self._vlm_sink_type == "elastic"
 
     def _on_async_sink_operation_done(
         self,
