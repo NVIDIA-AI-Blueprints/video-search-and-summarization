@@ -7,33 +7,31 @@ The vss-deploy-detection-tracking-3d skill deploys and operates the
 RTVI-CV-3D / MV3DT stack (Multi-View 3D Tracking) — per-camera
 DeepStream perception plus BEV Fusion over multiple calibrated cameras.
 
-Four eval specs ship with the skill:
-  - evals/deploy.json           — Full deploy/verify/teardown flow on the
-                                  bundled sample dataset (3 steps)
-  - evals/calibration-chain.json — End-to-end custom-data calibration
-                                  chain + deploy + teardown (2 steps)
-  - evals/routing.json          — CPU-only routing coverage eval; no
-                                  containers deployed (4 queries, 1 step
-                                  each treated as single-step)
-  - evals/evals.json            — Static routing/knowledge tests (no
-                                  deploy, JSON array format)
+Three dispatchable eval specs ship with the skill:
+  - evals/sample-deployment.json — Real end-to-end sample dataset deployment
+                                   with saved grid/BEV verification.
+  - evals/calibration-chain.json — Plan-only custom-data calibration handoff
+                                   coverage for local MP4 and RTSP inputs.
+  - evals/routing.json           — Plan-only routing coverage; no containers
+                                   deployed.
+  - evals/evals.json             — Static routing/knowledge tests (no deploy,
+                                   JSON array format, not dispatched).
 
-All specs target RTXPRO6000BW. deploy.json and calibration-chain.json
-are multi-step (state preserved between steps); routing.json is
-single-step (each query is independent, treated as one step with all
-queries as checks).
+All dispatchable specs target RTXPRO6000BW. routing.json and
+calibration-chain.json are plan-only; sample-deployment.json is the real GPU
+runtime smoke test.
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-3d/generate.py \\
         --output-dir /tmp/skill-eval/datasets/<leg-slug>/<run_id> \\
         --skill-dir skills/vss-deploy-detection-tracking-3d \\
-        --spec skills/vss-deploy-detection-tracking-3d/evals/deploy.json
+        --spec skills/vss-deploy-detection-tracking-3d/evals/sample-deployment.json
 
     # With platform filter:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-3d/generate.py \\
         --output-dir /tmp/skill-eval/datasets/<leg-slug>/<run_id> \\
         --skill-dir skills/vss-deploy-detection-tracking-3d \\
-        --spec skills/vss-deploy-detection-tracking-3d/evals/deploy.json \\
+        --spec skills/vss-deploy-detection-tracking-3d/evals/sample-deployment.json \\
         --platform RTXPRO6000BW
 """
 from __future__ import annotations
@@ -59,7 +57,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "RTXPRO6000BW"
-DEFAULT_SPEC = "deploy.json"
+DEFAULT_SPEC = "sample-deployment.json"
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 

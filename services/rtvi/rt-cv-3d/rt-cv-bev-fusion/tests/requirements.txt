@@ -1,0 +1,12 @@
+# Test dependencies for the MV3DT BEV fusion test suite.
+#
+# Versions are kept in step with the measurement-fusion image
+# (Pipfile) so the protobuf wire format and the Kafka
+# client behave identically on both sides of the integration test.
+pytest>=7.0.0
+pytest-timeout>=2.1.0
+
+# --- Broker clients + schema (unit + integration) ---
+protobuf>=5.29.6,<6
+confluent-kafka==2.6.1
+redis>=5.0.0
