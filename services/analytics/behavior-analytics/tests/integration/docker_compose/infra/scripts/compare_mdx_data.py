@@ -18,7 +18,6 @@
 Script to read two mdx data json files, sort by timestamp, and compare _source content.
 """
 
-import collections
 import json
 import sys
 from typing import Any
@@ -357,45 +356,6 @@ def compare_object_timeline(timeline1: str, timeline2: str, float_tolerance: flo
         # If parsing fails, fall back to string comparison
         return timeline1 == timeline2
 
-
-def compare_incident_object_ids(ids1: Any, ids2: Any, primary_id: Any = None) -> bool:
-    """
-    Compare an incident's ``objectIds`` without asserting incidental ordering.
-
-    ``_merge_object_ids`` rebuilds the trailing IDs from a ``set``, whose iteration
-    order follows per-process string hashing, so the tail order varies between runs
-    while the membership does not. Asserting it would make any baseline containing a
-    multi-object incident fail intermittently.
-
-    Element 0 is only meaningful when the incident *has* a primary object, which the
-    producer pins there: proximity anchors the cluster on its center object, and
-    restricted/confined area violations carry a single object. FOV count violations
-    are aggregates -- ``_get_fov_count_violation_state`` passes ``primary_object_id=None``
-    and the incident carries no ``info.primaryObjectId`` -- so element 0 is just
-    whichever object ``get_fov`` listed first and gets no positional treatment.
-
-    Args:
-        ids1: objectIds from the first source
-        ids2: objectIds from the second source
-        primary_id: the incident's ``info.primaryObjectId``, absent for aggregates
-
-    Returns:
-        True when membership matches, and the primary agrees when one exists
-    """
-    if not isinstance(ids1, list) or not isinstance(ids2, list):
-        return ids1 == ids2
-    if len(ids1) != len(ids2):
-        return False
-    if not ids1:
-        return True
-    # Counter rather than set so a duplicated ID cannot pass as a single one.
-    if not primary_id:
-        return collections.Counter(ids1) == collections.Counter(ids2)
-    if ids1[0] != ids2[0]:
-        return False
-    return collections.Counter(ids1[1:]) == collections.Counter(ids2[1:])
-
-
 def compare_source_objects(source1: dict[str, Any],
                            source2: dict[str, Any],
                            float_tolerance: float = 1e-4) -> dict[str, Any]:
@@ -432,18 +392,8 @@ def compare_source_objects(source1: dict[str, Any],
             differences[key] = {'type': 'missing_in_source2', 'value1': value1}
         else:
             # Key exists in both, compare values
-            # Special handling for objectIds in incidents - primary by position, rest as a set
-            if key == 'objectIds' and source1.get("type") == "mdx-incidents":
-                incident_info = source1.get('info')
-                primary_id = incident_info.get('primaryObjectId') if isinstance(incident_info, dict) else None
-                if not compare_incident_object_ids(value1, value2, primary_id):
-                    differences[key] = {
-                        'type': 'value_difference',
-                        'value1': value1,
-                        'value2': value2
-                    }
             # Special handling for info field in incidents - compare objectTimeline by time deltas
-            elif key == 'info' and source1.get("type") == "mdx-incidents":
+            if key == 'info' and source1.get("type") == "mdx-incidents":
                 if isinstance(value1, dict) and isinstance(value2, dict):
                     # Compare info dict with special handling for objectTimeline
                     info_diff = {}
