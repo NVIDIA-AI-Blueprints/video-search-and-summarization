@@ -196,6 +196,12 @@ class TestCompositeAppComposition:
         assert app.get_processors() == []
         assert app.crs is None  # no road-network graph loaded either
 
+        # Separately, pin the shipped file as-shipped. Removing the keys above asserts the app's own
+        # fallback, which stays true however the starter config is edited -- so on its own it would let
+        # a non-zero count ship unnoticed, and shipping numWorkersForBehaviorCreation > 0 makes the
+        # starter config a second behavior producer (see the app's `.. important::` note).
+        assert app_factory(composite_cls, _config("composite_config.json")).get_processors() == []
+
     @pytest.mark.parametrize("workers,expected", [
         ({"numWorkersForBehaviorCreation": "1"}, {"create_behaviors"}),
         ({"numWorkersForBehaviorCreation": "1", "numWorkersForFrameEnhancement": "1"},
