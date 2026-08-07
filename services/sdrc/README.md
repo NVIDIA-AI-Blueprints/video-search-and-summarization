@@ -1,7 +1,21 @@
-# SDRC — Sensor Distribution and Routing Controller
-
 <!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+# SDRC — Sensor Distribution and Routing Controller
+
 
 SDRC is a coordinator and routing layer that manages which backend worker handles each live stream, and keeps that routing stable, scalable, and recoverable. It is the stream-placement and traffic-routing backbone for VSS pipeline deployments.
 
@@ -20,6 +34,7 @@ SDRC is a coordinator and routing layer that manages which backend worker handle
   - [Minimum Required Parameters](#minimum-required-parameters)
   - [Advanced Parameters](#advanced-parameters)
 - [Provisioning Event Payload](#provisioning-event-payload)
+- [Config Event Handling](#config-event-handling)
 - [Envoy Stream Routing](#envoy-stream-routing)
 - [API Reference](#api-reference)
   - [Controller / Router APIs](#controller--router-apis)
@@ -41,6 +56,7 @@ SDRC solves the stateful stream placement and routing problem in multi-worker de
 - **Distribute streams** across multiple workers (Kubernetes StatefulSet pods or Docker containers)
 - **Track routing state** in Redis — which worker owns which stream
 - **Call worker lifecycle APIs** (`/add`, `/delete`, and optionally `/config`) when streams arrive or leave
+- **Optionally apply config events** to allocated workers via `/config`, with per-workload enablement and dedicated transport retries
 - **Route client traffic** through a built-in Envoy proxy using a stream-ID header — clients need not discover which pod owns a given stream
 - **Recover autonomously** — when a worker fails, SDRC migrates its streams to healthy workers without client changes
 - **Support both Kafka and Redis** as the event bus for stream lifecycle events
@@ -547,7 +563,12 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `WDM_KFK_BOOTSTRAP_URL` | `localhost:9092` | Kafka bootstrap address. |
 | `WDM_KFK_SESSION_TIME_OUT` | `30000` | Kafka session timeout in milliseconds. |
 | `WDM_FORWARD_MSG_TYPE` | `event_message` | Whether to forward the full event envelope or only the inner event to workers. |
-| `WDM_WL_CHANGE_ID_POD_CONFIGURE` | `config` | Change value that triggers pod configuration. |
+| `WDM_WL_CHANGE_ID_POD_CONFIGURE` | `config` | Change value that triggers pod configuration (`/config` flow). See [Config Event Handling](#config-event-handling). |
+| `WDM_HANDLE_CONFIG_EVENTS` | `false` | Opt-in enable for config events. Default `false` (skip `/config`). Set `true` only for workloads that must apply config (for example warehouse 3D `rtvi-cv`). |
+| `WDM_CONFIG_RETRY_ATTEMPTS` | `3` | Dedicated transport retry budget for `/config` HTTP calls only (does not use `WDM_ADD_REMOVE_RETRY_ATTEMPTS`). If unset at call time, falls back to `min(WDM_ADD_REMOVE_RETRY_ATTEMPTS, 5)`. |
+| `WDM_CONFIG_RETRY_DELAY` | `0.5` | Delay in seconds between `/config` transport retries. |
+| `WDM_CONFIG_DEFER_ON_FAILURE` | `False` | If `true`, failed config handling returns deferred status and leaves the bus message uncommitted for later retry. Default `false` treats config failures as terminal and commits the offset. |
+| `WDM_EVENT_RETRY_LIMIT` | `20` | Max times to retry the **same** Redis/Kafka event on temporary failures before giving up. After the limit, SDRC logs an ERROR (log-based DLQ) and commits/ACKs so the bus is not blocked. |
 | `DELETE_API_METHOD` | `POST` | HTTP method used for worker delete calls. |
 | `WDM_ADD_REMOVE_RETRY_ATTEMPTS` | `2` | Number of add/remove retry attempts. |
 | `WDM_ADD_REMOVE_RETRY_DELAY` | `0.5` | Delay between retries in seconds. |
@@ -633,7 +654,7 @@ Stream assignment is driven by JSON event payloads published on the message bus 
 | `camera_add` (reference) | Allocate a worker and call `WDM_WL_ADD_URL` with the full envelope. |
 | `camera_remove` | Deprovision: call `WDM_WL_DELETE_URL`, clear Redis routing state. |
 | `camera_streaming` | Treated as add when `WDM_WL_CHANGE_ID_ADD` is set to this value. |
-| `config` | Worker configuration update via `/config` (regex-based allocation flows). |
+| `config` (or `WDM_WL_CHANGE_ID_POD_CONFIGURE`) | Worker configuration update via `/config`. Gated by `WDM_HANDLE_CONFIG_EVENTS`; see [Config Event Handling](#config-event-handling). |
 
 ### Provisioning pipeline
 
@@ -655,6 +676,67 @@ Delete events reverse the flow: locate the assigned worker, POST `WDM_WL_DELETE_
 - Workers are iterated in file order (Docker) or API order (K8s); the first eligible worker wins.
 
 If no eligible worker is found, SDRC logs `Max streams reached` and does not provision. Increase `WDM_WL_THRESHOLD`, add workers, or scale the StatefulSet.
+
+---
+
+## Config Event Handling
+
+In addition to add/remove stream lifecycle events, SDRC can apply **configuration events** to an already allocated worker by POSTing to the worker `/config` API (`WDM_CONFIG_URL` on `WDM_CONFIG_PORT`). This path is used when the event `change` value matches `WDM_WL_CHANGE_ID_POD_CONFIGURE` (default `config`).
+
+Config handling is **opt-in per workload** so shared Redis/Kafka buses do not force every consumer to call `/config`.
+
+### When config events are handled
+
+Effective handling is controlled by `WDM_HANDLE_CONFIG_EVENTS` (default **`false`**, opt-in):
+
+| `WDM_HANDLE_CONFIG_EVENTS` | Behavior |
+|---|---|
+| `true` | Handle config events: resolve the target worker and call `/config`. |
+| `false` / unset | Skip config events for this workload (`CONFIGURE_NOOP`); do not call `/config`. |
+
+**Deploy guidance:** leave unset or set `WDM_HANDLE_CONFIG_EVENTS: false` on workloads that have no `/config` endpoint (for example streamprocessing, alerts, warehouse 2D/MV3DT RT-CV). Set `WDM_HANDLE_CONFIG_EVENTS: true` only where `/config` is required (for example warehouse 3D `rtvi-cv`).
+
+### Config apply pipeline
+
+When a config event is accepted:
+
+1. **Gate** with `should_handle_config_events()` (see table above). If disabled, return `CONFIGURE_NOOP` and commit the bus message as appropriate.
+2. **Validate** the payload (must be an object and include the encoded worker name key from `WDM_POD_ALLOCATION_ENCODED_NAME_KEY`).
+3. **Resolve** the target worker allocation; missing allocation is a no-op for remove-shaped config, or a failure for apply-shaped config.
+4. **POST** `http://<worker>:<WDM_CONFIG_PORT><WDM_CONFIG_URL>` with the config payload.
+5. **Retry transport errors only** using `WDM_CONFIG_RETRY_ATTEMPTS` / `WDM_CONFIG_RETRY_DELAY`. HTTP responses (including 4xx/5xx) are returned without further transport retries.
+6. **Persist** allocation/config state only after a successful HTTP 200 response.
+
+### Failure and bus commit behavior
+
+SDRC uses a **safe bus policy** for Redis and Kafka (always on):
+
+| Result | Meaning | Bus behavior |
+|---|---|---|
+| Success (`OK`) / `CONFIGURE_OK` | Operation succeeded | Commit |
+| `NOOP` / `CONFIGURE_NOOP` | Skipped or nothing to do | Commit |
+| Terminal failure / `CONFIGURE_FAILED` | Permanent/poison failure (malformed payload, permanent reject, exhausted retries) | **ERROR log** (log-based DLQ) + **Commit** |
+| Retryable / `CONFIGURE_DEFERRED` | Temporary failure (unready workers, max replicas, HTTP/Redis/Kubernetes client blips, deferred configure) | Do **not** commit; retry the same event up to `WDM_EVENT_RETRY_LIMIT`, then promote to terminal |
+
+On Kafka retryable failures, SDRC **seeks back** to the failed offset before returning so flask-kafka’s post-handler `commit()` (and any later successful commit) cannot acknowledge and skip that offset. If `seek` fails, SDRC installs a one-shot park commit for that offset; if that also fails, the handler raises so flask-kafka does not commit past the event.
+
+This keeps the bus moving when a message can never succeed, while still retrying temporary conditions. Enable `WDM_CONFIG_DEFER_ON_FAILURE` only when you intentionally want configure redelivery until `/config` succeeds.
+
+### Example workload settings
+
+```yaml
+# Workload without /config (skip configure events)
+docker-workload-streamprocessing:
+  WDM_HANDLE_CONFIG_EVENTS: false
+
+# Workload that applies /config (warehouse 3D rtvi-cv example)
+docker-workload-rtvi-cv:
+  WDM_CONFIG_PORT: 9003
+  WDM_CONFIG_URL: /config
+  WDM_HANDLE_CONFIG_EVENTS: true
+  WDM_CONFIG_RETRY_ATTEMPTS: 60
+  WDM_CONFIG_RETRY_DELAY: 1
+```
 
 ---
 
