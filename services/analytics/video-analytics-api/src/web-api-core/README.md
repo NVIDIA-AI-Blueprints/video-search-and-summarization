@@ -64,7 +64,7 @@ Utilities used by VSS Video Analytics APIs.
 
 ### Dependencies
 
-1. [Node.js](https://nodejs.org/en/ "Nodejs.org") version 22.23.1.
+1. [Node.js](https://nodejs.org/en/ "Nodejs.org") version 22.23.2.
 2. Elasticsearch version 9.4.3
 3. Kafka (optional) - Required for RTLS application and notification related functionalities
 
