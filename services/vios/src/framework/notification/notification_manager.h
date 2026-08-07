@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -52,8 +52,18 @@ namespace nv_vms
         virtual void retryConnection () = 0;
 
         // Notification Consumer related methods
-        virtual void registerMessageListener(INotificationListener* listener) {}
-        virtual void deregisterMessageListener(INotificationListener* listener) {}
+        virtual void registerMessageListener(INotificationListener* listener)
+        {
+            // Intentionally blank: publisher-only implementations do not consume
+            // messages. Consumer implementations override this to manage m_listeners.
+            (void)listener;
+        }
+        virtual void deregisterMessageListener(INotificationListener* listener)
+        {
+            // Intentionally blank: publisher-only implementations do not consume
+            // messages. Consumer implementations override this to manage m_listeners.
+            (void)listener;
+        }
 
         bool                            m_libError = false;
         std::queue<Json::Value>         m_messages;

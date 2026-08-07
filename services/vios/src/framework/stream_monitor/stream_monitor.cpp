@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -406,11 +406,6 @@ void StreamMonitor::livenessMonitorTask()
 void StreamMonitor::sendStatusEvent(const string &url, StreamStatus status, StreamEncParam& details)
 {
     StreamEventManager::getInstance().sendEvent(url, status, details);
-}
-
-void StreamMonitor::notifyStreamStatus(const StreamStatus& status, const std::string& camera_id)
-{
-
 }
 
 /* =============Implementation of QoS Measurement ====================== */

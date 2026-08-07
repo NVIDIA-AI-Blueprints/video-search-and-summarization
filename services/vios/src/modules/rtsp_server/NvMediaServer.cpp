@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -591,7 +591,9 @@ std::pair<uint64_t, uint64_t> NvFileServerMediaSubsession::getRangeFromUrlParams
 
 void NvFileServerMediaSubsession::testScaleFactor(float& scale)
 {
-
+    /* Intentionally blank: unlike the base class, which clamps "scale" back
+     * to 1.0, the file source honours any client-requested scale factor via
+     * setStreamSourceScale(), so the requested value is left untouched. */
 }
 void NvFileServerMediaSubsession::setStreamSourceScale(FramedSource* inputSource, float scale)
 {

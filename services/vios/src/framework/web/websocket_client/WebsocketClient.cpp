@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -110,7 +110,7 @@ WebsocketClient::WebsocketClient() : m_connection(nullptr),
     int keepAliveMs = max(5000, GET_CONFIG().websocket_keep_alive_ms);
     auto chronoMs = std::chrono::milliseconds(keepAliveMs);
     m_watchdog = make_unique<Bosma::Scheduler>(1);
-    m_watchdog->interval(chronoMs, [=]()
+    m_watchdog->interval(chronoMs, [this]()
                          { websocketClientMonitorTask(); });
 }
 

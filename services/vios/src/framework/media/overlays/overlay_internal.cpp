@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,7 @@
 #include "vst_common.h"
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <opencv2/opencv.hpp>
 #include <fstream>
 #include <sstream>
@@ -2143,7 +2144,7 @@ bool NvLLOverlayInternal::doDraw (void* data, GstMetaUnion *meta, int64_t pts)
     bool ret = false;
     if (m_useId)
     {
-        ret = processOsdSinkPadBufferProbeStreamer(data, meta->vstMeta);
+        ret = processOsdSinkPadBufferProbeStreamer(data, meta->vstMeta());
     }
     ret = processOsdSinkPadBufferProbe(data, meta, pts);
     return ret;
@@ -3425,11 +3426,11 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
     void* meta = nullptr;
     if (GET_CONFIG().enable_ipc_path && m_enableBbox)
     {
-        meta = ipc_meta = union_meta->ipcMeta;
+        meta = ipc_meta = union_meta->ipcMeta();
     }
     else
     {
-        meta = vst_meta = union_meta->vstMeta;
+        meta = vst_meta = union_meta->vstMeta();
     }
 
 #ifdef USE_CUOSD
@@ -4530,7 +4531,8 @@ GstPadProbeReturn osd_sink_pad_buffer_probe (GstPad* pad, GstPadProbeInfo* info,
         }
         /* Get vst metadata of the buffer */
         GstNvVstMeta *meta;
-        meta = meta_union.vstMeta = GST_NV_VST_META_GET (buffer);
+        meta = GST_NV_VST_META_GET (buffer);
+        meta_union.setVstMeta(meta);
         if (meta)
         {
             /* ms for live playback from onFrame */
@@ -5141,10 +5143,10 @@ void NvLLOverlayInternal::draw_pose_cuosd(const std::vector<float>& keypoints,
                             OSD_COLOR_GREEN
                             };
 
-    const size_t bone_colors_count = sizeof(bone_colors) / sizeof(bone_colors[0]);
+    const size_t bone_colors_count = std::size(bone_colors);
 
     // Validate idx_bones array - ensure all indices are within bounds
-    const int num_bones = sizeof(idx_bones) / (2 * sizeof(idx_bones[0]));
+    const int num_bones = static_cast<int>(std::size(idx_bones) / 2);
     for (int i = 0; i < num_bones * 2; i++)
     {
         if (idx_bones[i] >= numKeyPoints)

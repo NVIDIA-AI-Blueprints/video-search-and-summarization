@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -140,6 +140,21 @@ public:
     virtual FileResult performHealthCheck();
 
 protected:
+    // Storage reader access for derived implementations
+    const std::shared_ptr<CloudReader>& getCloudReaderInternal() const;
+    void setCloudReaderInternal(std::shared_ptr<CloudReader> cloudReader);
+
+    // Helper methods
+    void setLastError(const std::string& error);
+    void clearLastError();
+    void updateStats(bool success, std::chrono::milliseconds latency,
+                    const std::string& errorCode = "");
+
+    // Abstract methods for specific storage implementations
+    virtual bool initializeStorage() = 0;
+    virtual bool validateConfiguration(const StorageConfig& config) = 0;
+
+private:
     // Storage mode
     StorageType m_storageMode;
 
@@ -157,16 +172,6 @@ protected:
 
     // Storage readers
     std::shared_ptr<CloudReader> m_cloudReader = nullptr;
-
-    // Helper methods
-    void setLastError(const std::string& error);
-    void clearLastError();
-    void updateStats(bool success, std::chrono::milliseconds latency,
-                    const std::string& errorCode = "");
-
-    // Abstract methods for specific storage implementations
-    virtual bool initializeStorage() = 0;
-    virtual bool validateConfiguration(const StorageConfig& config) = 0;
 };
 
 } // namespace nv_vms

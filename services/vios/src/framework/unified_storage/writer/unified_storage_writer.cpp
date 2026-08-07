@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -375,7 +375,7 @@ bool UnifiedStorageWriter::createPipelineInternal(const std::string& video_codec
         std::string vcodec_lc = video_codec;
         std::transform(vcodec_lc.begin(), vcodec_lc.end(), vcodec_lc.begin(), ::tolower);
         std::string filter_caps_str = "video/x-" + vcodec_lc + ", alignment=(string)au";
-        m_capsfilterVideo = gst_element_factory_make("capsfilter", NULL);
+        m_capsfilterVideo = gst_element_factory_make("capsfilter", nullptr);
         if (m_capsfilterVideo)
         {
             GstCaps* filter_caps = gst_caps_from_string(filter_caps_str.c_str());
@@ -428,10 +428,9 @@ bool UnifiedStorageWriter::createPipelineInternal(const std::string& video_codec
         else if (iequals(audio_codec, "mpeg4-generic"))
         {
             m_parserAudio = gst_element_factory_make("aacparse", nullptr);
-            std::string caps_string = string(
-                                          "audio/mpeg, mpegversion=(int)4, \
-                                    stream-format=(string)raw, \
-                                    codec_data=(buffer)") +
+            std::string caps_string = string("audio/mpeg, mpegversion=(int)4, "
+                                             "stream-format=(string)raw, "
+                                             "codec_data=(buffer)") +
                                       to_string(codec_data);
             GstCaps* caps_before_dec = gst_caps_from_string(caps_string.c_str());
             if (caps_before_dec)

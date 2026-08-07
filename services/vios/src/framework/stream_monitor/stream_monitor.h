@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,7 +54,12 @@ class IStreamStatusEvent
 {
 public:
     virtual void onStreamStatusChange(const string &url, const StreamStatus newStatus, StreamEncParam& details) = 0;
-    virtual void onDecoderPlayingStatus(const string &url) {}
+    virtual void onDecoderPlayingStatus(const string &url)
+    {
+        // Optional notification: listeners that do not track decoder playing
+        // state intentionally ignore it, so the default implementation is a no-op.
+        (void)url;
+    }
 };
 
 class StreamMonitor : public IMediaDataProducer
@@ -159,7 +164,6 @@ private:
     bool isCurlResponsePendingForUri(const std::string& url);
     void setCurlResponsePendingStatus(CURL *curl, bool isResponsePending);
     std::string getUriByUsingCurlHandle(const CURL *curl);
-    void notifyStreamStatus(const StreamStatus& status, const std::string& camera_id);
     std::vector<UrlInfo> getQosMonitorStreamList();
     void qosMeasurementTask();
     void cleanupQoSThread();

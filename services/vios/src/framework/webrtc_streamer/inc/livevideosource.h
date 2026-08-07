@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -372,14 +372,13 @@ public:
     }
 
     uint64_t m_resume_time_in_epoch;
+protected:
+    T& getLiveClient() { return m_liveclient; }
+
 private:
     EventLoopWatchVariable m_stop{0};
     Environment m_env;
-
-protected:
     T m_liveclient;
-
-private:
     std::thread                        m_capturethread;
     std::vector<uint8_t>               m_cfg;
     std::map<std::string, std::string, std::less<>> m_media;

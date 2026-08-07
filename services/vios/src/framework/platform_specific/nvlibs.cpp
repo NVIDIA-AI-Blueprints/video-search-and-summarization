@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,11 +31,11 @@
 #define ABSOLUTE_LIBRARY_PATH_X86_64 "/usr/lib/x86_64-linux-gnu/libv4l2.so.0"
 #define ABSOLUTE_LIBRARY_PATH_ARCH64 "/usr/lib/aarch64-linux-gnu/libv4l2.so.0"
 
-NvLibs* NvLibs::_instance = NULL;
+NvLibs* NvLibs::_instance = nullptr;
 
 NvLibs* NvLibs::getInstance()
 {
-    if(_instance == NULL)
+    if(_instance == nullptr)
     {
         _instance = new NvLibs();
     }

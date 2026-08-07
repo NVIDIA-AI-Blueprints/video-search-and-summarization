@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,7 +46,7 @@ public:
 
     std::atomic<bool>   m_webrtcVideoInDataFlow{false};
     std::string         m_fpsValues;
-protected:
+private:
     webrtc::scoped_refptr<webrtc::VideoTrackInterface> m_track;
     std::shared_ptr<WebrtcStream>                   m_producer;
     bool                                            m_notify {true};
@@ -73,7 +73,7 @@ public:
         size_t number_of_frames);
 
     std::atomic<bool>   m_webrtcAudioInDataFlow{false};
-protected:
+private:
     webrtc::scoped_refptr<webrtc::AudioTrackInterface> m_track;
     std::shared_ptr<WebrtcStream>                   m_producer;
     bool                                            m_notify {true};
@@ -128,6 +128,7 @@ class PeerConnectionStatsCollectorCallback : public webrtc::RTCStatsCollectorCal
     protected:
         virtual void OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
 
+    private:
         Json::Value m_report;
         std::string m_transportId;
 };
@@ -163,6 +164,8 @@ public:
     virtual void OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState new_state);
     virtual void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState state);
     virtual void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState) {
+        // Intentionally blank: ICE candidates are handled as they arrive in
+        // OnIceCandidate(), so gathering state transitions need no action.
     }
 
     void setDeviceId(std::string deviceId)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -109,7 +109,7 @@ StorageManagement::StorageManagement(const string deviceType, const string devic
         const uint64_t frequency = config.storage_monitoring_frequency_secs;
         std::chrono::seconds seconds (frequency);
         m_storage = make_unique<Bosma::Scheduler>(AGING_POLICY_THREAD_COUNT);
-        m_storage->interval(seconds, [=]() {
+        m_storage->interval(seconds, [this]() {
             StorageMonitorTask();
         });
         LOG(info) << "Aging policy enabled (enable_aging_policy=" << config.enable_aging_policy << ")" << endl;
@@ -134,7 +134,7 @@ StorageManagement::StorageManagement(const string deviceType, const string devic
 
     std::chrono::seconds prometheus_interval (5);
     m_monitoring = make_unique<Bosma::Scheduler>(1);
-    m_monitoring->interval(prometheus_interval, [=]() {
+    m_monitoring->interval(prometheus_interval, [this]() {
         sendCurrentUsedStorageSizeToPrometheus();
     });
 

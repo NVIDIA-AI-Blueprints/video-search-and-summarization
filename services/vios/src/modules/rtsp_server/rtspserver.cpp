@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -133,10 +133,7 @@ RtspServer::RtspServer(u_int16_t port)
     {
         live555Config.setBoolean("enable_packet_pacing", True);
         live555Config.setInt("packet_pace_time_us", config.rtp_packet_pace_time_us);
-        if (config.rtp_packet_batch_size >= 0)
-        {
-            live555Config.setInt("packet_batch_size", config.rtp_packet_batch_size);
-        }
+        live555Config.setInt("packet_batch_size", config.rtp_packet_batch_size);
     }
 
     m_env.mPreferredIface = nullptr;

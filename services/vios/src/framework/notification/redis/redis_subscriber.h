@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,7 +38,11 @@ public:
     void deliverMessage(void *msg, int len);
 
     bool deliverMessage (Json::Value& message) override { return true; }
-    void retryConnection () override {}
+    void retryConnection () override
+    {
+        // Intentionally blank: reconnection to the Redis endpoint is handled
+        // internally by the nvds_msgapi subscriber connection.
+    }
 
 private:
     static RedisSubscriber*                         _instance;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -170,7 +170,7 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         void generateRpCandidate(const string& streamId, Json::Value iceCandidate);
     public:
         std::string                                                     m_pcType {""};
-    protected:
+    private:
         std::unique_ptr<webrtc::TaskQueueFactory>                       m_taskQueueFactory;
         webrtc::scoped_refptr<webrtc::AudioDeviceModule>                   m_audioDeviceModule;
 #ifndef ASYNC_API
@@ -189,7 +189,6 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         static std::string                                              m_rpStunServer;
         static std::mutex                                               m_rpStunServerLock;
         Json::Value                                                     m_externalPeerInfo;
-    private:
         std::shared_ptr<nv_vms::DeviceManager>                          m_deviceManager;
         std::thread                                                     m_peerConnMonitoringThread;
         std::atomic<bool>                                               m_exitPeerConnThread;

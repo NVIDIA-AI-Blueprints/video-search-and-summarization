@@ -218,7 +218,7 @@ static int GetSensorInfo(shared_ptr<SensorInfo>& sensor)
 
 bool OnvifClient::isSensorExists(const string& id)
 {
-    for (auto sensor : m_cacheSensorList)
+    for (auto sensor : cacheSensorList())
     {
         if(sensor->id == id)
         {
@@ -230,7 +230,7 @@ bool OnvifClient::isSensorExists(const string& id)
 
 std::shared_ptr<SensorInfo> OnvifClient::getSensor(const string& id)
 {
-    for (auto sensor : m_cacheSensorList)
+    for (auto sensor : cacheSensorList())
     {
         if(sensor->id == id)
         {
@@ -353,13 +353,13 @@ int OnvifClient::fetchSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors)
         return ret;
     }
 
-    soap.user = m_adaptorInfo.m_user;
-    soap.password = m_adaptorInfo.m_password;
+    soap.user = adaptorInfo().m_user;
+    soap.password = adaptorInfo().m_password;
     soap.curl = clientSession->getCurlClient();
     soap.authMethod = AUTH_METHOD_USERNAME_TOKEN;
     clientSession->getNvSoap()->getHttpErrorCode(); // reset code value
     vector<SensorSettings> settings;
-    soap.url = m_adaptorInfo.m_url +  string(":") + m_adaptorInfo.m_port + string("/onvif/device_service");
+    soap.url = adaptorInfo().m_url +  string(":") + adaptorInfo().m_port + string("/onvif/device_service");
     soap.device_url = soap.url;
     map<string, OnvifServiceInfo> caps;
     OnvifServiceInfo serviceInfo;
@@ -428,13 +428,13 @@ int OnvifClient::fetchSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors)
             sensor = getSensor(s.token.profileToken);
             sensor->streams.clear();
         }
-        sensor->user =  m_adaptorInfo.m_user;
-        sensor->password = m_adaptorInfo.m_password;
+        sensor->user =  adaptorInfo().m_user;
+        sensor->password = adaptorInfo().m_password;
         sensor->id = sensor->sensorId = stream->id = s.token.profileToken;
         // Set sensor URL to MMS device URL (needed for MMS mode)
         sensor->url = soap.device_url;
         // Extract and set IP from MMS device URL (needed for duplicate detection in database layer)
-        sensor->ip = m_adaptorInfo.m_ipaddress;
+        sensor->ip = adaptorInfo().m_ipaddress;
         // Set sensor type to MMS_ONVIF for MMS sensors, For onvif sensors, type is set in discovery_adaptor
         sensor->type = SENSOR_TYPE_MMS_ONVIF;
         // Populate serviceUrls with MMS device capabilities (avoid redundant getDeviceCapabilities calls)
@@ -505,10 +505,10 @@ int OnvifClient::fetchSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors)
         }
         {
             nvsoap_ in;
-            in.url = HTTPS + string("://") + m_adaptorInfo.m_ipaddress;
+            in.url = HTTPS + string("://") + adaptorInfo().m_ipaddress;
             in.token = stream->id;
-            in.user = m_adaptorInfo.m_user;
-            in.password = m_adaptorInfo.m_password;
+            in.user = adaptorInfo().m_user;
+            in.password = adaptorInfo().m_password;
             in.curl = clientSession->getCurlClient();
             clientSession->getNvSoap()->getCameraPostionsValues(in, sensor->position);
         }
@@ -537,11 +537,11 @@ int OnvifClient::connect()
     int result = -1;
     string url;
     int online_sensors = 0;
-    if (m_adaptorInfo.m_type == TYPE_VST)
+    if (adaptorInfo().m_type == TYPE_VST)
     {
         int max_sensors = GET_CONFIG().max_sensors_supported;
         std::vector<shared_ptr<SensorInfo>>::iterator it;
-        for (it = m_cacheSensorList.begin(); it != m_cacheSensorList.end();)
+        for (it = cacheSensorList().begin(); it != cacheSensorList().end();)
         {
             auto sensor =  *it;
             bool is_sensor_offline = false;
@@ -582,7 +582,7 @@ int OnvifClient::connect()
             if(online_sensors >= max_sensors)
             {
                 LOG(warning) << "Max sensor limit is reached, so deleting extra sensor: " << sensor->name << endl;
-                it = m_cacheSensorList.erase(it);
+                it = cacheSensorList().erase(it);
                 continue;
             }
             else
@@ -612,10 +612,10 @@ int OnvifClient::connect()
             return result;
         }
         /* TBD, about ONVIF endpoints, getting input from vms_config.json file */
-        url = m_adaptorInfo.m_url +  string(":") + m_adaptorInfo.m_port + string("/onvif/device_service");
+        url = adaptorInfo().m_url +  string(":") + adaptorInfo().m_port + string("/onvif/device_service");
         nvsoap_ soap;
-        soap.user = m_adaptorInfo.m_user;
-        soap.password = m_adaptorInfo.m_password;
+        soap.user = adaptorInfo().m_user;
+        soap.password = adaptorInfo().m_password;
         soap.url = soap.device_url = url;
         soap.curl = clientSession->getCurlClient();
         soap.authMethod = AUTH_METHOD_USERNAME_TOKEN;
@@ -673,7 +673,7 @@ int OnvifClient::getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors)
     std::shared_ptr<NvSoap> nvsoap;
     nvsoap_ soap;
     std::shared_ptr<ClientSession> clientSession;
-    if (m_adaptorInfo.m_type == TYPE_VST)
+    if (adaptorInfo().m_type == TYPE_VST)
     {
         for (uint32_t i = 0; i < sensors.size(); i++)
         {
@@ -730,7 +730,7 @@ int OnvifClient::getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors)
             }
         }
     }
-    else if (m_adaptorInfo.m_type == TYPE_MMS)
+    else if (adaptorInfo().m_type == TYPE_MMS)
     {
         response = fetchSensorStreamInfo(sensors);
     }
@@ -748,7 +748,7 @@ int OnvifClient::getSensorStreamInfo(shared_ptr<SensorInfo>& sensor)
         return -1;
     }
     vector<shared_ptr<StreamInfo>> streams;
-    if (m_adaptorInfo.m_type == TYPE_VST)
+    if (adaptorInfo().m_type == TYPE_VST)
     {
         if (sensor->url.empty())
         {

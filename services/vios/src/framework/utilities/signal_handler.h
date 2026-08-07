@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -72,7 +72,7 @@ private:
         void* addrlist[max_frames+1];
 
         // retrieve current stack addresses
-        int addrlen = backtrace(addrlist, sizeof(addrlist) / sizeof(void*));
+        int addrlen = backtrace(addrlist, static_cast<int>(max_frames + 1));
         if (addrlen == 0)
         {
             LOG(error) << " <empty, possibly corrupt>" << endl;

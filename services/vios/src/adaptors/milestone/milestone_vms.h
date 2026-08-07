@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +42,11 @@ class ICameraStatusEvent
 {
     public:
         virtual void onDeviceEvent(const SensorStatus& status) = 0;
-        virtual void notifyEvent(const SensorStatus& status, const string& camera_ip){}
+        virtual void notifyEvent(const SensorStatus& status, const string& camera_ip)
+        {
+            // Optional notification hook: implementers that only care about onDeviceEvent()
+            // intentionally leave this as a no-op.
+        }
 };
 
 

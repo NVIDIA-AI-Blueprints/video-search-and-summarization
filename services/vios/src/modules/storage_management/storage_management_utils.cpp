@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1875,7 +1875,7 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
             ", deviceType:" << deviceMngr->getDeviceType() << endl;
 
         // Add B-frame presence flag to stream data for database storage
-        if (enable_transcode != NULL && strcmp(enable_transcode, "true") == 0)
+        if (enable_transcode != nullptr && strcmp(enable_transcode, "true") == 0)
         {
             is_bframesPresent = false;
             LOG(info) << "B-frames presence flag disabled due to transcoding" << endl;

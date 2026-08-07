@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -105,6 +105,9 @@ public:
     void setCacheSensorList(std::vector<shared_ptr<SensorInfo>> list) { m_cacheSensorList = list; }
     std::vector<shared_ptr<SensorInfo>> getCacheSensorList() { return m_cacheSensorList; }
 protected:
+    const AdaptorInfo& adaptorInfo() const { return m_adaptorInfo; }
+    std::vector<shared_ptr<SensorInfo>>& cacheSensorList() { return m_cacheSensorList; }
+private:
     AdaptorInfo m_adaptorInfo;
     std::vector<shared_ptr<SensorInfo>> m_cacheSensorList;
 };

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -90,7 +90,8 @@ void SensorDataCollector::start()
 
 void SensorDataCollector::stop()
 {
-
+    // Intentionally empty: discovery is a one-shot scan performed by start(),
+    // so there is no background activity or resource to release here.
 }
 
 int SensorDataCollector::searchSensor(SensorInfo& sensor)

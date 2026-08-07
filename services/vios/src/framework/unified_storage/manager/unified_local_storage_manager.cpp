@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -313,7 +313,7 @@ bool UnifiedLocalStorageManager::createDirectory(const std::string& path, bool c
 {
     if (!isAvailable())
     {
-        m_last_error = "Local storage manager not initialized";
+        setLastError("Local storage manager not initialized");
         return false;
     }
     
@@ -336,12 +336,12 @@ bool UnifiedLocalStorageManager::createDirectory(const std::string& path, bool c
     }
     catch (const std::filesystem::filesystem_error& e)
     {
-        m_last_error = "Filesystem error: " + std::string(e.what());
+        setLastError("Filesystem error: " + std::string(e.what()));
         return false;
     }
     catch (const std::exception& e)
     {
-        m_last_error = "Exception: " + std::string(e.what());
+        setLastError("Exception: " + std::string(e.what()));
         return false;
     }
 }
@@ -379,7 +379,7 @@ bool UnifiedLocalStorageManager::performHealthCheck()
 {
     if (!isAvailable())
     {
-        m_last_error = "Local storage manager not initialized";
+        setLastError("Local storage manager not initialized");
         return false;
     }
     
@@ -389,13 +389,13 @@ bool UnifiedLocalStorageManager::performHealthCheck()
         std::filesystem::path base_path(m_base_path);
         if (!std::filesystem::exists(base_path))
         {
-            m_last_error = "Base directory does not exist: " + m_base_path;
+            setLastError("Base directory does not exist: " + m_base_path);
             return false;
         }
         
         if (!std::filesystem::is_directory(base_path))
         {
-            m_last_error = "Base path is not a directory: " + m_base_path;
+            setLastError("Base path is not a directory: " + m_base_path);
             return false;
         }
         
@@ -404,7 +404,7 @@ bool UnifiedLocalStorageManager::performHealthCheck()
         std::ofstream test_stream(test_file);
         if (!test_stream.is_open())
         {
-            m_last_error = "Cannot write to base directory: " + m_base_path;
+            setLastError("Cannot write to base directory: " + m_base_path);
             return false;
         }
         test_stream.close();
@@ -414,7 +414,7 @@ bool UnifiedLocalStorageManager::performHealthCheck()
     }
     catch (const std::exception& e)
     {
-        m_last_error = "Health check failed: " + std::string(e.what());
+        setLastError("Health check failed: " + std::string(e.what()));
         return false;
     }
 }
@@ -429,11 +429,12 @@ bool UnifiedLocalStorageManager::initializeStorage()
     try
     {
         // Get configuration parameters
-        m_base_path = m_config.getParameter(StorageConstants::BASE_PATH_KEY, "/tmp/vms_storage");
-        m_create_directories = m_config.getParameter(StorageConstants::CREATE_DIRECTORIES_KEY, "true") == "true";
-        m_recursive_listing = m_config.getParameter(StorageConstants::RECURSIVE_LISTING_KEY, "false") == "true";
-        m_max_depth = std::stoul(m_config.getParameter(StorageConstants::MAX_DEPTH_KEY, "10"));
-        m_include_hidden = m_config.getParameter(StorageConstants::INCLUDE_HIDDEN_KEY, "false") == "true";
+        const StorageConfig config = getConfig();
+        m_base_path = config.getParameter(StorageConstants::BASE_PATH_KEY, "/tmp/vms_storage");
+        m_create_directories = config.getParameter(StorageConstants::CREATE_DIRECTORIES_KEY, "true") == "true";
+        m_recursive_listing = config.getParameter(StorageConstants::RECURSIVE_LISTING_KEY, "false") == "true";
+        m_max_depth = std::stoul(config.getParameter(StorageConstants::MAX_DEPTH_KEY, "10"));
+        m_include_hidden = config.getParameter(StorageConstants::INCLUDE_HIDDEN_KEY, "false") == "true";
         
         // Create base directory if it doesn't exist and create_directories is enabled
         if (m_create_directories)
@@ -449,7 +450,7 @@ bool UnifiedLocalStorageManager::initializeStorage()
     }
     catch (const std::exception& e)
     {
-        m_last_error = "Failed to initialize local storage: " + std::string(e.what());
+        setLastError("Failed to initialize local storage: " + std::string(e.what()));
         return false;
     }
 }

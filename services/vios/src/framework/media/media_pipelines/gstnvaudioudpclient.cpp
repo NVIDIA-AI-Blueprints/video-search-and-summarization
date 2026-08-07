@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -158,7 +158,7 @@ on_new_sample_from_sink (GstElement * appsink, GstUDPAudioClient* nvAudioUDPClie
 
 int GstUDPAudioClient::create_internal ()
 {
-    LOG (info) << "Creating Gstreamer UDP Audio Client Pipeline on port: " << m_id << endl;
+    LOG (info) << "Creating Gstreamer UDP Audio Client Pipeline on port: " << getId() << endl;
     if (gst_is_initialized() == false)
     {
         gst_init (nullptr, nullptr);
@@ -223,15 +223,15 @@ int GstUDPAudioClient::create_internal ()
         return -1;
     }
 
-    LOG (info) << "Created Gstreamer UDP Audio Client Pipeline on port: " << m_id << endl;
+    LOG (info) << "Created Gstreamer UDP Audio Client Pipeline on port: " << getId() << endl;
     return 0;
 }
 
 void GstUDPAudioClient::play_internal ()
 {
-    LOG (info) << "Transitioning to PLAY Gstreamer UDP Audio Client Pipeline on port: " << m_id << endl;
+    LOG (info) << "Transitioning to PLAY Gstreamer UDP Audio Client Pipeline on port: " << getId() << endl;
     gst_element_set_state (m_pipeline, GST_STATE_PLAYING);
-    LOG (info) << "Setting Completed to PLAY Gstreamer UDP Audio Client Pipeline on port: " << m_id << endl;
+    LOG (info) << "Setting Completed to PLAY Gstreamer UDP Audio Client Pipeline on port: " << getId() << endl;
 }
 
 bool GstUDPAudioClient::pause_internal()
@@ -239,17 +239,17 @@ bool GstUDPAudioClient::pause_internal()
     bool ret = true;
     if (m_pipeline)
     {
-        LOG (info) << "Pausing the pipeline, port:" << m_id << endl;
+        LOG (info) << "Pausing the pipeline, port:" << getId() << endl;
         GstStateChangeReturn gstStateChangeRet = gst_element_set_state (m_pipeline, GST_STATE_PAUSED);
         if (gstStateChangeRet == GST_STATE_CHANGE_FAILURE)
         {
-            LOG (error) << "gst_element_set_state failed UDP Audio Client Pipeline on port: " << m_id << endl;
+            LOG (error) << "gst_element_set_state failed UDP Audio Client Pipeline on port: " << getId() << endl;
             ret = false;
         }
         else
         {
             gst_element_get_state (m_pipeline, nullptr, nullptr, GST_SECOND);
-            LOG (info) << "State change success UDP Audio Client Pipeline on port: " << m_id << endl;
+            LOG (info) << "State change success UDP Audio Client Pipeline on port: " << getId() << endl;
         }
     }
     return ret;
@@ -257,7 +257,7 @@ bool GstUDPAudioClient::pause_internal()
 
 void GstUDPAudioClient::resume_internal ()
 {
-    LOG (info) << "Resume the pipeline, port:" << m_id << endl;
+    LOG (info) << "Resume the pipeline, port:" << getId() << endl;
     if (m_pipeline)
     {
         gst_element_set_state (m_pipeline, GST_STATE_PLAYING);
@@ -266,7 +266,7 @@ void GstUDPAudioClient::resume_internal ()
 
 void GstUDPAudioClient::destroy_internal ()
 {
-    LOG(info) << "Terminating gstreamer UDP Audio Client Pipeline on port: " << m_id << endl;
+    LOG(info) << "Terminating gstreamer UDP Audio Client Pipeline on port: " << getId() << endl;
     if (m_pipeline == nullptr)
     {
         return;
@@ -288,7 +288,7 @@ void GstUDPAudioClient::destroy_internal ()
         gst_object_unref (m_bus);
         m_bus = nullptr;
     }
-    LOG(info) << "Terminated gstreamer UDP Audio Client Pipeline on port: " << m_id << endl;
+    LOG(info) << "Terminated gstreamer UDP Audio Client Pipeline on port: " << getId() << endl;
 }
 
 int GstUDPAudioClient::create(int freq)

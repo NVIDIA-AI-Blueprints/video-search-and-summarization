@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +40,7 @@ class IVstModule
         nv_vms::IMediaInterface* m_mediaInterface = nullptr;
 
         virtual const std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>> getHttpApi() { return m_func; };
-        virtual void postInit() {}
+        virtual void postInit() { /* Optional hook: modules that need no post-initialization work keep this no-op. */ }
         virtual ~IVstModule() {}
 };
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -125,7 +125,7 @@ int testRtspUrl(const char* url, std::string& codec, std::string& frame_rate, st
         if (rtsp_client->m_describeState == false)
         {
             auto until = std::chrono::system_clock::now() + 2s;
-            rtsp_client->m_sdpMonitorCv.wait_until(sdp_lock, until, [&]() { return rtsp_client->m_describeState; });
+            rtsp_client->m_sdpMonitorCv.wait_until(sdp_lock, until, [rtsp_client]() { return rtsp_client->m_describeState; });
         }
     }
     delete client;

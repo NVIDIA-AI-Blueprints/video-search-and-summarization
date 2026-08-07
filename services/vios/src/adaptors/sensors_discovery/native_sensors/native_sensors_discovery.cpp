@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,6 +47,30 @@ static string trim(const string& str, const string& whitespace = " \t")
     return str.substr(strBegin, strRange);
 }
 
+// Runs a shell command and collects its output. Blocking, must never be called while holding a lock.
+static bool readCommandOutput(const string& cmd, string& output)
+{
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe)
+    {
+        LOG(error) << "Error executing command '" << cmd << "': " << strerror(errno) << " (errno: " << errno << ")"
+                   << endl;
+        return false;
+    }
+
+    char buffer[128];
+    while (!feof(pipe))
+    {
+        if (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+        {
+            output += buffer; // Collect the command output
+        }
+    }
+
+    pclose(pipe); // Close the pipe
+    return true;
+}
+
 static void parseResolution(const string& resolutionStr, string& width, string& height, string& fps)
 {
     size_t xPos = resolutionStr.find('x');
@@ -74,27 +98,13 @@ std::string NativeSensorsDiscovery::getDeviceName(const std::string& devicePath)
 void NativeSensorsDiscovery::doNativeSensorDiscovery(vector<SensorInfo>& sensors)
 {
     string cmd = "v4l2-ctl --list-devices";
-    FILE* pipe = popen(cmd.c_str(), "r"); // Execute v4l2-ctl command
     unsigned int sensor_count = 0;
 
-    if (!pipe)
+    string output;
+    if (!readCommandOutput(cmd, output))
     {
-        LOG(error) << "Error executing v4l2-ctl command: " << strerror(errno) << " (errno: " << errno << ")" << endl;
         return;
     }
-
-    string output;
-    char buffer[128];
-
-    while (!feof(pipe))
-    {
-        if (fgets(buffer, 128, pipe) != nullptr)
-        {
-            output += buffer; // Collect the command output
-        }
-    }
-
-    pclose(pipe); // Close the pipe
 
     // Extract video capture sensor information
     string delimiter = "\n\n";
@@ -150,27 +160,13 @@ void NativeSensorsDiscovery::doNativeSensorDiscovery(vector<SensorInfo>& sensors
         LOG(verbose) << "Sensor Id: " << sensor.id << endl;
 
         string resolutionCmd = "v4l2-ctl --list-formats-ext -d " + sensor.location;
-        pipe = popen(resolutionCmd.c_str(), "r"); // Execute v4l2-ctl command
-
-        if (!pipe)
-        {
-            LOG(error) << "Error executing v4l2-ctl command: " << strerror(errno) << " (errno: " << errno << ")" << endl;
-            return;
-        }
 
         string resOutput;
-        char resBuffer[128];
-
-        while (!feof(pipe))
+        if (!readCommandOutput(resolutionCmd, resOutput))
         {
-            if (fgets(resBuffer, 128, pipe) != nullptr)
-            {
-                resOutput += resBuffer; // Collect the command output
-            }
+            return;
         }
         LOG(verbose) << resOutput << endl;
-
-        pclose(pipe); // Close the pipe
 
         delimiter2 = "Bayer";
         resPos = resOutput.find(delimiter2);
@@ -292,10 +288,11 @@ void NativeSensorsDiscovery::nativeSensorsDiscoveryTask()
 {
     while (m_exit == false)
     {
+        vector<SensorInfo> sensors;
+        doNativeSensorDiscovery(sensors); // Runs blocking v4l2-ctl commands, keep it out of the critical section
+
         {
             std::lock_guard<std::mutex> sensorsLock(m_monitorMutex);
-            vector<SensorInfo> sensors;
-            doNativeSensorDiscovery(sensors);
             m_freshList.clear();
 
             for (uint32_t ele = 0; ele < sensors.size(); ele++)

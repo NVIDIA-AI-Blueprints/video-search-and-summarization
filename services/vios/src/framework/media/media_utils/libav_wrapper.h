@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 
 #include <dlfcn.h>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 // Include for platform-specific macros (same as vstmodule.cpp)
 #include <string>
@@ -102,7 +103,7 @@ private:
         "/lib64/",
         "/usr/lib64/"
     };
-    static constexpr size_t TRUSTED_SYSTEM_DIRS_COUNT = sizeof(TRUSTED_SYSTEM_DIRS) / sizeof(TRUSTED_SYSTEM_DIRS[0]);
+    static constexpr size_t TRUSTED_SYSTEM_DIRS_COUNT = std::size(TRUSTED_SYSTEM_DIRS);
 
     // Secure library loading function with path validation
     void* tryLoadLibrary(const char* lib_path)

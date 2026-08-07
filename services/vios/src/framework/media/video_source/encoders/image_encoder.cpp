@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +20,7 @@
 #include <gst/app/gstappsrc.h>
 #include <gst/app/gstappsink.h>
 #include "nvjpegenc_loader.h"
+#include <limits>
 
 using namespace std;
 using namespace std::chrono_literals;
@@ -321,7 +322,7 @@ void ImageEnc::pushBuffer(std::shared_ptr<RawFrameParams> frameData)
 
 void ImageEnc::hwEncode(uint64_t fd, std::shared_ptr<RawFrameParams> frameData)
 {
-    if (fd < 0)
+    if (fd > static_cast<uint64_t>(std::numeric_limits<int>::max()))
     {
         LOG(error) << "fd error " << fd << endl;
         return;

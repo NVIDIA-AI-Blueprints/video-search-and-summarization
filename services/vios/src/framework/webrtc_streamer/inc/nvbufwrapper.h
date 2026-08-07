@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -254,7 +254,7 @@ class NvBufWrapper
                 sw_surf->surfaceList->planeParams.bytesPerPix[2] = 1;
 
                 // convert from I420 sw memory to I420 hw memory
-                NvBufSurface *hw_surf = 0;
+                NvBufSurface *hw_surf = nullptr;
                 NvBufSurfaceAllocateParams input_params = {0};
                 input_params.params.width       = sourceWidth;
                 input_params.params.height      = sourceHeight;
@@ -293,7 +293,7 @@ class NvBufWrapper
                 }
 
                 // Color conversion from I420 to NV12 and Resolution change
-                NvBufSurface *op_surf = 0;
+                NvBufSurface *op_surf = nullptr;
                 // On Jetson/Orin a fresh output surface is always allocated; on
                 // Thor/SBSA/x86 it is derived from an existing fd when one is provided.
                 if (isJetsonPlatform() || (fd && *fd == -1))
@@ -403,7 +403,7 @@ class NvBufWrapper
                     int dmabuf_fd = fd != nullptr ? *fd : -1;
                     for (int plane = 0; plane < 2; ++plane)
                     {
-                        NvBufSurface *nvbuf_surf = 0;
+                        NvBufSurface *nvbuf_surf = nullptr;
                         ret = NvBufSurfaceFromFd(dmabuf_fd, (void**)(&nvbuf_surf));
                         if (ret != 0)
                         {
@@ -597,7 +597,7 @@ class NvBufWrapper
                 LOG(error) << "NvBufSurface functions not loaded" << endl;
                 return;
             }
-            NvBufSurface *nvbuf_surf = 0;
+            NvBufSurface *nvbuf_surf = nullptr;
             int status = -1;
             status = NvBufSurfaceFromFd (fd, (void**)(&nvbuf_surf));
             if (status < 0)
@@ -703,7 +703,7 @@ class NvBufWrapper
                 LOG(error) << "NvBufSurfaceFromFd not loaded" << endl;
                 return nullptr;
             }
-            NvBufSurface *nvbuf_surf = 0;
+            NvBufSurface *nvbuf_surf = nullptr;
             int status = -1;
             status = NvBufSurfaceFromFd (fd, (void**)(&nvbuf_surf));
             if (status < 0)
@@ -1237,7 +1237,7 @@ class NvBufWrapper
                     int dmabuf_fd = op_surf->surfaceList->bufferDesc;
                     for (int plane = 0; plane < 2; ++plane)
                     {
-                        NvBufSurface *nvbuf_surf = 0;
+                        NvBufSurface *nvbuf_surf = nullptr;
                         ret = NvBufSurfaceFromFd(dmabuf_fd, (void**)(&nvbuf_surf));
                         ret = NvBufSurfaceMap(nvbuf_surf, 0, plane, NVBUF_MAP_READ_WRITE);
                         if (ret < 0)

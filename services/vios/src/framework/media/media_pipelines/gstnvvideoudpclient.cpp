@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -155,7 +155,7 @@ GstUDPVideoClient::GstUDPVideoClient (const string&  id, UdpStream& stream)
 
 GstUDPVideoClient::~GstUDPVideoClient ()
 {
-    LOG(info) << "~GstUDPVideoClient port:" << m_id << endl;
+    LOG(info) << "~GstUDPVideoClient port:" << getId() << endl;
     if (GET_CONFIG().enable_udp_input_dump)
     {
         fclose(m_dumpFile);
@@ -936,7 +936,7 @@ static bool link_decoder(GstElement* decoder, GstElement* element)
 
 int GstUDPVideoClient::create_internal ()
 {
-    LOG (info) << "Creating Gstreamer udp-video on port: " << m_id << endl;
+    LOG (info) << "Creating Gstreamer udp-video on port: " << getId() << endl;
     if (gst_is_initialized() == false)
     {
         gst_init (nullptr, nullptr);
@@ -1243,7 +1243,7 @@ void GstUDPVideoClient::play_internal ()
     LOG (info) << "Exit - play Gstreamer GstUDPVideoClient pipeline" << endl;   
 
     m_videoDataWatchDog = make_unique<Bosma::Scheduler>(1);
-    m_videoDataWatchDog->interval(VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [=]() {
+    m_videoDataWatchDog->interval(VIDEO_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [this]() {
         checkVideoDataFlowStatus();
     });
 }
@@ -1253,7 +1253,7 @@ bool GstUDPVideoClient::pause_internal()
     bool ret = true;
     if (m_pipeline)
     {
-        LOG (info) << "Pausing the pipeline, port:" << m_id << endl;
+        LOG (info) << "Pausing the pipeline, port:" << getId() << endl;
         GstStateChangeReturn gstStateChangeRet = gst_element_set_state (m_pipeline, GST_STATE_PAUSED);
         if (gstStateChangeRet == GST_STATE_CHANGE_FAILURE)
         {
@@ -1296,7 +1296,7 @@ void GstUDPVideoClient::reset_pipeline_internal ()
 void GstUDPVideoClient::destroy_internal ()
 {
     GstStateChangeReturn state_change;
-    LOG(info) << "Terminating gstreamer udp-video pipeline port:" << m_id << endl;
+    LOG(info) << "Terminating gstreamer udp-video pipeline port:" << getId() << endl;
     m_videoDataWatchDog.reset();
     if (m_pipeline == nullptr)
     {
@@ -1340,7 +1340,7 @@ void GstUDPVideoClient::destroy_internal ()
         m_bus = nullptr;
     }
     m_videoDataReceived = false;
-    LOG(info) << "Terminated gstreamer udp-video pipeline port:" << m_id << endl;
+    LOG(info) << "Terminated gstreamer udp-video pipeline port:" << getId() << endl;
 }
 
 int GstUDPVideoClient::create()

@@ -75,7 +75,7 @@ void RemoteDevice::syncSensorStatus()
 {
     std::vector<shared_ptr<SensorInfo>>::iterator it;
     set<pair<string, string>> remoteIds;
-    for (auto sensor : m_cacheSensorList)
+    for (auto sensor : cacheSensorList())
     {
         if (sensor.get() && sensor->isRemoteSensor)
         {
@@ -150,7 +150,7 @@ void RemoteDevice::syncSensorStatus(pair<string, string> sensorInfo)
     response = object->m_response;
     if (response.isObject())
     {
-        for (auto sensor : m_cacheSensorList)
+        for (auto sensor : cacheSensorList())
         {
             if (sensor.get() && sensor->id == sensorInfo.first)
             {
