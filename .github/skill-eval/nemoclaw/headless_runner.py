@@ -37,6 +37,7 @@ OPENCLAW_SESSION_MAX_DEPTH = 8
 OPENCLAW_LAUNCH_SESSION_METADATA = "openclaw-launch-session.json"
 OPENCLAW_LLM_TIMEOUT_RETRY_MIN_SECONDS = 120
 OPENCLAW_LLM_TIMEOUT_RETRY_MAX_SECONDS = 600
+OPENCLAW_RETRY_ROOT_CONVERGENCE_DELAYS_SECONDS = (1, 2, 4)
 OPENCLAW_PROFILE_READINESS_RESERVE_SECONDS = 120
 RTSP_TOOL_ENV_READY_SENTINEL = "RTSP_SAMPLE_URL is set"
 RTSP_TOOL_ENV_PROBE_COMMAND = (
@@ -1322,6 +1323,43 @@ def _validate_openclaw_retry_root_session(
     )
 
 
+def _wait_for_valid_openclaw_retry_root_session(
+    sandbox_name: str,
+    session_file: str,
+    *,
+    expected_session_id: str,
+    expected_prompt: str,
+    deadline: float | None,
+) -> None:
+    """Wait briefly for the exact retry root transcript to finish flushing."""
+    delays = OPENCLAW_RETRY_ROOT_CONVERGENCE_DELAYS_SECONDS
+    for attempt_index in range(len(delays) + 1):
+        try:
+            root_session_jsonl = _read_managed_openclaw_session(
+                sandbox_name,
+                session_file,
+                OPENCLAW_SESSION_MAX_BYTES,
+                deadline,
+            )
+            _validate_openclaw_retry_root_session(
+                root_session_jsonl,
+                expected_session_id=expected_session_id,
+                expected_prompt=expected_prompt,
+            )
+            return
+        except (
+            OSError,
+            RuntimeError,
+            subprocess.SubprocessError,
+            ValueError,
+        ):
+            if attempt_index >= len(delays):
+                raise
+        _sleep_before_deadline(deadline, delays[attempt_index])
+
+    raise AssertionError("OpenClaw retry root convergence loop was exhausted")
+
+
 def collect_and_publish_openclaw_trajectory(
     sandbox_name: str,
     log_dir: Path,
@@ -2217,16 +2255,12 @@ def run_openclaw_cli(
             return response
 
         try:
-            root_session_jsonl = _read_managed_openclaw_session(
+            _wait_for_valid_openclaw_retry_root_session(
                 sandbox_name,
                 expected_session_file,
-                OPENCLAW_SESSION_MAX_BYTES,
-                retry_deadline_cap,
-            )
-            _validate_openclaw_retry_root_session(
-                root_session_jsonl,
                 expected_session_id=candidate_session_id,
                 expected_prompt=prompt,
+                deadline=retry_deadline_cap,
             )
         except (
             OSError,
