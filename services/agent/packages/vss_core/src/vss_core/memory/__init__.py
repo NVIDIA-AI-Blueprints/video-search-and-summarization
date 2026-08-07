@@ -19,17 +19,22 @@ __all__ = [
     "JobInfo",
     "MemoryAdapter",
     "MemoryInput",
+    "MemoryNoteSink",
+    "MemoryNoteStatus",
+    "MemoryNoteWriteResult",
     "MemoryNotFoundError",
     "MemoryOutput",
     "MemoryQuery",
     "MemoryService",
     "MemoryStore",
+    "OpenClawMarkdownSink",
     "SearchAdapter",
     "SummaryAdapter",
     "UnifiedMemoryRecord",
     "build_memory_service",
     "get_adapter",
     "register_adapter",
+    "render_memory_note",
 ]
 
 _LAZY_EXPORTS = {
@@ -50,6 +55,11 @@ _LAZY_EXPORTS = {
     "register_adapter": ".adapters",
     "get_adapter": ".adapters",
     "MemoryAdapter": ".adapters",
+    "MemoryNoteSink": ".notes",
+    "MemoryNoteStatus": ".notes",
+    "MemoryNoteWriteResult": ".notes",
+    "OpenClawMarkdownSink": ".notes",
+    "render_memory_note": ".notes",
 }
 
 if TYPE_CHECKING:
