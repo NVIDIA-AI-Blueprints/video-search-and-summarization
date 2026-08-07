@@ -4614,6 +4614,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         first_state: str = "stopped",
         wait_profile: str = "",
         root_session_jsonl: str | BaseException | None = None,
+        root_session_reads: list[str | BaseException | None] | None = None,
+        convergence_sleeps: list[tuple[float | None, int]] | None = None,
+        convergence_sleep_error: BaseException | None = None,
         second_start_ok: bool = True,
     ) -> tuple[
         dict[str, Any],
@@ -4743,10 +4746,23 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             max_bytes,
             read_deadline,
         ):
+            read_index = len(root_reads)
             root_reads.append(session_file)
-            if isinstance(root_session_jsonl, BaseException):
-                raise root_session_jsonl
-            return root_session_jsonl or valid_root_session
+            if root_session_reads is not None:
+                value = root_session_reads[
+                    min(read_index, len(root_session_reads) - 1)
+                ]
+            else:
+                value = root_session_jsonl
+            if isinstance(value, BaseException):
+                raise value
+            return value or valid_root_session
+
+        def fake_convergence_sleep(sleep_deadline, seconds):
+            if convergence_sleeps is not None:
+                convergence_sleeps.append((sleep_deadline, seconds))
+            if convergence_sleep_error is not None:
+                raise convergence_sleep_error
 
         patches = (
             mock.patch.object(
@@ -4769,8 +4785,13 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 "monotonic",
                 return_value=100.0,
             ),
+            mock.patch.object(
+                headless_runner,
+                "_sleep_before_deadline",
+                side_effect=fake_convergence_sleep,
+            ),
         )
-        with patches[0], patches[1], patches[2], patches[3]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
             response = headless_runner.run_openclaw_cli(
                 "demo",
                 "Deploy base and verify its endpoints.",
@@ -4847,6 +4868,71 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 (
                     log_dir / "openclaw-launch-attempt-2.log"
                 ).read_text(encoding="utf-8"),
+            )
+        finally:
+            temporary.cleanup()
+
+    def test_openclaw_timeout_waits_for_root_session_convergence(self):
+        transient_roots: tuple[tuple[str, str | BaseException], ...] = (
+            ("missing", RuntimeError("root session is not visible yet")),
+            ("malformed", "{partial-json\n"),
+        )
+        for label, transient_root in transient_roots:
+            with self.subTest(label=label):
+                sleeps: list[tuple[float | None, int]] = []
+                response, calls, root_reads, _, temporary = (
+                    self._run_openclaw_retry_fixture(
+                        0,
+                        root_session_reads=[transient_root, None],
+                        convergence_sleeps=sleeps,
+                    )
+                )
+                try:
+                    self.assertEqual(response["status"], 200)
+                    self.assertTrue(response["retry"]["attempted"])
+                    self.assertTrue(response["attempt_2_launched"])
+                    self.assertEqual(len(calls), 2)
+                    self.assertEqual(
+                        root_reads,
+                        [
+                            (
+                                "/sandbox/.openclaw/agents/main/sessions/"
+                                "run-root.jsonl"
+                            )
+                        ]
+                        * 2,
+                    )
+                    self.assertEqual(sleeps, [(1000.0, 1)])
+                finally:
+                    temporary.cleanup()
+
+    def test_openclaw_retry_root_convergence_deadline_is_fail_closed(self):
+        sleeps: list[tuple[float | None, int]] = []
+        response, calls, root_reads, log_dir, temporary = (
+            self._run_openclaw_retry_fixture(
+                0,
+                root_session_reads=[
+                    RuntimeError("root session is not visible yet")
+                ],
+                convergence_sleeps=sleeps,
+                convergence_sleep_error=TimeoutError(
+                    "retry convergence deadline expired"
+                ),
+            )
+        )
+        try:
+            self.assertEqual(response["status"], 500)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(len(root_reads), 1)
+            self.assertEqual(sleeps, [(1000.0, 1)])
+            self.assertFalse(response["retry"]["attempted"])
+            self.assertFalse(response["attempt_2_launched"])
+            self.assertEqual(
+                response["retry"]["skipped"],
+                "invalid_retry_root_session",
+            )
+            self.assertFalse(
+                (log_dir / "openclaw-agent-attempt-2.log").exists()
             )
         finally:
             temporary.cleanup()
@@ -5266,12 +5352,20 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 + "\n",
             ),
         )
+        convergence_attempts = (
+            len(
+                headless_runner.OPENCLAW_RETRY_ROOT_CONVERGENCE_DELAYS_SECONDS
+            )
+            + 1
+        )
         for label, root_session_jsonl in invalid_roots:
             with self.subTest(label=label):
+                sleeps: list[tuple[float | None, int]] = []
                 response, calls, root_reads, log_dir, temporary = (
                     self._run_openclaw_retry_fixture(
                         0,
                         root_session_jsonl=root_session_jsonl,
+                        convergence_sleeps=sleeps,
                     )
                 )
                 try:
@@ -5284,9 +5378,14 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                                 "/sandbox/.openclaw/agents/main/sessions/"
                                 "run-root.jsonl"
                             )
-                        ],
+                        ] * convergence_attempts,
+                    )
+                    self.assertEqual(
+                        sleeps,
+                        [(1000.0, 1), (1000.0, 2), (1000.0, 4)],
                     )
                     self.assertFalse(response["retry"]["attempted"])
+                    self.assertFalse(response["attempt_2_launched"])
                     self.assertEqual(
                         response["retry"]["skipped"],
                         "invalid_retry_root_session",
