@@ -89,11 +89,19 @@ class _FailingVLM:
         raise self.error
 
 
-def _video(sensor_id: str = "cam01", *, start=10, end=20) -> VideoInfo:
+class _PerSensorVLM:
+    async def analyze(self, *, sensor_id: str, **kwargs) -> str:
+        if sensor_id == "bad":
+            raise ConfigurationError("clip-specific request rejected")
+        return '{"subject:forklift": true}'
+
+
+def _video(sensor_id: str = "cam01", *, start=10, end=20, source_type: str | None = None) -> VideoInfo:
     return VideoInfo(
         sensor_id=sensor_id,
         start_timestamp=datetime(2025, 1, 1, 0, 0, start, tzinfo=UTC),
         end_timestamp=datetime(2025, 1, 1, 0, 0, end, tzinfo=UTC),
+        source_type=source_type,
     )
 
 
@@ -162,20 +170,41 @@ class TestCriticErrors:
         assert out.video_results[0].criteria_met == {}
 
     @pytest.mark.asyncio
-    async def test_configuration_error_propagates(self):
+    async def test_configuration_error_yields_unverified(self):
         error = ConfigurationError("missing VLM model")
         critic = CriticAgent(vlm_analyzer=_FailingVLM(error), vst=_FakeVST())
 
-        with pytest.raises(ConfigurationError, match="missing VLM model"):
-            await critic.run(CriticAgentInput(query="q", videos=[_video()]))
+        out = await critic.run(CriticAgentInput(query="q", videos=[_video()]))
+
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert out.video_results[0].criteria_met == {}
 
     @pytest.mark.asyncio
-    async def test_untyped_analyzer_error_propagates(self):
+    async def test_untyped_analyzer_error_yields_unverified(self):
         error = RuntimeError("analyzer contract violation")
         critic = CriticAgent(vlm_analyzer=_FailingVLM(error), vst=_FakeVST())
 
-        with pytest.raises(RuntimeError, match="contract violation"):
-            await critic.run(CriticAgentInput(query="q", videos=[_video()]))
+        out = await critic.run(CriticAgentInput(query="q", videos=[_video()]))
+
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert out.video_results[0].criteria_met == {}
+
+    @pytest.mark.asyncio
+    async def test_one_unexpected_failure_preserves_other_verdicts(self):
+        critic = CriticAgent(vlm_analyzer=_PerSensorVLM(), vst=_FakeVST())
+
+        out = await critic.run(
+            CriticAgentInput(
+                query="forklift",
+                videos=[_video("good"), _video("bad"), _video("also-good")],
+            )
+        )
+
+        assert [result.result for result in out.video_results] == [
+            CriticAgentResult.CONFIRMED,
+            CriticAgentResult.UNVERIFIED,
+            CriticAgentResult.CONFIRMED,
+        ]
 
     @pytest.mark.asyncio
     async def test_parse_failure_yields_unverified(self):
@@ -261,6 +290,20 @@ class TestCriticBatching:
         assert len(vlm.calls) == 2
 
     @pytest.mark.asyncio
+    async def test_default_evaluates_every_verifiable_video(self):
+        vlm = _FakeVLM("{}")
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+
+        await c.run(
+            CriticAgentInput(
+                query="q",
+                videos=[_video(f"s{i}") for i in range(7)],
+            )
+        )
+
+        assert len(vlm.calls) == 7
+
+    @pytest.mark.asyncio
     async def test_eval_cap_counts_verifiable_only(self):
         # Empty-sensor entries are filtered BEFORE the cap, so they cannot consume
         # cap slots and starve the genuinely verifiable videos.
@@ -296,6 +339,75 @@ class TestCriticTimeFormat:
         assert vlm.calls[0]["time_format"] == "offset"
         assert vlm.calls[0]["start_timestamp"] == "10.0"
         assert vlm.calls[0]["end_timestamp"] == "20.0"
+
+    @pytest.mark.asyncio
+    async def test_offset_rebases_synthetic_search_timestamps_to_live_timeline(self):
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST(
+            timeline=("2026-07-31T12:00:00Z", "2026-07-31T12:01:00Z"),
+        )
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset")
+
+        await c.run(CriticAgentInput(query="q", videos=[_video(start=10, end=20, source_type="video_file")]))
+
+        assert vlm.calls[0]["start_timestamp"] == "10.0"
+        assert vlm.calls[0]["end_timestamp"] == "20.0"
+
+    @pytest.mark.asyncio
+    async def test_offset_preserves_cross_midnight_file_interval(self):
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST(
+            timeline=("2026-07-31T12:00:00Z", "2026-08-01T12:01:00Z"),
+        )
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset")
+        video = VideoInfo(
+            sensor_id="cam",
+            start_timestamp=datetime(2025, 1, 1, 23, 59, 50, tzinfo=UTC),
+            end_timestamp=datetime(2025, 1, 2, 0, 0, 10, tzinfo=UTC),
+            source_type="video_file",
+        )
+
+        await c.run(CriticAgentInput(query="q", videos=[video]))
+
+        assert vlm.calls[0]["start_timestamp"] == "86390.0"
+        assert vlm.calls[0]["end_timestamp"] == "86410.0"
+
+    @pytest.mark.asyncio
+    async def test_offset_preserves_multi_day_file_position(self):
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST(
+            timeline=("2026-07-31T12:00:00Z", "2026-08-02T12:00:00Z"),
+        )
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset")
+        video = VideoInfo(
+            sensor_id="cam",
+            start_timestamp=datetime(2025, 1, 2, 1, 0, 0, tzinfo=UTC),
+            end_timestamp=datetime(2025, 1, 2, 1, 0, 20, tzinfo=UTC),
+            source_type="video_file",
+        )
+
+        await c.run(CriticAgentInput(query="q", videos=[video]))
+
+        assert vlm.calls[0]["start_timestamp"] == "90000.0"
+        assert vlm.calls[0]["end_timestamp"] == "90020.0"
+
+    @pytest.mark.asyncio
+    async def test_offset_does_not_rebase_non_file_bounds_onto_another_clip(self):
+        """Only the synthetic file epoch may be re-anchored.
+
+        Rebasing a wall-clock bound that merely falls outside the current
+        timeline would verify unrelated footage and return a confident verdict
+        about a clip the caller never retrieved. Left literal, VST rejects the
+        request and the candidate fails open to ``unverified``.
+        """
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST(timeline=("2026-07-31T12:00:00Z", "2026-07-31T12:01:00Z"))
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset")
+
+        out = await c.run(CriticAgentInput(query="q", videos=[_video(start=10, end=20)]))
+
+        assert vlm.calls == []
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
 
     @pytest.mark.asyncio
     async def test_offset_clamps_to_clip_end(self):

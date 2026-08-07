@@ -45,6 +45,7 @@ class _MockSearchServices:
         self._requests: list[_RecordedRequest] = []
         self._lock = threading.Lock()
         self.search_response = _embed_search_response()
+        self.vlm_models_status = 200
         handler = self._handler_class()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -111,7 +112,16 @@ class _MockSearchServices:
             self._send_json(handler, _elastic_root(), include_body=method != "HEAD")
             return
         if method == "GET" and path == "/v1/models":
-            self._send_json(handler, {"data": [{"id": "cosmos-embed1-448p-anomaly-detection"}]})
+            self._send_json(
+                handler,
+                {
+                    "data": [
+                        {"id": "cosmos-embed1-448p-anomaly-detection"},
+                        {"id": "cosmos-reason3"},
+                    ]
+                },
+                status=self.vlm_models_status,
+            )
             return
         if method == "POST" and path == "/v1/generate_text_embeddings":
             self._send_json(handler, {"data": [{"embeddings": [0.1, 0.2, 0.3]}]})
@@ -294,6 +304,13 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             ),
             "similarity": 0.86,
             "object_ids": [],
+            "verification": {
+                "result": "confirmed",
+                "criteria_met": {
+                    "subject:forklift": True,
+                    "red": True,
+                },
+            },
         }
     ]
     assert payload["search_messages"] == []
@@ -313,6 +330,8 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     assert search_request.body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
     assert "warehouse_clip" in json.dumps(search_request.body)
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)
+    assert len(mock_services.requests_for("/v1/models")) == 1
+    assert len(mock_services.requests_for("/v1/chat/completions")) == 1
 
 
 def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
@@ -334,12 +353,58 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     payload = _only_json_object(result.stdout)
     assert payload["data"][0]["object_ids"] == ["42"]
     assert "critic_result" not in payload["data"][0]
+    assert payload["data"][0]["verification"]["result"] == "confirmed"
     assert mock_services.requests_for("/v1/generate_text_embeddings") == []
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body == {
         "text_input": "white jacket",
         "model": "",
     }
     assert mock_services.requests_ending_with("/_search")[-1].path == "/mdx-behavior-2025-01-01/_search"
+
+
+def test_search_archive_cli_without_vlm_returns_unverified_hits(
+    agent_root: Path,
+    mock_services: _MockSearchServices,
+) -> None:
+    result = _run_search_archive(
+        agent_root,
+        mock_services,
+        "--query",
+        "red forklift",
+        "--top-k",
+        "1",
+        include_vlm=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = _only_json_object(result.stdout)
+    assert payload["data"][0]["verification"] == {
+        "result": "unverified",
+        "criteria_met": None,
+    }
+    assert mock_services.requests_for("/v1/chat/completions") == []
+
+
+def test_search_archive_cli_unreachable_vlm_probes_once_and_returns_unverified_hits(
+    agent_root: Path,
+    mock_services: _MockSearchServices,
+) -> None:
+    mock_services.vlm_models_status = 503
+
+    result = _run_search_archive(
+        agent_root,
+        mock_services,
+        "--query",
+        "red forklift",
+        "--top-k",
+        "1",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = _only_json_object(result.stdout)
+    assert payload["data"][0]["verification"]["result"] == "unverified"
+    assert len(mock_services.requests_for("/v1/models")) == 1
+    assert mock_services.requests_for("/v1/chat/completions") == []
 
 
 def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
@@ -503,10 +568,11 @@ def _run_search_archive(
     services: _MockSearchServices,
     *args: str,
     action: str = "embed",
+    include_vlm: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     command = [*_search_archive_command(), action, *_runtime_args(services), *args]
     config_home = Path(tempfile.mkdtemp(prefix="vss-e2e-config-"))
-    _write_deployment_config(config_home, services)
+    _write_deployment_config(config_home, services, include_vlm=include_vlm)
     env = _subprocess_env(agent_root)
     env["VSS_CONFIG_HOME"] = str(config_home)
     return subprocess.run(
@@ -545,28 +611,40 @@ def _runtime_args(services: _MockSearchServices) -> list[str]:
     return ["--embed-confidence-threshold", "0.1", "--log-level", "ERROR"]
 
 
-def _write_deployment_config(home: Path, services: _MockSearchServices) -> None:
+def _write_deployment_config(
+    home: Path,
+    services: _MockSearchServices,
+    *,
+    include_vlm: bool = True,
+) -> None:
     """Write the config `vss configure` would have produced for the mocks."""
     home.mkdir(parents=True, exist_ok=True)
+    configured_services: dict[str, dict[str, Any]] = {
+        "agent": {"url": services.base_url},
+        "vst": {"url": f"{services.base_url}/vst"},
+        "elasticsearch": {
+            "url": services.base_url,
+            "indices": ["mdx-embed-filtered-2025-01-01", "mdx-behavior-2025-01-01"],
+        },
+        "rt_embed": {
+            "url": services.base_url,
+            "models": ["cosmos-embed1-448p-anomaly-detection"],
+        },
+        "rtvi_cv": {"url": services.base_url},
+    }
+    if include_vlm:
+        configured_services["rt_vlm"] = {
+            "url": services.base_url,
+            "models": ["cosmos-reason3"],
+        }
+
     (home / "config.json").write_text(
         json.dumps(
             {
                 "version": 1,
                 "base_url": services.base_url,
                 "written_at": "2025-01-01T00:00:00+00:00",
-                "services": {
-                    "agent": {"url": services.base_url},
-                    "vst": {"url": f"{services.base_url}/vst"},
-                    "elasticsearch": {
-                        "url": services.base_url,
-                        "indices": ["mdx-embed-filtered-2025-01-01", "mdx-behavior-2025-01-01"],
-                    },
-                    "rt_embed": {
-                        "url": services.base_url,
-                        "models": ["cosmos-embed1-448p-anomaly-detection"],
-                    },
-                    "rtvi_cv": {"url": services.base_url},
-                },
+                "services": configured_services,
             }
         ),
         encoding="utf-8",

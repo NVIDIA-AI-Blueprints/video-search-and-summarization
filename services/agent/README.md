@@ -72,14 +72,15 @@ source .venv/bin/activate
 ```
 
 The project ships three install profiles, smallest to largest: `nvidia-vss`
-(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `vss` console
-script name; the script itself ships with the base wheel), and
-`nvidia-vss[agent]` (the full NAT-based agent application). `uv sync` without
-`--extra agent` gives the
-NAT-free base environment used by the host CLI:
+(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `nvidia-vss-cli`
+distribution, which declares the `vss` console script), and
+`nvidia-vss[agent]` (the full NAT-based agent application). The `cli` extra
+gives the NAT-free environment used by the host CLI; it is required, because
+the base distribution depends only on `nvidia-vss-core` and so provides no
+`vss` executable:
 
 ```bash
-uv run --no-dev vss --help
+uv run --no-dev --extra cli vss --help
 ```
 
 ### Docker
