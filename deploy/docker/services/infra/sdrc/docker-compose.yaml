@@ -98,7 +98,7 @@ services:
 
   wait-for-redis:
     profiles: ["wait-for-redis"]
-    image: redis:8.6.5-alpine
+    image: redis:8.10.0-alpine
     restart: "no"
     depends_on:
       wdm-env-from-config:
