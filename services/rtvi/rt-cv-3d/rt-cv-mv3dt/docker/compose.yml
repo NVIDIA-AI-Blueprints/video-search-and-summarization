@@ -77,7 +77,7 @@ services:
       kafka:
         condition: service_healthy
         required: false
-    # Uncomment the following 2 lines docker logs shows "libEGL warning: egl: failed to create dri2 screen" 
+    # Uncomment the following 2 lines docker logs shows "libEGL warning: egl: failed to create dri2 screen"
     # devices:
     #   - /dev/dri
 
