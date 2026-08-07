@@ -90,6 +90,7 @@ flush releases them.
 - `configs/warehouse_2d_config.json`
 - `configs/warehouse_3d_config.json`
 - `configs/public_safety_config.json`
+- `configs/composite_config.json`
 - `configs/frame_playback_config.json`
 
 ## Messaging blocks

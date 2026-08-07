@@ -14,6 +14,7 @@ The pipeline ships several ready-to-run apps under `apps/`:
 - **smart_city** — Smart-city analytics (`main_smart_city_app.py`)
 - **public_safety** — Public safety detection (`main_public_safety_app.py`)
 - **search_and_alerts** — Combined search (behaviors + video embeddings) and incident alerts for video-search workloads (`main_search_and_alerts_app.py`)
+- **composite** — Every capability in one app, each enabled by its own `numWorkersFor*` count, so capabilities from different workloads can run together in one process (`main_composite_app.py`). The shipped config is an example with every count at `0`; set the ones you want — with none set the app logs a FATAL and exits 0 without processing anything.
 - **playback** — Replay frames / AMR / embeddings from JSON for testing (`playback_frames.py`, `playback_amr.py`, `playback_embed.py`, …)
 
 Each app subclasses `BaseApp`, composes core pieces in `__init__`, registers processors, and hands off to `app_runner.run(AppClass)`. Library code lives under `src/mdx/analytics/core/`.
@@ -78,7 +79,7 @@ The default configurations live under [`configs/`](./configs/) (one JSON per pro
 
 **Note**: If any change needs to be made, it is recommended to create a copy of the config file and make changes so that the default-config is preserved.
 
-For the full schema and dynamic-config behavior (runtime updates via Flask endpoint), see [`docs/configuration.md`](./docs/configuration.md) and [`docs/dynamic-config.md`](./docs/dynamic-config.md).
+For the full schema and dynamic-config behavior — runtime updates arrive on the `mdx-notification` topic and are applied per worker via a watched directory, not over HTTP; this service exposes no REST API — see [`docs/configuration.md`](./docs/configuration.md) and [`docs/dynamic-config.md`](./docs/dynamic-config.md).
 
 ## Development Guide
 

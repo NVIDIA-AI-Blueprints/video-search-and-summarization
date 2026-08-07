@@ -97,7 +97,7 @@ class SourceMQTT(Source):
             if (buffer := self._buffers.get(msg.topic)):
                 buffer.append(msg)
             else:
-                raise Exception(f'[FATAL] Unexpected :: msg received before subscribing to topic {msg.topic}.')
+                raise Exception(f'Unexpected :: msg received before subscribing to topic {msg.topic}.')
 
 
     def _on_connect(
@@ -184,10 +184,10 @@ class SourceMQTT(Source):
                     logger.error(f'Failed to subscribe client {client_id} to topic {topic} - [code:{rc}]')
 
             else:
-                raise Exception(f'[FATAL] Failed attempt to subscribe to {topic} before MQTT client {client_id} is connected.')
+                raise Exception(f'Failed attempt to subscribe to {topic} before MQTT client {client_id} is connected.')
 
         else:
-            raise Exception(f'[FATAL] MQTT consumer `{client_id}` does not exist.')
+            raise Exception(f'MQTT consumer `{client_id}` does not exist.')
 
 
     def _init_client(self, client_id: str):
@@ -250,7 +250,7 @@ class SourceMQTT(Source):
                     time.sleep(wait_between)
 
         raise RuntimeError(
-            f"FATAL - Failed to connect to MQTT broker after {max_attempts} attempts\n"
+            f"Failed to connect to MQTT broker after {max_attempts} attempts\n"
             f"  Host: {self._config.host}:{self._config.port}\n"
             f"  Client ID: {client_id}\n"
             f"  Last error: {last_err}"
