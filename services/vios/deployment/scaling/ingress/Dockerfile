@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM ubuntu:24.04
+FROM nvcr.io/nvidia/base/ubuntu:24.04
 
 # Install nginx and dependencies.
 # Enforce a minimum version (>= 1.24.0-2ubuntu7.8) rather than an exact pin so the
