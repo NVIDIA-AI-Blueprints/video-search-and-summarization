@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,8 @@ const VST_ADAPTOR = 'vst';
 const MMS_ADAPTOR = 'mms';
 const STREAMER_ADAPTOR = 'streamer';
 
+const fetchVersion = (url: string) => nvAxios.get(url).then(response => response.data);
+
 const modalStyle = {
     position: 'absolute',
     top: '50%',
@@ -50,52 +52,55 @@ export const VstAdaptorWrapper: React.FC<VstAdaptorWrapperProps> = ({ children }
     useEffect(() => {
         logInfo('Fetching VST adaptor type and version');
 
-        nvAxios
-            .get(`${config.sensorManagementEndpoint}/api/v1/sensor/version`)
-            .then(response => {
+<<<<<<< ours
+        const fetchVersion = (url: string) =>
+            nvAxios.get(url).then(response => {
                 if (!isNil(response.data)) {
                     if (has(response.data, 'type') && has(response.data, 'version')) {
                         setVstAdaptorType(response.data.type);
                         setVstVersion(response.data.version);
-                        updateSensorsAndStreams();
-                    }
-                }
-            })
+=======
+        fetchVersion(`${config.sensorManagementEndpoint}/api/v1/sensor/version`)
             .catch(() => {
                 logError('Failed to fetch VST version and type from sensor/version, trying replay/version');
                 // Try replay/version as fallback
-                nvAxios
-                    .get(`${config.replayStreamEndpoint}/api/v1/replay/version`)
-                    .then(response => {
-                        if (!isNil(response.data)) {
-                            if (has(response.data, 'type') && has(response.data, 'version')) {
-                                setVstAdaptorType(response.data.type);
-                                setVstVersion(response.data.version);
-                                updateSensorsAndStreams();
-                            }
-                        }
-                    })
-                    .catch(() => {
-                        logError('Failed to fetch VST version and type from replay/version, trying live/version');
-                        // Try live/version as final fallback
-                        nvAxios
-                            .get(`${config.liveStreamEndpoint}/api/v1/live/version`)
-                            .then(response => {
-                                if (!isNil(response.data)) {
-                                    if (has(response.data, 'type') && has(response.data, 'version')) {
-                                        setVstAdaptorType(response.data.type);
-                                        setVstVersion(response.data.version);
-                                        updateSensorsAndStreams();
-                                    }
-                                }
-                            })
-                            .catch(() => {
-                                logError(
-                                    'Failed to fetch VST version and type from all endpoints: sensor/version, replay/version, and live/version'
-                                );
-                                handleOpen();
-                            });
-                    });
+                return fetchVersion(`${config.replayStreamEndpoint}/api/v1/replay/version`);
+            })
+            .catch(() => {
+                logError('Failed to fetch VST version and type from replay/version, trying live/version');
+                // Try live/version as final fallback
+                return fetchVersion(`${config.liveStreamEndpoint}/api/v1/live/version`);
+            })
+            .then(data => {
+                if (!isNil(data)) {
+                    if (has(data, 'type') && has(data, 'version')) {
+                        setVstAdaptorType(data.type);
+                        setVstVersion(data.version);
+>>>>>>> theirs
+                        updateSensorsAndStreams();
+                    }
+                }
+            });
+
+        fetchVersion(`${config.sensorManagementEndpoint}/api/v1/sensor/version`)
+            .catch(() => {
+<<<<<<< ours
+                logError('Failed to fetch VST version and type from sensor/version, trying replay/version');
+                // Try replay/version as fallback
+                return fetchVersion(`${config.replayStreamEndpoint}/api/v1/replay/version`);
+            })
+            .catch(() => {
+                logError('Failed to fetch VST version and type from replay/version, trying live/version');
+                // Try live/version as final fallback
+                return fetchVersion(`${config.liveStreamEndpoint}/api/v1/live/version`);
+            })
+            .catch(() => {
+=======
+>>>>>>> theirs
+                logError(
+                    'Failed to fetch VST version and type from all endpoints: sensor/version, replay/version, and live/version'
+                );
+                handleOpen();
             });
         getEMDXEndpoint().then(endpoint => {
             setEmdxEndpoint(endpoint);
