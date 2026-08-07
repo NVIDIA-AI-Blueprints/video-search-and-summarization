@@ -26,10 +26,8 @@ RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
 	libuuid1 \
 	gstreamer1.0-plugins-base \
 	gstreamer1.0-plugins-good \
-	gstreamer1.0-plugins-ugly \
 	gstreamer1.0-plugins-bad \
 	libgstreamer1.0-0 \
-	gstreamer1.0-libav \
 	libgstreamer-plugins-base1.0-0 \
 	libboost-filesystem1.83.0 \
 	libboost-thread1.83.0 \
@@ -40,7 +38,6 @@ RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
 	libhiredis1.1.0 \
 	libpaho-mqttpp3-1 \
 	libprotobuf32t64 \
-	libopencv-core406t64 \
 	libgrpc++1.51t64 \
 	kmod \
 	&& apt-get clean
@@ -94,6 +91,57 @@ RUN rm -f /usr/lib/aarch64-linux-gnu/mfx/libmfx_h264la_hw64.so*
 RUN rm -f /usr/lib/aarch64-linux-gnu/libswscale.* \
         /usr/lib/aarch64-linux-gnu/libswresample.* \
         /usr/lib/aarch64-linux-gnu/libpostproc.*
+
+# Prune codec libraries and GStreamer codec plugins not selected by VIOS.  Keep
+# the JPEG/PNG and XML dependencies required by the packaged application.
+RUN rm -f /usr/lib/aarch64-linux-gnu/libaom.so* \
+        /usr/lib/aarch64-linux-gnu/libdv.so* \
+        /usr/lib/aarch64-linux-gnu/libflite.so* \
+        /usr/lib/aarch64-linux-gnu/libfluidsynth.so* \
+        /usr/lib/aarch64-linux-gnu/libfreeaptx.so* \
+        /usr/lib/aarch64-linux-gnu/libgme.so* \
+        /usr/lib/aarch64-linux-gnu/libgsm.so* \
+        /usr/lib/aarch64-linux-gnu/libgssdp-1.6.so* \
+        /usr/lib/aarch64-linux-gnu/libinstpatch-1.0.so* \
+        /usr/lib/aarch64-linux-gnu/libjbig.so* \
+        /usr/lib/aarch64-linux-gnu/liblcms2.so* \
+        /usr/lib/aarch64-linux-gnu/libogg.so* \
+        /usr/lib/aarch64-linux-gnu/libOpenEXR*.so* \
+        /usr/lib/aarch64-linux-gnu/libopenjp2.so* \
+        /usr/lib/aarch64-linux-gnu/libopus.so* \
+        /usr/lib/aarch64-linux-gnu/libspandsp.so* \
+        /usr/lib/aarch64-linux-gnu/libspeex.so* \
+        /usr/lib/aarch64-linux-gnu/libSvtAv1Enc.so* \
+        /usr/lib/aarch64-linux-gnu/libtheora*.so* \
+        /usr/lib/aarch64-linux-gnu/libtiff.so* \
+        /usr/lib/aarch64-linux-gnu/libtwolame.so* \
+        /usr/lib/aarch64-linux-gnu/libvo-amrwbenc.so* \
+        /usr/lib/aarch64-linux-gnu/libvorbis*.so* \
+        /usr/lib/aarch64-linux-gnu/libwavpack.so* \
+        /usr/lib/aarch64-linux-gnu/libwebp.so* \
+        /usr/lib/aarch64-linux-gnu/libwebpmux.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstaom.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstcolormanagement.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstdv.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstflite.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstfluidsynthmidi.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstgme.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstgsm.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstogg.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopenaptx.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopenexr.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopenjpeg.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopus.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopusparse.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstspandsp.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstspeex.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstsvtav1.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgsttheora.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgsttwolame.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstvoamrwbenc.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstvorbis.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstwavpack.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstwebp.so*
 
 RUN rm -f /usr/lib/aarch64-linux-gnu/liba52* /usr/lib/aarch64-linux-gnu/libcdio.so* /usr/lib/aarch64-linux-gnu/libsidplay.so* \
 		/usr/lib/aarch64-linux-gnu/liblrdf.so*  /usr/lib/aarch64-linux-gnu/libneon.so* \
