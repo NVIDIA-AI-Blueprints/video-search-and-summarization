@@ -157,11 +157,13 @@ for attempt in $(seq 1 $MAX_RETRIES); do
   fi
 done
 
-# Install gstreamer1.0-libav with retry logic
-echo "Installing gstreamer1.0-libav..."
+echo "Installing deferred packages (gstreamer1.0-plugins-ugly, gstreamer1.0-libav, libopencv-core406t64)..."
 for attempt in $(seq 1 $MAX_RETRIES); do
-  if apt-get install -y ${APT_OPTS} gstreamer1.0-libav; then
-    echo "gstreamer1.0-libav installed successfully"
+  if apt-get install -y ${APT_OPTS} \
+      gstreamer1.0-plugins-ugly \
+      gstreamer1.0-libav \
+      libopencv-core406t64; then
+    echo "Deferred packages installed successfully"
     break
   else
     if [[ $attempt -lt $MAX_RETRIES ]]; then
@@ -176,7 +178,7 @@ for attempt in $(seq 1 $MAX_RETRIES); do
       echo "Retrying in $((2 * attempt))s..."
       sleep $((2 * attempt))
     else
-      echo "ERROR: Failed to install gstreamer1.0-libav after $MAX_RETRIES attempts"
+      echo "ERROR: Failed to install deferred packages after $MAX_RETRIES attempts"
       exit 1
     fi
   fi
