@@ -18,6 +18,7 @@
 Script to read two mdx data json files, sort by timestamp, and compare _source content.
 """
 
+import collections
 import json
 import sys
 from typing import Any
@@ -356,6 +357,36 @@ def compare_object_timeline(timeline1: str, timeline2: str, float_tolerance: flo
         # If parsing fails, fall back to string comparison
         return timeline1 == timeline2
 
+
+def compare_incident_object_ids(ids1: Any, ids2: Any) -> bool:
+    """
+    Compare an incident's ``objectIds``: primary by position, the rest as a set.
+
+    Only element 0 carries meaning -- ``_merge_object_ids`` pins the primary object
+    there and builds the remainder from a ``set``, whose iteration order follows
+    per-process string hashing. The trailing order therefore varies between runs
+    while the membership does not, so asserting it would make any baseline
+    containing a multi-object proximity incident fail intermittently.
+
+    Args:
+        ids1: objectIds from the first source
+        ids2: objectIds from the second source
+
+    Returns:
+        True when the primary matches and the remaining IDs are the same set
+    """
+    if not isinstance(ids1, list) or not isinstance(ids2, list):
+        return ids1 == ids2
+    if len(ids1) != len(ids2):
+        return False
+    if not ids1:
+        return True
+    if ids1[0] != ids2[0]:
+        return False
+    # Counter rather than set so a duplicated ID cannot pass as a single one.
+    return collections.Counter(ids1[1:]) == collections.Counter(ids2[1:])
+
+
 def compare_source_objects(source1: dict[str, Any],
                            source2: dict[str, Any],
                            float_tolerance: float = 1e-4) -> dict[str, Any]:
@@ -392,8 +423,16 @@ def compare_source_objects(source1: dict[str, Any],
             differences[key] = {'type': 'missing_in_source2', 'value1': value1}
         else:
             # Key exists in both, compare values
+            # Special handling for objectIds in incidents - primary by position, rest as a set
+            if key == 'objectIds' and source1.get("type") == "mdx-incidents":
+                if not compare_incident_object_ids(value1, value2):
+                    differences[key] = {
+                        'type': 'value_difference',
+                        'value1': value1,
+                        'value2': value2
+                    }
             # Special handling for info field in incidents - compare objectTimeline by time deltas
-            if key == 'info' and source1.get("type") == "mdx-incidents":
+            elif key == 'info' and source1.get("type") == "mdx-incidents":
                 if isinstance(value1, dict) and isinstance(value2, dict):
                     # Compare info dict with special handling for objectTimeline
                     info_diff = {}

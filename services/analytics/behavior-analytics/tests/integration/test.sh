@@ -373,7 +373,7 @@ get_data_types_for_profile() {
             echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-incidents-data.json mdx-raw-data.json"
             ;;
         "warehouse_3d")
-            echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-space-utilization-data.json"
+            echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-incidents-data.json mdx-space-utilization-data.json"
             ;;
         "smart_city")
             echo "mdx-behavior-data.json mdx-raw-data.json"

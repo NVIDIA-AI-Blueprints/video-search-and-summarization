@@ -318,6 +318,35 @@ class TestSampleAppRules(unittest.TestCase):
         self.assertFalse(rule("")[0])
         self.assertFalse(rule("   ")[0])
 
+    def test_violation_incident_durations_accept_float_seconds(self) -> None:
+        # Both are seconds and are consumed as floats, so sub-second values
+        # (as documented in docs/incident-detection.md) must pass.
+        for key in (
+            "proximityViolationIncidentThreshold",
+            "proximityViolationIncidentExpirationWindow",
+            "restrictedAreaViolationIncidentThreshold",
+            "restrictedAreaViolationIncidentExpirationWindow",
+            "confinedAreaViolationIncidentThreshold",
+            "confinedAreaViolationIncidentExpirationWindow",
+            "fovCountViolationIncidentThreshold",
+            "fovCountViolationIncidentExpirationWindow",
+        ):
+            with self.subTest(key=key):
+                rule = APP_VALUE_VALIDATORS[key]
+                self.assertTrue(rule("0.2")[0])
+                self.assertTrue(rule("1")[0])
+                self.assertTrue(rule("2.0")[0])
+                self.assertTrue(rule("0")[0])
+                self.assertFalse(rule("-0.1")[0])
+                self.assertFalse(rule("abc")[0])
+
+    def test_fov_count_violation_object_threshold_stays_int(self) -> None:
+        # An object count, not a duration -- fractional values are meaningless.
+        rule = APP_VALUE_VALIDATORS["fovCountViolationIncidentObjectThreshold"]
+        self.assertTrue(rule("3")[0])
+        self.assertFalse(rule("3.5")[0])
+        self.assertFalse(rule("0")[0])
+
 
 class TestSampleSensorRules(unittest.TestCase):
     """A few end-to-end smoke checks of the registered sensor rules."""

@@ -252,20 +252,24 @@ APP_VALUE_VALIDATORS: dict[str, ValueValidator] = {
     "mapMatchingMaxPoints": _int(min=1),
 
     # Incidents
+    # ``...Threshold`` (violation duration) and ``...ExpirationWindow`` (gap
+    # tolerance) are both seconds, compared against float durations by
+    # ``FrameStateMgmt``, so sub-second values are legal -- only the FOV object
+    # count is an integer.
     "proximityViolationIncidentEnable": _bool(),
-    "proximityViolationIncidentThreshold": _int(min=1),
-    "proximityViolationIncidentExpirationWindow": _int(min=1),
+    "proximityViolationIncidentThreshold": _float(min=0.0),
+    "proximityViolationIncidentExpirationWindow": _float(min=0.0),
     "restrictedAreaViolationIncidentEnable": _bool(),
-    "restrictedAreaViolationIncidentThreshold": _int(min=1),
-    "restrictedAreaViolationIncidentExpirationWindow": _int(min=1),
+    "restrictedAreaViolationIncidentThreshold": _float(min=0.0),
+    "restrictedAreaViolationIncidentExpirationWindow": _float(min=0.0),
     "confinedAreaViolationIncidentEnable": _bool(),
-    "confinedAreaViolationIncidentThreshold": _int(min=1),
-    "confinedAreaViolationIncidentExpirationWindow": _int(min=1),
+    "confinedAreaViolationIncidentThreshold": _float(min=0.0),
+    "confinedAreaViolationIncidentExpirationWindow": _float(min=0.0),
     "fovCountViolationIncidentEnable": _bool(),
-    "fovCountViolationIncidentThreshold": _int(min=1),
+    "fovCountViolationIncidentThreshold": _float(min=0.0),
     "fovCountViolationIncidentObjectThreshold": _int(min=1),
     "fovCountViolationIncidentObjectType": _non_empty_str(),
-    "fovCountViolationIncidentExpirationWindow": _int(min=1),
+    "fovCountViolationIncidentExpirationWindow": _float(min=0.0),
 }
 
 
