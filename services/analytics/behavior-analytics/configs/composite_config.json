@@ -92,10 +92,6 @@
 			"value": "[\"Person\"]"
 		},
 		{
-			"name": "inSimulationMode",
-			"value": "true"
-		},
-		{
 			"name": "numWorkersForBehaviorCreation",
 			"value": "0"
 		},
