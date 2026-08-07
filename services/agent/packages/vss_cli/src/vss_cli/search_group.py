@@ -40,11 +40,20 @@ from pydantic import Field
 
 from . import config as config_mod
 from . import params as params_mod
+from ._jobs import MARKER_COMPLETED
+from ._jobs import JobLifecycle
+from ._jobs import completion_marker
+from ._jobs import mint_job_id
 from .exits import Exit
 from .group import Action
 from .group import CommandGroup
 from .group import Context
 from .group import Result
+from .memory_access import require_memory_service
+from .memory_notes import note_result_payload
+from .memory_notes import preflight_memory_note
+from .memory_notes import resolve_write_memory_note
+from .memory_notes import write_memory_note
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -314,9 +323,18 @@ class SearchGroup(CommandGroup):
     def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:
         import asyncio
 
+        from vss_core.memory.adapters import SearchAdapter
         from vss_core.search_core.host import VSSSearch
 
         deployment = ctx.deployment or _deployment_or_raise()
+        memory_config = config_mod.load_memory_config()
+        note_decision = resolve_write_memory_note(ctx.extra, config=memory_config)
+        # Search persists only when a harness note (or future --persist) needs
+        # an authoritative ES pointer. Plain search keeps today's no-persist
+        # behaviour.
+        persist = bool(note_decision.enabled)
+        preflight_memory_note(persist=persist, decision=note_decision, config=memory_config)
+
         payload = inputs.model_dump(exclude_none=True, exclude_defaults=True)
         # Tuning arrives via extra_params, never the request: SearchInput is
         # extra=forbid, so these would be a hard validation error in payload.
@@ -335,7 +353,107 @@ class SearchGroup(CommandGroup):
 
         output = asyncio.run(_go())
         body = output.model_dump() if hasattr(output, "model_dump") else output
-        return Result(body=body, exit=Exit.SUCCESS)
+        if not isinstance(body, dict):
+            body = {"data": body}
+
+        if not persist:
+            return Result(body=body, exit=Exit.SUCCESS)
+
+        job_id = mint_job_id("search")
+        if ctx.memory is not None and getattr(ctx.memory, "service", None) is not None:
+            service = ctx.memory.service
+        else:
+            service = require_memory_service(deployment)
+
+        query = payload.get("query") or payload.get("description")
+        sensors = [{"id": source, "type": "video"} for source in payload.get("video_sources") or []]
+        window = None
+        if payload.get("timestamp_start") and payload.get("timestamp_end"):
+            window = {
+                "start": {"timestamp": payload["timestamp_start"]},
+                "end": {"timestamp": payload["timestamp_end"]},
+            }
+        results = body.get("data") if isinstance(body.get("data"), list) else body.get("results") or []
+        if not isinstance(results, list):
+            results = []
+        answer = body.get("answer")
+        if not isinstance(answer, str):
+            answer = f"Search returned {len(results)} result(s)."
+
+        lifecycle = JobLifecycle.start(
+            group="search",
+            adapter=SearchAdapter(),
+            input_data=SearchAdapter.build_input(
+                query=str(query) if query is not None else None,
+                sensors=sensors,
+                window=window,
+                params={k: v for k, v in payload.items() if k not in {"query", "description"}},
+            ),
+            persist=True,
+            service=service,
+            job_id=job_id,
+            write_submitted=False,
+        )
+        try:
+            record = lifecycle.write_point_terminal(
+                status="completed",
+                output=SearchAdapter.build_output(answer=answer, results=list(results)),
+            )
+        except (config_mod.ConfigError, RuntimeError, ValueError) as error:
+            body = dict(body)
+            body["job_id"] = job_id
+            body["persist"] = {"status": "failed", "error": str(error), "persisted": False}
+            return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
+
+        body = dict(body)
+        body["job_id"] = job_id
+        body["persist"] = {
+            "status": "complete",
+            "persisted": lifecycle.persisted,
+            "job_id": record.job.job_id,
+            "group": record.job.group,
+        }
+
+        harness_written = False
+        marker: str | None = None
+        if note_decision.enabled and lifecycle.persisted:
+            note_result = write_memory_note(record, persisted=True, config=memory_config)
+            body["harness_memory"] = note_result_payload(note_result)
+            harness_written = note_result.wrote
+            if not note_result.ok:
+                import click
+
+                click.echo(f"vss: harness memory note failed: {note_result.detail}", err=True)
+                marker = completion_marker(
+                    MARKER_COMPLETED,
+                    group="search",
+                    job_id=job_id,
+                    status="completed",
+                    persisted=True,
+                    exit_hint=int(Exit.PARTIAL),
+                    harness_memory_written=False,
+                )
+                if note_decision.forced:
+                    return Result(
+                        body=body,
+                        exit=Exit.PARTIAL,
+                        job_id=job_id,
+                        extra={"completion_marker": marker},
+                    )
+            else:
+                marker = completion_marker(
+                    MARKER_COMPLETED,
+                    group="search",
+                    job_id=job_id,
+                    status="completed",
+                    persisted=True,
+                    exit_hint=int(Exit.SUCCESS if lifecycle.persisted else Exit.PARTIAL),
+                    harness_memory_written=harness_written,
+                )
+
+        exit_code = Exit.SUCCESS if lifecycle.persisted else Exit.PARTIAL
+        extra = {"completion_marker": marker} if marker else {}
+        return Result(body=body, exit=exit_code, job_id=job_id, extra=extra)
 
 
 SEARCH = SearchGroup()

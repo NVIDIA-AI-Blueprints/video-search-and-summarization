@@ -74,6 +74,7 @@ def completion_marker(
     persisted: bool,
     exit_hint: int,
     asset_id: str | None = None,
+    harness_memory_written: bool | None = None,
 ) -> str:
     """Render the final-stdout completion marker as one compact JSON line ≤1 KB."""
     if event not in _MARKER_EVENTS:
@@ -87,9 +88,14 @@ def completion_marker(
         "persisted": bool(persisted),
         "exit_hint": int(exit_hint),
     }
+    if harness_memory_written is not None:
+        marker["harness_memory_written"] = bool(harness_memory_written)
     line = json.dumps(marker, separators=(",", ":"))
     if len(line.encode("utf-8")) > _MARKER_MAX_BYTES:
         marker["asset_id"] = None
+        line = json.dumps(marker, separators=(",", ":"))
+    if len(line.encode("utf-8")) > _MARKER_MAX_BYTES and "harness_memory_written" in marker:
+        marker.pop("harness_memory_written", None)
         line = json.dumps(marker, separators=(",", ":"))
     if len(line.encode("utf-8")) > _MARKER_MAX_BYTES:
         # Absolute last resort: drop optional fields already null-safe.

@@ -46,13 +46,19 @@ from pydantic import model_validator
 
 from . import config as config_mod
 from . import params as params_mod
+from ._jobs import MARKER_COMPLETED
 from ._jobs import JobLifecycle
+from ._jobs import completion_marker
 from .exits import Exit
 from .group import CommandGroup
 from .group import Context
 from .group import InvalidInput
 from .group import Result
 from .memory_access import require_memory_service
+from .memory_notes import note_result_payload
+from .memory_notes import preflight_memory_note
+from .memory_notes import resolve_write_memory_note
+from .memory_notes import write_memory_note
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -263,6 +269,9 @@ class SummarizeGroup(CommandGroup):
 
         deployment = ctx.deployment or config_mod.load()
         options = SummarizeOptions(**{k: v for k, v in ctx.extra.items() if k in SummarizeOptions.model_fields})
+        memory_config = config_mod.load_memory_config()
+        note_decision = resolve_write_memory_note(ctx.extra, config=memory_config)
+        preflight_memory_note(persist=options.persist, decision=note_decision, config=memory_config)
 
         # Fail before the expensive summarization: a persisted record needs a
         # video_id, which for a --url summary can only come from --video-id.
@@ -350,9 +359,52 @@ class SummarizeGroup(CommandGroup):
             "job_id": record.job.job_id,
             "group": record.job.group,
         }
-        exit_code = Exit.SUCCESS if lifecycle.persisted else Exit.PARTIAL
-        return Result(body=body, exit=exit_code, job_id=job_id)
 
+        harness_written = False
+        marker: str | None = None
+        if note_decision.enabled and lifecycle.persisted:
+            note_result = write_memory_note(record, persisted=True, config=memory_config)
+            body["harness_memory"] = note_result_payload(note_result)
+            harness_written = note_result.wrote
+            if not note_result.ok:
+                click.echo(f"vss: harness memory note failed: {note_result.detail}", err=True)
+                marker = completion_marker(
+                    MARKER_COMPLETED,
+                    group="summary",
+                    job_id=job_id,
+                    status="completed",
+                    persisted=True,
+                    exit_hint=int(Exit.PARTIAL),
+                    harness_memory_written=False,
+                )
+                # Keep completed summary + ES record; explicit note failure is exit 6.
+                if note_decision.forced:
+                    return Result(
+                        body=body,
+                        exit=Exit.PARTIAL,
+                        job_id=job_id,
+                        extra={"completion_marker": marker} if marker else {},
+                    )
+            else:
+                marker = completion_marker(
+                    MARKER_COMPLETED,
+                    group="summary",
+                    job_id=job_id,
+                    status="completed",
+                    persisted=True,
+                    exit_hint=int(Exit.SUCCESS if lifecycle.persisted else Exit.PARTIAL),
+                    harness_memory_written=harness_written,
+                )
+        elif note_decision.enabled and not lifecycle.persisted:
+            body["harness_memory"] = {
+                "status": "skipped",
+                "written": False,
+                "detail": "structured record was not persisted",
+            }
+
+        exit_code = Exit.SUCCESS if lifecycle.persisted else Exit.PARTIAL
+        extra = {"completion_marker": marker} if marker else {}
+        return Result(body=body, exit=exit_code, job_id=job_id, extra=extra)
 
 SUMMARIZE = SummarizeGroup()
 

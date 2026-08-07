@@ -102,6 +102,78 @@ class Service:
 
 
 @dataclass(frozen=True)
+class HarnessMemorySinkConfig:
+    """Client preference for the harness-native Markdown memory addendum.
+
+    Distinct from :class:`Deployment`: ES endpoints are facts about a
+    deployment, while OpenClaw workspace/plugin choices are local harness
+    preferences. Stored beside the deployment in ``config.json`` so every job
+    group can share one provider boundary.
+    """
+
+    enabled: bool = False
+    harness: str = "openclaw"
+    plugin: str = "memory-core"
+    workspace: str = "~/.openclaw/workspace"
+    note_path_template: str = "memory/{date}-vss.md"
+    write_memory_notes_default: bool = False
+    timezone: str = "UTC"
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "harness": self.harness,
+            "plugin": self.plugin,
+            "workspace": self.workspace,
+            "note_path_template": self.note_path_template,
+            "write_memory_notes_default": self.write_memory_notes_default,
+            "timezone": self.timezone,
+        }
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any] | None) -> HarnessMemorySinkConfig:
+        body = raw or {}
+        return cls(
+            enabled=bool(body.get("enabled", False)),
+            harness=str(body.get("harness") or "openclaw"),
+            plugin=str(body.get("plugin") or "memory-core"),
+            workspace=str(body.get("workspace") or "~/.openclaw/workspace"),
+            note_path_template=str(body.get("note_path_template") or "memory/{date}-vss.md"),
+            write_memory_notes_default=bool(body.get("write_memory_notes_default", False)),
+            timezone=str(body.get("timezone") or "UTC"),
+        )
+
+
+@dataclass(frozen=True)
+class MemoryConfig:
+    """Unified-memory client configuration persisted in ``~/.vss/config.json``."""
+
+    structured_store_provider: str = "elasticsearch"
+    structured_store_enabled: bool = True
+    harness_sink: HarnessMemorySinkConfig = field(default_factory=HarnessMemorySinkConfig)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "structured_store": {
+                "provider": self.structured_store_provider,
+                "enabled": self.structured_store_enabled,
+            },
+            "harness_sink": self.harness_sink.to_json(),
+        }
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any] | None) -> MemoryConfig:
+        body = raw or {}
+        store = body.get("structured_store") if isinstance(body.get("structured_store"), dict) else {}
+        sink = body.get("harness_sink") if isinstance(body.get("harness_sink"), dict) else {}
+        return cls(
+            structured_store_provider=str(store.get("provider") or "elasticsearch"),
+            structured_store_enabled=bool(store.get("enabled", True)),
+            harness_sink=HarnessMemorySinkConfig.from_json(sink),
+        )
+
+
+@dataclass(frozen=True)
 class Deployment:
     """A resolved deployment: the answer ``vss configure`` recorded.
 
@@ -195,6 +267,27 @@ class Deployment:
         )
 
 
+def _read_raw() -> dict[str, Any]:
+    path = config_path()
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ConfigError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path} does not contain a JSON object")
+    return raw
+
+
+def _write_raw(raw: dict[str, Any]) -> Path:
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
 def load() -> Deployment:
     """Read the recorded deployment.
 
@@ -206,13 +299,7 @@ def load() -> Deployment:
         raise ConfigError(
             f"no deployment configured ({path} not found). Run `vss configure --base-url <origin>` first."
         )
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ConfigError(f"cannot read {path}: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise ConfigError(f"{path} does not contain a JSON object")
-    return Deployment.from_json(raw)
+    return Deployment.from_json(_read_raw())
 
 
 def save(deployment: Deployment) -> Path:
@@ -221,12 +308,52 @@ def save(deployment: Deployment) -> Path:
     Written 0600: the file names internal hosts, and leaving it world-readable
     on a shared box is gratuitous. It deliberately holds **no credentials** --
     tokens stay in the environment.
+
+    Preserves any existing ``memory`` section so harness preferences survive
+    a redeploy probe.
     """
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(deployment.to_json(), indent=2) + "\n", encoding="utf-8")
-    path.chmod(0o600)
-    return path
+    raw = {}
+    try:
+        raw = _read_raw()
+    except ConfigError:
+        raw = {}
+    preserved_memory = raw.get("memory") if isinstance(raw.get("memory"), dict) else None
+    payload = deployment.to_json()
+    if preserved_memory is not None:
+        payload["memory"] = preserved_memory
+    return _write_raw(payload)
+
+
+def load_memory_config() -> MemoryConfig:
+    """Read harness/memory preferences from ``config.json`` (defaults when absent)."""
+    try:
+        raw = _read_raw()
+    except ConfigError:
+        return MemoryConfig()
+    body = raw.get("memory") if isinstance(raw.get("memory"), dict) else None
+    return MemoryConfig.from_json(body)
+
+
+def save_memory_config(memory: MemoryConfig) -> Path:
+    """Persist harness/memory preferences without erasing the deployment section.
+
+    When no deployment has been configured yet, writes a minimal file that
+    carries only the memory section so ``vss configure memory`` can run first.
+    """
+    try:
+        raw = _read_raw()
+    except ConfigError:
+        raw = {}
+    if raw and raw.get("version") not in (None, CONFIG_VERSION):
+        raise ConfigError(
+            f"config at {config_path()} is version {raw.get('version')!r}, this vss expects {CONFIG_VERSION}."
+        )
+    if not raw:
+        raw = {"version": CONFIG_VERSION}
+    elif "version" not in raw:
+        raw["version"] = CONFIG_VERSION
+    raw["memory"] = memory.to_json()
+    return _write_raw(raw)
 
 
 INGRESS_SERVICES.update(

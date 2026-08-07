@@ -150,12 +150,24 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
 
 @configure.command("show")
 def show() -> None:
-    """Print the recorded deployment."""
+    """Print the recorded deployment (and memory preferences when present)."""
     try:
         deployment = config_mod.load()
     except config_mod.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(json.dumps(deployment.to_json(), indent=2))
+    payload = deployment.to_json()
+    memory = config_mod.load_memory_config()
+    if memory.harness_sink.enabled or memory.harness_sink.write_memory_notes_default:
+        payload["memory"] = memory.to_json()
+    else:
+        # Still surface an explicit memory section when one was saved.
+        try:
+            raw = config_mod._read_raw()
+        except config_mod.ConfigError:
+            raw = {}
+        if isinstance(raw.get("memory"), dict):
+            payload["memory"] = raw["memory"]
+    click.echo(json.dumps(payload, indent=2))
 
 
 @configure.command("check")
@@ -182,6 +194,118 @@ def check() -> None:
         stale = stale or not ok
     if stale:
         raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
+
+
+@configure.group("memory", invoke_without_command=True)
+@click.option(
+    "--harness",
+    type=click.Choice(["openclaw"]),
+    default=None,
+    help="Harness that owns Markdown memory after the initial VSS write.",
+)
+@click.option(
+    "--plugin",
+    default=None,
+    help="Harness memory plugin (currently memory-core).",
+)
+@click.option(
+    "--workspace",
+    default=None,
+    help="Harness workspace root (e.g. ~/.openclaw/workspace).",
+)
+@click.option(
+    "--enable-memory-notes/--disable-memory-notes",
+    default=None,
+    help="Enable or disable the harness Markdown sink.",
+)
+@click.option(
+    "--write-memory-notes-default/--no-write-memory-notes-default",
+    default=None,
+    help="Default for job commands when --write-memory-note is omitted.",
+)
+@click.option(
+    "--note-path-template",
+    default=None,
+    help="Relative path template under the workspace (default memory/{date}-vss.md).",
+)
+@click.option(
+    "--timezone",
+    default=None,
+    help="Timezone used to resolve {date} in the note path template (default UTC).",
+)
+@click.pass_context
+def configure_memory(
+    ctx: click.Context,
+    harness: str | None,
+    plugin: str | None,
+    workspace: str | None,
+    enable_memory_notes: bool | None,
+    write_memory_notes_default: bool | None,
+    note_path_template: str | None,
+    timezone: str | None,
+) -> None:
+    """Configure the harness-native Markdown memory sink.
+
+    Elasticsearch remains the authoritative structured store. VSS only writes
+    the initial ``memory/*.md`` addendum; OpenClaw ``memory-core`` owns
+    indexing, dreaming, retention, and promotion afterward. VSS never writes
+    ``MEMORY.md``.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    if harness is None and plugin is None and workspace is None and enable_memory_notes is None:
+        raise click.UsageError(
+            "pass sink options (e.g. --harness openclaw --plugin memory-core "
+            "--workspace ~/.openclaw/workspace --enable-memory-notes) or use `vss configure memory show`"
+        )
+
+    from vss_core.memory.notes import DEFAULT_NOTE_PATH_TEMPLATE
+    from vss_core.memory.notes import is_supported_harness_plugin
+
+    current = config_mod.load_memory_config()
+    sink = current.harness_sink
+    next_harness = harness or sink.harness
+    next_plugin = plugin or sink.plugin
+    if not is_supported_harness_plugin(next_harness, next_plugin):
+        raise click.ClickException(
+            f"unsupported harness/plugin combination {next_harness!r}/{next_plugin!r}; "
+            f"this release supports openclaw/memory-core"
+        )
+    next_workspace = workspace if workspace is not None else sink.workspace
+    if not str(next_workspace).strip():
+        raise click.ClickException("--workspace is required")
+    next_enabled = sink.enabled if enable_memory_notes is None else enable_memory_notes
+    next_default = (
+        sink.write_memory_notes_default if write_memory_notes_default is None else write_memory_notes_default
+    )
+    if next_enabled and write_memory_notes_default is None and enable_memory_notes is True:
+        # Enabling the sink implies job commands may opt into notes by default
+        # only when the caller also sets the default flag; keep prior default.
+        next_default = sink.write_memory_notes_default
+
+    updated = config_mod.MemoryConfig(
+        structured_store_provider=current.structured_store_provider,
+        structured_store_enabled=current.structured_store_enabled,
+        harness_sink=config_mod.HarnessMemorySinkConfig(
+            enabled=next_enabled,
+            harness=next_harness,
+            plugin=next_plugin,
+            workspace=next_workspace,
+            note_path_template=note_path_template or sink.note_path_template or DEFAULT_NOTE_PATH_TEMPLATE,
+            write_memory_notes_default=next_default,
+            timezone=timezone or sink.timezone or "UTC",
+        ),
+    )
+    path = config_mod.save_memory_config(updated)
+    click.echo(f"wrote memory config to {path}", err=True)
+    click.echo(json.dumps(updated.to_json(), indent=2))
+
+
+@configure_memory.command("show")
+def configure_memory_show() -> None:
+    """Print the effective harness memory configuration."""
+    memory = config_mod.load_memory_config()
+    click.echo(json.dumps({"memory": memory.to_json()}, indent=2))
 
 
 class _ConfigureGroup:

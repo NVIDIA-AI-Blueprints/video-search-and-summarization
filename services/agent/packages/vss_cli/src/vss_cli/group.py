@@ -290,7 +290,8 @@ class CommandGroup(ABC):
         owner = self
         model = action.Input
 
-        extra_names = {p.name for p in owner.extra_params if p.name}
+        job_memory_params = params_mod.job_memory_options()
+        extra_names = {p.name for p in (*owner.extra_params, *job_memory_params) if p.name}
 
         def callback(**values: Any) -> None:
             ctx = _context_from(values)
@@ -329,6 +330,7 @@ class CommandGroup(ABC):
             params=[
                 *params_mod.options_from_model(model),
                 *owner.extra_params,
+                *job_memory_params,
                 *params_mod.shared_options(),
             ],
             callback=callback,
@@ -434,5 +436,8 @@ def _emit(result: Result, ctx: Context) -> None:
         pretty = bool(ctx.pretty)
         text = json.dumps(result.body, indent=2 if pretty else None, default=str)
         click.echo(text)
+    marker = result.extra.get("completion_marker")
+    if isinstance(marker, str) and marker:
+        click.echo(marker)
     if result.exit != Exit.SUCCESS:
         raise SystemExit(int(result.exit))

@@ -33,11 +33,12 @@ from typing import get_args
 from typing import get_origin
 
 import click
+from pydantic import BaseModel
+from pydantic import Field
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from pydantic import BaseModel
     from pydantic.fields import FieldInfo
 
 #: ``json_schema_extra`` key naming the CLI flag when it differs from the
@@ -183,3 +184,26 @@ def shared_options() -> Sequence[click.Option]:
             help="Logging verbosity.",
         ),
     )
+
+
+class JobMemoryNoteOptions(BaseModel):
+    """Shared harness-memory addendum flag for every job-producing ``run``.
+
+    Tri-state: ``--write-memory-note`` forces on, ``--no-write-memory-note``
+    forces off, and omitting both uses ``~/.vss/config.json``
+    ``memory.harness_sink.write_memory_notes_default``.
+    """
+
+    write_memory_note: bool | None = Field(
+        None,
+        description=(
+            "Also write a harness-native Markdown memory addendum (OpenClaw "
+            "memory/*.md) after the authoritative ES persist. Does not replace "
+            "stdout or --persist."
+        ),
+    )
+
+
+def job_memory_options() -> Sequence[click.Option]:
+    """Options every job-producing ``run`` inherits for harness memory notes."""
+    return tuple(options_from_model(JobMemoryNoteOptions))
