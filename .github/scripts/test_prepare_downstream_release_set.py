@@ -19,6 +19,7 @@ from prepare_downstream_release_set import (  # noqa: E402
     candidate_container_tag,
     downstream_relevant,
     downstream_variables,
+    pr_base_sha,
     spatialai_publish_variables,
 )
 
@@ -61,6 +62,25 @@ class GhcrBuildEntriesTest(unittest.TestCase):
                 }
             )
         )
+
+
+class PrBaseShaTest(unittest.TestCase):
+    def test_uses_github_pr_base_for_mirrored_pr_ref(self):
+        api = mock.Mock()
+        api.request.return_value = {"base": {"sha": "a" * 40}}
+        self.assertEqual(
+            pr_base_sha(api, "NVIDIA-AI-Blueprints/vss", "pull-request/1601"),
+            "a" * 40,
+        )
+        api.request.assert_called_once_with(
+            "GET", "/repos/NVIDIA-AI-Blueprints/vss/pulls/1601"
+        )
+
+    def test_invalid_pr_base_fails_open_at_the_caller(self):
+        api = mock.Mock()
+        api.request.return_value = {"base": {"sha": "invalid"}}
+        with self.assertRaisesRegex(RuntimeError, "valid base SHA"):
+            pr_base_sha(api, "owner/repo", "pull-request/1")
 
 
 class DownstreamVariablesTest(unittest.TestCase):
