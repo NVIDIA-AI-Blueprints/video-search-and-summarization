@@ -31,7 +31,7 @@ import {
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
 import nvAxios from '../../services/Axios';
-import { useNotifications } from '@toolpad/core/useNotifications';
+import { useSnackbar } from 'notistack';
 import config from '../../config';
 
 interface LoggingStatus {
@@ -43,7 +43,7 @@ const TimestampLogging: React.FC = () => {
     const [liveStreamLogging, setLiveStreamLogging] = useState<boolean>(false);
     const [vodStreamLogging, setVodStreamLogging] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
-    const notifications = useNotifications();
+    const { enqueueSnackbar } = useSnackbar();
 
     const getLoggingStatus = async (): Promise<void> => {
         setIsLoading(true);
@@ -61,8 +61,8 @@ const TimestampLogging: React.FC = () => {
             }
         } catch (error) {
             LOG.info('Failed to fetch logging status', error);
-            notifications.show('Error - Could not Get logging data', {
-                severity: 'error',
+            enqueueSnackbar('Error - Could not Get logging data', {
+                variant: 'error',
                 autoHideDuration: 3000,
             });
         } finally {
@@ -77,14 +77,14 @@ const TimestampLogging: React.FC = () => {
                 live_stream: liveStreamLogging,
                 vod_stream: vodStreamLogging,
             });
-            notifications.show('Logging status updated successfully', {
-                severity: 'success',
+            enqueueSnackbar('Logging status updated successfully', {
+                variant: 'success',
                 autoHideDuration: 3000,
             });
         } catch (error) {
             LOG.info('Failed to set logging status', error);
-            notifications.show('Error - Could not set logging status', {
-                severity: 'error',
+            enqueueSnackbar('Error - Could not set logging status', {
+                variant: 'error',
                 autoHideDuration: 3000,
             });
         } finally {

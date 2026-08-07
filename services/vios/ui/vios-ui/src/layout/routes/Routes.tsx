@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 import React from 'react';
-import { Navigate, useRoutes, RouteObject } from 'react-router-dom';
+import { Navigate, useRoutes, RouteObject } from 'react-router';
 
 import UILayout from '../Layout';
 

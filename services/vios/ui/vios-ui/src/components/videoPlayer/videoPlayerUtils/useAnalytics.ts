@@ -166,7 +166,7 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
 
     // Handle canvas clicks for drawing
     const handleCanvasClick = useCallback(
-        (event: React.MouseEvent<HTMLCanvasElement>, videoRef: React.RefObject<HTMLVideoElement>) => {
+        (event: React.MouseEvent<HTMLCanvasElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
             const canvas = event.currentTarget;
             const video = videoRef.current;
             if (!canvas || !video) return;

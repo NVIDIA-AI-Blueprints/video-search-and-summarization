@@ -19,7 +19,7 @@ import React, { useCallback, useState } from 'react';
 import { Card, CardHeader, CardActions, CardContent, Typography, Stack, Divider, Box } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
 import nvAxios from '../../services/Axios';
-import { useNotifications } from '@toolpad/core/useNotifications';
+import { useSnackbar } from 'notistack';
 import useVSTUIStore from '../../services/StateManagement';
 import { Sensor } from '../../interfaces/interfaces';
 import MultipleSensorSelector from '../../components/sensorSelector/MultipleSensorSelector';
@@ -35,7 +35,7 @@ const PlugUnplugSensor: React.FC = () => {
     }, []);
 
     const [isLoading, setIsLoading] = useState<boolean>(false);
-    const notifications = useNotifications();
+    const { enqueueSnackbar } = useSnackbar();
 
     const handleSensorPlug = async (): Promise<void> => {
         if (!selectedSensors) {
@@ -63,14 +63,14 @@ const PlugUnplugSensor: React.FC = () => {
         setIsLoading(false);
 
         if (successCount > 0) {
-            notifications.show(`Successfully plugged ${successCount} sensor(s)`, {
-                severity: 'success',
+            enqueueSnackbar(`Successfully plugged ${successCount} sensor(s)`, {
+                variant: 'success',
                 autoHideDuration: 3000,
             });
         }
         if (errorCount > 0) {
-            notifications.show(`Failed to plug ${errorCount} sensor(s)`, {
-                severity: 'error',
+            enqueueSnackbar(`Failed to plug ${errorCount} sensor(s)`, {
+                variant: 'error',
                 autoHideDuration: 3000,
             });
         }
@@ -102,14 +102,14 @@ const PlugUnplugSensor: React.FC = () => {
         setIsLoading(false);
 
         if (successCount > 0) {
-            notifications.show(`Successfully unplugged ${successCount} sensor(s)`, {
-                severity: 'success',
+            enqueueSnackbar(`Successfully unplugged ${successCount} sensor(s)`, {
+                variant: 'success',
                 autoHideDuration: 3000,
             });
         }
         if (errorCount > 0) {
-            notifications.show(`Failed to unplug ${errorCount} sensor(s)`, {
-                severity: 'error',
+            enqueueSnackbar(`Failed to unplug ${errorCount} sensor(s)`, {
+                variant: 'error',
                 autoHideDuration: 3000,
             });
         }

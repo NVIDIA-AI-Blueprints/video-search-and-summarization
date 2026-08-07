@@ -218,28 +218,11 @@ bdd_tests/
 | 61 | `test_get_stream_recorder_service_help` | GET /vst/api/v1/record/help - validates supported API list | Unit |
 | 62 | `test_get_stream_recorder_service_configuration` | GET /vst/api/v1/record/configuration - validates config object | Unit |
 | 63 | `test_get_recording_timelines_for_all_streams` | GET /vst/api/v1/record/timelines - validates 200 | Unit |
-| **Unit Tests - MCP Gateway** ||||
-| 64 | `test_list_all_sensors` | MCP tool sensor_list - validates sensor data returned | Unit |
-| 65 | `test_get_sensor_status` | MCP tool sensor_status - validates JSON response | Unit |
-| 66 | `test_check_sensor_health` | MCP tool sensor_health_check - validates status field | Unit |
-| 67 | `test_trigger_sensor_scan` | MCP tool sensor_scan - validates JSON response | Unit |
-| 68 | `test_get_sensor_status_by_id` | MCP tool sensor_status_by_id - validates JSON response | Unit |
-| 69 | `test_get_sensor_info_by_id` | MCP tool sensor_info_by_id - validates JSON response | Unit |
-| 70 | `test_get_sensor_network_info_by_id` | MCP tool sensor_network_by_id - validates JSON response | Unit |
-| 71 | `test_get_sensor_settings_by_id` | MCP tool sensor_settings_by_id - validates JSON response | Unit |
-| 72 | `test_get_recording_status_for_a_stream` | MCP tool record_stream_status - validates JSON response | Unit |
-| 73 | `test_get_recording_timelines_for_a_stream` | MCP tool record_stream_timelines - validates JSON response | Unit |
-| 74 | `test_start_and_stop_recording_for_a_stream` | MCP tools record_stream_start + stop - validates JSON response | Unit |
-| 75 | `test_get_live_picture_as_base64_for_a_stream` | MCP tool get_live_picture_base64 - validates base64 image data | Unit |
-| 76 | `test_get_live_picture_url_for_a_stream` | MCP tool get_live_picture_url - validates imageUrl | Unit |
-| 77 | `test_list_all_storage_files` | MCP tool storage_file_list - validates JSON response | Unit |
-| 78 | `test_list_storage_files_by_sensor` | MCP tool storage_file_list_by_sensor - validates JSON response | Unit |
-| 79 | `test_get_storage_file_paths_by_sensor` | MCP tool storage_file_path_by_sensor - validates JSON response | Unit |
 
-**Total Tests:** 138 scenarios across 33 test files
+**Total Tests:** 123 scenarios across 32 test files
 - **Functional / Negative / Boundary / Stress Tests:** 82
 - **Non-Functional Tests:** 1 (comprehensive latency and performance testing)
-- **Unit Tests:** 55 (API endpoint validation across 7 services)
+- **Unit Tests:** 40 (API endpoint validation across 6 services)
 
 > Default `pytest` runs collect 128 tests; 10 are deselected by opt-in markers
 > (`@longrun`, `@needs_iptables`, `@needs_bbox_metadata`). See [Test Markers](#test-markers).
@@ -259,12 +242,11 @@ Some scenarios are opt-in via pytest markers. They are tagged in the feature fil
 | `longrun` | Yes | Stress / long-run tests with 30 min – 2 h wall-clock | `pytest -m longrun` |
 | `needs_iptables` | Yes | Tests that require iptables / privileged Docker (e.g. WebRTC network-break simulation) | `pytest -m needs_iptables` |
 | `needs_bbox_metadata` | Yes | Tests that require a sensor seeded with stored bbox / overlay metadata from a Metropolis perception pipeline | `pytest -m needs_bbox_metadata` |
-| `mcp_gateway` | Yes | MCP gateway tests (require the vios-mcp container on port 8001) | `pytest -m mcp_gateway` |
 
 ### Examples
 
 ```bash
-# Default — exclude longrun, iptables, bbox-metadata and mcp_gateway:
+# Default — exclude longrun, iptables and bbox-metadata:
 poetry run pytest tests/
 
 # Run only the long-running stress tests:
@@ -379,7 +361,6 @@ API endpoint validation tests for each VST microservice. Each service produces i
 | Sensor Management | 13 | list, status, streams, info, qos, system/stats, timelines, version, help, configuration (+ per-sensor variants) |
 | Storage Management | 7 | size, info, version, help, configuration, file/list, file/protected |
 | Stream Recorder | 5 | streams, version, help, configuration, timelines |
-| MCP Gateway | 16 | sensor tools, recording tools, picture tools, storage tools (via MCP protocol) |
 
 **Running all unit tests (generates per-service CSVs):**
 
@@ -419,18 +400,12 @@ poetry run pytest tests/unit_tests/storage_management/ \
 poetry run pytest tests/unit_tests/stream_recorder/ \
     --csv=reports/unit_tests/stream_recorder.csv \
     --override-ini="addopts=" -v --tb=short --disable-container-monitor
-
-# MCP Gateway
-poetry run pytest tests/unit_tests/mcp_gateway/ \
-    --csv=reports/unit_tests/mcp_gateway.csv \
-    --override-ini="addopts=" -v --tb=short --disable-container-monitor
 ```
 
 **Notes:**
 - `--override-ini="addopts="` clears default addopts so only the per-service CSV is generated
 - `--disable-container-monitor` prevents redundant monitor start/stop per service
 - WebRTC signaling endpoints are excluded (require full WebRTC handshake)
-- MCP tests require the MCP gateway to be running (port 8001 by default)
 
 ## Configuration
 
@@ -1380,9 +1355,9 @@ sudo apt-get install -y \
 
 ## Statistics
 
-- **Total Tests:** 138 scenarios across 33 test files
+- **Total Tests:** 123 scenarios across 32 test files
 - **Test Categories:** 7 (upload, download, picture, webrtc, url_optimization, performance, unit tests)
-- **Unit Tests:** 55 scenarios across 7 services (live, replay, proxy, sensor, storage, recorder, MCP)
+- **Unit Tests:** 40 scenarios across 6 services (live, replay, proxy, sensor, storage, recorder)
 - **Performance Tests:** 1 comprehensive latency test (40+ internal scenarios)
 - **Opt-in scenarios:** 10 (gated by `@longrun`, `@needs_iptables`, `@needs_bbox_metadata`)
 - **Shared Utilities:** 7 modules (one per category + unit test utils)

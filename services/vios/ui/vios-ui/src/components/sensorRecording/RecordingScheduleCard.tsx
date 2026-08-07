@@ -36,9 +36,15 @@ import { Sensor } from '../../interfaces/interfaces';
 import nvAxios from '../../services/Axios';
 import config from '../../config';
 import LOG from '../../utils/misc/Logger';
-import cron from 'cron-validate';
+import cronValidate from 'cron-validate';
 import cronstrue from 'cronstrue';
 import React from 'react';
+
+// cron-validate ships Babel-style CommonJS (`exports.default`) with no ESM build.
+// Vite 5 honoured the `__esModule` flag, but Vite 8 (rolldown) applies Node interop,
+// so a default import yields the whole `module.exports` object instead of the
+// function. Unwrap `.default` when present so both interop styles work.
+const cron = (cronValidate as unknown as { default?: typeof cronValidate }).default ?? cronValidate;
 
 const BOSMA_SCHEDULER_PRESET = {
     presetId: 'cpp-cron',

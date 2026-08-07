@@ -41,7 +41,7 @@ Run pytest-bdd test suites against a running VIOS instance.
    - The health endpoint is localhost-only — do not substitute BASE_URL here
    - Retry until `200` before continuing (poll every 5s, timeout after 120s)
 
-4. **Sync config.json with BASE_URL** — the file defaults to `localhost:30888` which causes MCP gateway tests to derive the wrong URL. Always update it before running tests:
+4. **Sync config.json with BASE_URL** — the file defaults to `localhost:30888`, which points tests at the wrong host. Always update it before running tests:
 
 ```bash
 python3 - <<EOF
@@ -76,7 +76,6 @@ Consult `guides/decision-trees.md` if unsure. Common selections:
 | RTSP proxy | `tests/unit_tests/rtsp_proxy/` | RTSP proxy changes |
 | Stream recorder | `tests/unit_tests/stream_recorder/` | Recording changes |
 | NVStreamer routes | Exact file under `tests/unit_tests/nvstreamer/` | Manual NVStreamer UI/API base-path validation; disabled by default |
-| MCP gateway | `tests/unit_tests/mcp_gateway/` | MCP integration changes |
 | File upload | `tests/file_upload/` | Upload API changes |
 | File download | `tests/file_download/` | Download API changes |
 | WebRTC | `tests/webrtc/` | WebRTC stream changes |

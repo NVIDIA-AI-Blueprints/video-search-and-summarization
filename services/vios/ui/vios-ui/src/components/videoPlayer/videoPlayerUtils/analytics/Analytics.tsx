@@ -33,7 +33,7 @@ interface AnalyticsProps {
         name?: string;
     };
     streamType: StreamType;
-    videoRef: React.RefObject<HTMLVideoElement>;
+    videoRef: React.RefObject<HTMLVideoElement | null>;
     videoWidth: number;
     videoHeight: number;
     enqueueSnackbar: (message: string, options: { variant: 'info' | 'success' | 'error' | 'warning' }) => void;
