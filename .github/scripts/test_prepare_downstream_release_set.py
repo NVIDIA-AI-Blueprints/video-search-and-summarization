@@ -180,6 +180,7 @@ class DownstreamVariablesTest(unittest.TestCase):
                 output_path.read_text(),
                 "has_ghcr_build_entries=false\n"
                 "run_downstream=false\n"
+                "build_type=ghcr-acceptance\n"
                 "publish_spatialai_data_utils=false\n"
                 "spatialai_package_version_suffix=\n"
                 "spatialai_data_utils_tree_sha=\n",
@@ -241,6 +242,98 @@ class DownstreamVariablesTest(unittest.TestCase):
             self.assertEqual(variables["SPATIALAI_DATA_UTILS_PUBLISH"], "false")
             self.assertEqual(variables["SPATIALAI_SOURCE_TREE_SHA"], tree_sha)
             self.assertIn("run_downstream=true\n", output_path.read_text())
+
+    def run_handoff_without_git(self, tmp, *extra_args):
+        """Drive main() the way the trigger job does: an unpacked source tree.
+
+        That job works from a downloaded archive with no ``.git``, so the diff
+        and the gate it feeds cannot be recomputed there. Mocking
+        resolve_diff_base/changed_paths hides exactly that, so this helper
+        leaves both real.
+        """
+        sha = "a" * 40
+        tree_sha = "b" * 40
+        suffix = f".dev123+t{tree_sha}.g{sha[:12]}.gh.r1"
+        release_set = {
+            "source": {"commit": sha, "ref": "develop"},
+            "release_set_id": "sha256:" + "1" * 64,
+            "images": [],
+        }
+        root = Path(tmp)
+        self.assertFalse((root / ".git").exists())
+        (root / "deploy/docker").mkdir(parents=True)
+        (root / "deploy/docker/container-inventory.json").write_text(
+            json.dumps(INVENTORY)
+        )
+        release_path = root / "release-set.json"
+        env_path = root / "github.env"
+        output_path = root / "github.output"
+        release_path.write_text(json.dumps(release_set))
+        argv = [
+            "prepare_downstream_release_set.py",
+            "--sha",
+            sha,
+            "--ref-name",
+            "develop",
+            "--repo-root",
+            str(root),
+            "--before",
+            "c" * 40,
+            "--release-set",
+            str(release_path),
+            "--spatialai-package-version-suffix",
+            suffix,
+            "--spatialai-data-utils-tree-sha",
+            tree_sha,
+            *extra_args,
+        ]
+        previous = Path.cwd()
+        os.chdir(root)
+        try:
+            with mock.patch("sys.argv", argv), mock.patch.dict(
+                os.environ,
+                {
+                    "GITHUB_ENV": str(env_path),
+                    "GITHUB_OUTPUT": str(output_path),
+                    "PATH": os.environ.get("PATH", ""),
+                },
+                clear=True,
+            ), mock.patch.object(
+                module, "validate_release_set", return_value=[]
+            ):
+                self.assertEqual(module.main(), 0)
+        finally:
+            os.chdir(previous)
+        env_text = env_path.read_text()
+        payload = env_text.split("<<EOF\n", 1)[1].split("\nEOF", 1)[0]
+        return json.loads(payload), output_path.read_text()
+
+    def test_trigger_job_replays_the_build_type_decided_upstream(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            variables, output = self.run_handoff_without_git(
+                tmp, "--build-type", "spatialai-reconcile"
+            )
+        self.assertEqual(variables["BUILD_TYPE"], "spatialai-reconcile")
+        self.assertIn("build_type=spatialai-reconcile\n", output)
+        self.assertEqual(
+            variables["SPATIALAI_SOURCE_TREE_SHA"], "b" * 40
+        )
+
+    def test_trigger_job_rejects_an_unknown_replayed_build_type(self):
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(
+            ValueError, "Downstream build type"
+        ):
+            self.run_handoff_without_git(
+                tmp, "--build-type", "spatialai-reconclie"
+            )
+
+    def test_recomputed_build_type_is_unchanged_without_a_handoff(self):
+        # Without the flag the trigger job re-decides from a diff it cannot
+        # resolve, which is why the upstream job has to hand the answer over.
+        with tempfile.TemporaryDirectory() as tmp:
+            variables, output = self.run_handoff_without_git(tmp)
+        self.assertEqual(variables["BUILD_TYPE"], "ghcr-acceptance")
+        self.assertIn("build_type=ghcr-acceptance\n", output)
 
 
 
