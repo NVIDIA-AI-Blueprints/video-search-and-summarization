@@ -99,8 +99,12 @@ Sizing the run matters more than in the suite above:
   available on a 16-core host, and Alert Bridge CPU stayed flat at ~322% while
   the offered rate went from 320 to 1280 msg/s. Everything above that point
   describes the harness. The suite samples the simulators alongside Alert
-  Bridge every ramp point and fails with the offending process named once any
-  of them passes `SIM_SATURATED_PCT` (default 85). Raising the ceiling means
+  Bridge every ramp point. It fails only when a simulator is saturated at the
+  *break rate*, where the latency comparison happens; saturation at higher
+  rates is printed as `sims@top` but does not fail the check, because a
+  throttled simulator makes Alert Bridge use less CPU and so cannot turn the
+  "crosses one core" half into a false pass. The threshold is
+  `SIM_SATURATED_PCT` (default 85). Raising the ceiling means
   giving the simulators more than one process each; until then the "≥4×
   throughput" acceptance criterion cannot be measured here.
 - **Start the ramp below the single-process knee.** Both baseline checks assume

@@ -376,29 +376,6 @@ sys.exit(0 if configured * 0.8 <= observed <= configured * 3.0 else 1)"
 }
 
 
-saturated_simulator() {
-    # Highest CPU any simulator reached across the ramp, and which one. They are
-    # single-process Flask servers, so each is GIL-bound to ~1 core; once one
-    # saturates, the ramp is measuring the harness rather than Alert Bridge.
-    python3 - "$RESULTS_DIR" "$SIM_SATURATED_PCT" <<'SIMPY'
-import glob, os, sys
-results, limit = sys.argv[1], float(sys.argv[2])
-worst_name, worst = None, 0.0
-for path in glob.glob(os.path.join(results, "sims_*.txt")):
-    for line in open(path):
-        parts = line.split()
-        if len(parts) >= 3:
-            try:
-                peak = float(parts[2])
-            except ValueError:
-                continue
-            if peak > worst:
-                worst_name, worst = parts[0], peak
-if worst_name and worst >= limit:
-    print(f"{worst_name} {worst:.1f}")
-SIMPY
-}
-
 # ─── TS-030: rate ramp, 1 process vs N ──────────────────────────────────────
 ts_030() {
     echo ""; echo "=== TS-030: rate ramp — 1 process vs $PROCESSES processes ==="
@@ -421,12 +398,6 @@ ts_030() {
 
     local last=$(( ${#single_means[@]} - 1 ))
     if [ "$last" -lt 1 ]; then record_result TS-030 FAIL "need at least two rates in RAMP_RATES"; return; fi
-
-    local sim_bound; sim_bound=$(saturated_simulator)
-    if [ -n "$sim_bound" ]; then
-        record_result TS-030 FAIL "simulator saturated ($sim_bound% of one core): the ramp measured the harness, not Alert Bridge. Give the simulators more capacity before reading these numbers."
-        return
-    fi
 
     if ! assert_stub_delay "${single_means[0]}" "$STUB_DELAY"; then
         record_result TS-030 FAIL "baseline vlm_mean=${single_means[0]}s does not match stub delay ${STUB_DELAY}s. Either a stale NIM stub is serving an older delay, or the ramp has no point below the single-process knee - the first entry in RAMP_RATES must be low enough that one process is still idle there."
@@ -452,6 +423,28 @@ ts_030() {
 
     if python3 -c "
 import sys
+import glob, os
+results_dir = "$RESULTS_DIR"
+sim_limit = float("$SIM_SATURATED_PCT")
+processes_arg = $PROCESSES
+
+def sim_peaks(rate):
+    """Peak CPU per simulator at one offered rate, across both variants."""
+    worst = {}
+    for variant in (1, processes_arg):
+        path = os.path.join(results_dir, f"sims_P{variant}R{rate}.txt")
+        if not os.path.exists(path):
+            continue
+        for line in open(path):
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    peak = float(parts[2])
+                except ValueError:
+                    continue
+                worst[parts[0]] = max(worst.get(parts[0], 0.0), peak)
+    return worst
+
 rates  = [$csv_rates]
 s_mean = [$csv_smean]
 m_mean = [$csv_mmean]
@@ -469,12 +462,25 @@ if brk is None:
           'entry in RAMP_RATES, do not raise it.', file=sys.stderr)
     sys.exit(1)
 
+# Only the break-rate comparison is corrupted by a saturated simulator. At
+# higher rates a throttled simulator makes Alert Bridge use *less* CPU, so the
+# "crosses one core" half stays conservative - it cannot pass falsely.
+at_break = sim_peaks(rates[brk])
+blocked = [f'{name} {peak:.1f}%' for name, peak in sorted(at_break.items()) if peak >= sim_limit]
+if blocked:
+    print('simulator saturated at the break rate '
+          f'({rates[brk]}/s): {", ".join(blocked)} of one core. The latency '
+          'comparison there describes the harness, not Alert Bridge. Give the '
+          'simulators more capacity, or start the ramp lower.', file=sys.stderr)
+    sys.exit(1)
+
 ok = (max(s_cpu) >= 85.0             # the one-core ceiling is real
       and m_mean[brk] <= m_base * 1.3  # N processes unaffected where 1 broke
       and m_mean[brk] < s_mean[brk]    # ...and faster there
       and max(m_cpu) > 100.0)          # N processes do cross one core
 print(f'break_rate={rates[brk]}/s 1p={s_mean[brk]}s {s_cpu[brk]}% '
-      f'{processes}p={m_mean[brk]}s {m_cpu[brk]}% | max cpu 1p={max(s_cpu)}% {processes}p={max(m_cpu)}%',
+      f'{processes}p={m_mean[brk]}s {m_cpu[brk]}% | max cpu 1p={max(s_cpu)}% {processes}p={max(m_cpu)}%'
+      f' | sims@top {", ".join(f"{n} {v:.0f}%" for n, v in sorted(sim_peaks(rates[-1]).items()))}',
       file=sys.stderr)
 sys.exit(0 if ok else 1)" 2>"$RESULTS_DIR/ts030_verdict.txt"; then
         detail="$(cat "$RESULTS_DIR/ts030_verdict.txt")"
