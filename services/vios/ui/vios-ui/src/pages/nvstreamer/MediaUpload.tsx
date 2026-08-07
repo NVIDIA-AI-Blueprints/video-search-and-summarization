@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -305,84 +305,53 @@ const MediaUpload = () => {
 
     const isNumeric = (value: string): boolean => /^-?\d+$/.test(value);
 
-    const uploadFileInChunks = async (options: UploadOptions) => {
-        const handleSuccess = (
-            response: AxiosResponse,
-            chunkNumber: number,
-            totalChunkCount: number,
-            onSuccess: (response: string) => void
-        ) => {
-            LOG.info(`Chunk ${chunkNumber}/${totalChunkCount} uploaded successfully`);
-            if (chunkNumber === totalChunkCount) {
-                enqueueSnackbar(`Success - File upload successfully ${response.data.filename}`, {
-                    variant: 'success',
-                    anchorOrigin: {
-                        horizontal: 'right',
-                        vertical: 'bottom',
-                    },
-                });
-                LOG.info('file upload response', response.data);
-                onSuccess('Ok');
-                handleRefresh();
-            }
-        };
-
-        const handleUploadError = (
-            error: AxiosError<{ error_message: string }>,
-            chunkNumber: number,
-            cancelToken: CancelTokenSource,
-            onError: (error: { error: unknown }) => void
-        ) => {
-            cancelToken.cancel();
-            LOG.error(`Error uploading chunk ${chunkNumber}:`, error);
-            onError({ error });
-            const errorMessage = error.response?.data?.error_message || 'File upload failed';
-            enqueueSnackbar(`Error - ${errorMessage}`, {
-                variant: 'error',
-                anchorOrigin: { horizontal: 'right', vertical: 'bottom' },
-            });
-            handleRefresh();
-        };
-
-        const { onSuccess, onError, file, onProgress } = options;
-        const currentState = stateRef.current;
-
-        // Create metadata object once at the start - only include keys with values
+    // Build the metadata object - only include keys with values
+    const buildMetadata = (currentState: UploadState): Metadata => {
         const metadata: Metadata = {};
-        if (currentState.eventInfo && currentState.eventInfo.trim()) {
-            metadata.eventInfo = currentState.eventInfo.trim();
-        }
-        if (currentState.timestampInput.trim()) {
-            // Send the original format: number if Unix timestamp, string if ISO format
-            if (/^\d+$/.test(currentState.timestampInput.trim())) {
-                metadata.timestamp = Number(currentState.timestampInput.trim());
-            } else {
-                metadata.timestamp = currentState.timestampInput.trim();
+        const textFields: ['eventInfo' | 'streamName' | 'tag' | 'sensorId' | 'checksum', string][] = [
+            ['eventInfo', currentState.eventInfo],
+            ['streamName', currentState.streamName],
+            ['tag', currentState.metadataTag],
+            ['sensorId', currentState.sensorId],
+            ['checksum', currentState.checksum],
+        ];
+        textFields.forEach(([key, value]) => {
+            if (value && value.trim()) {
+                metadata[key] = value.trim();
             }
+        });
+        const timestamp = currentState.timestampInput.trim();
+        if (timestamp) {
+            // Send the original format: number if Unix timestamp, string if ISO format
+            metadata.timestamp = /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
         }
-        if (currentState.streamName && currentState.streamName.trim()) {
-            metadata.streamName = currentState.streamName.trim();
-        }
-        if (currentState.metadataTag && currentState.metadataTag.trim()) {
-            metadata.tag = currentState.metadataTag.trim();
-        }
-        if (currentState.sensorId && currentState.sensorId.trim()) {
-            metadata.sensorId = currentState.sensorId.trim();
-        }
-        if (currentState.checksum && currentState.checksum.trim()) {
-            metadata.checksum = currentState.checksum.trim();
-        }
+        return metadata;
+    };
 
-        // Metadata validation is now optional - all fields are conditionally included
+    const applyTranscodeHeaders = (headers: UploadHeaders, currentState: UploadState) => {
+        if (!currentState.enableTranscode) {
+            return;
+        }
+        headers['nvstreamer-enable-transcode'] = true;
+        if (currentState.frameRate) {
+            headers['transcode-framerate'] = currentState.frameRate;
+        }
+        if (currentState.bitrate) {
+            headers['transcode-bitrate'] = currentState.bitrate;
+        }
+        if (currentState.keyframeInterval) {
+            headers['transcode-keyframe-interval'] = currentState.keyframeInterval;
+        }
+    };
 
-        const currentChunkSize = currentState.chunkSize;
+    const isChunkSizeValid = (currentChunkSize: number, onError: (error: { error: unknown }) => void): boolean => {
         if (!isNumeric(currentChunkSize.toString())) {
             enqueueSnackbar(`Error - chunkSize must be a valid number`, {
                 variant: 'error',
                 anchorOrigin: { horizontal: 'right', vertical: 'bottom' },
             });
             onError({ error: new Error('Invalid chunk size') });
-            return;
+            return false;
         }
         if (Number(currentChunkSize) <= 10) {
             enqueueSnackbar('Error - chunkSize must be more than 10 MB', {
@@ -390,12 +359,133 @@ const MediaUpload = () => {
                 anchorOrigin: { horizontal: 'right', vertical: 'bottom' },
             });
             onError({ error: new Error('Chunk size too small') });
+            return false;
+        }
+        return true;
+    };
+
+    const handleChunkSuccess = (
+        response: AxiosResponse,
+        chunkNumber: number,
+        totalChunkCount: number,
+        onSuccess: (response: string) => void
+    ) => {
+        LOG.info(`Chunk ${chunkNumber}/${totalChunkCount} uploaded successfully`);
+        if (chunkNumber === totalChunkCount) {
+            enqueueSnackbar(`Success - File upload successfully ${response.data.filename}`, {
+                variant: 'success',
+                anchorOrigin: {
+                    horizontal: 'right',
+                    vertical: 'bottom',
+                },
+            });
+            LOG.info('file upload response', response.data);
+            onSuccess('Ok');
+            handleRefresh();
+        }
+    };
+
+    const handleChunkUploadError = (
+        error: AxiosError<{ error_message: string }>,
+        chunkNumber: number,
+        cancelToken: CancelTokenSource,
+        onError: (error: { error: unknown }) => void
+    ) => {
+        cancelToken.cancel();
+        LOG.error(`Error uploading chunk ${chunkNumber}:`, error);
+        onError({ error });
+        const errorMessage = error.response?.data?.error_message || 'File upload failed';
+        enqueueSnackbar(`Error - ${errorMessage}`, {
+            variant: 'error',
+            anchorOrigin: { horizontal: 'right', vertical: 'bottom' },
+        });
+        handleRefresh();
+    };
+
+    interface ChunkUploadParams {
+        options: UploadOptions;
+        currentState: UploadState;
+        metadata: Metadata;
+        start: number;
+        chunkSizeBytes: number;
+        chunkNumber: number;
+        totalChunkCount: number;
+        uniqueIdentifier: string;
+        cancelToken: CancelTokenSource;
+    }
+
+    const buildChunkHeaders = (params: ChunkUploadParams, isLastChunk: boolean): UploadHeaders => {
+        const uploadHeaders: UploadHeaders = {
+            'content-type': 'multipart/form-data',
+            'nvstreamer-identifier': params.uniqueIdentifier,
+            'nvstreamer-file-name': params.options.file.name,
+            'nvstreamer-chunk-number': params.chunkNumber,
+            'nvstreamer-total-chunks': params.totalChunkCount,
+            'nvstreamer-is-last-chunk': isLastChunk ? 'true' : 'false',
+        };
+        if (params.metadata.sensorId) {
+            uploadHeaders.streamId = params.metadata.sensorId;
+        }
+        applyTranscodeHeaders(uploadHeaders, params.currentState);
+        return uploadHeaders;
+    };
+
+    // Returns false when the upload loop must stop (cancelled or failed chunk)
+    const uploadChunk = async (params: ChunkUploadParams): Promise<boolean> => {
+        const { onSuccess, onError, file, onProgress } = params.options;
+        const { start, chunkSizeBytes, chunkNumber, totalChunkCount, cancelToken } = params;
+        const fileSize = file.size;
+        const isLastChunk = chunkNumber === totalChunkCount;
+
+        const fd = new FormData();
+        fd.append('mediaFile', file.slice(start, start + chunkSizeBytes));
+        fd.append('filename', file.name);
+
+        // Add metadata to the first chunk
+        if (chunkNumber === 1) {
+            fd.append('metadata', JSON.stringify(params.metadata));
+        }
+
+        try {
+            const response = await nvAxios.post(`${config.storageManagementEndpoint}/api/v1/storage/file`, fd, {
+                timeout: VIDEO_UPLOAD_TIMEOUT,
+                headers: buildChunkHeaders(params, isLastChunk),
+                cancelToken: cancelToken.token,
+                onUploadProgress: progressEvent => {
+                    const progress = ((start + progressEvent.loaded) / fileSize) * 100;
+                    onProgress({ percent: progress });
+                },
+            });
+
+            if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'filename')) {
+                if (isLastChunk) {
+                    setFileTag(tags, response.data.id);
+                }
+                handleChunkSuccess(response, chunkNumber, totalChunkCount, onSuccess);
+            }
+            return true;
+        } catch (error: unknown) {
+            cancelTokensRef.current.delete(file.name);
+            if (axios.isCancel(error)) {
+                return false;
+            }
+            const uploadError = error instanceof AxiosError ? error : new AxiosError('Unknown error occurred');
+            handleChunkUploadError(uploadError, chunkNumber, cancelToken, onError);
+            return false;
+        }
+    };
+
+    const uploadFileInChunks = async (options: UploadOptions) => {
+        const { onError, file } = options;
+        const currentState = stateRef.current;
+
+        const metadata = buildMetadata(currentState);
+        if (!isChunkSizeValid(currentState.chunkSize, onError)) {
             return;
         }
 
-        let chunkFailed = false;
         let chunkNumber = 0;
-        const chunkSizeBytes = Number(currentChunkSize) * 1024 * 1024;
+        const chunkSizeBytes = Number(currentState.chunkSize) * 1024 * 1024;
         const totalChunkCount = Math.ceil(file.size / chunkSizeBytes);
         const fileSize = file.size;
         const uniqueIdentifier = generateUUID();
@@ -404,93 +494,19 @@ const MediaUpload = () => {
 
         // Process each chunk
         for (let start = 0; start < fileSize; start += chunkSizeBytes) {
-            if (chunkFailed) break;
             chunkNumber += 1;
-            const chunk = file.slice(start, start + chunkSizeBytes);
-            const isLastChunk = chunkNumber === totalChunkCount;
-
-            const fd = new FormData();
-            fd.append('mediaFile', chunk);
-            fd.append('filename', file.name);
-
-            // Add metadata to the first chunk
-            if (chunkNumber === 1) {
-                // Add metadata to the first chunk
-                fd.append('metadata', JSON.stringify(metadata));
-            }
-
-            interface ChunkUploadHeaders extends UploadHeaders {
-                'content-type': string;
-                'nvstreamer-identifier': string;
-                'nvstreamer-file-name': string;
-                'nvstreamer-chunk-number': number;
-                'nvstreamer-total-chunks': number;
-                'nvstreamer-is-last-chunk': string;
-                streamId?: string;
-                'nvstreamer-enable-transcode'?: boolean;
-                'transcode-framerate'?: string;
-                'transcode-bitrate'?: string;
-                'transcode-keyframe-interval'?: string;
-            }
-
-            const uploadHeaders: ChunkUploadHeaders = {
-                'content-type': 'multipart/form-data',
-                'nvstreamer-identifier': uniqueIdentifier,
-                'nvstreamer-file-name': file.name,
-                'nvstreamer-chunk-number': chunkNumber,
-                'nvstreamer-total-chunks': totalChunkCount,
-                'nvstreamer-is-last-chunk': isLastChunk ? 'true' : 'false',
-            };
-
-            if (metadata.sensorId) {
-                uploadHeaders.streamId = metadata.sensorId;
-            }
-
-            // Add transcode headers if enabled
-            if (currentState.enableTranscode) {
-                uploadHeaders['nvstreamer-enable-transcode'] = true;
-                if (currentState.frameRate) {
-                    uploadHeaders['transcode-framerate'] = currentState.frameRate;
-                }
-                if (currentState.bitrate) {
-                    uploadHeaders['transcode-bitrate'] = currentState.bitrate;
-                }
-                if (currentState.keyframeInterval) {
-                    uploadHeaders['transcode-keyframe-interval'] = currentState.keyframeInterval;
-                }
-            }
-
-            try {
-                const response = await nvAxios.post(`${config.storageManagementEndpoint}/api/v1/storage/file`, fd, {
-                    timeout: VIDEO_UPLOAD_TIMEOUT,
-                    headers: uploadHeaders,
-                    cancelToken: cancelVideoUpload.token,
-                    onUploadProgress: progressEvent => {
-                        const progress = ((start + progressEvent.loaded) / fileSize) * 100;
-                        onProgress({ percent: progress });
-                    },
-                });
-
-                if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'filename')) {
-                    if (isLastChunk) {
-                        setFileTag(tags, response.data.id);
-                    }
-                    handleSuccess(response, chunkNumber, totalChunkCount, onSuccess);
-                }
-            } catch (error: unknown) {
-                if (axios.isCancel(error)) {
-                    cancelTokensRef.current.delete(file.name);
-                    break;
-                }
-                cancelTokensRef.current.delete(file.name);
-                if (error instanceof AxiosError) {
-                    handleUploadError(error, chunkNumber, cancelVideoUpload, onError);
-                } else {
-                    handleUploadError(new AxiosError('Unknown error occurred'), chunkNumber, cancelVideoUpload, onError);
-                }
-                chunkFailed = true;
-                chunkNumber -= 1;
-            }
+            const uploaded = await uploadChunk({
+                options,
+                currentState,
+                metadata,
+                start,
+                chunkSizeBytes,
+                chunkNumber,
+                totalChunkCount,
+                uniqueIdentifier,
+                cancelToken: cancelVideoUpload,
+            });
+            if (!uploaded) break;
         }
     };
 
@@ -500,30 +516,7 @@ const MediaUpload = () => {
             const currentState = stateRef.current;
 
             // Create metadata object with current state values - only include keys with values
-            const metadata: Metadata = {};
-            if (currentState.eventInfo && currentState.eventInfo.trim()) {
-                metadata.eventInfo = currentState.eventInfo.trim();
-            }
-            if (currentState.timestampInput.trim()) {
-                // Send the original format: number if Unix timestamp, string if ISO format
-                if (/^\d+$/.test(currentState.timestampInput.trim())) {
-                    metadata.timestamp = Number(currentState.timestampInput.trim());
-                } else {
-                    metadata.timestamp = currentState.timestampInput.trim();
-                }
-            }
-            if (currentState.streamName && currentState.streamName.trim()) {
-                metadata.streamName = currentState.streamName.trim();
-            }
-            if (currentState.metadataTag && currentState.metadataTag.trim()) {
-                metadata.tag = currentState.metadataTag.trim();
-            }
-            if (currentState.sensorId && currentState.sensorId.trim()) {
-                metadata.sensorId = currentState.sensorId.trim();
-            }
-            if (currentState.checksum && currentState.checksum.trim()) {
-                metadata.checksum = currentState.checksum.trim();
-            }
+            const metadata = buildMetadata(currentState);
 
             // Validate metadata
             // No validation needed as all fields are now optional
@@ -550,18 +543,7 @@ const MediaUpload = () => {
                     headers['streamId'] = selectedSensor.sensorId;
                 }
 
-                if (currentState.enableTranscode) {
-                    headers['nvstreamer-enable-transcode'] = true;
-                    if (currentState.frameRate) {
-                        headers['transcode-framerate'] = currentState.frameRate;
-                    }
-                    if (currentState.bitrate) {
-                        headers['transcode-bitrate'] = currentState.bitrate;
-                    }
-                    if (currentState.keyframeInterval) {
-                        headers['transcode-keyframe-interval'] = currentState.keyframeInterval;
-                    }
-                }
+                applyTranscodeHeaders(headers, currentState);
                 return headers;
             };
 
@@ -633,6 +615,73 @@ const MediaUpload = () => {
         [tags, enqueueSnackbar, selectedSensor]
     );
 
+<<<<<<< ours
+    const uploadDroppedFile = useCallback(
+        (file: File) => {
+            if (hasWhiteSpace(file.name)) {
+                enqueueSnackbar(`Error - whitespaces not allowed in file name: ${file.name}`, {
+                    variant: 'error',
+                    anchorOrigin: {
+                        horizontal: 'right',
+                        vertical: 'bottom',
+                    },
+                });
+                setFailedFiles(prev => [...prev, file.name]);
+                setUploadedFiles(prev => prev + 1);
+                return;
+            }
+
+            customFileUpload({
+                file,
+                onSuccess: () => {
+                    setUploadedFiles(prev => prev + 1);
+                    // Set progress to 100% on success
+                    setFileProgress(prev => ({
+                        ...prev,
+                        [file.name]: 100,
+                    }));
+                },
+                onError: ({ error }) => {
+                    LOG.error('Upload error:', error);
+                    setFailedFiles(prev => [...prev, file.name]);
+                    setUploadedFiles(prev => prev + 1);
+                    // Keep the last progress value on error
+                },
+                onProgress: ({ percent }) => {
+                    setFileProgress(prev => ({
+                        ...prev,
+                        [file.name]: percent,
+                    }));
+                },
+            });
+        },
+        [customFileUpload, enqueueSnackbar]
+    );
+
+=======
+    const updateFileProgress = useCallback((fileName: string, percent: number) => {
+        setFileProgress(prev => ({
+            ...prev,
+            [fileName]: percent,
+        }));
+    }, []);
+
+    const markFileUploaded = useCallback(
+        (fileName: string) => {
+            setUploadedFiles(prev => prev + 1);
+            // Set progress to 100% on success
+            updateFileProgress(fileName, 100);
+        },
+        [updateFileProgress]
+    );
+
+    const markFileFailed = useCallback((fileName: string) => {
+        setFailedFiles(prev => [...prev, fileName]);
+        setUploadedFiles(prev => prev + 1);
+        // Keep the last progress value on error
+    }, []);
+
+>>>>>>> theirs
     const handleFileDrop = useCallback(
         (e: React.DragEvent<HTMLDivElement>) => {
             e.preventDefault();
@@ -661,6 +710,9 @@ const MediaUpload = () => {
             const currentState = stateRef.current;
             LOG.info('Processing multiple files with state:', currentState);
 
+<<<<<<< ours
+            files.forEach(file => uploadDroppedFile(file));
+=======
             files.forEach(file => {
                 if (hasWhiteSpace(file.name)) {
                     enqueueSnackbar(`Error - whitespaces not allowed in file name: ${file.name}`, {
@@ -670,37 +722,27 @@ const MediaUpload = () => {
                             vertical: 'bottom',
                         },
                     });
-                    setFailedFiles(prev => [...prev, file.name]);
-                    setUploadedFiles(prev => prev + 1);
+                    markFileFailed(file.name);
                     return;
                 }
 
                 customFileUpload({
                     file,
                     onSuccess: () => {
-                        setUploadedFiles(prev => prev + 1);
-                        // Set progress to 100% on success
-                        setFileProgress(prev => ({
-                            ...prev,
-                            [file.name]: 100,
-                        }));
+                        markFileUploaded(file.name);
                     },
                     onError: ({ error }) => {
                         LOG.error('Upload error:', error);
-                        setFailedFiles(prev => [...prev, file.name]);
-                        setUploadedFiles(prev => prev + 1);
-                        // Keep the last progress value on error
+                        markFileFailed(file.name);
                     },
                     onProgress: ({ percent }) => {
-                        setFileProgress(prev => ({
-                            ...prev,
-                            [file.name]: percent,
-                        }));
+                        updateFileProgress(file.name, percent);
                     },
                 });
             });
+>>>>>>> theirs
         },
-        [vstAdaptorType, enqueueSnackbar, totalFiles, selectedSensor]
+        [uploadDroppedFile]
     );
 
     const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -738,46 +780,9 @@ const MediaUpload = () => {
             const currentState = stateRef.current;
             LOG.info('Processing multiple files with state:', currentState);
 
-            files.forEach(file => {
-                if (hasWhiteSpace(file.name)) {
-                    enqueueSnackbar(`Error - whitespaces not allowed in file name: ${file.name}`, {
-                        variant: 'error',
-                        anchorOrigin: {
-                            horizontal: 'right',
-                            vertical: 'bottom',
-                        },
-                    });
-                    setFailedFiles(prev => [...prev, file.name]);
-                    setUploadedFiles(prev => prev + 1);
-                    return;
-                }
-
-                customFileUpload({
-                    file,
-                    onSuccess: () => {
-                        setUploadedFiles(prev => prev + 1);
-                        // Set progress to 100% on success
-                        setFileProgress(prev => ({
-                            ...prev,
-                            [file.name]: 100,
-                        }));
-                    },
-                    onError: ({ error }) => {
-                        LOG.error('Upload error:', error);
-                        setFailedFiles(prev => [...prev, file.name]);
-                        setUploadedFiles(prev => prev + 1);
-                        // Keep the last progress value on error
-                    },
-                    onProgress: ({ percent }) => {
-                        setFileProgress(prev => ({
-                            ...prev,
-                            [file.name]: percent,
-                        }));
-                    },
-                });
-            });
+            files.forEach(file => uploadDroppedFile(file));
         },
-        [vstAdaptorType, enqueueSnackbar, totalFiles, selectedSensor]
+        [uploadDroppedFile]
     );
 
     const handleUploadAreaClick = useCallback(() => {
