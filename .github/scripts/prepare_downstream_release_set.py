@@ -36,16 +36,26 @@ SPATIALAI_VERSION_SUFFIX_PATTERN = re.compile(
 PR_REF_PATTERN = re.compile(r"pull-request/(\d+)")
 
 
-def pr_base_sha(api: GitHubApi, repository: str, ref_name: str) -> str | None:
-    """Return the PR base commit for a mirrored PR branch."""
+def pr_merge_base_sha(api: GitHubApi, repository: str, ref_name: str) -> str | None:
+    """Return the merge base for a mirrored PR branch.
+
+    A pull request API response exposes the target branch tip as ``base.sha``.
+    The compare API supplies the actual common ancestor, which is the only
+    correct starting point for a complete PR diff.
+    """
     match = PR_REF_PATTERN.fullmatch(ref_name)
     if not match:
         return None
-    payload = api.request("GET", f"/repos/{repository}/pulls/{match.group(1)}")
-    base = str(payload.get("base", {}).get("sha", ""))
-    if not re.fullmatch(r"[0-9a-f]{40}", base):
-        raise RuntimeError("PR metadata did not contain a valid base SHA")
-    return base
+    pull = api.request("GET", f"/repos/{repository}/pulls/{match.group(1)}")
+    target = str(pull.get("base", {}).get("sha", ""))
+    head = str(pull.get("head", {}).get("sha", ""))
+    if not all(re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (target, head)):
+        raise RuntimeError("PR metadata did not contain valid base and head SHAs")
+    compare = api.request("GET", f"/repos/{repository}/compare/{target}...{head}")
+    merge_base = str(compare.get("merge_base_commit", {}).get("sha", ""))
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
+        raise RuntimeError("PR comparison did not contain a valid merge-base SHA")
+    return merge_base
 
 
 def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[bool, str]:
@@ -229,10 +239,10 @@ def main() -> int:
 
     if PR_REF_PATTERN.fullmatch(args.ref_name):
         try:
-            base = pr_base_sha(GitHubApi(token), args.repository, args.ref_name)
+            base = pr_merge_base_sha(GitHubApi(token), args.repository, args.ref_name)
             if not base or not commit_exists(args.repo_root, base):
                 raise RuntimeError("PR base commit is unavailable in this checkout")
-            base_reason = f"PR base from GitHub metadata: {base[:12]}"
+            base_reason = f"PR merge base from GitHub metadata: {base[:12]}"
         except Exception as exc:
             base = None
             base_reason = f"PR base unavailable ({exc}); running downstream"
