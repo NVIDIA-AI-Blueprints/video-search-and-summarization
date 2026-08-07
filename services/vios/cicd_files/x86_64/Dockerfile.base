@@ -92,8 +92,8 @@ RUN rm -f /usr/lib/x86_64-linux-gnu/libswscale.* \
         /usr/lib/x86_64-linux-gnu/libswresample.* \
         /usr/lib/x86_64-linux-gnu/libpostproc.*
 
-# Prune codec libraries and GStreamer codec plugins not selected by VIOS.  Keep
-# the JPEG/PNG and XML dependencies required by the packaged application.
+# Prune codec libraries and GStreamer codec plugins not selected by VIOS. XML
+# remains in the base image; JPEG/PNG are restored by the optional installer.
 RUN rm -f /usr/lib/x86_64-linux-gnu/libaom.so* \
         /usr/lib/x86_64-linux-gnu/libdv.so* \
         /usr/lib/x86_64-linux-gnu/libflite.so* \
@@ -120,6 +120,8 @@ RUN rm -f /usr/lib/x86_64-linux-gnu/libaom.so* \
         /usr/lib/x86_64-linux-gnu/libwavpack.so* \
         /usr/lib/x86_64-linux-gnu/libwebp.so* \
         /usr/lib/x86_64-linux-gnu/libwebpmux.so* \
+        /usr/lib/x86_64-linux-gnu/libjpeg.so* \
+        /usr/lib/x86_64-linux-gnu/libpng16.so* \
         /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaom.so* \
         /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcolormanagement.so* \
         /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstdv.so* \
