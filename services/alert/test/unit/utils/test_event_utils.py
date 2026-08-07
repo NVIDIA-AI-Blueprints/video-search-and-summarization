@@ -140,7 +140,15 @@ class TestNormalizeAlertMessage:
         assert set(result["_normalized_added_fields"]) == {"earlier", "sensorId", "category"}
 
     def test_analytics_module_without_sensor_is_normalized(self):
-        """nv.Incident shape: flat ``sensorId`` plus ``analyticsModule``, no ``sensor``."""
+        """The reported shape: flat ``sensorId`` and ``analyticsModule``, no ``sensor``.
+
+        This payload is incident-shaped, and it only reaches normalization when
+        a source mislabels its batch kind. That mislabelling — and the
+        ``notification_type`` this function then stamps on an incident — is a
+        separate defect, so the assertions below deliberately stop at "the
+        message survives with its flat fields intact" rather than pinning the
+        label and turning the wrong behaviour into an expectation.
+        """
         result = normalize_alert_message(
             {
                 "sensorId": "HWY_20_AND_LOCUST__WBA",
@@ -151,7 +159,6 @@ class TestNormalizeAlertMessage:
 
         assert result["sensorId"] == "HWY_20_AND_LOCUST__WBA"
         assert result["category"] == "collision"
-        assert result["notification_type"] == "alert"
 
     def test_sensor_without_analytics_module_is_normalized(self):
         """The mirror case: ``sensor`` present, ``analyticsModule`` absent."""
