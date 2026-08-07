@@ -24,6 +24,7 @@
 #include <queue>
 #include <condition_variable>
 #include <atomic>
+#include <variant>
 #include <dlfcn.h>
 #include <jsoncpp/json/json.h>
 
@@ -69,10 +70,26 @@ typedef void (*osd_draw_t) (OsdContext_t, void *);
 typedef void (*osd_global_init_t) ();
 typedef void (*osd_global_destroy_t) ();
 
-union GstMetaUnion
+class GstMetaUnion
 {
-    GstNvVstMeta* vstMeta;
-    GstNvIpcMeta* ipcMeta;
+    public:
+        void setVstMeta (GstNvVstMeta* meta) { m_meta = meta; }
+        void setIpcMeta (GstNvIpcMeta* meta) { m_meta = meta; }
+
+        GstNvVstMeta* vstMeta () const
+        {
+            auto* meta = std::get_if<GstNvVstMeta*>(&m_meta);
+            return meta ? *meta : nullptr;
+        }
+
+        GstNvIpcMeta* ipcMeta () const
+        {
+            auto* meta = std::get_if<GstNvIpcMeta*>(&m_meta);
+            return meta ? *meta : nullptr;
+        }
+
+    private:
+        std::variant<std::monostate, GstNvVstMeta*, GstNvIpcMeta*> m_meta;
 };
 
 struct Point2D

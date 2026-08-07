@@ -408,11 +408,6 @@ void StreamMonitor::sendStatusEvent(const string &url, StreamStatus status, Stre
     StreamEventManager::getInstance().sendEvent(url, status, details);
 }
 
-void StreamMonitor::notifyStreamStatus(const StreamStatus& status, const std::string& camera_id)
-{
-
-}
-
 /* =============Implementation of QoS Measurement ====================== */
 
 

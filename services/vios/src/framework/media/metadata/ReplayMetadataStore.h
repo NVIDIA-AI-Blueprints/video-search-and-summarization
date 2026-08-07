@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,9 +24,20 @@ class ReplayMetadataStore : public IMetadataStore
 public:
     virtual ~ReplayMetadataStore() = default;
 
-    virtual void addMetadata(const Json::Value& metadata) override {};
+    virtual void addMetadata(const Json::Value& metadata) override
+    {
+        // No-op: replay stores pull metadata from the backend themselves
+        // (fetchMetadata/checkAndRefillMetadata); nothing is ever pushed in.
+        (void)metadata;
+    };
     virtual Json::Value getMetadata(const int64_t frameTS) override = 0;
-    virtual void reFillMetadata(std::queue<Json::Value>& qToFill, std::mutex& qToFillMutex) override {};
+    virtual void reFillMetadata(std::queue<Json::Value>& qToFill, std::mutex& qToFillMutex) override
+    {
+        // No-op: the replay queue is refilled from the backend by
+        // checkAndRefillMetadata(), not from a caller-supplied queue.
+        (void)qToFill;
+        (void)qToFillMutex;
+    };
 
     virtual void checkAndRefillMetadata(const int64_t searchAfterTS) =0;
     virtual void waitForMetadata() =0;
@@ -38,5 +49,9 @@ public:
     // metadata queue before/while the pipeline starts, so faster-than-real-time
     // transcoding never outruns the async fetch (bbox flicker). Default no-op
     // preserves existing behavior for stores that do not implement it.
-    virtual void startPrefetch() {}
+    virtual void startPrefetch()
+    {
+        // Intentionally blank: prefetch is an opt-in optimization, so stores
+        // that do not implement it keep their existing lazy-fetch behavior.
+    }
 };

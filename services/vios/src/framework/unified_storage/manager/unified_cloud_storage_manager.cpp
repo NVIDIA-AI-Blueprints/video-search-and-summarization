@@ -541,7 +541,7 @@ bool UnifiedCloudStorageManager::performHealthCheck()
 {
     if (!isAvailable())
     {
-        m_last_error = "Cloud storage manager not initialized";
+        setLastError("Cloud storage manager not initialized");
         return false;
     }
     
@@ -555,14 +555,14 @@ bool UnifiedCloudStorageManager::performHealthCheck()
                 std::lock_guard<std::mutex> lock(m_cloud_manager_mutex);
                 if (!m_cloud_manager)
                 {
-                    m_last_error = "Cloud manager not initialized";
+                    setLastError("Cloud manager not initialized");
                     return false;
                 }
                 result = m_cloud_manager->checkBucketExists(m_bucket_name);
             }
             if (!result.success)
             {
-                m_last_error = "Cannot access bucket: " + m_bucket_name;
+                setLastError("Cannot access bucket: " + m_bucket_name);
                 return false;
             }
         }
@@ -571,7 +571,7 @@ bool UnifiedCloudStorageManager::performHealthCheck()
     }
     catch (const std::exception& e)
     {
-        m_last_error = "Health check failed: " + std::string(e.what());
+        setLastError("Health check failed: " + std::string(e.what()));
         return false;
     }
 }
@@ -586,15 +586,16 @@ bool UnifiedCloudStorageManager::initializeStorage()
     try
     {
         // Get configuration parameters
-        std::string cloud_type = m_config.getParameter(StorageConstants::CLOUD_TYPE_KEY, StorageConstants::MINIO_TYPE);
-        m_bucket_name = m_config.getParameter(StorageConstants::BUCKET_NAME_KEY, "");
-        m_endpoint = m_config.getParameter(StorageConstants::ENDPOINT_KEY, "");
-        m_access_key = m_config.getParameter(StorageConstants::ACCESS_KEY_KEY, "");
-        m_secret_key = m_config.getParameter(StorageConstants::SECRET_KEY_KEY, "");
-        m_region = m_config.getParameter(StorageConstants::REGION_KEY, "");
-        m_use_ssl = m_config.getParameter(StorageConstants::USE_SSL_KEY, "true") == "true";
-        m_timeout_seconds = std::stoul(m_config.getParameter(StorageConstants::TIMEOUT_SECONDS_KEY, "30"));
-        m_max_retries = std::stoul(m_config.getParameter(StorageConstants::MAX_RETRIES_KEY, "3"));
+        const StorageConfig config = getConfig();
+        std::string cloud_type = config.getParameter(StorageConstants::CLOUD_TYPE_KEY, StorageConstants::MINIO_TYPE);
+        m_bucket_name = config.getParameter(StorageConstants::BUCKET_NAME_KEY, "");
+        m_endpoint = config.getParameter(StorageConstants::ENDPOINT_KEY, "");
+        m_access_key = config.getParameter(StorageConstants::ACCESS_KEY_KEY, "");
+        m_secret_key = config.getParameter(StorageConstants::SECRET_KEY_KEY, "");
+        m_region = config.getParameter(StorageConstants::REGION_KEY, "");
+        m_use_ssl = config.getParameter(StorageConstants::USE_SSL_KEY, "true") == "true";
+        m_timeout_seconds = std::stoul(config.getParameter(StorageConstants::TIMEOUT_SECONDS_KEY, "30"));
+        m_max_retries = std::stoul(config.getParameter(StorageConstants::MAX_RETRIES_KEY, "3"));
         
         // Create cloud manager configuration
         CloudManagerConfig cloud_config;
@@ -614,7 +615,7 @@ bool UnifiedCloudStorageManager::initializeStorage()
         }
         if (!m_cloud_manager)
         {
-            m_last_error = "Failed to create cloud manager for type: " + cloud_type;
+            setLastError("Failed to create cloud manager for type: " + cloud_type);
             return false;
         }
         
@@ -622,7 +623,7 @@ bool UnifiedCloudStorageManager::initializeStorage()
     }
     catch (const std::exception& e)
     {
-        m_last_error = "Failed to initialize cloud storage: " + std::string(e.what());
+        setLastError("Failed to initialize cloud storage: " + std::string(e.what()));
         return false;
     }
 }

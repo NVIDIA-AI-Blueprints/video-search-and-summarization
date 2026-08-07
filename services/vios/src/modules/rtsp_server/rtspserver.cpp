@@ -133,10 +133,7 @@ RtspServer::RtspServer(u_int16_t port)
     {
         live555Config.setBoolean("enable_packet_pacing", True);
         live555Config.setInt("packet_pace_time_us", config.rtp_packet_pace_time_us);
-        if (config.rtp_packet_batch_size >= 0)
-        {
-            live555Config.setInt("packet_batch_size", config.rtp_packet_batch_size);
-        }
+        live555Config.setInt("packet_batch_size", config.rtp_packet_batch_size);
     }
 
     m_env.mPreferredIface = nullptr;

@@ -31,7 +31,12 @@ public:
     static void deleteInstance();
     void registerMessageListener(nv_vms::INotificationListener* listener) override;
     void deregisterMessageListener(nv_vms::INotificationListener* listener) override;
-    void retryConnection() override {}
+    void retryConnection() override
+    {
+        // Intentionally blank: the paho async client is configured with
+        // set_automatic_reconnect(true) in clientInit(), so it reconnects on
+        // its own and no manual retry is needed here.
+    }
     bool deliverMessage(Json::Value& message) override { return true; }
 
 private:

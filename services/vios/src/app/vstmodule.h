@@ -40,7 +40,7 @@ class IVstModule
         nv_vms::IMediaInterface* m_mediaInterface = nullptr;
 
         virtual const std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>> getHttpApi() { return m_func; };
-        virtual void postInit() {}
+        virtual void postInit() { /* Optional hook: modules that need no post-initialization work keep this no-op. */ }
         virtual ~IVstModule() = default;
 };
 

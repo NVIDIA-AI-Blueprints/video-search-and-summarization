@@ -92,7 +92,8 @@ void SensorDataCollector::start()
 
 void SensorDataCollector::stop()
 {
-
+    // Intentionally empty: discovery is a one-shot scan performed by start(),
+    // so there is no background activity or resource to release here.
 }
 
 int SensorDataCollector::searchSensor(SensorInfo& sensor)

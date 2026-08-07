@@ -107,8 +107,8 @@ void LiveMetadataStore::addMetadata(const Json::Value& metadata)
         return;
     }
 
-    std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
-    m_metadataQueue.push(metadata);
+    std::lock_guard<std::mutex> guard(metadataQueueMutex());
+    metadataQueue().push(metadata);
     m_metaWait.signal();
 }
 
@@ -122,10 +122,10 @@ Json::Value LiveMetadataStore::getMetadata(const int64_t frameTS)
 
     Json::Value metadata = Json::nullValue;
     {
-        std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
-        if (!m_metadataQueue.empty())
+        std::lock_guard<std::mutex> guard(metadataQueueMutex());
+        if (!metadataQueue().empty())
         {
-            metadata = m_metadataQueue.front();
+            metadata = metadataQueue().front();
         }
     }
     if (metadata == Json::nullValue)
@@ -137,10 +137,10 @@ Json::Value LiveMetadataStore::getMetadata(const int64_t frameTS)
     {
         if (metadataTS == frameTS)
         {
-            std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
-            if (!m_metadataQueue.empty())
+            std::lock_guard<std::mutex> guard(metadataQueueMutex());
+            if (!metadataQueue().empty())
             {
-                m_metadataQueue.pop();
+                metadataQueue().pop();
             }
         }
         return metadata;
@@ -149,10 +149,10 @@ Json::Value LiveMetadataStore::getMetadata(const int64_t frameTS)
     while(metadataTS < frameTS && !isMetadataQueueEmpty())
     {
         {
-            std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
-            if (!m_metadataQueue.empty())
+            std::lock_guard<std::mutex> guard(metadataQueueMutex());
+            if (!metadataQueue().empty())
             {
-                metadata = m_metadataQueue.front();
+                metadata = metadataQueue().front();
                 metadataTS = metadata["epocTime"].asUInt64() * 1000;
                 if (metadataTS >= frameTS)
                 {
@@ -160,7 +160,7 @@ Json::Value LiveMetadataStore::getMetadata(const int64_t frameTS)
                 }
                 else
                 {
-                    m_metadataQueue.pop();
+                    metadataQueue().pop();
                 }
             }
         }
@@ -169,10 +169,10 @@ Json::Value LiveMetadataStore::getMetadata(const int64_t frameTS)
 
     if (metadataTS == frameTS)
     {
-        std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
-        if (!m_metadataQueue.empty())
+        std::lock_guard<std::mutex> guard(metadataQueueMutex());
+        if (!metadataQueue().empty())
         {
-            m_metadataQueue.pop();
+            metadataQueue().pop();
         }
     }
     return metadata;
@@ -184,10 +184,10 @@ void LiveMetadataStore::reFillMetadata(std::queue<Json::Value>& qToFill, std::mu
 
     std::queue<Json::Value> tempQueue;
     {
-        std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
-        if (!m_metadataQueue.empty())
+        std::lock_guard<std::mutex> guard(metadataQueueMutex());
+        if (!metadataQueue().empty())
         {
-            tempQueue.swap(m_metadataQueue);
+            tempQueue.swap(metadataQueue());
         }
     }
     {

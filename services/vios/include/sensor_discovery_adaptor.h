@@ -36,8 +36,16 @@ class ISensorDiscoveryEvent
         virtual int onSensorChanged(SensorInfo& sensorInfo) = 0;
         virtual int onSensorRemoved(const string& sensorInfo) = 0;
 
-        virtual void notifyEvent(const SensorStatus& status, const string& url) {}
-        virtual void refreshSensorList() {}
+        virtual void notifyEvent(const SensorStatus& status, const string& url)
+        {
+            // Optional hook: listeners that do not track sensor status changes ignore the event.
+            (void)status;
+            (void)url;
+        }
+        virtual void refreshSensorList()
+        {
+            // Optional hook: only listeners that maintain a cached sensor list override this.
+        }
 };
 
 class ISensorDiscoveryInterface

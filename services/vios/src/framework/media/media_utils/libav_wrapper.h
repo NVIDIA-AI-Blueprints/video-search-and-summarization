@@ -19,6 +19,7 @@
 
 #include <dlfcn.h>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 // Include for platform-specific macros (same as vstmodule.cpp)
 #include <string>
@@ -102,7 +103,7 @@ private:
         "/lib64/",
         "/usr/lib64/"
     };
-    static constexpr size_t TRUSTED_SYSTEM_DIRS_COUNT = sizeof(TRUSTED_SYSTEM_DIRS) / sizeof(TRUSTED_SYSTEM_DIRS[0]);
+    static constexpr size_t TRUSTED_SYSTEM_DIRS_COUNT = std::size(TRUSTED_SYSTEM_DIRS);
 
     // Secure library loading function with path validation
     void* tryLoadLibrary(const char* lib_path)

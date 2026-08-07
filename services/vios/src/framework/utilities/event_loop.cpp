@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -98,7 +98,7 @@ std::thread::id EventLoop::GetCurrentThreadId()
 void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData, void *parent)
 {
     m_isProcessFuncDone = false;
-    std::thread t([&]()
+    std::thread t([this, userData]()
     {
         if (m_processMsg)
         {
@@ -245,7 +245,7 @@ void EventLoop::ExitThread()
         return;
 
     // Create a new EventLoopMsg
-    std::shared_ptr<EventLoopMsg> eventLoopMsg(new EventLoopMsg(MSG_EXIT_EVENT_LOOP, 0));
+    std::shared_ptr<EventLoopMsg> eventLoopMsg(new EventLoopMsg(MSG_EXIT_EVENT_LOOP, nullptr));
 
     // Put exit thread message into the queue
     {

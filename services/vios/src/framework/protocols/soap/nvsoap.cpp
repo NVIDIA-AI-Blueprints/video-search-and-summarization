@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -3866,7 +3866,7 @@ static int composeSetCameraImageSettingsXml(xmlTextWriterPtr& writer, nvsoap_& s
         }
         _xmlTextWriterEndElement_(writer); // BacklightCompensation
     }
-    if(values.Brightness.c_str() != 0)
+    if(values.Brightness.c_str() != nullptr)
     {
         _xmlTextWriterStartElement_(writer, BAD_CAST "Brightness");
         rc = _xmlTextWriterWriteAttribute_(writer, BAD_CAST "xmlns", BAD_CAST "http://www.onvif.org/ver10/schema");

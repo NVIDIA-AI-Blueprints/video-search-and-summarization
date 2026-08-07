@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -531,7 +531,7 @@ Status GrpcWebrtcSignallingService::sdpExchange(ServerContext* context, const Sd
     {
         // Wait for answer from UI
         std::unique_lock<std::mutex> lock(remotePeerAnswer->m_mtx);
-        if (!remotePeerAnswer->m_cv.wait_for(lock, std::chrono::seconds(GET_CONFIG().webrtc_peer_conn_timeout_sec), [&]{ return remotePeerAnswer->m_ready; }))
+        if (!remotePeerAnswer->m_cv.wait_for(lock, std::chrono::seconds(GET_CONFIG().webrtc_peer_conn_timeout_sec), [&remotePeerAnswer]{ return remotePeerAnswer->m_ready; }))
         {
             timeout = true;
         }
@@ -590,7 +590,7 @@ Status GrpcWebrtcSignallingService::iceCandidateExchange(ServerContext* context,
                 remotePeerCandidate = it->second;
             }
             std::unique_lock<std::mutex> lock(remotePeerCandidate->m_mtx);
-            if (!remotePeerCandidate->m_cv.wait_for(lock, std::chrono::seconds(GET_CONFIG().webrtc_peer_conn_timeout_sec), [&]{ return remotePeerCandidate->m_candidateList.size(); }))
+            if (!remotePeerCandidate->m_cv.wait_for(lock, std::chrono::seconds(GET_CONFIG().webrtc_peer_conn_timeout_sec), [&remotePeerCandidate]{ return remotePeerCandidate->m_candidateList.size(); }))
             {
                 string err_msg = "Timeout while waiting for candidate for " + streamId;
                 LOG(error) << err_msg << endl;
@@ -674,7 +674,7 @@ Status GrpcWebrtcSignallingService::iceCandidateExchange(ServerContext* context,
         });
         {
             std::unique_lock<std::mutex> lock(mtx);
-            if (cv.wait_for(lock, std::chrono::seconds(GET_CONFIG().webrtc_peer_conn_timeout_sec), [&]() { return readComplete.load(); }))
+            if (cv.wait_for(lock, std::chrono::seconds(GET_CONFIG().webrtc_peer_conn_timeout_sec), [&readComplete]() { return readComplete.load(); }))
             {
                 if (readerThread.joinable())
                 {

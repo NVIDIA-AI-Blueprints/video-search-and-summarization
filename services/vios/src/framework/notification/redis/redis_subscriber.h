@@ -38,7 +38,11 @@ public:
     void deliverMessage(void *msg, int len);
 
     bool deliverMessage (Json::Value& message) override { return true; }
-    void retryConnection () override {}
+    void retryConnection () override
+    {
+        // Intentionally blank: reconnection to the Redis endpoint is handled
+        // internally by the nvds_msgapi subscriber connection.
+    }
 
 private:
     friend struct std::default_delete<RedisSubscriber>;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,7 +28,7 @@ bool NvSurfacePool::allocateSurfaces (int num_surfaces, unsigned int target_widt
 {
     std::lock_guard<std::mutex> queueLock(m_fdSurfaceQLock);
     NvBufSurfaceCreateParams buf_params       = {0};
-    NvBufSurface *op_surf                     = NULL;
+    NvBufSurface *op_surf                     = nullptr;
     if (need_allocations)
     {
         buf_params.width       = target_width;

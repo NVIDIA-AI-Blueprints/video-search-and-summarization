@@ -80,6 +80,7 @@ protected:
     uint64_t calculateDirectorySize(const std::string& path) const;
     size_t countFilesInDirectory(const std::string& path, bool recursive = false) const;
 
+private:
     // Member variables
     std::string m_base_path;
     bool m_create_directories;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -480,7 +480,7 @@ void PeerConnectionObserver::OnAddStream(webrtc::scoped_refptr<webrtc::MediaStre
     m_bitrateThresold *= STANDARD_BITRATE_720P_KBPS;
     m_webrtcInputDataWatchDog = make_unique<Bosma::Scheduler>(1);
     m_webrtcInputDataWatchDog->every(
-                WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [=, this]() {
+                WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [this]() {
                 checkInputDataFlowStatus();
                 Json::Value inboundVideoStats = getInboundVideoStats();
                 uint64_t currentBitrate = calculateCurrentBitrate(inboundVideoStats);
@@ -525,7 +525,7 @@ void PeerConnectionObserver::OnSignalingChange(webrtc::PeerConnectionInterface::
         const uint64_t frequency = GET_CONFIG().webrtc_peer_conn_timeout_sec;
         std::chrono::seconds seconds (frequency);
         m_peerConnectionTimeout = make_unique<Bosma::Scheduler>(PEER_CONNECTION_TIMEOUT_THREAD_COUNT);
-        m_peerConnectionTimeout->in(seconds, [=, this]() {
+        m_peerConnectionTimeout->in(seconds, [this]() {
             m_peerConnection->isIceCandidateAdded();
         });
 

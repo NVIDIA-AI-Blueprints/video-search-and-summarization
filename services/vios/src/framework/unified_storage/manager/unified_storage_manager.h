@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -180,6 +180,21 @@ protected:
      */
     bool validatePath(const std::string& path) const;
 
+    /**
+     * @brief Returns a copy of the current storage configuration
+     * @return The configuration set by configureStorage()
+     * @note This function is thread-safe and handles its own mutex locking
+     */
+    StorageConfig getConfig() const;
+
+    /**
+     * @brief Records the last error message
+     * @param error The error message to store
+     * @note This function is thread-safe and handles its own mutex locking
+     */
+    void setLastError(const std::string& error);
+
+private:
     // Member variables
     StorageType m_storage_type;
     StorageConfig m_config;

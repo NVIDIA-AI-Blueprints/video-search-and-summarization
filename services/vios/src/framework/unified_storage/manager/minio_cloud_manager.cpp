@@ -37,7 +37,7 @@ MinioCloudManager::~MinioCloudManager() = default;
 
 bool MinioCloudManager::isAvailable() const
 {
-    return m_initialized;
+    return isInitialized();
 }
 
 bool MinioCloudManager::configure(const CloudManagerConfig& config)
@@ -45,7 +45,7 @@ bool MinioCloudManager::configure(const CloudManagerConfig& config)
     LOG(info) << "MinioCloudManager::configure called with endpoint: " << config.endpoint << std::endl;
     
     // Store the configuration for later access
-    m_config = config;
+    setConfig(config);
     
     // Call base class configure method
     if (!CloudManager::configure(config))
@@ -63,17 +63,17 @@ bool MinioCloudManager::configure(const CloudManagerConfig& config)
     m_max_retries = config.maxRetries;
     
     // Initialize the MinIO client
-    m_initialized = initializeMinioClient();
+    setInitialized(initializeMinioClient());
     
-    LOG(info) << "MinioCloudManager::configure - MinIO client initialization result: " << (m_initialized ? "SUCCESS" : "FAILED") << std::endl;
+    LOG(info) << "MinioCloudManager::configure - MinIO client initialization result: " << (isInitialized() ? "SUCCESS" : "FAILED") << std::endl;
     
-    return m_initialized;
+    return isInitialized();
 }
 
 CloudManagerConfig MinioCloudManager::getConfiguration() const
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    return m_config;
+    return config();
 }
 
 CloudResult MinioCloudManager::deleteObject(const std::string& bucket, const std::string& objectKey)
@@ -592,19 +592,19 @@ CloudResult MinioCloudManager::performHealthCheck()
 std::string MinioCloudManager::getLastError() const
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    return m_last_error;
+    return lastError();
 }
 
 CloudManagerStats MinioCloudManager::getStats() const
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    return m_stats;
+    return stats();
 }
 
 void MinioCloudManager::resetStats()
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    m_stats = CloudManagerStats();
+    stats() = CloudManagerStats();
 }
 
 bool MinioCloudManager::validateBucketName(const std::string& bucketName) const
@@ -744,17 +744,17 @@ void MinioCloudManager::shutdownMinioClient()
     std::lock_guard<std::mutex> lock(m_client_mutex);
     m_minio_client.reset();
     m_credentials.reset();
-    m_initialized = false;
+    setInitialized(false);
 }
 
 bool MinioCloudManager::ensureClientInitialized()
 {
-    if (m_minio_client && m_initialized)
+    if (m_minio_client && isInitialized())
     {
         return true;
     }
     
-    if (!m_initialized)
+    if (!isInitialized())
     {
         return initializeMinioClient();
     }
@@ -1236,13 +1236,13 @@ std::string MinioCloudManager::extractRegionFromEndpoint(const std::string& endp
 void MinioCloudManager::setLastError(const std::string& error)
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    m_last_error = error;
+    storeLastError(error);
 }
 
 void MinioCloudManager::updateStats(bool success, std::chrono::milliseconds duration, const std::string& errorCode)
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    m_stats.recordRequest(success, duration, errorCode);
+    stats().recordRequest(success, duration, errorCode);
 }
 
 CloudResult MinioCloudManager::checkObjectExists(const std::string& bucket, const std::string& objectKey)

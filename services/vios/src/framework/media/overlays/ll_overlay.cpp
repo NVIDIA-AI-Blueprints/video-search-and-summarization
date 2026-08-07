@@ -710,11 +710,11 @@ void NvLLOverlay::doDrawTask()
                     NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, (void **)&ip_surf);
                     if (isJetsonPlatform() && m_isIPCMeta)
                     {
-                        meta_union.ipcMeta = (GstNvIpcMeta*)sink_frame->meta;
+                        meta_union.setIpcMeta((GstNvIpcMeta*)sink_frame->meta);
                     }
                     else
                     {
-                        meta_union.vstMeta = (GstNvVstMeta*)sink_frame->meta;
+                        meta_union.setVstMeta((GstNvVstMeta*)sink_frame->meta);
                     }
                     pts = sink_frame->pts;
                 }
@@ -800,13 +800,13 @@ void NvLLOverlay::doDrawTask()
 #ifdef AARCH64_PLATFORM
                     if (isJetsonPlatform() && GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
-                        meta_union.ipcMeta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
+                        meta_union.setIpcMeta(GST_NV_IPC_META_GET(sink_frame->m_gstBuffer));
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
                     }
                     else
 #endif
                     {
-                        meta_union.vstMeta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
+                        meta_union.setVstMeta(GST_NV_VST_META_GET (sink_frame->m_gstBuffer));
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
                     }
                 }
@@ -1126,10 +1126,10 @@ bool NvLLOverlay::streamSettings(const std::unordered_map<std::string, std::stri
     it = opts.find("overlayOpacity");
     if (it != opts.end() && !it->second.empty())
     {
-        uint8_t opacity = stoi(it->second);
+        int opacity = stoi(it->second);
         if (opacity >= 0 && opacity <= 255)
         {
-            m_overlayParams.m_bboxOpacity = stoi(it->second);
+            m_overlayParams.m_bboxOpacity = static_cast<uint8_t>(opacity);
             m_overlay->setBboxOpacity(m_overlayParams.m_bboxOpacity);
         }
         else

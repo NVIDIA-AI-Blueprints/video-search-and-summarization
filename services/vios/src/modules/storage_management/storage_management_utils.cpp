@@ -1880,7 +1880,7 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
             ", deviceType:" << deviceMngr->getDeviceType() << endl;
 
         // Add B-frame presence flag to stream data for database storage
-        if (enable_transcode != NULL && strcmp(enable_transcode, "true") == 0)
+        if (enable_transcode != nullptr && strcmp(enable_transcode, "true") == 0)
         {
             is_bframesPresent = false;
             LOG(info) << "B-frames presence flag disabled due to transcoding" << endl;

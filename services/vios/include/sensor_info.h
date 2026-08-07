@@ -151,7 +151,7 @@ class ClientSession
 
         CURL* getCurlClient();
         std::shared_ptr<NvSoap> getNvSoap();
-    protected:
+    private:
         CURL* m_curl;
         std::shared_ptr<NvSoap> m_nvsoap;
 };

@@ -173,7 +173,7 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         void generateRpCandidate(const string& streamId, Json::Value iceCandidate);
     public:
         std::string                                                     m_pcType {""};
-    protected:
+    private:
         std::unique_ptr<webrtc::TaskQueueFactory>                       m_taskQueueFactory;
 #ifndef HAVE_SOUND
         std::unique_ptr<webrtc::FakeAudioDeviceModule>                  m_fakeAudioDeviceModule;
@@ -195,7 +195,6 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         static std::string                                              m_rpStunServer;
         static std::mutex                                               m_rpStunServerLock;
         Json::Value                                                     m_externalPeerInfo;
-    private:
         std::shared_ptr<nv_vms::DeviceManager>                          m_deviceManager;
         std::thread                                                     m_peerConnMonitoringThread;
         std::atomic<bool>                                               m_exitPeerConnThread;

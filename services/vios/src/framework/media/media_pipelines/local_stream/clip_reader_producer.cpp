@@ -1090,7 +1090,7 @@ bool ClipReaderProducer::buildPipeline()
         if (appsink_sink)
         {
             gst_pad_add_probe(appsink_sink, GST_PAD_PROBE_TYPE_BUFFER,
-                              appsink_collect_probe_cb, this, NULL);
+                              appsink_collect_probe_cb, this, nullptr);
             gst_object_unref(appsink_sink);
         }
     }

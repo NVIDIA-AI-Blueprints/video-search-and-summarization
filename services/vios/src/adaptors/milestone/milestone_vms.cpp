@@ -947,7 +947,7 @@ static int refreshToken(const string& baseurl, const string& username, const str
 int MilestoneVmsVendor::connect()
 {
     LOG(info) << __METHOD_NAME__ << endl;
-    int ret = refreshToken(m_adaptorInfo.m_url, m_adaptorInfo.m_user, m_adaptorInfo.m_password, m_token);
+    int ret = refreshToken(adaptorInfo().m_url, adaptorInfo().m_user, adaptorInfo().m_password, m_token);
     if (ret == 0 && m_deviceEventCB != nullptr && m_cameraEvent == nullptr)
     {
        //m_cameraEvent.reset(new MSCameraEvents(m_deviceManager, m_token, m_deviceEventCB));
@@ -959,14 +959,14 @@ int MilestoneVmsVendor::getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sens
 {
     LOG(info) << __FUNCTION__ << endl;
     int ret = -1;
-    const string & url = m_adaptorInfo.m_url + string(":") + string("80") + string ("/rcserver/systeminfo.xml");
+    const string & url = adaptorInfo().m_url + string(":") + string("80") + string ("/rcserver/systeminfo.xml");
     string xmlData;
     const string username = ""; //nv_user
     const string password = ""; //nv_password
     ret = createAndSendRequest(url, SOAP_AUTH_NTLM, username, password, "", xmlData);
     if (ret == 0)
     {
-        ret = parseCameraInfo(m_adaptorInfo.m_url, xmlData, sensors);
+        ret = parseCameraInfo(adaptorInfo().m_url, xmlData, sensors);
     }
     return ret;
 }
@@ -1040,8 +1040,8 @@ int MilestoneVmsVendor::parseCameraInfo(const string& server_url, const string& 
         if (cur != nullptr)
         {
             shared_ptr<SensorInfo> sensor(new SensorInfo);
-            sensor->user = m_adaptorInfo.m_user;
-            sensor->password = m_adaptorInfo.m_password;
+            sensor->user = adaptorInfo().m_user;
+            sensor->password = adaptorInfo().m_password;
             sensor->type = SENSOR_TYPE_RTSP;  // Set sensor type for Milestone VMS cameras
             sensor->updateSensorStatus(SensorStatusOnline);  // Initialize sensor status as online
             shared_ptr<StreamInfo> stream(new StreamInfo);

@@ -593,7 +593,9 @@ std::pair<uint64_t, uint64_t> NvFileServerMediaSubsession::getRangeFromUrlParams
 
 void NvFileServerMediaSubsession::testScaleFactor(float& scale)
 {
-
+    /* Intentionally blank: unlike the base class, which clamps "scale" back
+     * to 1.0, the file source honours any client-requested scale factor via
+     * setStreamSourceScale(), so the requested value is left untouched. */
 }
 void NvFileServerMediaSubsession::setStreamSourceScale(FramedSource* inputSource, float scale)
 {

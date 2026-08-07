@@ -302,7 +302,11 @@ public:
         }
     }
 
-    void close() override {}
+    void close() override
+    {
+        // Intentionally blank: no persistent connection is held. The gRPC client
+        // owns its channel and is released by the destructor via its unique_ptr.
+    }
 };
 
 } // anonymous namespace
