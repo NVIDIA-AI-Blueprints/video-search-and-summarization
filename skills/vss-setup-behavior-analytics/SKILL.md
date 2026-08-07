@@ -88,10 +88,20 @@ The full operational walkthrough — entrypoint table, config-source options, ca
 - "Point behavior-analytics at the warehouse-3d (or mv3dt) config without spinning up the rest of the warehouse profile"
 - "Dynamic config / dynamic calibration into a running behavior-analytics"
 
+## When NOT to use
+
+This skill deploys one container. Hand off instead when the request is:
+
+- **The full stack** (UI, agent, perception, storage) — [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md). Do not run both in parallel; it owns behavior-analytics as part of the profile.
+- **Producing the frames this service consumes** — detection/tracking is upstream: [`vss-deploy-detection-tracking-2d`](../vss-deploy-detection-tracking-2d/SKILL.md) or [`-3d`](../vss-deploy-detection-tracking-3d/SKILL.md). This service analyses `mdx-raw`; it does not create it.
+- **Generating a calibration file** — [`vss-generate-video-calibration`](../vss-generate-video-calibration/SKILL.md). This skill only *mounts* one.
+- **Reading the output** — incidents, metrics and sensor queries are [`vss-query-analytics`](../vss-query-analytics/SKILL.md); alert workflows and verification verdicts are [`vss-manage-alerts`](../vss-manage-alerts/SKILL.md).
+- **The REST API in front of the data** — that is a different service: [`vss-setup-video-analytics-api`](../vss-setup-video-analytics-api/SKILL.md). Behavior-analytics itself exposes no HTTP endpoint.
+
 ## Prerequisites
 
 1. **Repo checkout** with `$VSS_APPS_DIR` pointing at `<repo>/deploy/docker/`. Required by the service compose's volume binds.
-2. **NGC credentials** — `$NGC_CLI_API_KEY` set so docker can pull the image. See [`references/ngc-api-key-registry-login.md`](references/ngc-api-key-registry-login.md).
+2. **Registry access** — none needed for the default image: `ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics` is public, so `docker pull` works unauthenticated. You only need credentials if you override `VSS_CONTAINER_REGISTRY` to NGC — see [`references/ngc-api-key-registry-login.md`](references/ngc-api-key-registry-login.md).
 3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
 4. **Optional broker** (Kafka / Redis Streams / MQTT). The container starts fine **without** one — the Kafka client retries a bounded number of times, then the app exits and `restart: always` cycles the container. Status will show `Restarting (N)` in `docker ps` until a broker is reachable. With a broker, dynamic config / dynamic calibration over `mdx-notification` become available.
 5. **Optional config / calibration files on disk** if the user is bringing their own.
@@ -113,31 +123,16 @@ The compose-file edits, YAML diffs, deploy + verify commands, and troubleshootin
 
 Once the container is up **and a broker is reachable**, two runtime-update flows are available — neither requires redeploying:
 
-### Dynamic config
+**Dynamic config** — patch `app[]` / `sensors[]` at runtime by publishing to `mdx-notification` under Kafka key
+`behavior-analytics-config`. Only allowlisted keys apply; everything else is rejected in the ack rather than
+silently ignored. Successful upserts are persisted to disk, applied to every worker, and ACK'd back.
+Message shape, headers, ack semantics and the allowlist: [`references/dynamic-config.md`](references/dynamic-config.md).
 
-Publish an `upsert` (per-key patch) or `upsert-all` (full snapshot) message to the `mdx-notification` topic with Kafka key `behavior-analytics-config` and headers:
-
-- `event.type`: `upsert` | `upsert-all` | `request-config` | `ack`
-- `reference-id`: `video-analytics-api-<uuid>` (web-api originated), `behavior-analytics-<uuid>` (bootstrap reply), or the source-type literal (`kafka` / `redis` / `mqtt`) for direct-publisher upserts.
-
-Body: `{"status": ..., "config": <patch>, "error": ...}`.
-
-The listener validates each message at the envelope layer (rejects unknown keys, missing config, malformed status/error) and at the per-payload layer (rejects forbidden sections, bad item shapes). Successful upserts are persisted to disk, applied to every worker, and ACK'd back over the topic.
-
-Full wire contract + ack semantics: [`references/dynamic-config.md`](references/dynamic-config.md).
-
-### Dynamic calibration
-
-Publish to the same topic with Kafka key `calibration` and headers:
-
-- `event.type`: `upsert-all` (full snapshot) | `upsert` (per-sensor merge) | `delete` (per-sensor removal)
-- `timestamp`: ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SS.fffZ`).
-
-Body: JSON sensor list (and ROIs / tripwires / homographies for `upsert-all`).
-
-The listener validates against the vendored AJV schema before persisting. Schema violations log a `calibration schema violation` warning and are dropped — the previously-good calibration stays loaded.
-
-Full wire contract + per-action validation policy: [`references/dynamic-calibration.md`](references/dynamic-calibration.md).
+**Dynamic calibration** — replace sensors / ROIs / tripwires / homographies at runtime under Kafka key
+`calibration` on the same topic. Payloads are schema-validated before anything is persisted, and a violation is
+dropped with a `calibration schema violation` warning, leaving the previously-good calibration loaded.
+Message shape, per-action validation policy and the no-ack caveat:
+[`references/dynamic-calibration.md`](references/dynamic-calibration.md).
 
 Both flows live entirely on the broker — the producer can be `video-analytics-api`, your own script, or any Kafka client that mirrors the wire shape. They're the recommended way to change configuration after the container is running, so the operator doesn't have to redeploy.
 
