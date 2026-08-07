@@ -91,6 +91,25 @@ Sizing the run matters more than in the suite above:
   over loopback with no real protobuf decode, Elasticsearch round-trip or VST
   I/O, so the per-process CPU ceiling they show is higher than a real
   deployment's. Re-measure against real dependencies before sizing anything.
+- **The simulators saturate before Alert Bridge does, and TS-030 now refuses
+  to report a number when they have.** `elastic_sim` and `vst_sim` are single
+  Flask processes, so each is GIL-bound to about one core — the very limit this
+  feature removes from the product. Measured at 8 processes and a high offered
+  rate: `elastic_sim` 108.3% while Alert Bridge sat at ~322% of the 1600%
+  available on a 16-core host, and Alert Bridge CPU stayed flat at ~322% while
+  the offered rate went from 320 to 1280 msg/s. Everything above that point
+  describes the harness. The suite samples the simulators alongside Alert
+  Bridge every ramp point and fails with the offending process named once any
+  of them passes `SIM_SATURATED_PCT` (default 85). Raising the ceiling means
+  giving the simulators more than one process each; until then the "≥4×
+  throughput" acceptance criterion cannot be measured here.
+- **Start the ramp below the single-process knee.** Both baseline checks assume
+  the first rate is one where a single process is still idle. Starting at or
+  above its knee produces two misleading verdicts — "never inflated", whose
+  remedy is to *lower* the first rate rather than raise it, and a stub-delay
+  mismatch that sends you hunting a stale NIM stub that is working fine. Keep a
+  low anchor in `RAMP_RATES` when testing high process counts, for example
+  `"10 80 160 320 640 1280"`.
 
 Notes:
 - **Each leg gets a fresh consumer group** rather than an offset reset. The

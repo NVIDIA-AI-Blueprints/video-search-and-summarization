@@ -24,8 +24,12 @@ Interpreter startup and child construction burn CPU that has nothing to do with
 steady-state throughput, so SKIP discards the first seconds of samples —
 without it the peak reported at the *lowest* offered rate is a boot spike.
 
-Usage: process_tree_cpu.py PATTERN INTERVAL DURATION [SKIP]
-Prints: "<avg_pct> <max_pct> <samples>"
+PATTERN may be a comma-separated list. With one pattern the output is a single
+"<avg> <max> <samples>" line; with several, one "<pattern> <avg> <max>
+<samples>" line each, so a run can watch the process under test and the
+simulators it depends on in the same pass.
+
+Usage: process_tree_cpu.py PATTERN[,PATTERN...] INTERVAL DURATION [SKIP]
 """
 
 import os
@@ -69,34 +73,43 @@ def snapshot(pattern):
 
 
 def main():
-    pattern = sys.argv[1]
+    patterns = [p for p in sys.argv[1].split(",") if p]
     interval = float(sys.argv[2])
     duration = float(sys.argv[3])
     skip = float(sys.argv[4]) if len(sys.argv) > 4 else 0.0
 
-    previous = snapshot(pattern)
+    previous = {p: snapshot(p) for p in patterns}
     previous_at = time.monotonic()
-    samples = []
+    samples = {p: [] for p in patterns}
     started_at = previous_at
     end = previous_at + duration
 
     while time.monotonic() < end:
         time.sleep(interval)
-        current = snapshot(pattern)
         now = time.monotonic()
         elapsed = now - previous_at
-        # A pid absent from the previous snapshot is a freshly restarted child;
-        # counting its lifetime ticks as one interval's work would spike the
-        # sample, so only carried-over pids contribute.
-        delta = sum(ticks - previous[pid] for pid, ticks in current.items() if pid in previous)
-        if elapsed > 0 and now - started_at >= skip:
-            samples.append(100.0 * delta / CLOCK_TICKS / elapsed)
-        previous, previous_at = current, now
+        for pattern in patterns:
+            current = snapshot(pattern)
+            # A pid absent from the previous snapshot is a freshly restarted
+            # child; counting its lifetime ticks as one interval's work would
+            # spike the sample, so only carried-over pids contribute.
+            delta = sum(ticks - previous[pattern][pid]
+                        for pid, ticks in current.items() if pid in previous[pattern])
+            if elapsed > 0 and now - started_at >= skip:
+                samples[pattern].append(100.0 * delta / CLOCK_TICKS / elapsed)
+            previous[pattern] = current
+        previous_at = now
 
-    if not samples:
-        print("0.0 0.0 0")
+    def summarise(values):
+        if not values:
+            return "0.0 0.0 0"
+        return f"{sum(values) / len(values):.1f} {max(values):.1f} {len(values)}"
+
+    if len(patterns) == 1:
+        print(summarise(samples[patterns[0]]))
         return
-    print(f"{sum(samples) / len(samples):.1f} {max(samples):.1f} {len(samples)}")
+    for pattern in patterns:
+        print(f"{pattern} {summarise(samples[pattern])}")
 
 
 if __name__ == "__main__":

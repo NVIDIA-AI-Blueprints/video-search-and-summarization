@@ -51,6 +51,8 @@ RESULTS_DIR="$PID_DIR/scaling_results"
 INJECTOR="$SCRIPT_DIR/incident_stream_publisher.py"
 CPU_SAMPLER="$SCRIPT_DIR/process_tree_cpu.py"
 AB_PATTERN="enhance_alert_with_vlm.py"
+SIM_PATTERNS="${SIM_PATTERNS:-elastic_sim.py,vst_sim.py,nim_stub_server.py}"
+SIM_SATURATED_PCT="${SIM_SATURATED_PCT:-85}"
 
 PROCESSES="${PROCESSES:-4}"
 PARTITIONS="${PARTITIONS:-8}"
@@ -323,10 +325,16 @@ vlm_mean_over() {
     c0=$(prom_value alert_bridge_vlm_duration_seconds_count)
     python3 "$CPU_SAMPLER" "$AB_PATTERN" 2 "$duration" "$CPU_SKIP_SECONDS" > "$RESULTS_DIR/cpu_$prefix.txt" 2>/dev/null &
     local sampler=$!
+    # Watch the simulators too. They are single-process Flask servers, so each
+    # is GIL-bound to ~1 core; once one saturates the number being reported
+    # describes the harness, not Alert Bridge.
+    python3 "$CPU_SAMPLER" "$SIM_PATTERNS" 2 "$duration" "$CPU_SKIP_SECONDS" > "$RESULTS_DIR/sims_$prefix.txt" 2>/dev/null &
+    local sim_sampler=$!
     python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
         --num-sensors 16 --rate "$rate" --duration "$duration" \
         --unique --sensor-prefix "$prefix" > "$RESULTS_DIR/injector_$prefix.log" 2>&1
     wait $sampler || true
+    wait $sim_sampler || true
     sleep 10   # let in-flight calls finish observing
     s1=$(prom_value alert_bridge_vlm_duration_seconds_sum)
     c1=$(prom_value alert_bridge_vlm_duration_seconds_count)
@@ -367,6 +375,30 @@ observed, configured = float('$observed'), float('$configured')
 sys.exit(0 if configured * 0.8 <= observed <= configured * 3.0 else 1)"
 }
 
+
+saturated_simulator() {
+    # Highest CPU any simulator reached across the ramp, and which one. They are
+    # single-process Flask servers, so each is GIL-bound to ~1 core; once one
+    # saturates, the ramp is measuring the harness rather than Alert Bridge.
+    python3 - "$RESULTS_DIR" "$SIM_SATURATED_PCT" <<'SIMPY'
+import glob, os, sys
+results, limit = sys.argv[1], float(sys.argv[2])
+worst_name, worst = None, 0.0
+for path in glob.glob(os.path.join(results, "sims_*.txt")):
+    for line in open(path):
+        parts = line.split()
+        if len(parts) >= 3:
+            try:
+                peak = float(parts[2])
+            except ValueError:
+                continue
+            if peak > worst:
+                worst_name, worst = parts[0], peak
+if worst_name and worst >= limit:
+    print(f"{worst_name} {worst:.1f}")
+SIMPY
+}
+
 # ─── TS-030: rate ramp, 1 process vs N ──────────────────────────────────────
 ts_030() {
     echo ""; echo "=== TS-030: rate ramp — 1 process vs $PROCESSES processes ==="
@@ -390,8 +422,14 @@ ts_030() {
     local last=$(( ${#single_means[@]} - 1 ))
     if [ "$last" -lt 1 ]; then record_result TS-030 FAIL "need at least two rates in RAMP_RATES"; return; fi
 
+    local sim_bound; sim_bound=$(saturated_simulator)
+    if [ -n "$sim_bound" ]; then
+        record_result TS-030 FAIL "simulator saturated ($sim_bound% of one core): the ramp measured the harness, not Alert Bridge. Give the simulators more capacity before reading these numbers."
+        return
+    fi
+
     if ! assert_stub_delay "${single_means[0]}" "$STUB_DELAY"; then
-        record_result TS-030 FAIL "baseline vlm_mean=${single_means[0]}s does not match stub delay ${STUB_DELAY}s (stale stub?)"
+        record_result TS-030 FAIL "baseline vlm_mean=${single_means[0]}s does not match stub delay ${STUB_DELAY}s. Either a stale NIM stub is serving an older delay, or the ramp has no point below the single-process knee - the first entry in RAMP_RATES must be low enough that one process is still idle there."
         return
     fi
 
@@ -426,7 +464,9 @@ s_base, m_base = s_mean[0], m_mean[0]
 # Where does one process first buckle?
 brk = next((i for i, v in enumerate(s_mean) if v >= s_base * 1.5), None)
 if brk is None:
-    print('single process never inflated; raise RAMP_RATES', file=sys.stderr)
+    print('single process never inflated: it is already saturated at the first '
+          'rate, so there is no flat baseline to grow from. LOWER the first '
+          'entry in RAMP_RATES, do not raise it.', file=sys.stderr)
     sys.exit(1)
 
 ok = (max(s_cpu) >= 85.0             # the one-core ceiling is real
