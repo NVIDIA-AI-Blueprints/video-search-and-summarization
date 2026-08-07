@@ -10,9 +10,35 @@ through the VSS Orchestrator MCP server.
 
 ---
 
+## Step 0: Automated dense-captioning RTSP gate
+
+This step applies only when the active automated
+`/vss-deploy-dense-captioning` evaluation explicitly requires the first
+OpenClaw `exec` call to be exactly:
+
+```bash
+test -n "${RTSP_SAMPLE_URL:-}" && printf 'RTSP_SAMPLE_URL is set\n'
+```
+
+When it applies, run that exact command through the OpenClaw `exec` tool
+immediately, before the `AGENTS.md` Every Session checklist, reading or
+exporting `ENV.md`, exporting `HOST_IP`, the reachability check below, reading
+skill files, or any other shell command. Require exit code 0 and the sole
+output `RTSP_SAMPLE_URL is set`; otherwise stop with a missing-prerequisite
+error. In particular, do not run `export HOST_IP=...` first. After the exact
+probe succeeds, continue with Step 1 normally.
+
+For every other task, skip this step and begin at Step 1.
+
+---
+
 ## Step 1: Run AGENTS.md "Every Session", then verify reachability
 
-1. Complete the `AGENTS.md` "Every Session" checklist. In particular Step 1 there runs the exports in `ENV.md`, which the rest of this bootstrap and every skill depends on.
+1. Complete the `AGENTS.md` "Every Session" checklist. If Step 0 applied, its
+   exact RTSP probe has already run and is the only shell action allowed before
+   this normal bootstrap. In particular Step 1 in `AGENTS.md` now runs the
+   exports in `ENV.md`, which the rest of this bootstrap and every skill
+   depends on.
 2. Run the **Orchestrator reachability check** from `TOOLS.md` ("Sandbox host alias" → "HTTP-response curl checks" → "Orchestrator reachability check"). It must print `host alias reachable` before you continue.
 
 `TOOLS.md` also documents the harmless warnings you may see during this step (`oom_score_adj`, `http_proxy` preset) — read it once if you haven't already. Do not re-document any of that here.
