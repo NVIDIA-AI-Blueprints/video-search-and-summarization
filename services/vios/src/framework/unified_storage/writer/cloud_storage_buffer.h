@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -110,6 +110,8 @@ struct BufferedFrame
     // Delete copy constructor and copy assignment operator to prevent expensive copies
     BufferedFrame(const BufferedFrame&) = delete;
     BufferedFrame& operator=(const BufferedFrame&) = delete;
+
+    ~BufferedFrame() = default;
 
     // Clear method for buffer reuse
     void clear()

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +25,7 @@
 WebrtcSinkConsumer::WebrtcSinkConsumer(const std::string& consumer_name) : IMediaDataConsumer(consumer_name)
 {
     m_videowebRTCSender = std::make_shared<VideoWebRTCSender>("VideoWebRTCSender");
-    setConsumerType (ConsumerType::webrtcConsumer);
+    IMediaDataConsumer::setConsumerType (ConsumerType::webrtcConsumer);
 }
 
 WebrtcSinkConsumer::WebrtcSinkConsumer(const std::string& consumer_name, string peer_id, double frame_rate,
@@ -33,7 +33,7 @@ WebrtcSinkConsumer::WebrtcSinkConsumer(const std::string& consumer_name, string 
         : IMediaDataConsumer(consumer_name), m_peerIdStreamId (peer_id)
 {
     m_videowebRTCSender = std::make_shared<VideoWebRTCSender>("VideoWebRTCSender", frame_rate, enable_frame_sync);
-    setConsumerType (ConsumerType::webrtcConsumer);
+    IMediaDataConsumer::setConsumerType (ConsumerType::webrtcConsumer);
 }
 
 WebrtcSinkConsumer::~WebrtcSinkConsumer()

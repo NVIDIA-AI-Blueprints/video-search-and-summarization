@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,6 +26,9 @@
 #include "api/peer_connection_interface.h"
 
 #include "modules/audio_device/include/audio_device.h"
+#ifndef HAVE_SOUND
+#include "modules/audio_device/include/fake_audio_device.h"
+#endif
 
 #include "rtc_base/logging.h"
 #include "rtc_base/strings/json.h"
@@ -172,6 +175,9 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         std::string                                                     m_pcType {""};
     protected:
         std::unique_ptr<webrtc::TaskQueueFactory>                       m_taskQueueFactory;
+#ifndef HAVE_SOUND
+        std::unique_ptr<webrtc::FakeAudioDeviceModule>                  m_fakeAudioDeviceModule;
+#endif
         webrtc::scoped_refptr<webrtc::AudioDeviceModule>                   m_audioDeviceModule;
 #ifndef ASYNC_API
         std::mutex                                                      m_peerMapMutex;

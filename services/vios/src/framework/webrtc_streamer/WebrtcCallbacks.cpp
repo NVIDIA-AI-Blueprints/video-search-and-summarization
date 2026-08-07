@@ -409,7 +409,7 @@ void CreateSessionDescriptionObserver::OnSuccess(webrtc::SessionDescriptionInter
 {
     if (desc)
     {
-        m_pc->SetLocalDescription(SetSessionDescriptionObserver::Create(m_pc, m_promise, m_sdp), desc);
+        m_pc->SetLocalDescription(SetSessionDescriptionObserver::Create(m_pc, m_promise, m_sdp).get(), desc);
     }
 }
 

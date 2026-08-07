@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,8 +34,6 @@ constexpr const char* DB_FILE_NAME = "nvvst.db";
 #define CHECK_DB_IF_NULL_RETURN(ret) \
     if (m_db == nullptr)             \
         return ret;
-
-Sqlite *Sqlite::m_instance = nullptr;
 
 // Callback function to fill up query result
 static int fillResultCallback(void *userData, int argc, char **argv, char **azColName)

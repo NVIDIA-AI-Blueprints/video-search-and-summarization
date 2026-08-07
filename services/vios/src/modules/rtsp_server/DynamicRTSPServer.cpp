@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -65,15 +65,14 @@ void DynamicRTSPServer::cleanup()
 
     std::vector<std::string> streamNames;
     {
-        GenericMediaServer::ServerMediaSessionIterator *iter =
-                new GenericMediaServer::ServerMediaSessionIterator(*this);
+        auto iter =
+                std::make_unique<GenericMediaServer::ServerMediaSessionIterator>(*this);
         ServerMediaSession *sms = nullptr;
         while((sms = (ServerMediaSession *)iter->next()) != nullptr)
         {
             LOG(info) << "scheduling removal of sms:" << sms << ", stream:" << sms->streamName() << endl;
             streamNames.push_back(sms->streamName());
         }
-        delete iter;
     }
 
     for (const auto& name : streamNames)
@@ -85,14 +84,14 @@ void DynamicRTSPServer::cleanup()
         removeServerMediaSession(name.c_str());
     }
     LOG(info) << "DynamicRTSPServer::cleanup() - deleted streams" << endl;
-    delete this;
+    Medium::close(this);
 }
 
 vector<string> DynamicRTSPServer::getActiveStreams()
 {
     vector<string> active_streams;
-    GenericMediaServer::ServerMediaSessionIterator *iter =
-            new GenericMediaServer::ServerMediaSessionIterator(*this);
+    auto iter =
+            std::make_unique<GenericMediaServer::ServerMediaSessionIterator>(*this);
     ServerMediaSession *sms = nullptr;
     while((sms = (ServerMediaSession *)iter->next()) != nullptr)
     {
@@ -101,7 +100,6 @@ vector<string> DynamicRTSPServer::getActiveStreams()
             active_streams.push_back(sms->streamName());
         }
     }
-    delete iter;  // Add cleanup of iterator
     return active_streams;
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,14 +22,16 @@
 #include "gst_utils.h"
 #include "logger.h"
 
+#include <memory>
+
 extern "C" ISensorDiscoveryInterface* createObject()
 {
-    return new SensorDataCollector;
+    return std::make_unique<SensorDataCollector>().release();
 }
 
 extern "C" void destroyObject(SensorDataCollector* object)
 {
-    delete object;
+    std::unique_ptr<SensorDataCollector> owner(object);
 }
 
 void SensorDataCollector::addSensor()

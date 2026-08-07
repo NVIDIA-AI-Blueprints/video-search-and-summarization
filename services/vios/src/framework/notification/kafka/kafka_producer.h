@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,7 @@
 #pragma once
 
 #include "notification_manager.h"
+#include <memory>
 #include <string>
 #include <mutex>
 #if !defined(AARCH64_PLATFORM)
@@ -49,7 +50,7 @@ public:
     virtual ~NvKafka();
 
 private:
-    static NvKafka* _instance;
+    static std::unique_ptr<NvKafka> _instance;
     bool m_error;
     std::string m_topic_vms_event;
     std::string m_kafkaServerEndpoint;

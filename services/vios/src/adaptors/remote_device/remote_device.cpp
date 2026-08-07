@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,12 +40,12 @@
 
 extern "C" ISensorControlInterface *createObject()
 {
-    return new RemoteDevice;
+    return std::make_unique<RemoteDevice>().release();
 }
 
 extern "C" void destroyObject(RemoteDevice *object)
 {
-    delete object;
+    std::unique_ptr<RemoteDevice> deleter(object);
 }
 
 static void fillEncoderSettingsOptions(const Json::Value &jsettings, VideoEncoderConfigurationsOptions& settings);

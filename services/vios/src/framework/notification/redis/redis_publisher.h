@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +22,7 @@
 #include <string>
 #include <mutex>
 #include <fstream>
+#include <memory>
 
 using namespace nv_vms;
 
@@ -46,7 +47,7 @@ public:
     void reconnectToRedisServer();
 
 private:
-    static NvRedis* _instance;
+    static std::unique_ptr<NvRedis> _instance;
     bool m_error;
     void* m_redisHandle;
     void* m_handle_redis_proto;

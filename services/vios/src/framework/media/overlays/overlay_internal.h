@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -367,7 +367,7 @@ class NvLLOverlayInternal
         std::mutex                  m_calibrationLock;
         SyncObject                  m_metaWait = {};
 #if !defined(AARCH64_PLATFORM)
-        OsdCpuDataContext*          m_cpuCtx = nullptr;
+        std::unique_ptr<OsdCpuDataContext> m_cpuCtx;
 #endif
         std::unique_ptr<HaloSafetyManager> m_haloSafetyManager;
 };

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -364,9 +364,7 @@ SensorDataManager::SensorDataManager(shared_ptr<SensorManagement> sensorMgmt) : 
 {
 }
 
-SensorDataManager::~SensorDataManager()
-{
-}
+SensorDataManager::~SensorDataManager() = default;
 
 VmsErrorCode SensorDataManager::startStream(std::map<std::string, std::string, std::less<>> opts, Json::Value &response)
 {

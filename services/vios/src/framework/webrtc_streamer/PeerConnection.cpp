@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -516,9 +516,9 @@ PeerConnection::~PeerConnection()
     m_pc = nullptr;
     m_peer_connection_factory = nullptr;
     m_workerThread->BlockingCall([this] {
-        auto* fakeAdm = static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get());
+        std::unique_ptr<webrtc::FakeAudioDeviceModule> fakeAdm(
+            static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get()));
         m_audioDeviceModule = nullptr;
-        delete fakeAdm;
     });
 }
 
@@ -787,7 +787,7 @@ VmsErrorCode PeerConnection::setAnswer(const Json::Value &jmessage, Json::Value&
                 std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
                 std::string out_sdp;
                 webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
-                    SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp));
+                    SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
                 m_pc->SetRemoteDescription(std::move(session_description),
                     RemoteSetObserverAdapter::Create(remoteSessionObserver));
                 // waiting for remote description
@@ -1278,7 +1278,7 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
             std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
             std::string out_sdp;
             webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
-                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp));
+                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
             m_pc->SetRemoteDescription(std::move(session_description),
                 RemoteSetObserverAdapter::Create(remoteSessionObserver));
             // waiting for remote description
@@ -1332,7 +1332,7 @@ PeerConnection::call(const Json::Value& req_info, const Json::Value &in, Json::V
         rtcoptions.offer_to_receive_audio = 1;
         std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
         std::string sdp;
-        m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+        m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
         // waiting for answer
         std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
@@ -2486,7 +2486,7 @@ VmsErrorCode PeerConnection::createOffer(const Json::Value& in, Json::Value &off
     std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
     std::string sdp;
 
-    m_pc->CreateOffer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+    m_pc->CreateOffer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
     std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();
     if (localfuture.wait_for(std::chrono::milliseconds(5000)) == std::future_status::ready)
@@ -2925,7 +2925,7 @@ VmsErrorCode PeerConnection::setOffer(const Json::Value& in, Json::Value& answer
             std::promise<const webrtc::SessionDescriptionInterface *> remotepromise;
             std::string out_sdp;
             webrtc::scoped_refptr<webrtc::SetSessionDescriptionObserver> remoteSessionObserver(
-                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp));
+                SetSessionDescriptionObserver::Create(m_pc.get(), remotepromise, out_sdp).get());
             m_pc->SetRemoteDescription(std::move(session_description),
                 RemoteSetObserverAdapter::Create(remoteSessionObserver));
             // waiting for remote description
@@ -2955,7 +2955,7 @@ VmsErrorCode PeerConnection::getAnswer(const Json::Value& in, Json::Value& answe
     rtcoptions.offer_to_receive_audio = 1;
     std::promise<const webrtc::SessionDescriptionInterface *> localpromise;
     std::string sdp;
-    m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp), rtcoptions);
+    m_pc->CreateAnswer(CreateSessionDescriptionObserver::Create(m_pc.get(), localpromise, sdp).get(), rtcoptions);
 
     // waiting for answer
     std::future<const webrtc::SessionDescriptionInterface *> localfuture = localpromise.get_future();

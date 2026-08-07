@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +27,7 @@
 #include <sstream>
 #include <streambuf>
 #include <atomic>
+#include <memory>
 #include <string.h>
 
 #include "utils.h"
@@ -92,11 +93,7 @@ class Logger {
 
         ~Logger ()
         {
-            if (m_redirect)
-            {
-                delete m_redirect;
-                m_redirect = nullptr;
-            }
+            m_redirect.reset();
             m_stringBuffer.clear();
             m_fileStream.close ();
             m_qosStream.close();
@@ -114,7 +111,7 @@ class Logger {
         /* here user's file logging preference will be stored */
         bool m_enableFileLog;
 
-        CoutToString *m_redirect;
+        std::unique_ptr<CoutToString> m_redirect;
         std::stringstream m_stringBuffer;
         std::mutex m_LogLock;
 

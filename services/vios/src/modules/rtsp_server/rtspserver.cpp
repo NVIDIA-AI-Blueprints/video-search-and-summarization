@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -95,7 +95,7 @@ RtspServer::RtspServer(u_int16_t port)
     // To implement client access control to the RTSP server, do the following:
     if(config.use_rtsp_authentication)
     {
-        m_authDB = new UserAuthenticationDatabase(AUTHENTICATION_DOMAIN, true);
+        m_authDB = std::make_unique<UserAuthenticationDatabase>(AUTHENTICATION_DOMAIN, true);
         updateUser(DEFAULT_USERNAME);
     }
     // Repeat the above with each <username>, <password> that you wish to allow
@@ -116,7 +116,7 @@ RtspServer::RtspServer(u_int16_t port)
     }
 
     m_rtspServer = DynamicRTSPServer::createNew(m_env, m_rtspServerPortNum,
-                    m_authDB, rtsp_server_reclamation_test_sec);
+                    m_authDB.get(), rtsp_server_reclamation_test_sec);
     if (m_rtspServer == nullptr)
     {
         LOG(error) << "Failed to create RTSP server: " << m_env.getResultMsg() << "\n";
@@ -142,10 +142,8 @@ RtspServer::RtspServer(u_int16_t port)
     m_env.mPreferredIface = nullptr;
     if (!config.rtsp_preferred_network_iface.empty())
     {
-        int iface_len = config.rtsp_preferred_network_iface.length();
-        m_env.mPreferredIface = new char[iface_len + 1];
-        strncpy(m_env.mPreferredIface, config.rtsp_preferred_network_iface.c_str(), iface_len);
-        m_env.mPreferredIface[iface_len] = '\0';
+        m_preferredIface = config.rtsp_preferred_network_iface;
+        m_env.mPreferredIface = m_preferredIface.data();
     }
 
     if (config.rtsp_in_base_udp_port_num != -1)
@@ -168,11 +166,7 @@ RtspServer::~RtspServer()
   {
     LOG(info) << "Deleting Rtspserver port:" << m_rtspServerPortNum << endl;
     stopAsyncWorker();
-    if (m_env.mPreferredIface)
-    {
-        delete[] m_env.mPreferredIface;
-        m_env.mPreferredIface = nullptr;
-    }
+    m_env.mPreferredIface = nullptr;
     if (m_eventAddStream)
     {
         m_env.taskScheduler().unscheduleDelayedTask(m_eventAddStream);
@@ -183,10 +177,7 @@ RtspServer::~RtspServer()
         m_env.taskScheduler().unscheduleDelayedTask(m_eventRemoveStream);
         m_eventRemoveStream = nullptr;
     }
-    if(m_authDB)
-    {
-        delete m_authDB;
-    }
+    m_authDB.reset();
     m_env.stop();
     m_thread->join();
 
@@ -262,9 +253,8 @@ int RtspServer::start()
     string threadName = "RtspSvrTh_" + to_string(m_rtspServerPortNum);
     prctl(PR_SET_NAME, threadName.c_str(), 0, 0, 0);
 
-    char *urlPrefix = m_rtspServer->rtspURLPrefix();
-    m_urlPrefix = urlPrefix;
-    delete[] urlPrefix;
+    std::unique_ptr<char[]> urlPrefix(m_rtspServer->rtspURLPrefix());
+    m_urlPrefix = urlPrefix.get();
 
     if (config.server_domain_name.empty())
     {
@@ -315,7 +305,7 @@ int RtspServer::start()
 
 static void addProxyTaskFunc(void* clientData)
 {
-    auto* task = static_cast<AddProxyTask*>(clientData);
+    std::unique_ptr<AddProxyTask> task(static_cast<AddProxyTask*>(clientData));
     try
     {
         std::string mutableUrl = task->url;
@@ -326,7 +316,6 @@ static void addProxyTaskFunc(void* clientData)
     {
         task->promise.set_exception(std::current_exception());
     }
-    delete task;
 }
 
 std::string RtspServer::createProxy(const string& id, const string& name, const string& url)
@@ -334,10 +323,10 @@ std::string RtspServer::createProxy(const string& id, const string& name, const 
     std::promise<std::string> promise;
     std::future<std::string> future = promise.get_future();
 
-    auto* task = new AddProxyTask(this, id, name, url, std::move(promise));
+    auto task = std::make_unique<AddProxyTask>(this, id, name, url, std::move(promise));
     m_env.taskScheduler().scheduleDelayedTask(0,
         (TaskFunc*)addProxyTaskFunc,
-        task
+        task.release()
     );
 
     // Wait for the result with a 1-second timeout
@@ -356,7 +345,7 @@ int RtspServer::addProxy(const string& id, const string& name, string& url)
 {
     std::lock_guard<std::mutex> lock(m_streamLock);
     int ret = 0;
-    char* proxyStreamURL = nullptr;
+    std::unique_ptr<char[]> proxyStreamURL;
     m_sms = nullptr;
     string streamName = "";
     string proxiedStreamURL = "";
@@ -473,7 +462,7 @@ int RtspServer::addProxy(const string& id, const string& name, string& url)
         ((ProxyServerMediaSession *)m_sms)->setTxSocketBufSize(GET_CONFIG().tx_socket_buffer_size);
     }
 set_proxy:
-    proxyStreamURL = m_rtspServer->rtspURL(m_sms);
+    proxyStreamURL.reset(m_rtspServer->rtspURL(m_sms));
     if(proxyStreamURL == nullptr)
     {
          LOG(error) << "Received null proxy url from ServerMediaSession" << endl;
@@ -485,12 +474,11 @@ set_proxy:
     stream.name = streamName;
     stream.sensorUrl = url;
     stream.sensorName = name;
-    stream.proxyUrl = proxyStreamURL;
+    stream.proxyUrl = proxyStreamURL.get();
     m_streamsList.insert ({ id, stream});
-    url = proxyStreamURL;
+    url = proxyStreamURL.get();
 
-    LOG(info) << "\tPlay this stream using the URL: " << proxyStreamURL << "\n";
-    delete[] proxyStreamURL;
+    LOG(info) << "\tPlay this stream using the URL: " << proxyStreamURL.get() << "\n";
 notify_exit:
     return ret;
 }
@@ -540,7 +528,7 @@ int RtspServer::removeProxy(const string& id)
 
 static void removeProxyTaskFunc(void* clientData)
 {
-    auto* task = static_cast<RemoveProxyTask*>(clientData);
+    std::unique_ptr<RemoveProxyTask> task(static_cast<RemoveProxyTask*>(clientData));
     try
     {
         int result = task->server->removeProxy(task->id);
@@ -550,7 +538,6 @@ static void removeProxyTaskFunc(void* clientData)
     {
         task->promise.set_exception(std::current_exception());
     }
-    delete task;
 }
 
 bool RtspServer::deleteProxy(const string& id)
@@ -558,10 +545,10 @@ bool RtspServer::deleteProxy(const string& id)
     std::promise<bool> promise;
     std::future<bool> future = promise.get_future();
 
-    auto* task = new RemoveProxyTask(this, id, std::move(promise));
+    auto task = std::make_unique<RemoveProxyTask>(this, id, std::move(promise));
     m_env.taskScheduler().scheduleDelayedTask(0,
         (TaskFunc*)removeProxyTaskFunc,
-        task
+        task.release()
     );
 
     std::future_status status = future.wait_for(std::chrono::seconds(1));
@@ -597,11 +584,10 @@ vector<string> RtspServer::getActiveStreams()
 string RtspServer::originalPrefix()
 {
     string rtspServerPrefix;
-    char *rtsp_prefix = m_rtspServer->rtspURLPrefix();
+    std::unique_ptr<char[]> rtsp_prefix(m_rtspServer->rtspURLPrefix());
     if (rtsp_prefix)
     {
-        rtspServerPrefix = rtsp_prefix;
-        delete[] rtsp_prefix;
+        rtspServerPrefix = rtsp_prefix.get();
     }
     return rtspServerPrefix;
 }

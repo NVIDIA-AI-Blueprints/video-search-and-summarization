@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,8 +54,7 @@ public:
     GrpcUdpService(std::shared_ptr<nv_vms::DeviceManager> deviceMngr): m_deviceManager(deviceMngr)
     {}
 
-    ~GrpcUdpService()
-    {}
+    ~GrpcUdpService() = default;
 
     grpc::Status CreateUDPConnection(ServerContext* context, const CreateUDPConnectionRequest* request,
                             CreateUDPConnectionReply* reply) override;

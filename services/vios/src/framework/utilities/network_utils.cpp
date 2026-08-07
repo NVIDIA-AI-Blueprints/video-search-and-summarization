@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,6 +73,10 @@ class AutoDestroyXml
 public:
     AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
     ~AutoDestroyXml() { xmlBufferFree(m_xml); }
+    AutoDestroyXml(const AutoDestroyXml&) = delete;
+    AutoDestroyXml& operator=(const AutoDestroyXml&) = delete;
+    AutoDestroyXml(AutoDestroyXml&&) = delete;
+    AutoDestroyXml& operator=(AutoDestroyXml&&) = delete;
 private:
     xmlBufferPtr m_xml;
 };

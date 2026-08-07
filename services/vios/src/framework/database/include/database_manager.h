@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +40,7 @@ public:
     virtual bool executeQuery(const std::string &queryTemplate, const std::vector<std::string> &params) = 0;
     virtual bool executeQuery(const std::string &queryTemplate, const std::vector<std::string> &params, queryResult &result) = 0;
     
-    virtual ~IDatabaseInterface() {}
+    virtual ~IDatabaseInterface() = default;
 
     // Database type identification
     virtual DatabaseType getDatabaseType() const = 0;

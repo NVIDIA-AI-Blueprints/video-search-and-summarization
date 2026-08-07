@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,6 +33,10 @@ class RemoteSensorControlApis
         {
             LOG(info) << __PRETTY_FUNCTION__ << endl;
         }
+        RemoteSensorControlApis(const RemoteSensorControlApis&) = default;
+        RemoteSensorControlApis& operator=(const RemoteSensorControlApis&) = default;
+        RemoteSensorControlApis(RemoteSensorControlApis&&) = default;
+        RemoteSensorControlApis& operator=(RemoteSensorControlApis&&) = default;
         typedef std::function<void(const Json::Value& receivedData, Json::Value& response)> remoteSensorFunc;
         const std::map<std::string, remoteSensorFunc, std::less<>> getRemoteSensorControlApis() { return m_func; };
         void handleSensorCredentials(const Json::Value &data, Json::Value &response);
