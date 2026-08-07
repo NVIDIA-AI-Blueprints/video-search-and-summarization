@@ -1661,6 +1661,7 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
             echo "Staging vios-ui dist into $VST_UI_DIR ..."
             find "$VST_UI_DIR" -mindepth 1 -not -name '.gitkeep' -delete
             cp -rf "$UI_DIR/dist/." "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
+            cp -f "$INGRESS_BUILD_ROOT/LICENSE.3rdparty" "$VST_UI_DIR/LICENSE.3rdparty" || { echo "[ERROR] Failed to stage LICENSE.3rdparty for the ingress image"; exit 1; }
 
             cd deployment/scaling/ingress/ || exit 1
             echo "Building Docker image: $imagename"
