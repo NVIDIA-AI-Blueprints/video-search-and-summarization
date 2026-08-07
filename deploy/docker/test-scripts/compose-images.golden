@@ -24,7 +24,7 @@ deploy/docker/services/infra/compose.yml docker.elastic.co/kibana/kibana:9.4.4
 deploy/docker/services/infra/compose.yml docker.elastic.co/logstash/logstash:9.4.4
 deploy/docker/services/infra/compose.yml eclipse-mosquitto:2
 deploy/docker/services/infra/compose.yml elasticsearch
-deploy/docker/services/infra/compose.yml redis:8.6.2-alpine
+deploy/docker/services/infra/compose.yml redis:8.10.0-alpine
 deploy/docker/services/infra/compose.yml vss-kafka-topic-init
 deploy/docker/services/infra/haproxy/compose.yml docker.io/library/haproxy:3.4.2-alpine
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
