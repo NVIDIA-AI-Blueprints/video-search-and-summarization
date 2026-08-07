@@ -177,7 +177,13 @@ class TestSubmitNvschemaAlert:
             {"sensorId": "cam-9", "sensor": None}
         )
         assert status == 202
-        service.kafka_producer.produce.assert_called_once()
+
+        # Decode what actually went on the wire: a 202 alone would still pass if
+        # the identifier were dropped during conversion, and the alert would then
+        # be discarded downstream for a missing ``sensorId``.
+        published = nvSchemaBehavior()
+        published.ParseFromString(service.kafka_producer.produce.call_args.kwargs["value"])
+        assert published.sensor.id == "cam-9"
 
     @pytest.mark.asyncio
     async def test_unconfigured_kafka_returns_500(self):
