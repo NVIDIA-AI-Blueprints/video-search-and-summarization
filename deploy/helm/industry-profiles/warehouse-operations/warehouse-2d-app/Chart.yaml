@@ -47,6 +47,10 @@ dependencies:
   version: 3.2.0
   repository: file://../../../services/agent
   condition: agent.enabled
+- name: vss-agent-ui
+  version: 3.2.0
+  repository: file://../../../services/ui
+  condition: vss-agent-ui.enabled  
 - name: monitoring
   version: 3.2.0
   repository: file://../../../services/monitoring
