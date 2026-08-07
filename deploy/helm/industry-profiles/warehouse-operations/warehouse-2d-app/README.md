@@ -107,6 +107,35 @@ helm install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-
 It sets `global.vssIngress.enabled` to false and clears
 the path prefixes, since each app then owns the root of its own port.
 
+## Alerts
+
+The alerts stack (`vss-alert-bridge`, `agent`, and `rtvi.vss-rtvi-vlm`) is off by
+default. Enable all three together — they depend on each other at runtime.
+
+Required values to supply:
+
+| Value | Description |
+| --- | --- |
+| `vss-alert-bridge.kafkaBootstrapServers` | Kafka broker address |
+| `vss-alert-bridge.elasticHosts` | Elasticsearch host(s) |
+| `vss-alert-bridge.vlmBaseUrl` | Base URL of the VLM inference endpoint |
+| `vss-alert-bridge.vstBaseUrl` | Base URL of the VST service |
+
+```bash
+helm install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
+  -n <namespace> --create-namespace \
+  --set vss-alert-bridge.enabled=true \
+  --set vss-alert-bridge.kafkaBootstrapServers=<KAFKA_HOST>:9092 \
+  --set vss-alert-bridge.elasticHosts=<ELASTIC_HOST>:9200 \
+  --set vss-alert-bridge.vlmBaseUrl=http://<VLM_HOST>:<PORT> \
+  --set vss-alert-bridge.vstBaseUrl=http://<VST_HOST>:<PORT> \
+  --set agent.enabled=true \
+  --set rtvi.vss-rtvi-vlm.enabled=true
+```
+
+`vss-alert-bridge.vlmName` defaults to `nim_nvidia_cosmos3-nano-reasoner_bf16-final`.
+Override it if pointing at a different model.
+
 ## Monitoring
 
 Prometheus and Grafana come with the profile (`monitoring.enabled`, on by
