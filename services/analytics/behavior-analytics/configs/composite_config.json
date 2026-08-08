@@ -1,7 +1,7 @@
 {
 	"kafka": {
 		"brokers": "localhost:9092",
-		"group": "mdx-search-and-alerts-app",
+		"group": "mdx-composite-app",
 		"consumer": {
 			"autoOffsetReset": "latest",
 			"enableAutoCommit": false,
@@ -90,10 +90,6 @@
 		{
 			"name": "stateManagementFilter",
 			"value": "[\"Person\"]"
-		},
-		{
-			"name": "inSimulationMode",
-			"value": "true"
 		},
 		{
 			"name": "numWorkersForBehaviorCreation",

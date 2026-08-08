@@ -101,6 +101,22 @@ def _wire_default_ctx_mocks(ctx_mock: Mock, pid: int = 12345) -> tuple[Mock, Moc
     return mock_event, mock_main_conn, mock_task_conn, mock_process
 
 
+def _join_timeouts(mock_process) -> list[float]:
+    """Timeouts passed to ``join(timeout=...)``, in call order.
+
+    shutdown() spends one shared budget across every worker, so a timeout is whatever was left of it
+    rather than a fixed constant -- assert the bound, not an exact value.
+    """
+    return [c.kwargs["timeout"] for c in mock_process.join.call_args_list if "timeout" in c.kwargs]
+
+
+def _assert_within_budget(timeouts: list[float], count: int = 1) -> None:
+    """Every join waited on the shared budget and none of them exceeded it."""
+    assert len(timeouts) == count
+    for timeout in timeouts:
+        assert 0.0 <= timeout <= MultiprocessingScheduler.SHUTDOWN_TIMEOUT_SECONDS
+
+
 @pytest.fixture
 def scheduler():
     """Create a MultiprocessingScheduler instance (real spawn context)."""
@@ -245,11 +261,11 @@ class TestMultiprocessingSchedulerShutdown:
         scheduler.shutdown()
 
         mock_process1.terminate.assert_called_once()
-        mock_process1.join.assert_called_once_with(timeout=10.0)
+        _assert_within_budget(_join_timeouts(mock_process1))
         mock_process1.kill.assert_not_called()
 
         mock_process2.terminate.assert_called_once()
-        mock_process2.join.assert_called_once_with(timeout=10.0)
+        _assert_within_budget(_join_timeouts(mock_process2))
         mock_process2.kill.assert_not_called()
 
     def test_shutdown_with_alive_processes_force_kill(self, scheduler):
@@ -266,12 +282,15 @@ class TestMultiprocessingSchedulerShutdown:
         mock_process.terminate.assert_called_once()
         mock_process.kill.assert_called_once()
         assert mock_process.join.call_count == 2
-        calls = mock_process.join.call_args_list
-        assert calls[0] == call(timeout=10.0)
-        assert calls[1] == call()
+        _assert_within_budget(_join_timeouts(mock_process))
+        assert mock_process.join.call_args_list[1] == call()   # the post-kill reap takes no timeout
 
     def test_shutdown_with_dead_processes(self, scheduler):
-        """Test shutdown with already dead processes."""
+        """A process that already exited is joined but neither terminated nor killed.
+
+        The join is not wasted work: an exited child stays a zombie until someone reaps it, and the
+        join loop is no longer gated on ``is_alive()``.
+        """
         mock_process = Mock(spec=Process)
         mock_process.is_alive.return_value = False
         mock_process.name = "dead-task"
@@ -282,8 +301,52 @@ class TestMultiprocessingSchedulerShutdown:
         scheduler.shutdown()
 
         mock_process.terminate.assert_not_called()
-        mock_process.join.assert_not_called()
+        _assert_within_budget(_join_timeouts(mock_process))
         mock_process.kill.assert_not_called()
+
+    def test_shutdown_budget_is_shared_not_per_worker(self, scheduler):
+        """The shutdown budget is for the shutdown, not for each worker.
+
+        Terminating and joining one worker at a time charged SHUTDOWN_TIMEOUT_SECONDS per worker, so
+        the worst case grew with worker count -- five workers wanted 50s against the 10s stop grace
+        docker allows by default, and the container was SIGKILLed before any worker reached its
+        shutdown hook. With one shared deadline the total is bounded however many workers there are.
+        """
+        # A Mock join() returns instantly, so a real clock would never advance and every worker would
+        # appear to get the full budget. Drive a fake one where a wedged join burns exactly the
+        # timeout it was handed -- which is what a process that never exits actually does.
+        clock = {"now": 1000.0}
+
+        def burn_the_timeout(timeout=None):
+            clock["now"] += timeout or 0.0
+
+        wedged = []
+        for i in range(5):
+            process = Mock(spec=Process)
+            process.is_alive.return_value = True     # never dies, so every join burns its timeout
+            process.join.side_effect = burn_the_timeout
+            process.name = f"wedged-{i}"
+            process.pid = 30000 + i
+            wedged.append(process)
+
+        scheduler._processes = {p.pid: p for p in wedged}
+
+        with patch.object(app_scheduler_mp.time, "monotonic", lambda: clock["now"]):
+            scheduler.shutdown()
+
+        # Every worker was terminated before any of them was joined -- they wind down in parallel
+        # rather than one after another.
+        for process in wedged:
+            process.terminate.assert_called_once()
+
+        # The sum of what the joins were allowed to wait for never exceeds the single budget.
+        total = sum(t for process in wedged for t in _join_timeouts(process))
+        assert total <= MultiprocessingScheduler.SHUTDOWN_TIMEOUT_SECONDS
+
+        # The first worker gets essentially the whole budget; later ones get what is left, and once
+        # it is spent they wait zero rather than starting a fresh timeout each.
+        assert _join_timeouts(wedged[0])[0] == pytest.approx(
+            MultiprocessingScheduler.SHUTDOWN_TIMEOUT_SECONDS, abs=0.5)
 
     def test_shutdown_clears_shutdown_events(self, scheduler):
         """Test that shutdown signals each event before terminating, then drops references."""
@@ -415,7 +478,7 @@ class TestIntegration:
         scheduler.shutdown()
 
         mock_process.terminate.assert_called_once()
-        mock_process.join.assert_called_with(timeout=10.0)
+        _assert_within_budget(_join_timeouts(mock_process))
         mock_main_conn.close.assert_not_called()
 
 
@@ -531,10 +594,12 @@ class TestShutdownEdgeCases:
         scheduler.shutdown()
 
         mock_alive_process.terminate.assert_called_once()
-        mock_alive_process.join.assert_called_once_with(timeout=10.0)
+        _assert_within_budget(_join_timeouts(mock_alive_process))
 
+        # Never terminated, but still joined: a process that exited on its own stays a zombie until
+        # something reaps it, and the join loop is no longer gated on is_alive().
         mock_dead_process.terminate.assert_not_called()
-        mock_dead_process.join.assert_not_called()
+        _assert_within_budget(_join_timeouts(mock_dead_process))
 
 
 class TestAdditionalEdgeCases:
