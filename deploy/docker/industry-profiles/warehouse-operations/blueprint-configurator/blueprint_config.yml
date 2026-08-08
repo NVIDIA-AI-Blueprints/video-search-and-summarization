@@ -104,13 +104,14 @@ commons:
       - variable: BP_PROFILE
         allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
 
-      # bp_wh 2d profile is not supported on IGX-THOR or DGX-SPARK
+      # bp_wh 2d reserves GPU 0 for perception and GPU 1 for RT-VLM, so it is
+      # not supported on these single-GPU platforms.
       - variable: HARDWARE_PROFILE
         condition:
           variable: BP_PROFILE
           equals: "bp_wh"
-        disallowed_values: ["IGX-THOR", "DGX-SPARK"]
-        error_message: "BP_PROFILE=bp_wh in 2d mode is not supported on IGX-THOR or DGX-SPARK"
+        disallowed_values: ["IGX-THOR", "AGX-THOR", "AGX-ORIN", "DGX-SPARK"]
+        error_message: "BP_PROFILE=bp_wh in 2d mode requires separate GPUs for perception and RT-VLM and is not supported on IGX-THOR, AGX-THOR, AGX-ORIN, or DGX-SPARK"
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
@@ -722,6 +723,48 @@ IGX-THOR:
         backup: true
         updates:
           message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
+
+AGX-THOR:
+  2d:
+    max_streams_supported: 10
+    file_operations:
+      # Update DeepStream main config
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          drop-on-latency: "1"
+          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
+          compute-hw: "2"
+          low-latency-mode: "0"
+
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/ds-nvdcf-accuracy-tracker-config.yml"
+        backup: true
+        updates:
+          TargetManagement.maxTargetsPerStream: 50
+          VisualTracker.visualTrackerType: 2
+          VisualTracker.vpiBackend4DcfTracker: 1
+
+AGX-ORIN:
+  2d:
+    max_streams_supported: 4
+    file_operations:
+      # Update DeepStream main config
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        updates:
+          drop-on-latency: "1"
+          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
+          compute-hw: "2"
+          low-latency-mode: "0"
+
+      - operation_type: "yaml_update"
+        target_file: "${DS_CONFIG_DIR}/ds-nvdcf-accuracy-tracker-config.yml"
+        backup: true
+        updates:
+          TargetManagement.maxTargetsPerStream: 50
+          VisualTracker.visualTrackerType: 2
+          VisualTracker.vpiBackend4DcfTracker: 1
 
 DGX-SPARK:
   2d:

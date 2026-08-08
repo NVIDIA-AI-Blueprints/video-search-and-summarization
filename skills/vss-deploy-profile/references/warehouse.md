@@ -261,7 +261,7 @@ Ask the user which source they want and whether they already have the assets on 
 - `nv-warehouse-4cams` dataset is only valid with `BP_PROFILE=bp_wh` and `MODE=2d`.
 - `warehouse-4cams-20mx20m-synthetic` dataset is valid with `MODE=3d` or `MODE=mv3dt`.
 - MV3DT mode (`MODE=mv3dt`) does not support `BP_PROFILE=bp_wh` (agents) — use `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`.
-- The `BP_PROFILE=bp_wh`, `MODE=2d` variant is not supported on IGX-THOR or DGX-SPARK.
+- The `BP_PROFILE=bp_wh`, `MODE=2d` variant reserves GPU 0 for perception and GPU 1 for RT-VLM, so it is not supported on the single-GPU IGX-THOR, AGX-THOR, AGX-ORIN, or DGX-SPARK profiles. Their 2D perception tuning remains usable with `bp_wh_kafka`, `bp_wh_redis`, and `bp_wh_auto_calib`.
 
 ---
 
@@ -536,14 +536,14 @@ Run each check in order. **If a check fails, automatically install and re-verify
 
 #### Supported Hardware
 
-`HARDWARE_PROFILE` is a **blueprint setting**, not a string that `nvidia-smi` always prints verbatim. For **discrete GPUs**, match the GPU model from `nvidia-smi` / `lspci` to a row below. **IGX-THOR** and **DGX-SPARK** are **whole-system platforms** (kits/boards): set the profile from product/SKU or vendor docs if you already know the machine type; `nvidia-smi` shows the **on-board NVIDIA GPU name** (e.g. a Thor-class or Spark system GPU), not the text `IGX-THOR` or `DGX-SPARK`. On **DGX Spark**, unified memory can make some `nvidia-smi` memory fields show **Not Supported**; driver and device listing should still be checked per [DGX Spark user guide](https://docs.nvidia.com/dgx/dgx-spark/).
+`HARDWARE_PROFILE` is a **blueprint setting**, not a string that `nvidia-smi` always prints verbatim. For **discrete GPUs**, match the GPU model from `nvidia-smi` / `lspci` to a row below. **IGX-THOR**, **AGX-THOR**, **AGX-ORIN**, and **DGX-SPARK** are **whole-system platforms** (kits/boards): set the profile from product/SKU or vendor docs if you already know the machine type; `nvidia-smi` shows the **on-board NVIDIA GPU name** (e.g. a Thor-, Orin-, or Spark-class system GPU), not the platform profile name. On **DGX Spark**, unified memory can make some `nvidia-smi` memory fields show **Not Supported**; driver and device listing should still be checked per [DGX Spark user guide](https://docs.nvidia.com/dgx/dgx-spark/).
 
 The profiles that actually carry perception tuning are the top-level sections of
 `industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml`:
-`H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO4500BW, IGX-THOR, DGX-SPARK`.
+`H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO4500BW, IGX-THOR, AGX-THOR, AGX-ORIN, DGX-SPARK`.
 All of these define `max_streams_supported` for `2d`, `3d` and `mv3dt` **except `RTXPRO4500BW`,
-which is tuned for `2d` only**. The `overrides.env` comment does not match that set exactly — it
-lists `L40`, which has no section, and omits `RTXA6000ADA`, which has one. A profile with no
+`AGX-THOR`, and `AGX-ORIN`, which are tuned for `2d` only**. The `overrides.env` comment does not match that set
+exactly — it lists `L40`, which has no section, and omits `RTXA6000ADA`, which has one. A profile with no
 section falls back to `NUM_STREAMS` and still gets the commons DeepStream/VST configuration; only
 the profile-specific stream cap and per-profile tuning are skipped.
 
@@ -557,6 +557,8 @@ the profile-specific stream cap and per-profile tuning are skipped.
 | L40S | `L40S` |
 | L4 | `L4` |
 | Platform: NVIDIA IGX Thor (kit / board) | `IGX-THOR` |
+| Platform: NVIDIA Jetson AGX Thor | `AGX-THOR` |
+| Platform: NVIDIA Jetson AGX Orin | `AGX-ORIN` |
 | Platform: NVIDIA DGX Spark | `DGX-SPARK` |
 
 `HARDWARE_PROFILE=DGX-SPARK` also *requires* an SBSA-tagged `PERCEPTION_TAG` — the configurator
@@ -574,7 +576,7 @@ rejects the deployment otherwise (see the DGX-SPARK note in Phase 5).
 nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv,noheader
 ```
 
-Use the **`name`** column to pick **`HARDWARE_PROFILE`** from the [Supported Hardware](#supported-hardware) list. For **IGX-THOR** or **DGX-SPARK**, set `HARDWARE_PROFILE` to that value when the deployment target is that platform, even though `name` will be a GPU part name, not `IGX-THOR` / `DGX-SPARK`.
+Use the **`name`** column to pick **`HARDWARE_PROFILE`** from the [Supported Hardware](#supported-hardware) list. For **IGX-THOR**, **AGX-THOR**, **AGX-ORIN**, or **DGX-SPARK**, set `HARDWARE_PROFILE` to that value when the deployment target is that platform, even though `name` will be a GPU part name, not the platform profile name.
 
 `HARDWARE_PROFILE` is **not** validated against a list — `blueprint_config.yml` has no `allowed_values` for it, so an unrecognized string is accepted and simply matches no tuning section (see [above](#supported-hardware)).
 
@@ -582,18 +584,18 @@ Two independent things key off the value, and they do **not** cover the same set
 
 | | Sections that exist |
 |---|---|
-| Perception tuning (`blueprint_config.yml`) | `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK` — **no `OTHER`** |
+| Perception tuning (`blueprint_config.yml`) | `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO4500BW`, `IGX-THOR`, `AGX-THOR`, `AGX-ORIN`, `DGX-SPARK` — **no `OTHER`** |
 | LLM NIM sizing (`services/nim/<slug>/hw-<PROFILE>.env`) | Per model. Every model ships `hw-OTHER.env`; coverage of the named profiles is patchy |
 
 So `OTHER` is a safe fallback for the **NIM sizing** half only — it still matches no tuning section, exactly like any unrecognized string.
 
 Three ways `HARDWARE_PROFILE` hard-fails a deploy:
 
-1. `BP_PROFILE=bp_wh` with `IGX-THOR` or `DGX-SPARK` — explicitly disallowed by the configurator.
+1. `BP_PROFILE=bp_wh` with `IGX-THOR`, `AGX-THOR`, `AGX-ORIN`, or `DGX-SPARK` — explicitly disallowed because the full 2D agents stack requires separate GPUs for perception and RT-VLM.
 2. `HARDWARE_PROFILE=DGX-SPARK` without an `sbsa`-tagged `PERCEPTION_TAG` — enforced in all three modes.
-3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nvidia-nemotron-nano-9b-v2` ships only `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=L4` (or `RTXA6000`, `RTXA6000ADA`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`) fails with that model. Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
+3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nvidia-nemotron-nano-9b-v2` ships only `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=L4` (or `RTXA6000`, `RTXA6000ADA`, `RTXPRO4500BW`, `IGX-THOR`, `AGX-THOR`, `AGX-ORIN`, `DGX-SPARK`) fails with that model. Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
 
-**Required driver versions:** see the canonical per-platform pins in [`prerequisites.md` § 1 GPU Detection](prerequisites.md#1-gpu-detection) and [§ Canonical version matrix](prerequisites.md#canonical-version-matrix) — that table also covers Ubuntu 22.04 and AGX-THOR, which the warehouse profile does not restrict. On x86 Ubuntu 24.04 the pin is **`580.105.08`**.
+**Required driver versions:** see the canonical per-platform pins in [`prerequisites.md` § 1 GPU Detection](prerequisites.md#1-gpu-detection) and [§ Canonical version matrix](prerequisites.md#canonical-version-matrix) — that table also covers Ubuntu 22.04 and AGX-THOR. On x86 Ubuntu 24.04 the pin is **`580.105.08`**.
 
 ##### Install NVIDIA Driver (Ubuntu 24.04)
 
@@ -1007,7 +1009,7 @@ ELASTICSEARCH_MODE=cpu              # inert on the compose path — leave at cpu
 
 # --- Hardware ---
 # Tuned in blueprint_config.yml: H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW,
-# RTXPRO4500BW (2d only), IGX-THOR, DGX-SPARK
+# RTXPRO4500BW (2d only), IGX-THOR, AGX-THOR (2d only), AGX-ORIN (2d only), DGX-SPARK
 HARDWARE_PROFILE=H100
 
 # GPU device IDs (defaults shown — change only if you need a non-default layout)
