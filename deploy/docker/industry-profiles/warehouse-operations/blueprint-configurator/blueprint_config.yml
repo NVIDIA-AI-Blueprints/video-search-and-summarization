@@ -727,44 +727,10 @@ IGX-THOR:
 AGX-THOR:
   2d:
     max_streams_supported: 10
-    file_operations:
-      # Update DeepStream main config
-      - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
-        updates:
-          drop-on-latency: "1"
-          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
-          compute-hw: "2"
-          low-latency-mode: "0"
-
-      - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/ds-nvdcf-accuracy-tracker-config.yml"
-        backup: true
-        updates:
-          TargetManagement.maxTargetsPerStream: 50
-          VisualTracker.visualTrackerType: 2
-          VisualTracker.vpiBackend4DcfTracker: 1
 
 AGX-ORIN:
   2d:
     max_streams_supported: 4
-    file_operations:
-      # Update DeepStream main config
-      - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
-        updates:
-          drop-on-latency: "1"
-          msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
-          compute-hw: "2"
-          low-latency-mode: "0"
-
-      - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/ds-nvdcf-accuracy-tracker-config.yml"
-        backup: true
-        updates:
-          TargetManagement.maxTargetsPerStream: 50
-          VisualTracker.visualTrackerType: 2
-          VisualTracker.vpiBackend4DcfTracker: 1
 
 DGX-SPARK:
   2d:
