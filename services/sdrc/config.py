@@ -18,6 +18,12 @@ import os
 import pathlib
 
 
+def _bool_env(name, default=False):
+    if name not in os.environ or os.environ[name].strip() == "":
+        return default
+    return os.environ[name].strip().lower() == "true"
+
+
 class Config(object):
     DEBUG = False
     TESTING = False
@@ -152,6 +158,20 @@ class Config(object):
         if "WDM_WL_THRESHOLD" in os.environ
         and os.environ["WDM_WL_THRESHOLD"].strip() != ""
         else 8 # TODO: update based on config input
+    )
+    # Pod selection when adding streams: "lru_round_robin" (fewest streams,
+    # ordinal/name tie-break) or "sequential" (first eligible from getPodIps).
+    WDM_WL_ASSIGNING_METHOD = (
+        os.environ["WDM_WL_ASSIGNING_METHOD"].strip().lower()
+        if "WDM_WL_ASSIGNING_METHOD" in os.environ
+        and os.environ["WDM_WL_ASSIGNING_METHOD"].strip() != ""
+        else "sequential"
+    )
+    WDM_PROVISION_LEASE_SECONDS = (
+        int(os.environ["WDM_PROVISION_LEASE_SECONDS"])
+        if "WDM_PROVISION_LEASE_SECONDS" in os.environ
+        and os.environ["WDM_PROVISION_LEASE_SECONDS"].strip() != ""
+        else 120
     )
 
     WDM_CONFIG_URL = (
@@ -597,6 +617,12 @@ class Config(object):
         and os.environ["WDM_ADD_REMOVE_RETRY_ATTEMPTS"].strip() != ""
         else 2
     )
+    WDM_CONFIG_RETRY_ATTEMPTS = (
+        int(os.environ["WDM_CONFIG_RETRY_ATTEMPTS"].strip())
+        if "WDM_CONFIG_RETRY_ATTEMPTS" in os.environ
+        and os.environ["WDM_CONFIG_RETRY_ATTEMPTS"].strip() != ""
+        else 3
+    )
     WDM_POD_WATCH_DOCKER_DELAY = (
         float(os.environ["WDM_POD_WATCH_DOCKER_DELAY"].strip())
         if "WDM_POD_WATCH_DOCKER_DELAY" in os.environ
@@ -609,11 +635,28 @@ class Config(object):
         and os.environ["WDM_ADD_REMOVE_RETRY_DELAY"].strip() != ""
         else 0.5
     )
+    WDM_CONFIG_RETRY_DELAY = (
+        float(os.environ["WDM_CONFIG_RETRY_DELAY"].strip())
+        if "WDM_CONFIG_RETRY_DELAY" in os.environ
+        and os.environ["WDM_CONFIG_RETRY_DELAY"].strip() != ""
+        else 0.5
+    )
     WDM_ADD_REMOVE_REQUEST_TIMEOUT = (
         int(os.environ["WDM_ADD_REMOVE_REQUEST_TIMEOUT"].strip())
         if "WDM_ADD_REMOVE_REQUEST_TIMEOUT" in os.environ
         and os.environ["WDM_ADD_REMOVE_REQUEST_TIMEOUT"].strip() != ""
         else 2
+    )
+    WDM_CONFIG_DEFER_ON_FAILURE = _bool_env(
+        "WDM_CONFIG_DEFER_ON_FAILURE", False
+    )
+    # Max times to re-process the same bus event on temporary failures before
+    # giving up (ERROR log + commit). Applies to Redis and Kafka consumers.
+    WDM_EVENT_RETRY_LIMIT = (
+        int(os.environ["WDM_EVENT_RETRY_LIMIT"].strip())
+        if "WDM_EVENT_RETRY_LIMIT" in os.environ
+        and os.environ["WDM_EVENT_RETRY_LIMIT"].strip() != ""
+        else 20
     )
     WDM_DS_STATUS_CHECK = (
         True
@@ -729,6 +772,9 @@ class Config(object):
         and os.environ["WDM_ENABLE_REGEX_MAPPING"].strip().lower() == "true"
         else False
     )
+    # Opt-in: unset/empty defaults to false. Set true only for workloads that
+    # must apply /config (e.g. warehouse 3D rtvi-cv).
+    WDM_HANDLE_CONFIG_EVENTS = _bool_env("WDM_HANDLE_CONFIG_EVENTS", False)
     ENVOY_REQUEST_TIMEOUT = (
         int(os.environ["ENVOY_REQUEST_TIMEOUT"])
         if "ENVOY_REQUEST_TIMEOUT" in os.environ and os.environ["ENVOY_REQUEST_TIMEOUT"].strip() != ""

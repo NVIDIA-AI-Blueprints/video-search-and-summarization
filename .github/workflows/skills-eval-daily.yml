@@ -69,12 +69,43 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
+  # resolve-ref — choose one ref for the rest of the workflow. Scheduled runs
+  # prefer the commit behind nightly-YYYYMMDD (UTC date) and fall back to
+  # develop's SHA.
+  # Manual runs preserve the branch/tag selected in the workflow dispatch UI.
+  # ---------------------------------------------------------------------
+  resolve_ref:
+    name: Resolve eval ref
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 15
+    outputs:
+      ref: ${{ github.event_name == 'schedule' && steps.resolve.outputs.ref || github.ref }}
+    steps:
+      - name: Checkout resolver
+        if: github.event_name == 'schedule'
+        uses: actions/checkout@v4
+        with:
+          # Scheduled workflows run from the default branch. This checkout
+          # loads the resolver script from that same commit. Plan and eval
+          # check out its result.
+          fetch-depth: 1
+
+      - name: Resolve latest daily ref
+        if: github.event_name == 'schedule'
+        id: resolve
+        run: |
+          resolved_ref="$(.github/scripts/resolve-skills-eval-ref.sh)"
+          printf 'ref=%s\n' "$resolved_ref" >> "$GITHUB_OUTPUT"
+          printf 'Resolved skills eval ref: %s\n' "$resolved_ref" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------
   # plan — enumerate every skill into the dispatch matrix (full sweep:
   # DAILY_RUN=1 -> plan_matrix.py list_skill_file_paths()).
   # Lightweight: gh + python3, no GPU, no brev, no flock.
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
+    needs: resolve_ref
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -84,11 +115,9 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          # The scheduled nightly fires from the DEFAULT branch (main) but must
-          # EVALUATE develop, where active skill/harness work lands. Schedule ->
-          # develop; workflow_dispatch -> the ref picked in the dropdown
-          # (github.ref) so on-demand runs can still target any branch.
-          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+          # Scheduled runs receive the commit behind nightly-YYYYMMDD (UTC) or
+          # the develop fallback SHA. Manual runs retain the dispatched ref.
+          ref: ${{ needs.resolve_ref.outputs.ref }}
           fetch-depth: 0   # plan diffs the cumulative head...base range
 
       - name: Set up skill-eval Python
@@ -107,7 +136,7 @@ jobs:
   # ---------------------------------------------------------------------
   eval:
     name: ${{ matrix.name }}
-    needs: plan
+    needs: [resolve_ref, plan]
     if: needs.plan.outputs.has_targets == 'true'
     runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
@@ -131,9 +160,9 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          # Match the plan job: nightly evaluates develop; dispatch uses the
-          # chosen ref. Both jobs must check out the same tree.
-          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+          # Match the plan job exactly. Every leg consumes the same immutable
+          # ref selected once by resolve_ref.
+          ref: ${{ needs.resolve_ref.outputs.ref }}
           fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
 
       - name: Set up skill-eval Python
@@ -222,10 +251,10 @@ jobs:
             | xargs -r kill 2>/dev/null || true
           # Pin the box-side repo sync to the SHA the runner actually checked
           # out — NOT github.sha. On a scheduled run github.sha is the default
-          # branch (main) tip, but the checkout above is develop; using it here
-          # would make BrevEnvironment._sync_repo_to_pr_head deploy main's code
-          # while the harness ran develop. git rev-parse HEAD = the checked-out
-          # commit (develop on the nightly, the dispatch ref otherwise), so both
+          # branch (main) tip, but the checkout above is the resolved ref; using
+          # github.sha here would make BrevEnvironment._sync_repo_to_pr_head
+          # deploy main's code while the harness ran another revision.
+          # git rev-parse HEAD = the commit selected by resolve_ref, so both
           # code sources stay on the same tree.
           export PR_HEAD_SHA="$(git rev-parse HEAD)"
           export PR_REPO="${{ github.repository }}"

@@ -45,6 +45,14 @@ class VideoInfo(BaseModel):
     sensor_id: str
     start_timestamp: datetime
     end_timestamp: datetime
+    #: Ingest kind of the source these bounds came from. Only ``"video_file"``
+    #: is indexed on the synthetic midnight-anchored epoch that has to be
+    #: rebased onto VST's real replay timeline. Left unset the bounds are taken
+    #: literally, which is the safe default: rebasing wall-clock bounds that
+    #: merely fall outside the current timeline would verify a *different*
+    #: clip and return a confident verdict about footage the caller never
+    #: retrieved.
+    source_type: str | None = None
 
     @model_validator(mode="after")
     def validate_time_range(self) -> VideoInfo:

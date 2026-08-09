@@ -15,6 +15,7 @@ from vss_core.search_core.errors import InvalidInputError
 from vss_core.search_core.models.attribute_search import AttributeSearchInput
 from vss_core.search_core.models.embed_search import EmbedSearchInput
 from vss_core.search_core.models.search import SearchInput
+from vss_core.search_core.models.search import SearchResult
 
 
 def _valid_search_input(**overrides: object) -> SearchInput:
@@ -26,6 +27,24 @@ def _valid_search_input(**overrides: object) -> SearchInput:
 def test_search_input_forbids_extra():
     with pytest.raises(ValidationError):
         _valid_search_input(unknown_field="x")
+
+
+def test_search_result_defaults_to_unverified() -> None:
+    result = SearchResult(
+        video_name="video.mp4",
+        description="candidate",
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:05Z",
+        sensor_id="cam-1",
+        screenshot_url="https://vss.example/frame.jpg",
+        similarity=0.8,
+    )
+
+    assert result.verification.result == "unverified"
+    assert result.model_dump()["verification"] == {
+        "result": "unverified",
+        "criteria_met": None,
+    }
 
 
 def test_embed_input_forbids_extra():

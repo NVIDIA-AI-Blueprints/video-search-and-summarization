@@ -43,18 +43,39 @@ from mdx.analytics.core.utils.space_utilization import SpaceAnalyzer
 logger = logging.getLogger(__name__)
 
 
-class UberApp(BaseApp):
+class CompositeApp(BaseApp):
     """
-    One app that can be configured into any of the shipped profiles.
+    One app whose capabilities are chosen by configuration, in any combination.
 
-    The per-profile apps differ only in which processors they register and which optional detection
-    stages they run, so this composes all of them and lets configuration decide. Every processor
-    defaults to **zero** workers, which ``register_processor`` treats as "not registered" -- so an
-    unconfigured deployment does nothing, and a profile is expressed purely as the set of worker
-    counts you set.
+    .. important::
+       **Prefer a per-profile app unless you actually need to mix capabilities.** This is the
+       heavyweight option: it constructs every capability's state -- behavior state management, frame
+       state, ROI and tripwire event generators, the space analyzer, the video-embedding state -- at
+       ``__init__``, before it knows which processors you enabled, so an instance carries all of it
+       whatever the worker counts say. Each enabled processor then runs its own worker processes on
+       top, and several are CPU-hungry per batch: space estimation runs polygon intersection per
+       object per zone, clustering does a Triton inference round trip per behavior, and behavior
+       creation with anomaly detection loads a road-network graph.
 
-    Intended for composing deployments programmatically, where selecting a profile by config is
-    easier than selecting an entrypoint by image.
+       Reproducing a shipped profile through this app therefore costs more than running that
+       profile's own entrypoint, for identical output. Reach for it when the capability set you want
+       does not exist as a single shipped app -- and reach for
+       :class:`Analytics2DApp`, :class:`Analytics3DApp`, :class:`SearchAndAlertsApp`,
+       :class:`PublicSafetyApp` or :class:`SmartCityApp` when it does.
+
+    The per-profile apps each hard-wire one set of processors, so a deployment that wants
+    capabilities from two of them has no entrypoint to run -- the sets are only available in the
+    combinations someone happened to ship. This registers all of them and lets configuration decide,
+    so any subset can run together in one process. Reproducing a shipped profile is just the case
+    where the subset happens to match one.
+
+    The knobs below are drawn from different profiles -- embedding downsampling from search, space
+    estimation from warehouse-3d, trajectory clustering from smart city -- and nothing stops you
+    enabling them together. Every processor defaults to **zero** workers, which
+    ``register_processor`` treats as "not registered", so a deployment is exactly the set of worker
+    counts it sets. Setting none is not a no-op, but nor is it loud: ``app_runner`` logs
+    ``FATAL - Error in app: No processors registered``, closes its listeners and returns, so the process exits 0 and
+    an unconfigured deployment looks like a clean shutdown to anything but the log.
 
     Processors, each enabled by its own worker count:
 
@@ -68,6 +89,22 @@ class UberApp(BaseApp):
     numWorkersForEmbedFiltering    video embedding downsampling     embedFiltered
     numWorkersForBehaviorClustering trajectory clustering           behavior (clustered)
     ============================== ================================ =================================
+
+    Not every processor works in every coordinate system, and a mismatch is silent rather than loud.
+    ``numWorkersForSpaceEstimation`` needs **cartesian 3D**: it reads ``object.bbox3d``, which only
+    the 3D perception path populates, and projects it with ``transform_bbox3d_to_global_rois``, which
+    only ``CalibrationE`` implements. ``DynamicCalibration`` forwards that call only if the
+    underlying calibration has it and returns ``{}`` otherwise -- so under image or geographic
+    calibration the worker polls, transforms every message and emits nothing, without raising. Enable
+    it only for cartesian 3D; elsewhere it costs a process and produces no output, and nothing at
+    runtime will say so.
+
+    Frame enhancement and behavior clustering are unconstrained -- both work in image, cartesian and
+    geographic coordinates -- and embedding downsampling reads no coordinates at all: it groups
+    embeddings by sensor, so it needs no calibration file. Behavior creation is unconstrained only for
+    the behaviors themselves; under geographic calibration :class:`StateMgmtG` builds no trip
+    behaviors, so tripwire and ROI events are never produced and the events topic stays empty however
+    the calibration defines them.
 
     Optional stages inside behavior creation, each off unless enabled:
 
@@ -83,8 +120,9 @@ class UberApp(BaseApp):
 
     Which streams a deployment actually produces is decided by the topics its config defines: an
     undefined destination is a disabled output, logged once by the sink and then dropped. So a
-    warehouse profile that defines ``behavior`` and ``events`` but not ``anomaly`` simply produces no
-    anomalies, without needing a flag to say so.
+    deployment that defines ``behavior`` and ``events`` but not ``anomaly`` simply produces no
+    anomalies, without needing a flag to say so. Enabling a processor and omitting its destination is
+    therefore silent, not an error -- worth knowing when an expected stream is empty.
 
     Calibration type selects the state manager, once, at construction: geographic gets
     :class:`StateMgmtG` with map matching, everything else gets :class:`StateMgmt`, which reads the
@@ -139,7 +177,7 @@ class UberApp(BaseApp):
             else None
         )
 
-        # Every processor is off by default; a profile is the set of worker counts you set.
+        # Every processor is off by default; a deployment is exactly the worker counts it sets.
         self.register_processor(
             self.read_raw, self.create_behaviors,
             int(self.config.get_app_config("numWorkersForBehaviorCreation", "0")))
@@ -188,6 +226,8 @@ class UberApp(BaseApp):
         frames_by_id = group_messages_by_frame_id(updated_messages) if self.collision_detection else {}
         behavior_batch = self.state_mgmt.process_batch(messages_to_map(updated_messages))
 
+        # Trip behaviors exist only for sensors whose calibration defines a tripwire or an ROI, so an
+        # app started without a calibration file produces no events here however it is configured.
         events = []
         for trip in behavior_batch.trip_behaviors:
             events.extend(self.tripwire_event.get_events(trip))
@@ -200,7 +240,7 @@ class UberApp(BaseApp):
         logger.info(f"Batch {stats.batch_id} - Created a total of {len(events)} event(s)")
 
         # Written unconditionally: a destination the config does not define is a disabled output,
-        # so a profile keeps the streams it wants by defining them and silently drops the rest.
+        # so a deployment keeps the streams it wants by defining them and silently drops the rest.
         self.write_behaviors(behavior_batch.behaviors_to_write)
         self.write_events(events)
         self.write_anomalies(anomalies)
@@ -350,4 +390,4 @@ if __name__ == '__main__':
 
     from mdx.analytics.core.app.app_runner import run
 
-    run(UberApp)
+    run(CompositeApp)

@@ -1,4 +1,4 @@
-FROM node:22.23.1-bullseye AS builder
+FROM node:22.23.2-bullseye AS builder
 
 # Build web-api-core from source
 COPY ./src/web-api-core /web-api-core
@@ -17,7 +17,7 @@ RUN npm install --save ../web-api-core
 RUN npm install
 
 ###################################################
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.10 AS node-deploy
+FROM nvcr.io/nvidia/distroless/node:22-v4.0.11 AS node-deploy
 
 COPY --from=builder --chown=1000:1000 /web-api-core /web-api-core
 COPY --from=builder --chown=1000:1000 /web-api-app /web-api-app

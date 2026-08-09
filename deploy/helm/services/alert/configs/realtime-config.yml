@@ -44,7 +44,7 @@ always_on_rules:
       # ── Optional (shown with their defaults if omitted) ─────────────────
     #  system_prompt: "You are a traffic safety monitoring assistant"  # default: "You are a helpful assistant."
       model: "{{ $rtviModel }}"                                        # default: vlmName (falls back to rtvi_vlm.default_model in config.yaml)
-      chunk_duration: 5                           # default: 30   — seconds of video per VLM chunk
+      chunk_duration: 6                           # default: 30   — seconds of video per VLM chunk
       chunk_overlap_duration: 1                    # default: 5    — seconds of overlap between chunks
       num_frames_per_second_or_fixed_frames_chunk: 1  # default: 10  — interpreted per `use_fps_for_chunking`
       use_fps_for_chunking: true                   # default: true — if false, the value above is a fixed frame count
@@ -62,7 +62,7 @@ always_on_rules:
       system_prompt: "You are a helpful assistant."
       prompt: "Are there any people visible in the scene? Answer yes or no."
       model: "{{ $rtviModel }}"                                        # default: vlmName (falls back to rtvi_vlm.default_model in config.yaml)
-      chunk_duration: 5                           # default: 30   — seconds of video per VLM chunk
+      chunk_duration: 6                           # default: 30   — seconds of video per VLM chunk
       chunk_overlap_duration: 1                    # default: 5    — seconds of overlap between chunks
       num_frames_per_second_or_fixed_frames_chunk: 1  # default: 10  — interpreted per `use_fps_for_chunking`
       use_fps_for_chunking: true                   # default: true — if false, the value above is a fixed frame count

@@ -47,8 +47,8 @@ VSS-based deployments are multi-layer systems. Most skills map to exactly one la
 **Kubernetes runtime endpoint contract.** Operate skills run on the caller's
 host, not inside VSS pods. Supply one public Ingress origin as
 `VSS_PUBLIC_URL` (Helm `global.externalHost` / main Ingress host — e.g.
-`vss.<ip>.nip.io` for **base** and **lvs**, `vss-search.<ip>.nip.io` for
-**search**). Canonical variable mapping, Docker fallbacks, and the
+`vss.<ip>.nip.io` for **base**, **lvs**, and **alerts**, `vss-search.<ip>.nip.io`
+for **search**). Canonical variable mapping, Docker fallbacks, and the
 no-port-forward rule live in
 [`vss-build-vision-agent/references/deployment_resolution.md`](vss-build-vision-agent/references/deployment_resolution.md).
 Base quickstart operate uses `/vst` (VIOS) and Prefix `/v1` (RT-VLM) on that
@@ -56,12 +56,13 @@ origin for `vss-manage-video-io-storage`, `vss-ask-video`, and
 `vss-generate-video-report` Mode A. LVS operate uses Exact `/v1/ready` and
 `/v1/summarize` for `vss-summarize-video` (and report Mode A when LVS is ready),
 plus Exact `/v1/models` / `/v1/chat/completions` for RT-VLM — not a Prefix `/v1`
-and not LVS `/models` or LVS `/openapi.json` through Ingress. Search archive
-operate uses `/generate` and `/api/v1` via `vss-search-archive`. Profile-specific
-routes also include Alert Bridge and VA-MCP on their respective Ingress hosts.
-NvStreamer requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is
-unset, each skill retains its documented Docker Compose discovery or `HOST_IP`
-fallback.
+and not LVS `/models` or LVS `/openapi.json` through Ingress. Alerts operate
+uses `/vst`, `/alert-bridge` (rules + incidents; never Agent `/generate` for
+rule CRUD), and `/va-mcp` for `vss-manage-alerts` / `vss-query-analytics` —
+not Elasticsearch `:9200` or RT-VLM `:8018` through Ingress. Search archive
+operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
+requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
+skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
 **Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
 
@@ -91,7 +92,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Read incidents, metrics, or sensor data (incl. Slack/Kafka feeds) | [`vss-query-analytics`](vss-query-analytics/SKILL.md) |
 | Add a camera, extract a clip, grab a snapshot, manage recordings | [`vss-manage-video-io-storage`](vss-manage-video-io-storage/SKILL.md) |
 | Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](vss-deploy-detection-tracking-2d/SKILL.md) |
-| Run multi-camera 3D / BEV-fusion tracking | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
+| Run standalone RTVI-CV-3D / MV3DT multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
 | Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](vss-deploy-dense-captioning/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](vss-deploy-video-embedding/SKILL.md) |
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](vss-generate-video-calibration/SKILL.md) |
@@ -120,7 +121,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Skill | Description |
 |---|---|
 | [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
-| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream + BEV fusion over calibrated cameras. Auto-chains to calibration when missing. |
+| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
 | [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
 
@@ -139,7 +140,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | [vss-ask-video](vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip via the VSS agent's `video_understanding` (VLM) tool. |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
-| [vss-query-analytics](vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via the VA-MCP server (port 9901). |
+| [vss-query-analytics](vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
 
 ### Middleware
 | Skill | Description |

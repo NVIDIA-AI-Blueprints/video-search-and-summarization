@@ -1,32 +1,31 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# yamllint disable rule:line-length
 #
-# Minimal SDRC + RTVI-CV test application for the HTTP-header lifecycle flow.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Defaults live in ./.env (VSS_APPS_DIR, COMPOSE_PROFILES, HOST_IP, …) so a plain
-# `docker compose up -d` starts SDRC, RTVI-CV, VIOS/VST (postgres, sensor,
-# streamprocessing, vst-ingress), and nvstreamer. Set VSS_DATA_DIR first:
+# http://www.apache.org/licenses/LICENSE-2.0
 #
-#   export VSS_DATA_DIR=/path/to/vss-warehouse-app-data
-#   docker compose up -d
-#
-# The SDRC workload config is local to ./configs/config.yml. Runtime files are
-# written only to this directory's ./.generated path so warehouse blueprint
-# trees are not mutated.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 name: sdrc-http-header-lifecycle
 
+# VSS_APPS_DIR must point at deploy/docker. VSS_DATA_DIR is the warehouse data root.
 include:
-  - path: ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/vios/foundational/docker-compose.yaml
+  - path: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/foundational/docker-compose.yaml
     env_file:
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/vios/vst.env
-  - path: ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/vios/initiator/docker-compose.yaml
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/vst.env
+  - path: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/initiator/docker-compose.yaml
     env_file:
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/vios/vst.env
-  - path: ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/vios/streamprocessing/docker-compose.yaml
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/vst.env
+  - path: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/streamprocessing/docker-compose.yaml
     env_file:
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/vios/vst.env
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/vst.env
 
 services:
   redis:
@@ -45,7 +44,15 @@ services:
     container_name: vss-vios-nvstreamer
     user: "0:0"
     runtime: nvidia
-    entrypoint: ["/bin/bash", "-c", 'if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst']
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+          /home/vst/vst_release/tools/user_additional_install.sh
+        fi &&
+        /home/vst/vst_release/tools/configure_nvstreamer_ui.sh &&
+        exec /home/vst/vst_release/launch_vst
     environment:
       NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES: ${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES:-true}
       ADAPTOR: streamer
@@ -54,18 +61,18 @@ services:
     ports:
       - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     volumes:
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json:ro
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json:ro
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json:ro
-      - ${VSS_DATA_DIR:?Set VSS_DATA_DIR to the warehouse app data root}/videos:/tmp/nv_streamer/videos
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh:ro
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json:ro
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json:ro
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json:ro
+      - ${VSS_DATA_DIR:?VSS_DATA_DIR}/videos:/tmp/nv_streamer/videos
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh:ro
     depends_on:
       streamprocessing-ms:
         condition: service_healthy
         required: false
 
   sdr-controller:
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.3-2026.08.2}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2}
     container_name: sdr-controller
     ports:
       # SDRC router API for workload-scoped lifecycle calls.
@@ -101,12 +108,15 @@ services:
 
   perception:
     extends:
-      file: ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/services/rtvi/rtvi-cv/compose.yaml
+      file: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/rtvi/rtvi-cv/compose.yaml
       service: perception
     container_name: vss-rtvi-cv
     volumes:
-      - ${VSS_APPS_DIR:?Set VSS_APPS_DIR to the deploy/docker directory}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/:ro
-      - ${VSS_DATA_DIR:?Set VSS_DATA_DIR to the warehouse app data root}/models/mtmc:/opt/storage/
+      - type: bind
+        source: ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs
+        target: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
+        read_only: true
+      - ${VSS_DATA_DIR:?VSS_DATA_DIR}/models/mtmc:/opt/storage/
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0

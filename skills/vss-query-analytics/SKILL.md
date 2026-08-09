@@ -1,10 +1,10 @@
 ---
 name: vss-query-analytics
-description: Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). Not for live VLM or incident-range narrative reports.
+description: Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via VA-MCP (Docker :9901 or Kubernetes ${VSS_PUBLIC_URL}/va-mcp). Not for live VLM or incident-range narrative reports.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.2.0"
+  version: "3.2.3"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -14,9 +14,11 @@ Answer read-only analytics questions (incidents, metrics, sensor data) by routin
 
 ## Prerequisites
 
-- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile`).
-- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
-- `curl`, `jq`, and Docker available on the caller.
+- Active VSS **alerts** (or other VA-MCP) deployment reachable either on Docker
+  (`$HOST_IP:9901`) or through the public Ingress
+  (`${VSS_PUBLIC_URL}/va-mcp`). Follow
+  [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+- `curl` and `jq` on the agent host.
 
 ## Instructions
 
@@ -40,7 +42,8 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 
 # Video Analytics (VA-MCP)
 
-Queries incidents, alerts, and metrics stored in Elasticsearch via MCP JSON-RPC at **port 9901**.
+Queries incidents, alerts, and metrics stored in Elasticsearch via MCP JSON-RPC
+through VA-MCP.
 
 > **ALWAYS run the commands below yourself and relay results to the user. Do NOT guess or describe — actually execute and report back.**
 
@@ -55,20 +58,55 @@ Queries incidents, alerts, and metrics stored in Elasticsearch via MCP JSON-RPC 
 > (`vss-deploy-profile`). When in doubt, ask the user for a one-line
 > clarification rather than letting the broad description over-trigger.
 
+### Endpoint resolution (Kubernetes vs Docker)
+
+```bash
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  # Force public path — ignore leftover Docker :9901.
+  VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
+else
+  DEPLOYMENT_KIND="docker"
+  : "${HOST_IP:?Set HOST_IP for Docker Compose or VSS_PUBLIC_URL for Kubernetes}"
+  VA_MCP_URL="http://${HOST_IP}:9901"
+fi
+VA_MCP_MCP="${VA_MCP_URL%/}/mcp"
+```
+
+On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
+`docker exec`. Stock alerts Ingress rewrites `/va-mcp/(.*)` → `/\1` on the
+Service.
+
 ---
 
 ## Deployment prerequisite
 
 This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **alerts** profile (either `verification` or `real-time` mode). Before any query:
 
-1. Probe the VA-MCP endpoint:
+1. Probe VA-MCP liveness via `/health` (Ingress rewrites
+   `${VSS_PUBLIC_URL}/va-mcp/health` → `/health` on the Service). Do **not**
+   use `GET /mcp` or the service root as the readiness check — those are not
+   reliable health routes. Re-derive endpoints in this shell (fenced blocks
+   do not share state):
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:9901/mcp" >/dev/null 2>&1 || \
-     curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+   if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+     VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+   fi
+   if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+     VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+   else
+     VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+   fi
+   curl -sf --max-time 5 "${VA_MCP_URL%/}/health" >/dev/null
    ```
 
 2. **If the probe fails**, ask the user:
-   > *"The VSS `alerts` profile isn't running on `$HOST_IP` (VA-MCP unreachable). Which mode should I deploy — `verification` (CV) or `real-time` (VLM)?"*
+   > *"The VSS `alerts` profile isn't reachable (VA-MCP at `${VA_MCP_URL}`). Which mode should I deploy — `verification` (CV) or `real-time` (VLM)?"*
 
    - Answer → hand off to the `/vss-deploy-profile` skill with `-p alerts -m <mode>`. Return here once it succeeds.
    - If the user declines → stop. No incidents/alerts/metrics to query without the alerts stack up.
@@ -90,15 +128,27 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 **Every query requires two shell commands run in sequence:**
 
 ```bash
+# Re-derive in this shell — fenced blocks do not share prior state.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
+VA_MCP_MCP="${VA_MCP_URL%/}/mcp"
+
 # Step 1: initialize — get session ID from response HEADER
-SESSION_ID=$(curl -si -X POST http://${HOST_IP:-localhost}:9901/mcp \
+SESSION_ID=$(curl -si -X POST "${VA_MCP_MCP}" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
+[ -n "$SESSION_ID" ] || { echo "VA-MCP initialize failed (no mcp-session-id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
 
 # Step 2: call the tool using the session ID in the header
-curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+curl -s -X POST "${VA_MCP_MCP}" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "mcp-session-id: $SESSION_ID" \
@@ -180,19 +230,30 @@ Replace the `-d` payload in Step 2 with any of the following.
 
 ## MCP connection & retry guidance
 
-The VA-MCP server is reached over HTTP at `http://${HOST_IP}:9901/mcp`
-and speaks JSON-RPC 2.0 over Server-Sent Events.
+The VA-MCP server is reached over HTTP at `${VA_MCP_MCP}` (Kubernetes
+`${VSS_PUBLIC_URL}/va-mcp/mcp`, Docker `http://${HOST_IP}:9901/mcp`) and speaks
+JSON-RPC 2.0 over Server-Sent Events.
 
 1. **Verify reachability** before any `tools/call`:
 
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP:-localhost}:9901/mcp" >/dev/null
+   if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+     VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+   fi
+   if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+     VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+   else
+     VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+   fi
+   curl -sf --max-time 5 "${VA_MCP_URL%/}/health" >/dev/null
    ```
 
    - `connection refused` → the `alerts` profile is down; redeploy.
-   - `timeout` → the host is up but the MCP gateway is wedged; restart
-     `vss-va-mcp` (`docker compose restart vss-va-mcp`).
-   - `404` on `/mcp` → fall back to `GET /` for liveness.
+   - `timeout` → the host is up but the MCP gateway is wedged; on Docker
+     restart `vss-va-mcp` (`docker compose restart vss-va-mcp`); on
+     Kubernetes report the probe failure (do not `kubectl exec`).
+   - Prefer `/health` over `GET /mcp` or the service root — those are not
+     reliable readiness routes through Ingress.
 
 2. **Sessions expire.** Each `mcp-session-id` is bound to the current
    `vss-va-mcp` process. If a `tools/call` returns

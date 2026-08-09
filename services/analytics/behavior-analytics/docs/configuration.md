@@ -81,7 +81,7 @@ flush releases them.
 
 ## Incidents & frame state
 - All incident types (proximity, restricted area, confined area, FOV count) default to disabled (`...IncidentEnable = "false"`). Set the corresponding `...IncidentEnable = "true"` to turn them on.
-- Each type has its own `...Threshold` (duration in sec) and `...ExpirationWindow` (gap tolerance in sec); both default to `"1"`.
+- Each type has its own `...Threshold` (minimum violation duration in sec, default `"1"`) and `...ExpirationWindow` (largest tolerated detection gap in sec, default `"0.5"`). Both accept fractional seconds. Keep the window below the threshold — at window >= threshold one tolerated gap can span the whole threshold, so two isolated detections raise a full-duration incident.
 - FOV count uses two extra keys: `fovCountViolationIncidentObjectThreshold` — the numeric count threshold (default `"1"`) — and `fovCountViolationIncidentObjectType` — the object type being counted (default `"Person"`).
 - Details and timing: `docs/incident-detection.md`.
 
@@ -90,6 +90,7 @@ flush releases them.
 - `configs/warehouse_2d_config.json`
 - `configs/warehouse_3d_config.json`
 - `configs/public_safety_config.json`
+- `configs/composite_config.json`
 - `configs/frame_playback_config.json`
 
 ## Messaging blocks
