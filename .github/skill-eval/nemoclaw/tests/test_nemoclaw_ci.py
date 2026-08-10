@@ -3940,6 +3940,39 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(report["response"]["error_type"], "FileNotFoundError")
         self.assertIn("missing.md", report["response"]["error"])
 
+    def test_malformed_env_file_writes_structured_report(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            env_file = root / "nemoclaw.env"
+            log_dir = root / "logs"
+            prompt.write_text("Use the `/vss-ask-video` skill.", encoding="utf-8")
+            env_file.write_text(
+                'export NEMOCLAW_SANDBOX_NAME="unterminated\n',
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = headless_runner.main(
+                    [
+                        "--prompt-file",
+                        str(prompt),
+                        "--env-file",
+                        str(env_file),
+                        "--log-dir",
+                        str(log_dir),
+                    ]
+                )
+            report = json.loads(
+                (log_dir / "nemoclaw_hooks_response.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(report["response"]["error_type"], "ValueError")
+        self.assertIn("No closing quotation", report["response"]["error"])
+
     def test_expected_skill_rejects_stale_prompt(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -8458,6 +8491,39 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 for item in blockers
             )
         )
+
+    def test_representative_matrix_survives_adapter_help_timeout(self):
+        timeout = subprocess.TimeoutExpired(["generate.py", "--help"], 45)
+        with mock.patch.object(smoke_runner, "_adapter_help", side_effect=timeout):
+            rows, blockers = smoke_runner._build_matrix(
+                skills_filter="vss-query-analytics",
+                profile_filter=None,
+                platform_filter=None,
+                spec_filter=None,
+                representative_per_skill=True,
+            )
+
+        self.assertEqual(blockers, [])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["skill"], "vss-query-analytics")
+        self.assertEqual(rows[0]["platform"], "RTXPRO6000BW")
+
+    def test_adapter_supports_platform_treats_help_failures_as_unsupported(self):
+        failures = (
+            RuntimeError("adapter help failed"),
+            subprocess.TimeoutExpired(["generate.py", "--help"], 45),
+        )
+        for failure in failures:
+            with (
+                self.subTest(failure=type(failure).__name__),
+                mock.patch.object(smoke_runner, "_adapter_path", return_value=Path(__file__)),
+                mock.patch.object(smoke_runner, "_adapter_help", side_effect=failure),
+            ):
+                self.assertFalse(
+                    smoke_runner._adapter_supports_platform(
+                        "vss-query-analytics", "RTXPRO6000BW"
+                    )
+                )
 
     def test_combined_behavior_analytics_uses_repo_config_override(self):
         compose = (
@@ -13918,6 +13984,75 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
         self.assertEqual(checks, source_checks)
         self.assertIsNot(checks, source_checks)
         self.assertNotIn("final assistant text", "\n".join(checks))
+
+    def test_all_nemoclaw_deploy_profile_checks_use_live_command_shape(self):
+        eval_root = REPO_ROOT / "skills" / "vss-deploy-profile" / "evals"
+        checked = 0
+        for spec_path in sorted(eval_root.glob("*.json")):
+            parsed = json.loads(spec_path.read_text(encoding="utf-8"))
+            if not isinstance(parsed, dict):
+                continue
+            for step in parsed.get("expects", []):
+                for check in step.get("checks", []):
+                    with self.subTest(spec=spec_path.name, check=check):
+                        self.assertIsNotNone(
+                            nemoclaw_deploy_profile_verifier._command_from_check(
+                                check
+                            )
+                        )
+                    checked += 1
+        self.assertGreater(checked, 0)
+
+    def test_nemoclaw_deploy_profile_invalid_spec_is_reported(self):
+        invalid_specs = (
+            ("malformed", "{", 1),
+            ("array", "[]", 1),
+            ("missing-expects", "{}", 1),
+            ("empty-expects", '{"expects": []}', 1),
+            ("empty-checks", '{"expects": [{"checks": []}]}', 1),
+            (
+                "step-zero",
+                '{"expects": [{"checks": ["probe"]}]}',
+                0,
+            ),
+            (
+                "step-too-large",
+                '{"expects": [{"checks": ["probe"]}]}',
+                2,
+            ),
+        )
+        for name, content, step_number in invalid_specs:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                spec_path = root / "spec.json"
+                out_dir = root / "verifier"
+                spec_path.write_text(content, encoding="utf-8")
+                with (
+                    mock.patch.object(
+                        nemoclaw_deploy_profile_verifier,
+                        "OUT_DIR",
+                        out_dir,
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    rc = nemoclaw_deploy_profile_verifier.main(
+                        [
+                            "--spec",
+                            str(spec_path),
+                            "--step",
+                            str(step_number),
+                        ]
+                    )
+                judge = json.loads(
+                    (out_dir / "judge.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(rc, 1)
+                self.assertEqual(
+                    (out_dir / "reward.txt").read_text(encoding="utf-8"),
+                    "0.0\n",
+                )
+                self.assertEqual(judge["reward"], 0.0)
+                self.assertTrue(judge["configuration_error"])
 
     def test_nemoclaw_deploy_profile_execution_gate_is_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:

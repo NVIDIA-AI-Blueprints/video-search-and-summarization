@@ -92,7 +92,8 @@ def _load_env_file(path: Path) -> None:
         if not line or line.startswith("#") or not line.startswith("export ") or "=" not in line:
             continue
         key, value = line[len("export ") :].split("=", 1)
-        os.environ.setdefault(key, shlex.split(value)[0] if value else "")
+        parts = shlex.split(value) if value else []
+        os.environ.setdefault(key, parts[0] if parts else "")
 
 
 def _redact_runtime_text(raw: str) -> str:
@@ -2503,7 +2504,6 @@ def main(argv: list[str] | None = None) -> int:
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     agent_log_dir = Path(args.agent_log_dir)
-    _load_env_file(Path(args.env_file))
 
     sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo")
     hooks_path = "/" + os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip("/")
@@ -2521,6 +2521,15 @@ def main(argv: list[str] | None = None) -> int:
     response: dict[str, Any] = {"status": 0, "body": "", "error": ""}
     wait_report = {"waited": False}
     try:
+        # Keep env-file parsing inside the structured failure boundary. A
+        # malformed setup artifact must still publish the Harbor report rather
+        # than terminating before nemoclaw_hooks_response.json is written.
+        _load_env_file(Path(args.env_file))
+        sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo")
+        hooks_path = "/" + os.environ.get(
+            "OPENCLAW_HOOKS_PATH", "/hooks"
+        ).strip("/")
+        hook_url = f"http://127.0.0.1:{args.dashboard_port}{hooks_path}/agent"
         prompt = Path(args.prompt_file).read_text(encoding="utf-8").rstrip(
             "\r\n"
         )

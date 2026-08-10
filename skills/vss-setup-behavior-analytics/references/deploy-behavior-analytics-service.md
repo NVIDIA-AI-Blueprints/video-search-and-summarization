@@ -3,7 +3,7 @@
 Deploy **just** `vss-behavior-analytics` (no agent, no perception, no UI) — useful when you want to:
 
 - Run a behavior-analytics pipeline against an existing broker (or no broker at all).
-- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts) without modifying the image.
+- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts, or the config-driven Composite app) without modifying the image.
 
 Required host runtime: **Docker Engine 28.3.3** with **Docker Compose plugin v2.39.1+**.
 
@@ -180,6 +180,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
   | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_search_and_alerts_app.py` | the search / alerts profiles may not need one. |
+  | `main_composite_app.py` | no profile-specific default; use the calibration required by the processors you enable (image for bbox ROI mode, cartesian 3D for space estimation). |
 - **Bring your own.** Any absolute host path that conforms to the calibration JSON schema. If you're hand-rolling one, start from the `"cartesian"` type — that's the path the rest of the pipeline is tuned for.
 
   Compose change:

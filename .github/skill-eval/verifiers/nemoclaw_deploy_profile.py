@@ -73,6 +73,10 @@ def _run_shell(command: str) -> tuple[bool, str]:
 
 
 def _command_from_check(check: str) -> str | None:
+    # These are repository-owned executable probes, not runtime/user input.
+    # Shell syntax is intentional: current checks require pipelines, negation,
+    # quoting, and environment expansion. Harbor already executes the checked
+    # out PR's Python and test scripts on the same isolated worker.
     match = re.search(r"`([^`]+)`\s+returns exit 0", check)
     return match.group(1) if match else None
 
@@ -138,15 +142,88 @@ def _evaluate_check(check: str) -> dict[str, Any]:
     }
 
 
-def main() -> int:
+def _load_step(spec_path: Path, step_number: int) -> dict[str, Any]:
+    """Load one verifier step or raise a concise configuration error."""
+    try:
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"could not read eval spec: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"eval spec is malformed JSON: {exc}") from exc
+    if not isinstance(spec, dict):
+        raise ValueError("eval spec must be a JSON object")
+    expects = spec.get("expects")
+    if not isinstance(expects, list) or not expects:
+        raise ValueError("eval spec expects must be a non-empty list")
+    if step_number < 1 or step_number > len(expects):
+        raise ValueError(
+            f"step {step_number} is outside the valid range 1..{len(expects)}"
+        )
+    step = expects[step_number - 1]
+    if not isinstance(step, dict):
+        raise ValueError(f"eval spec step {step_number} must be an object")
+    checks = step.get("checks")
+    if (
+        not isinstance(checks, list)
+        or not checks
+        or any(not isinstance(check, str) or not check.strip() for check in checks)
+    ):
+        raise ValueError(
+            f"eval spec step {step_number} checks must be a non-empty list of strings"
+        )
+    return step
+
+
+def _write_configuration_failure(
+    *, spec_path: Path, step_number: int, error: str
+) -> None:
+    """Always leave Harbor a zero reward and a diagnostic for bad specs."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUT_DIR / "reward.txt").write_text("0.0\n", encoding="utf-8")
+    (OUT_DIR / "judge.json").write_text(
+        json.dumps(
+            {
+                "spec": str(spec_path),
+                "step": step_number,
+                "query": None,
+                "total": 0,
+                "passed": 0,
+                "reward": 0.0,
+                "configuration_error": error,
+                "execution_gate": {
+                    "pass": False,
+                    "rationale": "not evaluated because the eval spec is invalid",
+                    "report_path": str(HOOKS_REPORT_PATH),
+                },
+                "trajectory_path": str(LOG_PATH),
+                "trajectory_found": LOG_PATH.is_file(),
+                "checks": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spec", required=True)
     parser.add_argument("--step", type=int, default=1)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
-    step = spec["expects"][args.step - 1]
-    checks = [str(check) for check in step.get("checks", [])]
+    spec_path = Path(args.spec)
+    try:
+        step = _load_step(spec_path, args.step)
+    except ValueError as exc:
+        error = str(exc)
+        _write_configuration_failure(
+            spec_path=spec_path,
+            step_number=args.step,
+            error=error,
+        )
+        print(f"FAIL: invalid NemoClaw eval spec: {error}")
+        return 1
+    checks = step["checks"]
     gate_ok, gate_evidence = _execution_gate()
 
     if gate_ok:
