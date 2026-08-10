@@ -804,6 +804,9 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
     except Exception as e:  # noqa: BLE001
         log.warning("config write failed: %s", e)
     clean_stop()
+    # `stop --clean` removes host-network containers as compose orphans, so create the
+    # temporary broker only after cleanup and before either VIOS service can connect to it.
+    ctx._managed_kafka = _ensure_kafka_broker(setup, "local")
     wipe_nvstreamer_videos(video_path)
     deploy_target("nvstreamer")
     _wait_ready(f"{ctx.nvstreamer_url}/vst/api/v1/sensor/list", 120)
@@ -921,6 +924,7 @@ def _deploy_adaptor_plan(ctx, name, adaptor, setup):
     except Exception as e:  # noqa: BLE001
         log.warning("adaptor config write failed: %s", e)
     clean_stop()
+    ctx._managed_kafka = _ensure_kafka_broker(setup, "local")
     if overlay:                                  # onvif: plugin subscribes before VIOS
         _start_metadata_service(ctx, wait_s=0)
     deploy_target("vst")
@@ -950,7 +954,7 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     overlay = adaptor != "milestone"             # milestone has NO overlay
     log.info("===================== PLAN: %s (target=%s, adaptor=%s) =====================",
              name, target, adaptor or "nvstreamer")
-    managed_kafka = _ensure_kafka_broker(setup, target)
+    managed_kafka = False
 
     if target == "local" and not keep_deployment:
         from provision import apply_deployment_mode
@@ -959,14 +963,18 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     if keep_deployment:
         if target != "local" or adaptor or not setup.get("nvstreamer"):
             raise ValueError("--keep-deployment currently supports one local NVStreamer plan")
+        managed_kafka = _ensure_kafka_broker(setup, target)
         _adopt_running_nvstreamer(ctx)
     elif target == "local" and not adaptor and setup.get("nvstreamer"):
         _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall)
     elif target == "local" and adaptor in ("milestone", "onvif"):
         _deploy_adaptor_plan(ctx, name, adaptor, setup)
     elif target == "remote":
+        _ensure_kafka_broker(setup, target)
         log.warning("plan '%s' is remote: ssh deploy not implemented; running API use-cases "
                     "against %s", name, ctx.base_url)
+
+    managed_kafka = managed_kafka or getattr(ctx, "_managed_kafka", False)
 
     plan_meta[name] = {
         "consumer": setup.get("consumer", ctx.broker), "target": target, "system": sysname,
