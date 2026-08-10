@@ -254,6 +254,9 @@ analytics:
   vss-behavior-analytics:
     enabled: true
     fullnameOverride: vss-behavior-analytics
+    waitForKafka:
+      enabled: true
+      host: kafka-kafka
     replicas: 1
     command:
       - python3
