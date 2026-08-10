@@ -18,3 +18,5 @@ export { SearchComponent } from './SearchComponent';
 export type { SearchComponentProps } from './SearchComponent';
 export { SearchSidebarControls } from './components/SearchSidebarControls';
 export type { SearchSidebarControlHandlers, QueryDataContext } from './types';
+export { SharedViewComponent } from './SharedViewComponent';
+export type { SharedViewComponentProps, SharedViewPayload } from './SharedViewComponent';

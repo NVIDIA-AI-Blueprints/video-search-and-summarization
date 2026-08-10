@@ -49,6 +49,17 @@
       "tag_variables": ["VSS_AGENT_UI_TAG"]
     },
     {
+      "name": "vss-share",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/share",
+      "context": "services/share",
+      "dockerfile": "services/share/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-share"],
+      "tag_variables": ["VSS_SHARE_TAG"]
+    },
+    {
       "name": "vss-alert-ms",
       "strategy": "build",
       "ghcr_build": true,

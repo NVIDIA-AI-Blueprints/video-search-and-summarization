@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Share service: publishes agent-computed result sets at shareable, expiring
+# URLs, and the read-only UI that renders them.
+#
+# Deliberately separate from the `vss-ui` profile: the full UI carries
+# destructive controls (video delete, RTSP management) and must stay internal.
+# Only the containers in this file are intended to sit behind a public origin.
+
+services:
+
+  vss-share:
+    image: ${VSS_SHARE_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-share}:${VSS_CONTAINER_TAG:-${VSS_SHARE_TAG:-develop-latest}}
+    container_name: vss-share
+    profiles: ["vss-share"]
+    restart: unless-stopped
+    ports:
+      - ${SHARE_HOST_PORT:-9095}:${SHARE_PORT:-9095}
+    environment:
+      SHARE_PORT: ${SHARE_PORT:-9095}
+      SHARE_REDIS_URL: ${SHARE_REDIS_URL:-redis://redis:6379/0}
+      SHARE_TTL_SECONDS: ${SHARE_TTL_SECONDS:-604800}
+      SHARE_MAX_RESULTS: ${SHARE_MAX_RESULTS:-500}
+      SHARE_MAX_PAYLOAD_BYTES: ${SHARE_MAX_PAYLOAD_BYTES:-4194304}
+      # Scoped to VST by default. Widen only for hosts you intend this service
+      # to fetch from -- it is the only thing standing between the proxy and
+      # arbitrary outbound requests.
+      SHARE_THUMB_ALLOWED_PREFIXES: ${SHARE_THUMB_ALLOWED_PREFIXES:-http://vst-ingress:${VST_PORT:-30888}/}
+      SHARE_PUBLIC_BASE_URL: ${SHARE_PUBLIC_BASE_URL:-}
+      SHARE_CORS_ALLOW_ORIGINS: ${SHARE_CORS_ALLOW_ORIGINS:-*}
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/python
+        - -c
+        - >-
+          import urllib.request, sys;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:${SHARE_PORT:-9095}/health', timeout=5).status == 200 else 1)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  vss-ui-view:
+    # Same image as vss-ui; VIEW_ONLY gates every tab except /view/<id>.
+    image: ${VSS_AGENT_UI_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent-ui}:${VSS_CONTAINER_TAG:-${VSS_AGENT_UI_TAG:-develop-latest}}
+    container_name: vss-agent-ui-view
+    profiles: ["vss-share"]
+    restart: unless-stopped
+    ports:
+      - ${VSS_UI_VIEW_HOST_PORT:-3001}:3000
+    depends_on:
+      vss-share:
+        condition: service_healthy
+    environment:
+      RUN_APP_NAME: nv-metropolis-bp-vss-ui
+      # The read-only contract, enforced in middleware.ts. Server-side on
+      # purpose: NEXT_PUBLIC_* is inlined at build time and both UI containers
+      # share one image, so a build-time flag could not tell them apart.
+      VSS_VIEW_ONLY: "true"
+      # Reached server-side from getServerSideProps to populate OG tags; the
+      # browser uses NEXT_PUBLIC_SHARE_API_BASE instead.
+      SHARE_INTERNAL_BASE_URL: http://vss-share:${SHARE_PORT:-9095}
+      NEXT_PUBLIC_APP_TITLE: '${NEXT_PUBLIC_APP_TITLE:-VSS BLUEPRINT}'
+      NEXT_PUBLIC_DARK_THEME_DEFAULT: ${NEXT_PUBLIC_DARK_THEME_DEFAULT:-true}
+      # Same-origin by default: the public ingress routes /api/view/* to
+      # vss-share and everything else to this container.
+      NEXT_PUBLIC_SHARE_API_BASE: ${NEXT_PUBLIC_SHARE_API_BASE:-}
+      NEXT_PUBLIC_SHARE_PUBLIC_BASE_URL: ${SHARE_PUBLIC_BASE_URL:-}

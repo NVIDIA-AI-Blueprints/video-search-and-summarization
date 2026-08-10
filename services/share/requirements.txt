@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Runtime dependencies for the VSS share service.
+# Versions track the constraints already applied across the VSS stack
+# (see services/agent/pyproject.toml constraint-dependencies).
+fastapi>=0.139.2
+uvicorn[standard]>=0.40.0
+redis>=6.4.0
+httpx~=0.28
+pydantic>=2.11,<3
+pillow>=12.3.0

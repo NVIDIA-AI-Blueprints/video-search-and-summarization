@@ -10,8 +10,14 @@ export type {
   RealtimeAlertRuleDraft,
 } from '@nv-metropolis-bp-vss-ui/alerts';
 
-export { SearchComponent, SearchSidebarControls } from '@nv-metropolis-bp-vss-ui/search';
-export type { SearchComponentProps, SearchSidebarControlHandlers, QueryDataContext } from '@nv-metropolis-bp-vss-ui/search';
+export { SearchComponent, SearchSidebarControls, SharedViewComponent } from '@nv-metropolis-bp-vss-ui/search';
+export type {
+  SearchComponentProps,
+  SearchSidebarControlHandlers,
+  QueryDataContext,
+  SharedViewComponentProps,
+  SharedViewPayload,
+} from '@nv-metropolis-bp-vss-ui/search';
 
 export { DashboardComponent, DashboardSidebarControls } from '@nv-metropolis-bp-vss-ui/dashboard';
 export type { DashboardComponentProps, DashboardSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/dashboard';
