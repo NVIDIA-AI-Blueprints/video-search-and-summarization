@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions). Not for prior tool output, search hits, or metadata-answerable questions.
+description: Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions), including a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL. Not for retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -44,6 +44,10 @@ it, or you pass `VLM_ENDPOINT` / `VLM_MODEL` yourself.
 - The user asks for **details** that **cannot be answered** from existing messages, summaries,
   Elasticsearch/MCP results, or filenames alone—you need **model inference on the video**.
 - Follow-up questions about **content details** after a coarse summary or after report generation.
+- `vss-search-archive` has already displayed only `unverified` results, the user
+  explicitly confirmed visual verification, and the caller supplies one exact
+  bounded clip as `VIDEO_URL`. Treat that URL as Path A; do not rerun search or
+  resolve a different interval.
 
 ---
 
@@ -51,10 +55,14 @@ it, or you pass `VLM_ENDPOINT` / `VLM_MODEL` yourself.
 
 Do **not** use this skill when the request is one of the following:
 
-- A **database / MCP / prior tool output** already answers the question, unless the user
-  explicitly wants **verification** against the video → use `/vss-query-analytics`.
+- A **database / MCP / prior tool output** already answers the question, unless
+  the user explicitly wants fresh visual verification. The confirmed bounded
+  `vss-search-archive` handoff above is the only search-result exception; use
+  `/vss-query-analytics` for analytics-result verification.
 - Archive/semantic similarity retrieval ("find forklifts", "search all videos for tailgating")
-  → use `/vss-search-archive`.
+  → use `/vss-search-archive`. This skill may inspect only the pre-resolved
+  bounded clip that search hands off after confirmation; it never performs the
+  retrieval itself.
 - A request for a **formatted/structured report** ("generate a report", "analysis report")
   → use `/vss-generate-video-report`.
 - Summarizing a long recording → use `/vss-summarize-video`.
@@ -73,6 +81,12 @@ Do **not** use this skill when the request is one of the following:
    *Step 4* (return the answer).
 3. **Return only the final answer text** to the user (strip any `<think>…</think>` block).
 
+For a confirmed search-result handoff, use only the caller-supplied `VIDEO_URL`
+and visual question. Do not consume similarity scores, filenames, object IDs,
+or other retrieval metadata as visual evidence, and do not rerun search,
+resolve a sensor, broaden the clip, or choose another interval. The caller owns
+verdict validation and any fallback after this skill returns.
+
 ---
 
 ## Prerequisites
@@ -86,14 +100,44 @@ already serving. At runtime it needs:
 2. **A video** — either provided directly (local file → base64, or URL → `video_url`; Step 1
    Path A), or resolved from a VST/VIOS sensor *(optional)* (Step 1 Path B).
 
+### Endpoint resolution (Kubernetes vs Docker)
+
+Resolve public endpoints once when operating against a deployed VSS stack. Follow
+[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+`VSS_ENDPOINT` is accepted as a legacy alias for `VSS_PUBLIC_URL`.
+
+```bash
+# Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public Ingress origin.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+  # Step 2 probes the public /v1 route before adopting it as VLM_ENDPOINT.
+else
+  DEPLOYMENT_KIND="docker"
+  VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+fi
+```
+
+On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
+`docker inspect` / `docker ps` to find the VLM. When `VSS_PUBLIC_URL` is set,
+Step 2 probes the public `/v1` route before adopting it. On Docker, keep the
+host-port discovery below when `VLM_ENDPOINT` is still unset.
+
 Probe what's actually available — only the VLM endpoint is mandatory:
 
 ```bash
-# REQUIRED: VLM endpoint reachable? (caller-provided or auto-discovered VLM_ENDPOINT — see Step 2)
+# REQUIRED: VLM endpoint reachable? (caller-provided, public /v1, or auto-discovered — see Step 2)
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
 
 # OPTIONAL: VST/VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
-curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null && echo "VST OK"
+curl -sf --max-time 5 "${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}/sensor/version" >/dev/null && echo "VST OK"
 ```
 
 **If no VLM endpoint is reachable**, ask the user to provide one (host:port + model id), or — only
@@ -118,7 +162,7 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 
 1. List sensors:
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
+   curl -sf --max-time 5 "${VST_API_BASE}/sensor/list" | jq '.[].name'
    ```
 
 2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,
@@ -131,7 +175,7 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
    ```bash
    # filename: must not contain whitespace
    # timestamp: ISO 8601 UTC — default 2025-01-01T00:00:00.000Z if user did not specify
-   curl -s -X PUT "http://${HOST_IP}:30888/vst/api/v1/storage/file/<filename>?timestamp=<timestamp>" \
+   curl -s -X PUT "${VST_API_BASE}/storage/file/<filename>?timestamp=<timestamp>" \
      -H "Content-Type: application/octet-stream" \
      -H "Content-Length: <file_size_in_bytes>" \
      --upload-file /path/to/<filename> | jq .
@@ -157,35 +201,59 @@ If the user hands you a file path or a URL, use it directly — **VST/VIOS is no
 - **URL the VLM can fetch** → set `VIDEO_URL=<url>`. Step 3 sends it as a `video_url` block; if the
   VLM is remote and can't reach the URL, inline it instead (`file_base64`).
 
+A user-confirmed search-result handoff with a pre-resolved bounded `VIDEO_URL`
+uses this same path. Do not discard that URL and enter Path B merely because
+the caller also retains a sensor ID or timestamps for reporting.
+
 Then go straight to Step 2 — **skip the Sensor check**.
 
 ### Path B — resolve from VST/VIOS (optional)
 
-> **Hard rule — on Path B the clip URL MUST come from VST.** When the source is a VST
-> sensor/`streamId`, obtain the clip via the `/url` GET below and bind its `videoUrl` to
-> `VIDEO_URL`. Do **not** skip this by inlining a local copy as base64 — that bypasses VST.
+> **Hard rule — a question that names a sensor is Path B, and the clip URL MUST come from VST.**
+> When the question references a VST sensor/`streamId` (e.g. `warehouse_safety_0001`), obtain the
+> clip via the `/url` GET below and bind its `videoUrl` to `VIDEO_URL` — **even if a local copy of
+> the same video exists**. Do **not** skip this by inlining that copy as base64 — that bypasses VST.
 > Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `videoUrl`.
 > Applies even to temporal questions ("at what timestamp…").
 
-When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage` to:
+When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage`: confirm the
+named `<sensor-id>` exists (the *Sensor check* above — required on this path), then run the block
+below **verbatim**. It reads the recorded range from `/timelines` and passes it to `/url` in one
+go, so the two required parameters cannot be dropped or invented: a bare `/url` returns an **empty
+body**, and a window that is not in the recording returns `VMSNoDataError`.
 
-1. Confirm the named `<sensor-id>` exists (handled by the *Sensor check* above — required on
-   this path).
-2. **Always fetch `/storage/<streamId>/timelines` first** to obtain a valid recorded range —
-   you need concrete `startTime`/`endTime` values for the next call. Do this even when the user
-   did not name a specific segment (use the full returned range in that case).
-3. Request a clip URL. **`startTime` and `endTime` are required** — the `/url` endpoint returns
-   an **empty body** when they are omitted, so always pass the range from step 2 (default to the
-   full recorded range when the user did not ask about a specific window):
-
-   ```bash
-   curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
-   ```
-
-   Bind the result to `VIDEO_URL` (a direct `mp4` URL), set `VST_SOURCED=1` (marks this run as
-   Path B), and capture `CLIP_SECONDS` (endTime − startTime; default `15`). **If the `/url` call
-   returns empty, re-fetch timelines and pass `startTime`/`endTime`; do not fall back to a local
-   file or base64 on this path.**
+```bash
+SENSOR_NAME='<the sensor id / filename stem the question named>'
+_VST="${VST_API_BASE:-http://${HOST_IP}:30888/vst/api/v1}"
+# Resolve the streamId every time — a later question is a fresh run with no STREAM_ID in hand, and
+# sensor/list carries sensorId + name but NOT streamId, so read it from the sensor's streams.
+if [ -z "${STREAM_ID:-}" ]; then
+  _SID="$(curl -sf "${_VST}/sensor/list" | jq -r --arg n "$SENSOR_NAME" 'map(select(.name==$n))[0].sensorId // empty' 2>/dev/null)"
+  [ -n "$_SID" ] || { echo "no sensor named '${SENSOR_NAME}' — upload it first (Sensor check), do NOT answer from a local copy"; exit 1; }
+  STREAM_ID="$(curl -sf "${_VST}/sensor/${_SID}/streams" | jq -r '(if type=="array" then (map(select(.isMain)) + .)[0].streamId else .streamId end) // empty' 2>/dev/null)"
+  [ -n "$STREAM_ID" ] || { echo "sensor '${SENSOR_NAME}' has no stream, do NOT answer from a local copy"; exit 1; }
+fi
+for _ in $(seq 1 15); do          # timelines populate asynchronously after an upload
+  TL="$(curl -sf "${_VST}/storage/${STREAM_ID}/timelines" || echo '')"
+  [ "$(printf '%s' "${TL:-[]}" | jq -r 'if type=="array" then length else 0 end' 2>/dev/null)" -gt 0 ] && break
+  sleep 2
+done
+# Take BOTH ends from one segment: /url rejects a window that spans a gap (VMSInternalError).
+START="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].startTime // empty' 2>/dev/null)"
+END="$(printf '%s' "${TL:-[]}" | jq -r 'sort_by(.startTime)|.[0].endTime // empty' 2>/dev/null)"
+[ -n "$START" ] && [ -n "$END" ] || { echo "no VST timeline for ${STREAM_ID} — do NOT guess a window and do NOT answer from a local copy"; exit 1; }
+VIDEO_URL="$(curl -sf "${_VST}/storage/file/${STREAM_ID}/url?startTime=${START}&endTime=${END}&container=mp4&disableAudio=true" | jq -r '.videoUrl // empty')"
+[ -n "$VIDEO_URL" ] || { echo "empty videoUrl — do NOT fall back to base64/local file on Path B"; exit 1; }
+# VIOS /url may hand back a doubled scheme, a bare /storage path, or a localhost host that does not
+# reach VST from inside the VLM's container. Reduce to a path and restore the VIOS route — the same
+# compat mapping /vss-generate-video-report applies, so this holds on Kubernetes and Docker alike.
+CLIP_PATH="${VIDEO_URL#*://}"; CLIP_PATH="${CLIP_PATH#*://}"
+case "$CLIP_PATH" in /*) ;; *) CLIP_PATH="/${CLIP_PATH#*/}" ;; esac
+VIDEO_URL="${VSS_VIOS_URL:-http://${HOST_IP}:30888/vst}${CLIP_PATH#/vst}"
+for _ in 1 2 3; do curl -sf -o /dev/null --max-time 60 "$VIDEO_URL" && break || sleep 3; done  # warm the lazy render (GET; HEAD 404s)
+VST_SOURCED=1                     # marks this run as Path B
+CLIP_SECONDS="${CLIP_SECONDS:-15}"   # endTime − startTime; default 15
+```
 
 Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
 target VLM — **Step 3 picks the right upload format**. A **local / in-cluster** VLM can usually
@@ -207,34 +275,42 @@ reachable OpenAI-compatible `chat/completions` endpoint:
 ```
 
 Or, when only a **deployed VSS** is reachable (you have its **public URL**, not the VLM's own
-port), route through the VSS **ingress proxy** instead of hitting the VLM/RT-VLM port directly.
-The proxy exposes the active VLM (RT-VLM or NIM) under one stable path, so this works cross-host,
-without Docker access, and regardless of which backend the profile deployed:
+port), route through the public Ingress VLM path. Stock **base** Helm exposes RT-VLM under
+`${VSS_PUBLIC_URL}/v1` (OpenAI-compatible root ending in `/v1`). Do **not** use `/vlm/v1` —
+that path is not present on current base Ingress or Docker HAProxy:
 
 ```bash
-#   VSS_ENDPOINT  e.g. http://<vss-public-host>:<ingress-port>   (the deployed VSS public URL)
-if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  _proxy="${VSS_ENDPOINT%/}/vlm/v1"                 # ingress VLM route (haproxy /vlm backend)
-  if curl -sf --max-time 5 "${_proxy}/models" >/dev/null 2>&1; then
+# Prefer VSS_PUBLIC_URL; VSS_ENDPOINT is a legacy alias for the same origin.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  _proxy="${VSS_PUBLIC_URL%/}/v1"                   # base Ingress RT-VLM route
+  if _models=$(curl -sf --max-time 5 "${_proxy}/models") \
+    && _model=$(printf '%s' "${_models}" | jq -r '.data[0].id // empty') \
+    && [ -n "${_model}" ]; then
     VLM_ENDPOINT="${_proxy}"
-    VLM_MODEL="${VLM_MODEL:-$(curl -sf --max-time 5 "${_proxy}/models" | jq -r '.data[0].id // empty')}"
+    VLM_MODEL="${VLM_MODEL:-${_model}}"
     # If the VLM is token-gated behind the proxy, add: -H "Authorization: Bearer <token>"
   fi
 fi
 ```
 
-Otherwise auto-discover the live endpoint from the running `vss-agent` container. The deploy may
+Otherwise, on **Docker only** (`DEPLOYMENT_KIND=docker` or `VSS_PUBLIC_URL` unset),
+auto-discover the live endpoint from the running `vss-agent` container. The deploy may
 serve the VLM through either of two OpenAI-compatible stacks — read the live values, do not guess.
+Skip this block on Kubernetes: there is no host-side Docker socket requirement, and private
+service ports must not be port-forwarded.
 
 Read the agent's env with `docker inspect`, **not** `docker exec`: the `vss-agent` image is
 distroless (no `sh`/`bash`/`printenv` on `PATH`), so `docker exec vss-agent sh -lc …` fails with
 `exec: "sh": executable file not found`. `docker inspect` reads the configured env without a shell:
 
 ```bash
-# Only when an agent is actually running; otherwise supply VLM_ENDPOINT/VLM_MODEL directly (above).
+# Docker only — when an agent is actually running; otherwise supply VLM_ENDPOINT/VLM_MODEL directly.
 # Assign into a fixed whitelist of vars WITHOUT eval, so a hostile or malformed env value
 # (e.g. VLM_NAME='x; rm -rf /') is always treated as data and never executed.
-if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ] && docker ps --format '{{.Names}}' | grep -qx vss-agent; then
   while IFS='=' read -r _k _v; do
     case "$_k" in
       HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL)
@@ -244,10 +320,10 @@ if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
 fi
 ```
 
-Selection rule (only when `VLM_ENDPOINT` is not already set):
+Selection rule (only when `VLM_ENDPOINT` is not already set — Docker host discovery):
 
 ```bash
-if [ -z "${VLM_ENDPOINT:-}" ]; then
+if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
   if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
     # RT-VLM (lvs / alerts). The API model id is VLM_NAME (e.g. nim_nvidia_cosmos-reason2-8b_hf-1208)
     # — it matches RT-VLM's /v1/models and is what the agent itself uses (config rtvi_vlm.model_name:
@@ -305,20 +381,23 @@ place — follow *No default VLM selection?* below instead of silently failing.
 ### No default VLM selection? Discover first, then prompt (VIA-E-114-04)
 
 Discovery above always runs **first** — an explicit `VLM_ENDPOINT`, then a deployed VSS via its
-public URL (`VSS_ENDPOINT` → ingress proxy `/vlm/v1`), then the running `vss-agent` env, then the
-default ports (`:30082` NIM / `:8018` RT-VLM), each confirmed live with `/v1/models`. When that
-yields a reachable endpoint, use it and continue to Step 3 — **do not prompt**.
+public URL (`VSS_PUBLIC_URL` / legacy `VSS_ENDPOINT` → Ingress `${origin}/v1`), then — on Docker
+only — the running `vss-agent` env and default ports (`:30082` NIM / `:8018` RT-VLM), each
+confirmed live with `/v1/models`. When that yields a reachable endpoint, use it and continue to
+Step 3 — **do not prompt**.
 
 Only when **no** endpoint resolves (no default selection is in place) prompt the user for how to
 supply a VLM (HITL-optional — see the non-interactive default below). Offer three choices:
 
 1. **Provide a VLM endpoint** — take `VLM_ENDPOINT` (+ optional `VLM_MODEL`), then re-probe
    `/v1/models` and continue.
-2. **Provide a deployed VSS public URL** — take `VSS_ENDPOINT`; resolve the VLM through the VSS
-   ingress proxy (`${VSS_ENDPOINT%/}/vlm/v1`), confirm with `/v1/models`, then continue. Use this
-   when the VLM/RT-VLM port isn't directly reachable but the VSS ingress is.
-3. **Pick a discovered suggestion** — list any endpoints that responded (the VSS proxy, the
-   `vss-agent` env, or the default `:30082` / `:8018` ports) and let the user choose one.
+2. **Provide a deployed VSS public URL** — take `VSS_PUBLIC_URL` (or legacy `VSS_ENDPOINT`);
+   resolve the VLM through `${VSS_PUBLIC_URL%/}/v1`, confirm with `/v1/models`, then continue.
+   Use this when the VLM/RT-VLM port isn't directly reachable but the VSS Ingress is. Do **not**
+   probe `/vlm/v1`.
+3. **Pick a discovered suggestion** — list any endpoints that responded (the public `/v1`
+   proxy, the `vss-agent` env on Docker, or the default `:30082` / `:8018` ports) and let the
+   user choose one.
 4. **Deploy a local RT-VLM** — hand off to
    [`/vss-deploy-dense-captioning`](../vss-deploy-dense-captioning/SKILL.md) (default model
    **cosmos-reason2-8b**, profile `bp_developer_alerts_2d_vlm`; this tracks the RT-VLM deploy
@@ -339,7 +418,8 @@ supply a VLM (HITL-optional — see the non-interactive default below). Offer th
 **Non-interactive / HITL-disabled (CI, headless agents):** do not block on a prompt. If a
 discovered endpoint already exists, use it; otherwise the default action is to **deploy a local
 RT-VLM** (option 4) and continue. Hard-fail only when a deploy is impossible (no GPU or no
-`NGC_CLI_API_KEY`), printing the options above so the caller can set `VLM_ENDPOINT` / `VSS_ENDPOINT`.
+`NGC_CLI_API_KEY`), printing the options above so the caller can set `VLM_ENDPOINT` /
+`VSS_PUBLIC_URL`.
 
 ---
 
@@ -376,6 +456,23 @@ visual-token budget. This is **required**, not optional: without `media_io_kwarg
 NIM under-samples the inline MP4 and can return a confident but wrong description (verified against
 `cosmos-reason2-8b`). Read the live `video_understanding` settings if the `vss-agent` container is
 up, else use the documented defaults.
+
+> **Which backend is this?** Any model id containing `cosmos` reached as a **direct/base NIM**
+> endpoint is NIM Cosmos and needs these fields. An `nim_nvidia_…_bf16` / `_hf`-style id (e.g.
+> `nim_nvidia_cosmos3-nano-reasoner_bf16-final`) does **not** make it RT-VLM: RT-VLM is decided by
+> discovery (`VLM_MODEL_TYPE=rtvi`, or the `:8018` port), never by the model name. RT-VLM genuinely
+> does not need them — it preprocesses server-side.
+>
+> **Run the `curl` below verbatim rather than hand-writing your own**, and answer a second or
+> follow-up question by re-running the same block with a new `USER_QUESTION` / `UPLOAD_FORMAT`.
+> Hand-built requests keep omitting these fields on the `video_url` path. If you must construct one
+> yourself, pick the shape matching the model and always include the `num_frames` entry:
+>
+> ```json
+> "mm_processor_kwargs": {"size": {"shortest_edge": 3136, "longest_edge": 8388608}}      // cosmos-reason2
+> "mm_processor_kwargs": {"videos_kwargs": {"min_pixels": 3136, "max_pixels": 8388608}}  // other cosmos (reason1, reason3/cosmos3)
+> "media_io_kwargs": {"video": {"num_frames": <NUM_FRAMES>}}                             // both shapes
+> ```
 
 ```bash
 USER_QUESTION='<the user's question, verbatim>'
@@ -470,8 +567,14 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] |
     *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
     *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
   esac
+  # Cosmos needs these; other NIMs (e.g. Qwen) do not — so enforce only for cosmos ids, and fail loud.
+  case "$VLM_MODEL" in
+    *cosmos*) [ -n "$MM_KWARGS" ] || { echo "cosmos model '${VLM_MODEL}' needs mm_processor_kwargs/media_io_kwargs but none were built — refusing to send an under-sampling request"; exit 1; } ;;
+  esac
 fi
 
+# Send THIS body for both formats. Do not write a separate minimal video_url curl — hand-built
+# video_url requests keep dropping ${MM_KWARGS}, which under-samples the clip on NIM Cosmos.
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'

@@ -2,27 +2,33 @@
 
 This reference explains the video summarization API workflows used by
 `vss-summarize-video`. The tables and examples below are illustrative guidance
-only for live calls. The running service's `/openapi.json` is authoritative
-because its image version may expose a newer or different schema.
+only for live calls. On **Docker**, the running service's `/openapi.json` is
+authoritative because its image version may expose a newer or different schema.
+On **Kubernetes**, stock LVS Ingress does not publish that document — use the
+checked-in contract here plus Exact public routes (see Runtime OpenAPI
+Discovery).
 
 Use `/v1/summarize` for new file-summarization examples. `/summarize` is still
-present with the same request and response schema as a compatibility route.
+present on Docker with the same request and response schema as a compatibility
+route; it is not on stock LVS Ingress.
 
 ## Setup
 
 The OpenAPI spec declares a relative server URL (`/`), so `BASE_URL` is
-deployment-specific. For the VSS developer `lvs` profile, the default external
-URL is:
+deployment-specific:
 
 ```bash
+# Docker Compose (default)
 export BASE_URL="${LVS_BACKEND_URL:-http://localhost:38111}"
+# Kubernetes operate — origin only (skill appends /v1/ready and /v1/summarize)
+# export BASE_URL="${VSS_PUBLIC_URL%/}"
 ```
 
 ## Runtime OpenAPI Discovery
 
-Before constructing or issuing any live API operation, fetch the schema from
-the same service instance that will receive the request. The bootstrap
-`/openapi.json` fetch and health probes are the only exceptions.
+Before constructing or issuing any live API operation on **Docker**, fetch the
+schema from the same service instance that will receive the request. The
+bootstrap `/openapi.json` fetch and health probes are the only exceptions.
 
 ```bash
 LVS_OPENAPI=/tmp/vss-lvs-openapi.json
@@ -31,8 +37,15 @@ curl -fsS --connect-timeout 3 --max-time 15 \
 jq -e '.openapi and (.paths | type == "object")' "$LVS_OPENAPI" >/dev/null
 ```
 
-Use the runtime document to confirm the operation exists and inspect its
-request body before building a payload. For example:
+**Kubernetes:** stock LVS Ingress does **not** publish LVS `/openapi.json` or
+LVS `/models`. Public `/openapi.json` is the **Agent** document — do not treat
+it as the LVS schema. On Kubernetes, confirm `POST /v1/summarize` against the
+checked-in contract in this reference, resolve `model` from Exact
+`${VSS_PUBLIC_URL}/v1/models` (RT-VLM) or `VLM_NAME`, and call Exact
+`${BASE_URL}/v1/ready` / `${BASE_URL}/v1/summarize` only.
+
+Use the runtime document (Docker) to confirm the operation exists and inspect
+its request body before building a payload. For example:
 
 ```bash
 OPERATION_PATH=/v1/summarize

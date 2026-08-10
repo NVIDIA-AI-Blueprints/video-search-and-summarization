@@ -25,6 +25,7 @@ manager (or call ``aclose()``) so lazily-built primitives release their backend 
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -37,32 +38,34 @@ from .models.search import SearchOutput
 from .primitives.attribute_search import AttributeSearch
 from .primitives.embed_search import EmbedSearch
 from .primitives.search import Search
-from .runtime import RuntimeSnapshot
-from .runtime import SearchRuntime
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from collections.abc import Mapping
-    from pathlib import Path
+
+    from vss_core.critic import CriticAgent
 
     from .events import SearchEvent
+    from .runtime import SearchRuntime
+
+logger = logging.getLogger(__name__)
 
 
 class VSSSearch:
     """One-stop facade for direct (non-HTTP) callers — host skills, notebooks, evals.
 
-    Build with one of the class methods; call .embed_search / .attribute_search /
+    Build from a SearchRuntime; call .embed_search / .attribute_search /
     .search. Use as an async context manager so resources close cleanly:
 
-        async with VSSSearch.from_config_file(path) as vss:
+        async with VSSSearch.from_runtime(runtime) as vss:
             out = await vss.embed_search(query="red car", source_type="rtsp")
 
     Note on `.search()`: direct callers pass already-prepared SearchInput
     fields. The facade never builds or invokes model clients for decomposition.
     """
 
-    def __init__(self, runtime: SearchRuntime) -> None:
+    def __init__(self, runtime: SearchRuntime, *, critic: CriticAgent | None = None) -> None:
         self._rt = runtime
+        self._critic = critic
         self._embed: EmbedSearch | None = None
         self._attribute: AttributeSearch | None = None
         self._search: Search | None = None
@@ -80,50 +83,8 @@ class VSSSearch:
     # ------------------------------------------------------------------ Builders
 
     @classmethod
-    def from_runtime(cls, rt: SearchRuntime) -> VSSSearch:
-        return cls(rt)
-
-    @classmethod
-    def from_env(
-        cls,
-        env: Mapping[str, str] | None = None,
-    ) -> VSSSearch:
-        """Build from os.environ only.
-
-        Does NOT carry orchestrator-level options. For parity with a deployed
-        profile, use from_config_file or from_remote instead.
-        """
-        return cls(SearchRuntime.from_env(env))
-
-    @classmethod
-    def from_config_file(
-        cls,
-        path: str | Path,
-        *,
-        env: Mapping[str, str] | None = None,
-    ) -> VSSSearch:
-        """Build from a NAT-style config file.
-
-        Loads SearchRuntime from the config. Per-request ``search_mode`` is the
-        sole selector for embed, attribute, fusion, and object search.
-        """
-        snap = RuntimeSnapshot.from_config_file(path, env=env)
-        return cls(snap.runtime)
-
-    @classmethod
-    def from_remote(
-        cls,
-        agent_url: str,
-    ) -> VSSSearch:
-        """Fetch a snapshot from a running agent.
-
-        WARNING (Helm): the /api/v1/runtime/config snapshot returns in-cluster
-        DNS URLs that aren't reachable from a developer laptop. Use
-        ``vss search run --deployment kubernetes`` for host-side runtime
-        discovery and managed port-forwards instead.
-        """
-        snap = RuntimeSnapshot.from_remote(agent_url)
-        return cls(snap.runtime)
+    def from_runtime(cls, rt: SearchRuntime, *, critic: CriticAgent | None = None) -> VSSSearch:
+        return cls(rt, critic=critic)
 
     # ------------------------------------------------ Convenience primitive-only
 
@@ -157,12 +118,122 @@ class VSSSearch:
     async def search(self, **kw: Any) -> SearchOutput:
         if self._search is None:
             self._search = self._build_search()
-        return await self._search.run(SearchInput(**kw))
+        inp = SearchInput(**kw)
+        output = await self._search.run(inp)
+        return await self._verify_results(output, inp)
+
+    async def _verify_results(self, output: SearchOutput, inp: SearchInput) -> SearchOutput:
+        """Best-effort critic pass over retrieved intervals.
+
+        Search never depends on verification succeeding. Missing dependencies,
+        invalid media bounds, or a critic/VLM failure leave the affected hits at
+        their model default of ``unverified``.
+        """
+        if self._critic is None or not output.data:
+            return output
+
+        if inp.original_query and inp.original_query.strip():
+            query = inp.original_query.strip()
+        else:
+            query = inp.query.strip()
+            attributes = [attribute.strip() for attribute in inp.attributes if attribute.strip()]
+            missing_attributes = [attribute for attribute in attributes if attribute.casefold() not in query.casefold()]
+            if missing_attributes:
+                suffix = ", ".join(missing_attributes)
+                query = f"{query}; required visual attributes: {suffix}" if query else suffix
+        if not query:
+            return output
+
+        from pydantic import ValidationError
+
+        from vss_core.critic import CriticAgentInput
+        from vss_core.critic import CriticAgentResult
+        from vss_core.critic import VideoInfo
+
+        from .models.search import SearchVerification
+
+        candidate_indices: list[int] = []
+        videos: list[VideoInfo] = []
+        for index, result in enumerate(output.data):
+            if not result.sensor_id:
+                continue
+            try:
+                video = VideoInfo.model_validate(
+                    {
+                        "sensor_id": result.sensor_id,
+                        "start_timestamp": result.start_time,
+                        "end_timestamp": result.end_time,
+                        # Only file sources are indexed on the synthetic epoch the
+                        # critic rebases; live bounds must be taken literally.
+                        "source_type": inp.source_type,
+                    }
+                )
+            except ValidationError:
+                logger.warning("Search result %d has invalid verification bounds; leaving it unverified", index)
+                continue
+            candidate_indices.append(index)
+            videos.append(video)
+
+        if not videos:
+            return output
+
+        extra_messages: list[str] = []
+
+        try:
+            critic_output = await self._critic.run(CriticAgentInput(query=query, videos=videos))
+        except Exception:
+            logger.warning("Search-result verification failed; returning retrieval hits as unverified", exc_info=True)
+            return output.model_copy(
+                update={
+                    "search_messages": [
+                        *output.search_messages,
+                        "Visual verification failed; retrieval results remain unverified.",
+                    ]
+                }
+            )
+
+        verified_results = list(output.data)
+        for index, verdict in zip(candidate_indices, critic_output.video_results, strict=False):
+            verified_results[index] = verified_results[index].model_copy(
+                update={
+                    "verification": SearchVerification(
+                        result=verdict.result.value,
+                        criteria_met=verdict.criteria_met,
+                    )
+                }
+            )
+
+        # The critic degrades a failed candidate to `unverified` instead of
+        # raising, so a deployment whose VLM answers /v1/models but fails every
+        # completion returns output identical to one with no VLM at all. Say
+        # which it was: silence here means no critic ran.
+        if critic_output.video_results and all(
+            verdict.result == CriticAgentResult.UNVERIFIED for verdict in critic_output.video_results
+        ):
+            extra_messages.append(
+                "Visual verification ran but produced no verdict for any hit; check the configured RT-VLM service."
+            )
+
+        update: dict[str, Any] = {"data": verified_results}
+        if extra_messages:
+            update["search_messages"] = [*output.search_messages, *extra_messages]
+        return output.model_copy(update=update)
 
     def search_stream(self, **kw: Any) -> AsyncIterator[SearchEvent]:
         if self._search is None:
             self._search = self._build_search()
-        return self._search.stream(SearchInput(**kw))
+        return self._verified_search_stream(SearchInput(**kw))
+
+    async def _verified_search_stream(self, inp: SearchInput) -> AsyncIterator[SearchEvent]:
+        """Preserve streaming progress and verify only the terminal output."""
+        from .events import FinalResultEvent
+
+        assert self._search is not None
+        async for event in self._search.stream(inp):
+            if isinstance(event, FinalResultEvent):
+                yield event.model_copy(update={"output": await self._verify_results(event.output, inp)})
+            else:
+                yield event
 
     # ---------------------------------------------------------------- Lifecycle
 

@@ -41,7 +41,11 @@ class SearchInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    query: str
+    # Only the modes that embed text need a query. Attribute- and object-mode
+    # searches match structured evidence (attribute strings, tracked object
+    # ids) and never read this field, so requiring it forced callers to invent
+    # one. ``validate_semantics`` still requires it where it is used.
+    query: str = ""
     original_query: str | None = None
     source_type: SourceType = "video_file"
     video_sources: list[str] | None = None
@@ -65,8 +69,8 @@ class SearchInput(BaseModel):
         combination; centralizing them keeps the primitive's ``run()``/``stream()``
         thin and gives callers one place to exercise input semantics.
         """
-        if not self.query.strip():
-            raise InvalidInputError("SearchInput.query must be non-empty")
+        if self.search_mode in {"embed", "fusion"} and not self.query.strip():
+            raise InvalidInputError(f"SearchInput.query must be non-empty for search_mode={self.search_mode!r}")
         if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
             raise InvalidInputError(
                 f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
@@ -90,6 +94,19 @@ class SearchInput(BaseModel):
             raise InvalidInputError("object_ids require search_mode='object'")
 
 
+class SearchVerification(BaseModel):
+    """Visual verification attached to one retrieval hit.
+
+    Retrieval is useful even when no VLM is deployed or verification fails.
+    Consequently every hit starts as ``unverified`` and is upgraded only after
+    the critic successfully evaluates that exact interval.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    result: Literal["confirmed", "rejected", "unverified"] = "unverified"
+    criteria_met: dict[str, bool] | None = None
+
+
 class SearchResult(BaseModel):
     """A single search result item."""
 
@@ -102,6 +119,7 @@ class SearchResult(BaseModel):
     screenshot_url: str
     similarity: float
     object_ids: list[str] = Field(default_factory=list)
+    verification: SearchVerification = Field(default_factory=SearchVerification)
 
 
 class SearchOutput(BaseModel):

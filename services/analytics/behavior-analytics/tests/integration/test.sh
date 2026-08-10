@@ -215,13 +215,11 @@ else
     echo "✓ Process count verified: $WORKER_COUNT processes running as expected"
 fi
 
-# Wait for the playback container to finish feeding data, then add a small
-# grace period so workers + Logstash can drain whatever is in flight before we
-# extract from Elasticsearch. Falls back to a 10-minute hard cap so a stuck
-# playback never wedges the test indefinitely.
+# Wait for the playback container to finish feeding data. Draining is handled after this, by
+# stopping the app and polling Elasticsearch. Falls back to a 10-minute hard cap so a stuck playback
+# never wedges the test indefinitely.
 echo "Waiting for mdx-analytics-playback to exit (max 10 min)..."
 PLAYBACK_WAIT_DEADLINE_SEC=600
-PLAYBACK_GRACE_SEC=60
 deadline=$(( $(date +%s) + PLAYBACK_WAIT_DEADLINE_SEC ))
 while true; do
     status=$(docker inspect --format '{{.State.Status}}' mdx-analytics-playback 2>/dev/null || echo "missing")
@@ -239,10 +237,6 @@ while true; do
     sleep 5
 done
 
-echo "Waiting ${PLAYBACK_GRACE_SEC}s grace period for in-flight messages to drain..."
-sleep $PLAYBACK_GRACE_SEC
-echo "Wait complete, continuing..."
-
 cd "$PROJ_ROOT_DIR"
 
 TEST_HOST="${TEST_HOST:-}"
@@ -253,6 +247,124 @@ TEST_HOST="${TEST_HOST:-localhost}"
 ES_URL="${ES_URL:-http://${TEST_HOST}:9200}"
 echo "Using Elasticsearch URL: $ES_URL"
 
+# Wait until Elasticsearch stops receiving new documents. A fixed grace period is the wrong
+# instrument: it has to be long enough for the slowest host, and when it is too short the shortfall
+# reads as a data mismatch rather than as a test that measured too early. Poll the indices instead,
+# and move on once the counts stop changing.
+wait_for_elasticsearch_to_settle() {
+    local stable_needed=${ES_SETTLE_STABLE_CHECKS:-3}
+    local interval=${ES_SETTLE_INTERVAL_SEC:-5}
+    local deadline=$(( $(date +%s) + ${ES_SETTLE_DEADLINE_SEC:-300} ))
+    local previous="" current stable=0
+
+    while true; do
+        current=$(curl -s "$ES_URL/mdx-*/_count" 2>/dev/null | python3 -c \
+            'import json,sys; print(json.load(sys.stdin)["count"])' 2>/dev/null || echo "")
+
+        if [[ -n "$current" && "$current" = "$previous" ]]; then
+            stable=$((stable + 1))
+            if [[ $stable -ge $stable_needed ]]; then
+                echo "✓ Elasticsearch settled at $current document(s)"
+                return 0
+            fi
+        else
+            stable=0
+        fi
+
+        previous="$current"
+
+        if [[ "$(date +%s)" -ge "$deadline" ]]; then
+            # Still moving at the deadline, so any snapshot taken now is arbitrary. Report it as a
+            # failure rather than extracting: comparing a knowingly-unstable index turns an
+            # ingestion problem into a data mismatch, which is the harder thing to diagnose.
+            echo "✗ Elasticsearch still changing after ${ES_SETTLE_DEADLINE_SEC:-300}s (last count: ${current:-unknown})"
+            return 1
+        fi
+
+        sleep "$interval"
+    done
+}
+
+# Shared exit path for infrastructure failures. Distinct from a comparison failure: the data was
+# never in a state worth comparing, so say that rather than letting it surface as missing records.
+abort_on_infrastructure_failure() {
+    echo "✗ $1"
+    if [[ "$MODE" = "prod" ]]; then
+        cleanup_docker_environment
+        if [[ $? -ne 0 ]]; then
+            echo "✗ Docker cleanup failed"
+        fi
+    else
+        echo "Development mode: Skipping cleanup to allow debugging"
+    fi
+    exit 1
+}
+
+# Drain what the running app still owes before stopping it. Not every output is tied to the
+# holdback: space utilization is emitted on a timer for as long as the app runs, so stopping as soon
+# as playback exits truncates that series -- the fixed 60s sleep this replaced was, incidentally,
+# what used to let it finish.
+echo "Waiting for in-flight output to settle before stopping the app..."
+wait_for_elasticsearch_to_settle || abort_on_infrastructure_failure \
+    "Elasticsearch never settled while the app was running; not extracting a moving target"
+
+# Then stop the app, because under behaviorEmitOnce a track's behavior is written only when the
+# track ends -- after behaviorStateValidInterval seconds of *event-time* silence. Playback exiting
+# freezes each sensor's clock instead of advancing it, so tracks that were still live are never
+# ended and their behaviors sit in the holdback. The app's close hook flushes them (app_scheduler.py
+# runs it in each worker's finally), so a graceful SIGTERM is what puts them on the stream at all.
+# -t is generous because the flush writes through the sink before it returns.
+#
+# A failed stop is fatal for the same reason the stop exists: without it the holdback is never
+# flushed, so the run would go on to compare a behavior stream that is missing every track still
+# live at the end -- an infrastructure failure wearing the costume of a data mismatch.
+echo "Stopping mdx-analytics so emit-once behaviors are flushed..."
+if ! docker stop -t "${APP_STOP_TIMEOUT_SEC:-60}" mdx-analytics > /dev/null 2>&1; then
+    abort_on_infrastructure_failure \
+        "Failed to stop mdx-analytics; emit-once behaviors were never flushed"
+fi
+
+# `docker stop` succeeding only means the container is no longer running. It sends SIGTERM, waits
+# out the timeout, then SIGKILL -- and reports success either way. SIGKILL cannot be handled, so the
+# close hook never runs and the holdback is lost, which is precisely the failure this stop exists to
+# prevent. The exit status is what distinguishes the two: 0 for the signal handler returning
+# normally, 137 (128 + SIGKILL) when Docker had to force it.
+APP_EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' mdx-analytics 2>/dev/null || echo "unknown")
+if [[ "$APP_EXIT_CODE" = "0" ]]; then
+    echo "✓ mdx-analytics stopped gracefully (exit 0)"
+elif [[ "$APP_EXIT_CODE" = "137" ]]; then
+    abort_on_infrastructure_failure \
+        "mdx-analytics was SIGKILLed after the ${APP_STOP_TIMEOUT_SEC:-60}s timeout (exit 137); the close hook never ran, so emit-once behaviors were never flushed"
+else
+    abort_on_infrastructure_failure \
+        "mdx-analytics exited $APP_EXIT_CODE rather than 0; the close hook cannot be assumed to have flushed emit-once behaviors"
+fi
+
+# Exit 0 is the parent's verdict, and the parent reports success even when it had to kill a worker.
+# MultiprocessingScheduler.shutdown gives each worker SHUTDOWN_TIMEOUT_SECONDS after SIGTERM, then
+# SIGKILLs whatever is still alive and carries on -- so a behavior worker can lose its close hook,
+# and its share of the holdback, without leaving a trace in the exit status. The scheduler does say
+# so in the log, which is the only place that distinction survives.
+if docker logs mdx-analytics 2>&1 | grep -q "did not terminate gracefully, forcing kill"; then
+    abort_on_infrastructure_failure \
+        "a worker was SIGKILLed during shutdown; its emit-once behaviors were never flushed (see 'forcing kill' in mdx-analytics logs)"
+fi
+echo "✓ every worker shut down without being force-killed"
+
+# The MQTT sink cannot recover a publish it failed to drain -- by the time close() runs, a broker
+# that is not answering will not answer -- so it logs and lets shutdown finish. That leaves the run
+# exiting 0 through both checks above with behaviors missing, which would surface as a comparison
+# mismatch. The likeliest cause is not a dead broker but a drain window too short for a loaded host,
+# and that is worth naming rather than inferring from absent records.
+if docker logs mdx-analytics 2>&1 | grep -q "Queued MQTT messages"; then
+    abort_on_infrastructure_failure \
+        "the MQTT sink could not confirm delivery before shutdown; behaviors are missing (see 'Queued MQTT messages' in mdx-analytics logs)"
+fi
+
+echo "Waiting for the flush to land in Elasticsearch..."
+wait_for_elasticsearch_to_settle || abort_on_infrastructure_failure \
+    "Elasticsearch never settled after the flush; extracted data would be incomplete"
+
 # Define which data types to dump/compare for each profile
 get_data_types_for_profile() {
     local profile=$APP_NAME$APP_MODE
@@ -260,8 +372,14 @@ get_data_types_for_profile() {
         "warehouse_2d")
             echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-incidents-data.json mdx-raw-data.json"
             ;;
+        # Space utilization is not compared for warehouse_3d: it is emitted on a
+        # timer rather than per frame, so its record spacing and count track host
+        # load. It has failed in two unrelated ways -- a 266ms timestamp delta
+        # against a 100ms tolerance, and a short extract (738 of 741 records) --
+        # while passing in between, so it reports host timing rather than a
+        # regression in this service.
         "warehouse_3d")
-            echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-space-utilization-data.json"
+            echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-incidents-data.json"
             ;;
         "smart_city")
             echo "mdx-behavior-data.json mdx-raw-data.json"

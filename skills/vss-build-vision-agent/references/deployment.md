@@ -39,6 +39,11 @@ uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 ```
 
+Write `resolved.yml` with the `>` redirect exactly as shown — see `composition.md`
+for how to keep Compose's stderr out of the file. Act on that stderr rather than
+silencing it: fix any error (non-zero exit) before deploying, and treat `variable
+is not set` warnings as informational.
+
 ## Review and deploy
 
 Validate and review the exact standalone file that will be deployed:
@@ -55,12 +60,27 @@ capability checks. Run the mandatory check/create gate in
 [`data-directory.md`](data-directory.md), then deploy that exact file:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" up -d --pull always
+docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
+  && docker compose -f "$BUILD_DIR/resolved.yml" up -d --build
 ```
 
-`COMPOSE_PROFILES` has already filtered the source graph during resolution.
-Normalization removes the remaining service profile gates, so no Foundation
-env file or profile flag is needed at deployment time.
+Deploy with **only** `-f "$BUILD_DIR/resolved.yml"` (plus optional
+`-p <project>` and `--build`). Do **not** pass `--env-file` — not even the
+build's own `override.env` — and do **not** pass `--profile`: `resolved.yml` is
+already self-contained, and re-reading any env file or supplying a profile flag
+re-injects `COMPOSE_PROFILES`/`FOUNDATION` and breaks the runtime deploy
+contract.
+
+`COMPOSE_PROFILES` has already filtered the source graph during resolution, and
+`docker compose config` baked the project `name`, each service `env_file`, and
+all interpolation into the file. Normalization removes the remaining service
+profile gates, so no Foundation env file or profile flag is needed at deployment
+time. `pull --ignore-buildable` refreshes the registry-backed images even when a
+tag already exists locally, while skipping the build-backed services — those
+carry a local-only `image:` tag with no registry manifest, so a blanket
+`--pull always` on `up` would abort with `manifest not found`. `up -d --build`
+then builds those build-backed services from their local `build:` rather than
+that bare `image:` tag, and starts everything.
 
 ## Readiness
 
@@ -87,12 +107,29 @@ capability owner. Allow cold NIM and RTVI model loads to finish. If a check
 fails, report the failing service and its recent logs; do not declare a partial
 deployment successful.
 
+Deployment and readiness bring the backends **up**; they register no source and
+serve no query. Both ends are separate runtime steps, and a headless
+`_builds/<name>` build has no agent to do either:
+
+- **Write path (provisioning).** Resolve consumer ports from `resolved.yml`, confirm
+  the build is headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
+  [`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md)
+  to register one VIOS source and fan it out by direct REST to only the consumers
+  the build resolved (RT-CV / RT-Embed / RT-VLM), each driven from the retried
+  VIOS live-proxy URL.
+- **Read path (query).** Run `vss configure --base-url <build-origin>` (the fronting
+  `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local `vss` entry point
+  (`uv run --project <repo>/services/agent --no-dev vss`; see `deployment_resolution.md`),
+  not a bare `vss`, to record the deployment, then defer to `vss-search-archive` for
+  the query.
+
 ## Stop
 
-Clean the complete `mdx` Compose project and its named volumes by default:
+Clean the complete Compose project (`COMPOSE_PROJECT_NAME`, default `vss`) and its named volumes by default:
 
 ```bash
-docker compose -p mdx -f "$BUILD_DIR/resolved.yml" down -v --remove-orphans
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vss}"
+docker compose -p "${COMPOSE_PROJECT_NAME}" -f "$BUILD_DIR/resolved.yml" down -v --remove-orphans
 ```
 
 This removes data volumes and model caches. Use the cache-preserving path only

@@ -21,6 +21,10 @@
 			{
 				"name": "events",
 				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
 			}
 		],
 		"consumer": {
@@ -66,12 +70,12 @@
 	],
 	"app": [
 		{
-			"name": "behaviorWatermarkSec",
-			"value": "30"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
+			"name": "behaviorWatermarkSec",
+			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",

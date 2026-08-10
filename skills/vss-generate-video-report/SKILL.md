@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.2.9"
+  version: "3.3.2"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -17,7 +17,7 @@ Generate a video analysis report by routing to one of three backends — **never
 |---|---|
 | **A. Video clip** | `A1` `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** OR `A2` local video file on disk or base64 video + explicit VLM endpoint |
 | **B. Incident range** | `/vss-query-analytics` → incident list → narrative report |
-| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `:9901`) → SOP compliance report |
+| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `${VA_MCP_URL}`) → SOP compliance report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range. See **Examples** below for the request phrasings that route to each mode.
 
@@ -30,7 +30,9 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-agent` for the SOP tools).
 3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B and Mode C have no prompt-approval step.)
 4. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
-5. **Rewrite every user-facing clip URL** with the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` one-liner (*Browser-playable clip URL*) before embedding it in the report.
+5. **Rewrite every user-facing clip URL** before embedding it in the report: prefer
+   `VSS_PUBLIC_URL` origin rewrite on Kubernetes; fall back to
+   `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` on Docker Compose (*Browser-playable clip URL*).
 6. **Return the rendered report markdown** to the user.
 
 Output contract for evaluators:
@@ -76,6 +78,34 @@ Never route reports through VSS-agent `POST /generate`.
 This skill is profile-agnostic for Mode A. A specific profile does **not** have to be pre-deployed as long as the chosen Mode A input path and VLM path are available.
 **Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see `skills/vss-build-vision-agent/references/services/sop.md` § Patch specifics).
 
+### Endpoint resolution (Kubernetes vs Docker)
+
+When operating against a deployed VSS stack (**base**, **lvs**, or **alerts** on
+Helm), resolve public endpoints once. Follow
+[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
+
+```bash
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+  # Base: Prefix /v1 → RT-VLM. LVS: Exact /v1/models + /v1/chat/completions → RT-VLM.
+  : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/v1}"
+  # Alerts / Mode B — force public VA-MCP; ignore leftover Docker :9901.
+  VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
+else
+  DEPLOYMENT_KIND="docker"
+  VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
+  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
+  VA_MCP_URL="http://${HOST_IP}:9901"
+fi
+```
+
+On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
+`docker exec` / `docker inspect` to discover VIOS, the VLM, or VA-MCP. Mode A
+uses `${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B uses `${VA_MCP_URL}`.
+
 ### Mode-by-mode checklist (required)
 
 | Mode / Path | User must provide | Services that must be reachable | Storage/location requirement | Not required |
@@ -83,7 +113,7 @@ This skill is profile-agnostic for Mode A. A specific profile does **not** have 
 | **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
 | **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
 | **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
-| **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `:9901` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
+| **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `${VA_MCP_URL}` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
 
 Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
@@ -94,13 +124,16 @@ Probe examples:
 
 ```bash
 # Mode A path A1 — VIOS reachable
-curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null
+curl -sf --max-time 5 "${VST_API_BASE}/sensor/version" >/dev/null
 
-# Mode B — VA-MCP reachable
-curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+# Mode A — VLM reachable (Kubernetes public /v1, or caller-supplied / Docker host port)
+curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null
+
+# Mode B — VA-MCP reachable via /health (K8s: ${VA_MCP_URL}/health; Docker: :9901/health)
+curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
 
 # Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
-# tools/list on :9901 (two-step JSON-RPC, see Mode C Step 1) must include
+# tools/list on ${VA_MCP_URL}/mcp (two-step JSON-RPC, see Mode C Step 1) must include
 # video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
 # hand off to /vss-build-vision-agent and do NOT proceed with Mode C.
 ```
@@ -114,23 +147,34 @@ If required local services are missing and the user wants local deployment, hand
 If VLM/deployment choice is unclear and no default selection has been made, ask the user what VLM to use with these options:
 
 1. **Provide an endpoint** — user supplies `VLM_ENDPOINT` and model id.
-2. **Suggest options based on auto-discover** — inspect running `vss-agent` env and probe default local ports.
-3. **Deploy a local VLM** — hand off to `/vss-deploy-profile` (with user confirmation) and then continue.
+2. **Use the public Ingress VLM** — when `VSS_PUBLIC_URL` is set, probe
+   `${VSS_PUBLIC_URL%/}/v1/models` (base Helm RT-VLM route). Do **not** use `/vlm/v1`.
+3. **Suggest options based on auto-discover** — on Docker, inspect running `vss-agent`
+   env and probe default local ports.
+4. **Deploy a local VLM** — hand off to `/vss-deploy-profile` (with user confirmation) and then continue.
 
 Auto-discover hints:
 
 ```bash
-# From running vss-agent env (when present)
-docker exec vss-agent sh -lc '
-for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-  v="$(printenv "$k")"
-  [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-done
-'
+# Kubernetes / public Ingress (preferred when VSS_PUBLIC_URL is set)
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/v1/models" | jq -r '.data[].id'
+fi
 
-# Probe common local endpoints
-curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # base RT-VLM default
-curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'    # alerts RT-VLM default
+# Docker only — from running vss-agent env (when present). Prefer docker inspect
+# if the image is distroless (no sh/printenv).
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+  docker exec vss-agent sh -lc '
+  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
+    v="$(printenv "$k")"
+    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
+  done
+  ' 2>/dev/null || true
+
+  # Probe common local endpoints
+  curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # base RT-VLM default
+  curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'    # alerts RT-VLM default
+fi
 ```
 
 ---
@@ -164,14 +208,58 @@ Guardrails (required):
 
 ## Clip URLs: VLM input vs browser report link
 
-VST returns clip URLs using the agent-internal `${HOST_IP}:30888` host:port.
-Keep that original URL as `VIDEO_URL` for local / in-cluster VLM frame pulls.
+VST may return clip URLs using an agent-internal host:port (Compose
+`${HOST_IP}:30888`, or an in-cluster name). Keep that original URL as
+`VIDEO_URL` for local / in-cluster VLM frame pulls when the VLM can reach it.
 Do **not** rewrite the VLM input URL just to make it browser-playable.
 
-Only create `BROWSER_CLIP_URL` for URLs shown in the rendered report. The
-deploy layer exports the browser-facing host:port as `$VSS_PUBLIC_HOST` /
-`$VSS_PUBLIC_PORT` (and scheme as `$VSS_PUBLIC_HTTP_PROTOCOL`) in every
-profile `.env` — Brev or bare-metal — so the report-link rewrite is:
+Only create `BROWSER_CLIP_URL` for URLs shown in the rendered report.
+
+**Kubernetes** — rewrite to the public Ingress origin **and keep the clip under the
+public VIOS route**. Ingress serves VIOS only under `/vst`, and VIOS `/url`
+responses return a bare `/storage/temp_files/...` path (and can carry a doubled
+`http://` scheme — upstream Finding 8). Swapping only the authority would produce
+`${VSS_PUBLIC_URL}/storage/...`, which Ingress hands to the UI catch-all instead of
+VIOS. Reduce to a path, then restore `/vst` — the same compat mapping Docker HAProxy
+applies:
+
+```bash
+: "${VSS_PUBLIC_URL:?Set VSS_PUBLIC_URL before rewriting clip URLs on Kubernetes}"
+CLIP_PATH=$(printf '%s' "${RAW_URL}" | sed -E 's|^(https?://)+||; s|^[^/]*||')
+case "${CLIP_PATH}" in
+  /vst/*) BROWSER_CLIP_URL="${VSS_PUBLIC_URL%/}${CLIP_PATH}" ;; # already public VIOS
+  /storage/*) BROWSER_CLIP_URL="${VSS_PUBLIC_URL%/}/vst${CLIP_PATH}" ;; # bare VIOS path
+  *)
+    echo "Cannot construct a public VIOS clip link from: ${RAW_URL}" >&2
+    BROWSER_CLIP_URL=""
+    ;;
+esac
+```
+
+Verify the result before putting it in the report — it must begin with
+`${VSS_PUBLIC_URL}/vst/`. Probe with GET, not HEAD: VST lazy-renders clips and
+returns 404 to HEAD until a GET materializes the file. If the URL fails either
+check, omit it from the report and call out why; do not block local VLM analysis:
+
+```bash
+case "${BROWSER_CLIP_URL}" in
+  "${VSS_PUBLIC_URL%/}"/vst/*)
+    # A GET materializes lazy VIOS clips. Fail fast when Ingress is unreachable,
+    # but allow bounded time for the first render and fetch only the first byte.
+    curl -fsS --connect-timeout 5 --max-time 125 --range 0-0 -o /dev/null \
+      "${BROWSER_CLIP_URL}" || BROWSER_CLIP_URL=""
+    ;;
+  "") ;;  # unsupported source URL shape; already reported above
+  *)
+    echo "Refusing to render a clip link outside the public VIOS route" >&2
+    BROWSER_CLIP_URL=""
+    ;;
+esac
+```
+
+**Docker Compose** — the deploy layer exports the browser-facing host:port as
+`$VSS_PUBLIC_HOST` / `$VSS_PUBLIC_PORT` (and scheme as `$VSS_PUBLIC_HTTP_PROTOCOL`)
+in every profile `.env` — Brev or bare-metal — so the report-link rewrite is:
 
 ```bash
 : "${VSS_PUBLIC_HOST:?Set VSS_PUBLIC_HOST before rewriting clip URLs}"
@@ -180,18 +268,35 @@ VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
 BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
 ```
 
-If either required public host value is missing, omit the report-facing clip
+If the required public origin values are missing, omit the report-facing clip
 link and call out that a browser-playable URL could not be produced; do not
 block the local VLM analysis path. Apply the rewrite to **every clip URL
 surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
 per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
-Step 3 on the original internal URL when the VLM is local / in-cluster.
+Step 3 on the original internal URL when the VLM is local / in-cluster. When the
+VLM is reached through `${VSS_PUBLIC_URL}/v1` and cannot fetch private VIOS
+hosts, download the clip and send inline bytes (same remote-VLM rule as
+`/vss-ask-video`).
 
 ---
 
 ## Mode A — Report on a recorded video clip
 
-**If the VSS `lvs` profile is deployed** — `curl -sf --max-time 5 "http://${HOST_IP}:38111/v1/ready"` returns HTTP 200 — run `/vss-summarize-video` to produce the summary, then paste its output into the report template in Step 4 and skip Steps 1–3 (the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
+**If the VSS `lvs` profile is deployed** — probe LVS readiness, then hand off:
+
+```bash
+# Kubernetes public Exact path when VSS_PUBLIC_URL is set; Docker host port otherwise.
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  _lvs_ready="${VSS_PUBLIC_URL%/}/v1/ready"
+else
+  _lvs_ready="http://${HOST_IP}:38111/v1/ready"
+fi
+curl -sf --max-time 5 "${_lvs_ready}" >/dev/null
+```
+
+When that returns HTTP 200, run `/vss-summarize-video` to produce the summary,
+then paste its output into the report template in Step 4 and skip Steps 1–3
+(the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
 
 ### Step 1 — Resolve Mode A input (A1 clip URL or A2 local-file/base64)
 
@@ -206,7 +311,7 @@ Hand off to `/vss-manage-video-io-storage` to:
 3. Request a clip URL:
 
    ```bash
-   curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
+   curl -s "${VST_API_BASE}/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
 Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
@@ -255,41 +360,57 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 
 | Backend | Env vars | Typical host endpoint | Picked when |
 |---|---|---|---|
-| **NIM Cosmos** | `VLM_BASE_URL`, `VLM_NAME`, `VLM_MODE`, `VLM_MODEL_TYPE` | `${VLM_BASE_URL}/v1` (no trailing `/v1` on the env var; the agent appends it) | `VLM_MODEL_TYPE != rtvi` **and** `VLM_MODE` ∈ {`local`, `local_shared`, `remote`} **and** `VLM_BASE_URL` is non-empty |
-| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE`, `VLM_MODEL_TYPE` | `${RTVI_VLM_BASE_URL}/v1` — if unset, derive from `${HOST_IP}` (`http://${HOST_IP}:8018/v1` for alerts, `http://${HOST_IP}:30082/v1` for base) | `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
+| **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` | Kubernetes / Helm base when `VSS_PUBLIC_URL` is set (preferred) |
+| **NIM Cosmos** | `VLM_BASE_URL`, `VLM_NAME`, `VLM_MODE`, `VLM_MODEL_TYPE` | `${VLM_BASE_URL}/v1` (no trailing `/v1` on the env var; the agent appends it) | Docker: `VLM_MODEL_TYPE != rtvi` **and** `VLM_MODE` ∈ {`local`, `local_shared`, `remote`} **and** `VLM_BASE_URL` is non-empty |
+| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE`, `VLM_MODEL_TYPE` | `${RTVI_VLM_BASE_URL}/v1` — if unset, derive from `${HOST_IP}` (`http://${HOST_IP}:8018/v1` for alerts, `http://${HOST_IP}:30082/v1` for base) | Docker: `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
 
 If the user already supplied a `VLM_ENDPOINT` + model id, use those directly.
 
-Otherwise, read the live values off a running `vss-agent` container (when present) and do not guess:
+When `VSS_PUBLIC_URL` is set and `VLM_ENDPOINT` is still empty, use the public
+Ingress RT-VLM route (do **not** probe `/vlm/v1`):
 
 ```bash
-docker exec vss-agent sh -lc '
-for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-  v="$(printenv "$k")"
-  [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-done
-'
+if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VLM_ENDPOINT="${VSS_PUBLIC_URL%/}/v1"
+  VLM_BACKEND="rtvlm"
+fi
+```
+
+Otherwise, on **Docker only**, read the live values off a running `vss-agent`
+container (when present) and do not guess:
+
+```bash
+if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+  docker exec vss-agent sh -lc '
+  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
+    v="$(printenv "$k")"
+    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
+  done
+  ' 2>/dev/null || true
+fi
 ```
 
 Do not require `RTVI_VLM_ENDPOINT` from `vss-agent` env; several profiles do not inject it.
 
-Selection rule:
+Selection rule (Docker host discovery when `VLM_ENDPOINT` is still unset):
 
 ```bash
-if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
-  VLM_BACKEND="rtvlm"
-  VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
-  [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:8018/v1"   # alerts default
-  VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
-elif [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
-  VLM_BACKEND="nim_cosmos"
-  VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
-  VLM_MODEL="${VLM_NAME}"
-else
-  VLM_BACKEND="rtvlm"
-  VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
-  [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default
-  VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
+if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
+  if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
+    VLM_BACKEND="rtvlm"
+    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
+    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:8018/v1"   # alerts default
+    VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
+  elif [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
+    VLM_BACKEND="nim_cosmos"
+    VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
+    VLM_MODEL="${VLM_NAME}"
+  else
+    VLM_BACKEND="rtvlm"
+    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
+    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default
+    VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
+  fi
 fi
 ```
 
@@ -299,9 +420,9 @@ Probe `/v1/models` before sending a chat request to confirm the chosen endpoint 
 curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | jq -r '.data[].id'
 ```
 
-If the probe fails or the listed ids don't include `${VLM_MODEL}`, either:
+If `VLM_MODEL` is empty, adopt the first id the endpoint advertises. If the probe fails or the listed ids don't include `${VLM_MODEL}`, either:
 - try a discovered fallback endpoint, or
-- ask the user to choose one of the three *VLM selection when unclear* options.
+- ask the user to choose one of the *VLM selection when unclear* options.
 
 Never silently pick an unknown model.
 
@@ -512,7 +633,7 @@ Read-only boundary (mandatory):
 - Forbidden examples: indexing synthetic incidents, replaying fixture payloads into ES, calling write/update/delete APIs to "make data available" for the report.
 - If no incidents exist for the requested range/scope, handle as empty results (see below); do not fabricate data.
 
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite (see *Browser-playable clip URL* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
+For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the browser-playable rewrite (see *Clip URLs: VLM input vs browser report link* above — `VSS_PUBLIC_URL` on Kubernetes, or `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` on Docker) to every clip URL before pasting it into the report** — the raw value is often a private `HOST_IP:30888` URL the user's browser cannot reach.
 
 ### Step 3 — Fill the Incident Range Report template
 
@@ -544,12 +665,22 @@ Use for "generate an SOP compliance report" over a sensor + time range. Data com
 - Confirm the SOP tools are present (once). The four `get_sop_*` tools are added by the SOP patch and are **not** in the base `/vss-query-analytics` tool set, so call the VA-MCP endpoint directly (two-step MCP JSON-RPC: `initialize` → `tools/list`):
 
 ```bash
-MCP="http://${HOST_IP}:9901/mcp"
+# Each fenced block is its own shell — re-derive VA-MCP here (do not rely on
+# Endpoint resolution above). Force public path when VSS_PUBLIC_URL is set.
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
+MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
 SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
-[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
 curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
@@ -563,12 +694,20 @@ curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID"
 Call `video_analytics__get_sop_report` on the same endpoint. Each fenced block runs as its own shell, so `$MCP` / `$SID` / `$CT` / `$AC` from Step 1 do NOT carry over — re-establish them and re-`initialize` for a fresh session id here:
 
 ```bash
-MCP="http://${HOST_IP}:9901/mcp"
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
+fi
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+else
+  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+fi
+MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
 SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
-[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
 curl -s --max-time 30 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
@@ -604,4 +743,3 @@ If `get_sop_report` returns an error or zero messages for the range/scope, STOP 
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
 - **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Step 3 loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.
-

@@ -25,8 +25,6 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [discovery_modes.md](references/discovery_modes.md) <br>
-- [troubleshooting.md](references/troubleshooting.md) <br>
 - [NVIDIA AI Blueprints: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 

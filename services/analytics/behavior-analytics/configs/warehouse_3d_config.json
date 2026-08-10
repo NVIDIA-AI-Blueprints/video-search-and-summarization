@@ -38,6 +38,10 @@
 			{
 				"name": "events",
 				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
 			}
 		]
 	},
@@ -102,8 +106,8 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "20"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
 			"name": "behaviorWatermarkSec",
@@ -112,10 +116,6 @@
 		{
 			"name": "behaviorMaxPoints",
 			"value": "200"
-		},
-		{
-			"name": "inSimulationMode",
-			"value": "false"
 		},
 		{
 			"name": "in3dMode",

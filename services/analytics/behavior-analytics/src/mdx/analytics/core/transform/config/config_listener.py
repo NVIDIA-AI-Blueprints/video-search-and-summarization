@@ -480,7 +480,7 @@ class ConfigListener:
                 # applied the latest config -- crash and let the
                 # orchestrator (k8s / docker --restart) retry.
                 raise RuntimeError(
-                    f"FATAL: bootstrap config write failed "
+                    f"bootstrap config write failed "
                     f"(ref={self.bootstrap_ref_id}); aborting startup to "
                     f"avoid config inconsistency with peer replicas"
                 ) from self.bootstrap_disk_failure

@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Integration-test stack for the measurement-fusion service.
+#
+# Brings up a single-node Kafka (KRaft) and the built vss-rt-cv-mv3dt-bev-fusion
+# image. The service consumes per-sensor Frames from mdx-raw and publishes fused
+# BEV Frames to mdx-bev. The test host talks to Kafka on localhost:9092; the
+# fusion container talks to it over the compose network (kafka:29092).
+#
+# The service contract (see src/measurement_fusion.py):
+#   - subscribe RAW_TOPIC (default mdx-raw), publish fused frames to FUSED_TOPIC (default mdx-bev)
+#   - signal READY by creating /tmp/fusion_ready after subscribing
+# We test against those documented defaults over Kafka (the broker the warehouse
+# deployment uses). The warehouse deployment overrides RAW_TOPIC=mdx-mv3dt-raw;
+# topic name is just config and doesn't change the logic.
+#
+# Required env:
+#   IMAGE_REF  - the fusion image under test (e.g. nvcr.io/.../vss-rt-cv-mv3dt-bev-fusion:3.2.0-42)
+name: mv3dt-fusion-test
+
+services:
+  kafka:
+    image: confluentinc/cp-kafka:8.1.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:29092", "--list"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 10s
+
+  # One-shot: create the raw + fused topics before the service subscribes.
+  # The service consumes from auto.offset.reset=latest, so the raw topic MUST
+  # exist (and the consumer be positioned at its end) before we produce —
+  # otherwise assignment races with the producer and early frames are skipped.
+  kafka-init:
+    image: confluentinc/cp-kafka:8.1.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic mdx-raw --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic mdx-bev --partitions 1 --replication-factor 1
+        echo "mv3dt test topics ready"
+
+  measurement-fusion:
+    image: ${IMAGE_REF:-vss-rt-cv-mv3dt-bev-fusion:local}
+    environment:
+      BROKER_TYPE: kafka
+      KAFKA_BOOTSTRAP: kafka:29092
+      RAW_TOPIC: mdx-raw
+      FUSED_TOPIC: mdx-bev
+      MAX_EXPECTED_SENSORS: "4"
+      SENSOR_TIMEOUT_MS: "100"
+      BUCKET_MS: "17"
+      LOG_LEVEL: INFO
+    # READY gate = the service's own /tmp/fusion_ready sentinel. The image is
+    # distroless (no test/ls/cat), but python3 IS on PATH, so probe with it.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,sys; sys.exit(0 if os.path.exists('/tmp/fusion_ready') else 1)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully

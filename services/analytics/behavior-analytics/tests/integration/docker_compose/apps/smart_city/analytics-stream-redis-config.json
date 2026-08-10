@@ -183,16 +183,16 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "60"
-		},
-		{
 			"name": "behaviorStateValidInterval",
 			"value": "20"
 		},
 		{
 			"name": "behaviorMaxPoints",
 			"value": "100"
+		},
+		{
+			"name": "behaviorEmitOnce",
+			"value": "true"
 		},
 		{
 			"name": "objectConfidenceThreshold",

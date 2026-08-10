@@ -1,0 +1,11 @@
+# Per-run staged/generated files (stage-configs.sh, generate-configs.sh outputs).
+generated/
+
+# Local venv for the utils/ Python scripts (created by scripts/ensure-venv.sh).
+utils/venv/
+
+# BEV visualizer offline output.
+bev-output/
+
+# Saved perception videos (SAVE_VIDEO=1).
+video-output/

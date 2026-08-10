@@ -186,6 +186,8 @@ def main():
             "test_rtvi_vlm_server.py",
             "test_rtvi_stream_handler.py",
             "test_rtvi_client_cli.py",
+            "test_media_file_info.py",
+            "test_vlm_pipeline_live_subscribers.py",
         ]
         unit_paths = [os.path.join(os.path.dirname(__file__), test) for test in unit_tests]
         results["unit"] = run_pytest(

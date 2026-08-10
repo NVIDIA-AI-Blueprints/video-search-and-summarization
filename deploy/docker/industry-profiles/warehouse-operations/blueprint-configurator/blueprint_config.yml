@@ -599,7 +599,7 @@ commons:
 
 H100:
   2d:
-    max_streams_supported: 76
+    max_streams_supported: 77
   3d:
     max_streams_supported: 16
   mv3dt:
@@ -623,7 +623,7 @@ L40S:
 
 RTXA6000:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 15
   3d:
     max_streams_supported: 2
   mv3dt:
@@ -639,11 +639,15 @@ RTXA6000ADA:
 
 RTXPRO6000BW:
   2d:
-    max_streams_supported: 49
+    max_streams_supported: 47
   3d:
     max_streams_supported: 19
   mv3dt:
     max_streams_supported: 39
+    
+RTXPRO4500BW:
+  2d:
+    max_streams_supported: 20
 
 IGX-THOR:
   2d:

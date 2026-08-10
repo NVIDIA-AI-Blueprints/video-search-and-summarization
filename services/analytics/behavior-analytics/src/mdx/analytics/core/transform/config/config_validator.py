@@ -120,9 +120,9 @@ ALLOWED_SECTIONS: frozenset[str] = frozenset({"app", "sensors"})
 
 ALLOWED_APP_KEYS: frozenset[str] = frozenset({
     # Behavior / object processing
+    "behaviorEmitOnce",
     "behaviorMaxPoints",
     "behaviorStateEndToleranceSec",
-    "behaviorStateTimeout",
     "behaviorStateValidInterval",
     "behaviorTimeThreshold",
     "behaviorWatermarkSec",
@@ -140,7 +140,10 @@ ALLOWED_APP_KEYS: frozenset[str] = frozenset({
     # rejected if ever sent via a dynamic-config update.
     "in3dMode",
     "advancedOverlay",
-    "inSimulationMode",
+    # ``inSimulationMode`` deliberately excluded -- no-op key, not read by any
+    # production code path. Its only reader was ``StateMgmt._get_current_timestamp``,
+    # which was dead code and has been removed. Kept out of the allowlist so it is
+    # rejected rather than accepted into config that nothing consumes.
 
     # Trajectory / map matching
     "trajGeoCoordEnable",

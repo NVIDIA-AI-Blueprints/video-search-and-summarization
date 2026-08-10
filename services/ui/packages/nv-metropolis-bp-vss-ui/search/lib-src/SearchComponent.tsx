@@ -11,7 +11,7 @@ import React from 'react';
 import dynamic from 'next/dynamic';
 import { useVideoModal } from '@nemo-agent-toolkit/ui';
 import { InfoRound as InfoRoundIcon } from '@rsuite/icons';
-import { VideoModalTooltip } from '@aiqtoolkit-ui/common';
+import { VideoModalTooltip } from 'common';
 
 // Types
 import { SearchComponentProps, SearchData } from './types';

@@ -44,16 +44,21 @@ When you add a class that reads `self.config.X`, decide which of these patterns 
 Store the `AppConfig` reference, read values **inside method bodies** at call time:
 
 ```python
-class StateMgmtBase:
+class StateMgmt:
     def __init__(self, config: AppConfig, calibration: CalibrationBase) -> None:
         self.config = config             # reference, not value
 
     def some_method(self):
-        if not self.config.in_simulation_mode:   # read-at-use
+        if idle_sec >= self.config.behavior_state_valid_interval:   # read-at-use
             ...
 ```
 
 **Behavior under dynamic updates:** `ConfigApplier.apply(...)` mutates `config.app` then calls `config.invalidate_caches()`. The next read returns the new value. **No additional code needed.**
+
+That last sentence is about *value propagation* only. A key that changes what a component
+**does** may still need transition code for state accumulated under the old value —
+`behaviorEmitOnce` is the example, and `StateMgmt._carry_over_held_behaviors` is what it needs.
+Read-at-use gets the new value to you; it does not decide what to do with the old one.
 
 ### Per-call value-capture (rotates within seconds)
 
@@ -61,8 +66,8 @@ Pass values into a sub-object that's reconstructed on every call:
 
 ```python
 class StateMgmt:
-    def _create_trajectory(self, ...) -> TrajectoryE:
-        return TrajectoryE(
+    def _create_trajectory(self, ...) -> Trajectory:
+        return Trajectory(
             smooth_window_size=self.config.traj_smooth_window_size,  # value passed in
             ...
         )
@@ -275,6 +280,6 @@ Aim for 100% line + branch coverage on new code under `transform/config/`. The s
 
 ## Where to find canonical examples
 
-- Read-at-use consumer: `src/mdx/analytics/core/stream/state/behavior/state_management_base.py` (just stores the `AppConfig` reference; reads at use-time).
-- Per-call value-capture: `src/mdx/analytics/core/stream/state/behavior/state_management_e.py::_create_trajectory` (passes values into a per-call sub-object).
+- Read-at-use consumer: `src/mdx/analytics/core/stream/state/behavior/state_management.py` (just stores the `AppConfig` reference; reads at use-time).
+- Per-call value-capture: `src/mdx/analytics/core/stream/state/behavior/state_management.py::_create_trajectory` (passes values into a per-call sub-object).
 - Captured-at-`__init__` (restart-required) consumers: `src/mdx/analytics/core/transform/detection/collision_detection.py`, `src/mdx/analytics/core/utils/space_utilization.py::SpaceAnalyzer`, `src/mdx/analytics/core/stream/state/video_embedding/downsampling/`. Their config keys are intentionally absent from the validator's allowlist.

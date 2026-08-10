@@ -293,7 +293,7 @@ analytics:
             {"name": "spaceAnalyticsUseGA", "value": "false"},
             {"name": "spaceAnalyticsPopulationSizeGA", "value": "100"},
             {"name": "spaceAnalyticsNumGenerationsGA", "value": "100"},
-            {"name": "behaviorStateTimeout", "value": "20"},
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "in3dMode", "value": "true"},
@@ -320,17 +320,26 @@ rtvi:
     otelServiceName: rtvi-cv-mv3dt
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: "3.3.0-26.07.1"
+      tag: "3.3.0-26.07.2"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
     deepstreamEnableSensorIdExtraction: "0"
     downloadNgcAppData: true
-    downloadModelsFromNgc: false
+    downloadModelsFromNgc: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcAppDataOrg: nvidia
     ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    ngcModelsToDownload:
+      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
+      - model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0
+        org: nvidia
+        sourcePath: bodypose3dnet_accuracy.onnx
+        destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:

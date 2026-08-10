@@ -10,7 +10,7 @@ Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. RT-
 
 - **Four always-on GPU services:** `rtvi-cv` (DeepStream perception), `rtvi-embed` (Cosmos Embed1 embeddings), the **LLM**, and `vss-rtvi-vlm`. Search does not deploy a standalone Cosmos VLM NIM.
 - **RT-VLM serves two consumers.** The Critique agent uses it when `use_critic=true` (default), and `video_understanding` uses it independently.
-- **Default local layout uses three GPUs.** `RT_CV_DEVICE_ID=0`; `RT_EMBED_DEVICE_ID=1` and `LLM_DEVICE_ID=1`; `RT_VLM_DEVICE_ID=2`. The LLM must leave headroom for RT-Embed on GPU 1.
+- **Default local layout uses two GPUs.** GPU 0 hosts `RT_CV_DEVICE_ID=0` plus `RT_VLM_DEVICE_ID=0`; GPU 1 hosts `RT_EMBED_DEVICE_ID=1` and `LLM_DEVICE_ID=1`. Both GPUs are shared, so RT-VLM must leave headroom for RT-CV and the LLM must leave headroom for RT-Embed.
 - **Remote VLM still uses a local RT-VLM proxy.** `vss-rtvi-vlm` runs in `openai-compat` mode and forwards inference to the selected remote endpoint.
 
 ## What gets deployed
@@ -37,7 +37,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
 | Embed (RT-Embed) | `nvidia/Cosmos-Embed1-448p-anomaly-detection` | — | RT-Embed (port 8017), `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` |
 | Perception (RT-CV) | siglip2 v1.1 + RTDETR (warehouse) | — | RT-CV (DeepStream pipeline) |
-| VLM (RT-VLM) | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` (default local checkpoint) | `VLM_NAME_SLUG=none`; activated via the `rtvi-vlm` compose profile | RT-VLM (port 8018) |
+| VLM (RT-VLM) | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` (default local checkpoint; FP8 so it fits alongside RT-CV on GPU 0) | `VLM_NAME_SLUG=none`; activated via the `rtvi-vlm` compose profile | RT-VLM (port 8018) |
 
 ## VLM placement
 
@@ -47,17 +47,17 @@ RT-VLM is always selected with `VLM_MODEL_TYPE=rtvi` and `VLM_NAME_SLUG=none`; t
 User supplied or approved a remote VLM endpoint?     → Path A: RT-VLM remote proxy
    │
    ▼
-DEFAULT — at least 3 GPUs available?                 → Path B: local RT-VLM on GPU 2
+DEFAULT — at least 2 GPUs available?                 → Path B: local RT-VLM on GPU 0
    │
    ▼
-Only 2 GPUs available?                               → Path A: remote VLM required
+Only 1 GPU available?                                → Path A: remote VLM required
 ```
 
-The default is **Path B**, with RT-CV on GPU 0, RT-Embed + LLM on GPU 1, and RT-VLM on GPU 2. On a two-GPU Brev host, use Path A; `dev-profile.sh` intentionally rejects local RT-VLM there rather than silently overcommitting either GPU.
+The default is **Path B**, with RT-CV + RT-VLM on GPU 0 and RT-Embed + LLM on GPU 1. On a single-GPU Brev host, use Path A; `dev-profile.sh` rejects local RT-VLM there rather than silently overcommitting the only GPU.
 
 ### Path A — RT-VLM proxy to a remote VLM
 
-Triggered when the user provides a VLM endpoint URL, asks for `remote-vlm` / `remote-all`, or approves remote placement because fewer than three GPUs are available. RT-VLM remains local as the media-processing/OpenAI-compatible proxy:
+Triggered when the user provides a VLM endpoint URL, asks for `remote-vlm` / `remote-all`, or approves remote placement because fewer than two GPUs are available. RT-VLM remains local as the media-processing/OpenAI-compatible proxy:
 
 ```bash
 VLM_MODE=remote
@@ -75,26 +75,28 @@ NVIDIA_API_KEY=<key if required>
 
 The resolved compose must include profile `rtvi-vlm` and container `vss-rtvi-vlm`. `VLM_BASE_URL` has no `/v1`; `RTVI_VLM_ENDPOINT` includes `/v1`.
 
-### Path B — Default: local RT-VLM on dedicated GPU 2
+### Path B — Default: local RT-VLM sharing GPU 0 with RT-CV
 
-Use this on a host with at least three free GPUs:
+Use this on a host with at least two free GPUs:
 
 ```bash
 RT_CV_DEVICE_ID=0
 RT_EMBED_DEVICE_ID=1
 LLM_DEVICE_ID=1                                          # LLM shares GPU 1 with RT-Embed
-VLM_DEVICE_ID=2
-RT_VLM_DEVICE_ID=2
+VLM_DEVICE_ID=0                                          # RT-VLM shares GPU 0 with RT-CV
+RT_VLM_DEVICE_ID=0
 LLM_MODE=local_shared
-VLM_MODE=local
-VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
+VLM_MODE=local_shared
+VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix
 VLM_NAME_SLUG=none
 VLM_MODEL_TYPE=rtvi
 VLM_PORT=8018
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=<hardware-derived value>
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=<hardware-derived value>  # 0.4 on H100/RTX PRO 6000 in local_shared
 ```
+
+`VLM_MODE` derives to `local_shared` rather than `local` because `VLM_DEVICE_ID=0` is listed in `FIXED_SHARED_DEVICE_IDS`. That is what selects the shared-GPU memory fraction, so do not hand-set `VLM_MODE=local` here — it would let RT-VLM claim the fraction meant for a dedicated GPU and starve RT-CV.
 
 The resolved compose must include profile `rtvi-vlm` and container `vss-rtvi-vlm`. Use `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, not `NIM_KVCACHE_PERCENT`, to size RT-VLM.
 
@@ -104,7 +106,7 @@ For VLM and LLM weight cost + the general formula, see [`base.md` § Sizing math
 
 ### RT-Embed sizing
 
-Image: `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1` (SBSA: `3.2.1-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4` (SBSA: `3.3.0-26.07.4-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 Per the upstream `perf/benchmark/rtvi_embed_gpu_initial_stream_counts.json`, the **dedicated-GPU ceiling** — max concurrent streams when RT-Embed has the GPU to itself with **no co-resident** model:
 
@@ -131,7 +133,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 | `VLM_BATCH_SIZE` | `VLM_BATCH_SIZE` | auto (3 / 16 / 64 / 128 by GPU mem) | Batch size for inference. Auto-clamps to GPU capacity. |
 | `RTVI_EMBED_NUM_GPUS` / `VSS_NUM_GPUS_PER_VLM_PROC` | `NUM_GPUS` | empty (1) | Multi-GPU distribution per embed process. |
 | `RT_EMBED_DEVICE_ID` | (compose `device_ids`) | `1` | Which GPU RT-Embed pins to. |
-| `RTVI_EMBED_TAG` | (image tag) | `3.2.1` | x86 / iGPU. For DGX Spark: use the published `3.2.1-sbsa` variant when available. |
+| `RTVI_EMBED_TAG` | (image tag) | `3.3.0-26.07.4` | x86 / iGPU. For DGX Spark: use the published `3.3.0-26.07.4-sbsa` variant when available. |
 
 **Default Cosmos-Embed1 deployment runs on Triton (ONNX), not vLLM.** From `start_rtvi_embed.sh:47-49` and `src/models/custom/samples/cosmos-embed1/inference.py:55-56`, the default `VLM_MODEL_TO_USE=custom` loads Cosmos-Embed1 via Triton-served ONNX models (`text_embeddings`, `video_embeddings`). For that path:
 
@@ -145,7 +147,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 
 ### RT-CV sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.1` (SBSA: `3.3.0-sbsa-26.07.1`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
+Image: `nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2` (SBSA: `3.3.0-sbsa-26.07.2`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
 
 RT-CV is a **DeepStream perception pipeline**, not a vLLM container. It has no `--gpu-memory-utilization`-style knob. Memory scales with stream count and the active model family.
 
@@ -158,9 +160,9 @@ Knobs (in `dev-profile-search/.env`):
 | `DS_MODE_FLAG` | `1` | DeepStream mode. |
 | `DS_MESSAGE_RATE` | `1` | Inference messages per second per stream. |
 | `DS_TRACKER_REID` | `false` | Enable re-identification (extra VRAM). |
-| `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by `perception-2d-init`. |
+| `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by ds-start phase 0. |
 | `RT_CV_DEVICE_ID` | `0` | Which GPU RT-CV pins to. |
-| `PERCEPTION_TAG` | `3.3.0-26.07.1` | Image tag (use `-sbsa-` variant on DGX Spark). |
+| `PERCEPTION_TAG` | `3.3.0-26.07.2` | Image tag (use `-sbsa-` variant on DGX Spark). |
 
 The upstream perf guide doesn't publish a single GB number — it publishes per-GPU max stream counts (consistent with the table above for RT-Embed). Treat **`NUM_STREAMS=16`** as a starting point on H100 / RTX PRO 6000 / L40S; lower it on smaller GPUs or when co-locating with a VLM.
 
@@ -202,14 +204,15 @@ That's it. No compose-file tweak required for the default Cosmos-Embed1 deployme
 
 > **Verifying under load.** Watch `docker logs vss-rtvi-embed` and `nvidia-smi -l 5` on GPU 1 while pushing `NUM_STREAMS=16` of test video. If RT-Embed's resident memory exceeds ~12 GB, raise the budget (e.g. 12 → 15 GB → recompute LLM `NIM_KVCACHE_PERCENT`). If the LLM OOMs at startup, it usually means RT-Embed grabbed more than 10 GB before the LLM allocated; constrain RT-Embed by lowering `NUM_STREAMS` or `RTVI_EMBED_NUM_VLM_PROCS` (10 → 4).
 
-RT-VLM uses dedicated GPU 2 in the default search layout, so its budget is independent of the RT-CV stream count. Size it with `RTVI_VLLM_GPU_MEMORY_UTILIZATION`; continue to size the LLM + RT-Embed pair on GPU 1 with the table above.
+RT-VLM shares GPU 0 with RT-CV in the default search layout, so its budget and the RT-CV stream count now compete for the same device. Size RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION` (0.4 on H100 / RTX PRO 6000 in `local_shared`) and leave the remainder for RT-CV; continue to size the LLM + RT-Embed pair on GPU 1 with the table above. If RT-CV fails to build engines or drops streams, lower the RT-VLM fraction before touching `NUM_STREAMS`.
 
 ## Hard rules
 
 - **RT-VLM must always be reachable.** Disabling Critique does not remove this requirement because `video_understanding` still uses RT-VLM.
-- **Default local search requires three GPUs.** On a two-GPU host, use the remote-proxy path for the VLM. L40S (48 GB) may also require a quantized or remote LLM because the LLM shares GPU 1 with RT-Embed.
+- **Default local search requires two GPUs.** On a single-GPU host, use the remote-proxy path for the VLM.
+- **L40S search requires a remote LLM *and* a remote VLM.** `dev-profile.sh` rejects `local_shared` for both, and the default layout shares both GPUs, so a fully local L40S deployment fails validation — pass `--use-remote-llm` and `--use-remote-vlm`. The L40S row in the [worked example](#worked-example--llm--rt-embed-on-gpu-1) table applies only to layouts that give the LLM its own GPU.
 - **Edge platforms (DGX Spark / Thor) are not supported for `search` yet** — track upstream blueprint for support. Use SBSA image tags (`-sbsa-`) when they land.
-- **`RESERVED_DEVICE_IDS` and `FIXED_SHARED_DEVICE_IDS` come from defaults** in `dev-profile-search/.env` (`'0'` and `'1'` respectively). They tell `dev-profile.sh` which devices not to reassign — the skill works at the env-file level, so leave them as-is unless changing the layout meaningfully (e.g. swapping which GPU hosts RT-CV vs RT-Embed).
+- **`RESERVED_DEVICE_IDS` and `FIXED_SHARED_DEVICE_IDS` come from defaults** in `dev-profile-search/.env` (`''` and `'0,1'` respectively). Nothing is reserved because both GPUs are shared, and listing both devices as shared is what makes the LLM and RT-VLM derive `local_shared` memory fractions. The skill works at the env-file level, so leave them as-is unless changing the layout meaningfully (e.g. swapping which GPU hosts RT-CV vs RT-Embed).
 - **`/v1` quirk** — `LLM_BASE_URL` / `VLM_BASE_URL` have no `/v1` (the client appends it). In remote-proxy mode, `RTVI_VLM_ENDPOINT` does include `/v1`.
 
 ## Key capabilities
@@ -242,46 +245,22 @@ deploy/docker/developer-profiles/dev-profile-search/.env
 deploy/docker/developer-profiles/dev-profile-search/generated.env
 ```
 
-## Stage perception models (RT-DETR warehouse)
+## Perception model download (automatic)
 
-**MUST run before `docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`.** The compose's `perception-2d-init` container only fetches the SigLIP vision encoder. The RT-DETR detector model that RT-CV needs is staged separately by `dev-profile.sh` — and since this skill doesn't run that script, the agent must stage it directly.
+The RT-DETR detector model, SigLIP vision encoder, and any other required assets are downloaded automatically by `ds-start.sh` phase 0 at perception container startup when `DS_MODEL_DOWNLOAD=auto` is set (the default in the compose file). No manual model staging or separate init container is needed.
 
-Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx` is missing. (User-confirmed on 2026-05-10.)
-
-```bash
-# Source: deploy/docker/scripts/dev-profile.sh (search profile, model staging block)
-# Requires NGC_CLI_API_KEY exported and ngc CLI on PATH (see references/ngc.md).
-
-DATA="$VSS_DATA_DIR"                                     # e.g. <repo>/data
-mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/models"
-
-NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
-    download-version \
-    nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-    --org nvidia
-
-mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx \
-    "$DATA/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
-
-chmod -R 777 "$DATA/models"
-```
-
-**Verify** before deploying:
+Ensure `NGC_CLI_API_KEY` is exported and `${VSS_DATA_DIR}/models` exists and is writable before first deploy:
 
 ```bash
-ls -l "$VSS_DATA_DIR/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-# expected: ~30–50 MB onnx file, mode 777
+mkdir -p "$VSS_DATA_DIR/models"
+chmod -R 777 "$VSS_DATA_DIR/models"
 ```
 
-After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on
-first start). Note that engine caches live alongside the ONNX files under
-`$VSS_DATA_DIR/models/` here, not under `$VSS_APPS_DIR/engines/` like the
-alerts profile — see [`alerts.md` § Stage perception models](alerts.md#stage-perception-models-rtdetr-its--gdino) for the alerts-profile path.
+After download, RT-CV builds a TensorRT engine from the ONNX (3–5 min on first start). Engine caches live alongside the ONNX files under `$VSS_DATA_DIR/models/`.
 
 ## First-run note
 
-RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; RT-CV's `perception-2d-init` downloads `siglip_v2` from NGC, then builds a TensorRT engine from the ONNX staged in [Stage perception models](#stage-perception-models-rt-detr-warehouse) above. Expect 15–25 min extra on the first deploy.
+RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; ds-start phase 0 downloads `siglip_v2` from NGC and stages the RT-DETR ONNX, then builds a TensorRT engine. Expect 15–25 min extra on the first deploy.
 
 ### HuggingFace token for RT-Embed
 

@@ -229,6 +229,40 @@ functions:
       timeout: 300
   # <<< frag
 
+  # >>> arango_graph: reference-only ArangoDB retrieval example
+  # VSS does not create, seed, or manage this graph. Point this tool at an
+  # existing ArangoDB graph and add it to workflow.tool_names.
+  #
+  # example_graph_retrieval:
+  #   _type: knowledge_retrieval
+  #   backend: arango_graph
+  #   top_k: 5
+  #   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  #   backend_config:
+  #     # Connection settings can also come from ARANGO_* env vars.
+  #     arango_url: ${ARANGO_URL:-http://arango-db:8529}
+  #     arango_database: ${ARANGO_DB:-example_graphs}
+  #     arango_graph_name: ${ARANGO_GRAPH_NAME:-example_graph}
+  #     # Required LangChain opt-in for generated AQL. Use read-only
+  #     # ArangoDB credentials to enforce retrieval-only access.
+  #     allow_dangerous_requests: true
+  #     schema_description: |
+  #       node_a vertices connect to node_b vertices through related_to edges.
+  #       Replace these names with your existing graph schema.
+  #     allowed_vertex_collections:
+  #     - node_a
+  #     - node_b
+  #     allowed_edge_collections:
+  #     - related_to
+  #     graph_semantics:
+  #     - name: example_relationship
+  #       user_terms: ["node", "related", "relationship", "connection"]
+  #       source_collection: node_a
+  #       edge_collection: related_to
+  #       target_collection: node_b
+  #       meaning: node_a records are connected to related node_b records.
+  # <<< arango_graph reference
+
 llms:
   # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
   nim_llm:

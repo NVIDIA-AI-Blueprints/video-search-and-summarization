@@ -34,6 +34,10 @@
 			{
 				"name": "events",
 				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
 			}
 		]
 	},
@@ -62,12 +66,12 @@
 	],
 	"app": [
 		{
-			"name": "behaviorWatermarkSec",
-			"value": "30"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
+			"name": "behaviorWatermarkSec",
+			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",
@@ -76,10 +80,6 @@
 		{
 			"name": "objectConfidenceThreshold",
 			"value": "0.5"
-		},
-		{
-			"name": "inSimulationMode",
-			"value": "false"
 		},
 		{
 			"name": "playbackSimulationTimedeltaInMin",

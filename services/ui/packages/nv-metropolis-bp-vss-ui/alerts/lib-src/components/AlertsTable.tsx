@@ -456,22 +456,6 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
             {alert.alertType ? alert.alertType : 'N/A'}
           </Button>
         </td>
-        <td className="py-3 px-4 text-sm">
-          {alert.alertTriggered ? (
-            <Button
-              kind="tertiary"
-              onClick={() => {
-                if (!activeFilters.alertTriggered.has(alert.alertTriggered)) {
-                  onAddFilter('alertTriggered', alert.alertTriggered);
-                }
-              }}
-            >
-              {alert.alertTriggered}
-            </Button>
-          ) : (
-            <span className={isDark ? 'text-neutral-300' : 'text-gray-600'}>N/A</span>
-          )}
-        </td>
         <td className={tdTextClass}>
           <VlmVerdictCell alert={alert} isDark={isDark} />
         </td>
@@ -494,7 +478,7 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
         <tr data-testid="alert-row-expanded" className={isDark ? 'bg-black border-b border-neutral-700' : 'bg-gray-100 border-b border-gray-200'}>
           <td></td>
           <td></td>
-          <td colSpan={8} className="py-4 pr-4">
+          <td colSpan={7} className="py-4 pr-4">
             <div className="space-y-4">
               <MetadataSection
                 alertId={alert.id}
@@ -794,7 +778,6 @@ function AlertsTableContent({
             </th>
             <th className={thClass}>Sensor</th>
             <th className={thClass}>Alert Type</th>
-            <th className={thClass}>Alert Triggered</th>
             <th className={thClass}>VLM Verdict</th>
             <th className={thClass}>Alert Description</th>
             <th className={`${thClass} w-8`}></th>

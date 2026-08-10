@@ -308,13 +308,19 @@ def diff_requirements(
                 "repository_url": "", "notes": "removed from requirements.txt",
             })
         elif bv != hv and bv and hv:  # pinned == bump on both sides
-            meta = pypi_metadata(name, hv)
+            old_meta = pypi_metadata(name, bv)
+            new_meta = pypi_metadata(name, hv)
+            old_license = old_meta.get("license", "")
+            new_license = new_meta.get("license", "")
+            notes = "requirements.txt version pin changed"
+            if old_license and new_license and old_license != new_license:
+                notes += "; license changed"
             rows.append({
                 "language": "python", "package": name, "change": "updated",
                 "old_version": bv, "new_version": hv,
-                "old_license": "", "new_license": meta.get("license", ""),
-                "repository_url": meta.get("repository_url", ""),
-                "notes": "requirements.txt version pin changed",
+                "old_license": old_license, "new_license": new_license,
+                "repository_url": new_meta.get("repository_url", ""),
+                "notes": notes,
             })
     return rows
 

@@ -11,8 +11,6 @@ data/
 docs/
 configs/
 README.md
-AGENTS.md
-CLAUDE.md
 
 # Editor/IDE
 .idea/

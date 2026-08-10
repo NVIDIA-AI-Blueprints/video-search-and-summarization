@@ -1,6 +1,6 @@
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"group": "mdx-search-and-alerts-app",
 		"consumer": {
 			"autoOffsetReset": "latest",
@@ -30,6 +30,10 @@
 			{
 				"name": "incidents",
 				"value": "mdx-incidents"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
 			},
 			{
 				"name": "embed",
@@ -70,12 +74,12 @@
 		},
 
 		{
-			"name": "behaviorWatermarkSec",
-			"value": "30"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
+			"name": "behaviorWatermarkSec",
+			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",
@@ -108,7 +112,7 @@
 		},
 		{
 			"name": "fovCountViolationIncidentObjectType",
-			"value": "person"
+			"value": "Person"
 		},
 
 		{
@@ -155,10 +159,6 @@
 		{
 			"name": "playbackStartUpDelaySec",
 			"value": "90"
-		},
-		{
-			"name": "inSimulationMode",
-			"value": "true"
 		}
 	]
 }

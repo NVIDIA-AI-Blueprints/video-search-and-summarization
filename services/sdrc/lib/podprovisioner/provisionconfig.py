@@ -144,26 +144,46 @@ class provisionconfig:
 
         logger.info("configuring at {}".format(url))
         logger.info("payload: {}".format(json.dumps(configData, indent=2)))
+        retry_attempts = self.app_config.get("WDM_CONFIG_RETRY_ATTEMPTS")
+        if retry_attempts is None:
+            retry_attempts = min(
+                int(self.app_config.get("WDM_ADD_REMOVE_RETRY_ATTEMPTS", 5)),
+                5,
+            )
+        retry_attempts = max(1, int(retry_attempts))
+        retry_delay = float(
+            self.app_config.get(
+                "WDM_CONFIG_RETRY_DELAY",
+                self.app_config.get("WDM_ADD_REMOVE_RETRY_DELAY", 0.5),
+            )
+        )
+        logger.info(f"Max configure retry attempt {retry_attempts}")
+
         response = None
-        failed_to_configure = True
-        failed_to_configure_amnt = self.app_config["WDM_ADD_REMOVE_RETRY_ATTEMPTS"]
-        while failed_to_configure:
+        for attempt in range(1, retry_attempts + 1):
             try:
-                response = requests.post(json=configData, url=url, timeout=self.app_config["WDM_ADD_REMOVE_REQUEST_TIMEOUT"])
+                response = requests.post(
+                    json=configData,
+                    url=url,
+                    timeout=self.app_config["WDM_ADD_REMOVE_REQUEST_TIMEOUT"],
+                )
                 logger.info(f"configure operation Response Code: {response.status_code}")
                 try:
                     logger.info(f"configure operation text return: {response.text}")
                 except Exception as e:
                     logger.info("error while trying to print response.text - " + repr(e))
-                failed_to_configure = False
-            except Exception as e:
-                logger.info(f"error occurred in configure call {e}. Will retry...")
-                failed_to_configure = True
-                time.sleep(0.1)
-                failed_to_configure_amnt -= 1
-                if failed_to_configure_amnt == 0:
-                    logger.info (f"Max retry attempt exhausted {self.app_config['WDM_ADD_REMOVE_RETRY_ATTEMPTS']}")
-                    break
+                return response
+            except requests.RequestException as e:
+                logger.info(
+                    "transport error occurred in configure call %s/%s: %s",
+                    attempt,
+                    retry_attempts,
+                    e,
+                )
+                if attempt < retry_attempts:
+                    time.sleep(retry_delay)
+
+        logger.info(f"Max configure retry attempt exhausted {retry_attempts}")
         return response
     
     def _generate_redis_msg(self, configData, podInfo, event_info, event_type):

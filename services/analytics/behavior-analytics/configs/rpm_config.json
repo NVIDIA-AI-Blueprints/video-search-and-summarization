@@ -69,6 +69,10 @@
 			"value": "5"
 		},
 		{
+			"name": "behaviorEmitOnce",
+			"value": "false"
+		},
+		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},

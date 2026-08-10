@@ -140,8 +140,8 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "20"
+			"name": "behaviorEmitOnce",
+			"value": "false"
 		},
 		{
 			"name": "behaviorWatermarkSec",
@@ -190,6 +190,42 @@
 		{
 			"name": "numWorkersForSpaceEstimation",
 			"value": "0"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentThreshold",
+			"value": "1.0"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentExpirationWindow",
+			"value": "0.5"
+		},
+		{
+			"name": "confinedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "confinedAreaViolationIncidentThreshold",
+			"value": "1.0"
+		},
+		{
+			"name": "confinedAreaViolationIncidentExpirationWindow",
+			"value": "0.5"
+		},
+		{
+			"name": "proximityViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "proximityViolationIncidentThreshold",
+			"value": "1.0"
+		},
+		{
+			"name": "proximityViolationIncidentExpirationWindow",
+			"value": "0.5"
 		}
 	]
 }
