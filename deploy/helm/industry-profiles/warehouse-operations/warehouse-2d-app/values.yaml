@@ -9,6 +9,9 @@ global:
   # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
   vios:
     useSdrc: true
+  ngcApiSecret:
+    name: ngc-api
+    key: NGC_CLI_API_KEY
   imagePullSecrets:
     - name: ngc-docker-reg-secret
   storageClass: ""
