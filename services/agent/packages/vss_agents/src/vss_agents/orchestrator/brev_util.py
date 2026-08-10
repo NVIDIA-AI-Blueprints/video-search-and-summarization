@@ -31,8 +31,10 @@ try:
 except ImportError:  # Python 3.10 on some notebook/eval hosts.
     from enum import Enum
 
-    class StrEnum(str, Enum):
+    # enum.StrEnum starts in Python 3.11; the eval notebooks still include 3.10.
+    class StrEnum(str, Enum):  # type: ignore[no-redef]  # noqa: UP042
         pass
+
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
