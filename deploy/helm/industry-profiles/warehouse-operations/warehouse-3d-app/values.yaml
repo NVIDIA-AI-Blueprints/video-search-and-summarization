@@ -14,8 +14,8 @@ bp-configurator:
   enabled: true
   name: bp-configurator-3d
   image:
-    repository: nvcr.io/nvidia/vss-core/vss-configurator
-    tag: "3.2.1"
+    repository: nvcr.io/nvstaging/vss-core/vss-configurator
+    tag: "3.3.0-2026.08.2-1"
     pullPolicy: IfNotPresent
   init:
     enabled: true

@@ -52,7 +52,6 @@ class TestStateMgmtLogic:
     def full_config(self):
         """Config with all attributes required by StateMgmt."""
         config = Mock(spec=AppConfig)
-        config.in_simulation_mode = True
         config.traj_smooth_min_points = 3
         config.traj_smooth_window_size = 3
         config.traj_distance_stride = 1
@@ -95,22 +94,6 @@ class TestStateMgmtLogic:
             ),
             place=Place(id="place1", name="test_place"),
         )
-
-    # --- _get_current_timestamp ---
-    def test_get_current_timestamp_simulation_mode_returns_sensor_latest(self, state_mgmt, full_config):
-        """_get_current_timestamp in simulation mode returns sensor_latest_timestamp[sensor_id] or None."""
-        full_config.in_simulation_mode = True
-        state_mgmt.sensor_latest_timestamp["s1"] = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        assert state_mgmt._get_current_timestamp("s1") == datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        assert state_mgmt._get_current_timestamp("unknown_sensor") is None
-
-    def test_get_current_timestamp_non_simulation_returns_now(self, state_mgmt, full_config):
-        """_get_current_timestamp when not in simulation returns datetime.now(utc)."""
-        full_config.in_simulation_mode = False
-        before = datetime.now(timezone.utc)
-        result = state_mgmt._get_current_timestamp("s1")
-        after = datetime.now(timezone.utc)
-        assert before <= result <= after
 
     # --- _update_sensor_latest_timestamp ---
     def test_update_sensor_latest_timestamp_updates_on_new_or_newer(self, state_mgmt):
@@ -560,7 +543,6 @@ class TestStateMgmtEmitOnce:
     def emit_once_config(self):
         """Config with emit-once enabled and all attributes required by StateMgmt."""
         config = Mock(spec=AppConfig)
-        config.in_simulation_mode = True
         config.traj_smooth_min_points = 3
         config.traj_smooth_window_size = 3
         config.traj_distance_stride = 1
@@ -751,9 +733,8 @@ class TestStateMgmtEmitOnce:
         assert other_sensor_key in state_mgmt.state
         assert other_sensor_key in state_mgmt.behavior_holdback.pending
 
-    def test_ingestion_lag_does_not_end_live_tracks(self, state_mgmt, emit_once_config):
-        """In live mode the sweep uses event time, so a lagging pipeline is not mistaken for silence."""
-        emit_once_config.in_simulation_mode = False
+    def test_ingestion_lag_does_not_end_live_tracks(self, state_mgmt):
+        """The sweep uses event time, so a lagging pipeline is not mistaken for silence."""
         key = "sensor1 #-# obj1"
         # Messages arrive 30s behind the wall clock — far past the 6s valid interval. Silence is judged
         # on the sensor's own event clock, which has advanced by only 1s, so the lag is not mistaken
@@ -995,6 +976,60 @@ class TestStateMgmtEmitOnce:
         assert written[0].end == base + timedelta(seconds=1)
         assert len(written[0].locations.coordinates) == 2
 
+    def _flip_inside_batch(self, state_mgmt, emit_once_config, to_value: bool) -> None:
+        """Land a config update *inside* process_batch, between the retain and the write decision.
+
+        ``_end_inactive_behaviors`` is called between the two, so wrapping it puts the flip in exactly
+        the window a dynamic update can land in.
+        """
+        original = state_mgmt._end_inactive_behaviors
+
+        def flip_then_end():
+            emit_once_config.behavior_emit_once = to_value
+            original()
+
+        state_mgmt._end_inactive_behaviors = flip_then_end
+
+    def test_emit_once_flip_inside_a_batch_does_not_drop_behaviors(self, state_mgmt, emit_once_config):
+        """A flip landing mid-batch costs a one-batch delay, never the batch itself.
+
+        ``behaviorEmitOnce`` is runtime-updatable, so an update can land between the retain and the
+        decision about what to write. Read separately at both points, an off->on flip in that window
+        retained nothing and then wrote ``take_ended()``, so the batch's behaviors were dropped for
+        good rather than delayed. process_batch latches the value once, so a batch finishes under the
+        value it started with.
+        """
+        emit_once_config.behavior_emit_once = False
+        key = "sensor1 #-# obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        self._flip_inside_batch(state_mgmt, emit_once_config, to_value=True)
+        written = self._feed(state_mgmt, key, "obj1", base, 0.0)
+
+        # Started off, so it finishes off -- written per-batch rather than swallowed.
+        assert [b.id for b in written] == [key]
+        assert state_mgmt.behavior_holdback.pending == {}
+
+        # The update still lands; it just takes effect from the next batch.
+        assert self._feed(state_mgmt, key, "obj1", base + timedelta(seconds=1), 1.0) == []
+        assert list(state_mgmt.behavior_holdback.pending) == [key]
+
+    def test_emit_once_flip_off_inside_a_batch_does_not_duplicate(self, state_mgmt, emit_once_config):
+        """The same latch in reverse: an on->off flip mid-batch must not also write per-batch.
+
+        Unlatched, the batch would retain the behavior and then take the else-branch, writing the
+        active behavior too -- so the track goes out once now and again when it ends.
+        """
+        key = "sensor1 #-# obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        self._flip_inside_batch(state_mgmt, emit_once_config, to_value=False)
+        written = self._feed(state_mgmt, key, "obj1", base, 0.0)
+
+        # Started on, so it finishes on -- held back, nothing written twice.
+        assert written == []
+        assert list(state_mgmt.behavior_holdback.pending) == [key]
+
     def test_emit_once_round_trip_leaves_nothing_held(self, state_mgmt, emit_once_config):
         """Toggling on, off and on again settles cleanly, holding nothing stale from earlier phases."""
         key = "sensor1 #-# obj1"
@@ -1023,7 +1058,6 @@ class TestStateMgmtBatchApi:
     @pytest.fixture
     def mock_config(self):
         config = Mock(spec=AppConfig)
-        config.in_simulation_mode = True
         config.traj_smooth_min_points = 3
         config.traj_smooth_window_size = 3
         config.traj_distance_stride = 1

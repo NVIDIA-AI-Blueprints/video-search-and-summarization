@@ -478,7 +478,7 @@ def scenario_upsert_success_mixed_types(args, producer: Producer) -> str:
 
     | helper                     | key (value)                                          |
     |----------------------------|------------------------------------------------------|
-    | ``_bool``                  | ``inSimulationMode = "true"``                        |
+    | ``_bool``                  | ``behaviorEmitOnce = "true"``                        |
     | ``_int(min=0)``            | ``behaviorWatermarkSec = "45"``                      |
     | ``_float(min=0, max=1)``   | ``clusterThreshold = "0.85"``                        |
     | ``_enum("0","1","2")``     | ``trajDirectionMode = "1"``                          |
@@ -505,7 +505,7 @@ def scenario_upsert_success_mixed_types(args, producer: Producer) -> str:
 
     speed_violation_json = SpeedViolationConfig().model_dump_json()
     expected_app_keys = {
-        "inSimulationMode",
+        "behaviorEmitOnce",
         "behaviorWatermarkSec",
         "clusterThreshold",
         "trajDirectionMode",
@@ -517,7 +517,7 @@ def scenario_upsert_success_mixed_types(args, producer: Producer) -> str:
         args, producer, tag,
         config={
             "app": [
-                {"name": "inSimulationMode", "value": "true"},
+                {"name": "behaviorEmitOnce", "value": "true"},
                 {"name": "behaviorWatermarkSec", "value": "45"},
                 {"name": "clusterThreshold", "value": "0.85"},
                 {"name": "trajDirectionMode", "value": "1"},

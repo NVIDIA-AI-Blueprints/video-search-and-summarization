@@ -25,18 +25,14 @@ dependencies = [
     "requests==2.32.3",
     "redis==5.0.1",
     "ruamel.yaml==0.18.15",
-    "spatialai_data_utils==2.0.1",
+    "spatialai-data-utils",
 ]
 
 [tool.uv]
 managed = true
 
 [tool.uv.sources]
-spatialai_data_utils = { index = "nvidia-pypi" }
-
-[[tool.uv.index]]
-name = "nvidia-pypi"
-url = "https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple"
+spatialai-data-utils = { path = "../../../libs/analytics/spatialai-data-utils/release" }
 
 [dependency-groups]
 dev = [

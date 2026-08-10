@@ -20,7 +20,6 @@ from prepare_downstream_release_set import (  # noqa: E402
     downstream_relevant,
     downstream_variables,
     pr_merge_base_sha,
-    spatialai_publish_variables,
 )
 
 
@@ -177,10 +176,7 @@ class DownstreamVariablesTest(unittest.TestCase):
             )
             self.assertEqual(
                 output_path.read_text(),
-                "has_ghcr_build_entries=false\n"
-                "run_downstream=false\n"
-                "publish_spatialai_data_utils=false\n"
-                "spatialai_package_version_suffix=\n",
+                "has_ghcr_build_entries=false\nrun_downstream=false\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
 
@@ -191,7 +187,7 @@ INVENTORY = {
         {"name": "vss-agent", "source_path": "services/agent", "ghcr_build": True},
         {"name": "vss-rt-cv", "source_path": "services/rt-cv",
          "trigger_downstream_from_source": True},
-        {"name": "vss-configurator", "source_path": "services/configurator"},
+        {"name": "vss-configurator", "source_path": "services/configurators"},
     ]
 }
 
@@ -210,7 +206,7 @@ class DownstreamGateTest(unittest.TestCase):
         self.assertIn("vss-rt-cv", why)
 
     def test_unflagged_source_change_does_not_run(self):
-        run, _ = downstream_relevant(["services/configurator/a.py"], INVENTORY)
+        run, _ = downstream_relevant(["services/configurators/a.py"], INVENTORY)
         self.assertFalse(run)
 
     def test_deploy_change_runs_without_any_source_change(self):
@@ -230,85 +226,6 @@ class DownstreamGateTest(unittest.TestCase):
     def test_source_path_prefix_is_not_matched_loosely(self):
         run, _ = downstream_relevant(["services/agent-extras/x.py"], INVENTORY)
         self.assertFalse(run)
-
-
-class SpatialAiPublishGateTest(unittest.TestCase):
-    SUFFIX = ".dev123+g0123456789ab.r1"
-
-    def test_develop_change_requests_internal_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"],
-                "develop",
-                self.SUFFIX,
-            ),
-            {
-                "SPATIALAI_DATA_UTILS_PUBLISH": "true",
-                "SPATIALAI_PACKAGE_VERSION_SUFFIX": self.SUFFIX,
-            },
-        )
-
-    def test_pr_change_never_requests_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"],
-                "pull-request/1562",
-                self.SUFFIX,
-            ),
-            {},
-        )
-
-    def test_unrelated_develop_change_does_not_request_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["docs/readme.md"],
-                "develop",
-                "",
-            ),
-            {},
-        )
-
-    def test_unavailable_develop_diff_fails_open(self):
-        self.assertEqual(
-            spatialai_publish_variables(None, "develop", self.SUFFIX)[
-                "SPATIALAI_DATA_UTILS_PUBLISH"
-            ],
-            "true",
-        )
-
-    def test_publish_rejects_missing_or_malformed_suffix(self):
-        changed = ["libs/analytics/spatialai-data-utils/README.md"]
-        for suffix in ("", "dev123", ".dev0+g0123456789ab.r1"):
-            with self.subTest(suffix=suffix), self.assertRaisesRegex(
-                ValueError, "version suffix"
-            ):
-                spatialai_publish_variables(changed, "develop", suffix)
-
-    def test_explicit_false_survives_missing_git_diff_in_handoff_job(self):
-        self.assertEqual(
-            spatialai_publish_variables(None, "develop", "", "false"),
-            {},
-        )
-
-    def test_explicit_true_preserves_first_job_decision(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["docs/readme.md"],
-                "develop",
-                self.SUFFIX,
-                "true",
-            )["SPATIALAI_DATA_UTILS_PUBLISH"],
-            "true",
-        )
-
-    def test_explicit_true_is_rejected_outside_develop(self):
-        with self.assertRaisesRegex(ValueError, "only for develop"):
-            spatialai_publish_variables(
-                None,
-                "pull-request/1562",
-                self.SUFFIX,
-                "true",
-            )
 
 
 if __name__ == "__main__":
