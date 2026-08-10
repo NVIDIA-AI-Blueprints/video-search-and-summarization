@@ -55,8 +55,7 @@ COPY --from=builder /var/lib/dpkg/status.d /var/lib/dpkg/status.d
 # Application code (entrypoint.py replaces start.sh because distroless has no shell).
 COPY app/ .
 
-# Legal artifacts for container distribution (legal requirement).
-COPY NVIDIA-Software-License-Agreement.pdf /usr/src/app/NVIDIA-Software-License-Agreement.pdf
+# Third-party license text for container distribution.
 COPY 3rdParty_Licenses.md /usr/src/app/ThirdPartyLicences.txt
 
 ENV PORT=5000
