@@ -509,5 +509,24 @@ class SpatialAiPublishGateTest(unittest.TestCase):
             self.variables(None, "pull-request/1562", "true")
 
 
+class WorkflowDependencyGateTest(unittest.TestCase):
+    def test_path_gated_sdu_skip_cannot_disable_downstream_trigger(self):
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows/ci.yml"
+        ).read_text()
+        trigger = workflow.split(
+            "\n  trigger-downstream-pipeline:\n", 1
+        )[1].split("\n    runs-on:", 1)[0]
+
+        self.assertNotIn("success() &&", trigger)
+        self.assertIn("!contains(needs.*.result, 'failure')", trigger)
+        self.assertIn("!contains(needs.*.result, 'cancelled')", trigger)
+        self.assertIn("!contains(needs.*.result, 'skipped')", trigger)
+        self.assertIn(
+            "needs.wait-for-build-dev-images.outputs.run-downstream == 'true'",
+            trigger,
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
