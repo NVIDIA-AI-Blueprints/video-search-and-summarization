@@ -1185,6 +1185,56 @@ def write_skip_markers(
         print(f"[run-leg] wrote skip marker: {marker}", flush=True)
 
 
+def record_machine(
+    results_root: Path, instance: str, leg_slug: str, run_id: str
+) -> None:
+    """Persist the (machine, run, leg) triple the moment the box is claimed.
+
+    This is the only point in the pipeline where all three coexist, and
+    ``run_leg.py`` runs as a Bash *tool call* inside the outer agent session —
+    so its stdout is swallowed by the SDK and never reaches the CI job log.
+    Absent this, the box a leg ran on is unrecoverable after the run
+    (``BREV_INSTANCE`` lives only in the Harbor child's env; ``result.json``,
+    the saved trajectory, and the results artifact all omit it).
+
+    Two best-effort writes, independent of stdout capture:
+      * ``results_root/machine.txt`` — tarred into the per-leg results artifact
+        (run/slug-keyed), and dashboard-ingestible.
+      * ``$GITHUB_STEP_SUMMARY`` — surfaces in the Actions run UI + API, with
+        far longer retention than the 7-day artifact.
+
+    Never raises: a debug signal must not fail the leg.
+    """
+    def _say(msg: str) -> None:
+        # Even the diagnostics must not raise: a broken or unencodable stdout
+        # (e.g. the outer agent closed the pipe) would otherwise propagate out
+        # of a sink's except block and fail the leg.
+        try:
+            print(msg, flush=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    _say(f"[run-leg] machine: {instance} leg={leg_slug} run={run_id}")
+    # Broad excepts + explicit utf-8: a non-UTF-8 runner locale would otherwise
+    # raise UnicodeEncodeError (not an OSError) and fail the leg. Nothing here
+    # may propagate.
+    try:
+        (results_root / "machine.txt").write_text(
+            f"{instance}\t{leg_slug}\t{run_id}\n", encoding="utf-8"
+        )
+    except Exception as exc:  # noqa: BLE001
+        _say(f"[run-leg] machine.txt write failed: {exc!r}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write(
+                    f"- leg `{leg_slug}` -> **{instance}** (run {run_id})\n"
+                )
+        except Exception as exc:  # noqa: BLE001
+            _say(f"[run-leg] step-summary write failed: {exc!r}")
+
+
 def run_invocations(
     invocations: list[HarborInvocation],
     instance: str,
@@ -1231,6 +1281,10 @@ def run_invocations(
     # the env vars are the authoritative source when the agent exports them.
     leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
     run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
+    # Record which box this leg locked BEFORE the first Harbor invocation, so a
+    # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
+    # leaves a trail pointing at the machine to inspect.
+    record_machine(results_root, instance, leg_slug, run_id)
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 
