@@ -74,6 +74,7 @@ services:
       - $VSS_DATA_DIR/models/:/opt/storage/
       - $VSS_APPS_DIR/engines/:/opt/engines/
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.json:/opt/config/models-download.json:ro
 
     environment:
       MODEL_TYPE: ${MODEL_TYPE}
