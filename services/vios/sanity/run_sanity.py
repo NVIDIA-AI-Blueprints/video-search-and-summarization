@@ -979,6 +979,10 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     if deploy_only:
         log.info("deploy-only: plan '%s' provisioned (%s); skipping use-cases",
                  name, ctx.provisioned_streams)
+        if managed_kafka:
+            import atexit
+            atexit.unregister(_stop_managed_kafka)
+            log.info("leaving local Kafka-compatible sanity broker running")
         return
 
     # Overlay plugin only for overlay-capable plans (nvstreamer/onvif) -- milestone has none.
