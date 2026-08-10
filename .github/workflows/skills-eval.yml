@@ -761,7 +761,11 @@ jobs:
           if [ "${PLAN_RESULT:-missing}" != "success" ]; then
             # Preserve the reporting contract even when matrix planning itself
             # failed: the synthetic planned row reconciles to MISSING.
-            MATRIX_JSON='{"include":[{"kind":"planning","name":"NemoClaw matrix planning","skill":"workflow","spec_stem":"planner","spec_path":".github/workflows/skills-eval.yml","platform":"","slug":"nemoclaw-plan__missing","task_limit":"0","reason":"NemoClaw matrix planning did not complete successfully"}]}'
+            MATRIX_JSON='{"include":[{"kind":"planning",'
+            MATRIX_JSON+='"name":"NemoClaw matrix planning","skill":"workflow",'
+            MATRIX_JSON+='"spec_stem":"planner","spec_path":".github/workflows/skills-eval.yml",'
+            MATRIX_JSON+='"platform":"","slug":"nemoclaw-plan__missing","task_limit":"0",'
+            MATRIX_JSON+='"reason":"NemoClaw matrix planning did not complete successfully"}]}'
           elif [ -z "${MATRIX_JSON:-}" ]; then
             MATRIX_JSON='{"include":[]}'
           fi
