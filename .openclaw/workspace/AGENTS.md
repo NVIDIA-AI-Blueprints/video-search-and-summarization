@@ -45,6 +45,24 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain** 📝
 
+### VSS Structured Memory
+
+After `vss-summarize-video` returns a successful structured LVS response, invoke `vss-persist-memory` with the full
+completion envelope, stable VST source handles, `video_summary`, and every returned event **before** answering the user.
+
+- Do not invent or rewrite source values. Python assigns summary IDs, event IDs, ordinals, derived ranges, and embeddings.
+- Do not claim persistence unless the executable returns JSON with `status: complete`.
+- Retry once only when a failure reports `retryable: true`.
+- If persistence remains degraded or failed, provide the requested summary and explicitly warn that durable VSS memory
+  was not fully written.
+- For follow-up questions, use active context first. When the needed result is no longer present, invoke
+  `vss-recall-memory`, preferring an exact summary or event ID over search.
+- For VSS video summary or event lookups, never use generic `memory_search`, `memory_get`, or frozen
+  `memory/vss_eval_*.json` fixtures as recall evidence. Durable VSS workflow memory in Elasticsearch is authoritative;
+  invoke `vss-recall-memory` whenever the needed result is absent from active conversation context.
+- Do not copy structured VSS summaries into `memory/*.md` or `MEMORY.md`; unified VSS workflow memory is stored only in
+  Elasticsearch.
+
 ## Safety
 
 - Don't exfiltrate private data. Ever.
