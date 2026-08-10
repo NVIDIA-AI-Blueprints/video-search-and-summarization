@@ -77,6 +77,11 @@ starts the overlay plugin's `camera_streaming` and `camera_remove` HTTP receiver
 disables message-broker event publication, and verifies that neither Redis nor SDRC is running.
 Kafka remains the live overlay-metadata consumer; it is not used for camera lifecycle events.
 
+For a local Kafka plan, set `setup.manage_kafka: true` to have the harness start a temporary,
+Kafka-compatible Redpanda broker when `broker_addr` is unavailable. It is reachable at the
+configured endpoint, is removed after a normal test run, and never replaces an already-running
+broker. Remote plans must provide their own reachable Kafka broker.
+
 Useful flags: `--only <case,case>` (subset), `--deploy-only`, `--no-serve` (don't auto-start the
 evidence server), `--from-json <results.json>` (re-render the PDF without re-running),
 `--es-retention-hours <hours>` (fake-ES history per sensor; default 3), `--restore-config`

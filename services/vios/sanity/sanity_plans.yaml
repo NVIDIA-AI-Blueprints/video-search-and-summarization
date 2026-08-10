@@ -62,6 +62,7 @@ plans:
       event_transport: redis
       consumer: kafka
       broker_addr: "172.17.0.1:9092"
+      manage_kafka: true  # start a temporary local Kafka-compatible broker when port 9092 is absent
       sync_wall: true
       vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}
       nvstreamer_config: {nv_streamer_sync_file_count: 4}
@@ -82,6 +83,7 @@ plans:
       event_transport: webhook
       consumer: kafka
       broker_addr: "172.17.0.1:9092"
+      manage_kafka: true
       rtsp_copies: 1
       vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}
       nvstreamer_config: {nv_streamer_sync_file_count: 0, nv_streamer_sync_playback: false}

@@ -21,6 +21,13 @@ from metadata_service import _metadata_fps
 
 
 class LifecycleTest(unittest.TestCase):
+    def test_broker_endpoint_requires_host_and_port(self):
+        from run_sanity import _broker_endpoint
+
+        self.assertEqual(_broker_endpoint("172.17.0.1:9092"), ("172.17.0.1", 9092))
+        with self.assertRaises(ValueError):
+            _broker_endpoint("not-an-endpoint")
+
     def test_consumer_overrides_use_notification_config(self):
         with tempfile.TemporaryDirectory() as tempdir:
             notification_config = Path(tempdir) / "notification_config.json"

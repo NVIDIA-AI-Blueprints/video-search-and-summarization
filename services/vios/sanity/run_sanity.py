@@ -47,6 +47,107 @@ _RTSP_COPIES = 4   # identical copies made for single-file / sync_wall provision
 # metadata_service --es-port and index. Wired into overlay.video_metadata_server so the
 # download/replay overlay path queries it (the live/recent path uses the broker instead).
 _FAKE_ES = "172.17.0.1:19200/mdx-bev-test*"
+_MANAGED_KAFKA_NAME = "vios-sanity-kafka"
+_MANAGED_KAFKA_IMAGE = "docker.redpanda.com/redpandadata/redpanda:v24.2.7"
+
+
+def _broker_endpoint(broker_addr: str) -> tuple[str, int]:
+    """Validate and split the single Kafka bootstrap endpoint used by a plan."""
+    import socket
+
+    host, separator, port = broker_addr.rpartition(":")
+    if not separator or not host or not port.isdecimal():
+        raise ValueError(
+            "Kafka broker_addr must be a single host:port endpoint; "
+            f"got {broker_addr!r}"
+        )
+    try:
+        socket.getaddrinfo(host, int(port), type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"Kafka broker host cannot be resolved: {host!r}") from exc
+    return host, int(port)
+
+
+def _tcp_ready(host: str, port: int, timeout: float = 1.0) -> bool:
+    import socket
+
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _ensure_kafka_broker(setup: dict, target: str) -> bool:
+    """Start a local Kafka-compatible broker for a Kafka sanity plan when required.
+
+    Existing or remote brokers are only checked and are never adopted, replaced, or stopped.
+    The temporary Redpanda broker uses the Kafka wire protocol and host networking so that the
+    advertised gateway endpoint is reachable from the VIOS compose containers.
+    """
+    import atexit
+    import subprocess
+
+    if setup.get("consumer") != "kafka":
+        return False
+    broker_addr = setup.get("broker_addr", "172.17.0.1:9092")
+    host, port = _broker_endpoint(broker_addr)
+    if _tcp_ready(host, port):
+        log.info("Kafka prerequisite ready at %s", broker_addr)
+        return False
+    if target != "local" or not setup.get("manage_kafka", False):
+        raise RuntimeError(
+            f"Kafka prerequisite unavailable at {broker_addr}. Start a Kafka broker reachable "
+            "from VIOS, or set setup.manage_kafka: true for a local sanity-only broker."
+        )
+    exists = subprocess.run(
+        ["docker", "container", "inspect", _MANAGED_KAFKA_NAME],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    ).returncode == 0
+    if exists:
+        raise RuntimeError(
+            f"Kafka prerequisite unavailable at {broker_addr}; container {_MANAGED_KAFKA_NAME!r} "
+            "already exists and is not adopted by the sanity harness."
+        )
+    cmd = [
+        "docker", "run", "--detach", "--rm", "--name", _MANAGED_KAFKA_NAME,
+        "--network", "host", _MANAGED_KAFKA_IMAGE,
+        "redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G",
+        "--reserve-memory", "0M", "--node-id", "0", "--check=false",
+        "--kafka-addr", f"0.0.0.0:{port}",
+        "--advertise-kafka-addr", broker_addr,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode:
+        raise RuntimeError(
+            "could not start the local Kafka-compatible sanity broker: "
+            f"{(result.stderr or result.stdout).strip()}"
+        )
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        if _tcp_ready(host, port):
+            log.info("started local Kafka-compatible sanity broker at %s", broker_addr)
+            atexit.register(_stop_managed_kafka, True)
+            return True
+        time.sleep(1)
+    subprocess.run(["docker", "rm", "--force", _MANAGED_KAFKA_NAME], check=False)
+    raise RuntimeError(f"local Kafka-compatible sanity broker did not become ready at {broker_addr}")
+
+
+def _stop_managed_kafka(started: bool) -> None:
+    """Remove only a broker started by this harness invocation."""
+    if not started:
+        return
+    import subprocess
+
+    exists = subprocess.run(
+        ["docker", "container", "inspect", _MANAGED_KAFKA_NAME],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    ).returncode == 0
+    if not exists:
+        return
+    subprocess.run(["docker", "rm", "--force", _MANAGED_KAFKA_NAME], check=False)
+    log.info("stopped local Kafka-compatible sanity broker")
 
 
 def _find_chrome():
@@ -849,6 +950,7 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     overlay = adaptor != "milestone"             # milestone has NO overlay
     log.info("===================== PLAN: %s (target=%s, adaptor=%s) =====================",
              name, target, adaptor or "nvstreamer")
+    managed_kafka = _ensure_kafka_broker(setup, target)
 
     if target == "local" and not keep_deployment:
         from provision import apply_deployment_mode
@@ -908,6 +1010,8 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     # Capture THIS plan-run's container logs while the containers are still alive.
     if target == "local" and any(r.plan == name and r.status == "FAIL" for r in results):
         plan_meta[name]["logs"] = _capture_container_logs(ctx, tag=_plan_tag(name))
+    if managed_kafka and not (deploy_only or leave_deployment):
+        _stop_managed_kafka(True)
 
 
 def _run_plans_inner(plans, deploy_only, results, plan_meta, expand_usecases,
