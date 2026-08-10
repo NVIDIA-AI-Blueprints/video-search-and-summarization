@@ -1154,7 +1154,7 @@ def _discover_scenarios(
                     platform=platform,
                     output_root=scenario_root,
                 )
-            except RuntimeError as exc:
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 blockers.append(str(exc))
                 continue
             if not task_dirs:
@@ -1178,7 +1178,13 @@ def _adapter_supports_platform(skill: str, platform: str) -> bool:
     adapter = _adapter_path(skill)
     if not adapter.exists():
         return False
-    return platform in _adapter_help(adapter)
+    try:
+        return platform in _adapter_help(adapter)
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        # Planning must remain reportable when one adapter is slow or broken.
+        # The selected spec's declared platforms still provide a deterministic
+        # fallback, and execution will publish the adapter error as a blocker.
+        return False
 
 
 def _preferred_platform(skill: str, platforms: list[str], platform_filter: str | None) -> str:
