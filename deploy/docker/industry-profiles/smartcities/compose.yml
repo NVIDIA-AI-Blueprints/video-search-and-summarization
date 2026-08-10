@@ -31,8 +31,13 @@ services:
       file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
       service: nvstreamer-base
     profiles: ["nvstreamer-alerts"]
-    network_mode: "host"
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     container_name: vss-vios-nvstreamer
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
@@ -96,7 +101,6 @@ services:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
-    network_mode: "host"
     profiles: ["kibana-init-container-alerts"]
     container_name: vss-kibana-init
     # Host networking bypasses Compose DNS, so the default kibana/elasticsearch
@@ -115,6 +119,10 @@ services:
       service: vss-video-analytics-api
     profiles: ["vss-video-analytics-api-alerts"]
     container_name: vss-video-analytics-api
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-api:/opt/mdx/vss-video-analytics-api
       - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
@@ -123,9 +131,10 @@ services:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/Dockerfiles/import-calibration.Dockerfile
-    network_mode: "host"
     profiles: ["import-calibration-output-container-smartcities"]
     container_name: mdx-import-calibration-output-smc
+    environment:
+      VIDEO_ANALYTICS_API_URL: http://vss-video-analytics-api:8081
     command: bash /opt/mdx/init-scripts/calibration-import.sh
     depends_on:
       - vss-video-analytics-api-alerts
@@ -133,7 +142,8 @@ services:
   calibration-toolkit-smartcities:
     image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-nvcr.io/nvidia/vss-core/calibration}:${CALIBRATION_TOOLKIT_IMAGE_TAG}
     profiles: ["calibration-toolkit-smartcities"]
-    network_mode: "host"
+    ports:
+      - ${CALIBRATION_TOOLKIT_HOST_PORT:-8003}:8003
     volumes:
       - calibration-toolkit-alerts:/calibration/server/data:rw
     container_name: mdx-calibration-toolkit
@@ -142,7 +152,8 @@ services:
   vss-video-analytics-ui-smartcities:
     image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
     profiles: ["vss-video-analytics-ui-smartcities"]
-    network_mode: "host"
+    ports:
+      - ${VIDEO_ANALYTICS_UI_HOST_PORT:-3002}:3002
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-ui/config/vss-video-analytics-ui-config.json:/config/${VIDEO_ANALYTICS_UI_APP_NAME}/default-ui-config.json
     environment:
