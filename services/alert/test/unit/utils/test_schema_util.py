@@ -218,14 +218,6 @@ class TestPlaceToNvPlace:
     def test_missing_name_defaults_to_empty(self):
         assert place_to_nv_place({}).name == ""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Open defect: the signature is Optional[dict] but None is "
-            "dereferenced, raising AttributeError. Fix: treat None like {}. "
-            "When that lands this test XPASSes — drop the marker then."
-        ),
-    )
     def test_none_place_yields_an_empty_name(self):
         """``Optional[dict]`` should accept ``None`` and default the name."""
         assert place_to_nv_place(None).name == ""
@@ -285,6 +277,100 @@ class TestConvertBehaviorToProtobufBehavior:
             "embeddings": [{"vector": [0.1, 0.2]}],
             "dropped": True,
         }
+
+    @pytest.mark.parametrize("block", ["sensor", "analyticsModule", "object", "place"])
+    @pytest.mark.parametrize("bad_value", [None, "cam-1", [], 7])
+    def test_malformed_nested_block_is_treated_as_absent(self, block, bad_value):
+        """A nested block that is null or the wrong type must not raise.
+
+        ``/alerts`` accepts JSON with no schema validation, so a client that
+        serialises an unset field as ``null`` reaches the converter directly.
+        ``dict.get(key, {})`` does not cover that: the default only fires when
+        the key is absent, not when it is present and null.
+        """
+        behavior = self._full_behavior()
+        behavior[block] = bad_value
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert proto.sensor.id == ("" if block == "sensor" else "cam-1")
+        assert proto.analyticsModule.id == ("" if block == "analyticsModule" else "intrusion")
+        assert proto.object.id == ("" if block == "object" else "obj-1")
+        assert proto.place.name == ("" if block == "place" else "gate-3")
+
+    def test_flat_sensor_id_is_used_when_the_nested_block_is_absent(self):
+        """``Behavior`` has no flat ``sensorId``, so it must land on ``sensor.id``.
+
+        Without the fallback the identifier is silently dropped and the alert is
+        discarded downstream for a missing ``sensorId``, despite the submission
+        having been accepted.
+        """
+        behavior = self._full_behavior()
+        behavior.pop("sensor")
+        behavior["sensorId"] = "cam-9"
+
+        assert convert_behavior_to_protobuf_behavior(behavior).sensor.id == "cam-9"
+
+    @pytest.mark.parametrize("flat_id", [7, None, ["cam-9"], {"id": "cam-9"}])
+    def test_a_non_string_flat_sensor_id_is_ignored_rather_than_raising(self, flat_id):
+        """These submissions were accepted before the fallback existed.
+
+        Assigning a non-string straight into the protobuf field would raise and
+        turn a 202 into a 500, so the fallback takes a string only.
+        """
+        behavior = self._full_behavior()
+        behavior.pop("sensor")
+        behavior["sensorId"] = flat_id
+
+        assert convert_behavior_to_protobuf_behavior(behavior).sensor.id == ""
+
+    def test_the_nested_sensor_id_wins_over_the_flat_one(self):
+        behavior = self._full_behavior()
+        behavior["sensorId"] = "flat"
+
+        assert convert_behavior_to_protobuf_behavior(behavior).sensor.id == "cam-1"
+
+    @pytest.mark.parametrize("block", ["locations", "smoothLocations"])
+    @pytest.mark.parametrize("bad_value", [None, "Point", [], 7])
+    def test_malformed_location_block_is_treated_as_absent(self, block, bad_value):
+        behavior = self._full_behavior()
+        behavior[block] = bad_value
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert getattr(proto, block).type == ""
+
+    @pytest.mark.parametrize("coord", [None, [1.0, 2.0], "1.0,2.0"])
+    def test_a_coordinate_in_an_unknown_shape_raises(self, coord):
+        """Coordinates are left uncoerced on purpose.
+
+        Defaulting an entry the mapper cannot read would publish a trajectory
+        with empty geometry and a 202, losing the client's data quietly. A bare
+        ``[lon, lat]`` pair is the shape most likely to arrive this way.
+        """
+        behavior = self._full_behavior()
+        behavior["locations"] = {"type": "Point", "coordinates": [coord]}
+
+        with pytest.raises(AttributeError):
+            convert_behavior_to_protobuf_behavior(behavior)
+
+    def test_null_analytics_module_info_is_treated_as_empty(self):
+        behavior = self._full_behavior()
+        behavior["analyticsModule"] = {"id": "intrusion", "info": None}
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert proto.analyticsModule.id == "intrusion"
+        assert "threshold" not in proto.analyticsModule.info
+
+    def test_null_embedding_entry_yields_an_empty_vector(self):
+        behavior = self._full_behavior()
+        behavior["embeddings"] = [None, {"vector": [0.5]}]
+
+        proto = convert_behavior_to_protobuf_behavior(behavior)
+
+        assert list(proto.embeddings[0].vector) == []
+        assert list(proto.embeddings[1].vector) == pytest.approx([0.5])
 
     def test_maps_scalar_fields(self):
         proto = convert_behavior_to_protobuf_behavior(self._full_behavior())

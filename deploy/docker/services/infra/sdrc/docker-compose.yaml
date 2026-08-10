@@ -48,20 +48,15 @@ services:
     image: alpine:3.24.1
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
+    # Loop over *.tmpl inside render-config.sh — not here. Nested Compose
+    # includes can interpolate $$tmpl more than once, leaving an empty path.
     command:
       - |
         echo "render-config: NUM_STREAMS is ${NUM_STREAMS}"
         echo "render-config: NUM_SENSORS is ${NUM_SENSORS}"
         set -e
         echo "render-config: HOST_IP=$${HOST_IP} NUM_STREAMS=$${NUM_STREAMS} NUM_SENSORS=$${NUM_SENSORS} BP_PROFILE=$${BP_PROFILE} MODE=$${MODE} STREAM_TYPE=$${STREAM_TYPE} COMPOSE_PROFILES=$${COMPOSE_PROFILES}"
-        rendered=0
-        for tmpl in /tmpl/*.tmpl; do
-          [ -e "$$tmpl" ] || { echo "render-config: no *.tmpl files found in /tmpl"; exit 1; }
-          base="$$(basename "$$tmpl" .tmpl)"
-          /render-config.sh "$$tmpl" "/tmpl/$$base"
-          rendered=$$((rendered + 1))
-        done
-        echo "render-config: rendered $$rendered template(s)"
+        /render-config.sh /tmpl
     environment:
       HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
       NUM_STREAMS: ${NUM_STREAMS:-1}
@@ -103,7 +98,7 @@ services:
 
   wait-for-redis:
     profiles: ["wait-for-redis"]
-    image: redis:8.6.2-alpine
+    image: redis:8.10.0-alpine
     restart: "no"
     depends_on:
       wdm-env-from-config:

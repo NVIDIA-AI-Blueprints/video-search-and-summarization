@@ -25,10 +25,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps via uv (locked). Build context: repository root.
-# External CI should build with: docker build -f docker/Dockerfile .
+# Install Python deps via uv (locked). Build context: monorepo root.
+# External CI should build with:
+# docker build -f services/configurators/vss-configurator/docker/Dockerfile .
 COPY --from=ghcr.io/astral-sh/uv:0.11.24 /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock ./
+COPY libs/analytics/spatialai-data-utils /libs/analytics/spatialai-data-utils
+COPY services/configurators/vss-configurator/pyproject.toml \
+    services/configurators/vss-configurator/uv.lock \
+    ./
 RUN uv sync --frozen --no-dev
 
 # -----------------------------------------------------------------------------
@@ -48,13 +52,10 @@ COPY --from=builder /usr/src/app/.venv/lib/python3.13/site-packages /usr/src/app
 ENV PYTHONPATH=/usr/src/app/site-packages
 
 # Application code (entrypoint.py is used because distroless has no shell).
-# Source retains Apache-2.0 SPDX headers; shipped binary also includes NVIDIA SLA PDF.
-COPY app/ .
-
-# Legal artifacts for container distribution (legal requirement).
-
-COPY NVIDIA-Software-License-Agreement.pdf /usr/src/app/NVIDIA-Software-License-Agreement.pdf
-COPY 3rdParty_Licenses.md /usr/src/app/3rdParty_Licenses.md
+# Source retains Apache-2.0 SPDX headers; third-party licenses ship in-image.
+COPY services/configurators/vss-configurator/app/ .
+COPY services/configurators/vss-configurator/3rdParty_Licenses.md \
+    /usr/src/app/3rdParty_Licenses.md
 
 ENV PORT=5000
 EXPOSE 5000
