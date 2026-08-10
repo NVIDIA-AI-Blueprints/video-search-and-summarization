@@ -23,8 +23,11 @@ dependencies:
 - name: agent
   repository: file://../../../services/agent
   version: 3.2.0
+- name: vss-agent-ui
+  repository: file://../../../services/ui
+  version: 3.2.0
 - name: monitoring
   repository: file://../../../services/monitoring
   version: 3.2.0
-digest: sha256:4c9c04e5d7f8e9d95189dcfb8c4932e7ffacab1e86b0e0e8d680c5a0cbd920c8
-generated: "2026-07-29T12:22:08.139642041-07:00"
+digest: sha256:a292d021bbd47b617db17018a5907e72950ddfc7d38c84a49c7de41b8fb754a5
+generated: "2026-08-10T14:23:39.175843686-07:00"
