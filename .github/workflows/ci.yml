@@ -1497,15 +1497,11 @@ jobs:
       - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
-    # Explicit result checks rather than success(): a bare success() also
-    # inherits a skip from anywhere upstream of a direct need, so one skipped
-    # job two hops away silently disables this one.
-    #
-    # The contains() guards require every DIRECT need to have succeeded.
-    # needs.* holds direct dependencies only, so this is narrower than
-    # success() was: if a future direct need rescues itself past a failed
-    # ancestor with always(), that failure no longer blocks here. Nothing
-    # does that today -- add !failure() if one ever should.
+    # Do not use success() here. wait-for-build-dev-images deliberately uses
+    # always() to survive a skipped, path-gated Spatial AI Data Utils test, but
+    # success() still inherits that transitive skip and would silently disable
+    # every downstream acceptance run where SDU did not change. Check only this
+    # job's direct dependencies, then apply the gate prepared by the wait job.
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
