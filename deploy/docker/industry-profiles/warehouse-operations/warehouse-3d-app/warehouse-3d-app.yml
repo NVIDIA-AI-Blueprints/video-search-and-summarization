@@ -145,7 +145,7 @@ services:
         fi
 
   bp-configurator-3d:
-    image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvstaging/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.3.0-2026.08.2-1}
+    image: ${VSS_CONFIGURATOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-configurator}:${VSS_CONFIGURATOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     container_name: vss-configurator
     networks:
       default:
@@ -227,7 +227,7 @@ services:
       start_period: 60s
 
   ds-configurator-3d:
-    image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-3.2.0}
+    image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     profiles: ["ds-configurator-3d"]
     container_name: vss-rtvi-cv-config-adaptor
     user: "0:0"

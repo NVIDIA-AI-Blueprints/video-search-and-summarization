@@ -209,15 +209,39 @@ class SelectImagesTest(unittest.TestCase):
         by_name = {entry["name"]: entry for entry in inventory["images"]}
 
         expected = {
-            "vss-video-analytics-api": "services/analytics/video-analytics-api",
-            "vss-behavior-analytics": "services/analytics/behavior-analytics",
+            "vss-video-analytics-api": {
+                "context": "services/analytics/video-analytics-api",
+                "source_path": "services/analytics/video-analytics-api",
+            },
+            "vss-behavior-analytics": {
+                "context": "services/analytics/behavior-analytics",
+                "source_path": "services/analytics/behavior-analytics",
+            },
+            "sdr-mw-l": {
+                "context": "services/sdrc",
+                "source_path": "services/sdrc",
+            },
+            "vss-configurator": {
+                "context": ".",
+                "source_path": "services/configurators/vss-configurator",
+                "source_paths": [
+                    "services/configurators/vss-configurator",
+                    "libs/analytics/spatialai-data-utils",
+                ],
+            },
+            "vss-rt-config-adaptor": {
+                "context": "services/configurators/vss-rt-config-adaptor",
+                "source_path": "services/configurators/vss-rt-config-adaptor",
+            },
         }
-        for name, context in expected.items():
+        for name, expected_fields in expected.items():
             entry = by_name[name]
             self.assertTrue(entry["ghcr_build"])
             self.assertEqual(entry["strategy"], "build")
-            self.assertEqual(entry["context"], context)
-            self.assertEqual(entry["source_path"], context)
+            self.assertEqual(entry["context"], expected_fields["context"])
+            self.assertEqual(entry["source_path"], expected_fields["source_path"])
+            if "source_paths" in expected_fields:
+                self.assertEqual(entry["source_paths"], expected_fields["source_paths"])
             self.assertEqual(
                 entry["platforms"], ["linux/amd64", "linux/arm64"]
             )
@@ -236,6 +260,32 @@ class SelectImagesTest(unittest.TestCase):
         self.assertEqual(
             [entry["name"] for entry in ba_entries],
             ["vss-behavior-analytics"],
+        )
+        sdr_entries, _ = dci.select_images(
+            inventory, ["services/sdrc/app.py"]
+        )
+        self.assertEqual([entry["name"] for entry in sdr_entries], ["sdr-mw-l"])
+
+        configurator_entries, _ = dci.select_images(
+            inventory, ["services/configurators/vss-configurator/app/entrypoint.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in configurator_entries], ["vss-configurator"]
+        )
+
+        spatialai_entries, _ = dci.select_images(
+            inventory, ["libs/analytics/spatialai-data-utils/release/pyproject.toml"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in spatialai_entries], ["vss-configurator"]
+        )
+
+        adaptor_entries, _ = dci.select_images(
+            inventory, ["services/configurators/vss-rt-config-adaptor/app/config.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in adaptor_entries],
+            ["vss-rt-config-adaptor"],
         )
 
         agent_entries, _ = dci.select_images(
@@ -261,6 +311,7 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
+                        "source_paths": "services/agent",
                     },
                     {
                         "name": "vss-agent-ui",
@@ -269,12 +320,13 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/ui",
+                        "source_paths": "services/ui",
                     },
                 ]
             },
         )
 
-    def test_only_behavior_analytics_uses_arch_specific_runners(self):
+    def test_native_images_use_arch_specific_runners(self):
         entries = [
             {
                 "name": "vss-behavior-analytics",

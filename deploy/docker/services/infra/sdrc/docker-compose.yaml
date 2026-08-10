@@ -136,7 +136,7 @@ services:
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
   sdr-controller:
     profiles: ["sdr-controller"]
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2}
+    image: ${SDR_MW_L_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/sdr-mw-l:${VSS_CONTAINER_TAG:-develop-latest}}
     container_name: sdr-controller
     ports:
       - ${SDRC_CONTROLLER_HOST_PORT:-5003}:5003

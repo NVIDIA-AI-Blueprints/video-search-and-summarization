@@ -69,6 +69,13 @@ def load_inventory(repo_root: Path) -> dict:
     return json.loads((repo_root / INVENTORY_FILE).read_text())
 
 
+def entry_source_paths(entry: dict) -> list[str]:
+    raw = entry.get("source_paths") or (
+        [entry["source_path"]] if entry.get("source_path") else []
+    )
+    return [str(path).strip().rstrip("/") for path in raw if str(path).strip()]
+
+
 def inventory_by_name(inventory: dict) -> dict[str, dict]:
     return {entry["name"]: entry for entry in inventory["images"]}
 
@@ -216,7 +223,7 @@ def build_fragment(
             if not source_tree_sha or not TREE_RE.match(source_tree_sha):
                 problems.append(
                     f"{name}: build fragments require source_tree_sha "
-                    f"(git rev-parse <commit>:{entry.get('source_path')}), "
+                    f"(source content hash for {entry_source_paths(entry)}), "
                     f"got {source_tree_sha!r}"
                 )
         if strategy == "mirror" and not upstream_digest:
@@ -234,6 +241,7 @@ def build_fragment(
         "digest": digest,
         "platforms": sorted(platforms),
         "source_path": entry.get("source_path"),
+        "source_paths": entry_source_paths(entry) or None,
         "source_tree_sha": source_tree_sha,
         "upstream_digest": upstream_digest,
     }
@@ -326,6 +334,7 @@ def reuse_entries(
                 "digest": None,
                 "platforms": sorted(entry.get("platforms", [])),
                 "source_path": entry.get("source_path"),
+                "source_paths": entry_source_paths(entry) or None,
                 "source_tree_sha": None,
                 "upstream_digest": None,
             }
@@ -380,6 +389,12 @@ def validate_release_set(release_set: dict, inventory: dict) -> list[str]:
                 )
         elif digest is not None and not DIGEST_RE.match(digest):
             problems.append(f"{name}: malformed digest {digest!r}")
+        source_paths = item.get("source_paths")
+        if source_paths is not None:
+            if not isinstance(source_paths, list) or not all(
+                isinstance(path, str) and path for path in source_paths
+            ):
+                problems.append(f"{name}: source_paths must be a non-empty string list")
         if item.get("strategy") == "build":
             tree = item.get("source_tree_sha")
             if not tree or not TREE_RE.match(tree):

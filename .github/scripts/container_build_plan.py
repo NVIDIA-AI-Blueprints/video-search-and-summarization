@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -14,7 +15,9 @@ from pathlib import Path
 from typing import Callable
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+TREE_RE = re.compile(r"^[0-9a-f]{40}$")
 Runner = Callable[[list[str]], str]
+TreeReader = Callable[[Path, str, str], str | None]
 
 
 @dataclass(frozen=True)
@@ -45,8 +48,8 @@ def candidate_coordinates(
     short = commit_sha[:12]
     if not re.fullmatch(r"[0-9a-f]{12}", short):
         raise ValueError("commit SHA must start with at least 12 lowercase hex characters")
-    if not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
-        raise ValueError("source tree SHA must be 40 lowercase hex characters")
+    if not TREE_RE.fullmatch(tree_sha):
+        raise ValueError("source content hash must be 40 lowercase hex characters")
     if match := re.fullmatch(r"pull-request/(\d+)", ref_name):
         tag = f"pr-{match.group(1)}-{short}"
     elif ref_name == "develop":
@@ -67,6 +70,84 @@ def candidate_coordinates(
         tree_sha=tree_sha,
         content_tag=f"tree-{tree_sha}",
     )
+
+
+def git_tree_sha(repo_root: Path, commit: str, source_path: str) -> str:
+    """Return ``git rev-parse <commit>:<source_path>`` for one source folder."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", f"{commit}:{source_path}"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValueError(
+            f"could not resolve {commit}:{source_path}: {detail[:500]}"
+        )
+    value = result.stdout.strip()
+    if not TREE_RE.fullmatch(value):
+        raise ValueError(f"{commit}:{source_path} resolved to non-tree hash {value!r}")
+    return value
+
+
+def parse_source_paths(raw: str) -> list[str]:
+    paths = [item.strip().rstrip("/") for item in raw.split(",")]
+    cleaned = []
+    seen = set()
+    for path in paths:
+        if not path:
+            continue
+        if path not in seen:
+            cleaned.append(path)
+            seen.add(path)
+    if not cleaned:
+        raise ValueError("at least one source path is required")
+    return cleaned
+
+
+def _read_source_tree(
+    repo_root: Path,
+    commit: str,
+    source_path: str,
+    tree_reader: TreeReader | None = None,
+) -> str:
+    if tree_reader is None:
+        return git_tree_sha(repo_root, commit, source_path)
+    value = tree_reader(repo_root, commit, source_path)
+    if value is None:
+        raise ValueError(f"could not resolve {commit}:{source_path}")
+    if not TREE_RE.fullmatch(value):
+        raise ValueError(f"{commit}:{source_path} resolved to non-tree hash {value!r}")
+    return value
+
+
+def source_tree_hash(
+    repo_root: Path,
+    commit: str,
+    source_paths: list[str],
+    tree_reader: TreeReader | None = None,
+) -> str:
+    """Content hash for one or more repo source folders.
+
+    A single path returns the exact git tree SHA to preserve existing content
+    tags. Multiple paths return a deterministic SHA-1 over ``path`` and tree
+    pairs so images that copy shared in-repo sources do not reuse stale tags.
+    """
+    paths = sorted(
+        dict.fromkeys(path.strip().rstrip("/") for path in source_paths if path.strip())
+    )
+    if not paths:
+        raise ValueError("at least one source path is required")
+    if len(paths) == 1:
+        return _read_source_tree(repo_root, commit, paths[0], tree_reader)
+    digest = hashlib.sha1()
+    for path in paths:
+        digest.update(path.encode())
+        digest.update(b"\0")
+        digest.update(_read_source_tree(repo_root, commit, path, tree_reader).encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def validate_manifest(
@@ -148,6 +229,15 @@ def main() -> int:
     verify.add_argument("--platforms", required=True)
     verify.add_argument("--github-output", type=Path, required=True)
 
+    source_hash = subparsers.add_parser("source-hash")
+    source_hash.add_argument("--repo-root", type=Path, default=Path.cwd())
+    source_hash.add_argument("--commit", default="HEAD")
+    source_hash.add_argument(
+        "--source-paths",
+        required=True,
+        help="comma-separated source paths; a single path returns its git tree SHA",
+    )
+
     args = parser.parse_args()
     if args.command == "metadata":
         coordinates = candidate_coordinates(
@@ -169,6 +259,16 @@ def main() -> int:
         print(
             f"[container-build-plan] candidate={coordinates.image}:"
             f"{coordinates.tag} tree={coordinates.tree_sha}"
+        )
+        return 0
+
+    if args.command == "source-hash":
+        print(
+            source_tree_hash(
+                args.repo_root.resolve(),
+                args.commit,
+                parse_source_paths(args.source_paths),
+            )
         )
         return 0
 

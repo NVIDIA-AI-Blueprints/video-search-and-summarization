@@ -32,8 +32,8 @@ bp-configurator:
     mountPath: /opt/data
     seedConfigMapName: vss-behavior-analytics-resources
   image:
-    repository: nvcr.io/nvstaging/vss-core/vss-configurator
-    tag: "3.3.0-2026.08.2-1"
+    repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
+    tag: develop-latest
     pullPolicy: IfNotPresent
   init:
     enabled: true

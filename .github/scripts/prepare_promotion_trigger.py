@@ -20,6 +20,9 @@ def promotion_variables(
     alert_config: str = "",
     video_analytics_api_config: str = "",
     behavior_analytics_config: str = "",
+    sdr_mw_l_config: str = "",
+    vss_configurator_config: str = "",
+    vss_rt_config_adaptor_config: str = "",
 ) -> dict[str, str]:
     required = {"VSS_RELEASE_SET_B64", "VSS_RELEASE_SET_ID", "VSS_PROMOTION_TAG"}
     missing = required - set(test_variables)
@@ -53,6 +56,14 @@ def promotion_variables(
         raise ValueError(
             "behavior analytics artifacts-promotion config path is required"
         )
+    if "sdr-mw-l" in built_names and not sdr_mw_l_config:
+        raise ValueError("sdr-mw-l artifacts-promotion config path is required")
+    if "vss-configurator" in built_names and not vss_configurator_config:
+        raise ValueError("vss-configurator artifacts-promotion config path is required")
+    if "vss-rt-config-adaptor" in built_names and not vss_rt_config_adaptor_config:
+        raise ValueError(
+            "vss-rt-config-adaptor artifacts-promotion config path is required"
+        )
     variables = dict(test_variables)
     variables["BUILD_TYPE"] = "ghcr-promotion"
     variables["VSS_TEST_PIPELINE_ID"] = test_pipeline_id
@@ -68,6 +79,16 @@ def promotion_variables(
         variables["BEHAVIOR_ANALYTICS_ARTIFACTS_PROMOTION_CONFIG_PATH"] = (
             behavior_analytics_config
         )
+    if sdr_mw_l_config:
+        variables["SDR_MW_L_ARTIFACTS_PROMOTION_CONFIG_PATH"] = sdr_mw_l_config
+    if vss_configurator_config:
+        variables["VSS_CONFIGURATOR_ARTIFACTS_PROMOTION_CONFIG_PATH"] = (
+            vss_configurator_config
+        )
+    if vss_rt_config_adaptor_config:
+        variables["VSS_RT_CONFIG_ADAPTOR_ARTIFACTS_PROMOTION_CONFIG_PATH"] = (
+            vss_rt_config_adaptor_config
+        )
     return variables
 
 
@@ -78,6 +99,9 @@ def main() -> int:
     parser.add_argument("--alert-config", default="")
     parser.add_argument("--video-analytics-api-config", default="")
     parser.add_argument("--behavior-analytics-config", default="")
+    parser.add_argument("--sdr-mw-l-config", default="")
+    parser.add_argument("--vss-configurator-config", default="")
+    parser.add_argument("--vss-rt-config-adaptor-config", default="")
     args = parser.parse_args()
     raw = os.environ.get("DOWNSTREAM_EXTRA_VARIABLES_JSON", "").strip()
     github_env = os.environ.get("GITHUB_ENV", "").strip()
@@ -92,6 +116,9 @@ def main() -> int:
         alert_config=args.alert_config,
         video_analytics_api_config=args.video_analytics_api_config,
         behavior_analytics_config=args.behavior_analytics_config,
+        sdr_mw_l_config=args.sdr_mw_l_config,
+        vss_configurator_config=args.vss_configurator_config,
+        vss_rt_config_adaptor_config=args.vss_rt_config_adaptor_config,
     )
     with Path(github_env).open("a") as output:
         output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
