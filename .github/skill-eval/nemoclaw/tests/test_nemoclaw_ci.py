@@ -12209,9 +12209,19 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+                [
+                    "brev",
+                    "exec",
+                    "vss-eval-rtx-2g-4",
+                    smoke_runner.WORKER_READINESS_COMMAND,
+                ],
                 ["brev", "refresh"],
-                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+                [
+                    "brev",
+                    "exec",
+                    "vss-eval-rtx-2g-4",
+                    smoke_runner.WORKER_READINESS_COMMAND,
+                ],
             ],
         )
 
@@ -12255,10 +12265,51 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+                [
+                    "brev",
+                    "exec",
+                    "vss-eval-rtx-2g-4",
+                    smoke_runner.WORKER_READINESS_COMMAND,
+                ],
                 ["brev", "refresh"],
-                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+                [
+                    "brev",
+                    "exec",
+                    "vss-eval-rtx-2g-4",
+                    smoke_runner.WORKER_READINESS_COMMAND,
+                ],
             ],
+        )
+
+    def test_reachability_rejects_symlinked_worker_repository(self):
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return smoke_runner.CommandResult(
+                65,
+                "",
+                "worker-repo-symlinked\n",
+            )
+
+        with mock.patch.object(smoke_runner, "_run", side_effect=fake_run):
+            reachable = smoke_runner._reachable("vss-eval-rtx-2g")
+
+        self.assertFalse(reachable)
+        self.assertEqual(
+            calls,
+            [
+                [
+                    "brev",
+                    "exec",
+                    "vss-eval-rtx-2g",
+                    smoke_runner.WORKER_READINESS_COMMAND,
+                ]
+            ],
+        )
+        self.assertIn(
+            '[ -L "$HOME/video-search-and-summarization" ]',
+            smoke_runner.WORKER_READINESS_COMMAND,
         )
 
     def test_vss_ask_video_adapter_renders_platform_placeholders(self):

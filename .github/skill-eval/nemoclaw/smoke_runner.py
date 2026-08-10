@@ -1353,6 +1353,12 @@ def _log_reachability_failure(instance: str, exec_target: str, result: CommandRe
     )
 
 
+WORKER_READINESS_COMMAND = (
+    'if [ -L "$HOME/video-search-and-summarization" ]; then '
+    'echo worker-repo-symlinked >&2; exit 65; fi; echo harbor-ready'
+)
+
+
 def _worker_remote_executor(
     instance: str,
     exec_target: str | None = None,
@@ -1396,7 +1402,7 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
     target = exec_target or instance
     run_remote = _worker_remote_executor(instance, exec_target)
     try:
-        result = run_remote("echo harbor-ready", 45)
+        result = run_remote(WORKER_READINESS_COMMAND, 45)
     except subprocess.TimeoutExpired:
         print(
             f"[nemoclaw-ci] candidate {instance} reachability check timed out",
@@ -1435,7 +1441,7 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
         return False
 
     try:
-        retry = run_remote("echo harbor-ready", 45)
+        retry = run_remote(WORKER_READINESS_COMMAND, 45)
     except subprocess.TimeoutExpired:
         print(
             f"[nemoclaw-ci] candidate {instance} reachability retry timed out",
