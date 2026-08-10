@@ -253,9 +253,19 @@ class ProcessBase(mp_ctx.Process):
             # and create a dict per chunk. For errors, send returned item to
             # the final output queue
             for idx in range(num_items):
-                ret_item = {
-                    k: (v[idx] if self._supports_batching() else v) for k, v in result.items()
-                }
+
+                def _get_item_value(v):
+                    if not self._supports_batching():
+                        return v
+                    # Keep scalar values (ex: error=None) as-is while unbatching.
+                    if isinstance(v, (str, bytes, dict)) or v is None:
+                        return v
+                    try:
+                        return v[idx]
+                    except (TypeError, KeyError, IndexError):
+                        return v
+
+                ret_item = {k: _get_item_value(v) for k, v in result.items()}
                 try:
                     if "frames" in ret_item:
                         ret_item["frames"] = _move_cuda_frames_to_cpu(ret_item["frames"])

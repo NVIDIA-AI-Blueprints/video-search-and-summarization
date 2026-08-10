@@ -540,7 +540,7 @@ class VlmQuery(CommonBaseModel):
             "chunking to select all decoded frames in the chunk."
         ),
         ge=-1,
-        le=256,
+        le=512,
         json_schema_extra={"format": "float32"},
     )
 
