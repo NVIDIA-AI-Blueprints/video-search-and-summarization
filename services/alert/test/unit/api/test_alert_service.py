@@ -163,11 +163,27 @@ class TestSubmitNvschemaAlert:
         assert service.kafka_producer.produce.call_args.kwargs["key"] == ""
 
     @pytest.mark.asyncio
-    async def test_null_sensor_block_returns_500(self, service):
-        """``convert_behavior_to_protobuf_behavior`` dereferences ``sensor``."""
-        _body, status = await service.submit_nvschema_alert({"sensor": None})
-        assert status == 500
-        service.kafka_producer.produce.assert_not_called()
+    async def test_null_sensor_block_is_accepted(self, service):
+        """A null nested block is treated as absent rather than rejected.
+
+        Clients that serialise an unset optional as ``null`` used to get a 500
+        from ``convert_behavior_to_protobuf_behavior`` even when the rest of
+        the alert was well-formed. The converter now coerces the block, so the
+        alert is published with the flat fields it did carry; one that carries
+        nothing identifying is dropped later by the ``sensorId``/``timestamp``/
+        ``end`` guard, the same way a sensor-less protobuf alert already is.
+        """
+        _body, status = await service.submit_nvschema_alert(
+            {"sensorId": "cam-9", "sensor": None}
+        )
+        assert status == 202
+
+        # Decode what actually went on the wire: a 202 alone would still pass if
+        # the identifier were dropped during conversion, and the alert would then
+        # be discarded downstream for a missing ``sensorId``.
+        published = nvSchemaBehavior()
+        published.ParseFromString(service.kafka_producer.produce.call_args.kwargs["value"])
+        assert published.sensor.id == "cam-9"
 
     @pytest.mark.asyncio
     async def test_unconfigured_kafka_returns_500(self):
