@@ -238,7 +238,6 @@ APP_VALUE_VALIDATORS: dict[str, ValueValidator] = {
     "roiEventDetectionMode": _enum("coordinate", "bbox"),
     "in3dMode": _bool(),
     "advancedOverlay": _bool(),
-    "inSimulationMode": _bool(),
 
     # Trajectory / map matching
     "trajGeoCoordEnable": _bool(),

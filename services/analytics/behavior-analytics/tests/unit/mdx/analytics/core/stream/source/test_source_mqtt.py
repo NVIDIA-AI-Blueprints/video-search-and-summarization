@@ -257,7 +257,7 @@ class TestSourceMQTTCallbacks:
         assert "test/topic" not in source_mqtt._buffers
         
         # Execute & Assert
-        with pytest.raises(Exception, match=r"\[FATAL\] Unexpected :: msg received before subscribing to topic test/topic\."):
+        with pytest.raises(Exception, match=r"Unexpected :: msg received before subscribing to topic test/topic\."):
             source_mqtt._on_message(mock_client, mock_userdata, mock_mqtt_message)
 
     def test_on_message_retained_message_ignored(self, source_mqtt, mock_mqtt_message_retained):
@@ -484,7 +484,7 @@ class TestSourceMQTTSubscribe:
         source_mqtt._client = mock_client
         
         # Execute & Assert
-        with pytest.raises(Exception, match=r"\[FATAL\] Failed attempt to subscribe to test/topic before MQTT client test-client-id is connected\."):
+        with pytest.raises(Exception, match=r"Failed attempt to subscribe to test/topic before MQTT client test-client-id is connected\."):
             source_mqtt._subscribe(topic, client_id)
         
         # The loop checks connection initially, then sleeps and checks again up to 3 attempts
@@ -500,7 +500,7 @@ class TestSourceMQTTSubscribe:
         source_mqtt._client = None
         
         # Execute & Assert
-        with pytest.raises(Exception, match=r"\[FATAL\] MQTT consumer `test-client-id` does not exist\."):
+        with pytest.raises(Exception, match=r"MQTT consumer `test-client-id` does not exist\."):
             source_mqtt._subscribe(topic, client_id)
 
 
