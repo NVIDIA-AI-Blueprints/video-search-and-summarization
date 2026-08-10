@@ -14,6 +14,10 @@
 # limitations under the License.
 
 # additional components the user can self install
+# The base image may preload libraries that are restored by this installer.
+# Do not pass unavailable preload paths to apt/dpkg helper processes.
+unset LD_PRELOAD
+
 apt-get update
 #apt-get install -y gstreamer1.0-libav
 #backup librtsp to tmp
