@@ -73,9 +73,8 @@ The image uses `app/entrypoint.py` because the runtime stage is distroless and d
 
 ## Legal artifacts
 
-The container build expects these root-level files to be present:
+The container build expects this root-level file to be present:
 
-- `NVIDIA-Software-License-Agreement.pdf`
 - `3rdParty_Licenses.md`
 
-The Dockerfile copies them into `/usr/src/app/` in the runtime image. Note: `3rdParty_Licenses.md` is renamed to `ThirdPartyLicences.txt` in the image.
+The Dockerfile copies it into `/usr/src/app/ThirdPartyLicences.txt` in the runtime image.
