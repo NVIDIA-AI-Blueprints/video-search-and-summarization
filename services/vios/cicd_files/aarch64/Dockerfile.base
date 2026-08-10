@@ -26,7 +26,6 @@ RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
 	libuuid1 \
 	gstreamer1.0-plugins-base \
 	gstreamer1.0-plugins-good \
-	gstreamer1.0-plugins-bad \
 	libgstreamer1.0-0 \
 	libgstreamer-plugins-base1.0-0 \
 	libboost-filesystem1.83.0 \
@@ -95,6 +94,8 @@ RUN rm -f /usr/lib/aarch64-linux-gnu/libswscale.* \
 # Prune codec libraries and GStreamer codec plugins not selected by VIOS.  Keep
 # the JPEG/PNG and XML dependencies required by the packaged application.
 RUN rm -f /usr/lib/aarch64-linux-gnu/libaom.so* \
+        /usr/lib/aarch64-linux-gnu/libldacBT_enc.so* \
+        /usr/lib/aarch64-linux-gnu/liblc3.so* \
         /usr/lib/aarch64-linux-gnu/libdv.so* \
         /usr/lib/aarch64-linux-gnu/libflite.so* \
         /usr/lib/aarch64-linux-gnu/libfluidsynth.so* \
@@ -107,6 +108,10 @@ RUN rm -f /usr/lib/aarch64-linux-gnu/libaom.so* \
         /usr/lib/aarch64-linux-gnu/liblcms2.so* \
         /usr/lib/aarch64-linux-gnu/libogg.so* \
         /usr/lib/aarch64-linux-gnu/libOpenEXR*.so* \
+        /usr/lib/aarch64-linux-gnu/libopenmpt.so* \
+        /usr/lib/aarch64-linux-gnu/libmodplug.so* \
+        /usr/lib/aarch64-linux-gnu/libmpcdec.so* \
+        /usr/lib/aarch64-linux-gnu/libWildMidi.so* \
         /usr/lib/aarch64-linux-gnu/libopenjp2.so* \
         /usr/lib/aarch64-linux-gnu/libopus.so* \
         /usr/lib/aarch64-linux-gnu/libspandsp.so* \
@@ -120,28 +125,49 @@ RUN rm -f /usr/lib/aarch64-linux-gnu/libaom.so* \
         /usr/lib/aarch64-linux-gnu/libwavpack.so* \
         /usr/lib/aarch64-linux-gnu/libwebp.so* \
         /usr/lib/aarch64-linux-gnu/libwebpmux.so* \
+        /usr/lib/aarch64-linux-gnu/libsharpyuv.so* \
+        /usr/lib/aarch64-linux-gnu/libavc1394.so* \
+        /usr/lib/aarch64-linux-gnu/librom1394.so* \
+        /usr/lib/aarch64-linux-gnu/libiec61883.so* \
+        /usr/lib/aarch64-linux-gnu/libdc1394.so* \
+        /usr/lib/aarch64-linux-gnu/libcdda_interface.so* \
+        /usr/lib/aarch64-linux-gnu/libcdda_paranoia.so* \
+        /usr/lib/aarch64-linux-gnu/libchromaprint.so* \
+        /usr/lib/aarch64-linux-gnu/libv4lconvert.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstaom.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgst1394.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstcdparanoia.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstchromaprint.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstcolormanagement.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstdv.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstdc1394.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstflite.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstfluidsynthmidi.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstgme.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstgsm.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstlc3.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstldac.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstmidi.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstmodplug.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstogg.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopenaptx.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopenexr.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopenjpeg.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopenmpt.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopus.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstopusparse.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstspandsp.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstspeex.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstsvtav1.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgsttheora.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstteletext.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgsttwolame.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstvoamrwbenc.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstvorbis.so* \
         /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstwavpack.so* \
-        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstwebp.so*
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstwebp.so* \
+        /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstwildmidi.so* \
+        /usr/share/sounds/sf2/TimGM6mb.sf2
 
 RUN rm -f /usr/lib/aarch64-linux-gnu/liba52* /usr/lib/aarch64-linux-gnu/libcdio.so* /usr/lib/aarch64-linux-gnu/libsidplay.so* \
 		/usr/lib/aarch64-linux-gnu/liblrdf.so*  /usr/lib/aarch64-linux-gnu/libneon.so* \
