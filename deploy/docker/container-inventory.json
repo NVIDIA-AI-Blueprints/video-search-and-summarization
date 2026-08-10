@@ -126,17 +126,31 @@
     },
     {
       "name": "vss-configurator",
-      "strategy": "mirror",
-      "platforms": ["linux/amd64"],
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/configurators/vss-configurator",
+      "source_paths": [
+        "services/configurators/vss-configurator",
+        "libs/analytics/spatialai-data-utils"
+      ],
+      "context": ".",
+      "dockerfile": "services/configurators/vss-configurator/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-configurator"],
-      "tag_variables": ["VSS_CONFIGURATOR_TAG"]
+      "tag_variables": ["VSS_CONFIGURATOR_TAG"],
+      "notes": "Built by GitHub from the configurator service plus Spatial AI Data Utils; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-rt-config-adaptor",
-      "strategy": "mirror",
-      "platforms": ["linux/amd64"],
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/configurators/vss-rt-config-adaptor",
+      "context": "services/configurators/vss-rt-config-adaptor",
+      "dockerfile": "services/configurators/vss-rt-config-adaptor/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-config-adaptor"],
-      "tag_variables": ["VSS_RT_CONFIG_ADAPTOR_TAG"]
+      "tag_variables": ["VSS_RT_CONFIG_ADAPTOR_TAG"],
+      "notes": "Built by GitHub with the managed first-party image set; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-auto-calibration",
@@ -182,10 +196,15 @@
     },
     {
       "name": "sdr-mw-l",
-      "strategy": "external-pin",
-      "platforms": ["linux/amd64"],
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/sdrc",
+      "context": "services/sdrc",
+      "dockerfile": "services/sdrc/envoy/Dockerfile.wdm-router",
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["sdr-mw-l"],
-      "tag_variables": ["SDR_MW_L_IMAGE"]
+      "tag_variables": ["SDR_MW_L_IMAGE"],
+      "notes": "Built by GitHub as the SDRC image while preserving the full-ref SDR_MW_L_IMAGE override."
     }
   ]
 }

@@ -152,7 +152,7 @@ class VerifyTest(unittest.TestCase):
         # tree hash. Both are 40 hex chars, so only value comparison catches it.
         ok, message = verify_decision(labels(tree=OTHER_TREE), None, **self.KWARGS)
         self.assertFalse(ok)
-        self.assertIn("TREE hash", message)
+        self.assertIn("source content", message)
 
     def test_wrong_source_path_fails(self):
         ok, message = verify_decision(labels(path="services/ui"), None, **self.KWARGS)

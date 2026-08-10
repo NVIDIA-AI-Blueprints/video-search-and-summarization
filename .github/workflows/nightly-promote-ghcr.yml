@@ -25,6 +25,15 @@ on:
       behavior_analytics_artifacts_config:
         description: "Optional behavior analytics artifacts-promotion config path"
         required: false
+      sdr_mw_l_artifacts_config:
+        description: "Optional sdr-mw-l artifacts-promotion config path"
+        required: false
+      vss_configurator_artifacts_config:
+        description: "Optional VSS configurator artifacts-promotion config path"
+        required: false
+      vss_rt_config_adaptor_artifacts_config:
+        description: "Optional VSS RT config adaptor artifacts-promotion config path"
+        required: false
 concurrency:
   group: nightly-validate-ghcr
   cancel-in-progress: false
@@ -54,6 +63,9 @@ jobs:
       ALERT_CONFIG: ${{ inputs.alert_artifacts_config || vars.VSS_ALERT_ARTIFACTS_PROMOTION_CONFIG_PATH }}
       VIDEO_ANALYTICS_API_CONFIG: ${{ inputs.video_analytics_api_artifacts_config || vars.VSS_VIDEO_ANALYTICS_API_ARTIFACTS_PROMOTION_CONFIG_PATH }}
       BEHAVIOR_ANALYTICS_CONFIG: ${{ inputs.behavior_analytics_artifacts_config || vars.VSS_BEHAVIOR_ANALYTICS_ARTIFACTS_PROMOTION_CONFIG_PATH }}
+      SDR_MW_L_CONFIG: ${{ inputs.sdr_mw_l_artifacts_config || vars.SDR_MW_L_ARTIFACTS_PROMOTION_CONFIG_PATH }}
+      VSS_CONFIGURATOR_CONFIG: ${{ inputs.vss_configurator_artifacts_config || vars.VSS_CONFIGURATOR_ARTIFACTS_PROMOTION_CONFIG_PATH }}
+      VSS_RT_CONFIG_ADAPTOR_CONFIG: ${{ inputs.vss_rt_config_adaptor_artifacts_config || vars.VSS_RT_CONFIG_ADAPTOR_ARTIFACTS_PROMOTION_CONFIG_PATH }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -91,7 +103,10 @@ jobs:
             --agent-ui-config "$AGENT_UI_CONFIG" \
             --alert-config "$ALERT_CONFIG" \
             --video-analytics-api-config "$VIDEO_ANALYTICS_API_CONFIG" \
-            --behavior-analytics-config "$BEHAVIOR_ANALYTICS_CONFIG"
+            --behavior-analytics-config "$BEHAVIOR_ANALYTICS_CONFIG" \
+            --sdr-mw-l-config "$SDR_MW_L_CONFIG" \
+            --vss-configurator-config "$VSS_CONFIGURATOR_CONFIG" \
+            --vss-rt-config-adaptor-config "$VSS_RT_CONFIG_ADAPTOR_CONFIG"
 
       - name: Trigger GitLab promotion pipeline
         id: promotion-trigger

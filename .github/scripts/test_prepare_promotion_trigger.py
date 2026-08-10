@@ -22,6 +22,9 @@ class PromotionTriggerTest(unittest.TestCase):
                 {"name": "vss-alert-ms", "strategy": "build"},
                 {"name": "vss-video-analytics-api", "strategy": "build"},
                 {"name": "vss-behavior-analytics", "strategy": "build"},
+                {"name": "sdr-mw-l", "strategy": "build"},
+                {"name": "vss-configurator", "strategy": "build"},
+                {"name": "vss-rt-config-adaptor", "strategy": "build"},
             ]
         }
         encoded = base64.b64encode(json.dumps(release_set).encode()).decode()
@@ -42,6 +45,11 @@ class PromotionTriggerTest(unittest.TestCase):
             behavior_analytics_config=(
                 "configs/vss-3.2.0/vss-core-behavior-analytics.yml"
             ),
+            sdr_mw_l_config="configs/vss-3.2.0/vss-core-sdr-mw-l.yml",
+            vss_configurator_config="configs/vss-3.2.0/vss-core-configurator.yml",
+            vss_rt_config_adaptor_config=(
+                "configs/vss-3.2.0/vss-core-rt-config-adaptor.yml"
+            ),
         )
         self.assertEqual(variables["BUILD_TYPE"], "ghcr-promotion")
         self.assertEqual(variables["VSS_TEST_PIPELINE_ID"], "12345")
@@ -57,6 +65,18 @@ class PromotionTriggerTest(unittest.TestCase):
             variables["BEHAVIOR_ANALYTICS_ARTIFACTS_PROMOTION_CONFIG_PATH"],
             "configs/vss-3.2.0/vss-core-behavior-analytics.yml",
         )
+        self.assertEqual(
+            variables["SDR_MW_L_ARTIFACTS_PROMOTION_CONFIG_PATH"],
+            "configs/vss-3.2.0/vss-core-sdr-mw-l.yml",
+        )
+        self.assertEqual(
+            variables["VSS_CONFIGURATOR_ARTIFACTS_PROMOTION_CONFIG_PATH"],
+            "configs/vss-3.2.0/vss-core-configurator.yml",
+        )
+        self.assertEqual(
+            variables["VSS_RT_CONFIG_ADAPTOR_ARTIFACTS_PROMOTION_CONFIG_PATH"],
+            "configs/vss-3.2.0/vss-core-rt-config-adaptor.yml",
+        )
 
     def test_requires_config_paths_for_built_analytics_images(self):
         for image_name, expected_error in (
@@ -67,6 +87,18 @@ class PromotionTriggerTest(unittest.TestCase):
             (
                 "vss-behavior-analytics",
                 "behavior analytics artifacts-promotion config path is required",
+            ),
+            (
+                "sdr-mw-l",
+                "sdr-mw-l artifacts-promotion config path is required",
+            ),
+            (
+                "vss-configurator",
+                "vss-configurator artifacts-promotion config path is required",
+            ),
+            (
+                "vss-rt-config-adaptor",
+                "vss-rt-config-adaptor artifacts-promotion config path is required",
             ),
         ):
             release_set = {

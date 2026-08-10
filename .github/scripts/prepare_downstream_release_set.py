@@ -17,7 +17,7 @@ from detect_changed_images import (
     commit_exists,
     resolve_diff_base,
 )
-from release_set import load_inventory, validate_release_set
+from release_set import entry_source_paths, load_inventory, validate_release_set
 from update_pr_ghcr_candidates import GitHubApi, download_release_set
 
 
@@ -70,17 +70,17 @@ def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[boo
     if changed is None:
         return True, "changed paths unavailable; running downstream"
 
-    watched = {
-        str(entry["source_path"]): str(entry["name"])
+    watched = [
+        (source_path, str(entry["name"]))
         for entry in inventory.get("images", [])
-        if entry.get("source_path")
-        and (entry.get("ghcr_build") or entry.get(TRIGGER_FLAG))
-    }
+        if entry.get("ghcr_build") or entry.get(TRIGGER_FLAG)
+        for source_path in entry_source_paths(entry)
+    ]
     hit_images = sorted(
         {
             name
             for path in changed
-            for source_path, name in watched.items()
+            for source_path, name in watched
             if path == source_path or path.startswith(source_path.rstrip("/") + "/")
         }
     )

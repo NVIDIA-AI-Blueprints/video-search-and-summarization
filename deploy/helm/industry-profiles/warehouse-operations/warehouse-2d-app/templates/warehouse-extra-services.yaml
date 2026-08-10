@@ -6,6 +6,13 @@
 {{- $ds := $warehouse.dsConfigurator | default dict }}
 {{- if ($ds.enabled | default false) }}
 {{- $image := $ds.image | default dict }}
+{{- $global := .Values.global | default dict }}
+{{- $prefix := index $global "container_prefix" | default "" }}
+{{- $repository := required "warehouse.dsConfigurator.image.repository is required" $image.repository }}
+{{- if $prefix }}
+{{- $repository = printf "%s/vss-rt-config-adaptor" (trimSuffix "/" $prefix) }}
+{{- end }}
+{{- $tag := index $global "container_tag" | default (required "warehouse.dsConfigurator.image.tag is required" $image.tag) }}
 {{- $dsName := $ds.name | default (printf "ds-configurator-%s" $mode) }}
 apiVersion: apps/v1
 kind: Deployment
@@ -57,7 +64,7 @@ spec:
               readOnly: true
       containers:
         - name: ds-configurator
-          image: "{{ required "warehouse.dsConfigurator.image.repository is required" $image.repository }}:{{ required "warehouse.dsConfigurator.image.tag is required" $image.tag }}"
+          image: "{{ $repository }}:{{ $tag }}"
           imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
           ports:
             - name: http

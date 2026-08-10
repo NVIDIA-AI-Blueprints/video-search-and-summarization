@@ -189,7 +189,16 @@ INVENTORY = {
         {"name": "vss-agent", "source_path": "services/agent", "ghcr_build": True},
         {"name": "vss-rt-cv", "source_path": "services/rt-cv",
          "trigger_downstream_from_source": True},
-        {"name": "vss-configurator", "source_path": "services/configurators"},
+        {
+            "name": "vss-configurator",
+            "source_path": "services/configurators/vss-configurator",
+            "source_paths": [
+                "services/configurators/vss-configurator",
+                "libs/analytics/spatialai-data-utils",
+            ],
+            "ghcr_build": True,
+        },
+        {"name": "vss-unmanaged-configurator", "source_path": "services/configurators"},
     ]
 }
 
@@ -210,6 +219,14 @@ class DownstreamGateTest(unittest.TestCase):
     def test_unflagged_source_change_does_not_run(self):
         run, _ = downstream_relevant(["services/configurators/a.py"], INVENTORY)
         self.assertFalse(run)
+
+    def test_multi_source_ghcr_change_runs(self):
+        run, why = downstream_relevant(
+            ["libs/analytics/spatialai-data-utils/release/pyproject.toml"],
+            INVENTORY,
+        )
+        self.assertTrue(run)
+        self.assertIn("vss-configurator", why)
 
     def test_deploy_change_runs_without_any_source_change(self):
         run, why = downstream_relevant(["deploy/docker/containers.env"], INVENTORY)

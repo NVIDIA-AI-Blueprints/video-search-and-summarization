@@ -310,7 +310,7 @@ docker build \
   -t vss-configurator .
 ```
 
-The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidian/distroless/python:3.13-v4.0.5`**.
+The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidia/distroless/python:3.13-v4.0.5`**.
 
 **Legal requirements (container distribution):**
 
@@ -630,7 +630,7 @@ Status for NVStreamer/VMS video upload (for init-container polling).
 |------|--------|
 | Build context | monorepo root (`.`) |
 | Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` |
-| Runtime base | `nvcr.io/nvidian/distroless/python:3.13-v4.0.5` |
+| Runtime base | `nvcr.io/nvidia/distroless/python:3.13-v4.0.5` |
 | Entrypoint | `python entrypoint.py` (no shell in image) |
 | Working directory | `/usr/src/app` |
 | Python deps | `PYTHONPATH=/usr/src/app/site-packages` |

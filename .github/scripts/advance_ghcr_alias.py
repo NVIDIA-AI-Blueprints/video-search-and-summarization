@@ -24,8 +24,8 @@ Two behaviours differ from the original build-only alias mover:
    entries. Non-GHCR pins (nvcr.io) cannot be retagged and are skipped;
    they are pinned in git at this commit and stay derivable from the repo.
 
-2. **Tree-SHA gate.** ``--verify-tree-sha`` refuses to retag an image whose
-   recorded ``source_tree_sha`` does not equal ``git rev-parse <commit>:<source_path>``.
+2. **Source-hash gate.** ``--verify-tree-sha`` refuses to retag an image whose
+   recorded ``source_tree_sha`` does not equal this commit's source content hash.
    This makes the retag *absolute*: it asserts "this image was built from this
    commit's source" against git and the registry, never against the previous
    commit's tags. Entries with no ``source_tree_sha`` (``mirror`` entries carry
@@ -46,6 +46,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from container_build_plan import source_tree_hash  # noqa: E402
+from release_set import entry_source_paths  # noqa: E402
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
@@ -135,6 +140,7 @@ def alias_plan(
     return sorted(updates, key=lambda item: item.name)
 
 
+
 def git_tree_sha(repo_root: Path, commit: str, source_path: str) -> str | None:
     """``git rev-parse <commit>:<source_path>``, or None when the path is absent."""
     result = subprocess.run(
@@ -169,12 +175,16 @@ def tree_sources(
     for image in release_set.get("images", []):
         if not _retaggable(image):
             continue
-        source_path = image.get("source_path")
-        if not source_path:
+        source_paths = entry_source_paths(image)
+        if not source_paths:
             continue  # mirror entries carry no repo source
-        tree_sha = tree_reader(repo_root, commit, str(source_path))
-        if tree_sha:
-            sources[str(image.get("name") or "")] = f"tree-{tree_sha}"
+        try:
+            tree_sha = source_tree_hash(
+                repo_root, commit, source_paths, tree_reader=tree_reader
+            )
+        except ValueError:
+            continue
+        sources[str(image.get("name") or "")] = f"tree-{tree_sha}"
     return sources
 
 
@@ -186,7 +196,7 @@ def verify_tree_shas(
 ) -> list[str]:
     """Return a report line per checked entry; raise on any mismatch.
 
-    Only entries that both declare a ``source_path`` and record a
+    Only entries that declare repo source inputs and record a
     ``source_tree_sha`` can be verified. Everything else is reported as
     unverified and allowed through — see the module docstring.
     """
@@ -197,26 +207,32 @@ def verify_tree_shas(
             continue
         name = str(image.get("name") or "")
         recorded = image.get("source_tree_sha")
-        source_path = image.get("source_path")
-        if not recorded or not source_path:
+        source_paths = entry_source_paths(image)
+        if not recorded or not source_paths:
             report.append(f"{name}: no source_tree_sha recorded; retag unverified")
             continue
-        expected = tree_reader(repo_root, commit, str(source_path))
+        try:
+            expected = source_tree_hash(
+                repo_root, commit, source_paths, tree_reader=tree_reader
+            )
+        except ValueError:
+            expected = None
+        paths_text = ",".join(source_paths)
         if expected is None:
             mismatches.append(
-                f"{name}: {source_path!r} does not resolve to a tree at {commit}"
+                f"{name}: {paths_text!r} does not resolve to source content at {commit}"
             )
             continue
         if expected != str(recorded):
             mismatches.append(
-                f"{name}: source_tree_sha {recorded} != {commit}:{source_path} "
-                f"tree {expected} — image was not built from this commit's source"
+                f"{name}: source_tree_sha {recorded} != {commit}:{paths_text} "
+                f"content hash {expected} — image was not built from this commit's source"
             )
             continue
-        report.append(f"{name}: source_tree_sha matches {commit}:{source_path}")
+        report.append(f"{name}: source_tree_sha matches {commit}:{paths_text}")
     if mismatches:
         raise RuntimeError(
-            "tree-SHA gate refused the retag:\n  " + "\n  ".join(mismatches)
+            "source-hash gate refused the retag:\n  " + "\n  ".join(mismatches)
         )
     return report
 
