@@ -192,6 +192,7 @@ done
 echo "Reinstalling GStreamer plugins and core multimedia libraries..."
 for attempt in $(seq 1 $MAX_RETRIES); do
   if apt-get install --reinstall -y ${APT_OPTS} \
+      libv4lconvert0t64 \
       gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
       libvo-aacenc0 libfaad2 libswresample-dev libswresample4 libavutil-dev libavutil58 \
       libavcodec-dev libavcodec60 libavformat-dev libavformat60 libavfilter-dev libavfilter9 \
