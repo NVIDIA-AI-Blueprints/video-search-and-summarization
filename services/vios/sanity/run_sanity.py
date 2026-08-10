@@ -1010,8 +1010,13 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     # Capture THIS plan-run's container logs while the containers are still alive.
     if target == "local" and any(r.plan == name and r.status == "FAIL" for r in results):
         plan_meta[name]["logs"] = _capture_container_logs(ctx, tag=_plan_tag(name))
-    if managed_kafka and not (deploy_only or leave_deployment):
-        _stop_managed_kafka(True)
+    if managed_kafka:
+        if deploy_only or leave_deployment:
+            import atexit
+            atexit.unregister(_stop_managed_kafka)
+            log.info("leaving local Kafka-compatible sanity broker running")
+        else:
+            _stop_managed_kafka(True)
 
 
 def _run_plans_inner(plans, deploy_only, results, plan_meta, expand_usecases,
