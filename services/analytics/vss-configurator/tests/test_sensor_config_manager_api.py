@@ -223,3 +223,82 @@ def test_groups_with_mapping_returns_list(client, sample_sensor_mapping, monkeyp
     assert isinstance(data, list)
     assert "r1|g1" in data
     assert "r2|g1" in data
+
+
+# ---------------------------------------------------------------------------
+# add_sensor() unit tests — covers the hot-loop / duplicate-block bug fixes
+# ---------------------------------------------------------------------------
+
+def _make_sensor(name="cam-1", url="rtsp://host/1"):
+    from utils.sensor_mapping import Sensor
+    return Sensor(name=name, url=url, group_id="g1", region="r1")
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    """Patch time.sleep so tests don't actually wait."""
+    monkeypatch.setattr("sensor_config_manager.time.sleep", lambda _: None)
+
+
+def test_add_sensor_200_returns_immediately(safe_calibration_dir_for_api, no_sleep):
+    """add_sensor returns after a single 200 response without sleeping."""
+    import sensor_config_manager as mod
+    ok = MagicMock(status_code=200, text="ok")
+    with patch("sensor_config_manager.requests.post", return_value=ok) as mock_post:
+        mod.add_sensor(_make_sensor(), delay=5, max_retries=3)
+    assert mock_post.call_count == 1
+
+
+def test_add_sensor_409_treated_as_success(safe_calibration_dir_for_api, no_sleep):
+    """HTTP 409 (already exists) is treated as success and does NOT retry."""
+    import sensor_config_manager as mod
+    conflict = MagicMock(status_code=409, text="sensor already exists")
+    with patch("sensor_config_manager.requests.post", return_value=conflict) as mock_post:
+        mod.add_sensor(_make_sensor(), delay=5, max_retries=10)
+    # Must exit on the first 409 — must NOT spin 10 times
+    assert mock_post.call_count == 1
+
+
+def test_add_sensor_already_in_body_treated_as_success(safe_calibration_dir_for_api, no_sleep):
+    """A 400 response whose body contains 'already' is treated as success."""
+    import sensor_config_manager as mod
+    conflict = MagicMock(status_code=400, text='{"message":"Sensor already registered"}')
+    with patch("sensor_config_manager.requests.post", return_value=conflict) as mock_post:
+        mod.add_sensor(_make_sensor(), delay=5, max_retries=10)
+    assert mock_post.call_count == 1
+
+
+def test_add_sensor_non200_retries_then_gives_up(safe_calibration_dir_for_api, no_sleep):
+    """A persistent non-200 (not duplicate) causes bounded retries then returns."""
+    import sensor_config_manager as mod
+    bad = MagicMock(status_code=500, text="internal error")
+    max_retries = 4
+    with patch("sensor_config_manager.requests.post", return_value=bad) as mock_post:
+        mod.add_sensor(_make_sensor(), delay=1, max_retries=max_retries)
+    # Must have tried exactly max_retries times and then given up (not looped forever)
+    assert mock_post.call_count == max_retries
+
+
+def test_add_sensor_exception_retries_then_gives_up(safe_calibration_dir_for_api, no_sleep):
+    """Repeated connection errors cause bounded retries then return (no infinite loop)."""
+    import sensor_config_manager as mod
+    max_retries = 3
+    with patch("sensor_config_manager.requests.post", side_effect=ConnectionError("refused")) as mock_post:
+        mod.add_sensor(_make_sensor(), delay=1, max_retries=max_retries)
+    assert mock_post.call_count == max_retries
+
+
+def test_add_sensor_sleep_called_on_non200_not_exception(safe_calibration_dir_for_api):
+    """Sleep is called between retries even when VMS responds (not just on exceptions).
+
+    This directly tests defect #1: before the fix, sleep was only in the except
+    branch so non-200 responses from a reachable VMS caused ~3 ms hot-looping.
+    """
+    import sensor_config_manager as mod
+    bad = MagicMock(status_code=500, text="error")
+    sleep_calls = []
+    with patch("sensor_config_manager.requests.post", return_value=bad):
+        with patch("sensor_config_manager.time.sleep", side_effect=lambda t: sleep_calls.append(t)):
+            mod.add_sensor(_make_sensor(), delay=1, max_retries=3)
+    # Sleep must have been called between the first two attempts (at minimum)
+    assert len(sleep_calls) >= 1, "time.sleep must be called on the non-200 retry path"
