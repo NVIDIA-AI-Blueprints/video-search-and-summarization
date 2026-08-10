@@ -24,6 +24,10 @@
 # makes the restart path free.
 set -e  # Exit on any error
 
+# The base image may preload libraries that are restored by this installer.
+# Do not pass unavailable preload paths to apt/dpkg helper processes.
+unset LD_PRELOAD
+
 # Ensure non-interactive mode for apt operations
 export DEBIAN_FRONTEND=noninteractive
 
