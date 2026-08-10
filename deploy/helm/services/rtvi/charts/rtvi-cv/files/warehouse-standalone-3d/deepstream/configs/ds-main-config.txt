@@ -67,7 +67,7 @@ rtsp-reconnect-interval-sec=60
 init-rtsp-reconnect-interval-sec=5
 #Limit the rtsp reconnection attempts
 rtsp-reconnect-attempts=-1
-set-rtp-protocol=1
+set-rtp-protocol=4
 
 [streammux]
 gpu-id=0

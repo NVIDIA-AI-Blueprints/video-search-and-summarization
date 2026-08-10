@@ -61,7 +61,7 @@ drop-on-latency=1
 rtsp-reconnect-interval-sec=60
 init-rtsp-reconnect-interval-sec=5
 rtsp-reconnect-attempts=-1
-set-rtp-protocol=1
+set-rtp-protocol=4
 
 [streammux]
 gpu-id=0

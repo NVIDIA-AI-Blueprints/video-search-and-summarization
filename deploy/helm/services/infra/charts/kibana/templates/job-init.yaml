@@ -44,8 +44,15 @@ spec:
             - -c
             - apk add --no-cache curl bash && export KIBANA_OBJECTS_FILE=kibana-objects.ndjson && bash /opt/mdx/kibana-import-dashboard.sh
           env:
+            {{- $kbUrl := .Values.init.kibanaUrl | default (include "kibana.httpServiceUrl" .) }}
+            {{- /* Kibana serves its API under basePath, so the import must too. */}}
+            {{- with .Values.basePath }}
+            {{- if not (hasSuffix . $kbUrl) }}
+            {{- $kbUrl = printf "%s%s" (trimSuffix "/" $kbUrl) . }}
+            {{- end }}
+            {{- end }}
             - name: KIBANA_URL
-              value: {{ .Values.init.kibanaUrl | default (include "kibana.httpServiceUrl" .) | quote }}
+              value: {{ $kbUrl | quote }}
             - name: ELASTICSEARCH_URL
               value: {{ .Values.init.elasticsearchUrl | default (printf "http://%s:9200" (include "kibana.elasticsearchServiceHostname" .)) | quote }}
           volumeMounts:
