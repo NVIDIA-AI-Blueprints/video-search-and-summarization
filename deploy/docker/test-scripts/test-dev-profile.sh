@@ -1488,12 +1488,35 @@ run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM
 run_dry_run_up_and_check_generated_env "generated.env MODE for alerts" "alerts" \
  -i 127.0.0.1 -m verification -d -- \
   "MODE" "2d_cv" \
-  "NEXT_PUBLIC_APP_SUBTITLE" '"Vision (Alerts - CV)"'
+  "NEXT_PUBLIC_APP_SUBTITLE" '"Vision (Alerts - CV)"' \
+  "RTVI_VLM_KAFKA_ENABLED" "false"
 
 run_dry_run_up_and_check_generated_env "generated.env alerts UI subtitle follows real-time MODE" "alerts" \
  -i 127.0.0.1 -m real-time -d -- \
   "MODE" "2d_vlm" \
   "NEXT_PUBLIC_APP_SUBTITLE" '"Vision (Alerts - VLM)"'
+
+# Real-time alerts are driven by RT-VLM's Kafka events, so the verification-only
+# RTVI_VLM_KAFKA_ENABLED=false override must be commented out for MODE=2d_vlm.
+_alerts_gen_env="$(generated_env_path "alerts")"
+_alerts_gen_env_backup=""
+if [[ -f "${_alerts_gen_env}" ]]; then
+  _alerts_gen_env_backup="$(mktemp)"
+  cp "${_alerts_gen_env}" "${_alerts_gen_env_backup}"
+  CLEANUP_RESTORES+=("${_alerts_gen_env_backup}|${_alerts_gen_env}")
+fi
+if timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m real-time -d > /dev/null 2>&1 \
+  && ! grep -q '^RTVI_VLM_KAFKA_ENABLED=' "${_alerts_gen_env}" \
+  && grep -Eq '^#[[:space:]]*RTVI_VLM_KAFKA_ENABLED=' "${_alerts_gen_env}"; then
+  echo "PASS: alerts real-time comments out RTVI_VLM_KAFKA_ENABLED so RT-VLM publishes to Kafka"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alerts real-time should comment out RTVI_VLM_KAFKA_ENABLED (verification-only override)"
+  ((TESTS_FAILED++)) || true
+fi
+if [[ -n "${_alerts_gen_env_backup}" && -f "${_alerts_gen_env_backup}" ]]; then
+  mv "${_alerts_gen_env_backup}" "${_alerts_gen_env}"
+fi
 
 _alerts_overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
 _alerts_overrides_env_backup="$(mktemp)"
