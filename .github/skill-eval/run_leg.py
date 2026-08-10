@@ -1205,13 +1205,16 @@ def record_machine(
 
     Never raises: a debug signal must not fail the leg.
     """
-    try:
-        print(
-            f"[run-leg] machine: {instance} leg={leg_slug} run={run_id}",
-            flush=True,
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    def _say(msg: str) -> None:
+        # Even the diagnostics must not raise: a broken or unencodable stdout
+        # (e.g. the outer agent closed the pipe) would otherwise propagate out
+        # of a sink's except block and fail the leg.
+        try:
+            print(msg, flush=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    _say(f"[run-leg] machine: {instance} leg={leg_slug} run={run_id}")
     # Broad excepts + explicit utf-8: a non-UTF-8 runner locale would otherwise
     # raise UnicodeEncodeError (not an OSError) and fail the leg. Nothing here
     # may propagate.
@@ -1220,7 +1223,7 @@ def record_machine(
             f"{instance}\t{leg_slug}\t{run_id}\n", encoding="utf-8"
         )
     except Exception as exc:  # noqa: BLE001
-        print(f"[run-leg] machine.txt write failed: {exc!r}", flush=True)
+        _say(f"[run-leg] machine.txt write failed: {exc!r}")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         try:
@@ -1229,7 +1232,7 @@ def record_machine(
                     f"- leg `{leg_slug}` -> **{instance}** (run {run_id})\n"
                 )
         except Exception as exc:  # noqa: BLE001
-            print(f"[run-leg] step-summary write failed: {exc!r}", flush=True)
+            _say(f"[run-leg] step-summary write failed: {exc!r}")
 
 
 def run_invocations(
