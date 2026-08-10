@@ -89,7 +89,7 @@ rtvi:
       - name: VLM_MODEL_TO_USE
         value: "cosmos-reason3"
       - name: KAFKA_ENABLED
-        value: "true"
+        value: "false"
       - name: KAFKA_INCIDENT_TOPIC
         value: "mdx-vlm-incidents"
       - name: ERROR_MESSAGE_TOPIC
