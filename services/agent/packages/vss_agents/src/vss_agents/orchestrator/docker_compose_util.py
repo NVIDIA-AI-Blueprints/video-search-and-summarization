@@ -549,12 +549,14 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     merged.update(parse_env_file(config.profile_env_override_file))
     llm_mode_override = config.env_overrides.get("LLM_MODE", "").strip()
     vlm_mode_override = config.env_overrides.get("VLM_MODE", "").strip()
+    llm_endpoint_url = config.llm_endpoint_url
+    vlm_endpoint_url = config.vlm_endpoint_url
     local_modes = {MODE_LOCAL, MODE_LOCAL_SHARED}
     # Notebook/runtime endpoints are deployment defaults, not mandates. An
     # explicit per-call local placement has the documented highest precedence
     # and must suppress the corresponding remote endpoint default.
-    use_llm_endpoint = bool(config.llm_endpoint_url) and llm_mode_override not in local_modes
-    use_vlm_endpoint = bool(config.vlm_endpoint_url) and vlm_mode_override not in local_modes
+    use_llm_endpoint = bool(llm_endpoint_url) and llm_mode_override not in local_modes
+    use_vlm_endpoint = bool(vlm_endpoint_url) and vlm_mode_override not in local_modes
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
     effective_hardware_profile = (
@@ -585,7 +587,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if config.nvidia_api_key:
         merged["NVIDIA_API_KEY"] = config.nvidia_api_key
     if use_llm_endpoint:
-        merged["LLM_BASE_URL"] = config.llm_endpoint_url
+        assert llm_endpoint_url is not None
+        merged["LLM_BASE_URL"] = llm_endpoint_url
         merged["LLM_MODE"] = "remote"
     if config.llm_model_type:
         merged["LLM_MODEL_TYPE"] = config.llm_model_type
@@ -597,7 +600,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["VLM_NAME"] = config.vlm_name
     # Mirror dev-profile.sh `--use-remote-vlm`: VLM_ENDPOINT_URL → VLM_BASE_URL + VLM_MODE=remote.
     if use_vlm_endpoint:
-        merged["VLM_BASE_URL"] = config.vlm_endpoint_url
+        assert vlm_endpoint_url is not None
+        merged["VLM_BASE_URL"] = vlm_endpoint_url
         merged["VLM_MODE"] = "remote"
     if config.vlm_model_type:
         merged["VLM_MODEL_TYPE"] = config.vlm_model_type
