@@ -1334,6 +1334,11 @@ curl -N -X POST "$BACKEND/v1/generate_captions" \
 - `enable_audio` in the request only takes effect when `VLM_MODEL_SUPPORTS_AUDIO=true` is set in `.env`. The env var gates model capability; the per-request flag enables audio decoding for that request.
 - Reasoning is disabled by default (`enable_reasoning=false`). Pass `enable_reasoning=true` in the request to enable chain-of-thought output.
 
+## CI downstream-trigger probe
+
+This temporary, documentation-only note verifies that changes beneath the
+RT-VLM source path trigger the GitHub downstream gate.
+
 ## License
 
 This project is licensed under the **Apache License, Version 2.0**. See the top-level [LICENSE](../../../LICENSE) file in the repository, and the SPDX header carried in every source file in [`src/`](src/) and [`tests/`](tests/).
