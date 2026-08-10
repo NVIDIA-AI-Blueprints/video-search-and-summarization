@@ -15,9 +15,13 @@
 
 FROM nvcr.io/nvidia/cuda:13.2.0-runtime-ubuntu24.04
 
-RUN apt-get update && apt-get upgrade -y
-
-RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
+# Keep the index refresh in the same layer as the install. Splitting them lets
+# Docker reuse a cached "apt-get update" while the install runs fresh, and once
+# Ubuntu supersedes a package the cached index points at a .deb that no longer
+# exists on ports.ubuntu.com, failing the build with a 404.
+RUN apt-get update && \
+	apt-get upgrade -y && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 	libcurl4 \
 	libxml2 \
 	libssl3t64 \
