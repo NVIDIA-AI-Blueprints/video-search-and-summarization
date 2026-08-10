@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum, auto
 from threading import Event, RLock, Thread
-from typing import Callable, MutableMapping, Optional
+from typing import Any, Callable, MutableMapping, Optional
 
 import cuda.bindings.runtime
 import gi
@@ -244,6 +244,25 @@ class RTVIStreamHandler:
             from opentelemetry.sdk.metrics.view import View
 
             return [
+                # Remote asset download latency (HTTP, HTTPS, and S3)
+                View(
+                    instrument_name="asset_download_duration_seconds",
+                    aggregation=ExplicitBucketHistogramAggregation(
+                        boundaries=[
+                            0.1,
+                            0.25,
+                            0.5,
+                            1.0,
+                            2.5,
+                            5.0,
+                            10.0,
+                            25.0,
+                            60.0,
+                            120.0,
+                            300.0,
+                        ]
+                    ),
+                ),
                 # Stream FPS histogram - measures frames per second
                 View(
                     instrument_name="stream_fps",
@@ -307,13 +326,6 @@ class RTVIStreamHandler:
                     instrument_name="vlm_output_tokens_per_chunk",
                     aggregation=ExplicitBucketHistogramAggregation(
                         boundaries=[10, 20, 50, 100, 200, 500, 1000, 2000]
-                    ),
-                ),
-                # ASR pipeline latency histogram - audio transcription time
-                View(
-                    instrument_name="asr_pipeline_latency_seconds",
-                    aggregation=ExplicitBucketHistogramAggregation(
-                        boundaries=[0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 15.0, 20.0]
                     ),
                 ),
                 # Live stream summary latency histogram
@@ -443,9 +455,15 @@ class RTVIStreamHandler:
             self._decode_latency_latest_value = 0.0
             self._vlm_latency_latest_value = 0.0
             self._chunk_latency_latest_value = 0.0
-            self._asr_pipeline_latency_latest_value = 0.0
+            self._chunk_latency_total_value = 0.0
+            self._chunk_latency_count_value = 0
+            self._chunk_latency_avg_value = 0.0
             self._live_stream_captions_latency_latest_value = 0.0
             self._live_stream_chunk_latency_latest_value = 0.0
+            self._live_stream_chunk_latency_total_value = 0.0
+            self._live_stream_chunk_latency_count_value = 0
+            self._live_stream_chunk_latency_avg_value = 0.0
+            self._latency_lock = RLock()
 
             # UpDownCounters for counts that increment/decrement
             self._queries_processed_counter = self._meter.create_up_down_counter(
@@ -536,12 +554,6 @@ class RTVIStreamHandler:
                 unit="tokens",
             )
 
-            self._asr_pipeline_latency = self._meter.create_histogram(
-                name="asr_pipeline_latency_seconds",
-                description="ASR pipeline processing latency in seconds",
-                unit="s",
-            )
-
             self._live_stream_chunk_latency = self._meter.create_histogram(
                 name="live_stream_chunk_latency_seconds",
                 description="Live stream chunk processing latency in seconds",
@@ -595,11 +607,9 @@ class RTVIStreamHandler:
             )
 
             self._meter.create_observable_gauge(
-                name="asr_pipeline_latency_seconds_latest",
-                callbacks=[
-                    lambda options: [metrics.Observation(self._asr_pipeline_latency_latest_value)]
-                ],
-                description="Latest ASR pipeline processing latency in seconds",
+                name="avg_chunk_latency_seconds",
+                callbacks=[lambda options: [metrics.Observation(self._chunk_latency_avg_value)]],
+                description="Average chunk processing latency in seconds since service start",
                 unit="s",
             )
 
@@ -611,6 +621,15 @@ class RTVIStreamHandler:
                     ]
                 ],
                 description="Latest live stream chunk processing latency in seconds",
+                unit="s",
+            )
+
+            self._meter.create_observable_gauge(
+                name="live_stream_avg_chunk_latency_seconds",
+                callbacks=[
+                    lambda options: [metrics.Observation(self._live_stream_chunk_latency_avg_value)]
+                ],
+                description="Average live stream chunk processing latency in seconds since service start",
                 unit="s",
             )
 
@@ -629,6 +648,29 @@ class RTVIStreamHandler:
             """Callback for system uptime observable gauge."""
             uptime = time.time() - self._start_time
             return [metrics.Observation(uptime)]
+
+        def record_chunk_latency(self, latency: float) -> None:
+            """Record file/request chunk latency and maintain latest/average gauges."""
+            self._chunk_latency.record(latency)
+            with self._latency_lock:
+                self._chunk_latency_latest_value = latency
+                self._chunk_latency_total_value += latency
+                self._chunk_latency_count_value += 1
+                self._chunk_latency_avg_value = (
+                    self._chunk_latency_total_value / self._chunk_latency_count_value
+                )
+
+        def record_live_stream_chunk_latency(self, latency: float) -> None:
+            """Record live stream chunk latency and maintain latest/average gauges."""
+            self._live_stream_chunk_latency.record(latency)
+            with self._latency_lock:
+                self._live_stream_chunk_latency_latest_value = latency
+                self._live_stream_chunk_latency_total_value += latency
+                self._live_stream_chunk_latency_count_value += 1
+                self._live_stream_chunk_latency_avg_value = (
+                    self._live_stream_chunk_latency_total_value
+                    / self._live_stream_chunk_latency_count_value
+                )
 
     def __init__(self, args, service_name: str = "rtvi") -> None:
         """Initialize the Stream Handler
@@ -656,29 +698,18 @@ class RTVIStreamHandler:
         request_profiling_value = os.environ.get("ENABLE_REQUEST_PROFILING", "").lower()
         self._profile_requests = request_profiling_value in ("true", "1")
 
-        # Initialize Kafka producer if enabled
-        # argparse converts --kafka-enabled to kafka_enabled attribute
-        # Priority: command-line args > environment variables > defaults
-        kafka_enabled_arg = getattr(args, "kafka_enabled", "false")
-        kafka_topic_arg = getattr(args, "kafka_topic", "mdx-vlm-captions")
+        # Initialize generated-message output bus configuration.
+        # MESSAGE_BUS is the startup source of truth: kafka, redis, or unset/empty.
+        default_message_bus_topic = "mdx-embed" if "embed" in service_name else "mdx-vlm-captions"
+        message_bus_topic = (
+            str(getattr(args, "message_bus_topic", "") or "")
+            or os.environ.get("MESSAGE_BUS_TOPIC", "")
+            or default_message_bus_topic
+        )
         kafka_bootstrap_servers_arg = getattr(args, "kafka_bootstrap_servers", "")
 
-        # Parse kafka_enabled: command-line arg takes precedence
-        # If command-line arg is the default "false", check environment variable
-        if kafka_enabled_arg == "false":
-            kafka_enabled_env = os.environ.get("KAFKA_ENABLED", "false")
-            kafka_enabled = str(kafka_enabled_env).lower() == "true"
-        else:
-            kafka_enabled = str(kafka_enabled_arg).lower() == "true"
-
-        self._kafka_enabled = kafka_enabled
-
-        # Parse kafka_topic: command-line arg takes precedence
-        # If command-line arg is the default, check environment variable
-        if kafka_topic_arg == "mdx-vlm-captions":
-            self._kafka_topic = os.environ.get("KAFKA_TOPIC", "mdx-vlm-captions")
-        else:
-            self._kafka_topic = str(kafka_topic_arg)
+        self._kafka_enabled = False
+        self._kafka_topic = message_bus_topic
 
         # Parse kafka_bootstrap_servers: command-line arg takes precedence
         # If command-line arg is empty (default), check environment variable
@@ -686,6 +717,7 @@ class RTVIStreamHandler:
             kafka_bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "")
         else:
             kafka_bootstrap_servers = str(kafka_bootstrap_servers_arg)
+        self._kafka_bootstrap_servers = kafka_bootstrap_servers
 
         self._kafka_producer = None
         self._kafka_send_queue = None
@@ -708,11 +740,9 @@ class RTVIStreamHandler:
             )
             self._kafka_send_queue_maxsize = 1024
         self._kafka_incident_topic = os.environ.get("KAFKA_INCIDENT_TOPIC", "mdx-vlm-incidents")
-
-        if service_name == "rtvi-vlm":
-            self._kafka_error_topic = os.environ.get("ERROR_MESSAGE_TOPIC", "mdx-vlm-errors")
-        else:
-            self._kafka_error_topic = os.environ.get("ERROR_MESSAGE_TOPIC", "mdx-embed-errors")
+        default_error_topic = "mdx-vlm-errors" if service_name == "rtvi-vlm" else "mdx-embed-errors"
+        error_message_topic = os.environ.get("ERROR_MESSAGE_TOPIC", default_error_topic)
+        self._kafka_error_topic = error_message_topic
 
         # Initialize Redis client for error messages
         self._redis_client = None
@@ -735,14 +765,100 @@ class RTVIStreamHandler:
                 self._redis_send_queue_maxsize,
             )
             self._redis_send_queue_maxsize = 1024
-        self._use_redis_error_bus = (
+        self._redis_host = os.environ.get("REDIS_HOST", "localhost")
+        try:
+            self._redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+        except ValueError:
+            logger.warning(
+                "Invalid REDIS_PORT=%r; using 6379",
+                os.environ.get("REDIS_PORT"),
+            )
+            self._redis_port = 6379
+        try:
+            self._redis_db = int(os.environ.get("REDIS_DB", "0"))
+        except ValueError:
+            logger.warning(
+                "Invalid REDIS_DB=%r; using 0",
+                os.environ.get("REDIS_DB"),
+            )
+            self._redis_db = 0
+        self._redis_password = os.environ.get("REDIS_PASSWORD", None)
+        self._redis_payload_key = os.environ.get("REDIS_PAYLOAD_KEY", "metadata")
+        try:
+            self._redis_stream_maxlen = int(os.environ.get("REDIS_STREAM_MAXLEN", "10000"))
+        except ValueError:
+            logger.warning(
+                "Invalid REDIS_STREAM_MAXLEN=%r; using 10000",
+                os.environ.get("REDIS_STREAM_MAXLEN"),
+            )
+            self._redis_stream_maxlen = 10000
+        legacy_redis_error_messages = (
             os.environ.get("ENABLE_REDIS_ERROR_MESSAGES", "false").lower() == "true"
         )
+        self._redis_error_channel = error_message_topic
 
-        if service_name == "rtvi-vlm":
-            self._redis_error_channel = os.environ.get("ERROR_MESSAGE_TOPIC", "mdx-vlm-errors")
+        self._redis_stream = message_bus_topic
+        requested_message_bus = (
+            str(getattr(args, "message_bus", "") or "") or os.environ.get("MESSAGE_BUS", "")
+        ).lower()
+        if requested_message_bus and requested_message_bus not in {"kafka", "redis"}:
+            logger.warning(
+                "Unsupported MESSAGE_BUS=%r; generated-message output bus disabled",
+                requested_message_bus,
+            )
+            requested_message_bus = ""
+        kafka_bootstrap_configured = bool(
+            kafka_bootstrap_servers
+            and [server.strip() for server in kafka_bootstrap_servers.split(",") if server.strip()]
+        )
+        if requested_message_bus == "kafka" and not kafka_bootstrap_configured:
+            logger.warning(
+                "MESSAGE_BUS=kafka requested but KAFKA_BOOTSTRAP_SERVERS is not configured. "
+                "Kafka output disabled."
+            )
+            requested_message_bus = ""
+        if requested_message_bus == "redis":
+            self._message_bus = "redis"
+        elif requested_message_bus == "kafka":
+            self._kafka_enabled = True
+            self._message_bus = "kafka"
         else:
-            self._redis_error_channel = os.environ.get("ERROR_MESSAGE_TOPIC", "mdx-embed-errors")
+            self._message_bus = None
+            logger.info("MESSAGE_BUS is unset; generated-message output bus disabled.")
+
+        error_bus_arg = getattr(args, "error_bus", None)
+        error_bus_env_set = "ERROR_BUS" in os.environ
+        self._error_bus_explicitly_configured = (
+            error_bus_arg is not None or error_bus_env_set or legacy_redis_error_messages
+        )
+        if error_bus_arg is not None:
+            requested_error_bus = str(error_bus_arg or "").lower()
+        elif error_bus_env_set:
+            requested_error_bus = os.environ.get("ERROR_BUS", "").lower()
+        elif legacy_redis_error_messages:
+            requested_error_bus = "redis"
+        elif requested_message_bus == "kafka":
+            requested_error_bus = "kafka"
+        else:
+            requested_error_bus = ""
+
+        if requested_error_bus and requested_error_bus not in {"kafka", "redis"}:
+            logger.warning(
+                "Unsupported ERROR_BUS=%r; error-message output bus disabled",
+                requested_error_bus,
+            )
+            requested_error_bus = ""
+        if requested_error_bus == "kafka" and not kafka_bootstrap_configured:
+            logger.warning(
+                "ERROR_BUS=kafka requested but KAFKA_BOOTSTRAP_SERVERS is not configured. "
+                "Kafka error output disabled."
+            )
+            requested_error_bus = ""
+
+        self._error_bus = requested_error_bus or None
+        self._use_redis_error_bus = self._error_bus == "redis"
+        if self._error_bus == "kafka":
+            self._kafka_enabled = True
 
         try:
             import socket  # isort: skip
@@ -773,129 +889,101 @@ class RTVIStreamHandler:
             "source": os.environ.get("ANALYTICS_MODULE_SOURCE", "rtvi-vlm"),
         }
 
-        if kafka_enabled:
-            if not kafka_bootstrap_servers:
-                logger.warning(
-                    "KAFKA_ENABLED is true but KAFKA_BOOTSTRAP_SERVERS not set. Kafka disabled."
-                )
-            else:
-                try:
-                    bootstrap_servers_list = [s.strip() for s in kafka_bootstrap_servers.split(",")]
-                    logger.info(
-                        "Initializing Kafka producer. Topic: %s, Bootstrap servers: %s",
-                        self._kafka_topic,
-                        bootstrap_servers_list,
-                    )
-                    # Try to create producer with idempotence first (requires Kafka >= 0.11)
-                    # If that fails, fall back to non-idempotent producer
-                    # Let Kafka auto-detect API version for best compatibility
-                    producer_config = {
-                        "bootstrap_servers": bootstrap_servers_list,
-                        "value_serializer": lambda v: v,  # Already serialized protobuf bytes
-                        "acks": "all",  # Wait for all replicas
-                        "retries": 3,
-                        "max_in_flight_requests_per_connection": 1,
-                        "request_timeout_ms": 60000,  # 60 second timeout for metadata
-                        "metadata_max_age_ms": 300000,  # Refresh metadata every 5 minutes
-                        "connections_max_idle_ms": 540000,  # Close idle connections after 9 minutes
-                    }
-
-                    try:
-                        # Try with idempotence first
-                        producer_config["enable_idempotence"] = True
-                        self._kafka_producer = KafkaProducer(**producer_config)
-                    except Exception as idempotence_error:
-                        if "Idempotent" in str(idempotence_error) or "0.11" in str(
-                            idempotence_error
-                        ):
-                            logger.warning(
-                                "Kafka broker version < 0.11 detected or idempotence not supported. "
-                                "Creating producer without idempotence. Error: %s",
-                                idempotence_error,
-                            )
-                            # Fall back to non-idempotent producer for older Kafka versions
-                            producer_config.pop("enable_idempotence", None)
-                            producer_config["max_in_flight_requests_per_connection"] = (
-                                5  # Can be higher without idempotence
-                            )
-                            self._kafka_producer = KafkaProducer(**producer_config)
-                        else:
-                            # Re-raise if it's a different error
-                            raise
-                    # KafkaProducer will connect lazily on first send
-                    # Log success - actual connection will be tested on first message send
-                    logger.info(
-                        "Kafka producer initialized successfully. Topic: %s, Bootstrap servers: %s. "
-                        "Producer is ready and will connect automatically when sending messages.",
-                        self._kafka_topic,
-                        bootstrap_servers_list,
-                    )
-                    self._start_kafka_sender()
-                except KafkaError as e:
-                    logger.error(
-                        "Kafka error initializing producer: %s. "
-                        "Check that Kafka is running and KAFKA_BOOTSTRAP_SERVERS is correct. "
-                        "Bootstrap servers: %s. "
-                        "Troubleshooting: 1) Verify Kafka is running: docker ps | grep kafka "
-                        "2) Check connectivity: telnet <host> <port> "
-                        "3) Verify KAFKA_BOOTSTRAP_SERVERS format: host:port",
-                        e,
-                        kafka_bootstrap_servers,
-                        exc_info=True,
-                    )
-                    self._kafka_producer = None
-                except Exception as e:
-                    logger.error(
-                        "Failed to initialize Kafka producer: %s. Bootstrap servers: %s",
-                        e,
-                        kafka_bootstrap_servers,
-                        exc_info=True,
-                    )
-                    self._kafka_producer = None
-
-        # Initialize Redis client for error messages if ENABLE_REDIS_ERROR_MESSAGES is enabled
-        if self._use_redis_error_bus:
-            redis_host = os.environ.get("REDIS_HOST", "localhost")
-            redis_port = int(os.environ.get("REDIS_PORT", "6379"))
-            redis_db = int(os.environ.get("REDIS_DB", "0"))
-            redis_password = os.environ.get("REDIS_PASSWORD", None)
-
+        if self._message_bus == "kafka" or self._error_bus == "kafka":
             try:
+                bootstrap_servers_list = [s.strip() for s in kafka_bootstrap_servers.split(",")]
                 logger.info(
-                    "Initializing Redis client for error messages. Channel: %s, Host: %s:%d",
-                    self._redis_error_channel,
-                    redis_host,
-                    redis_port,
+                    "Initializing Kafka producer. Topic: %s, Error topic: %s, Bootstrap servers: %s",
+                    self._kafka_topic,
+                    self._kafka_error_topic,
+                    bootstrap_servers_list,
                 )
-                self._redis_client = redis.Redis(
-                    host=redis_host,
-                    port=redis_port,
-                    db=redis_db,
-                    password=redis_password,
-                    decode_responses=False,  # We'll handle encoding ourselves
-                    socket_connect_timeout=5,
-                    socket_timeout=5,
-                )
-                # Test the connection
-                self._redis_client.ping()
+                # Try to create producer with idempotence first (requires Kafka >= 0.11).
+                # If that fails, fall back to non-idempotent producer.
+                producer_config = {
+                    "bootstrap_servers": bootstrap_servers_list,
+                    "value_serializer": lambda v: v,  # Already serialized protobuf bytes
+                    "acks": "all",  # Wait for all replicas
+                    "retries": 3,
+                    "max_in_flight_requests_per_connection": 1,
+                    "request_timeout_ms": 60000,  # 60 second timeout for metadata
+                    "metadata_max_age_ms": 300000,  # Refresh metadata every 5 minutes
+                    "connections_max_idle_ms": 540000,  # Close idle connections after 9 minutes
+                }
+
+                try:
+                    producer_config["enable_idempotence"] = True
+                    self._kafka_producer = KafkaProducer(**producer_config)
+                except Exception as idempotence_error:
+                    if "Idempotent" in str(idempotence_error) or "0.11" in str(idempotence_error):
+                        logger.warning(
+                            "Kafka broker version < 0.11 detected or idempotence not supported. "
+                            "Creating producer without idempotence. Error: %s",
+                            idempotence_error,
+                        )
+                        producer_config.pop("enable_idempotence", None)
+                        producer_config["max_in_flight_requests_per_connection"] = 5
+                        self._kafka_producer = KafkaProducer(**producer_config)
+                    else:
+                        raise
+                # KafkaProducer will connect lazily on first send.
                 logger.info(
-                    "Redis client initialized successfully for error messages. "
-                    "Channel: %s, Host: %s:%d",
-                    self._redis_error_channel,
-                    redis_host,
-                    redis_port,
+                    "Kafka producer initialized successfully. Topic: %s, Error topic: %s, "
+                    "Bootstrap servers: %s. Producer is ready and will connect automatically "
+                    "when sending messages.",
+                    self._kafka_topic,
+                    self._kafka_error_topic,
+                    bootstrap_servers_list,
                 )
-                self._start_redis_sender()
-            except Exception as e:
+                self._start_kafka_sender()
+            except KafkaError as e:
                 logger.error(
-                    "Failed to initialize Redis client: %s. Host: %s:%d. "
-                    "Error messages will not be sent to Redis.",
+                    "Kafka error initializing producer: %s. "
+                    "Check that Kafka is running and KAFKA_BOOTSTRAP_SERVERS is correct. "
+                    "Bootstrap servers: %s. "
+                    "Troubleshooting: 1) Verify Kafka is running: docker ps | grep kafka "
+                    "2) Check connectivity: telnet <host> <port> "
+                    "3) Verify KAFKA_BOOTSTRAP_SERVERS format: host:port",
                     e,
-                    redis_host,
-                    redis_port,
+                    kafka_bootstrap_servers,
                     exc_info=True,
                 )
-                self._redis_client = None
+                self._kafka_enabled = False
+                if self._message_bus == "kafka":
+                    self._message_bus = None
+                if self._error_bus == "kafka":
+                    self._error_bus = None
+                self._kafka_producer = None
+            except Exception as e:
+                logger.error(
+                    "Failed to initialize Kafka producer: %s. Bootstrap servers: %s",
+                    e,
+                    kafka_bootstrap_servers,
+                    exc_info=True,
+                )
+                self._kafka_enabled = False
+                if self._message_bus == "kafka":
+                    self._message_bus = None
+                if self._error_bus == "kafka":
+                    self._error_bus = None
+                self._kafka_producer = None
+
+        # Initialize Redis client when Redis is the startup output bus or error bus.
+        if self._message_bus == "redis" or self._error_bus == "redis":
+            if not self._ensure_redis_client():
+                if self._message_bus == "redis":
+                    logger.warning("MESSAGE_BUS=redis requested but Redis is unavailable.")
+                    self._message_bus = None
+                if self._error_bus == "redis":
+                    logger.warning("ERROR_BUS=redis requested but Redis is unavailable.")
+                    self._error_bus = None
+                    self._use_redis_error_bus = False
+            elif self._error_bus == "redis":
+                self._use_redis_error_bus = True
+        elif self._use_redis_error_bus:
+            if not self._ensure_redis_client():
+                logger.warning("ERROR_BUS=redis requested but Redis is unavailable.")
+                self._use_redis_error_bus = False
 
         try:
             self._vlm_pipeline = VlmPipeline(args.asset_dir, args)
@@ -915,24 +1003,361 @@ class RTVIStreamHandler:
         # System uptime is now automatically observed via OpenTelemetry callback
         pass
 
-    def _get_live_stream_request(self, asset_id: str) -> RequestInfo | None:
-        """Get active live stream request for an asset_id.
+    def _normal_output_bus_enabled(self) -> bool:
+        """Return whether chunk protobuf output should be built for a message bus."""
+        with self._lock:
+            return self._message_bus in {"kafka", "redis"}
+
+    def _ensure_kafka_producer(self) -> bool:
+        """Ensure a Kafka producer exists for the configured bootstrap servers."""
+        with self._lock:
+            if self._stopping:
+                return False
+            if self._kafka_producer is not None:
+                if self._kafka_send_thread is None or not self._kafka_send_thread.is_alive():
+                    self._start_kafka_sender()
+                return True
+            kafka_bootstrap_servers = self._kafka_bootstrap_servers
+
+        if not kafka_bootstrap_servers:
+            logger.error("Kafka bootstrap servers are not configured")
+            return False
+
+        bootstrap_servers_list = [
+            s.strip() for s in kafka_bootstrap_servers.split(",") if s.strip()
+        ]
+        if not bootstrap_servers_list:
+            logger.error("Kafka bootstrap servers are empty after parsing")
+            return False
+
+        logger.info(
+            "Initializing Kafka producer. Topic: %s, Bootstrap servers: %s",
+            self._kafka_topic,
+            bootstrap_servers_list,
+        )
+        producer_config = {
+            "bootstrap_servers": bootstrap_servers_list,
+            "value_serializer": lambda v: v,
+            "acks": "all",
+            "retries": 3,
+            "max_in_flight_requests_per_connection": 1,
+            "request_timeout_ms": 60000,
+            "metadata_max_age_ms": 300000,
+            "connections_max_idle_ms": 540000,
+        }
+
+        try:
+            try:
+                producer_config["enable_idempotence"] = True
+                kafka_producer = KafkaProducer(**producer_config)
+            except Exception as idempotence_error:
+                if "Idempotent" in str(idempotence_error) or "0.11" in str(idempotence_error):
+                    logger.warning(
+                        "Kafka broker version < 0.11 detected or idempotence not supported. "
+                        "Creating producer without idempotence. Error: %s",
+                        idempotence_error,
+                    )
+                    producer_config.pop("enable_idempotence", None)
+                    producer_config["max_in_flight_requests_per_connection"] = 5
+                    kafka_producer = KafkaProducer(**producer_config)
+                else:
+                    raise
+        except KafkaError as e:
+            logger.error(
+                "Kafka error initializing producer: %s. Bootstrap servers: %s",
+                e,
+                kafka_bootstrap_servers,
+                exc_info=True,
+            )
+            return False
+        except Exception as e:
+            logger.error(
+                "Failed to initialize Kafka producer: %s. Bootstrap servers: %s",
+                e,
+                kafka_bootstrap_servers,
+                exc_info=True,
+            )
+            return False
+
+        with self._lock:
+            if self._stopping:
+                try:
+                    kafka_producer.close(timeout=10)
+                except Exception:
+                    pass
+                return False
+            self._kafka_producer = kafka_producer
+            self._kafka_enabled = True
+            self._start_kafka_sender()
+
+        logger.info(
+            "Kafka producer initialized successfully. Topic: %s, Bootstrap servers: %s.",
+            self._kafka_topic,
+            bootstrap_servers_list,
+        )
+        return True
+
+    def _ensure_redis_client(self) -> bool:
+        """Ensure a Redis client exists for Redis Stream output or Redis error messages."""
+        with self._lock:
+            if self._stopping:
+                return False
+            if self._redis_client is not None:
+                if self._redis_send_thread is None or not self._redis_send_thread.is_alive():
+                    self._start_redis_sender()
+                return True
+
+        try:
+            logger.info(
+                "Initializing Redis client. Host: %s:%d, DB: %d",
+                self._redis_host,
+                self._redis_port,
+                self._redis_db,
+            )
+            redis_client = redis.Redis(
+                host=self._redis_host,
+                port=self._redis_port,
+                db=self._redis_db,
+                password=self._redis_password,
+                decode_responses=False,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+            redis_client.ping()
+        except Exception as e:
+            logger.error(
+                "Failed to initialize Redis client: %s. Host: %s:%d.",
+                e,
+                self._redis_host,
+                self._redis_port,
+                exc_info=True,
+            )
+            return False
+
+        with self._lock:
+            if self._stopping:
+                try:
+                    redis_client.close()
+                except Exception:
+                    pass
+                return False
+            self._redis_client = redis_client
+            self._start_redis_sender()
+
+        logger.info(
+            "Redis client initialized successfully. Host: %s:%d, DB: %d",
+            self._redis_host,
+            self._redis_port,
+            self._redis_db,
+        )
+        return True
+
+    def _create_kafka_topic_best_effort(self, topic: str, partitions: Optional[int]) -> None:
+        """Best-effort Kafka topic creation for config events."""
+        with self._lock:
+            kafka_bootstrap_servers = self._kafka_bootstrap_servers
+        if not kafka_bootstrap_servers:
+            logger.warning("Skipping Kafka topic creation for %s: bootstrap servers unset", topic)
+            return
+
+        try:
+            from kafka.admin import KafkaAdminClient, NewTopic
+            from kafka.errors import TopicAlreadyExistsError
+
+            admin = KafkaAdminClient(
+                bootstrap_servers=[s.strip() for s in kafka_bootstrap_servers.split(",") if s],
+                client_id="rtvi-config-api",
+            )
+            try:
+                admin.create_topics(
+                    [
+                        NewTopic(
+                            name=topic,
+                            num_partitions=partitions or 1,
+                            replication_factor=1,
+                        )
+                    ],
+                    validate_only=False,
+                )
+                logger.info("Created Kafka topic %s with %d partition(s)", topic, partitions or 1)
+            except TopicAlreadyExistsError:
+                logger.info("Kafka topic %s already exists", topic)
+            finally:
+                admin.close()
+        except Exception as e:
+            logger.warning("Best-effort Kafka topic creation failed for %s: %s", topic, e)
+
+    def configure_message_bus(
+        self,
+        messaging_bus: str,
+        topic: str,
+        create_topic: bool = False,
+        topic_partition: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Update runtime output message-bus routing."""
+        normalized_bus = str(messaging_bus).lower()
+        if normalized_bus not in {"kafka", "redis"}:
+            raise ServiceException(
+                f"Unsupported messagingbus: {messaging_bus}. Expected 'kafka' or 'redis'.",
+                "BadRequest",
+                400,
+            )
+        if not topic:
+            raise ServiceException("topic-prefix is required.", "BadRequest", 400)
+
+        with self._lock:
+            old_bus = self._message_bus
+            old_topic = self._redis_stream if old_bus == "redis" else self._kafka_topic
+            active_generation_count = self._count_active_generation_requests_locked()
+
+        if normalized_bus == "kafka":
+            if create_topic:
+                self._create_kafka_topic_best_effort(topic, topic_partition)
+            if not self._ensure_kafka_producer():
+                raise ServiceException(
+                    "Kafka producer is not available. Check KAFKA_BOOTSTRAP_SERVERS.",
+                    "BadRequest",
+                    400,
+                )
+            with self._lock:
+                self._kafka_topic = topic
+                self._message_bus = "kafka"
+                self._kafka_enabled = True
+                if not self._error_bus_explicitly_configured and self._error_bus is None:
+                    self._error_bus = "kafka"
+        else:
+            if not self._ensure_redis_client():
+                raise ServiceException(
+                    "Redis client is not available. Check REDIS_HOST, REDIS_PORT, and REDIS_DB.",
+                    "BadRequest",
+                    400,
+                )
+            with self._lock:
+                self._redis_stream = topic
+                self._message_bus = "redis"
+
+        logger.info("Runtime message bus configured: bus=%s, topic=%s", normalized_bus, topic)
+        result: dict[str, Any] = {"messagingbus": normalized_bus, "topic": topic}
+        if active_generation_count and (old_bus != normalized_bus or old_topic != topic):
+            old_route = f"{old_bus or 'none'}:{old_topic or 'none'}"
+            new_route = f"{normalized_bus}:{topic}"
+            warning = (
+                "Runtime message bus changed from "
+                f"{old_route} to {new_route} while {active_generation_count} media generation "
+                "request(s) are active. Messages already queued may still publish to the previous "
+                "route; subsequent chunk messages will use the updated route."
+            )
+            logger.warning(warning)
+            result["warnings"] = [warning]
+        return result
+
+    def get_message_bus_config(self) -> dict[str, Optional[str]]:
+        """Return current runtime output message-bus routing."""
+        with self._lock:
+            return {
+                "messagingbus": self._message_bus,
+                "kafka_topic": self._kafka_topic,
+                "redis_stream": self._redis_stream,
+            }
+
+    def configure_error_bus(
+        self,
+        error_bus: str,
+        topic: Optional[str] = None,
+        create_topic: bool = False,
+        topic_partition: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Update runtime error-message bus routing."""
+        normalized_bus = str(error_bus).lower()
+        if normalized_bus not in {"kafka", "redis"}:
+            raise ServiceException(
+                f"Unsupported errorbus: {error_bus}. Expected kafka or redis.",
+                "BadRequest",
+                400,
+            )
+
+        if normalized_bus == "kafka":
+            if create_topic and topic:
+                self._create_kafka_topic_best_effort(topic, topic_partition)
+            if not self._ensure_kafka_producer():
+                raise ServiceException(
+                    "Kafka producer is not available. Check KAFKA_BOOTSTRAP_SERVERS.",
+                    "BadRequest",
+                    400,
+                )
+            with self._lock:
+                if topic:
+                    self._kafka_error_topic = topic
+                active_topic = self._kafka_error_topic
+                self._error_bus = "kafka"
+                self._error_bus_explicitly_configured = True
+                self._use_redis_error_bus = False
+                self._kafka_enabled = True
+        else:
+            if not self._ensure_redis_client():
+                raise ServiceException(
+                    "Redis client is not available. Check REDIS_HOST, REDIS_PORT, and REDIS_DB.",
+                    "BadRequest",
+                    400,
+                )
+            with self._lock:
+                if topic:
+                    self._redis_error_channel = topic
+                active_topic = self._redis_error_channel
+                self._error_bus = "redis"
+                self._error_bus_explicitly_configured = True
+                self._use_redis_error_bus = True
+
+        logger.info(
+            "Runtime error bus configured: bus=%s, topic=%s",
+            normalized_bus,
+            active_topic,
+        )
+        return {"errorbus": normalized_bus, "topic": active_topic}
+
+    def get_error_bus_config(self) -> dict[str, Optional[str]]:
+        """Return current runtime error-message bus routing."""
+        with self._lock:
+            return {
+                "errorbus": self._error_bus,
+                "kafka_topic": self._kafka_error_topic,
+                "redis_channel": self._redis_error_channel,
+            }
+
+    def _get_live_stream_requests(self, asset_id: str) -> list[RequestInfo]:
+        """Get active live stream requests for an asset_id.
 
         Args:
             asset_id: The asset ID to look up
 
         Returns:
-            RequestInfo if found, None otherwise
+            Active live-stream RequestInfo entries for the asset.
         """
-        for req_info in self._request_info_map.values():
+        with self._lock:
+            request_infos = list(self._request_info_map.values())
+        return [
+            req_info
+            for req_info in request_infos
             if (
                 req_info.is_live
                 and req_info.status == RequestInfo.Status.PROCESSING
                 and req_info.assets
                 and req_info.assets[0].asset_id == asset_id
-            ):
-                return req_info
-        return None
+            )
+        ]
+
+    def _get_live_stream_request(self, asset_id: str) -> RequestInfo | None:
+        """Get the oldest active live stream request for an asset_id."""
+        live_requests = self._get_live_stream_requests(asset_id)
+        if not live_requests:
+            return None
+        return min(
+            live_requests,
+            key=lambda req_info: (
+                getattr(req_info, "queue_time", 0) or 0,
+                req_info.request_id,
+            ),
+        )
 
     def _count_active_live_streams(self) -> int:
         """Count currently active live streams.
@@ -945,6 +1370,32 @@ class RTVIStreamHandler:
             for req_info in self._request_info_map.values()
             if req_info.is_live and req_info.status == RequestInfo.Status.PROCESSING
         )
+
+    def _count_active_generation_requests_locked(self) -> int:
+        """Count active file/stream generation requests.
+
+        Caller must hold ``self._lock``.
+        """
+        return sum(
+            1
+            for req_info in self._request_info_map.values()
+            if req_info.status == RequestInfo.Status.PROCESSING and bool(req_info.assets)
+        )
+
+    def _count_active_live_stream_assets(self) -> int:
+        """Count unique live assets with active live stream requests."""
+        with self._lock:
+            return len(
+                {
+                    req_info.assets[0].asset_id
+                    for req_info in self._request_info_map.values()
+                    if (
+                        req_info.is_live
+                        and req_info.status == RequestInfo.Status.PROCESSING
+                        and req_info.assets
+                    )
+                }
+            )
 
     def _process_output(
         self,
@@ -1801,17 +2252,121 @@ class RTVIStreamHandler:
             send_to_kafka,
         )
 
+    def _send_protobuf_to_redis_stream(
+        self,
+        serialized_proto: bytes,
+        chunk_result: PipelineChunkResult,
+        req_info: RequestInfo,
+        message_type: str = "vision_llm",
+        redis_stream: Optional[str] = None,
+    ) -> None:
+        """Send serialized protobuf bytes to a Redis Stream."""
+        if not self._ensure_redis_client():
+            logger.error("Redis client not available")
+            return
+
+        with self._lock:
+            redis_client = self._redis_client
+            if self._stopping:
+                logger.debug(
+                    "Stream handler is stopping; dropping Redis Stream message for request %s, "
+                    "chunk %s",
+                    req_info.request_id,
+                    chunk_result.chunk.chunkIdx,
+                )
+                return
+
+            if redis_client is None:
+                logger.error("Redis client not available")
+                return
+
+            stream = redis_stream or self._redis_stream
+            payload_key = self._redis_payload_key
+            maxlen = self._redis_stream_maxlen
+
+        request_id = req_info.request_id
+        chunk_idx = chunk_result.chunk.chunkIdx
+        key = f"{request_id}:{chunk_idx}".encode("utf-8")
+        fields = {
+            payload_key: serialized_proto,
+            "message_type": message_type.encode("utf-8"),
+            "key": key,
+        }
+
+        def publish_to_redis_stream() -> None:
+            try:
+                kwargs = {}
+                if maxlen > 0:
+                    kwargs["maxlen"] = maxlen
+                    kwargs["approximate"] = True
+                message_id = redis_client.xadd(stream, fields, **kwargs)
+                logger.debug(
+                    "Redis Stream message sent successfully. Stream: %s, Message ID: %s, "
+                    "Request: %s, Chunk: %s",
+                    stream,
+                    message_id,
+                    request_id,
+                    chunk_idx,
+                )
+            except Exception as e:
+                logger.error(
+                    "Error sending Redis Stream message for request %s, chunk %s: %s",
+                    request_id,
+                    chunk_idx,
+                    e,
+                    exc_info=True,
+                )
+
+        self._submit_redis_publish(
+            f"request {request_id}, chunk {chunk_idx}, type {message_type}",
+            publish_to_redis_stream,
+        )
+
+    def _send_protobuf_to_message_bus(
+        self,
+        serialized_proto: bytes,
+        chunk_result: PipelineChunkResult,
+        req_info: RequestInfo,
+        message_type: str = "vision_llm",
+        message_topic: Optional[str] = None,
+    ) -> None:
+        """Send serialized protobuf bytes to the active output message bus."""
+        with self._lock:
+            message_bus = self._message_bus
+
+        if message_bus == "redis":
+            self._send_protobuf_to_redis_stream(
+                serialized_proto,
+                chunk_result,
+                req_info,
+                message_type=message_type,
+                redis_stream=message_topic,
+            )
+            return
+
+        self._send_protobuf_to_kafka(
+            serialized_proto,
+            chunk_result,
+            req_info,
+            message_type=message_type,
+            kafka_topic=message_topic,
+        )
+
     def _send_error_message_to_kafka(
         self, error_message: str, uuid_or_stream_id: str = "", type: str = "functional"
     ):
-        """Send error message to Kafka topic or Redis channel based on ENABLE_REDIS_ERROR_MESSAGES."""
+        """Send error message to the configured error bus."""
 
-        # Switch between Redis and Kafka based on environment variable
-        if self._use_redis_error_bus:
+        with self._lock:
+            error_bus = self._error_bus
+            use_redis_error_bus = self._use_redis_error_bus
+            kafka_enabled = self._kafka_enabled
+
+        if error_bus == "redis" or use_redis_error_bus:
             self._send_error_message_to_redis(error_message, uuid_or_stream_id, type)
             return
 
-        if not self._kafka_enabled:
+        if (error_bus != "kafka" and self._error_bus_explicitly_configured) or not kafka_enabled:
             return
 
         with self._lock:
@@ -2013,8 +2568,17 @@ class RTVIStreamHandler:
 
     def _on_vlm_chunk_response(self, chunk_result: PipelineChunkResult, req_info: RequestInfo):
         """Gather chunks processed by the pipeline and run any further post-processing"""
+        if req_info.is_live and req_info.status != RequestInfo.Status.PROCESSING:
+            logger.debug(
+                "Ignoring live-stream chunk for completed query %s",
+                req_info.request_id,
+            )
+            return
+        if req_info.is_live and chunk_result.chunk:
+            chunk_result.chunk.streamId = req_info.stream_id
+
         try:
-            if self._kafka_enabled:
+            if self._normal_output_bus_enabled():
                 vision_llm_message, incident_message = self._chunk_result_to_vision_llm(
                     chunk_result, req_info
                 )
@@ -2035,9 +2599,9 @@ class RTVIStreamHandler:
             chunk_result.vision_llm_proto = vision_llm_message
             try:
                 chunk_result.vision_llm_proto_serialized = vision_llm_message.SerializeToString()
-                # Send to Kafka if producer is available
+                # Send to the configured output bus if available.
                 if chunk_result.vision_llm_proto_serialized:
-                    self._send_protobuf_to_kafka(
+                    self._send_protobuf_to_message_bus(
                         chunk_result.vision_llm_proto_serialized,
                         chunk_result,
                         req_info,
@@ -2055,12 +2619,18 @@ class RTVIStreamHandler:
             try:
                 chunk_result.incident_proto_serialized = incident_message.SerializeToString()
                 if chunk_result.incident_proto_serialized:
-                    self._send_protobuf_to_kafka(
+                    with self._lock:
+                        incident_topic = (
+                            (self._kafka_incident_topic or self._kafka_topic)
+                            if self._message_bus == "kafka"
+                            else None
+                        )
+                    self._send_protobuf_to_message_bus(
                         chunk_result.incident_proto_serialized,
                         chunk_result,
                         req_info,
                         message_type="incident",
-                        kafka_topic=self._kafka_incident_topic or self._kafka_topic,
+                        message_topic=incident_topic,
                     )
             except Exception as exc:
                 error_message = "Failed to serialize Incident protobuf for chunk %s: %s" % (
@@ -2126,8 +2696,9 @@ class RTVIStreamHandler:
         # Per-chunk VLM latency and OTEL tracing
         if chunk_result.vlm_end_time > chunk_result.decode_start_time:
             chunk_latency = chunk_result.vlm_end_time - chunk_result.decode_start_time
-            self._metrics._chunk_latency.record(chunk_latency)
-            self._metrics._chunk_latency_latest_value = chunk_latency
+            self._metrics.record_chunk_latency(chunk_latency)
+            if req_info.is_live:
+                self._metrics.record_live_stream_chunk_latency(chunk_latency)
 
             # Create OTEL span for VLM operation with historical timing
             create_historical_span(
@@ -2159,8 +2730,6 @@ class RTVIStreamHandler:
         # Per-chunk ASR latency
         if chunk_result.asr_end_time > chunk_result.asr_start_time:
             asr_latency = chunk_result.asr_end_time - chunk_result.asr_start_time
-            self._metrics._asr_pipeline_latency.record(asr_latency)
-            self._metrics._asr_pipeline_latency_latest_value = asr_latency
             # Create OTEL span for ASR operation with historical timing
             create_historical_span(
                 f"ASR Inference - Chunk {chunk_result.chunk.chunkIdx}",
@@ -2295,6 +2864,11 @@ class RTVIStreamHandler:
 
         if len(req_info.processed_chunk_list) == req_info.chunk_count:
             # All chunks of file processed
+            Thread(
+                target=self._vlm_pipeline.close_evs_sessions,
+                args=(req_info.stream_id,),
+                daemon=True,
+            ).start()
             if not req_info.text_query:
                 nvtx.end_range(req_info.nvtx_vlm_start)
             else:
@@ -2588,27 +3162,6 @@ class RTVIStreamHandler:
         if query.chunk_duration <= 0:
             raise ServiceException("chunk_duration must be greater than 0", "BadParameter", 400)
 
-        # A live stream can be added only once
-        with self._lock:
-            existing_request = self._get_live_stream_request(asset.asset_id)
-            if existing_request:
-                raise ServiceException(
-                    f"Live stream already has query '{existing_request.request_id}' running."
-                    " Update or stop the same query.",
-                    "BadParameters",
-                    400,
-                )
-
-            if self._count_active_live_streams() >= self._args.max_live_streams:
-                raise ServiceException(
-                    "Server is already processing maximum number of live streams"
-                    f" ({self._args.max_live_streams})",
-                    503,
-                )
-
-            # Lock the asset so that it cannot be deleted while it is being used.
-            asset.lock()
-
         # Create a RequestInfo object and populate it for VLM captions
         req_info = RequestInfo()
         req_info.query = query  # Store the entire query object
@@ -2618,48 +3171,99 @@ class RTVIStreamHandler:
         req_info.start_time = time.time()
         req_info.queue_time = time.time()
 
-        # Add the request to the request info map
-        with self._lock:
-            self._request_info_map[req_info.request_id] = req_info
+        asset_locked = False
+        active_counted = False
+        try:
+            with self._lock:
+                existing_requests = self._get_live_stream_requests(asset.asset_id)
+                if (
+                    not existing_requests
+                    and self._count_active_live_stream_assets() >= self._args.max_live_streams
+                ):
+                    raise ServiceException(
+                        "Server is already processing maximum number of live streams"
+                        f" ({self._args.max_live_streams})",
+                        "ServerBusy",
+                        503,
+                    )
 
-        self._metrics._active_live_streams_counter.add(1)
+                # Lock once per live caption request so deletes fail while any
+                # subscriber is active.
+                asset.lock()
+                asset_locked = True
+                self._request_info_map[req_info.request_id] = req_info
 
-        # Open vlm_testdata_file once for writing if profiling is enabled
-        if self._profile_requests:
-            vlm_testdata_file_path = f"/tmp/rtvi-logs/vlm_testdata_{req_info.request_id}.txt"
-            try:
-                req_info.vlm_testdata_file_handle = open(vlm_testdata_file_path, "w")
-                req_info.vlm_testdata_file_handle.write("Chunk_ID,Answer\n")
-                logger.debug("Opened vlm_testdata_file at %s", vlm_testdata_file_path)
-            except Exception as e:
-                logger.warning("Failed to open vlm_testdata_file: %s", e)
-                req_info.vlm_testdata_file_handle = None
+            self._metrics._active_live_streams_counter.add(1)
+            active_counted = True
 
-        # Trigger collecting GPU metrics
-        self.start_request_profiling(req_info)
+            # Open vlm_testdata_file once for writing if profiling is enabled
+            if self._profile_requests:
+                log_dir = os.environ.get("RTVI_LOG_DIR") or "/tmp/rtvi-logs"
+                try:
+                    os.makedirs(log_dir, mode=0o700, exist_ok=True)
+                    vlm_testdata_file_path = os.path.join(
+                        log_dir,
+                        f"vlm_testdata_{req_info.request_id}.txt",
+                    )
+                    req_info.vlm_testdata_file_handle = open(vlm_testdata_file_path, "w")
+                    req_info.vlm_testdata_file_handle.write("Chunk_ID,Answer\n")
+                    logger.debug("Opened vlm_testdata_file at %s", vlm_testdata_file_path)
+                except Exception as e:
+                    logger.warning("Failed to open vlm_testdata_file: %s", e)
+                    req_info.vlm_testdata_file_handle = None
 
-        tracer = get_tracer()
-        if tracer:
-            req_info._e2e_span = tracer.start_span("Pipeline End-to-End")
-            req_info._e2e_span.set_attribute("request_id", req_info.request_id)
-            req_info._e2e_span.set_attribute("stream_id", req_info.stream_id)
-            req_info._e2e_span.set_attribute("is_live", req_info.is_live)
+            # Trigger collecting GPU metrics
+            self.start_request_profiling(req_info)
 
-            req_info.vlm_pipeline_span = tracer.start_span(
-                "VLM Pipeline Latency", context=trace.set_span_in_context(req_info._e2e_span)
+            tracer = get_tracer()
+            if tracer:
+                req_info._e2e_span = tracer.start_span("Pipeline End-to-End")
+                req_info._e2e_span.set_attribute("request_id", req_info.request_id)
+                req_info._e2e_span.set_attribute("stream_id", req_info.stream_id)
+                req_info._e2e_span.set_attribute("is_live", req_info.is_live)
+
+                req_info.vlm_pipeline_span = tracer.start_span(
+                    "VLM Pipeline Latency",
+                    context=trace.set_span_in_context(req_info._e2e_span),
+                )
+                req_info.vlm_pipeline_span.set_attribute("request_id", req_info.request_id)
+                req_info.vlm_pipeline_span.set_attribute("stream_id", req_info.stream_id)
+                req_info.vlm_pipeline_span.set_attribute("is_live", req_info.is_live)
+
+            # Add to VLM pipeline for processing
+            self._vlm_pipeline.add_live_stream(
+                asset=asset,
+                vlm_query=req_info.query,
+                on_chunk_result=lambda response, req_info=req_info: self._on_vlm_chunk_response(
+                    response, req_info
+                ),
+                request_id=req_info.request_id,
             )
-            req_info.vlm_pipeline_span.set_attribute("request_id", req_info.request_id)
-            req_info.vlm_pipeline_span.set_attribute("stream_id", req_info.stream_id)
-            req_info.vlm_pipeline_span.set_attribute("is_live", req_info.is_live)
-
-        # Add to VLM pipeline for processing
-        self._vlm_pipeline.add_live_stream(
-            asset=asset,
-            vlm_query=req_info.query,
-            on_chunk_result=lambda response, req_info=req_info: self._on_vlm_chunk_response(
-                response, req_info
-            ),
-        )
+        except Exception as e:
+            with self._lock:
+                self._request_info_map.pop(req_info.request_id, None)
+            if active_counted:
+                self._metrics._active_live_streams_counter.add(-1)
+            if req_info._monitor:
+                self.stop_request_profiling(req_info, [])
+            if req_info.vlm_pipeline_span:
+                try:
+                    req_info.vlm_pipeline_span.set_attribute("setup_failed", True)
+                    req_info.vlm_pipeline_span.end()
+                except Exception as span_error:
+                    logger.warning("Failed to end vlm_pipeline_latency span: %s", span_error)
+            if req_info._e2e_span:
+                try:
+                    req_info._e2e_span.set_attribute("setup_failed", True)
+                    error_message = e.message if isinstance(e, ServiceException) else str(e)
+                    req_info._e2e_span.set_attribute("error_message", error_message)
+                    req_info._e2e_span.end()
+                except Exception as span_error:
+                    logger.warning("Failed to end e2e OTEL span: %s", span_error)
+            self._cleanup_request_files(req_info)
+            if asset_locked and asset.use_count > 0:
+                asset.unlock()
+            raise
 
         return req_info.request_id
 
@@ -2850,12 +3454,20 @@ class RTVIStreamHandler:
         try:
             # Phase A (under lock): pop request_info_map entry, read what we need.
             with self._lock:
-                existing_request = self._get_live_stream_request(asset.asset_id)
-                if not existing_request:
+                existing_requests = self._get_live_stream_requests(asset.asset_id)
+                if not existing_requests:
                     logger.debug("RTSP stream for video %s not active", asset.asset_id)
                     has_active_request = False
                 else:
+                    if len(existing_requests) > 1:
+                        raise ServiceException(
+                            f"Cannot stop live stream {asset.asset_id} because "
+                            f"{len(existing_requests)} caption requests are active.",
+                            "ResourceInUse",
+                            409,
+                        )
                     has_active_request = True
+                    existing_request = existing_requests[0]
                     self._request_info_map = {
                         req_id: req_info
                         for req_id, req_info in self._request_info_map.items()
@@ -2890,6 +3502,122 @@ class RTVIStreamHandler:
             self._metrics._delete_latency.record(_elapsed)
             logger.info(
                 "Delete live-stream %s total=%.3fs",
+                asset.asset_id,
+                _elapsed,
+            )
+
+    def _finish_stopped_live_caption_request(
+        self,
+        req_info: RequestInfo,
+        *,
+        was_processing: bool,
+        release_assets: bool = True,
+    ) -> None:
+        req_info.end_time = time.time()
+        if was_processing:
+            self._metrics._active_live_streams_counter.add(-1)
+
+        if req_info._monitor or req_info._request_metrics:
+            self.stop_request_profiling(req_info, req_info.processed_chunk_list)
+        self._cleanup_request_files(req_info)
+
+        if release_assets and req_info.assets:
+            for request_asset in req_info.assets:
+                if request_asset.use_count > 0:
+                    request_asset.unlock()
+
+        req_info.status_event.set()
+
+    def remove_rtsp_stream_request(
+        self,
+        asset: Asset,
+        request_id: str,
+        drain_timeout_sec: Optional[float] = None,
+    ):
+        """Stop one live caption request for an RTSP asset.
+
+        If this is the final active caption request for the asset, the shared
+        decoder stream is stopped and drained. Otherwise only this subscriber is
+        removed and the remaining requests continue using the shared stream.
+        """
+        _start = time.monotonic()
+        request_id = str(request_id)
+        try:
+            with self._lock:
+                existing_requests = self._get_live_stream_requests(asset.asset_id)
+                matching_request = next(
+                    (
+                        req_info
+                        for req_info in existing_requests
+                        if req_info.request_id == request_id
+                    ),
+                    None,
+                )
+                if matching_request is None:
+                    raise ServiceException(
+                        f"No active caption request {request_id} for live stream {asset.asset_id}",
+                        "InvalidParameterValue",
+                        400,
+                    )
+
+                was_processing = matching_request.status == RequestInfo.Status.PROCESSING
+                is_last_request = len(existing_requests) == 1
+                matching_request.status = RequestInfo.Status.SUCCESSFUL
+                self._request_info_map.pop(request_id, None)
+
+            if is_last_request:
+                try:
+                    logger.info(
+                        "Removing final live caption request %s for stream %s from pipeline",
+                        request_id,
+                        asset.asset_id,
+                    )
+                    drain_latency = self._vlm_pipeline.remove_live_stream(
+                        asset.asset_id, timeout_sec=drain_timeout_sec
+                    )
+                    logger.info(
+                        "Removed final live caption request %s for stream %s from pipeline",
+                        request_id,
+                        asset.asset_id,
+                    )
+
+                    if drain_latency is not None:
+                        self._metrics._delete_drain_latency.record(drain_latency)
+                finally:
+                    self._finish_stopped_live_caption_request(
+                        matching_request,
+                        was_processing=was_processing,
+                    )
+                self._safe_rmtree(f"/tmp/rtvi/cached_frames/{asset.asset_id}")
+            else:
+                try:
+                    logger.info(
+                        "Removing live caption request %s for stream %s from pipeline subscribers",
+                        request_id,
+                        asset.asset_id,
+                    )
+                    removed = self._vlm_pipeline.remove_live_stream_subscriber(
+                        asset.asset_id,
+                        request_id,
+                    )
+                    if removed is False:
+                        logger.info(
+                            "Live caption request %s for stream %s was already absent "
+                            "from pipeline subscribers",
+                            request_id,
+                            asset.asset_id,
+                        )
+                finally:
+                    self._finish_stopped_live_caption_request(
+                        matching_request,
+                        was_processing=was_processing,
+                    )
+        finally:
+            _elapsed = time.monotonic() - _start
+            self._metrics._delete_latency.record(_elapsed)
+            logger.info(
+                "Delete live caption request %s for stream %s total=%.3fs",
+                request_id,
                 asset.asset_id,
                 _elapsed,
             )
@@ -3099,8 +3827,7 @@ class RTVIStreamHandler:
             # queue_time = chunk_result.vlm_start_time - chunk_result.decode_start_time
             self._metrics._vlm_latency.record(vlm_latency)
             self._metrics._vlm_latency_latest_value = vlm_latency
-            self._metrics._chunk_latency.record(processing_latency)
-            self._metrics._chunk_latency_latest_value = processing_latency
+            self._metrics.record_chunk_latency(processing_latency)
             logger.debug(
                 "Text embedding VLM latency for chunk %d: %.3f ms",
                 chunk_result.chunk.chunkIdx,
@@ -3113,7 +3840,7 @@ class RTVIStreamHandler:
             os.getenv("ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT", "false").lower() == "true"
         )
 
-        if self._kafka_enabled and kafka_enabled_for_text_embeddings:
+        if self._normal_output_bus_enabled() and kafka_enabled_for_text_embeddings:
             try:
                 vision_llm_message = self._chunk_result_to_vision_llm_text(chunk_result, req_info)
             except Exception as exc:
@@ -3134,9 +3861,9 @@ class RTVIStreamHandler:
                     chunk_result.vision_llm_proto_serialized = (
                         vision_llm_message.SerializeToString()
                     )
-                    # Send to Kafka if producer is available
+                    # Send to the configured output bus if available.
                     if chunk_result.vision_llm_proto_serialized:
-                        self._send_protobuf_to_kafka(
+                        self._send_protobuf_to_message_bus(
                             chunk_result.vision_llm_proto_serialized, chunk_result, req_info
                         )
                 except Exception as exc:
@@ -3182,25 +3909,31 @@ class RTVIStreamHandler:
         )
 
         parser.add_argument(
-            "--kafka-enabled",
-            action="store_true",
-            default=False,
-            help="Enable Kafka integration (true/false)."
-            " Can also be set via KAFKA_ENABLED environment variable.",
-        )
-        parser.add_argument(
-            "--kafka-topic",
-            type=str,
-            default="mdx-vlm-captions",
-            help="Kafka topic name for VisionLLM messages."
-            " Defaults to 'mdx-vlm-captions'. Can also be set via KAFKA_TOPIC environment variable.",
-        )
-        parser.add_argument(
             "--kafka-bootstrap-servers",
             type=str,
             default="",
             help="Kafka bootstrap servers (comma-separated list)."
             " Can also be set via KAFKA_BOOTSTRAP_SERVERS environment variable.",
+        )
+        parser.add_argument(
+            "--message-bus",
+            type=str,
+            default="",
+            choices=["", "kafka", "redis"],
+            help="Generated-message output bus at startup." " Can also be set via MESSAGE_BUS.",
+        )
+        parser.add_argument(
+            "--message-bus-topic",
+            type=str,
+            default="",
+            help="Generated-message output topic/stream." " Can also be set via MESSAGE_BUS_TOPIC.",
+        )
+        parser.add_argument(
+            "--error-bus",
+            type=str,
+            default=None,
+            choices=["", "kafka", "redis"],
+            help="Error-message output bus at startup. Can also be set via ERROR_BUS.",
         )
 
     def _start_stream_fps_tracking(self, req_info: RequestInfo):
@@ -3270,12 +4003,8 @@ class RTVIStreamHandler:
 
     def update_live_stream_chunk_latency(self, latency: float):
         """Update live stream chunk latency metric"""
-        if hasattr(self._metrics, "_live_stream_chunk_latency"):
-            # Record distribution
-            self._metrics._live_stream_chunk_latency.record(latency)
-        # Maintain latest value for dashboards (parity with captions)
-        if hasattr(self._metrics, "_live_stream_chunk_latency_latest_value"):
-            self._metrics._live_stream_chunk_latency_latest_value = latency
+        if hasattr(self._metrics, "record_live_stream_chunk_latency"):
+            self._metrics.record_live_stream_chunk_latency(latency)
 
     def update_live_stream_captions_latency(self, latency: float):
         """Update live stream captions latency metric"""
