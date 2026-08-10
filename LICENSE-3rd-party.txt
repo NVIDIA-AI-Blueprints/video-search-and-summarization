@@ -6,6 +6,9 @@ See below files for the licenses:
 - services/ui/LICENSE-3rd-party.txt
 - services/analytics/video-analytics-api/3rdParty_Licenses.md
 - services/analytics/behavior-analytics/3rdParty_Licenses.md
+- services/configurators/vss-configurator/3rdParty_Licenses.md
+- services/configurators/vss-rt-config-adaptor/3rdParty_Licenses.md
+- services/sdrc/3rdParty_Licenses.md
 - services/rtvi/rt-embed/LICENSE-3rd-party.txt
 - services/rtvi/rt-cv-3d/rt-cv-mv3dt/3rdParty_Licenses.md
 - services/rtvi/rt-cv-3d/rt-cv-bev-fusion/3rdParty_Licenses.md
