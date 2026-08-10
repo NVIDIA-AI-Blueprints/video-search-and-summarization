@@ -68,24 +68,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         lbzip2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js for the vios-ui build (build.sh -> build_vios_ui). Installed for the
-# image's own architecture (amd64 host), not the arm64 cross target: the UI
-# build runs natively here and only emits static assets.
-# Ubuntu 24.04 ships nodejs 18.19.1, which is EOL and below the
-# "^20.19.0 || >=22.12.0" required by vite 8, so the apt `npm` package cannot
-# be used. Installed from NodeSource with an explicit keyring rather than
-# piping their setup script into a shell.
-ARG NODE_MAJOR=22
-RUN install -d -m 0755 /usr/share/keyrings && \
-    wget -qO- https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-        | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
-    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
-        > /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends nodejs && \
-    rm -rf /var/lib/apt/lists/* && \
-    node -v && npm -v
-
 # ---------------------------------------------------------------------------
 # 3. arm64 target dependencies via multiarch. These land under
 #    /usr/{include,lib}/aarch64-linux-gnu/ for the cross compiler to find.
@@ -139,6 +121,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cuda-crt-13-2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js for the vios-ui build. The multiarch transaction above can remove
+# amd64 APT packages, while installing NodeSource's amd64 nodejs afterwards
+# can remove arm64 development packages. Use the official amd64 binary archive
+# instead so Node does not participate in either APT dependency transaction.
+ARG NODE_VERSION=22.23.2
+RUN wget -q "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -O /tmp/node-shasums.txt && \
+    wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -O "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" && \
+    (cd /tmp && grep " node-v${NODE_VERSION}-linux-x64.tar.gz$" node-shasums.txt | sha256sum -c -) && \
+    tar -xzf "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" -C /opt && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/node" /usr/local/bin/node && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/npm" /usr/local/bin/npm && \
+    ln -s "/opt/node-v${NODE_VERSION}-linux-x64/bin/npx" /usr/local/bin/npx && \
+    rm -f /tmp/node-shasums.txt "/tmp/node-v${NODE_VERSION}-linux-x64.tar.gz" && \
+    node -v && npm -v
 
 # ---------------------------------------------------------------------------
 # 5. Build environment for the cross toolchain.
