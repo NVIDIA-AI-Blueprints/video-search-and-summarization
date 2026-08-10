@@ -13,6 +13,8 @@ Real-time alert generation and verification on RTSP / live video. VLM is **alway
 
 Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. Update `NEXT_PUBLIC_APP_SUBTITLE` in the same file so the UI label matches the deployed mode.
 
+> **Also flip `RTVI_VLM_KAFKA_ENABLED` when switching modes by hand.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false`, which is correct for verification (`2d_cv`) only: nothing consumes RT-VLM's Kafka output there, and leaving it on makes RT-VLM publish duplicate incidents whose file-relative timestamps land in `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) drives alerts from those Kafka events, so comment the line out for `2d_vlm` and let the compose default (`true`) apply. `dev-profile.sh` does this automatically for `--mode real-time`; only manual `generated.env` edits need it.
+
 ## What's different from `base` and `lvs`
 
 - **VLM is RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint.** Default `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`. No standalone `cosmos-reason2-8b` NIM service is started.

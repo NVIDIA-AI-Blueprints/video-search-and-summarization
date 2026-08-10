@@ -216,6 +216,25 @@ function set_alerts_ui_subtitle_from_mode() {
   esac
 }
 
+# Alerts RT-VLM Kafka publishing: overrides.env disables it for verification
+# (2d_cv), where nothing consumes the output and RT-VLM would emit duplicate
+# incidents with file-relative timestamps. Real-time (2d_vlm) drives alerts from
+# RT-VLM's Kafka events, so comment the override out and let the rtvi-vlm compose
+# default (true) apply.
+function set_alerts_rtvi_vlm_kafka_from_mode() {
+  local _generated_env="${1}"
+  local _mode
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  case "${_mode}" in
+    2d_vlm)
+      if grep -q '^RTVI_VLM_KAFKA_ENABLED=' "${_generated_env}"; then
+        sed -i 's|^RTVI_VLM_KAFKA_ENABLED=|#RTVI_VLM_KAFKA_ENABLED=|' "${_generated_env}"
+        echo "[INFO] Commented out RTVI_VLM_KAFKA_ENABLED for alerts (MODE=2d_vlm → RT-VLM Kafka publishing enabled)"
+      fi
+      ;;
+  esac
+}
+
 # Gets model name from remote API endpoint (works for both LLM and VLM).
 # Auto-select is only safe when the endpoint serves exactly one model
 # (e.g., a deployed NIM). For aggregate endpoints like
@@ -1314,6 +1333,7 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
     # Alerts VLM mode uses a different explicit service list than CV mode.
     if [[ "${mode_env}" == "2d_vlm" ]]; then
       set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
