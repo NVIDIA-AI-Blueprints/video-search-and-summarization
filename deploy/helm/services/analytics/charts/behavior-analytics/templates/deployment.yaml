@@ -72,7 +72,8 @@ spec:
                 echo "[wait-for-kafka] topic ${TOPIC} not yet created, retrying..."
                 sleep 2
               done
-              echo "[wait-for-kafka] topic ${TOPIC} exists, proceeding."
+              echo "[wait-for-kafka] topic ${TOPIC} exists, waiting 5s for broker to stabilize..."
+              sleep 5
               {{- else }}
               echo "[wait-for-kafka] broker ready, proceeding."
               {{- end }}
