@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") }}
+{{- $mv3dt := (.Values.standaloneWarehouse).mv3dt | default dict }}
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") (not ($mv3dt.dynamicCameraConfig | default dict).enabled) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

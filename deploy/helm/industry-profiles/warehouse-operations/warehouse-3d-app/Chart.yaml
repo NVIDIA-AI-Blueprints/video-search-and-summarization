@@ -39,3 +39,7 @@ dependencies:
   version: 3.2.0
   repository: file://../../../services/analytics
   condition: analytics.enabled
+- name: monitoring
+  version: 3.2.0
+  repository: file://../../../services/monitoring
+  condition: monitoring.enabled

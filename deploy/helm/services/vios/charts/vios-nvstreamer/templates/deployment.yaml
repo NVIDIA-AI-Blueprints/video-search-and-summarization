@@ -39,6 +39,89 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- $seed := .Values.ngcVideoSeed | default dict }}
+      {{- if $seed.enabled }}
+      initContainers:
+        - name: prepare-streamer-videos
+          {{- if $seed.fromExistingClaim }}
+          image: "busybox:1.37.0"
+          {{- else }}
+          image: "{{ $seed.image.repository }}:{{ $seed.image.tag }}"
+          imagePullPolicy: {{ $seed.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $seed.apiKeySecretName | default "ngc-api" }}
+                  key: {{ $seed.apiKeySecretKey | default "NGC_CLI_API_KEY" }}
+          {{- end }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              DEST=/streamer-videos
+              DATASET={{ $seed.dataset | default "" | quote }}
+              if [ -n "$(find "${DEST}" -name '*.mp4' -print -quit 2>/dev/null)" ]; then
+                echo "[prepare-streamer-videos] videos already present, skipping"
+                exit 0
+              fi
+              {{- if $seed.fromExistingClaim }}
+              SRC=/ngc-bundle/vss-warehouse-app-data/videos
+              # The rtvi-cv NGC job extracts into this claim in parallel on a fresh
+              # install. Wait for its .ngc-extracted marker, not just the videos
+              # directory, which tar creates before the files are fully written.
+              MARKER=/ngc-bundle/vss-warehouse-app-data/.ngc-extracted
+              WAIT={{ $seed.waitSeconds | default 3600 }}
+              i=0
+              while [ ! -f "${MARKER}" ] && [ "${i}" -lt "${WAIT}" ]; do
+                [ $((i % 30)) -eq 0 ] && echo "[prepare-streamer-videos] waiting for the NGC bundle (${i}s)"
+                sleep 5; i=$((i + 5))
+              done
+              if [ ! -f "${MARKER}" ]; then
+                echo "[prepare-streamer-videos] ${MARKER} still missing after ${WAIT}s; check the NGC app-data job" >&2
+                exit 1
+              fi
+              {{- end }}
+              {{- if not $seed.fromExistingClaim }}
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq && apt-get install -y -qq wget unzip > /dev/null
+              cd /tmp
+              wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
+              unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
+              export PATH="/tmp/ngc-cli:$PATH"
+              rm -rf /tmp/ngc-dl && mkdir -p /tmp/ngc-dl
+              ngc registry resource download-version {{ required "ngcVideoSeed.resourceVersion is required when fromExistingClaim is unset" $seed.resourceVersion | quote }} \
+                --dest /tmp/ngc-dl --org {{ $seed.org | default "nvidia" | quote }}
+              TAR="$(find /tmp/ngc-dl -name '*.tar.gz' -type f | head -1)"
+              if [ -z "${TAR}" ]; then
+                echo "[prepare-streamer-videos] no tarball in the NGC download" >&2
+                exit 1
+              fi
+              mkdir -p /tmp/ngc-x && tar -xzf "${TAR}" -C /tmp/ngc-x
+              SRC=/tmp/ngc-x/vss-warehouse-app-data/videos
+              {{- end }}
+              if [ -n "${DATASET}" ]; then
+                SRC="${SRC}/${DATASET}"
+              fi
+              if [ ! -d "${SRC}" ]; then
+                echo "[prepare-streamer-videos] dataset directory ${SRC} not found" >&2
+                ls -1 "$(dirname "${SRC}")" 2>/dev/null || true
+                exit 1
+              fi
+              echo "[prepare-streamer-videos] copying videos from ${SRC}"
+              find "${SRC}" -name '*.mp4' -exec cp -a {} "${DEST}/" \;
+              chmod -R a+rwX "${DEST}" || true
+              echo "[prepare-streamer-videos] $(find "${DEST}" -name '*.mp4' | wc -l) video(s) staged"
+          volumeMounts:
+            - name: streamer-videos
+              mountPath: /streamer-videos
+            {{- if $seed.fromExistingClaim }}
+            - name: ngc-bundle
+              mountPath: /ngc-bundle
+              readOnly: true
+            {{- end }}
+      {{- end }}
       containers:
         - name: vss-vios-nvstreamer
           image: {{ include "vss-vios-nvstreamer.image" . }}
@@ -90,9 +173,27 @@ spec:
             name: {{ include "vss-vios-nvstreamer.fullname" . }}-user-install-script
             defaultMode: 493
         - name: streamer-videos
+          {{- $sv := (.Values.persistence | default dict).streamerVideos | default dict }}
+          {{- if $sv.hostPath }}
+          hostPath:
+            path: {{ $sv.hostPath }}
+            type: {{ $sv.hostPathType | default "DirectoryOrCreate" }}
+          {{- else if $sv.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $sv.existingClaim | default (include "vss-vios-nvstreamer.sharedVstClaimStreamerVideos" .) }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}
         - name: vst-data
           emptyDir: {}
+        {{- if (.Values.ngcVideoSeed | default dict).enabled }}
+        {{- if .Values.ngcVideoSeed.fromExistingClaim }}
+        - name: ngc-bundle
+          persistentVolumeClaim:
+            claimName: {{ .Values.ngcVideoSeed.fromExistingClaim }}
+            readOnly: true
+        {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

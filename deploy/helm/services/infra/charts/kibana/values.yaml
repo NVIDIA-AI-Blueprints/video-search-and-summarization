@@ -54,3 +54,6 @@ init:
   ttlSecondsAfterFinished: null
   kibanaUrl: ""
   elasticsearchUrl: ""
+
+# Serve Kibana under a path prefix (e.g. /kibana) instead of its own host.
+basePath: ""
