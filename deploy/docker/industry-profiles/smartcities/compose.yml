@@ -99,6 +99,11 @@ services:
     network_mode: "host"
     profiles: ["kibana-init-container-alerts"]
     container_name: vss-kibana-init
+    # Host networking bypasses Compose DNS, so the default kibana/elasticsearch
+    # service names are unresolvable here; dial the published host ports instead.
+    environment:
+      KIBANA_URL: http://${HOST_IP}:${KIBANA_HOST_PORT:-5601}/kibana
+      ES_URL: http://${HOST_IP}:${ELASTICSEARCH_HOST_PORT:-9200}
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     depends_on:
       kibana:
