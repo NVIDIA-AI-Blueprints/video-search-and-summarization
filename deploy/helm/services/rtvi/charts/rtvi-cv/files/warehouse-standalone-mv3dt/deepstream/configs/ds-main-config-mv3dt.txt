@@ -41,7 +41,7 @@ sensor-name-list=
 use-nvmultiurisrcbin=1
 stream-name-display=1
 max-batch-size=4
-http-ip=localhost
+http-ip=0.0.0.0
 http-port=9000
 low-latency-mode=1
 extract-sei-type5-data=1
@@ -61,7 +61,7 @@ drop-on-latency=1
 rtsp-reconnect-interval-sec=60
 init-rtsp-reconnect-interval-sec=5
 rtsp-reconnect-attempts=-1
-set-rtp-protocol=1
+set-rtp-protocol=4
 
 [streammux]
 gpu-id=0

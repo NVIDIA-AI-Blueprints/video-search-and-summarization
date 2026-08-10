@@ -129,3 +129,13 @@ resources:
     nvidia.com/gpu: 1
 nodeSelector: {}
 tolerations: []
+
+# Compose parity with the wait-for-redis service in the warehouse profiles.
+waitForRedis:
+  enabled: true
+  host: ""
+  port: 6379
+  timeoutSeconds: 120
+  image:
+    repository: busybox
+    tag: "1.37.0"

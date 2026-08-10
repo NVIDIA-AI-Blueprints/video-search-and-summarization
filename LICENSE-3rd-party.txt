@@ -19,3 +19,4 @@ See below files for the licenses:
 - tools/message-broker-consumers/3rdParty_Licenses.md
 - tools/sdg-postprocessing/3rdParty_Licenses.md
 - tools/logstash-plugins/input/redis-stream/THIRD_PARTY_LICENSES.md
+- deploy/helm/services/monitoring/3rdParty_Licenses.md
