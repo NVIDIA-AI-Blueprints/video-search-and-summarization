@@ -53,17 +53,29 @@ spec:
       initContainers:
         {{- if .Values.waitForKafka.enabled }}
         - name: wait-for-kafka
-          image: {{ .Values.waitForKafka.image | default "busybox:1.36" }}
+          image: {{ .Values.waitForKafka.image | default "confluentinc/cp-kafka:8.3.0" }}
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
             - |
-              until nc -z {{ required "waitForKafka.host must be set" .Values.waitForKafka.host }} {{ .Values.waitForKafka.port | default 9092 }}; do
-                echo "[wait-for-kafka] waiting for {{ .Values.waitForKafka.host }}:{{ .Values.waitForKafka.port | default 9092 }}..."
+              BOOTSTRAP="{{ required "waitForKafka.host must be set" .Values.waitForKafka.host }}:{{ .Values.waitForKafka.port | default 9092 }}"
+              TOPIC="{{ .Values.waitForKafka.topic }}"
+              echo "[wait-for-kafka] waiting for broker ${BOOTSTRAP}..."
+              until kafka-topics --bootstrap-server "${BOOTSTRAP}" --list >/dev/null 2>&1; do
+                echo "[wait-for-kafka] broker not ready, retrying..."
                 sleep 2
               done
-              echo "[wait-for-kafka] kafka is ready."
+              {{- if .Values.waitForKafka.topic }}
+              echo "[wait-for-kafka] broker ready, waiting for topic ${TOPIC}..."
+              until kafka-topics --bootstrap-server "${BOOTSTRAP}" --list 2>/dev/null | grep -qx "${TOPIC}"; do
+                echo "[wait-for-kafka] topic ${TOPIC} not yet created, retrying..."
+                sleep 2
+              done
+              echo "[wait-for-kafka] topic ${TOPIC} exists, proceeding."
+              {{- else }}
+              echo "[wait-for-kafka] broker ready, proceeding."
+              {{- end }}
         {{- end }}
         {{- if .Values.downloadResourcesFromNgc }}
         - name: wait-for-resources

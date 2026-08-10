@@ -35,7 +35,8 @@ waitForKafka:
   enabled: false
   host: ""
   port: 9092
-  image: busybox:1.36
+  topic: ""
+  image: confluentinc/cp-kafka:8.3.0
 
 # Container command (including app entrypoint and --config path).
 command: []

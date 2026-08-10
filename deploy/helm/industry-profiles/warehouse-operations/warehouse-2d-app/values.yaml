@@ -257,6 +257,7 @@ analytics:
     waitForKafka:
       enabled: true
       host: kafka-kafka
+      topic: mdx-raw
     replicas: 1
     command:
       - python3
