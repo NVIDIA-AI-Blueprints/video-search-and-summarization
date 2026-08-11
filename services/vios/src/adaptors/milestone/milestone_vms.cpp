@@ -75,10 +75,13 @@ struct data
   char trace_ascii; /* 1 or 0 */
 };
 
+// CURLOPT_DEBUGFUNCTION's signature is fixed by libcurl's C ABI. Narrowing
+// userp makes the call go through an incompatible function-pointer type,
+// which is undefined behaviour; the parameter is unused here anyway.
 static
 int my_trace(CURL *handle, curl_infotype type,
              char *data, size_t size,
-             struct data *userp)
+             void *userp)
 {
     cout << string(data) << endl;
     return 0;

@@ -27,7 +27,7 @@ using namespace std;
 
 #if !defined(AARCH64_PLATFORM)
 static void
-DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, KafkaMsgOpaque *opaque)
+DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaque)
 {
     if (rkmessage->err)
     {
