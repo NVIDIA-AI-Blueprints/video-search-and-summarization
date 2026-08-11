@@ -66,14 +66,48 @@ done
 BASE="http://${DS_HOST}:${DS_PORT}"
 
 show_stream_info() {
-  curl -fsS "${BASE}/api/v1/stream/get-stream-info" | python3 -c '
+  local code tmp
+  tmp=$(mktemp)
+  code=$(curl -sS -o "$tmp" -w '%{http_code}' \
+          --max-time 5 --connect-timeout 3 \
+          "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null) || code=000
+
+  if [[ "$code" != "200" ]]; then
+    echo "ERROR: Cannot connect to MV3DT perception REST API at ${BASE}." >&2
+    echo "Check whether vss-rtvi-cv-mv3dt is running:" >&2
+    echo >&2
+    echo "  docker ps -a --filter name=vss-rtvi-cv-mv3dt" >&2
+    echo "  docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
+    if [[ "$code" != "000" ]]; then
+      echo >&2
+      echo "HTTP code: ${code}" >&2
+    fi
+    if [[ -s "$tmp" ]]; then
+      echo >&2
+      cat "$tmp" >&2 || true
+      echo >&2
+    fi
+    rm -f "$tmp"
+    return 1
+  fi
+
+  if ! python3 -c '
 import json, sys
-d = json.load(sys.stdin)
+try:
+    d = json.load(sys.stdin)
+except Exception as e:
+    print(f"ERROR: Invalid JSON response from MV3DT REST API: {e}", file=sys.stderr)
+    sys.exit(1)
 info = d.get("stream-info", {})
 print("  stream-count: {}".format(info.get("stream-count", "?")))
 for s in info.get("stream-info", []):
     print("    source_id={}  camera_id={}".format(s.get("source_id"), s.get("camera_id")))
-'
+' < "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+
+  rm -f "$tmp"
 }
 
 post_sensor() {  # $1=camera_id  $2=url  $3=change (camera_add|camera_remove)
@@ -105,7 +139,12 @@ print(json.dumps({
 }
 
 # ── --list mode ──────────────────────────────────────────────────────────────
-if (( LIST )); then show_stream_info; exit 0; fi
+if (( LIST )); then
+  if show_stream_info; then
+    exit 0
+  fi
+  exit 1
+fi
 
 (( ${#STREAMS[@]} )) || { echo "ERROR: no streams given (NAME=URL args or --file)" >&2; usage 2; }
 
