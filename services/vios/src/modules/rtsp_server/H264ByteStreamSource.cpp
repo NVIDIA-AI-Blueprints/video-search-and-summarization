@@ -212,11 +212,11 @@ H264ByteStreamSource::~H264ByteStreamSource()
     }
     catch (const std::exception& e)
     {
-        LOG(error) << "~H264ByteStreamSource() caught exception: " << e.what() << endl;
+        try { LOG(error) << "Exception in ~H264ByteStreamSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
     }
     catch (...)
     {
-        LOG(error) << "~H264ByteStreamSource() caught unknown exception" << endl;
+        try { LOG(error) << "Unknown exception in ~H264ByteStreamSource" << endl; } catch (...) { (void)std::current_exception(); }
     }
 }
 

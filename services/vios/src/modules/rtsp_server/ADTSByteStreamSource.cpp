@@ -87,26 +87,21 @@ ADTSByteStreamSource
 
 ADTSByteStreamSource::~ADTSByteStreamSource()
 {
-    LOG(info) << "~ ::ADTSByteStreamSource streamName:" << m_streamName << endl;
-    envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
-    /* Unregister from the AV-loop-sync coordinator. If we were parked
-     * at EOS waiting on the video side, this also releases the video
-     * side so it doesn't deadlock waiting for a now-gone audio. */
-    if (m_avLoopSync)
-    {
-        try
+    try {
+        LOG(info) << "~ ::ADTSByteStreamSource streamName:" << m_streamName << endl;
+        envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        /* Unregister from the AV-loop-sync coordinator. If we were parked
+         * at EOS waiting on the video side, this also releases the video
+         * side so it doesn't deadlock waiting for a now-gone audio. */
+        if (m_avLoopSync)
         {
             m_avLoopSync->unregisterParticipant(this);
+            m_avLoopSync.reset();
         }
-        catch (const std::exception& e)
-        {
-            LOG(error) << "~ADTSByteStreamSource unregisterParticipant threw: " << e.what() << endl;
-        }
-        catch (...)
-        {
-            LOG(error) << "~ADTSByteStreamSource unregisterParticipant threw (unknown)" << endl;
-        }
-        m_avLoopSync.reset();
+    } catch (const std::exception& e) {
+        try { LOG(error) << "Exception in ~ADTSByteStreamSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+    } catch (...) {
+        try { LOG(error) << "Unknown exception in ~ADTSByteStreamSource" << endl; } catch (...) { (void)std::current_exception(); }
     }
 }
 
