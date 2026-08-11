@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -71,6 +72,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "L40S"
+DEFAULT_MIN_ROOT_DISK_GB = 220
 
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
@@ -137,12 +139,46 @@ def _platforms_from_spec(spec: dict) -> list[str]:
     return [p for p in declared if p in PLATFORMS] or [DEFAULT_PLATFORM]
 
 
+def _substitute_spec(spec: dict, platform: str) -> dict:
+    """Render supported placeholders recursively and reject spec drift."""
+    substitutions = {
+        "platform": platform,
+        "repo_root": "$HOME/video-search-and-summarization",
+    }
+    pattern = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+    def _substitute(value):
+        if isinstance(value, str):
+            return pattern.sub(
+                lambda match: str(
+                    substitutions.get(match.group(1), match.group(0))
+                ),
+                value,
+            )
+        if isinstance(value, list):
+            return [_substitute(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _substitute(item) for key, item in value.items()}
+        return value
+
+    rendered = _substitute(spec)
+    unresolved = sorted(
+        set(pattern.findall(json.dumps(rendered))) - {"end"}
+    )
+    if unresolved:
+        raise ValueError(
+            "unresolved eval placeholders: " + ", ".join(unresolved)
+        )
+    return rendered
+
+
 def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
                   skill_dir: Path, deploy_skill_dir: Path | None,
                   video_io_skill_dir: Path | None) -> None:
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
-    expects = spec.get("expects") or []
+    rendered_spec = _substitute_spec(spec, platform)
+    expects = rendered_spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
 
     for idx, expect in enumerate(expects, 1):
@@ -169,7 +205,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # brev_env.py::_check_instance_matches enforces strict equality, so the
         # task.toml value must match the operator's pool allocation exactly.
         gpu_count = int(
-            ((spec.get("resources") or {}).get("platforms") or {})
+            ((rendered_spec.get("resources") or {}).get("platforms") or {})
             .get(platform, {})
             .get("gpu_count", 1)
             or 1
@@ -199,6 +235,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f'gpu_count = {gpu_count}',
+            f"min_root_disk_gb = {DEFAULT_MIN_ROOT_DISK_GB}",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -215,15 +252,11 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if not spec_src.exists():
-            legacy = skill_dir / "eval" / spec_name
-            if legacy.exists():
-                spec_src = legacy
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # The verifier must grade the same rendered values that instruction.md
+        # presents to the agent.
+        (tests_dir / spec_name).write_text(
+            json.dumps(rendered_spec, indent=2)
+        )
 
         solution_dir = step_dir / "solution"
         solution_dir.mkdir(exist_ok=True)
@@ -237,7 +270,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # (Linux caps a single execve argument at 131 072 bytes; the full
         # base64 tarball of all three skills exceeds that limit as of PR #520
         # which expanded the skill references).
-        spec_skills: set[str] = set(spec.get("skills") or [])
+        spec_skills: set[str] = set(rendered_spec.get("skills") or [])
         all_copies = [
             (skill_dir, "vss-summarize-video"),
             (video_io_skill_dir, "vss-manage-video-io-storage"),

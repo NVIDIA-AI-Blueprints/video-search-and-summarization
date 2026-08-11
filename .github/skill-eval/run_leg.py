@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Run one skills-eval leg under a process-held Brev box lock.
+"""Run one skills-eval leg under local and worker-side Brev box locks.
 
-This wrapper owns BOTH fleet selection and the per-instance flock: it
+This wrapper owns fleet selection, the per-runner flock, and the shared
+worker-side lease: it
 reads the task's hardware requirements from the dataset's task.toml,
 snapshots `brev ls --json`, and walks the eligible `vss-eval-*`
-candidates with NON-BLOCKING lock attempts — claiming the first box it
-can actually lock. The lock file descriptor stays open while Harbor
-runs, so the mutex is a real kernel lock instead of a shell-FD
-convention spread across multiple agent tool calls.
+candidates with NON-BLOCKING local lock attempts, then claims the same
+remote lock used by NemoClaw. Both locks stay held while Harbor runs.
+This coordinates different self-hosted runner machines as well as jobs
+sharing one runner.
 
 Why selection lives here and not in the agent: two legs that snapshot
 the fleet at the same moment both see the same "best" lock-free box
@@ -28,17 +29,26 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import signal
+import stat as stat_module
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
+
+SKILL_EVAL_MODULE_ROOT = str(Path(__file__).resolve().parent)
+if SKILL_EVAL_MODULE_ROOT not in sys.path:
+    sys.path.insert(0, SKILL_EVAL_MODULE_ROOT)
+import remote_worker_lock  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -55,6 +65,28 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 # (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
 # the host, not per leg, so every leg publishes its trials in here.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
+RTX4090_GPU_TYPE = "GEFORCE RTX 4090"
+_WORKER_TRANSPORTS: dict[str, str] = {}
+_WORKER_SSH_CONFIGS: dict[str, str] = {}
+_CACHED_MANAGED_SSH_SNAPSHOTS: list[tempfile.TemporaryDirectory] = []
+_CACHED_MANAGED_SSH_SNAPSHOT_CACHE: dict[str, Path] = {}
+
+# Managed Brev workspaces are normally discovered through ``brev ls``.  The
+# CLI also keeps a directly usable SSH alias for each running workspace in
+# ~/.brev/ssh_config, but that cache outlives an API refresh token.  Using the
+# cache is intentionally a two-key opt-in: the operator must enable it and
+# separately name every workspace that may be recovered this way.  A cached
+# Host stanza is transport evidence, never authorization by itself.
+CACHED_MANAGED_SSH_OPT_IN_ENV = "BREV_ALLOW_CACHED_SSH"
+CACHED_MANAGED_SSH_POOL_ENV = "BREV_DIRECT_SSH_POOL"
+CACHED_MANAGED_SSH_ADMITTED_ENV = "BREV_ADMITTED_CACHED_SSH_POOL"
+CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV = (
+    "BREV_ADMITTED_CACHED_SSH_CONFIG"
+)
+CACHED_MANAGED_SSH_CONFIG_MAX_BYTES = 1024 * 1024
+SAFE_CACHED_MANAGED_SSH_ALIAS_RE = re.compile(
+    r"^vss-eval-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+)
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
 # 600-second base used by Harbor for environment build and verification; these
@@ -132,6 +164,11 @@ SDK_DEADLINE_ENV = "SKILL_EVAL_WORK_DEADLINE_MONOTONIC"
 TRANSPORT_PGID_REGISTRY_ENV = "BREV_TRANSPORT_PGID_FILE"
 
 
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    return int(value) if value else default
+
+
 @dataclasses.dataclass(frozen=True)
 class HarborInvocation:
     """One concrete `uvx harbor run` invocation."""
@@ -143,8 +180,20 @@ class HarborInvocation:
     step_count: int | None = None
 
 
+@dataclasses.dataclass(frozen=True)
+class LockedWorker:
+    """A worker held by both the runner-local mutex and remote lease."""
+
+    instance: str
+    lost_event: threading.Event
+
+
 class LockTimeoutError(RuntimeError):
     pass
+
+
+class BrevAuthenticationError(RuntimeError):
+    """Raised when the non-interactive Brev CLI cannot refresh its login."""
 
 
 class LegDeadlineError(RuntimeError):
@@ -430,6 +479,37 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
     return []
 
 
+def _brev_auth_failure_reason(
+    stdout: str | None,
+    stderr: str | None,
+    operation: str,
+) -> str | None:
+    """Classify the Brev CLI's terminal headless-login failure.
+
+    A bare ``EOF`` is also emitted by transient SSH/RPC failures, so require
+    the Brev auth stack's ``PromptForLogin`` marker as well.
+    """
+    output = "\n".join(part for part in (stdout, stderr) if part)
+    lowered = output.lower()
+    if "promptforlogin" not in lowered or not re.search(r"\beof\b", lowered):
+        return None
+    return (
+        f"Brev CLI authentication failed during {operation}: "
+        "PromptForLogin reached EOF in the non-interactive coordinator; "
+        "refresh the coordinator's Brev credentials"
+    )
+
+
+def _raise_if_brev_auth_failure(
+    stdout: str | None,
+    stderr: str | None,
+    operation: str,
+) -> None:
+    reason = _brev_auth_failure_reason(stdout, stderr, operation)
+    if reason is not None:
+        raise BrevAuthenticationError(reason)
+
+
 def _list_brev_instances() -> list[dict]:
     """Snapshot `brev ls --json` with retries for transient RPC flakes.
     An org with zero managed instances prints `null` — authoritative-empty."""
@@ -443,6 +523,11 @@ def _list_brev_instances() -> list[dict]:
             print(f"[run-leg] brev ls failed (attempt {attempt + 1}): {exc}", flush=True)
             time.sleep(5)
             continue
+        _raise_if_brev_auth_failure(
+            proc.stdout,
+            proc.stderr,
+            "brev ls --json",
+        )
         raw = (proc.stdout or "").strip()
         if raw.startswith("null"):
             return []
@@ -474,6 +559,11 @@ def _list_registered_nodes() -> list[dict]:
             )
             time.sleep(5)
             continue
+        _raise_if_brev_auth_failure(
+            proc.stdout,
+            proc.stderr,
+            "brev ls nodes --json",
+        )
         raw = (proc.stdout or "").strip()
         if raw.startswith("null"):
             return []
@@ -517,68 +607,551 @@ def _parse_pool_names(raw: str) -> set[str]:
     }
 
 
-def _rtx4090_supports(skill: str | None, spec_stem: str | None) -> bool:
-    """Whether resource data supports this exact test on a 24 GB RTX 4090."""
-    if not skill or not spec_stem:
-        return False
-    return (
-        skill in RTX4090_ALL_TESTS
-        or spec_stem in RTX4090_TESTS.get(skill, ())
+def _safe_cached_managed_ssh_alias(name: str) -> str | None:
+    """Return one canonical managed-worker alias, or ``None`` if unsafe.
+
+    OpenSSH Host patterns are deliberately excluded.  ``*-host`` aliases
+    target the underlying VM rather than the Brev container Harbor expects.
+    """
+    normalized = name.strip().lower()
+    if normalized.endswith("-host"):
+        return None
+    if SAFE_CACHED_MANAGED_SSH_ALIAS_RE.fullmatch(normalized) is None:
+        return None
+    return normalized
+
+
+def _cached_brev_ssh_config_path() -> Path:
+    configured = os.environ.get("BREV_SSH_CONFIG", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".brev" / "ssh_config"
+
+
+def _read_safe_cached_brev_ssh_config(path: Path) -> str | None:
+    """Read one stable, owner-only config inode without following symlinks.
+
+    The Brev CLI can leave ``~/.brev`` group/world writable even though its
+    ``ssh_config`` is an owner-only regular file. A writable parent permits
+    path replacement, so never hand that path directly to OpenSSH: pin the
+    opened inode with ``O_NOFOLLOW``, validate and read it through the file
+    descriptor, then let the caller create a private snapshot.
+    """
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "O_NOFOLLOW is unavailable",
+            flush=True,
+        )
+        return None
+    try:
+        fd = os.open(
+            path,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK | nofollow,
+        )
+    except OSError as exc:
+        print(
+            f"[run-leg] cached managed SSH config unavailable: {exc}",
+            flush=True,
+        )
+        return None
+
+    try:
+        before = os.fstat(fd)
+        expected_uid = os.geteuid()
+        checks = (
+            (
+                stat_module.S_ISREG(before.st_mode),
+                "config is not a regular file",
+            ),
+            (
+                before.st_uid == expected_uid,
+                "config is not owned by the coordinator user",
+            ),
+            (
+                before.st_mode & 0o022 == 0,
+                "config is group/world writable",
+            ),
+            (
+                before.st_nlink == 1,
+                "config has multiple hard links",
+            ),
+            (
+                before.st_size <= CACHED_MANAGED_SSH_CONFIG_MAX_BYTES,
+                "config exceeds the size limit",
+            ),
+        )
+        for passed, reason in checks:
+            if passed:
+                continue
+            print(
+                f"[run-leg] cached managed SSH config rejected: {reason}",
+                flush=True,
+            )
+            return None
+
+        chunks: list[bytes] = []
+        remaining = CACHED_MANAGED_SSH_CONFIG_MAX_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(fd, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        after = os.fstat(fd)
+    except OSError as exc:
+        print(
+            f"[run-leg] cached managed SSH config could not be read: {exc}",
+            flush=True,
+        )
+        return None
+    finally:
+        os.close(fd)
+
+    if len(payload) > CACHED_MANAGED_SSH_CONFIG_MAX_BYTES:
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "config exceeds the size limit",
+            flush=True,
+        )
+        return None
+    stable_fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_nlink",
+                     "st_size", "st_mtime_ns", "st_ctime_ns")
+    if any(getattr(before, key) != getattr(after, key) for key in stable_fields):
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "config changed while being read",
+            flush=True,
+        )
+        return None
+    if len(payload) != after.st_size:
+        print(
+            "[run-leg] cached managed SSH config rejected: "
+            "config size changed while being read",
+            flush=True,
+        )
+        return None
+    try:
+        return payload.decode("utf-8")
+    except UnicodeError as exc:
+        print(
+            f"[run-leg] cached managed SSH config could not be decoded: {exc}",
+            flush=True,
+        )
+        return None
+
+
+def _snapshot_cached_brev_ssh_config(source: str) -> Path | None:
+    """Copy validated config bytes into a private path used by OpenSSH."""
+    payload = source.encode("utf-8")
+    cache_key = hashlib.sha256(payload).hexdigest()
+    cached = _CACHED_MANAGED_SSH_SNAPSHOT_CACHE.get(cache_key)
+    if cached is not None and cached.is_file():
+        return cached
+    _CACHED_MANAGED_SSH_SNAPSHOT_CACHE.pop(cache_key, None)
+
+    temp_dir = tempfile.TemporaryDirectory(
+        prefix="vss-skill-eval-brev-ssh-"
     )
+    snapshot = Path(temp_dir.name) / "ssh_config"
+    fd: int | None = None
+    try:
+        fd = os.open(
+            snapshot,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC,
+            0o600,
+        )
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short write while creating SSH config snapshot")
+            view = view[written:]
+        os.fchmod(fd, 0o400)
+        os.fsync(fd)
+    except OSError as exc:
+        print(
+            f"[run-leg] cached managed SSH snapshot failed: {exc}",
+            flush=True,
+        )
+        temp_dir.cleanup()
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+    snapshot.parent.chmod(0o500)
+    _CACHED_MANAGED_SSH_SNAPSHOTS.append(temp_dir)
+    _CACHED_MANAGED_SSH_SNAPSHOT_CACHE[cache_key] = snapshot
+    return snapshot
+
+
+def _parse_exact_cached_brev_ssh_aliases(source: str) -> set[str]:
+    """Parse exact, single-name ``Host vss-eval-*`` stanzas from text.
+
+    Admit only Brev's self-contained direct Hostname form. ProxyCommand,
+    Include, Match, RemoteCommand, LocalCommand, and unknown directives are
+    excluded so this secret-bearing CI process never executes config-supplied
+    local commands. OpenSSH still performs the connection after this gate.
+    """
+    allowed_directives = {
+        "hostname",
+        "identityfile",
+        "user",
+        "serveraliveinterval",
+        "userknownhostsfile",
+        "identitiesonly",
+        "stricthostkeychecking",
+        "passwordauthentication",
+        "addkeystoagent",
+        "forwardagent",
+        "requesttty",
+        "controlmaster",
+        "controlpath",
+        "controlpersist",
+        "port",
+    }
+    aliases: set[str] = set()
+    seen_aliases: set[str] = set()
+    current_alias: str | None = None
+    current_safe = False
+    current_has_hostname = False
+    in_stanza = False
+
+    def finish_stanza() -> None:
+        if current_alias and current_safe and current_has_hostname:
+            aliases.add(current_alias)
+
+    for line_number, line in enumerate(source.splitlines(), 1):
+        try:
+            parts = shlex.split(line, comments=True, posix=True)
+        except ValueError:
+            print(
+                "[run-leg] cached managed SSH config rejected: "
+                f"malformed quoting on line {line_number}",
+                flush=True,
+            )
+            return set()
+        if not parts:
+            continue
+        directive = parts[0].lower()
+        if directive in {"include", "match"}:
+            print(
+                "[run-leg] cached managed SSH config rejected executable "
+                f"scope directive {parts[0]!r} on line {line_number}",
+                flush=True,
+            )
+            return set()
+        if directive == "host":
+            finish_stanza()
+            in_stanza = True
+            current_alias = None
+            current_safe = False
+            current_has_hostname = False
+            # Multiple aliases and wildcard/pattern entries are not exact
+            # cached workspace identities.
+            if len(parts) != 2:
+                print(
+                    "[run-leg] cached managed SSH config rejected non-exact "
+                    f"Host stanza on line {line_number}",
+                    flush=True,
+                )
+                return set()
+            if any(marker in parts[1] for marker in ("*", "?", "!")):
+                print(
+                    "[run-leg] cached managed SSH config rejected Host "
+                    f"pattern on line {line_number}",
+                    flush=True,
+                )
+                return set()
+            current_alias = _safe_cached_managed_ssh_alias(parts[1])
+            current_safe = current_alias is not None
+            if current_alias is not None:
+                if current_alias in seen_aliases:
+                    print(
+                        "[run-leg] cached managed SSH config rejected "
+                        f"duplicate Host {current_alias!r}",
+                        flush=True,
+                    )
+                    return set()
+                seen_aliases.add(current_alias)
+            continue
+        if not in_stanza:
+            # Brev emits no global directives. Reject a file that would let
+            # OpenSSH apply an unreviewed option to every admitted alias.
+            print(
+                "[run-leg] cached managed SSH config rejected global "
+                f"directive {parts[0]!r} on line {line_number}",
+                flush=True,
+            )
+            return set()
+        if current_alias is None:
+            # Ignore an exact unrelated Host stanza. It cannot match an
+            # admitted vss-eval-* alias; patterns were rejected above.
+            continue
+        if directive not in allowed_directives or len(parts) != 2:
+            print(
+                "[run-leg] cached managed SSH config rejected unsafe "
+                f"directive {parts[0]!r} for {current_alias!r} on line "
+                f"{line_number}",
+                flush=True,
+            )
+            return set()
+        if directive == "hostname":
+            current_has_hostname = len(parts) == 2 and bool(parts[1].strip())
+    finish_stanza()
+    return aliases
+
+
+def _exact_cached_brev_ssh_aliases(path: Path) -> set[str]:
+    """Safely read *path* and return its exact managed aliases."""
+    source = _read_safe_cached_brev_ssh_config(path)
+    if source is None:
+        return set()
+    return _parse_exact_cached_brev_ssh_aliases(source)
+
+
+def _cached_managed_ssh_candidates() -> dict[str, Path]:
+    """Return allowlisted cached aliases when the recovery path is enabled."""
+    enabled = os.environ.get(CACHED_MANAGED_SSH_OPT_IN_ENV, "").strip().lower()
+    if enabled not in {"1", "true", "yes"}:
+        return {}
+
+    raw_allowlist = os.environ.get(CACHED_MANAGED_SSH_POOL_ENV, "")
+    requested = _parse_pool_names(raw_allowlist)
+    if not requested:
+        print(
+            "[run-leg] cached managed SSH enabled without an operator "
+            "allowlist; ignoring cache",
+            flush=True,
+        )
+        return {}
+    invalid = sorted(
+        name for name in requested
+        if _safe_cached_managed_ssh_alias(name) is None
+    )
+    if invalid:
+        print(
+            "[run-leg] cached managed SSH allowlist rejected unsafe "
+            f"name(s): {', '.join(invalid)}",
+            flush=True,
+        )
+        return {}
+
+    config_path = _cached_brev_ssh_config_path()
+    source = _read_safe_cached_brev_ssh_config(config_path)
+    if source is None:
+        configured: set[str] = set()
+    else:
+        configured = _parse_exact_cached_brev_ssh_aliases(source)
+    admitted = requested & configured
+    missing = sorted(requested - configured)
+    if missing:
+        print(
+            "[run-leg] cached managed SSH allowlist name(s) absent from "
+            f"the safe cache: {', '.join(missing)}",
+            flush=True,
+        )
+    if not admitted or source is None:
+        return {}
+    snapshot = _snapshot_cached_brev_ssh_config(source)
+    if snapshot is None:
+        return {}
+    print(
+        "[run-leg] cached managed SSH config copied to a private snapshot",
+        flush=True,
+    )
+    return {name: snapshot for name in sorted(admitted)}
+
+
+def _propagate_cached_managed_ssh(names: set[str]) -> None:
+    """Replace Harbor's current cache-admitted direct-SSH identities.
+
+    Keep these separate from the operator's registered-node pool so a cached
+    alias cannot remain authorized after a later inventory cycle rejects the
+    cache. ``brev_env`` reads this exact admitted set for SSH/scp routing.
+    """
+    if names:
+        config_paths = {
+            _WORKER_SSH_CONFIGS.get(name.lower()) for name in names
+        }
+        if None in config_paths or len(config_paths) != 1:
+            raise RuntimeError(
+                "cache-admitted SSH workers do not share one private config"
+            )
+        os.environ[CACHED_MANAGED_SSH_ADMITTED_ENV] = ",".join(sorted(names))
+        os.environ[CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV] = next(
+            iter(config_paths)
+        )
+    else:
+        os.environ.pop(CACHED_MANAGED_SSH_ADMITTED_ENV, None)
+        os.environ.pop(CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV, None)
 
 
 def _registered_pool_allowlist(
-    skill: str | None = None,
-    spec_stem: str | None = None,
+    required_gpu_type: str | None = None,
 ) -> set[str]:
     """Registered nodes approved for this test.
 
     ``BREV_REGISTERED_POOL`` contains full-capability workers. The separate
-    RTX 4090 pool is intentionally capability-routed because those 24 GB
-    cards cannot safely satisfy every RTX PRO 6000 task.
+    RTX 4090 pool is exposed only when the spec explicitly requests that GPU;
+    those 24 GB cards cannot safely satisfy RTX PRO 6000 tasks.
     """
     names = _parse_pool_names(os.environ.get("BREV_REGISTERED_POOL", ""))
-    if _rtx4090_supports(skill, spec_stem):
+    if (required_gpu_type or "").upper() == RTX4090_GPU_TYPE:
         names.update(_parse_pool_names(os.environ.get("BREV_RTX4090_POOL", "")))
     return names
 
 
+def _synthetic_registered_instance(name: str) -> dict:
+    """Build the fail-closed record for an operator-approved SSH worker.
+
+    Registered workers are connected through persistent SSH aliases on the
+    coordinator.  Their Brev API inventory is useful health metadata, but it
+    is not required for transport: reachability, GPU count, and disk capacity
+    are all checked live over SSH before a worker is selected.  Keeping this
+    record narrowly tied to ``BREV_REGISTERED_POOL`` prevents an expired Brev
+    refresh token from taking the already-provisioned SSH fleet offline.
+    """
+    return {
+        "name": name,
+        "status": "RUNNING",
+        "gpu": _registered_gpu_hint(name),
+        "instance_type": "registered-external-node",
+        "_registered": True,
+        "_inventory_fallback": True,
+    }
+
+
 def _list_pool_instances(
-    skill: str | None = None,
-    spec_stem: str | None = None,
+    required_gpu_type: str | None = None,
 ) -> list[dict]:
     """Return managed instances plus connected registered pool nodes."""
-    instances = list(_list_brev_instances())
+    _propagate_cached_managed_ssh(set())
+    cached_managed: dict[str, Path] = {}
+    registered_allowlist = _registered_pool_allowlist(required_gpu_type)
+    try:
+        instances = list(_list_brev_instances())
+    except BrevAuthenticationError:
+        cached_managed = _cached_managed_ssh_candidates()
+        registered_allowlist.update(cached_managed)
+        if not registered_allowlist:
+            raise
+        # The registered pool uses direct SSH.  Continue with only the
+        # explicit operator allowlist and let the normal live reachability and
+        # resource probes reject stale/disconnected aliases.
+        print(
+            "[run-leg] Brev API authentication unavailable; using the "
+            "operator-approved registered SSH pool",
+            flush=True,
+        )
+        instances = []
+    else:
+        # A healthy, nonempty Brev response is authoritative. The stale SSH
+        # cache is a control-plane outage fallback, not a higher-priority
+        # shadow inventory. This prevents a missing/stopped cached workspace
+        # from displacing a currently managed RUNNING worker.
+        if not instances:
+            cached_managed = _cached_managed_ssh_candidates()
+            registered_allowlist.update(cached_managed)
+    for instance in instances:
+        name = (instance.get("name") or "").strip().lower()
+        if name:
+            _WORKER_TRANSPORTS[name] = "brev"
     seen = {(inst.get("name") or "").lower() for inst in instances}
-    registered_allowlist = _registered_pool_allowlist(skill, spec_stem)
-    rtx4090_allowlist = _parse_pool_names(
-        os.environ.get("BREV_RTX4090_POOL", "")
-    )
     if not registered_allowlist:
+        print(
+            "[run-leg] worker inventory: "
+            f"managed={len(instances)} registered_allowlist=0 "
+            "registered_discovered=skipped registered_connected=skipped "
+            "registered_merged=0",
+            flush=True,
+        )
         return instances
-    for node in _list_registered_nodes():
+    inventory_fallback = False
+    try:
+        registered_nodes = _list_registered_nodes()
+    except BrevAuthenticationError:
+        # Authentication may expire while the process is between the managed
+        # and registered inventory calls.  Synthesize only explicitly
+        # approved names; no arbitrary SSH host is admitted.
+        registered_nodes = [
+            _synthetic_registered_instance(name)
+            for name in sorted(registered_allowlist)
+        ]
+        inventory_fallback = True
+    # Inventory helpers intentionally collapse exhausted RPC timeouts and
+    # malformed/empty output to ``[]``.  The allowlist is the operator-owned
+    # transport contract, so add any missing names provisionally even when no
+    # exception was available to classify.  Selection still requires live SSH,
+    # remote-lock, GPU, and disk probes; a stale alias cannot run a task.
+    discovered_names = {
+        str(node.get("name") or "").strip().lower()
+        for node in registered_nodes
+        if node.get("name")
+    }
+    missing_allowlisted = registered_allowlist - discovered_names
+    if missing_allowlisted:
+        registered_nodes.extend(
+            _synthetic_registered_instance(name)
+            for name in sorted(missing_allowlisted)
+        )
+        inventory_fallback = True
+    registered_connected = 0
+    registered_merged = 0
+    cached_managed_merged: set[str] = set()
+    for node in registered_nodes:
         name = (node.get("name") or "").strip()
+        status = (node.get("status") or "").upper()
+        if status == "CONNECTED" or node.get("_inventory_fallback"):
+            registered_connected += 1
         if (
             not name
             or name.lower() in seen
             or name.lower() not in registered_allowlist
         ):
             continue
-        status = (node.get("status") or "").upper()
-        instances.append({
-            **node,
-            "name": name,
-            # Managed instances say RUNNING; registered nodes say Connected.
-            "status": "RUNNING" if status == "CONNECTED" else status,
-            "gpu": _registered_gpu_hint(name),
-            "instance_type": "registered-external-node",
-            "_registered": True,
-            "_rtx4090_capability_routed": (
-                name.lower() in rtx4090_allowlist
-                and name.lower().startswith(RTX4090_PREFIX)
-            ),
-        })
+        instances.append(
+            {
+                **node,
+                "name": name,
+                # Managed instances say RUNNING; registered nodes say
+                # Connected.  API-independent fallback records are accepted
+                # provisionally and must still pass the live SSH/resource
+                # gates before selection.
+                "status": (
+                    "RUNNING"
+                    if status == "CONNECTED" or node.get("_inventory_fallback")
+                    else status
+                ),
+                "gpu": _registered_gpu_hint(name),
+                "instance_type": "registered-external-node",
+                "_registered": True,
+                "_cached_managed_ssh": name.lower() in cached_managed,
+            }
+        )
+        _WORKER_TRANSPORTS[name.lower()] = "ssh"
+        if name.lower() in cached_managed:
+            _WORKER_SSH_CONFIGS[name.lower()] = str(
+                cached_managed[name.lower()]
+            )
+            cached_managed_merged.add(name.lower())
         seen.add(name.lower())
+        registered_merged += 1
+    _propagate_cached_managed_ssh(cached_managed_merged)
+    print(
+        "[run-leg] worker inventory: "
+        f"managed={len(instances) - registered_merged} "
+        f"registered_allowlist={len(registered_allowlist)} "
+        f"registered_discovered={len(registered_nodes)} "
+        f"registered_connected={registered_connected} "
+        f"registered_merged={registered_merged} "
+        f"cached_managed_merged={len(cached_managed_merged)} "
+        f"inventory_fallback={str(inventory_fallback).lower()}",
+        flush=True,
+    )
     return instances
 
 
@@ -613,18 +1186,14 @@ def pool_candidates(
     pick with live nvidia-smi and the box is reset either way.
     gpu_count == 0 (remote-all / GPU-independent) accepts any RUNNING box.
     """
+    # Retained for compatibility with existing callers; hardware routing now
+    # derives exclusively from the spec's explicit resource metadata.
+    del spec_stem
     required_type = (metadata.get("gpu_type") or "").upper()
     required_count = int(metadata.get("gpu_count", 1) or 0)
-    skill = metadata.get("skill") or os.environ.get("EVAL_SKILL") or None
-    spec_stem = (
-        spec_stem
-        or metadata.get("spec_stem")
-        or os.environ.get("EVAL_SPEC_STEM")
-        or None
-    )
 
     candidates: list[tuple[str, bool]] = []
-    for inst in _list_pool_instances(skill, spec_stem):
+    for inst in _list_pool_instances(required_type):
         name = inst.get("name") or ""
         if not name.startswith("vss-eval-"):
             continue
@@ -637,15 +1206,10 @@ def pool_candidates(
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
             itype = (inst.get("instance_type") or "").upper()
-            capability_routed = (
-                bool(inst.get("_rtx4090_capability_routed"))
-                and _rtx4090_supports(skill, spec_stem)
-            )
             # Accept via instance_type when `gpu` is a transient "-"/"" flake
             # (brev catalog refresh) — same soft-fail brev_env applies.
             if not (_loose_gpu_match(required_type, gpu)
-                    or _loose_gpu_match(required_type, itype)
-                    or capability_routed):
+                    or _loose_gpu_match(required_type, itype)):
                 continue
         candidates.append((name, bool(inst.get("_registered"))))
 
@@ -661,23 +1225,113 @@ def pool_candidates(
     return [name for name, _ in sorted(candidates, key=sort_key)]
 
 
+def _worker_uses_ssh(instance: str) -> bool:
+    """Resolve the remote-lock transport for managed vs registered workers."""
+    key = instance.lower()
+    cached = _WORKER_TRANSPORTS.get(key)
+    if cached is not None:
+        return cached == "ssh"
+
+    # The allowlist is an operator-owned transport contract.  Resolve it
+    # before querying Brev so an expired API login cannot redirect a
+    # registered worker through ``brev exec``.
+    if key in _registered_pool_allowlist(RTX4090_GPU_TYPE):
+        _WORKER_TRANSPORTS[key] = "ssh"
+        return True
+
+    for managed in _list_brev_instances():
+        name = (managed.get("name") or "").strip().lower()
+        if name:
+            _WORKER_TRANSPORTS[name] = "brev"
+    if key in _WORKER_TRANSPORTS:
+        return False
+
+    for node in _list_registered_nodes():
+        name = (node.get("name") or "").strip().lower()
+        if name:
+            _WORKER_TRANSPORTS[name] = "ssh"
+    return _WORKER_TRANSPORTS.get(key) == "ssh"
+
+
+def _remote_lock_executor(
+    instance: str,
+) -> remote_worker_lock.RemoteExecutor:
+    """Bind the shared lease protocol to this worker's transport."""
+    use_ssh = _worker_uses_ssh(instance)
+
+    def execute(
+        command: str,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        if use_ssh:
+            cmd = ["ssh"]
+            ssh_config = _WORKER_SSH_CONFIGS.get(instance.lower())
+            if ssh_config:
+                cmd.extend(["-F", ssh_config])
+            cmd.extend([
+                "-T",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=15",
+                "-o",
+                "ServerAliveInterval=30",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "PermitLocalCommand=no",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
+                instance.lower(),
+                command,
+            ])
+            stdin = ""
+        else:
+            cmd = ["brev", "exec", instance, command]
+            stdin = "\n"
+        return subprocess.run(
+            cmd,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+
+    return execute
+
+
+def _try_acquire_remote_worker_lease(
+    instance: str,
+) -> remote_worker_lock.RemoteWorkerLease | None:
+    return remote_worker_lock.try_acquire_remote_worker_lock(
+        _remote_lock_executor(instance),
+        instance,
+    )
+
+
 @contextlib.contextmanager
 def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
-    """Claim the first candidate whose flock succeeds NON-BLOCKINGLY.
+    """Claim the first candidate whose local and remote locks both succeed.
 
-    Selection and reservation are one atomic step: a busy box fails the
-    try-lock and we move to the next candidate, so concurrent legs fan
-    out across the pool instead of herding onto one "best" box. When
-    every candidate is held (or none is eligible), re-snapshot the fleet
-    and retry every 60s until `timeout_sec` — the pool is operator-managed
-    and a box may come online mid-run.
+    The local non-blocking flock coordinates jobs on one runner host; the
+    worker-side lease coordinates different runner hosts and the NemoClaw
+    path. A candidate is selected only after both layers succeed.
 
-    Yields the claimed instance name; the lock FD stays open until exit.
+    Yields the claimed instance and lease-loss event. Both locks stay held
+    until exit.
     """
     lock_dir.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout_sec
     chosen: str | None = None
     fp = None
+    remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
     while True:
         names = candidates_fn()
         for name in names:
@@ -692,9 +1346,22 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
                 if exc.errno not in (errno.EACCES, errno.EAGAIN):
                     raise
                 continue
-            chosen, fp = name, candidate_fp
-            print(f"[run-leg] selected instance: {name} (lock acquired: {lock_path})",
-                  flush=True)
+            try:
+                candidate_remote_lease = _try_acquire_remote_worker_lease(name)
+            except Exception:
+                fcntl.flock(candidate_fp.fileno(), fcntl.LOCK_UN)
+                candidate_fp.close()
+                raise
+            if candidate_remote_lease is None:
+                fcntl.flock(candidate_fp.fileno(), fcntl.LOCK_UN)
+                candidate_fp.close()
+                continue
+            chosen, fp, remote_lease = name, candidate_fp, candidate_remote_lease
+            print(
+                f"[run-leg] selected instance: {name} "
+                f"(local + remote locks acquired: {lock_path})",
+                flush=True,
+            )
             break
         if chosen:
             break
@@ -712,11 +1379,24 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
         )
         time.sleep(min(60, remaining))
     try:
-        yield chosen
+        assert remote_lease is not None
+        yield LockedWorker(chosen, remote_lease.lost_event)
     finally:
-        fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
-        fp.close()
-        print(f"[run-leg] lock released: {chosen}", flush=True)
+        assert remote_lease is not None
+        remote_released = False
+        try:
+            remote_released = remote_lease.release()
+        finally:
+            fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+            fp.close()
+            if remote_released:
+                message = f"[run-leg] local + remote locks released: {chosen}"
+            else:
+                message = (
+                    f"[run-leg] local lock released; exact remote lease retained "
+                    f"for safe reconciliation: {chosen}"
+                )
+            print(message, flush=True)
 
 
 def _process_group_exists(pgid: int) -> bool:
@@ -923,7 +1603,12 @@ def _cancel_process_tree(
     return exited
 
 
-def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
+def run_command(
+    cmd: list[str],
+    env: dict[str, str],
+    timeout_sec: int,
+    abort_event: threading.Event | None = None,
+) -> int:
     print(f"[run-leg] exec: {' '.join(cmd)}", flush=True)
     registry_fd, registry_name = tempfile.mkstemp(
         prefix="skill-eval-transport-pgids-",
@@ -979,13 +1664,38 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                 cleanup_started = True
                 raise _RunCommandInterrupted(pending_signal)
 
-            try:
-                rc = proc.wait(timeout=timeout_sec)
-            except subprocess.TimeoutExpired:
-                cleanup_started = True
-                outcome = 124
-                reason = f"outer timeout after {timeout_sec}s"
-            else:
+            deadline = time.monotonic() + timeout_sec
+            while True:
+                if abort_event is not None and abort_event.is_set():
+                    cleanup_started = True
+                    outcome = 125
+                    reason = "remote worker lease lost"
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    cleanup_started = True
+                    outcome = 124
+                    reason = f"outer timeout after {timeout_sec}s"
+                    break
+                try:
+                    wait_timeout = (
+                        timeout_sec
+                        if abort_event is None
+                        else min(1.0, remaining)
+                    )
+                    rc = proc.wait(timeout=wait_timeout)
+                except subprocess.TimeoutExpired:
+                    if abort_event is None:
+                        cleanup_started = True
+                        outcome = 124
+                        reason = f"outer timeout after {timeout_sec}s"
+                        break
+                    continue
+                if abort_event is not None and abort_event.is_set():
+                    cleanup_started = True
+                    outcome = 125
+                    reason = "remote worker lease lost"
+                    break
                 if rc < 0:
                     cleanup_started = True
                     outcome = 128 + abs(rc)
@@ -1005,6 +1715,7 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                         "Harbor exited while detached transport groups remained: "
                         + ", ".join(map(str, detached))
                     )
+                break
         except _RunCommandInterrupted as exc:
             cleanup_started = True
             outcome = 128 + exc.signum
@@ -1244,6 +1955,7 @@ def run_invocations(
     platform: str,
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
+    abort_event: threading.Event | None = None,
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -1289,6 +2001,8 @@ def run_invocations(
     overall_rc = 0
 
     for invocation in invocations:
+        if abort_event is not None and abort_event.is_set():
+            return 125
         if (
             invocation.step_index is not None
             and invocation.chain_key in skipped_after
@@ -1323,7 +2037,12 @@ def run_invocations(
 
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
-        rc = run_command(cmd, env, harbor_timeout_sec)
+        rc = run_command(
+            cmd,
+            env,
+            harbor_timeout_sec,
+            abort_event=abort_event,
+        )
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1332,6 +2051,8 @@ def run_invocations(
             # A trace link is reporting convenience; the verdict comes from
             # reward.txt. Never let a viewer-publish error fail the leg.
             print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
+        if rc == 125:
+            return 125
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
@@ -1385,10 +2106,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--spec-stem", default=os.environ.get("EVAL_SPEC_STEM", ""))
     parser.add_argument("--platform", default=os.environ.get("EVAL_PLATFORM", ""))
     parser.add_argument("--lock-dir", default=Path("/tmp/brev"), type=Path)
-    parser.add_argument("--lock-timeout-sec", default=21000, type=int)
+    parser.add_argument(
+        "--lock-timeout-sec",
+        default=_env_int("SKILL_EVAL_LOCK_TIMEOUT_SEC", 21000),
+        type=int,
+    )
     parser.add_argument(
         "--harbor-timeout-sec",
-        default=DEFAULT_HARBOR_TIMEOUT_SEC,
+        default=_env_int(
+            "SKILL_EVAL_HARBOR_TIMEOUT_SEC",
+            DEFAULT_HARBOR_TIMEOUT_SEC,
+        ),
         type=int,
     )
     args = parser.parse_args(argv)
@@ -1442,16 +2170,17 @@ def main(argv: list[str] | None = None) -> int:
         try:
             with hold_pool_lock(
                 candidates_fn, args.lock_dir, effective_lock_timeout
-            ) as instance:
+            ) as worker:
                 return run_invocations(
                     invocations,
-                    instance,
+                    worker.instance,
                     args.results_root,
                     args.scratch,
                     args.spec_stem,
                     args.platform,
                     args.harbor_timeout_sec,
-                    work_deadline,
+                    work_deadline=work_deadline,
+                    abort_event=worker.lost_event,
                 )
         except LockTimeoutError:
             if effective_lock_timeout < args.lock_timeout_sec:

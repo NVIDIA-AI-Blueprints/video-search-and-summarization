@@ -15,12 +15,13 @@
 
 """VSS Orchestrator MCP function group.
 
-Exposes nine tools that wrap the orchestrator utilities:
+Exposes ten tools that wrap the orchestrator utilities:
   - profiles: list all supported deployment profiles
   - prereqs: run Docker/GPU prerequisite checks
+  - rtsp_sample_probe: verify that the configured RTSP sample carries video
   - docker_generate : resolve env + compose YAML artifacts
   - docker_read: fetch generated env/yaml by docker_compose_id
-  - docker_list: list docker container names
+  - docker_list: list docker container names and runtime states
   - docker_logs: fetch docker logs by container name
   - docker_up: fire-and-return docker compose up
   - docker_status: poll docker_up status and logs
@@ -39,6 +40,8 @@ from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
 import functools
+import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -50,6 +53,8 @@ from typing import Final
 from typing import Generic
 from typing import Literal
 from typing import TypeVar
+import unicodedata
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from nat.builder.builder import Builder
@@ -62,6 +67,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
+from .docker_compose_util import MODE_2D_VLM
+from .docker_compose_util import PROFILE_ALERTS
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
 from .docker_compose_util import create_dry_run_recipe
@@ -86,6 +93,16 @@ _COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
 _COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
 _MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 _DEEP_CLEAN_RM_TIMEOUT_S: Final[int] = 300
+_RUNTIME_SOURCE_SHA256: Final[str] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+_RTSP_PROBE_TIMEOUT_S: Final[float] = 20.0
+_MAX_RTSP_URL_CHARS: Final[int] = 4096
+
+
+def _is_terminal_compose_dependency_failure(action: str, line: str) -> bool:
+    """Return whether compose reported an unrecoverable dependency start failure."""
+
+    normalized = " ".join(line.lower().split())
+    return action == ComposeAction.UP.value and "error dependency" in normalized and "failed to start" in normalized
 
 
 @dataclass
@@ -211,6 +228,56 @@ class ComposeStatus(StrEnum):
 
 _SUPPORTED_COMPOSE_ACTIONS: Final[frozenset[str]] = frozenset(action.value for action in ComposeAction)
 _ALL_KNOWN_STATUSES: Final[frozenset[str]] = frozenset(status.value for status in ComposeStatus)
+_GPU_DEVICE_OVERRIDE_KEYS: Final[tuple[str, ...]] = (
+    "LLM_DEVICE_ID",
+    "RT_CV_DEVICE_ID",
+    "RT_EMBED_DEVICE_ID",
+    "RT_VLM_DEVICE_ID",
+    "SHARED_LLM_VLM_DEVICE_ID",
+    "VLM_DEVICE_ID",
+)
+
+
+def _gpu_indices_from_prereqs(report: dict[str, object]) -> frozenset[str] | None:
+    """Extract detected numeric GPU indices from a prereqs report."""
+
+    raw_gpus = report.get("gpus")
+    if not isinstance(raw_gpus, list):
+        return None
+    indices: set[str] = set()
+    for gpu in raw_gpus:
+        if not isinstance(gpu, dict):
+            continue
+        index = gpu.get("index")
+        if isinstance(index, int) and index >= 0:
+            indices.add(str(index))
+        elif isinstance(index, str) and index.strip().isdecimal():
+            indices.add(str(int(index.strip())))
+    return frozenset(indices)
+
+
+def _validate_gpu_device_overrides(
+    env_overrides: dict[str, str],
+    available_gpu_indices: frozenset[str] | None,
+) -> None:
+    """Reject numeric device overrides that the preceding prereqs did not see."""
+
+    if available_gpu_indices is None:
+        return
+    invalid: list[str] = []
+    for key in _GPU_DEVICE_OVERRIDE_KEYS:
+        value = env_overrides.get(key, "").strip()
+        if value.isdecimal() and str(int(value)) not in available_gpu_indices:
+            invalid.append(f"{key}={value}")
+    if not invalid:
+        return
+    available = ", ".join(sorted(available_gpu_indices, key=int)) or "(none)"
+    raise ValidationError(
+        "GPU device override(s) unavailable on this host: "
+        f"{', '.join(invalid)}. prereqs detected GPU indices: {available}. "
+        "Retry docker_generate without GPU device overrides to use the profile defaults, "
+        "or choose only a detected index."
+    )
 
 
 def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
@@ -230,6 +297,30 @@ def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
     return prefix + suffix
 
 
+def _rtsp_url_validation_error(rtsp_url: str) -> str | None:
+    """Return a secret-safe validation error for the configured sample URL."""
+
+    if not rtsp_url:
+        return "RTSP_SAMPLE_URL is not configured on the orchestrator host."
+    if len(rtsp_url) > _MAX_RTSP_URL_CHARS:
+        return f"RTSP_SAMPLE_URL must not exceed {_MAX_RTSP_URL_CHARS} characters."
+    if any(character.isspace() or unicodedata.category(character) in {"Cc", "Cf"} for character in rtsp_url):
+        return "RTSP_SAMPLE_URL must not contain whitespace or control characters."
+    try:
+        parsed = urlsplit(rtsp_url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return "RTSP_SAMPLE_URL must be a valid RTSP URL."
+    if parsed.scheme.lower() not in {"rtsp", "rtsps"}:
+        return "RTSP_SAMPLE_URL scheme must be rtsp or rtsps."
+    if not parsed.netloc or not hostname:
+        return "RTSP_SAMPLE_URL must include a hostname."
+    if port is not None and not 1 <= port <= 65535:
+        return "RTSP_SAMPLE_URL contains an invalid port."
+    return None
+
+
 class GenerateInput(BaseModel):
     """Input for the docker_generate tool."""
 
@@ -242,7 +333,8 @@ class GenerateInput(BaseModel):
         default=[],
         description=(
             "Environment variable overrides as KEY=VALUE strings (NOT a JSON object). "
-            "Keys must be uppercase with only letters, digits, and underscores."
+            "Keys must be uppercase with only letters, digits, and underscores. "
+            "Numeric GPU device overrides must use an index reported by the prereqs tool."
         ),
         examples=[["HARDWARE_PROFILE=H100", "LLM_MODE=local", "HOST_IP=192.168.1.10"]],
     )
@@ -332,7 +424,7 @@ class ComposeArtifactsInput(BaseModel):
 
 
 class ComposeContainersInput(BaseModel):
-    """Input for docker_list lookup."""
+    """Input for docker_list container-state lookup."""
 
     all_containers: bool = Field(
         default=True,
@@ -370,6 +462,12 @@ class DockerProfilesInput(BaseModel):
 
 class DockerPrereqsInput(BaseModel):
     """Input for prereqs lookup."""
+
+    pass
+
+
+class RtspSampleProbeInput(BaseModel):
+    """Input for the configured host-side RTSP sample probe."""
 
     pass
 
@@ -481,6 +579,7 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         default=[
             "profiles",
             "prereqs",
+            "rtsp_sample_probe",
             "docker_generate",
             "docker_read",
             "docker_list",
@@ -647,6 +746,7 @@ async def vss_orchestrator(
         for profile, packages in _config.model_artifacts.items()
     }
     configured_model_resolution = _config.model_resolution
+    prereqs_gpu_indices: frozenset[str] | None = None
 
     # Bootstrap required data directories as soon as config is loaded, so MCP
     # server startup fails fast if any directory cannot be created.
@@ -830,7 +930,12 @@ async def vss_orchestrator(
                 )
             )
             profile_artifacts = configured_model_artifacts_by_profile.get(profile)
-            if profile_artifacts:
+            profile_mode = resolved_env.get("MODE", "").strip()
+            # Alerts real-time mode deploys RT-VLM without RT-CV, so its
+            # detector artifacts are neither used nor staged by dev-profile.sh.
+            # Verification mode (2d_cv) still requires the model precheck.
+            needs_model_artifacts = not (profile == PROFILE_ALERTS and profile_mode == MODE_2D_VLM)
+            if profile_artifacts and needs_model_artifacts:
                 ngc_cli_api_key = resolved_env.get("NGC_CLI_API_KEY", "").strip()
                 pre_compose_checks.append(
                     PreComposeCheck(
@@ -972,17 +1077,31 @@ async def vss_orchestrator(
                     op.process = process
                     op.status = ComposeStatus.RUNNING.value
 
+            terminal_dependency_failure: str | None = None
             if process.stdout is None:
+                exit_code = process.wait()
+                _finish_compose_op(docker_compose_ops_id, exit_code=exit_code)
                 return
             try:
                 for line in process.stdout:
                     line = line.rstrip("\n")
                     _append_op_log(line)
+                    if _is_terminal_compose_dependency_failure(action, line):
+                        terminal_dependency_failure = line
+                        _append_op_log(
+                            "Detected terminal compose dependency failure; "
+                            "stopping the stuck compose client so the deployment can be diagnosed and retried."
+                        )
+                        with _COMPOSE_OPS_LOCK:
+                            op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
+                        if op is not None:
+                            _terminate_running_op(op)
+                        break
             finally:
                 exit_code = process.wait()
-                final_exit_code = exit_code
+                final_exit_code = 1 if terminal_dependency_failure is not None else exit_code
                 post_success_cb_error: str | None = None
-                if exit_code == 0 and post_success_cb is not None:
+                if final_exit_code == 0 and post_success_cb is not None:
                     try:
                         post_success_cb(_append_op_log)
                     except Exception as exc:
@@ -994,11 +1113,17 @@ async def vss_orchestrator(
                 if resolved_status == ComposeStatus.SUCCESS.value:
                     status_log_message = "Compose operation succeeded."
                 elif resolved_status == ComposeStatus.ERROR.value:
-                    status_log_message = (
-                        f"Compose operation failed during post-success step: {post_success_cb_error}"
-                        if post_success_cb_error is not None
-                        else f"Compose operation failed with exit code {exit_code}."
-                    )
+                    if terminal_dependency_failure is not None:
+                        status_log_message = (
+                            "Compose operation failed after a terminal dependency error. "
+                            "Inspect docker_list states and docker_logs, then retry docker_up after remediation."
+                        )
+                    elif post_success_cb_error is not None:
+                        status_log_message = (
+                            f"Compose operation failed during post-success step: {post_success_cb_error}"
+                        )
+                    else:
+                        status_log_message = f"Compose operation failed with exit code {exit_code}."
                 else:
                     status_log_message = f"Compose operation finished with status '{resolved_status}'."
                 _append_op_log(status_log_message)
@@ -1086,6 +1211,15 @@ async def vss_orchestrator(
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "profiles": sorted(SUPPORTED_PROFILES),
+                "runtime_instance_id": os.environ.get(
+                    "VSS_ORCHESTRATOR_MCP_INSTANCE_ID",
+                    "",
+                ),
+                "runtime_source_sha256": _RUNTIME_SOURCE_SHA256,
+                "runtime_git_sha": os.environ.get(
+                    "VSS_ORCHESTRATOR_MCP_GIT_SHA",
+                    "",
+                ),
             }
 
         group.add_function(name="profiles", fn=_profiles, description=_profiles.__doc__)
@@ -1098,11 +1232,14 @@ async def vss_orchestrator(
 
         async def _prereqs(input: DockerPrereqsInput) -> dict:
             """Run Docker/GPU prerequisite checks."""
+            nonlocal prereqs_gpu_indices
             _ = input
+            prereqs_gpu_indices = None
             try:
                 report = await asyncio.to_thread(run_prereqs_checks)
             except RuntimeError as exc:
                 return {"status": ComposeStatus.ERROR.value, "error": str(exc)}
+            prereqs_gpu_indices = _gpu_indices_from_prereqs(report)
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "message": "Prerequisite checks passed.",
@@ -1110,6 +1247,143 @@ async def vss_orchestrator(
             }
 
         group.add_function(name="prereqs", fn=_prereqs, description=_prereqs.__doc__)
+
+    # ---------------------------------------------------------------------------
+    # Tool: rtsp_sample_probe
+    # ---------------------------------------------------------------------------
+
+    if "rtsp_sample_probe" in _config.include:
+
+        async def _rtsp_sample_probe(input: RtspSampleProbeInput) -> dict:
+            """Probe the host-configured RTSP sample and require a video stream.
+
+            The URL comes only from the orchestrator server's RTSP_SAMPLE_URL
+            environment. Callers cannot supply or override it, and it is never
+            included in results or diagnostics. The probe uses host ffprobe over
+            TCP and is forcibly bounded to 20 seconds.
+            """
+
+            del input
+            rtsp_url = os.environ.get("RTSP_SAMPLE_URL", "")
+            validation_error = _rtsp_url_validation_error(rtsp_url)
+            if validation_error is not None:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": ("sample_url_unconfigured" if not rtsp_url else "invalid_sample_url"),
+                    "error": validation_error,
+                }
+            command = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-rtsp_transport",
+                "tcp",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=index,codec_type,codec_name",
+                "-of",
+                "json",
+                rtsp_url,
+            ]
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    command,
+                    cwd=str(deployments_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    stdin=subprocess.DEVNULL,
+                    check=False,
+                    shell=False,
+                    timeout=_RTSP_PROBE_TIMEOUT_S,
+                )
+            except FileNotFoundError:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "ffprobe_unavailable",
+                    "error": (
+                        "Host ffprobe is unavailable. Re-run the orchestrator notebook "
+                        "prerequisite cell to install ffmpeg."
+                    ),
+                }
+            except subprocess.TimeoutExpired:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "probe_timeout",
+                    "error": f"RTSP probe timed out after {_RTSP_PROBE_TIMEOUT_S:g} seconds.",
+                    "timeout_s": _RTSP_PROBE_TIMEOUT_S,
+                }
+            except OSError:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "ffprobe_start_failed",
+                    "error": "Host ffprobe could not start.",
+                }
+            except Exception:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "probe_internal_error",
+                    "error": "RTSP probe failed with an unexpected host-side error.",
+                }
+
+            if result.returncode != 0:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "probe_failed",
+                    "error": "The configured RTSP sample probe failed before a video stream was discovered.",
+                    "exit_code": result.returncode,
+                }
+
+            try:
+                payload = json.loads(result.stdout or "{}")
+            except json.JSONDecodeError:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "invalid_probe_output",
+                    "error": "ffprobe returned invalid JSON.",
+                }
+
+            raw_streams = payload.get("streams") if isinstance(payload, dict) else None
+            streams = raw_streams if isinstance(raw_streams, list) else []
+            video_streams: list[dict[str, object]] = []
+            for stream in streams:
+                if not isinstance(stream, dict) or stream.get("codec_type") != "video":
+                    continue
+                index = stream.get("index")
+                codec_name = stream.get("codec_name")
+                video_streams.append(
+                    {
+                        "index": index if isinstance(index, int) else None,
+                        "codec_name": codec_name if isinstance(codec_name, str) else "unknown",
+                    }
+                )
+
+            if not video_streams:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error_code": "no_video_stream",
+                    "error": "RTSP endpoint was reachable but ffprobe discovered no video stream.",
+                    "video_stream_count": 0,
+                }
+
+            return {
+                "status": ComposeStatus.SUCCESS.value,
+                "reachable": True,
+                "has_video": True,
+                "video_stream_count": len(video_streams),
+                "video_streams": video_streams,
+                "transport": "tcp",
+                "timeout_s": _RTSP_PROBE_TIMEOUT_S,
+                "message": "RTSP endpoint is reachable and carries a video stream.",
+            }
+
+        group.add_function(
+            name="rtsp_sample_probe",
+            fn=_rtsp_sample_probe,
+            description=_rtsp_sample_probe.__doc__,
+        )
 
     # ---------------------------------------------------------------------------
     # Tool: docker_generate
@@ -1146,6 +1420,7 @@ async def vss_orchestrator(
                         env_overrides.setdefault("LLM_DEVICE_ID", runtime_settings.llm_device_id)
                     if runtime_settings.vlm_device_id:
                         env_overrides.setdefault("VLM_DEVICE_ID", runtime_settings.vlm_device_id)
+                _validate_gpu_device_overrides(env_overrides, prereqs_gpu_indices)
                 resolve_and_apply_profile_mode(
                     input.profile, input.profile_mode, _config.profile_mode_to_env_modes, env_overrides
                 )
@@ -1262,8 +1537,18 @@ async def vss_orchestrator(
     if "docker_list" in _config.include:
 
         async def _docker_list(input: ComposeContainersInput) -> dict:
-            """List docker container names."""
-            args = ["docker", "ps", "--format", "{{.Names}}"]
+            """List Docker containers with state, health, image, and ports.
+
+            When all_containers=true, container_names includes created and stopped
+            containers. Use containers[].state/health and functional endpoint probes
+            for readiness; name presence alone never proves a service is running.
+            """
+            args = [
+                "docker",
+                "ps",
+                "--format",
+                "{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}",
+            ]
             if input.all_containers:
                 args.insert(2, "--all")
 
@@ -1280,12 +1565,51 @@ async def vss_orchestrator(
                     "error": result.stderr.strip() or "Failed to list Docker containers.",
                 }
 
-            raw = result.stdout.strip()
-            container_names = [line.strip() for line in raw.splitlines() if line.strip()] if raw else []
+            raw = result.stdout.rstrip("\r\n")
+            containers: list[dict[str, str]] = []
+            for line in raw.splitlines() if raw else []:
+                fields = line.split("\t", 4)
+                if len(fields) != 5:
+                    return {
+                        "status": ComposeStatus.ERROR.value,
+                        "error": "Docker returned an invalid container-state row.",
+                    }
+                name, state, status_text, image, ports = (field.strip() for field in fields)
+                normalized_status = status_text.lower()
+                if "(healthy)" in normalized_status:
+                    health = "healthy"
+                elif "(unhealthy)" in normalized_status:
+                    health = "unhealthy"
+                elif "(health: starting)" in normalized_status:
+                    health = "starting"
+                else:
+                    health = "none"
+                containers.append(
+                    {
+                        "name": name,
+                        "state": state,
+                        "status": status_text,
+                        "health": health,
+                        "image": image,
+                        "ports": ports,
+                    }
+                )
+
+            container_names = [container["name"] for container in containers]
+            running_container_names = [
+                container["name"] for container in containers if container["state"].lower() == "running"
+            ]
 
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "container_names": container_names,
+                "running_container_names": running_container_names,
+                "containers": containers,
+                "includes_stopped": input.all_containers,
+                "readiness_warning": (
+                    "container_names may include created or stopped containers; "
+                    "require running state, healthy status where defined, and functional endpoint probes."
+                ),
             }
 
         group.add_function(name="docker_list", fn=_docker_list, description=_docker_list.__doc__)
@@ -1302,23 +1626,26 @@ async def vss_orchestrator(
                 subprocess.run,
                 ["docker", "logs", "--tail", str(input.tail), "--", input.container_name],
                 cwd=str(deployments_dir),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
             )
+            raw_logs = result.stdout or ""
             if result.returncode != 0:
                 return {
                     "status": ComposeStatus.ERROR.value,
                     "container_name": input.container_name,
                     "tail": input.tail,
-                    "error": result.stderr.strip() or "Failed to fetch container logs.",
+                    "error": raw_logs.strip() or "Failed to fetch container logs.",
                 }
-            logs = _truncate_text_to_max_bytes(result.stdout, max_bytes=_MAX_DOCKER_LOG_RESPONSE_BYTES)
+            logs = _truncate_text_to_max_bytes(raw_logs, max_bytes=_MAX_DOCKER_LOG_RESPONSE_BYTES)
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "container_name": input.container_name,
                 "tail": input.tail,
                 "logs": logs,
-                "logs_truncated": logs != result.stdout,
+                "logs_truncated": logs != raw_logs,
+                "streams_merged": True,
                 "log_bytes": len(logs.encode("utf-8")),
             }
 

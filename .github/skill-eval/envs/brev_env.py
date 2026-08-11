@@ -14,20 +14,27 @@ Task.toml [metadata] fields consumed:
     gpu_type              — e.g. "L40S", "H100", "RTX PRO 6000"
     gpu_count             — 1 or 2
     min_vram_gb_per_gpu   — e.g. 48, 80
-    min_root_disk_gb      — root-disk floor enforced post-resolve
+    min_root_disk_gb      — storage-filesystem size floor post-resolve
+    min_root_disk_free_gb — first-trial post-reset Docker free-space floor
     min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
+    nemoclaw_sample_files — (optional) allowlisted sample MP4s staged into
+                            the isolated NemoClaw sandbox without forwarding
+                            the host's NGC credential
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 from enum import Enum
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import subprocess
@@ -36,6 +43,7 @@ import uuid
 
 from harbor.environments.base import BaseEnvironment
 from harbor.environments.base import ExecResult
+from nemoclaw.setup_failure import classify_setup_failure, format_setup_failure
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +53,7 @@ DEFAULT_INSTANCE = os.environ.get("BREV_INSTANCE")
 
 # Timeout for brev exec commands (seconds).  Set high for long deploys.
 BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
+NEMOCLAW_TRANSPORT_CLEANUP_MARGIN_SEC = 120
 
 # Timeout for brev copy commands.
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
@@ -54,6 +63,238 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 # retrying a transient stall on a fresh connection recovers it. Tunable.
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
+BREV_UPLOAD_RETRIES = int(os.environ.get("BREV_UPLOAD_RETRIES", "3"))
+BREV_UPLOAD_BACKOFF_SEC = float(os.environ.get("BREV_UPLOAD_BACKOFF_SEC", "5"))
+
+# A worker may have healthy Brev control-plane connectivity while outbound
+# github.com traffic is unavailable.  In CI the coordinator already has the
+# exact PR commit checked out, so package a one-commit shallow Git source and
+# send it over the same bounded file-transfer path used for task inputs.  The
+# archive keeps Git's tree modes and gitlink entries (unlike a plain working-
+# tree tarball) and its shallow marker makes the intentionally omitted parent
+# history valid to clone/fetch from.
+COORDINATOR_REPO_ARCHIVE_BUILD_TIMEOUT_SEC = int(
+    os.environ.get("COORDINATOR_REPO_ARCHIVE_BUILD_TIMEOUT_SEC", "180")
+)
+COORDINATOR_REPO_ARCHIVE_REF = "refs/heads/skill-eval-exact"
+
+
+class _CoordinatorRepoInstallError(RuntimeError):
+    """Exact coordinator source reached the worker but failed verification."""
+
+NEMOCLAW_ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
+NEMOCLAW_ATTEMPT_OWNER_PATH = "/logs/artifacts/nemoclaw-attempt-owner"
+NEMOCLAW_LAUNCH_STATE_ROOT = "/tmp/skill-eval/nemoclaw/launch-attempts"
+NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
+# Stable across CI runs, but intentionally versioned separately from the
+# worker-local sandbox. Bump this when the trusted NemoClaw runtime image or
+# its direct-container preflight contract changes so a warm worker cannot
+# bind a rebuilt image to stale same-name runtime state.
+NEMOCLAW_SANDBOX_CONTRACT_GENERATION = "nc103-c1"
+NEMOCLAW_COORDINATOR_CLI_ARCHIVE_ENV = "NEMOCLAW_COORDINATOR_CLI_ARCHIVE"
+NEMOCLAW_COORDINATOR_CLI_SHA256_ENV = "NEMOCLAW_COORDINATOR_CLI_SHA256"
+NEMOCLAW_COORDINATOR_CLI_VERSION_ENV = "NEMOCLAW_COORDINATOR_CLI_VERSION"
+NEMOCLAW_COORDINATOR_CLI_REVISION_ENV = "NEMOCLAW_COORDINATOR_CLI_REVISION"
+MAX_SETUP_DIAGNOSTIC_INPUT_CHARS = 4 * 1024 * 1024
+NEMOCLAW_SAMPLE_FILES_ALLOWLIST = frozenset(
+    {
+        "sample-drone-bridge.mp4",
+        "sample-sim-box-conveyor.mp4",
+        "sample-sim-jaywalking.mp4",
+        "sample-sim-traffic.mp4",
+        "sample-warehouse-ladder.mp4",
+        "warehouse_sample.mp4",
+        "warehouse_safety_0001.mp4",
+        "warehouse_safety_0002.mp4",
+    }
+)
+
+
+def _is_transient_brev_transport_error(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = message.lower()
+    return any(
+        needle in lowered
+        for needle in (
+            "rpc error",
+            "error reading from server",
+            "code = unavailable",
+            "waiting for instance to be ready",
+            "copy timed out",
+            "command timed out",
+            "connection reset",
+            "broken pipe",
+            "unexpected eof",
+        )
+    )
+
+
+def _coordinator_repo_root() -> Path:
+    """Return the repository checkout that loaded this environment provider."""
+    workspace = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    if workspace:
+        candidate = Path(workspace).resolve()
+        if candidate.exists():
+            return candidate
+    # brev_env.py lives at .github/skill-eval/envs/brev_env.py.
+    return Path(__file__).resolve().parents[3]
+
+
+def _local_git_stdout(repo_root: Path, *args: str) -> str:
+    """Run a small read-only local Git query and return stripped stdout."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout.strip()
+
+
+async def _build_exact_head_repo_archive(
+    *,
+    repo_root: Path,
+    pr_head_sha: str,
+    archive_path: Path,
+) -> bool:
+    """Build a shallow bare Git source containing exactly ``pr_head_sha``.
+
+    Returns ``False`` when the coordinator is not checked out at the requested
+    full SHA.  That fail-closed check prevents a stale coordinator checkout
+    from being presented to the worker as the PR head.  The caller may then
+    retain the historical worker-side GitHub sync as a compatibility fallback.
+
+    A shallow bare repository is used instead of ``git bundle``: a one-commit
+    bundle cannot encode Git's shallow boundary and is therefore unclonable
+    when the parent object is intentionally absent.  The bare repository's
+    ``shallow`` file carries that boundary while its commit/tree objects retain
+    executable bits, symlinks, and any submodule gitlink object IDs.
+    """
+    normalized_sha = pr_head_sha.strip().lower()
+    if len(normalized_sha) != 40 or any(
+        char not in "0123456789abcdef" for char in normalized_sha
+    ):
+        return False
+
+    try:
+        coordinator_head = _local_git_stdout(
+            repo_root,
+            "rev-parse",
+            "--verify",
+            "HEAD^{commit}",
+        ).lower()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if coordinator_head != normalized_sha:
+        return False
+
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="skill-eval-repo-source-") as tmp:
+        bare_repo = Path(tmp) / "exact.git"
+        source_url = repo_root.resolve().as_uri()
+        timeout = COORDINATOR_REPO_ARCHIVE_BUILD_TIMEOUT_SEC
+        clean_git = [
+            "/usr/bin/env",
+            "GIT_CONFIG_GLOBAL=/dev/null",
+            "GIT_CONFIG_SYSTEM=/dev/null",
+            "GIT_LFS_SKIP_SMUDGE=1",
+            "git",
+        ]
+        await _run_local_transfer_command(
+            [
+                *clean_git,
+                "-c",
+                "init.templateDir=",
+                "init",
+                "--bare",
+                "--quiet",
+                str(bare_repo),
+            ],
+            timeout=timeout,
+        )
+        await _run_local_transfer_command(
+            [
+                *clean_git,
+                "-C",
+                str(bare_repo),
+                "fetch",
+                "--quiet",
+                "--depth=1",
+                "--no-tags",
+                source_url,
+                normalized_sha,
+            ],
+            timeout=timeout,
+        )
+        await _run_local_transfer_command(
+            [
+                *clean_git,
+                "-C",
+                str(bare_repo),
+                "update-ref",
+                COORDINATOR_REPO_ARCHIVE_REF,
+                "FETCH_HEAD",
+            ],
+            timeout=timeout,
+        )
+        # FETCH_HEAD records the coordinator's file:// checkout path. The
+        # exact ref above is the only transfer ref the worker needs.
+        (bare_repo / "FETCH_HEAD").unlink(missing_ok=True)
+
+        archived_head = _local_git_stdout(
+            bare_repo,
+            "rev-parse",
+            "--verify",
+            f"{COORDINATOR_REPO_ARCHIVE_REF}^{{commit}}",
+        ).lower()
+        shallow_heads = {
+            line.strip().lower()
+            for line in (bare_repo / "shallow").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip()
+        }
+        if archived_head != normalized_sha or normalized_sha not in shallow_heads:
+            raise RuntimeError(
+                "coordinator exact-head Git source failed its shallow-boundary "
+                "verification"
+            )
+        local_config = _local_git_stdout(
+            bare_repo,
+            "config",
+            "--local",
+            "--list",
+        )
+        sensitive_config_keys = []
+        for config_line in local_config.splitlines():
+            key = config_line.partition("=")[0].strip().lower()
+            if (
+                key.startswith("credential.")
+                or key == "http.extraheader"
+                or (key.startswith("http.") and key.endswith(".extraheader"))
+            ):
+                sensitive_config_keys.append(key)
+        if sensitive_config_keys or str(repo_root.resolve()) in local_config:
+            raise RuntimeError(
+                "coordinator exact-head Git source contains forbidden local "
+                "credential or checkout-path configuration"
+            )
+
+        await _run_local_transfer_command(
+            [
+                "tar",
+                "-czf",
+                str(archive_path),
+                "-C",
+                tmp,
+                bare_repo.name,
+            ],
+            timeout=timeout,
+        )
+    return True
 
 # Keep every file-transfer API bounded below run_leg.py's recovery headroom.
 # Remote work gets 600 seconds. The public 630-second wall-clock bound also
@@ -93,11 +334,207 @@ REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
 DEFAULT_RTSP_SAMPLE_URL = (
     "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
 )
+NEMOCLAW_CI_RTSP_INJECTION_FLAG = "NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL"
 
 
-def _resolve_rtsp_sample_url() -> str:
-    """Return the operator-provided RTSP sample URL or the public default."""
-    return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
+def _uses_nemoclaw(meta: dict) -> bool:
+    """Return True when task metadata opts into the NemoClaw runner."""
+    runner = str(meta.get("runner", "")).strip().lower()
+    return runner == "nemoclaw" or bool(meta.get("requires_nemoclaw"))
+
+
+def _nemoclaw_ci_rtsp_environment(meta: dict) -> tuple[tuple[str, str], ...]:
+    """Return the fixed CI-only RTSP environment for the supported task."""
+    if (
+        _uses_nemoclaw(meta)
+        and meta.get("expected_skill") == "vss-deploy-dense-captioning"
+    ):
+        return (
+            (NEMOCLAW_CI_RTSP_INJECTION_FLAG, "1"),
+            ("RTSP_SAMPLE_URL", DEFAULT_RTSP_SAMPLE_URL),
+        )
+    return ()
+
+
+def _nemoclaw_sample_files(meta: dict) -> tuple[str, ...]:
+    """Return validated sample fixtures requested by task metadata.
+
+    The filenames are deliberately closed over the published VSS sample-data
+    bundle.  This value becomes part of a remote shell command, so accepting
+    arbitrary paths (or even arbitrary basenames) would cross the host/sandbox
+    trust boundary.
+    """
+    raw = meta.get("nemoclaw_sample_files")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise RuntimeError(
+            "nemoclaw_sample_files metadata must be a TOML array"
+        )
+
+    validated: list[str] = []
+    for value in raw:
+        if not isinstance(value, str) or value not in NEMOCLAW_SAMPLE_FILES_ALLOWLIST:
+            raise RuntimeError(
+                "nemoclaw_sample_files contains an unsupported filename"
+            )
+        if value not in validated:
+            validated.append(value)
+    return tuple(validated)
+
+
+def _nemoclaw_attempt_owner_token() -> str | None:
+    """Return the validated per-attempt NemoClaw owner token, if enabled.
+
+    Direct Harbor invocations do not set ``SKILLS_EVAL_RUNNER`` and remain
+    compatible with the provider's historical setup.  The deterministic
+    NemoClaw smoke runner supplies a fresh lowercase UUID-hex token for each
+    Harbor attempt.
+    """
+    runner = os.environ.get("SKILLS_EVAL_RUNNER", "").strip().lower()
+    if runner != "nemoclaw":
+        return None
+
+    token = os.environ.get(NEMOCLAW_ATTEMPT_OWNER_ENV)
+    if token is None or token == "":
+        return None
+    if len(token) != 32 or any(char not in "0123456789abcdef" for char in token):
+        raise RuntimeError(
+            f"{NEMOCLAW_ATTEMPT_OWNER_ENV} must be exactly 32 lowercase "
+            "hexadecimal characters"
+        )
+    return token
+
+
+def _nemoclaw_attempt_owner_setup_command() -> str:
+    """Return an optional atomic owner-marker suffix for NemoClaw CI."""
+    token = _nemoclaw_attempt_owner_token()
+    if token is None:
+        return ""
+
+    destination = shlex.quote(NEMOCLAW_ATTEMPT_OWNER_PATH)
+    return (
+        " && umask 077"
+        " && attempt_owner_tmp=/logs/artifacts/.nemoclaw-attempt-owner.$$"
+        f" && printf '%s\\n' {shlex.quote(token)} > \"$attempt_owner_tmp\""
+        " && chmod 600 \"$attempt_owner_tmp\""
+        f" && mv -f \"$attempt_owner_tmp\" {destination}"
+    )
+
+
+def _guard_nemoclaw_launcher_once(
+    command: str,
+    token: str | None,
+    *,
+    owner_path: str = NEMOCLAW_ATTEMPT_OWNER_PATH,
+    state_root: str = NEMOCLAW_LAUNCH_STATE_ROOT,
+) -> str:
+    """Run a direct NemoClaw launcher at most once for one Harbor attempt.
+
+    ``brev exec`` can replay a long-running remote command after a transport
+    deadline.  The first invocation holds a worker-local lock until all
+    launcher evidence is finalized and then atomically publishes its return
+    code.  A duplicate invocation replays that result without touching the
+    prompt, logs, or OpenClaw session.  If the first invocation dies after
+    claiming the attempt but before publishing a result, fail closed instead
+    of starting a second agent against ambiguous worker state.
+    """
+    if token is None:
+        return command
+
+    quoted_owner_path = shlex.quote(owner_path)
+    quoted_state_root = shlex.quote(state_root)
+    quoted_token = shlex.quote(token)
+    failure_rc = NEMOCLAW_LAUNCH_GUARD_FAILURE_RC
+    return rf"""set -euo pipefail
+launch_guard_fail() {{
+  printf 'NemoClaw launch guard: %s\n' "$1" >&2
+  exit {failure_rc}
+}}
+attempt_token={quoted_token}
+attempt_owner_file={quoted_owner_path}
+if [ -L "$attempt_owner_file" ] || [ ! -f "$attempt_owner_file" ]; then
+  launch_guard_fail "attempt owner marker is missing or unsafe"
+fi
+if [ "$(stat -c '%u' "$attempt_owner_file")" != "$(id -u)" ] || \
+   [ "$(stat -c '%a' "$attempt_owner_file")" != "600" ]; then
+  launch_guard_fail "attempt owner marker ownership or mode is invalid"
+fi
+if [ "$(wc -c < "$attempt_owner_file")" -ne 33 ]; then
+  launch_guard_fail "attempt owner marker length is invalid"
+fi
+IFS= read -r live_attempt_token < "$attempt_owner_file" || \
+  launch_guard_fail "attempt owner marker is unreadable"
+if [ "$live_attempt_token" != "$attempt_token" ]; then
+  launch_guard_fail "attempt owner marker does not match this launcher"
+fi
+if ! command -v flock >/dev/null 2>&1; then
+  launch_guard_fail "flock is unavailable"
+fi
+launch_state_root={quoted_state_root}
+launch_state_parent=$(dirname -- "$launch_state_root")
+if [ -L "$launch_state_parent" ] || [ -L "$launch_state_root" ]; then
+  launch_guard_fail "launch state path is symlinked"
+fi
+umask 077
+mkdir -p "$launch_state_root"
+chmod 700 "$launch_state_root"
+launch_state="$launch_state_root/$attempt_token"
+if [ -L "$launch_state" ]; then
+  launch_guard_fail "attempt launch state is symlinked"
+fi
+mkdir -p "$launch_state"
+chmod 700 "$launch_state"
+lock_file="$launch_state/lock"
+if [ -L "$lock_file" ] || {{ [ -e "$lock_file" ] && [ ! -f "$lock_file" ]; }}; then
+  launch_guard_fail "attempt launch lock is unsafe"
+fi
+exec 9>>"$lock_file"
+flock -x 9 || launch_guard_fail "attempt launch lock failed"
+terminal_rc="$launch_state/rc"
+terminal_output="$launch_state/output"
+started_marker="$launch_state/started"
+if [ -e "$terminal_rc" ] || [ -L "$terminal_rc" ]; then
+  if [ -L "$terminal_rc" ] || [ ! -f "$terminal_rc" ]; then
+    launch_guard_fail "cached launcher result is unsafe"
+  fi
+  IFS= read -r rc < "$terminal_rc" || \
+    launch_guard_fail "cached launcher result is unreadable"
+  case "$rc" in
+    ""|*[!0-9]*) launch_guard_fail "cached launcher result is invalid" ;;
+  esac
+  if [ "$rc" -gt 255 ]; then
+    launch_guard_fail "cached launcher result is out of range"
+  fi
+  if [ -L "$terminal_output" ] || [ ! -f "$terminal_output" ]; then
+    launch_guard_fail "cached launcher output is missing or unsafe"
+  fi
+  cat "$terminal_output"
+  exit "$rc"
+fi
+if [ -e "$started_marker" ] || [ -L "$started_marker" ]; then
+  launch_guard_fail "prior launcher stopped without a terminal result"
+fi
+started_tmp="$launch_state/.started.$$"
+printf '%s\n' "$$" > "$started_tmp"
+chmod 600 "$started_tmp"
+mv -f "$started_tmp" "$started_marker"
+output_tmp="$launch_state/.output.$$"
+set +e
+(
+{command}
+) > "$output_tmp" 2>&1
+rc=$?
+set -e
+chmod 600 "$output_tmp"
+mv -f "$output_tmp" "$terminal_output"
+rc_tmp="$launch_state/.rc.$$"
+printf '%s\n' "$rc" > "$rc_tmp"
+chmod 600 "$rc_tmp"
+mv -f "$rc_tmp" "$terminal_rc"
+cat "$terminal_output"
+exit "$rc"
+"""
 
 
 class BrevEnvironmentType(str, Enum):
@@ -118,6 +555,7 @@ class BrevEnvironment(BaseEnvironment):
     def __init__(self, **kwargs):  # noqa: ANN003
         super().__init__(**kwargs)
         self._instance_name: str | None = DEFAULT_INSTANCE
+        self._task_metadata: dict = {}
         self._started = False
 
     @staticmethod
@@ -171,11 +609,15 @@ class BrevEnvironment(BaseEnvironment):
             return
 
         meta = self._read_task_metadata()
+        self._task_metadata = meta
         requirements = {
             "gpu_type": meta.get("gpu_type"),
             "gpu_count": int(meta.get("gpu_count", 1)),
             "min_vram_gb_per_gpu": int(meta.get("min_vram_gb_per_gpu", 0)),
             "min_root_disk_gb": int(meta.get("min_root_disk_gb", 0)),
+            "min_root_disk_free_gb": int(
+                meta.get("min_root_disk_free_gb", 0)
+            ),
             "min_gpu_driver_version": meta.get("min_gpu_driver_version"),
         }
 
@@ -219,13 +661,6 @@ class BrevEnvironment(BaseEnvironment):
                 f"{(result.stdout or '')[:200]!r}"
             )
 
-        # Live resource checks: root disk + GPU driver. The pool box was
-        # provisioned by the operator and is expected to meet these, but
-        # the checks catch silent regressions (e.g. a driver downgrade or
-        # a box where the big volume mounts on /ephemeral and / is only
-        # ~100 GB — which OOMs on local NIM pulls).
-        await _check_live_resources(self._instance_name, requirements)
-
         # Reap stray on-box agent processes left by a previous trial whose
         # runner-side job was cancelled or SIGKILLed. Cancellation kills the
         # runner-side harbor tree (releasing the box's flock, which dies with
@@ -256,27 +691,47 @@ class BrevEnvironment(BaseEnvironment):
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
         #
-        # Wipe /logs/artifacts and /logs/verifier FIRST: harbor's
+        # Wipe per-trial output directories FIRST. Warm-pool boxes keep
+        # filesystem state between Harbor trials, so stale artifacts from a
+        # prior trial must not be downloaded as this trial's evidence.
+        #
+        # Wipe /logs/artifacts and /logs/verifier: harbor's
         # Trial._download_artifacts() does a blanket download_dir(/logs/artifacts)
         # and nothing on a warm-pool box ever clears that dir, so a prior
         # trial's arbitrarily-named files get collected as THIS trial's
         # artifacts (observed: 3-day-old `nemoclaw/` base-deploy logs surfacing
-        # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
-        # left intact here — its prior-trial session JSONLs are handled by the
-        # archive step just below (move-not-delete, for forensic SSH access).
+        # in an unrelated profile_in_1 trial's artifact tarball). Preserve
+        # /logs/agent/sessions for the forensic archive below, but remove its
+        # derived top-level outputs. Otherwise a direct NemoClaw launch can
+        # leave Harbor's generic judge reading a prior trial's trajectory.
+        #
+        # Do NOT wipe /tests, /solution, or /skills here: Harbor may already
+        # have staged the current trial inputs by the time start() runs.
+        attempt_owner_setup = _nemoclaw_attempt_owner_setup_command()
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
+            "if [ -L /logs/agent ]; then "
+            "echo 'Refusing to reset symlinked /logs/agent' >&2; exit 1; fi && "
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
+            "sudo rm -f "
+            "/logs/agent/trajectory.json "
+            "/logs/agent/trajectory.jsonl "
+            "/logs/agent/openclaw.session.jsonl "
+            "/logs/agent/openclaw.txt "
+            "/logs/agent/agent.log "
+            "/logs/agent/claude-code.txt "
+            "/logs/agent/nemoclaw-headless-runner.stdout && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills",
+            "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills"
+            f"{attempt_owner_setup}",
             timeout=30,
         )
-        # Fail loud: this is the load-bearing artifacts wipe. A silent failure
-        # would leave the prior trial's /logs/artifacts in place and re-collect
-        # it as this trial's output — the exact contamination being fixed —
-        # so it gets the same exit-code guard as the docker reset / repo sync.
+        # Fail loud: this is the load-bearing per-trial wipe. A silent failure
+        # would leave prior `/logs/artifacts` in place and re-collect stale
+        # output as this trial's data, so it gets the same exit-code guard as
+        # the docker reset / repo sync.
         if setup_dirs_result.return_code != 0:
             tail = (setup_dirs_result.stderr or setup_dirs_result.stdout or "")[-500:]
             raise RuntimeError(
@@ -284,9 +739,33 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
-        # Archive session JSONLs and root-level agent outputs left by
-        # prior trials on this warm-pool box. Without this, harbor's claude-code
-        # mapper merges every
+        task_dir = self.environment_dir.parent
+        task_dir_name = task_dir.name
+        is_first_trial = not (
+            task_dir_name.startswith("step-") and task_dir_name != "step-1"
+        )
+
+        # Live resource checks: storage + GPU driver. Run these only after
+        # the attempt owner marker and clean artifact epoch above are in
+        # place. A warm worker that fails this preflight must not let Harbor
+        # collect another trial's /logs/artifacts as this attempt's evidence.
+        # Validate the immutable Docker-filesystem total here, but defer the
+        # free-space floor until a first trial's reset removes the preceding
+        # trial's disposable containers and volumes. Later steps deliberately
+        # preserve step 1's deployment (including large model volumes), so
+        # applying the clean-slate headroom floor to them would reject the
+        # expected state they are meant to verify.
+        initial_requirements = requirements
+        if requirements["min_root_disk_free_gb"]:
+            initial_requirements = {
+                **requirements,
+                "min_root_disk_free_gb": 0,
+                "_check_docker_storage": True,
+            }
+        await _check_live_resources(self._instance_name, initial_requirements)
+
+        # Archive session JSONLs and root-level agent outputs left by prior
+        # trials on this warm-pool box. Without this, Harbor's mapper merges every
         # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
         # into one trajectory.json — producing thousand-step trajectories
         # that conflate this trial with every preceding one (observed:
@@ -364,14 +843,31 @@ class BrevEnvironment(BaseEnvironment):
             # don't rely on extended thinking, so the cost is negligible.
             # Revisit if/when the proxy accepts the field.
             ("CLAUDE_CODE_DISABLE_THINKING", "1"),
-            # Dense-captioning evals require one URL that both the Brev host
-            # and its bridge-networked RT-VLM container can reach.
-            ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
+        # The pinned NemoClaw notebook supports runtime environment config for
+        # this one eval path. Keep the opt-in internal and pin the public relay
+        # even when an operator supplied a different host-side RTSP value.
+        forwarded.extend(_nemoclaw_ci_rtsp_environment(meta))
         for key in (
-            "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
+            "NGC_CLI_API_KEY", "NGC_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # Use the CI evaluation model for the OpenClaw/NemoClaw agent
+            # when available; keep LLM_REMOTE_* for the VSS app runtime.
+            "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+            # NemoClaw/OpenClaw provider configuration. CI can either set
+            # these explicitly, or the notebook adapter can derive them from
+            # the forwarded LLM_REMOTE_* + NVIDIA_API_KEY values below.
+            "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
+            "NEMOCLAW_INSTALL_REF",
+            "NEMOCLAW_FALLBACK_ENDPOINT_URL", "NEMOCLAW_FALLBACK_MODEL",
+            "NEMOCLAW_PREFERRED_API", "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
+            "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
+            "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE",
+            "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR",
+            "NEMOCLAW_GATEWAY_PORT",
+            "OPENSHELL_DOCKER_NETWORK_NAME",
+            "OPENAI_API_KEY", "NVIDIA_BASE_URL", "OPENSHELL_PROVIDER_NAME",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -403,22 +899,36 @@ class BrevEnvironment(BaseEnvironment):
             )
             logger.info("Writing %d forwarded env vars to ~/.eval_env on instance",
                         len(forwarded))
-            await _run_brev_exec(self._instance_name, bootstrap, timeout=30)
+            bootstrap_result = await _run_brev_exec(
+                self._instance_name,
+                bootstrap,
+                timeout=30,
+            )
+            if bootstrap_result.return_code != 0:
+                tail = (
+                    bootstrap_result.stderr
+                    or bootstrap_result.stdout
+                    or ""
+                )[-500:]
+                raise RuntimeError(
+                    f"forwarded env setup failed on {self._instance_name}: "
+                    f"exit {bootstrap_result.return_code}; tail:\n{tail}"
+                )
 
         # Upload the task's skills/ directory to /skills on the instance
         # so Claude Code can register them via task.toml:
         # [environment] skills_dir = "/skills"
-        task_dir = self.environment_dir.parent
         task_skills_dir = task_dir / "skills"
         if task_skills_dir.is_dir():
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
-        # Wipe the warm-pool box's docker runtime to a clean slate so no
-        # prior trial's deployment state can contaminate this one. Images are
-        # preserved (re-pulling the image set is slow); all containers,
-        # user-defined networks, and volumes are removed. See
-        # _reset_docker_runtime for why this is blanket, not VSS-scoped.
+        # Wipe the warm-pool box's docker runtime to a clean slate so no prior
+        # trial's deployment state can contaminate this one. Images are
+        # preserved. NemoClaw trials also preserve a valid OpenShell gateway
+        # infrastructure bridge; every other user-defined network is removed.
+        # See _reset_docker_runtime for why the reset is otherwise blanket,
+        # not VSS-scoped.
         #
         # Gate: ONLY on a spec's first trial — a single-step spec (task dir is
         # the platform, e.g. `rtxpro6000bw`) or `step-1` of a multi-step spec.
@@ -445,98 +955,71 @@ class BrevEnvironment(BaseEnvironment):
         # AND the repo sync — because each of them tears down state the later
         # step under test depends on. (`environment_dir.parent` is the task
         # dir — named `step-N` for multi-step, the platform for single-step.)
-        task_dir_name = self.environment_dir.parent.name
-        is_first_trial = not (
-            task_dir_name.startswith("step-") and task_dir_name != "step-1"
-        )
         if is_first_trial:
-            await self._reset_docker_runtime()
+            await self._reset_docker_runtime(
+                preserve_openshell_gateway=_uses_nemoclaw(meta),
+            )
             # Host bind-mount purge runs AFTER the docker reset so every
-            # container that writes into these dirs is already gone —
-            # purging first would race the writers and the dirs would be
-            # dirty again by the time the trial starts.
+            # container that writes into these dirs is already gone.
             await self._purge_host_data_dirs()
+            if requirements["min_root_disk_free_gb"]:
+                await _check_live_resources(
+                    self._instance_name,
+                    {
+                        "min_root_disk_gb": requirements["min_root_disk_gb"],
+                        "min_root_disk_free_gb": requirements[
+                            "min_root_disk_free_gb"
+                        ],
+                    },
+                )
         else:
             logger.info(
                 "Skipping docker reset, host purge, and repo sync on %s — %s "
-                "of a multi-step spec must preserve step-1's deployment state "
-                "and its live bind-mount host dirs (e.g. deploy/docker/data-dir/, "
-                "whose clip_storage/vst_data are bind-mounted into the still-"
-                "running VIOS containers)",
+                "of a multi-step spec must preserve step-1's deployment state",
                 self._instance_name, task_dir_name,
             )
 
-        # Sync ~/video-search-and-summarization on the box to the PR's
-        # actual head SHA before any deploy/agent step reads it.
-        #
-        # Gated to the FIRST trial only. `_sync_repo_to_pr_head`'s
-        # `git clean -fdx -e data/ -e .env` removes every untracked path not
-        # matched by its excludes. NOTE `-e data/` is a gitignore-style pattern
-        # with no leading slash, so it spares a directory named `data` at ANY
-        # depth (including `deploy/docker/data/`) — but NOT
-        # `deploy/docker/data-dir/`, whose name does not match. `data-dir/` is
-        # the host source of the LVS/VIOS bind mounts (clip_storage, vst_data,
-        # vst/temp_files, ...) whenever a deploy roots VSS_DATA_DIR there
-        # (dev-profile.sh's default). On `step-2+` the step-1 containers are
-        # still running and bind-mounted onto those dirs; cleaning them
-        # mid-chain unlinks the host inode out from under the containers —
-        # confirmed by the mount probe below: host inode gone, container still
-        # pinned to it, link count 0 — and uploads then fail with "Failed to
-        # open output file: No such file or directory" (PR #1227 /
-        # lvs_profile_summarize step-2, the reported symptom).
-        #
-        # That name dependency IS the non-determinism this bug showed: a deploy
-        # rooted at `deploy/docker/data/` survives the clean (spared by
-        # `-e data/`) so summarize works, while one rooted at `.../data-dir/`
-        # is deleted and breaks — same clean, opposite outcome, purely by
-        # folder name. Gating removes the lottery: no clean runs on step-2+,
-        # so neither root is ever touched.
-        #
-        # The re-sync is also redundant on later steps: the box is held by one
-        # `run_leg.py` flock across the whole chain and nothing mutates $REPO
-        # between steps, so it is already at PR_HEAD_SHA from step-1.
-        #
-        # Without this on the first trial, every trial runs against whatever
-        # happened to be checked out on the box from a prior session — often a
-        # stale tarball-style checkout (no `.git`) with an obsolete directory
-        # layout (`deployments/` instead of `deploy/docker/`) and the
-        # pre-rename container names. The pre-deploy script generated by
-        # `adapters/vss-deploy-profile/generate.py::generate_solve_script`
-        # only syncs on the *gold-solution* path; the trial's agent invokes
-        # `/vss-deploy-profile` directly against `$REPO`, so without this step
-        # the PR_HEAD_SHA forwarded above never actually lands on disk.
-        # Permanent guardrail (non-fatal): probe the VIOS bind mounts right
-        # before and after the sync decision. The probes run on EVERY step,
-        # regardless of gating, so the log records the truth on both paths:
-        #   - step-2+ WITH this fix   -> before=healthy, after=healthy (sync
-        #     skipped, mounts preserved) — the fix, proven per run.
-        #   - step-2+ WITHOUT the fix -> before=healthy, after=stale (the
-        #     `git clean` deleted the data-dir root out from under the
-        #     containers) — the regression, caught loudly.
-        # Output lands in <trial>/artifacts/logs/artifacts/mount-probe.log.
+        # Preserve develop's first-step-only repo-sync guard and its mount
+        # probes. Later steps depend on the live bind mounts created by step 1.
         await self._probe_bind_mount(f"{task_dir_name}:before-sync")
         if is_first_trial:
             await self._sync_repo_to_pr_head()
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
-        # The harness intentionally does NOT pre-deploy any VSS profile
-        # here. Each eval spec's first `expects[]` query is responsible
-        # for invoking `/vss-deploy-profile` (or the appropriate
-        # standalone-deploy runbook) — making the deploy step visible
-        # in the trial's reward + trajectory rather than hidden in the
-        # env provider. The previous `_ensure_prerequisite_deployed`
-        # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
+        if _uses_nemoclaw(meta):
+            await self._ensure_nemoclaw_ready(meta)
+
+        # The harness intentionally does NOT pre-deploy any VSS profile here.
+        # Each eval spec's first `expects[]` query owns that visible action.
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
 
-    async def _reset_docker_runtime(self) -> None:
+    async def _reset_docker_runtime(
+        self,
+        *,
+        preserve_openshell_gateway: bool = False,
+    ) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
 
         Removes **all** containers (running + stopped), **all** volumes
-        (named + anonymous), and **all** user-defined networks, while
-        **preserving images** — re-pulling the multi-GB VSS/NIM image set on
-        every trial would dominate wall-clock.
+        (named + anonymous), and user-defined networks while **preserving
+        images** — re-pulling the multi-GB VSS/NIM image set on every trial
+        would dominate wall-clock. NemoClaw callers may also preserve the
+        OpenShell gateway's exact ``openshell-docker`` infrastructure network.
+
+        The network exception is required because NemoClaw's Linux
+        Docker-driver gateway is a host process. OpenShell creates and records
+        the bridge route when that process starts, but a healthy reused
+        gateway does not recreate the network before its next sandbox create.
+        Pruning the now-unused bridge after container cleanup therefore leaves
+        the live gateway accepting requests but every new sandbox failing with
+        ``network openshell-docker not found``. Preserving that one empty
+        bridge keeps the running gateway's recorded route valid. Before it is
+        preserved, its driver, OpenShell ownership label, and IPv4 IPAM gateway
+        are validated. If it is already absent, ``_ensure_nemoclaw_ready``
+        releases any surviving host gateway listener before onboarding starts
+        a new gateway and recreates the bridge coherently.
 
         Why blanket, not VSS-project-scoped: trials reach a deploy through
         heterogeneous paths — direct `docker compose --profile …`, the
@@ -562,37 +1045,127 @@ class BrevEnvironment(BaseEnvironment):
         re-wipes the caches and re-pays the cold start. The per-trial harbor
         timeout already budgets for a cold deploy.
 
-        Runs as the normal (docker-group) user — the same identity the
-        trial's deploy uses; no sudo. `network prune` leaves the built-in
-        bridge/host/none networks, which is correct. Fails loud (`set -u`,
-        explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
-        if any container, volume, or user-defined network survives, so a
-        half-reset box surfaces as a trial error rather than silent cross-trial
+        Runs as the normal (docker-group) user — the same identity the trial's
+        deploy uses; no sudo. Fails loud if the daemon is unreachable or dies
+        mid-reset, Docker enumeration/removal fails, the preserved OpenShell
+        network is not the expected managed IPv4 bridge, or any container,
+        volume, or unexpected user-defined network survives. A half-reset box
+        therefore surfaces as a trial error rather than silent cross-trial
         contamination.
         """
-        cmd = r"""set -uo pipefail
+        cmd = r"""set -euo pipefail
 docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
-cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
-vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
-docker network prune -f >/dev/null 2>&1 || true
-# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
-# died mid-script would make the count commands below print nothing and the
-# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
-# this check, so the remaining TOCTOU window is negligible.
+cids=$(docker ps -aq) || { echo "failed to enumerate docker containers" >&2; exit 1; }
+if [ -n "$cids" ]; then
+  docker rm -f $cids >/dev/null || {
+    echo "failed to remove docker containers during reset" >&2
+    exit 1
+  }
+fi
+vols=$(docker volume ls -q) || { echo "failed to enumerate docker volumes" >&2; exit 1; }
+if [ -n "$vols" ]; then
+  docker volume rm -f $vols >/dev/null || {
+    echo "failed to remove docker volumes during reset" >&2
+    exit 1
+  }
+fi
+preserve_openshell_gateway=__PRESERVE_OPENSHELL_GATEWAY__
+openshell_network=openshell-docker
+validate_openshell_network() {
+  network_id="$1"
+  network_driver=$(docker network inspect --format '{{.Driver}}' "$network_id") || {
+    echo "failed to inspect driver for OpenShell network $network_id" >&2
+    return 1
+  }
+  network_owner=$(docker network inspect \
+    --format '{{index .Labels "openshell.ai/managed-by"}}' "$network_id") || {
+    echo "failed to inspect owner for OpenShell network $network_id" >&2
+    return 1
+  }
+  network_gateways=$(docker network inspect \
+    --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' "$network_id") || {
+    echo "failed to inspect IPAM for OpenShell network $network_id" >&2
+    return 1
+  }
+  [ "$network_driver" = "bridge" ] || {
+    echo "refusing to preserve OpenShell network with driver $network_driver" >&2
+    return 1
+  }
+  [ "$network_owner" = "openshell" ] || {
+    echo "refusing to preserve OpenShell network without managed ownership label" >&2
+    return 1
+  }
+  has_ipv4_gateway=0
+  for network_gateway in $network_gateways; do
+    if python3 -c \
+      'import ipaddress,sys; raise SystemExit(ipaddress.ip_address(sys.argv[1]).version != 4)' \
+      "$network_gateway"; then
+      has_ipv4_gateway=1
+      break
+    fi
+  done
+  [ "$has_ipv4_gateway" = "1" ] || {
+    echo "refusing to preserve OpenShell network without an IPv4 IPAM gateway" >&2
+    return 1
+  }
+}
+network_ids=$(docker network ls --filter type=custom -q) || {
+  echo "failed to enumerate docker networks during reset" >&2
+  exit 1
+}
+for network_id in $network_ids; do
+  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
+    echo "failed to inspect docker network $network_id during reset" >&2
+    exit 1
+  }
+  if [ "$preserve_openshell_gateway" = "1" ] && \
+     [ "$network_name" = "$openshell_network" ]; then
+    validate_openshell_network "$network_id"
+    continue
+  fi
+  docker network rm "$network_id" >/dev/null || {
+    echo "failed to remove docker network $network_name ($network_id)" >&2
+    exit 1
+  }
+done
+# Re-confirm the daemon survived the reset before checking postconditions.
 docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
 rc=$(docker ps -aq | wc -l | tr -d ' ')
 rv=$(docker volume ls -q | wc -l | tr -d ' ')
-# Only user-defined networks should be gone; the built-in bridge/host/none
-# are never removable, so filter to type=custom. A surviving user network
-# would collide ("network already exists" / address-range clash) on the next
-# `compose up`, so it must fail the reset like a surviving container/volume.
-rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+# Only a validated OpenShell infrastructure bridge may remain, and only when
+# the NemoClaw caller requested it.
+rn=0
+surviving_network_ids=$(docker network ls --filter type=custom -q) || {
+  echo "failed to enumerate surviving docker networks" >&2
+  exit 1
+}
+for network_id in $surviving_network_ids; do
+  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
+    echo "failed to inspect surviving docker network $network_id" >&2
+    exit 1
+  }
+  if [ "$preserve_openshell_gateway" = "1" ] && \
+     [ "$network_name" = "$openshell_network" ]; then
+    validate_openshell_network "$network_id"
+  else
+    rn=$((rn + 1))
+  fi
+done
 if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
-  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
+  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} unexpected user-defined networks remain" >&2
   exit 1
 fi
-echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
+image_layers=$(docker images -q | wc -l | tr -d ' ')
+if [ "$preserve_openshell_gateway" = "1" ]; then
+  echo "docker runtime reset OK; images and valid OpenShell bridge preserved when present (${image_layers} layers)"
+else
+  echo "docker runtime reset OK; images preserved (${image_layers} layers)"
+fi
 """
+        cmd = cmd.replace(
+            "__PRESERVE_OPENSHELL_GATEWAY__",
+            "1" if preserve_openshell_gateway else "0",
+        )
         logger.info(
             "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
             self._instance_name,
@@ -611,42 +1184,22 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
         )
 
     async def _purge_host_data_dirs(self) -> None:
-        """Purge per-trial VSS state that lives in host bind-mounts.
-
-        `_reset_docker_runtime` removes containers/volumes/networks, but
-        several services persist state in **host directories bind-mounted
-        into the containers** — invisible to `docker volume rm`:
-
-        - `<root>/nvstreamer/videos{,-upload}/` — uploaded media. NvStreamer
-          auto-suffixes a new upload whose filename already exists, so a
-          leftover `warehouse_safety_0001.mp4` turns the next trial's upload
-          into `warehouse_safety_0001_5` and fails identifier-semantics
-          checks (observed: PR #1241 `nvstreamer_ops` step-1, six leftover
-          copies on the box).
-        - `<root>/nvstreamer/vst_data/` and `<root>/data_log/` — the
-          NvStreamer/VST sensor registry and runtime DB, so sensors from
-          prior trials survive the docker reset.
-        - `<root>/videos/nvstreamer/` — alternate layout used by some
-          profiles for the same uploaded-media state.
-
-        The GitLab `ci-vss-oss` eval jobs have always done the equivalent
-        ("Cleaning VSS_DATA_DIR data_log (kafka, elastic, redis, vst,
-        nvstreamer, ...)"); this brings the skill-eval harness to parity.
-
-        Roots are **globbed, not read from `$VSS_DATA_DIR`**: the env var is
-        chosen per-deploy inside the trial, and pool boxes accumulate more
-        than one root over time (observed: `/opt/vss-data` AND
-        `~/vss-data` on the same box). `$REPO/deploy/docker/data-dir` needs
-        no handling here — `_sync_repo_to_pr_head`'s `git clean` covers it.
-
-        Contents are deleted but the directories themselves are kept, so
-        operator-provisioned ownership/permissions on the mount points
-        survive. `sudo` is required — containers write these files as root.
-        Same first-trial-only gate as the docker reset: step-2+ of a
-        multi-step spec depends on the state step-1 uploaded.
-        """
+        """Purge per-trial VSS state that lives in host bind-mounts."""
         cmd = r"""set -uo pipefail
 purged=""
+repo_mdx="$HOME/video-search-and-summarization/.mdx_data"
+if [ -d "$repo_mdx" ]; then
+  # Preserve models/: it is the orchestrator's persistent NGC artifact cache.
+  for sub in data_log agent_eval videos nvstreamer; do
+    d="$repo_mdx/$sub"
+    [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete || {
+      echo "failed to purge $d" >&2
+      exit 1
+    }
+    purged="$purged $d"
+  done
+fi
 for root in /opt/vss-data "$HOME"/vss-data; do
   [ -d "$root" ] || continue
   for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
@@ -656,8 +1209,6 @@ for root in /opt/vss-data "$HOME"/vss-data; do
     purged="$purged $d"
   done
 done
-# Fail loud if anything survived — a half-purged dir is the same silent
-# cross-trial contamination the docker-reset guard protects against.
 for d in $purged; do
   n=$(sudo find "$d" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
   [ "$n" = "0" ] || { echo "host data purge incomplete: $n entries remain in $d" >&2; exit 1; }
@@ -681,6 +1232,835 @@ echo "host data purge OK:${purged:- nothing to purge}"
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _install_coordinator_nemoclaw_cli(self) -> None:
+        """Install the coordinator-built exact CLI without worker egress.
+
+        The workflow builds this archive from the immutable NVIDIA/NemoClaw
+        release before Harbor starts.  Only that trusted coordinator artifact
+        crosses the Brev control plane; the worker validates its checksum and
+        manifest before atomically replacing a partial/stale managed source.
+        Direct Harbor callers that do not provide a payload retain the
+        notebook's official installer path for compatibility.
+        """
+        raw = {
+            "archive": os.environ.get(NEMOCLAW_COORDINATOR_CLI_ARCHIVE_ENV, "").strip(),
+            "sha256": os.environ.get(NEMOCLAW_COORDINATOR_CLI_SHA256_ENV, "").strip().lower(),
+            "version": os.environ.get(NEMOCLAW_COORDINATOR_CLI_VERSION_ENV, "").strip(),
+            "revision": os.environ.get(NEMOCLAW_COORDINATOR_CLI_REVISION_ENV, "").strip().lower(),
+            "ref": os.environ.get("NEMOCLAW_INSTALL_REF", "v0.0.103").strip(),
+        }
+        present = {key for key, value in raw.items() if value and key != "ref"}
+        if not present:
+            logger.info(
+                "No coordinator-built NemoClaw CLI payload was provided; "
+                "retaining the notebook installer path"
+            )
+            return
+        required = {"archive", "sha256", "version", "revision"}
+        if present != required:
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload metadata is incomplete"
+            )
+        archive = Path(raw["archive"])
+        try:
+            archive_info = archive.lstat()
+        except OSError as exc:
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload is unavailable"
+            ) from exc
+        if archive.is_symlink() or not archive.is_file() or archive_info.st_size <= 0:
+            raise RuntimeError("coordinator NemoClaw CLI payload is unsafe")
+        if (
+            len(raw["sha256"]) != 64
+            or any(char not in "0123456789abcdef" for char in raw["sha256"])
+            or len(raw["revision"]) != 40
+            or any(char not in "0123456789abcdef" for char in raw["revision"])
+        ):
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload identity is invalid"
+            )
+        version_parts = raw["version"].split(".")
+        if (
+            len(version_parts) != 3
+            or any(not part.isascii() or not part.isdigit() for part in version_parts)
+            or raw["ref"] != f"v{raw['version']}"
+        ):
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload version is invalid"
+            )
+        digest = hashlib.sha256()
+        with archive.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != raw["sha256"]:
+            raise RuntimeError(
+                "coordinator NemoClaw CLI payload checksum mismatch"
+            )
+
+        transfer_root = f"/tmp/skill-eval/uploads/nemoclaw-cli-{uuid.uuid4().hex}"
+        remote_archive = f"{transfer_root}/nemoclaw-cli.tar.gz"
+        await self.upload_file(archive, remote_archive)
+        command = f"""set -eo pipefail
+set +u
+source ~/.profile 2>/dev/null || true
+set -u
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+REPO="$HOME/video-search-and-summarization"
+TRANSFER_ROOT={shlex.quote(transfer_root)}
+ARCHIVE={shlex.quote(remote_archive)}
+cleanup_nemoclaw_payload() {{ rm -rf -- "$TRANSFER_ROOT"; }}
+trap cleanup_nemoclaw_payload EXIT
+helper="$(realpath -- "$REPO/.github/skill-eval/nemoclaw/install_cli_payload.py" 2>/dev/null || true)"
+case "$helper" in
+  "$REPO"/*) ;;
+  *) echo "NemoClaw CLI payload helper escapes the synced repository" >&2; exit 1 ;;
+esac
+if [ ! -f "$helper" ] || [ -L "$helper" ]; then
+  echo "NemoClaw CLI payload helper is unavailable or unsafe" >&2
+  exit 1
+fi
+if [ ! -x /usr/bin/python3 ]; then
+  echo "NemoClaw CLI payload activation requires system Python" >&2
+  exit 1
+fi
+/usr/bin/python3 "$helper" \
+  --archive "$ARCHIVE" \
+  --sha256 {shlex.quote(raw['sha256'])} \
+  --ref {shlex.quote(raw['ref'])} \
+  --version {shlex.quote(raw['version'])} \
+  --revision {shlex.quote(raw['revision'])} \
+  --home "$HOME"
+"""
+        logger.info(
+            "Installing coordinator-built NemoClaw %s on %s",
+            raw["version"],
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, command, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-1000:]
+            raise RuntimeError(
+                f"coordinator NemoClaw CLI activation failed on "
+                f"{self._instance_name}: exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Coordinator-built NemoClaw CLI activated on %s",
+            self._instance_name,
+        )
+
+    async def _ensure_nemoclaw_ready(self, meta: dict) -> None:
+        """Run the setup-only notebook subset and readiness probes.
+
+        This keeps the human notebook as the source of truth while making the
+        CI path headless.  The executed notebook and readiness report remain on
+        the Brev worker under /tmp/skill-eval/nemoclaw for artifact collection
+        and operator debugging.
+        """
+        await self._install_coordinator_nemoclaw_cli()
+
+        required_tools = meta.get("required_mcp_tools") or []
+        if isinstance(required_tools, str):
+            required_tools = [required_tools]
+        required_tools_csv = ",".join(str(tool) for tool in required_tools)
+        sample_files = _nemoclaw_sample_files(meta)
+        sample_files_shell = " ".join(
+            shlex.quote(filename) for filename in sample_files
+        )
+
+        remote_setup_timeout = int(os.environ.get("NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC", "3300"))
+        cell_timeout = int(os.environ.get("NEMOCLAW_SETUP_CELL_TIMEOUT", "2700"))
+
+        cmd = rf"""set -eo pipefail
+set +u
+source ~/.profile 2>/dev/null || true
+set -u
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+rm -rf /tmp/skill-eval/nemoclaw /logs/artifacts/nemoclaw 2>/dev/null || true
+mkdir -p /tmp/skill-eval/nemoclaw /logs/artifacts/nemoclaw
+SETUP_LOG=/tmp/skill-eval/nemoclaw/setup.log
+REMOTE_SETUP_TIMEOUT={remote_setup_timeout}
+cat > /tmp/skill-eval/nemoclaw/setup.sh <<'__NEMOCLAW_SETUP__'
+#!/usr/bin/env bash
+set -eo pipefail
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+SETUP_LOG=/tmp/skill-eval/nemoclaw/setup.log
+exec > >(tee -a "$SETUP_LOG") 2>&1
+stage() {{
+  printf '[nemoclaw-setup] %s %s\n' "$(date -Is)" "$*"
+}}
+stage "begin setup on $(hostname)"
+gateway_port="${{NEMOCLAW_GATEWAY_PORT:-8080}}"
+case "$gateway_port" in
+  ""|*[!0-9]*)
+    echo "Invalid NEMOCLAW_GATEWAY_PORT: $gateway_port" >&2
+    exit 1
+    ;;
+esac
+if [ "$gateway_port" -lt 1024 ] || [ "$gateway_port" -gt 65535 ]; then
+  echo "NEMOCLAW_GATEWAY_PORT is outside 1024-65535: $gateway_port" >&2
+  exit 1
+fi
+export NEMOCLAW_GATEWAY_PORT="$gateway_port"
+requested_sandbox_name="$(printf '%s' "${{NEMOCLAW_SANDBOX_NAME:-}}" | \
+  sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+default_gateway_state_dir="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
+if [ "$gateway_port" != "8080" ]; then
+  default_gateway_state_dir="${{default_gateway_state_dir}}-${{gateway_port}}"
+fi
+gateway_state_dir="${{NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR:-$default_gateway_state_dir}}"
+gateway_port_is_free() {{
+  python3 - "$gateway_port" <<'__NEMOCLAW_PORT_PROBE__'
+import socket
+import sys
+
+sock = socket.socket()
+try:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+__NEMOCLAW_PORT_PROBE__
+}}
+openshell_network_names="$(docker network ls \
+  --filter type=custom --format '{{{{.Name}}}}')" || {{
+  echo "Failed to inspect the OpenShell Docker network before NemoClaw setup" >&2
+  exit 1
+}}
+if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
+  if gateway_port_is_free; then
+    stage "OpenShell bridge is absent and gateway port $gateway_port is free; fresh onboarding will recreate it"
+  else
+    stage "OpenShell bridge is absent while gateway port $gateway_port is busy; releasing the scoped host gateway"
+    if ! [ -x /usr/bin/lsof ] && ! [ -x /usr/sbin/lsof ] && \
+       ! [ -x /bin/lsof ] && ! [ -x /sbin/lsof ]; then
+      if command -v apt-get >/dev/null 2>&1 && \
+         command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        stage "installing trusted lsof for scoped gateway recovery"
+        sudo -n apt-get update -qq || sudo -n apt-get update -qq || {{
+          echo "Cannot install trusted lsof: apt update failed" >&2
+          exit 1
+        }}
+        sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive \
+          apt-get install -y -qq lsof || {{
+          echo "Cannot install trusted lsof for scoped gateway recovery" >&2
+          exit 1
+        }}
+      fi
+    fi
+    trusted_lsof=""
+    for lsof_candidate in /usr/bin/lsof /usr/sbin/lsof /bin/lsof /sbin/lsof; do
+      if [ -f "$lsof_candidate" ] && [ -x "$lsof_candidate" ]; then
+        trusted_lsof="$lsof_candidate"
+        break
+      fi
+    done
+    if [ -z "$trusted_lsof" ]; then
+      echo "Cannot install trusted lsof for scoped gateway recovery: no executable in trusted system paths" >&2
+      exit 1
+    fi
+    stage "verified trusted lsof for scoped gateway recovery: $trusted_lsof"
+    expected_nemoclaw_ref="${{NEMOCLAW_INSTALL_REF:-v0.0.103}}"
+    if [[ "$expected_nemoclaw_ref" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+      expected_nemoclaw_version="${{BASH_REMATCH[1]}}"
+    else
+      echo "Invalid NEMOCLAW_INSTALL_REF for gateway recovery: $expected_nemoclaw_ref" >&2
+      exit 1
+    fi
+    resolve_nemoclaw_cli_root() {{
+      local cli_path
+      cli_path="$(type -P nemoclaw 2>/dev/null || true)"
+      [ -n "$cli_path" ] || return 1
+      python3 - "$cli_path" <<'__NEMOCLAW_CLI_ROOT__'
+import os
+import re
+import shlex
+import sys
+from pathlib import Path
+
+candidate = sys.argv[1]
+seen = set()
+pinned_node = None
+for _ in range(3):
+    if not os.path.isabs(candidate):
+        break
+    resolved = Path(os.path.realpath(candidate))
+    if resolved in seen:
+        break
+    seen.add(resolved)
+    if resolved.name == "nemoclaw.js" and resolved.parent.name == "bin":
+        print(resolved.parent.parent)
+        print(pinned_node or "-")
+        raise SystemExit(0)
+    try:
+        if resolved.stat().st_size > 16384:
+            break
+        with resolved.open("r", encoding="utf-8") as handle:
+            contents = handle.read()
+    except (OSError, UnicodeError):
+        break
+    schema3_home = Path.home()
+    schema3_bin = schema3_home / ".local" / "bin"
+    schema3_source = schema3_home / ".nemoclaw" / "source"
+    schema3_node = (
+        schema3_home
+        / ".nemoclaw"
+        / "runtime"
+        / "node-v22.22.1-linux-x64"
+        / "bin"
+        / "node"
+    )
+    schema3_cli = schema3_source / "bin" / "nemoclaw.js"
+    schema3_openshell = schema3_bin / "openshell"
+    schema3_gateway = schema3_bin / "openshell-gateway"
+    schema3_sandbox = schema3_bin / "openshell-sandbox"
+    schema3_path = ":".join(
+        (
+            str(schema3_node.parent),
+            str(schema3_bin),
+            "/usr/local/sbin",
+            "/usr/local/bin",
+            "/usr/sbin",
+            "/usr/bin",
+            "/sbin",
+            "/bin",
+        )
+    )
+    schema3_contents = "".join(
+        (
+            "#!/bin/sh\n",
+            "export PATH=" + shlex.quote(schema3_path) + "\n",
+            "export NEMOCLAW_OPENSHELL_BIN="
+            + shlex.quote(str(schema3_openshell))
+            + "\n",
+            "export NEMOCLAW_OPENSHELL_GATEWAY_BIN="
+            + shlex.quote(str(schema3_gateway))
+            + "\n",
+            "export NEMOCLAW_OPENSHELL_SANDBOX_BIN="
+            + shlex.quote(str(schema3_sandbox))
+            + "\n",
+            "export OPENSHELL_DOCKER_SUPERVISOR_BIN="
+            + shlex.quote(str(schema3_sandbox))
+            + "\n",
+            "exec "
+            + shlex.quote(str(schema3_node))
+            + " "
+            + shlex.quote(str(schema3_cli))
+            + ' "$@"\n',
+        )
+    )
+    schema3_launcher = Path(os.path.realpath(schema3_bin / "nemoclaw"))
+    if (
+        pinned_node is None
+        and resolved == schema3_launcher
+        and contents == schema3_contents
+    ):
+        print(schema3_source)
+        print(schema3_node)
+        raise SystemExit(0)
+    installer_shim = re.fullmatch(
+        r'#!/usr/bin/env bash\n'
+        r'export PATH="(/[^"\n]*):\$PATH"\n'
+        r'exec "(/[^"\n]*/nemoclaw)" "\$@"\n?',
+        contents,
+    )
+    dev_shim = re.fullmatch(
+        r'#!/usr/bin/env bash\n'
+        r'\# NemoClaw dev-shim - managed by scripts/npm-link-or-shim\.sh\n'
+        r'export PATH="(/[^"\n]*):\$PATH"\n'
+        r'exec "(/[^"\n]*/bin/nemoclaw\.js)" "\$@"\n?',
+        contents,
+    )
+    shim = installer_shim or dev_shim
+    if shim is None or pinned_node is not None:
+        break
+    pinned_node = str(Path(shim.group(1)) / "node")
+    candidate = shim.group(2)
+raise SystemExit(1)
+__NEMOCLAW_CLI_ROOT__
+    }}
+    gateway_release_status=0
+    (
+      cli_resolution=()
+      mapfile -t cli_resolution < <(resolve_nemoclaw_cli_root 2>/dev/null || true)
+      candidate_root="${{cli_resolution[0]:-}}"
+      pinned_node="${{cli_resolution[1]:--}}"
+      if [ "${{#cli_resolution[@]}}" -ne 2 ]; then
+        echo "Active NemoClaw gateway release unavailable: launcher is not recognized" >&2
+        exit 1
+      fi
+      candidate_root="$(realpath -- "$candidate_root" 2>/dev/null || true)"
+      candidate_package="$candidate_root/package.json"
+      candidate_cli="$candidate_root/bin/nemoclaw.js"
+      gateway_release_module="$candidate_root/dist/lib/tunnel/gateway-port-release.js"
+      if [ -z "$candidate_root" ] || [ ! -d "$candidate_root" ] || \
+         [ ! -f "$candidate_package" ] || [ ! -f "$candidate_cli" ] || \
+         [ ! -f "$gateway_release_module" ]; then
+        echo "Active NemoClaw gateway release unavailable: package is incomplete" >&2
+        exit 1
+      fi
+      candidate_package="$(realpath -- "$candidate_package" 2>/dev/null || true)"
+      candidate_cli="$(realpath -- "$candidate_cli" 2>/dev/null || true)"
+      gateway_release_module="$(realpath -- "$gateway_release_module" 2>/dev/null || true)"
+      case "$candidate_package" in
+        "$candidate_root"/*) ;;
+        *)
+          echo "Active NemoClaw gateway release unavailable: package metadata escapes its package root" >&2
+          exit 1
+          ;;
+      esac
+      case "$candidate_cli" in
+        "$candidate_root"/*) ;;
+        *)
+          echo "Active NemoClaw gateway release unavailable: launcher escapes its package root" >&2
+          exit 1
+          ;;
+      esac
+      case "$gateway_release_module" in
+        "$candidate_root"/*) ;;
+        *)
+          echo "Active NemoClaw gateway release unavailable: release module escapes its package root" >&2
+          exit 1
+          ;;
+      esac
+      if ! python3 - "$candidate_package" <<'__NEMOCLAW_PACKAGE__'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        package = json.load(handle)
+except (OSError, ValueError):
+    raise SystemExit(1)
+if package.get("name") != "nemoclaw":
+    raise SystemExit(1)
+bins = package.get("bin")
+if not isinstance(bins, dict) or bins.get("nemoclaw") != "./bin/nemoclaw.js":
+    raise SystemExit(1)
+__NEMOCLAW_PACKAGE__
+      then
+        echo "Active NemoClaw gateway release unavailable: package metadata is invalid" >&2
+        exit 1
+      fi
+      if [ "$pinned_node" = "-" ]; then
+        node_bin="$(type -P node 2>/dev/null || true)"
+      else
+        node_bin="$pinned_node"
+      fi
+      node_bin="$(realpath -- "$node_bin" 2>/dev/null || true)"
+      if [ -z "$node_bin" ] || [ ! -x "$node_bin" ]; then
+        echo "Active NemoClaw gateway release unavailable: pinned Node runtime is unavailable" >&2
+        exit 1
+      fi
+      candidate_version_output="$(
+        /usr/bin/env -u NEMOCLAW_INVOKED_AS -u NODE_OPTIONS -u NODE_PATH \
+          PATH="/usr/sbin:/usr/bin:/sbin:/bin" \
+          "$node_bin" "$candidate_cli" --version 2>/dev/null || true
+      )"
+      if [ "$candidate_version_output" != "nemoclaw v$expected_nemoclaw_version" ]; then
+        echo "Active NemoClaw gateway release unavailable: expected nemoclaw v$expected_nemoclaw_version, found ${{candidate_version_output:-unknown}}" >&2
+        exit 1
+      fi
+      stage "using verified NemoClaw gateway release module: $gateway_release_module"
+      /usr/bin/env -u NODE_OPTIONS -u NODE_PATH \
+        PATH="/usr/sbin:/usr/bin:/sbin:/bin" \
+        GATEWAY_RELEASE_MODULE="$gateway_release_module" \
+        GATEWAY_RELEASE_PORT="$gateway_port" \
+        "$node_bin" <<'__NEMOCLAW_GATEWAY_RELEASE__'
+const modulePath = process.env.GATEWAY_RELEASE_MODULE;
+const port = Number(process.env.GATEWAY_RELEASE_PORT);
+const runtime = require(modulePath);
+if (typeof runtime.releaseManagedGatewayPort !== "function") {{
+  console.error("Pinned NemoClaw gateway release module has no scoped release function");
+  process.exit(1);
+}}
+const result = runtime.releaseManagedGatewayPort({{
+  port,
+  confirmTimeoutMs: 5000,
+  confirmPollIntervalMs: 100,
+}});
+if (result && result.skipped === true) {{
+  console.error(
+    `Scoped NemoClaw gateway release refused for port ${{port}}: ` +
+      "the selected lifecycle authority does not permit this process to stop it",
+  );
+  process.exit(42);
+}}
+if (!result || result.released !== true) {{
+  console.error(
+    `Scoped NemoClaw gateway release failed for port ${{port}}: ` +
+      JSON.stringify(result),
+  );
+  process.exit(1);
+}}
+__NEMOCLAW_GATEWAY_RELEASE__
+    ) || gateway_release_status=$?
+    if [ "$gateway_release_status" -eq 42 ]; then
+      echo "Cannot safely release the stale OpenShell gateway: lifecycle authority refused scoped release" >&2
+      exit 1
+    fi
+    if [ "$gateway_release_status" -ne 0 ]; then
+      gateway_release_fallback="$(realpath -- \
+        "$REPO/.github/skill-eval/nemoclaw/release_gateway_port.py" 2>/dev/null || true)"
+      case "$gateway_release_fallback" in
+        "$REPO"/*) ;;
+        *)
+          echo "Cannot safely release the stale OpenShell gateway: fallback helper escapes the synced repository" >&2
+          exit 1
+          ;;
+      esac
+      if [ ! -f "$gateway_release_fallback" ]; then
+        echo "Cannot safely release the stale OpenShell gateway: fallback helper is unavailable" >&2
+        exit 1
+      fi
+      stage "using fail-closed standalone gateway release for incomplete prior package"
+      if [ ! -x /usr/bin/python3 ]; then
+        echo "Cannot safely release the stale OpenShell gateway: system Python is unavailable" >&2
+        exit 1
+      fi
+      /usr/bin/python3 "$gateway_release_fallback" --port "$gateway_port"
+    fi
+    gateway_port_is_free || {{
+      echo "OpenShell gateway port $gateway_port is still busy after scoped release" >&2
+      exit 1
+    }}
+    stage "released stale host gateway on port $gateway_port; fresh onboarding will recreate its bridge"
+  fi
+fi
+ci_legacy_recreate="$(printf '%s' "${{NEMOCLAW_RECREATE_SANDBOX:-1}}" | \
+  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+case "$ci_legacy_recreate" in
+  1|true|yes)
+    if [ "$gateway_state_dir" = "$default_gateway_state_dir" ]; then
+      legacy_repair_helper="$(realpath -- \
+        "$REPO/.github/skill-eval/nemoclaw/repair_legacy_state.py" 2>/dev/null || true)"
+      case "$legacy_repair_helper" in
+        "$REPO"/*) ;;
+        *)
+          echo "NemoClaw legacy-state repair refused: helper_path_unsafe" >&2
+          exit 1
+          ;;
+      esac
+      if [ ! -f "$legacy_repair_helper" ] || [ -L "$legacy_repair_helper" ]; then
+        echo "NemoClaw legacy-state repair refused: helper_file_unsafe" >&2
+        exit 1
+      fi
+      if [ ! -x /usr/bin/python3 ]; then
+        echo "NemoClaw legacy-state repair refused: system_python_unavailable" >&2
+        exit 1
+      fi
+      # The historical repair is intentionally scoped to the old CI default.
+      # Preserve an explicit operator override, but temporarily select `demo`
+      # when CI will derive its collision-resistant runtime name below.
+      export NEMOCLAW_SANDBOX_NAME="${{requested_sandbox_name:-demo}}"
+      stage "checking CI-owned legacy NemoClaw session state"
+      SKILL_EVAL_NEMOCLAW_CI=1 \
+        /usr/bin/python3 "$legacy_repair_helper"
+    fi
+    ;;
+esac
+if [ -n "$requested_sandbox_name" ]; then
+  export NEMOCLAW_SANDBOX_NAME="$requested_sandbox_name"
+else
+  sandbox_uid="$(id -u)"
+  case "$sandbox_uid" in
+    ""|*[!0-9]*)
+      echo "Cannot derive the CI NemoClaw sandbox from the effective uid" >&2
+      exit 1
+      ;;
+  esac
+  # The pinned NemoClaw release scopes normal OpenShell RPCs to their owning
+  # gateway, but its post-exec permission repair discovers Docker containers
+  # globally using only the sandbox-name label. Warm workers can be reached as root or
+  # ubuntu and can retain sibling-gateway `demo` containers. A stable
+  # effective-uid + gateway-port name excludes both collision dimensions.
+  # The runtime-contract revision prevents `--fresh` from reattaching a
+  # rebuilt image to stale same-name container state while remaining stable
+  # across GitHub runs.
+  export NEMOCLAW_SANDBOX_NAME="vss-eval-u${{sandbox_uid}}-p${{gateway_port}}-{NEMOCLAW_SANDBOX_CONTRACT_GENERATION}"
+  unset NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE
+  stage "selected isolated CI sandbox $NEMOCLAW_SANDBOX_NAME"
+fi
+recreate_value="$(printf '%s' "${{NEMOCLAW_RECREATE_SANDBOX:-1}}" | \
+  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+case "$recreate_value" in
+  1|true|yes)
+    if [ "$gateway_state_dir" != "$default_gateway_state_dir" ]; then
+      stage "skipping ownership repair for explicit OpenShell gateway state override"
+    else
+      for state_path in \
+        "$HOME/.local" \
+        "$HOME/.local/state" \
+        "$HOME/.local/state/nemoclaw" \
+        "$gateway_state_dir"; do
+        if [ -L "$state_path" ]; then
+          echo "Refusing to repair through symlinked OpenShell gateway state path: $state_path" >&2
+          exit 1
+        fi
+      done
+      current_uid="$(id -u)"
+      current_gid="$(id -g)"
+      for db_name in openshell.db openshell.db-wal openshell.db-shm; do
+        db_path="$gateway_state_dir/$db_name"
+        if [ -L "$db_path" ]; then
+          echo "Refusing to repair symlinked OpenShell gateway database: $db_path" >&2
+          exit 1
+        fi
+        [ -e "$db_path" ] || continue
+        db_uid="$(stat -c %u -- "$db_path")"
+        if [ "$db_uid" = "$current_uid" ]; then
+          continue
+        fi
+        if [ "$db_uid" != "0" ]; then
+          echo "Refusing to repair OpenShell gateway database with unexpected uid $db_uid: $db_path" >&2
+          exit 1
+        fi
+        if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; then
+          echo "Passwordless sudo is required to repair root-owned OpenShell gateway state: $db_path" >&2
+          exit 1
+        fi
+        sudo -n chown --no-dereference "$current_uid:$current_gid" -- "$db_path"
+        stage "repaired root-owned OpenShell gateway database: $db_path"
+      done
+    fi
+    ;;
+esac
+if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  stage "installing system packages for uv sync"
+  sudo -n apt-get update -qq || sudo -n apt-get update -qq || \
+    stage "apt update failed; continuing with cached package indexes"
+  sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config lsof || \
+    stage "apt package preflight failed; continuing and letting setup report any missing dependency"
+else
+  stage "apt/sudo unavailable; skipping system package preflight"
+fi
+# Registered workers use a uv-managed Python that enforces PEP 668.
+# --user keeps these notebook-only packages outside that interpreter while
+# the pip configuration override acknowledges the externally-managed marker.
+PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-eval/nemoclaw/pip-install.log 2>&1 || {{
+  cat /tmp/skill-eval/nemoclaw/pip-install.log >&2
+  exit 1
+}}
+stage "installed notebook dependencies"
+python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
+  --execute \
+  --output /tmp/skill-eval/nemoclaw/setup.executed.ipynb \
+  --env-out /tmp/skill-eval/nemoclaw/nemoclaw.env \
+  --timeout {cell_timeout}
+stage "notebook setup adapter completed"
+sample_files=({sample_files_shell})
+if [ "${{#sample_files[@]}}" -gt 0 ]; then
+  # The OpenClaw sandbox intentionally never receives NGC_CLI_API_KEY. Fetch
+  # the public VSS sample bundle on the trusted host, cache it under the repo's
+  # preserved data/ tree, then bridge only explicitly allowlisted MP4s.
+  sample_cache_root="$REPO/data"
+  sample_cache_dir="$sample_cache_root/dev-profile-sample-data"
+  sample_bundle_dir="$sample_cache_root/dev-profile-sample-data_v3.2.0"
+  sample_bundle_archive="$sample_bundle_dir/dev-profile-sample-data.tar.gz"
+  if [ -L "$sample_cache_root" ] || [ -L "$sample_cache_dir" ] || \
+     [ -L "$sample_bundle_dir" ]; then
+    echo "Refusing symlinked NemoClaw sample fixture cache paths" >&2
+    exit 1
+  fi
+  mkdir -p "$sample_cache_root" "$sample_cache_dir"
+  repo_resolved="$(realpath -- "$REPO")"
+  sample_cache_root_resolved="$(realpath -- "$sample_cache_root")"
+  if [ "$sample_cache_root_resolved" != "$repo_resolved/data" ]; then
+    echo "NemoClaw sample fixture cache escapes the synced repository" >&2
+    exit 1
+  fi
+  missing_sample=0
+  for sample_file in "${{sample_files[@]}}"; do
+    if [ ! -s "$sample_cache_dir/$sample_file" ] || \
+       [ -L "$sample_cache_dir/$sample_file" ]; then
+      missing_sample=1
+    fi
+  done
+  if [ "$missing_sample" -ne 0 ]; then
+    if [ ! -s "$sample_bundle_archive" ] || [ -L "$sample_bundle_archive" ]; then
+      ngc_bin="$(type -P ngc 2>/dev/null || true)"
+      if [ -z "$ngc_bin" ]; then
+        echo "NemoClaw sample fixture staging requires the host NGC CLI" >&2
+        exit 1
+      fi
+      if [ -z "${{NGC_CLI_API_KEY:-${{NGC_API_KEY:-}}}}" ]; then
+        echo "NemoClaw sample fixture staging requires the host NGC credential" >&2
+        exit 1
+      fi
+      rm -rf -- "$sample_bundle_dir"
+      stage "downloading the pinned VSS sample-data bundle on the trusted host"
+      (
+        cd "$sample_cache_root"
+        "$ngc_bin" registry resource download-version \
+          nvidia/vss-developer/dev-profile-sample-data:3.2.0 \
+          --org nvidia --team vss-developer
+      )
+    fi
+    if [ -L "$sample_bundle_dir" ] || [ ! -s "$sample_bundle_archive" ] || \
+       [ -L "$sample_bundle_archive" ]; then
+      echo "Pinned VSS sample-data archive is missing after download" >&2
+      exit 1
+    fi
+    rm -rf -- "$sample_cache_dir"
+    tar --no-same-owner --no-same-permissions \
+      -xzf "$sample_bundle_archive" -C "$sample_cache_root"
+    if [ -L "$sample_cache_dir" ]; then
+      echo "Pinned VSS sample-data archive produced an unsafe cache path" >&2
+      exit 1
+    fi
+  fi
+
+  gateway_name="nemoclaw"
+  if [ "$gateway_port" != "8080" ]; then
+    gateway_name="nemoclaw-$gateway_port"
+  fi
+  openshell_bin="$(type -P openshell 2>/dev/null || true)"
+  if [ -z "$openshell_bin" ]; then
+    echo "NemoClaw sample fixture staging requires OpenShell" >&2
+    exit 1
+  fi
+  sandbox_sample_dir="/tmp/vss-sample-data/dev-profile-sample-data"
+  /usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT \
+    -u NGC_CLI_API_KEY -u NGC_API_KEY \
+    "$openshell_bin" -g "$gateway_name" sandbox exec \
+    --name "$NEMOCLAW_SANDBOX_NAME" -- \
+    mkdir -p "$sandbox_sample_dir"
+  for sample_file in "${{sample_files[@]}}"; do
+    sample_source="$sample_cache_dir/$sample_file"
+    if [ ! -f "$sample_source" ] || [ -L "$sample_source" ] || \
+       [ ! -s "$sample_source" ]; then
+      echo "Requested VSS sample fixture is unavailable: $sample_file" >&2
+      exit 1
+    fi
+    sample_source_resolved="$(realpath -- "$sample_source")"
+    sample_cache_resolved="$(realpath -- "$sample_cache_dir")"
+    case "$sample_source_resolved" in
+      "$sample_cache_resolved"/*) ;;
+      *)
+        echo "Requested VSS sample fixture escapes the trusted cache" >&2
+        exit 1
+        ;;
+    esac
+    stage "staging allowlisted sample fixture in NemoClaw: $sample_file"
+    /usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT \
+      -u NGC_CLI_API_KEY -u NGC_API_KEY \
+      "$openshell_bin" -g "$gateway_name" sandbox upload \
+      "$NEMOCLAW_SANDBOX_NAME" "$sample_source_resolved" \
+      "$sandbox_sample_dir/" --no-git-ignore
+    /usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT \
+      -u NGC_CLI_API_KEY -u NGC_API_KEY \
+      "$openshell_bin" -g "$gateway_name" sandbox exec \
+      --name "$NEMOCLAW_SANDBOX_NAME" -- \
+      test -s "$sandbox_sample_dir/$sample_file"
+  done
+  python3 - "$sandbox_sample_dir" "${{sample_files[@]}}" <<'__NEMOCLAW_SAMPLE_REPORT__'
+import json
+import sys
+from pathlib import Path
+
+output = Path("/tmp/skill-eval/nemoclaw/sample-fixtures.json")
+output.write_text(
+    json.dumps(
+        {{
+            "canonical_dir": sys.argv[1],
+            "files": sys.argv[2:],
+            "resource": (
+                "nvidia/vss-developer/"
+                "dev-profile-sample-data:3.2.0"
+            ),
+            "schema_version": 1,
+        }},
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+output.chmod(0o600)
+__NEMOCLAW_SAMPLE_REPORT__
+fi
+python3 .github/skill-eval/nemoclaw/readiness.py \
+  --env-file /tmp/skill-eval/nemoclaw/nemoclaw.env \
+  --required-tools {shlex.quote(required_tools_csv)} \
+  --output /tmp/skill-eval/nemoclaw/readiness.json \
+  --summary-output /tmp/skill-eval/nemoclaw/readiness-summary.json
+stage "readiness completed"
+__NEMOCLAW_SETUP__
+chmod +x /tmp/skill-eval/nemoclaw/setup.sh
+set +e
+timeout --kill-after=30s "$REMOTE_SETUP_TIMEOUT" /tmp/skill-eval/nemoclaw/setup.sh
+setup_rc=$?
+set -e
+diagnostic_rc=0
+if [ "$setup_rc" -ne 0 ]; then
+  if ! python3 .github/skill-eval/nemoclaw/setup_failure.py \
+    --input /tmp/skill-eval/nemoclaw/setup.log \
+    --output /tmp/skill-eval/nemoclaw/setup-failure.json \
+    --return-code "$setup_rc"; then
+    if ! printf '{{"categories":["diagnostic_generation_failed"],"return_code":%s,"schema_version":1}}\n' \
+      "$setup_rc" > /tmp/skill-eval/nemoclaw/setup-failure.json; then
+      diagnostic_rc=1
+    fi
+    if [ -f /tmp/skill-eval/nemoclaw/setup-failure.json ] && \
+       ! chmod 600 /tmp/skill-eval/nemoclaw/setup-failure.json; then
+      diagnostic_rc=1
+    fi
+  fi
+fi
+artifact_copy_rc=0
+for artifact_name in setup.executed.ipynb readiness-summary.json setup-failure.json sample-fixtures.json; do
+  artifact_path="/tmp/skill-eval/nemoclaw/$artifact_name"
+  if [ -f "$artifact_path" ] && [ ! -L "$artifact_path" ]; then
+    if ! cp -- "$artifact_path" "/logs/artifacts/nemoclaw/$artifact_name"; then
+      artifact_copy_rc=1
+      continue
+    fi
+    if ! chmod 600 "/logs/artifacts/nemoclaw/$artifact_name"; then
+      artifact_copy_rc=1
+    fi
+  fi
+done
+if [ "$setup_rc" -ne 0 ]; then
+  echo "[nemoclaw-setup] setup failed with exit code $setup_rc"
+  echo "[nemoclaw-setup] safe diagnostic:"
+  cat /tmp/skill-eval/nemoclaw/setup-failure.json 2>/dev/null || true
+  if [ "$diagnostic_rc" -ne 0 ] || [ "$artifact_copy_rc" -ne 0 ]; then
+    echo "[nemoclaw-setup] safe diagnostic artifact collection was incomplete" >&2
+  fi
+  echo "[nemoclaw-setup] raw setup logs remain on the worker under /tmp/skill-eval/nemoclaw"
+  exit "$setup_rc"
+fi
+if [ "$artifact_copy_rc" -ne 0 ]; then
+  echo "[nemoclaw-setup] failed to collect safe setup artifacts" >&2
+  exit 1
+fi
+"""
+        timeout_sec = int(os.environ.get("NEMOCLAW_SETUP_TIMEOUT_SEC", str(remote_setup_timeout + 120)))
+        logger.info(
+            "Preparing NemoClaw/OpenClaw on %s (timeout=%ds)",
+            self._instance_name, timeout_sec,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=timeout_sec)
+        if result.return_code != 0:
+            combined_output = "\n".join(
+                part for part in (result.stdout, result.stderr) if part
+            )
+            diagnostic = classify_setup_failure(
+                combined_output[-MAX_SETUP_DIAGNOSTIC_INPUT_CHARS:],
+                result.return_code,
+            )
+            raise RuntimeError(
+                f"NemoClaw setup failed on {self._instance_name}: "
+                f"exit {result.return_code}; "
+                f"diagnostics={format_setup_failure(diagnostic)}; "
+                "inspect setup-failure.json"
+            )
+        logger.info("NemoClaw/OpenClaw setup succeeded on %s", self._instance_name)
+
     async def _sync_repo_to_pr_head(self) -> None:
         """Reset `~/video-search-and-summarization` on the Brev box to the
         PR's actual head SHA. Runs once per trial, before any deploy or
@@ -693,39 +2073,230 @@ echo "host data purge OK:${purged:- nothing to purge}"
         forwarded `PR_HEAD_SHA` env var has no effect on the actual
         compose/skill files the agent reads.
 
-        Handles three pre-states:
+        The preferred CI path packages the coordinator's already checked-out
+        exact head as a shallow bare Git source, uploads it over the Brev
+        control plane, and fetches it locally on the worker. This removes
+        worker github.com egress from the critical path while retaining Git's
+        exact tree/mode/gitlink contract. If that source cannot be constructed
+        or transferred, the historical worker-side GitHub sync remains as a
+        compatibility fallback.
 
-        - **Empty / missing dir** — fresh clone.
+        Handles three worker pre-states:
+
+        - **Empty / missing dir** — initialize and fetch the exact tree.
         - **Stale non-git checkout** (tarball-style, no `.git` dir) —
           this is the load-bearing fix: prior versions of the dir
           shipped from before the repo was renamed and the layout
-          changed (`deployments/` not `deploy/docker/`). Nuke and
-          re-clone; never silently fall through to `git fetch` on
-          a non-git dir.
-        - **Existing git checkout** — `git remote set-url` (handles
-          cross-fork PRs) + `git fetch <PR_HEAD_SHA>` + hard reset.
+          changed (`deployments/` not `deploy/docker/`). Replace only its
+          invalid Git metadata, fetch the exact tree, then clean it; this
+          retains the allowlisted caches even in the tarball pre-state.
+        - **Existing git checkout** — discard its untrusted per-repo Git
+          metadata (hooks, filters, alternates, and config), initialize clean
+          metadata, fetch the exact tree, and retain only allowlisted caches.
 
-        Preserves `data/` (NGC sample bundle) and `.env` (active trial
-        overrides) on `git clean`. Fails loud — `set -euo pipefail` so
-        any sync error short-circuits start() before the agent runs.
+        Preserves `data/` (NGC sample bundle), `.mdx_data/models/`
+        (orchestrator NGC artifact cache), and the repository-root `.env`
+        (active trial overrides) on `git clean`. Nested dotenv files are
+        deliberately removed so a prior trial cannot change service runtime
+        settings. Fails loud — `set -euo pipefail` so any sync error
+        short-circuits start() before the agent runs.
         """
-        # PR_HEAD_SHA + PR_REPO come from the workflow step's env and are
-        # forwarded into ~/.eval_env on the instance by the loop above.
-        # When unset (local dev / smoke test), fall back to develop.
-        cmd = r"""set -euo pipefail
-PR_REPO="${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
-PR_HEAD_SHA="${PR_HEAD_SHA:-}"
-REPO="$HOME/video-search-and-summarization"
-VSS_REPO_URL="https://github.com/${PR_REPO}.git"
-
-# Case 1: dir exists but isn't a git repo (stale tarball checkout) — nuke
-#         and re-clone. Case 2: dir doesn't exist — clone fresh.
-if [ ! -d "$REPO/.git" ]; then
-  rm -rf "$REPO"
-  git clone --no-checkout --depth=1 --branch develop "$VSS_REPO_URL" "$REPO"
+        # PR_HEAD_SHA + PR_REPO come from the workflow step's env. Inject
+        # them into this remote command directly instead of relying on
+        # ~/.profile: _run_brev_exec() intentionally runs a non-login shell,
+        # and fresh workers may not have sourced ~/.eval_env yet.
+        pr_repo = os.environ.get(
+            "PR_REPO",
+            "NVIDIA-AI-Blueprints/video-search-and-summarization",
+        ).strip()
+        pr_head_sha = os.environ.get("PR_HEAD_SHA", "").strip().lower()
+        cleanup_cmd = r"""# Drop leftover working-tree state from a prior trial, but keep data/
+# (sample-data extract), .mdx_data/models/ (orchestrator NGC artifacts),
+# and root .env tweaks the active trial may have placed. Nested dotenv files must be removed:
+# services such as the orchestrator load them from their working directory.
+# Some VSS services write root-owned bind-mount content under the checkout,
+# so remove known deployment output dirs with sudo before falling back to
+# git clean.
+for stale_path in "$REPO/deployments" "$REPO/deploy/docker/data-dir"; do
+  if [ -e "$stale_path" ]; then
+    sudo rm -rf "$stale_path" || true
+  fi
+done
+if ! git clean -fdx -e data/ -e /.env -e /.mdx_data/models/; then
+  echo "git clean failed; repairing checkout ownership and retrying" >&2
+  sudo find "$REPO" \
+    -path "$REPO/.git" -prune -o \
+    -path "$REPO/data" -prune -o \
+    -path "$REPO/.mdx_data/models" -prune -o \
+    -path "$REPO/.env" -prune -o \
+    -exec chown -h "$(id -u):$(id -g)" {} + || true
+  git clean -fdx -e data/ -e /.env -e /.mdx_data/models/ 2>/dev/null || \
+    sudo git clean -fdx -e data/ -e /.env -e /.mdx_data/models/
 fi
+echo "synced $REPO to $(git rev-parse --short HEAD)"
+"""
+
+        coordinator_failure = ""
+        if pr_head_sha:
+            with tempfile.TemporaryDirectory(
+                prefix="skill-eval-repo-archive-"
+            ) as archive_tmp:
+                archive_path = Path(archive_tmp) / "repo-source.tar.gz"
+                try:
+                    archive_built = await _build_exact_head_repo_archive(
+                        repo_root=_coordinator_repo_root(),
+                        pr_head_sha=pr_head_sha,
+                        archive_path=archive_path,
+                    )
+                except Exception as exc:  # noqa: BLE001 — fall back to GitHub
+                    archive_built = False
+                    coordinator_failure = f"archive build failed: {exc}"
+                    logger.warning(
+                        "Could not build exact-head coordinator repo source: %s",
+                        exc,
+                    )
+
+                if archive_built:
+                    transfer_root = (
+                        f"/tmp/skill-eval/uploads/repo-sync-{uuid.uuid4().hex}"
+                    )
+                    remote_archive = f"{transfer_root}/repo-source.tar.gz"
+                    try:
+                        await self.upload_file(archive_path, remote_archive)
+                        archive_ref = shlex.quote(
+                            COORDINATOR_REPO_ARCHIVE_REF
+                        )
+                        archive_cmd = f"""set -euo pipefail
+PR_REPO={shlex.quote(pr_repo)}
+PR_HEAD_SHA={shlex.quote(pr_head_sha)}
+REPO="$HOME/video-search-and-summarization"
+VSS_REPO_URL="https://github.com/${{PR_REPO}}.git"
+TRANSFER_ROOT={shlex.quote(transfer_root)}
+ARCHIVE={shlex.quote(remote_archive)}
+EXTRACT_ROOT="$TRANSFER_ROOT/extracted"
+BARE_REPO="$EXTRACT_ROOT/exact.git"
+cleanup_repo_source() {{ sudo rm -rf -- "$TRANSFER_ROOT"; }}
+trap cleanup_repo_source EXIT
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_LFS_SKIP_SMUDGE=1
+
+if [ ! -f "$ARCHIVE" ] || [ -L "$ARCHIVE" ]; then
+  echo "coordinator repo source is missing or symlinked" >&2
+  exit 1
+fi
+mkdir -p "$EXTRACT_ROOT"
+tar -xzf "$ARCHIVE" --no-same-owner -C "$EXTRACT_ROOT"
+archive_head="$(git --git-dir="$BARE_REPO" rev-parse --verify {archive_ref}^{{commit}})"
+if [ "$archive_head" != "$PR_HEAD_SHA" ]; then
+  echo "coordinator repo source head mismatch" >&2
+  exit 1
+fi
+if ! grep -Fqx "$PR_HEAD_SHA" "$BARE_REPO/shallow"; then
+  echo "coordinator repo source is missing its exact shallow boundary" >&2
+  exit 1
+fi
+git --git-dir="$BARE_REPO" fsck --connectivity-only
+
+if [ -L "$REPO" ]; then
+  echo "refusing to sync a symlinked worker repository" >&2
+  exit 1
+fi
+mkdir -p "$REPO"
+# Never inherit hooks or config from a warm worker checkout. Reinitialize only
+# Git metadata; the subsequent clean retains data/, .mdx_data/models/, and the
+# root .env from the existing working tree.
+sudo rm -rf -- "$REPO/.git"
+git -c init.templateDir= init "$REPO"
 cd "$REPO"
-git remote set-url origin "$VSS_REPO_URL"
+git config core.hooksPath /dev/null
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "$VSS_REPO_URL"
+else
+  git remote add origin "$VSS_REPO_URL"
+fi
+git fetch --depth=1 --no-tags "file://$BARE_REPO" {archive_ref}
+git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
+git reset --hard "$PR_HEAD_SHA"
+if [ "$(git rev-parse HEAD)" != "$PR_HEAD_SHA" ]; then
+  echo "worker checkout does not match coordinator PR head" >&2
+  exit 1
+fi
+{cleanup_cmd}"""
+                        logger.info(
+                            "Syncing $REPO on %s from exact coordinator head",
+                            self._instance_name,
+                        )
+                        result = await _run_brev_exec(
+                            self._instance_name,
+                            archive_cmd,
+                            timeout=300,
+                        )
+                        if result.return_code == 0:
+                            logger.info(
+                                "Repo sync on %s: %s",
+                                self._instance_name,
+                                (
+                                    (result.stdout or "").strip().splitlines()[-1]
+                                    if result.stdout
+                                    else "<no output>"
+                                ),
+                            )
+                            return
+                        coordinator_failure = (
+                            "coordinator source install failed: "
+                            + (result.stderr or result.stdout or "")[-500:]
+                        )
+                        raise _CoordinatorRepoInstallError(
+                            f"repo sync failed on {self._instance_name}: "
+                            f"{coordinator_failure}"
+                        )
+                    except _CoordinatorRepoInstallError:
+                        # The source reached the worker, so an install failure
+                        # is an integrity/state failure rather than an egress
+                        # problem. Do not bypass its checks with another source.
+                        raise
+                    except Exception as exc:  # noqa: BLE001 — fallback path
+                        coordinator_failure = (
+                            f"coordinator source transfer failed: {exc}"
+                        )
+                        logger.warning(
+                            "Exact-head coordinator repo transfer failed on %s; "
+                            "falling back to worker GitHub sync: %s",
+                            self._instance_name,
+                            exc,
+                        )
+                elif not coordinator_failure:
+                    coordinator_failure = (
+                        "coordinator checkout was not the requested full PR head"
+                    )
+
+        cmd = f"""set -euo pipefail
+PR_REPO={shlex.quote(pr_repo)}
+PR_HEAD_SHA={shlex.quote(pr_head_sha)}
+REPO="$HOME/video-search-and-summarization"
+VSS_REPO_URL="https://github.com/${{PR_REPO}}.git"
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_LFS_SKIP_SMUDGE=1
+
+# Case 1: dir exists but isn't a valid git repo (stale tarball checkout) —
+# replace only its Git metadata so the allowlisted data/model caches and root
+# .env survive the checkout + clean. Case 2: dir doesn't exist — initialize it.
+if [ -L "$REPO" ]; then
+  echo "refusing to sync a symlinked worker repository" >&2
+  exit 1
+fi
+mkdir -p "$REPO"
+sudo rm -rf -- "$REPO/.git"
+git -c init.templateDir= init "$REPO"
+cd "$REPO"
+git config core.hooksPath /dev/null
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "$VSS_REPO_URL"
+else
+  git remote add origin "$VSS_REPO_URL"
+fi
 if [ -n "$PR_HEAD_SHA" ]; then
   git fetch --depth=1 origin "$PR_HEAD_SHA"
   git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
@@ -735,27 +2306,19 @@ else
   git -c advice.detachedHead=false checkout --force FETCH_HEAD
   git reset --hard FETCH_HEAD
 fi
-# Drop leftover working-tree state from a prior trial, but keep data/
-# (sample-data extract — slow to re-pull from NGC) and any .env tweaks
-# the active trial may have placed.
-# A prior STEP's deploy may have chattr +i'd generated files (e.g.
-# deploy/docker/resolved.yml, developer-profiles/*/generated.env) — strip
-# the immutable bit or git clean dies with "Operation not permitted" and
-# kills the whole step chain.
-chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
-# Use sudo git clean as a fallback: prior docker containers may have created
-# root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
-# a non-root git clean cannot remove ("Permission denied").
-git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
-echo "synced $REPO to $(git rev-parse --short HEAD)"
-"""
+{cleanup_cmd}"""
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
         result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
+            coordinator_context = (
+                f"; coordinator fallback: {coordinator_failure}"
+                if coordinator_failure
+                else ""
+            )
             raise RuntimeError(
                 f"repo sync failed on {self._instance_name}: "
-                f"exit {result.return_code}; tail:\n{tail}"
+                f"exit {result.return_code}{coordinator_context}; tail:\n{tail}"
             )
         logger.info(
             "Repo sync on %s: %s",
@@ -875,8 +2438,6 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         )
         os.close(fd)
         tar_path = Path(tar_path_str)
-        remote_upload_dir = f"/tmp/skill-eval/uploads/{uuid.uuid4().hex}"
-        remote_tar = f"{remote_upload_dir}/archive.tar.gz"
 
         try:
             await _run_local_transfer_command(
@@ -884,39 +2445,98 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 timeout=60,
             )
 
-            result = await _run_brev_exec(
-                self._instance_name,
-                f"mkdir -p {shlex.quote(remote_upload_dir)}",
-                timeout=30,
-            )
-            if result.return_code != 0:
-                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+            last_err = ""
+            for attempt in range(BREV_UPLOAD_RETRIES):
+                remote_upload_dir = f"/tmp/skill-eval/uploads/{uuid.uuid4().hex}"
+                remote_tar = f"{remote_upload_dir}/archive.tar.gz"
 
-            result = await _run_brev_copy(
-                str(tar_path), f"{self._instance_name}:{remote_tar}",
-            )
-            if result.return_code != 0:
-                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+                result = await _run_brev_exec(
+                    self._instance_name,
+                    f"mkdir -p {shlex.quote(remote_upload_dir)}",
+                    timeout=30,
+                )
+                if result.return_code != 0:
+                    last_err = result.stderr or result.stdout or ""
+                    if (
+                        attempt + 1 < BREV_UPLOAD_RETRIES
+                        and _is_transient_brev_transport_error(last_err)
+                    ):
+                        logger.warning(
+                            "upload_dir mkdir attempt %d/%d failed (%s) — retrying",
+                            attempt + 1, BREV_UPLOAD_RETRIES, last_err,
+                        )
+                        await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
+                        continue
+                    raise RuntimeError(
+                        f"Upload dir failed on {self._instance_name}: {last_err}"
+                    )
 
-            target = shlex.quote(target_dir)
-            remote_archive = shlex.quote(remote_tar)
-            remote_dir = shlex.quote(remote_upload_dir)
-            result = await _run_brev_exec(
-                self._instance_name,
-                f"sudo mkdir -p {target} && "
-                f"sudo chown $(whoami):$(id -gn) {target}; "
-                "status=$?; "
-                "if [ $status -eq 0 ]; then "
-                f"tar -xzf {remote_archive} -C {target}; "
-                "status=$?; "
-                "fi; "
-                f"rm -f {remote_archive}; "
-                f"rmdir {remote_dir} 2>/dev/null || true; "
-                "exit $status",
-                timeout=120,
+                result = await _run_brev_copy(
+                    str(tar_path), f"{self._instance_name}:{remote_tar}",
+                )
+                if result.return_code != 0:
+                    last_err = result.stderr or result.stdout or ""
+                    if (
+                        attempt + 1 < BREV_UPLOAD_RETRIES
+                        and _is_transient_brev_transport_error(last_err)
+                    ):
+                        logger.warning(
+                            "upload_dir copy attempt %d/%d failed (%s) — retrying",
+                            attempt + 1, BREV_UPLOAD_RETRIES, last_err,
+                        )
+                        await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
+                        continue
+                    raise RuntimeError(
+                        f"Upload dir failed on {self._instance_name}: {last_err}"
+                    )
+
+                target_raw = str(target_dir).rstrip("/") or "."
+                target = shlex.quote(target_raw)
+                remote_archive = shlex.quote(remote_tar)
+                remote_dir = shlex.quote(remote_upload_dir)
+                replace_target = target_raw in {"/tests", "/solution", "/skills"}
+                prepare_target = (
+                    f"sudo rm -rf {target} && "
+                    if replace_target
+                    else ""
+                )
+                result = await _run_brev_exec(
+                    self._instance_name,
+                    f"{prepare_target}"
+                    f"sudo mkdir -p {target} && "
+                    f"sudo chown $(whoami):$(id -gn) {target}; "
+                    "status=$?; "
+                    "if [ $status -eq 0 ]; then "
+                    f"tar -xzf {remote_archive} -C {target}; "
+                    "status=$?; "
+                    "fi; "
+                    f"rm -f {remote_archive}; "
+                    f"rmdir {remote_dir} 2>/dev/null || true; "
+                    "exit $status",
+                    timeout=120,
+                )
+                if result.return_code == 0:
+                    return
+
+                last_err = result.stderr or result.stdout or ""
+                if (
+                    attempt + 1 < BREV_UPLOAD_RETRIES
+                    and _is_transient_brev_transport_error(last_err)
+                ):
+                    logger.warning(
+                        "upload_dir extract attempt %d/%d failed (%s) — retrying",
+                        attempt + 1, BREV_UPLOAD_RETRIES, last_err,
+                    )
+                    await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
+                    continue
+                raise RuntimeError(
+                    f"Upload dir failed on {self._instance_name}: {last_err}"
+                )
+
+            raise RuntimeError(
+                f"Upload dir failed on {self._instance_name}: after "
+                f"{BREV_UPLOAD_RETRIES} attempts: {last_err}"
             )
-            if result.return_code != 0:
-                raise RuntimeError(f"Upload dir failed: {result.stderr}")
         finally:
             tar_path.unlink(missing_ok=True)
 
@@ -1187,10 +2807,20 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         user: str | int | None = None,
     ) -> ExecResult:
         assert self._instance_name
+        original_command = command
+        command = self._replace_nemoclaw_launcher_command(command, env)
+        replaced_nemoclaw_launcher = command != original_command
+        if env and command != original_command:
+            env = {
+                key: value
+                for key, value in env.items()
+                if not key.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")
+            }
 
         is_trial_agent = (
             "claude --verbose --output-format=stream-json" in command
             or "codex exec " in command
+            or replaced_nemoclaw_launcher
         )
         agent_run_marker = (
             f"{REMOTE_AGENT_RUN_PREFIX}{uuid.uuid4().hex}"
@@ -1251,11 +2881,23 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         else:
             full_cmd = inner_cmd
 
+        exec_timeout = timeout_sec or BREV_EXEC_TIMEOUT
+        if replaced_nemoclaw_launcher:
+            # The direct launcher owns an inner NemoClaw deadline. Keep the
+            # transport alive through trajectory collection and cleanup.
+            nemoclaw_timeout = int(
+                os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800")
+            )
+            exec_timeout = max(
+                exec_timeout,
+                nemoclaw_timeout + NEMOCLAW_TRANSPORT_CLEANUP_MARGIN_SEC,
+            )
+
         try:
             result = await _run_brev_exec(
                 self._instance_name,
                 full_cmd,
-                timeout=timeout_sec or BREV_EXEC_TIMEOUT,
+                timeout=exec_timeout,
             )
             if agent_run_marker is not None:
                 await self._reap_remote_agent_after_interrupt(
@@ -1294,6 +2936,98 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             if not best_effort:
                 raise
             logger.warning("Remote agent reap failed after interruption: %r", exc)
+
+    def _replace_nemoclaw_launcher_command(
+        self,
+        command: str,
+        env: dict[str, str] | None = None,
+    ) -> str:
+        """Replace the outer Claude launcher with a deterministic handoff.
+
+        The NemoClaw task's actual skill exercise happens inside OpenClaw.
+        The outer Harbor Claude process is only supposed to launch that run;
+        in practice it can return early or keep polling an async shell task.
+        Intercepting only the generated NemoClaw launcher command keeps the
+        Harbor lifecycle/result reporting while making the handoff reliable.
+        """
+        meta = self._task_metadata or {}
+        harbor_instructions = (
+            value
+            for key, value in (env or {}).items()
+            if key.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")
+        )
+        has_nemoclaw_launcher = "headless_runner.py" in command or any(
+            "headless_runner.py" in value for value in harbor_instructions
+        )
+        if not has_nemoclaw_launcher or "claude" not in command:
+            return command
+        # The generated headless_runner.py command is the authoritative signal
+        # for the NemoClaw handoff. Do not require parsed task metadata here:
+        # if Harbor/metadata parsing changes, falling back to the outer Claude
+        # launcher makes the job run until timeout and can collect stale
+        # /tests artifacts from warm workers.
+        expected_skill = str(meta.get("expected_skill") or meta.get("skill") or "").strip()
+        expected_arg = (
+            f" --expected-skill {shlex.quote(expected_skill)}"
+            if expected_skill
+            else ""
+        )
+
+        timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
+        wait_profile = str(meta.get("deployment_profile") or "").strip()
+        wait_arg = (
+            f" --wait-profile {shlex.quote(wait_profile)}"
+            if wait_profile
+            else ""
+        )
+        environment_dir = getattr(self, "environment_dir", None)
+        prompt_file = (
+            Path(environment_dir).parent / "tests" / "nemoclaw_prompt.md"
+            if environment_dir
+            else None
+        )
+        if prompt_file is None or not prompt_file.is_file():
+            raise RuntimeError(
+                "NemoClaw task prompt is unavailable on the coordinator; "
+                "refusing to fall back to potentially stale worker /tests input."
+            )
+        prompt_b64 = base64.b64encode(prompt_file.read_bytes()).decode("ascii")
+        prompt_arg = "/tmp/skill-eval/nemoclaw/current_prompt.md"
+        prompt_setup = (
+            "mkdir -p /tmp/skill-eval/nemoclaw\n"
+            f"printf %s {shlex.quote(prompt_b64)} | base64 -d > {shlex.quote(prompt_arg)}\n"
+        )
+        launcher_command = rf"""set -euo pipefail
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+mkdir -p /logs/agent /logs/artifacts/nemoclaw
+cat > /logs/agent/claude-code.txt <<'__NEMOCLAW_LAUNCHER__'
+NemoClaw direct Harbor launcher.
+
+The outer Claude Code process was intentionally bypassed for this opt-in
+NemoClaw task. The skill evaluation is executed by OpenClaw/NemoClaw using
+the repository skills and the VSS Orchestrator MCP server.
+__NEMOCLAW_LAUNCHER__
+{prompt_setup}unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE
+set +e
+python3 .github/skill-eval/nemoclaw/headless_runner.py \
+  --prompt-file {shlex.quote(prompt_arg)} \
+  --log-dir /logs/artifacts/nemoclaw \
+  --agent-log-dir /logs/agent \
+  --launch-mode cli \
+  --timeout {timeout_s}{wait_arg}{expected_arg} \
+  > /logs/agent/nemoclaw-headless-runner.stdout 2>&1
+rc=$?
+set -e
+cat /logs/agent/nemoclaw-headless-runner.stdout
+printf '\nNemoClaw direct launcher exit code: %s\n' "$rc" >> /logs/agent/claude-code.txt
+cat /logs/agent/nemoclaw-headless-runner.stdout >> /logs/agent/claude-code.txt
+exit "$rc"
+"""
+        return _guard_nemoclaw_launcher_once(
+            launcher_command,
+            _nemoclaw_attempt_owner_token(),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1337,13 +3071,10 @@ def _stray_agent_reap_command(agent_run_marker: str | None = None) -> str:
     """SIGKILL on-box agent trees, including detached background workers.
 
     New agent commands export a unique marker inherited by every descendant.
-    An exact marker scopes immediate post-agent cleanup; ``None`` matches all
-    skill-eval markers during warm-box startup recovery. That startup mode also
-    retains legacy Claude and Codex argv matches for agents started before the
-    marker existed; exact immediate cleanup never broadens beyond its marker.
-    Every matching PID's process group is snapshotted
-    before any signal is sent, so killing the main agent group cannot hide a
-    child that called ``setsid()``. The reaper's own group is always excluded.
+    An exact marker scopes immediate cleanup; ``None`` matches every eval
+    marker during warm-box recovery and also includes legacy Claude, Codex,
+    and direct NemoClaw argv patterns. Every signal is verified; a surviving
+    non-zombie process or group makes the caller fail loud.
     """
     if agent_run_marker is not None and not agent_run_marker.startswith(
         REMOTE_AGENT_RUN_PREFIX
@@ -1351,59 +3082,132 @@ def _stray_agent_reap_command(agent_run_marker: str | None = None) -> str:
         raise ValueError("invalid remote agent run marker")
 
     if agent_run_marker is None:
-        marker_probe = (
+        marker_setup = [
             f'MARKER_RE="^{REMOTE_AGENT_RUN_ENV}='
-            f'{REMOTE_AGENT_RUN_PREFIX}[0-9a-f]+$"; '
-            "MATCH_EXACT=0; INCLUDE_LEGACY=1; "
-        )
+            f'{REMOTE_AGENT_RUN_PREFIX}[0-9a-f]+$"',
+            "MATCH_EXACT=0",
+            "INCLUDE_LEGACY=1",
+        ]
     else:
-        marker_probe = (
-            f"MARKER={shlex.quote(f'{REMOTE_AGENT_RUN_ENV}={agent_run_marker}')}; "
-            "MATCH_EXACT=1; INCLUDE_LEGACY=0; "
-        )
+        marker_setup = [
+            f"MARKER={shlex.quote(f'{REMOTE_AGENT_RUN_ENV}={agent_run_marker}')}",
+            "MATCH_EXACT=1",
+            "INCLUDE_LEGACY=0",
+        ]
 
-    return (
-        marker_probe
-        + "CLAUDE_PAT='claude --verbose --output-format=stream-jso[n]'; "
-        "CODEX_PAT='codex exe[c]'; "
-        'SELF_PGID=$(ps -o pgid= -p $$ | tr -d " "); '
-        "PIDS=''; PGIDS=''; "
-        "for env_file in /proc/[0-9]*/environ; do "
-        '  [ -r "$env_file" ] || continue; '
-        '  pid=${env_file#/proc/}; pid=${pid%/environ}; '
-        '  [ "$pid" = "$$" ] && continue; '
-        '  if [ "$MATCH_EXACT" -eq 1 ]; then '
-        '    tr "\\0" "\\n" < "$env_file" 2>/dev/null '
-        '      | grep -Fqx -- "$MARKER" || continue; '
-        "  else "
-        '    tr "\\0" "\\n" < "$env_file" 2>/dev/null '
-        '      | grep -Eq -- "$MARKER_RE" || continue; '
-        "  fi; "
-        '  PIDS="$PIDS $pid"; '
-        "done; "
-        'if [ "$INCLUDE_LEGACY" -eq 1 ]; then '
-        '  PIDS="$PIDS $(pgrep -f "$CLAUDE_PAT" || true) '
-        '$(pgrep -f "$CODEX_PAT" || true)"; '
-        "fi; "
-        "for pid in $PIDS; do "
-        '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d " " || true); '
-        '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then continue; fi; '
-        '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then '
-        '      PGIDS="$PGIDS $PGID"; '
-        "    fi; "
-        "done; "
-        "UNIQUE_PGIDS=''; "
-        "for pgid in $(printf '%s\\n' $PGIDS | sort -un); do "
-        '  [ -n "$pgid" ] || continue; '
-        '  kill -9 -- "-$pgid" 2>/dev/null || true; '
-        '  UNIQUE_PGIDS="$UNIQUE_PGIDS $pgid"; '
-        "done; "
-        "for pid in $PIDS; do kill -9 \"$pid\" 2>/dev/null || true; done; "
-        'if [ -n "$UNIQUE_PGIDS" ]; then '
-        '  echo "[stray-agent-reap] killed pgids:$UNIQUE_PGIDS"; '
-        "else "
-        '  echo "[stray-agent-reap] none"; '
-        "fi"
+    return "\n".join(
+        [
+            *marker_setup,
+            "CLAUDE_PAT='claude --verbose --output-format=stream-jso[n]'",
+            "CODEX_PAT='codex exe[c]'",
+            "NEMOCLAW_PAT='python3 "
+            "\\.github/skill-eval/nemoclaw/headless_runne[r]\\.py'",
+            "for tool in pgrep ps awk sort grep tr; do",
+            '  command -v "$tool" >/dev/null 2>&1 || {',
+            '    echo "[stray-agent-reap] missing required tool: $tool" >&2',
+            "    exit 1",
+            "  }",
+            "done",
+            'SELF_PGID=$(ps -o pgid= -p $$ | tr -d "[:space:]") || {',
+            '  echo "[stray-agent-reap] could not inspect own process group" >&2',
+            "  exit 1",
+            "}",
+            "PIDS=$( {",
+            "  for env_file in /proc/[0-9]*/environ; do",
+            '    [ -r "$env_file" ] || continue',
+            '    pid=${env_file#/proc/}; pid=${pid%/environ}',
+            '    [ "$pid" = "$$" ] && continue',
+            '    if [ "$MATCH_EXACT" -eq 1 ]; then',
+            '      tr "\\0" "\\n" < "$env_file" 2>/dev/null '
+            '| grep -Fqx -- "$MARKER" || continue',
+            "    else",
+            '      tr "\\0" "\\n" < "$env_file" 2>/dev/null '
+            '| grep -Eq -- "$MARKER_RE" || continue',
+            "    fi",
+            '    printf "%s\\n" "$pid"',
+            "  done",
+            '  if [ "$INCLUDE_LEGACY" -eq 1 ]; then',
+            '    pgrep -f "$CLAUDE_PAT" || true',
+            '    pgrep -f "$CODEX_PAT" || true',
+            '    pgrep -f "$NEMOCLAW_PAT" || true',
+            "  fi",
+            "} | sort -u)",
+            "KILLED=''",
+            "FAILED=''",
+            "pid_is_live() {",
+            '  kill -0 "$1" 2>/dev/null || return 1',
+            '  state=$(ps -o stat= -p "$1" 2>/dev/null '
+            '| tr -d "[:space:]")',
+            '  case "$state" in Z*) return 1 ;; *) return 0 ;; esac',
+            "}",
+            "group_has_live_members() {",
+            "  members=$(ps -eo pgid=,stat=) || return 2",
+            '  printf "%s\\n" "$members" | awk -v target="$1" '
+            "'$1 == target && $2 !~ /^Z/ { found=1 } "
+            "END { exit !found }'",
+            "}",
+            'if [ -n "$PIDS" ]; then',
+            "  for pid in $PIDS; do",
+            '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null '
+            '| tr -d "[:space:]" || true)',
+            '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then',
+            "      continue",
+            "    fi",
+            '    if [ -z "$PGID" ]; then',
+            '      if pid_is_live "$pid"; then',
+            '        FAILED="$FAILED $pid"',
+            "      else",
+            '        KILLED="$KILLED $pid"',
+            "      fi",
+            "      continue",
+            "    fi",
+            '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then',
+            '      kill -9 -- "-$PGID" 2>/dev/null || true',
+            "    fi",
+            '    kill -9 "$pid" 2>/dev/null || true',
+            "    group_live=0",
+            "    for _attempt in 1 2 3 4 5; do",
+            "      group_live=0",
+            '      if [ "$PGID" != "0" ]; then',
+            '        if group_has_live_members "$PGID"; then',
+            "          group_live=1",
+            "        else",
+            "          group_rc=$?",
+            '          [ "$group_rc" = 1 ] || group_live=2',
+            "        fi",
+            "      fi",
+            '      if ! pid_is_live "$pid" && [ "$group_live" = 0 ]; then',
+            "        break",
+            "      fi",
+            '      [ "$group_live" = 2 ] && break',
+            "      sleep 1",
+            "    done",
+            "    group_live=0",
+            '    if [ "$PGID" != "0" ]; then',
+            '      if group_has_live_members "$PGID"; then',
+            "        group_live=1",
+            "      else",
+            "        group_rc=$?",
+            '        [ "$group_rc" = 1 ] || group_live=2',
+            "      fi",
+            "    fi",
+            '    if pid_is_live "$pid" || [ "$group_live" != 0 ]; then',
+            '      FAILED="$FAILED $pid"',
+            "    else",
+            '      KILLED="$KILLED $pid"',
+            "    fi",
+            "  done",
+            "fi",
+            'if [ -n "$FAILED" ]; then',
+            '  echo "[stray-agent-reap] failed to kill pids:$FAILED" >&2',
+            "  exit 1",
+            "fi",
+            'if [ -n "$KILLED" ]; then',
+            '  echo "[stray-agent-reap] killed pids:$KILLED"',
+            "else",
+            '  echo "[stray-agent-reap] none"',
+            "fi",
+        ]
     )
 
 
@@ -1618,6 +3422,75 @@ async def _run_local_transfer_command(
 # first query to avoid repeated `brev ls nodes` round-trips.
 _registered_nodes_cache: dict[str, dict] | None = None
 
+# Direct SSH transports use the exact Brev-generated config that run_leg.py
+# admitted while selecting the worker. Cached managed aliases are propagated
+# through a dedicated admitted-only environment value after the selector's
+# owner/mode/allowlist validation, so a requested name alone never authorizes
+# a direct SSH destination.
+DEFAULT_BREV_SSH_CONFIG = "~/.brev/ssh_config"
+CACHED_MANAGED_SSH_ADMITTED_ENV = "BREV_ADMITTED_CACHED_SSH_POOL"
+CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV = (
+    "BREV_ADMITTED_CACHED_SSH_CONFIG"
+)
+
+
+def _ssh_config_path() -> str:
+    """Return the explicit SSH config used for every direct transport.
+
+    Brev writes aliases to ``~/.brev/ssh_config``.  Operators may instead
+    provide a dedicated immutable config with ``BREV_SSH_CONFIG``.  Passing
+    the path through ``-F`` avoids depending on coordinator-global include
+    state and makes the selected alias/config pair auditable.
+    """
+    configured = os.environ.get("BREV_SSH_CONFIG", "").strip()
+    return str(Path(configured or DEFAULT_BREV_SSH_CONFIG).expanduser())
+
+
+def _configured_cached_ssh_nodes() -> set[str]:
+    return {
+        value.lower()
+        for value in re.split(
+            r"[\s,]+",
+            os.environ.get(CACHED_MANAGED_SSH_ADMITTED_ENV, "").strip(),
+        )
+        if value
+    }
+
+
+def _ssh_config_args(alias: str) -> list[str]:
+    """Pin cache-admitted workers to run_leg's private config snapshot."""
+    if alias.lower() in _configured_cached_ssh_nodes():
+        configured = os.environ.get(
+            CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV, ""
+        ).strip()
+        if not configured:
+            raise RuntimeError(
+                "cache-admitted SSH worker is missing its private config"
+            )
+        return ["-F", str(Path(configured).expanduser())]
+    return []
+
+
+def _configured_registered_nodes() -> set[str]:
+    """Return operator-approved registered nodes that use direct SSH.
+
+    The coordinator provisions persistent aliases for these names.  Brev API
+    discovery is therefore optional metadata: the environment validates the
+    actual SSH connection and live hardware before starting a task.
+    """
+    raw = " ".join(
+        (
+            os.environ.get("BREV_REGISTERED_POOL", ""),
+            os.environ.get("BREV_RTX4090_POOL", ""),
+            os.environ.get(CACHED_MANAGED_SSH_ADMITTED_ENV, ""),
+        )
+    )
+    return {
+        value.lower()
+        for value in re.split(r"[\s,]+", raw.strip())
+        if value
+    }
+
 
 async def _load_registered_nodes() -> dict[str, dict]:
     """Return {lower_name: node_dict} from `brev ls nodes --json`.
@@ -1651,6 +3524,8 @@ async def _is_registered_node(name: str) -> bool:
     """True if *name* matches a registered external node (case-insensitive)."""
     if not name:
         return False
+    if name.lower() in _configured_registered_nodes():
+        return True
     cache = await _load_registered_nodes()
     return name.lower() in cache
 
@@ -1669,10 +3544,17 @@ async def _run_ssh_exec(
     """Run `ssh <alias> <command>` — for registered nodes."""
     cmd = [
         "ssh",
+        *_ssh_config_args(alias),
+        "-T",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=30",
         "-o", "StrictHostKeyChecking=no",
+        "-o", "ForwardAgent=no",
+        "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no",
+        "-o", "ControlMaster=no",
+        "-o", "ControlPath=none",
         alias, command,
     ]
     logger.debug("ssh %s: %s", alias, command[:200])
@@ -1713,11 +3595,23 @@ async def _run_scp(
 
     Expects either src or dst to be of form `<alias>:<path>`.  Uses the
     same SSH options as _run_ssh_exec."""
+    remote_alias = ""
+    for endpoint in (src, dst):
+        if ":" in endpoint:
+            remote_alias = endpoint.split(":", 1)[0]
+            break
     cmd = [
-        "scp", "-r",
+        "scp",
+        *_ssh_config_args(remote_alias),
+        "-r",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
         "-o", "StrictHostKeyChecking=no",
+        "-o", "ForwardAgent=no",
+        "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no",
+        "-o", "ControlMaster=no",
+        "-o", "ControlPath=none",
         src, dst,
     ]
     logger.debug("scp: %s -> %s", src, dst)
@@ -2002,6 +3896,21 @@ async def _find_brev_instance(name: str) -> dict | None:
     Retries a few times — `brev ls` sometimes hits transient RPC
     deadline-exceeded errors and returns empty stdout.
     """
+    # Registered pool members have persistent coordinator SSH aliases and are
+    # explicitly operator-approved.  Resolve them before calling the Brev API
+    # so an expired refresh token does not prevent direct SSH transport.  The
+    # subsequent live resource/readiness checks remain authoritative.
+    if name.lower() in _configured_registered_nodes():
+        return {
+            "name": name,
+            "type": "registered",
+            "gpu": "",
+            "instance_type": "registered-external-node",
+            "status": "CONNECTED",
+            "_registered": True,
+            "_inventory_fallback": True,
+        }
+
     for attempt in range(4):
         result = await _run_brev("ls", "--json", timeout=30)
         raw = result.stdout or ""
@@ -2023,7 +3932,7 @@ async def _find_brev_instance(name: str) -> dict | None:
         else:
             parsed = _parse_brev_json(raw)
         for inst in parsed:
-            if inst.get("name") == name:
+            if inst.get("name") == name or inst.get("id") == name:
                 return inst
 
         # JSON parsed, just no match for this name — check registered nodes
@@ -2069,7 +3978,7 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
     """SSH in and count GPUs via nvidia-smi. Raises only if the box has
-    FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
+    fewer GPUs than required; over-provisioned boxes are accepted."""
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
@@ -2109,6 +4018,92 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
     )
 
 
+async def _check_direct_gpu_requirements(instance_name: str, req: dict) -> None:
+    """Fail closed on live GPU model/count/VRAM for direct SSH workers."""
+    required_count = int(req.get("gpu_count", 1) or 0)
+    if required_count == 0:
+        return
+
+    result = await _run_brev_exec(
+        instance_name,
+        (
+            "nvidia-smi --query-gpu=name,memory.total "
+            "--format=csv,noheader,nounits"
+        ),
+        timeout=30,
+    )
+    if result.return_code != 0 or not (result.stdout or "").strip():
+        raise RuntimeError(
+            f"Brev direct-SSH worker '{instance_name}' GPU inventory could "
+            "not be verified with nvidia-smi"
+        )
+
+    gpus: list[tuple[str, int]] = []
+    for raw_line in (result.stdout or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            gpu_name, memory_mib_text = line.rsplit(",", 1)
+            memory_mib = int(memory_mib_text.strip())
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(
+                f"Brev direct-SSH worker '{instance_name}' returned an "
+                f"unparseable GPU inventory row: {line!r}"
+            ) from exc
+        gpus.append((gpu_name.strip().upper(), memory_mib))
+
+    if len(gpus) < required_count:
+        raise RuntimeError(
+            f"Brev direct-SSH worker '{instance_name}' has {len(gpus)} "
+            f"GPU(s); task requires at least {required_count}"
+        )
+
+    required_type = (req.get("gpu_type") or "").upper()
+
+    def loose_match(want: str, have: str) -> bool:
+        want_tokens = set(want.replace("-", " ").split())
+        have_tokens = set(have.replace("-", " ").split())
+        return want_tokens.issubset(have_tokens) or want in have
+
+    mismatched = [
+        name for name, _ in gpus
+        if required_type and not loose_match(required_type, name)
+    ]
+    if mismatched:
+        raise RuntimeError(
+            f"Brev direct-SSH worker '{instance_name}' GPU model(s) "
+            f"{mismatched!r} do not satisfy {required_type!r}"
+        )
+
+    required_vram_gb = int(req.get("min_vram_gb_per_gpu", 0) or 0)
+    if required_vram_gb:
+        undersized = [
+            (name, memory_mib)
+            for name, memory_mib in gpus
+            # nvidia-smi reports MiB while platform specs use manufacturers'
+            # decimal GB (for example L40S 48 GB reports about 46,068 MiB).
+            if (
+                memory_mib * 1024 * 1024
+                < required_vram_gb * 1_000_000_000
+            )
+        ]
+        if undersized:
+            raise RuntimeError(
+                f"Brev direct-SSH worker '{instance_name}' GPU VRAM does "
+                f"not satisfy {required_vram_gb} GiB per GPU: {undersized!r}"
+            )
+
+    logger.info(
+        "Direct-SSH worker '%s' live GPU inventory satisfies type=%r, "
+        "count>=%d, vram>=%d GiB",
+        instance_name,
+        required_type,
+        required_count,
+        required_vram_gb,
+    )
+
+
 async def _check_instance_matches(instance: dict, req: dict) -> None:
     """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
@@ -2122,10 +4117,9 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     live nvidia-smi check in _check_live_resources.
     """
     if instance.get("_registered"):
-        logger.info(
-            "Instance '%s' is a registered external node — "
-            "skipping catalog GPU-name match (rely on live nvidia-smi check)",
-            instance.get("name"),
+        await _check_direct_gpu_requirements(
+            str(instance.get("name") or ""),
+            req,
         )
         return
 
@@ -2259,36 +4253,108 @@ def _version_lt(a: str, b: str) -> bool:
     return tup(a) < tup(b)
 
 
-async def _check_live_resources(instance_name: str, req: dict) -> None:
-    """SSH into the instance and verify root disk + driver meet requirements."""
-    min_disk = req.get("min_root_disk_gb", 0)
-    min_driver = req.get("min_gpu_driver_version")
+_DF_TOTAL_MARKER = "SKILL_EVAL_STORAGE_TOTAL_GB:"
+_DF_FREE_MARKER = "SKILL_EVAL_STORAGE_FREE_GB:"
 
-    if min_disk:
-        # df -BG reports total in GB; strip trailing 'G'.
+
+def _parse_df_marker_gb(output: str | None, marker: str) -> int | None:
+    """Parse exactly one anchored numeric storage marker from remote output."""
+    values: list[int] = []
+    for line in (output or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(marker):
+            continue
+        value = stripped.removeprefix(marker)
+        if not value.isdigit():
+            return None
+        values.append(int(value))
+    return values[0] if len(values) == 1 else None
+
+
+async def _check_live_resources(instance_name: str, req: dict) -> None:
+    """SSH into the instance and verify storage + driver requirements."""
+    min_disk = req.get("min_root_disk_gb", 0)
+    min_free_disk = req.get("min_root_disk_free_gb", 0)
+    min_driver = req.get("min_gpu_driver_version")
+    check_docker_storage = bool(
+        min_free_disk or req.get("_check_docker_storage", False)
+    )
+
+    if min_disk or min_free_disk:
+        # Managed warm-pool tasks set a free-space floor. Probe the filesystem
+        # that actually backs Docker and fail closed if Docker cannot identify
+        # it. Generic tasks retain the legacy root-filesystem total contract.
+        if check_docker_storage:
+            target_command = (
+                "docker_root=$(docker info --format "
+                "'{{.DockerRootDir}}' 2>/dev/null); "
+                "[ -n \"$docker_root\" ] && [ -d \"$docker_root\" ]; "
+                "target=$docker_root; "
+            )
+        else:
+            target_command = "target=/; "
+        disk_command = (
+            "set -eu; "
+            + target_command
+            + "df -P -BG -- \"$target\" | "
+            "awk 'NR == 2 { "
+            "total=$2; free=$4; sub(/G$/, \"\", total); "
+            "sub(/G$/, \"\", free); "
+            "if (total !~ /^[0-9]+$/ || free !~ /^[0-9]+$/) exit 2; "
+            f'printf "{_DF_TOTAL_MARKER}%s\\n", total; '
+            f'printf "{_DF_FREE_MARKER}%s\\n", free; '
+            "seen=1 } END { if (!seen) exit 3 }'"
+        )
         result = await _run_brev_exec(
             instance_name,
-            "df -BG / | tail -1 | awk '{print $2}'",
+            disk_command,
             timeout=30,
         )
-        if result.return_code == 0 and result.stdout.strip():
-            total = result.stdout.strip().rstrip("G").strip()
-            try:
-                total_gb = int(total)
-            except ValueError:
-                logger.warning("Could not parse df output: %r", result.stdout)
-                total_gb = None
-            if total_gb is not None and total_gb < min_disk:
-                raise RuntimeError(
-                    f"Brev instance '{instance_name}' root disk is {total_gb} GB; "
-                    f"task requires at least {min_disk} GB (for NIM images + VSS "
-                    f"containers). Delete and reprovision with a larger-root "
-                    f"instance type."
-                )
-            logger.info(
-                "Instance '%s' root disk: %s GB (>= required %s GB)",
-                instance_name, total_gb, min_disk,
+        total_gb = (
+            _parse_df_marker_gb(result.stdout, _DF_TOTAL_MARKER)
+            if result.return_code == 0
+            else None
+        )
+        storage_label = (
+            "Docker storage filesystem" if check_docker_storage else "root disk"
+        )
+        if total_gb is None:
+            raise RuntimeError(
+                f"Brev instance '{instance_name}' {storage_label} could not be "
+                "determined: df returned no unique total-GB marker"
             )
+        if total_gb < min_disk:
+            raise RuntimeError(
+                f"Brev instance '{instance_name}' {storage_label} is "
+                f"{total_gb} GB; "
+                f"task requires at least {min_disk} GB (for NIM images + VSS "
+                f"containers). Delete and reprovision with a larger-root "
+                f"instance type."
+            )
+        if min_free_disk:
+            free_gb = _parse_df_marker_gb(result.stdout, _DF_FREE_MARKER)
+            if free_gb is None:
+                raise RuntimeError(
+                    f"Brev instance '{instance_name}' Docker storage free "
+                    "space could not be determined: df returned no unique "
+                    "free-GB marker"
+                )
+            if free_gb < min_free_disk:
+                raise RuntimeError(
+                    f"Brev instance '{instance_name}' Docker storage has "
+                    f"{free_gb} GB free; task requires at least "
+                    f"{min_free_disk} GB free for VSS containers. Clear "
+                    "unused Docker data or select another worker."
+                )
+        logger.info(
+            "Instance '%s' storage: total=%s GB free=%s GB "
+            "(required total=%s GB free=%s GB)",
+            instance_name,
+            total_gb,
+            _parse_df_marker_gb(result.stdout, _DF_FREE_MARKER),
+            min_disk,
+            min_free_disk,
+        )
 
     if min_driver:
         result = await _run_brev_exec(

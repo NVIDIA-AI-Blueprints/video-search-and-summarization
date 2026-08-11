@@ -11,10 +11,14 @@ and on bare metal.
 `/sandbox/.bashrc` is root-owned and read-only in this sandbox, so
 `HOST_IP` is **not** persisted to a shell init file. Instead, the
 "Every Session" checklist in `AGENTS.md` runs the exports in `ENV.md`
-at session start. If `echo $HOST_IP` is empty in any new shell or after
-a session/connect restart, re-run the exports in `ENV.md`. `ENV.md` is
-the single source of truth for the value — do not hardcode it
-elsewhere.
+at session start. The one exception is an automated
+`/vss-deploy-dense-captioning` evaluation whose prompt requires the canonical
+`RTSP_SAMPLE_URL` visibility probe as the first OpenClaw `exec` call: run that
+exact probe before reading `ENV.md` or exporting `HOST_IP`, then resume the
+normal session bootstrap. Never run the `HOST_IP` export first in that eval.
+If `echo $HOST_IP` is empty in any new shell or after a session/connect
+restart, re-run the exports in `ENV.md`. `ENV.md` is the single source of
+truth for the value — do not hardcode it elsewhere.
 
 The sandbox's egress policy whitelists the alias on a fixed set of VSS
 backend ports. The policy file lives on the host (outside the sandbox),
@@ -80,7 +84,9 @@ on the host. Stop and tell the user.
 ## Deployment
 
 Deployment is delegated to the VSS Orchestrator MCP server at
-`http://host.openshell.internal:9988/mcp`. Do **not** invoke
+`http://host.openshell.internal:9988/mcp`, registered in OpenClaw through its
+bundled `mcporter` adapter and constrained by the custom OpenShell policy.
+Prefer native `vss_orchestrator__*` tools when OpenClaw exposes them. Do **not** invoke
 `deploy/docker/scripts/dev-profile.sh`, scan for repo paths, or prompt the
 user for `HARDWARE_PROFILE` / `NGC_CLI_API_KEY` — the MCP server inherits
 them from the host environment.
@@ -93,14 +99,10 @@ inside the sandbox.
 
 ## Calling MCP tools
 
-OpenClaw's built-in MCP client can't fully handshake with the orchestrator's
-`nat mcp serve` (protocol mismatch: OpenClaw opens the SSE GET before
-establishing a session). Only **`vss_orchestrator__docker_list`** reliably
-registers as a native tool. Prefer it natively when present. Every other
-orchestrator tool (`prereqs`, `docker_generate`, `docker_up`, `docker_down`,
-`docker_status`, `docker_logs`, `docker_read`, `profiles`) must be invoked
-via `curl` from the `exec` tool. Ignore `react_agent` — it's the workflow's
-entry function, not a deployment tool.
+The notebook starts the streamable HTTP endpoint on `9988` for native tool
+discovery and readiness/fallback. Prefer native tools when they are visible. If OpenClaw does not expose a
+needed tool, use the `9988/mcp` curl fallback below. Ignore `react_agent` —
+it's the workflow's entry function, not a deployment tool.
 
 ### Handshake (once per session)
 
@@ -154,11 +156,26 @@ clarifying question.
 |---|---|---|
 | "generate artifacts for `<profile>`" | `docker_generate` → return `docker_compose_id` | `docker_up`, polling |
 | "read artifacts for `<id>`" | `docker_read` | — |
+| "probe/check the configured RTSP sample" | `rtsp_sample_probe` with no arguments → require a video stream | pass/echo/log the URL, register a fallback stream |
 | "deploy `<profile>`" / "bring up" / "start" | `docker_generate` → `docker_up` → poll `docker_status` | — |
 | "up `<id>`" (id already exists) | `docker_up` → poll `docker_status` | re-run `docker_generate` |
 | "stop `<profile>`" / "tear down" | `docker_down` → poll `docker_status` | — |
 | "check status" (in-flight ops_id known) | `docker_status` (`tail_lines: 5`) | — |
 | "what's running" / "is everything healthy" | `docker_list` (+ `docker_logs` per container) | `docker_status` |
+
+### Secret-safe RTSP probe fallback
+
+`vss_orchestrator__rtsp_sample_probe` is the host-side validation tool for
+`/vss-deploy-dense-captioning`. Call it with no URL argument. It can probe only
+the orchestrator server's configured `RTSP_SAMPLE_URL`, so the value never
+passes through the model, MCP arguments, or tool-call transcript. Never print
+or echo the URL.
+
+Proceed with stream registration only when the response has
+`status: "success"`, `has_video: true`, and `video_stream_count` of at least
+one. Treat `probe_timeout`, `probe_failed`, and `no_video_stream` as terminal
+for that URL. Surface only the tool's generic error code/message, and never
+derive or register a replacement stream.
 
 ## Long-running deploys
 

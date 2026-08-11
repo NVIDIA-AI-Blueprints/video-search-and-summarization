@@ -14,9 +14,18 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import importlib.util
+import json
 import os
+import shlex
+import shutil
+import socket
+import subprocess
 import sys
 import tempfile
+import textwrap
+import time
 import types
 import unittest
 from pathlib import Path
@@ -41,23 +50,48 @@ sys.modules.setdefault("harbor.environments", types.ModuleType("harbor.environme
 sys.modules["harbor.environments.base"] = _base
 
 ENVS_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ENVS_DIR.parent))
 sys.path.insert(0, str(ENVS_DIR))
 
 import brev_env  # noqa: E402
 
 
-class RtspSampleUrlResolution(unittest.TestCase):
-    def test_uses_public_default_when_unset(self):
-        with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": ""}):
-            self.assertEqual(
-                brev_env._resolve_rtsp_sample_url(),
-                "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03",
+class NemoClawCiRtspEnvironment(unittest.TestCase):
+    def test_dense_captioning_nemoclaw_uses_fixed_public_relay(self):
+        with mock.patch.dict(
+            os.environ,
+            {"RTSP_SAMPLE_URL": "rtsp://operator.example.test/override"},
+        ):
+            forwarded = dict(
+                brev_env._nemoclaw_ci_rtsp_environment(
+                    {
+                        "runner": "nemoclaw",
+                        "expected_skill": "vss-deploy-dense-captioning",
+                    }
+                )
             )
 
-    def test_preserves_operator_override(self):
-        custom_url = "rtsp://stream.example.test:8554/eval"
-        with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": custom_url}):
-            self.assertEqual(brev_env._resolve_rtsp_sample_url(), custom_url)
+        self.assertEqual(
+            forwarded,
+            {
+                "NEMOCLAW_CI_INJECT_RTSP_SAMPLE_URL": "1",
+                "RTSP_SAMPLE_URL": (
+                    "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+                ),
+            },
+        )
+
+    def test_non_nemoclaw_or_other_skill_is_not_marked(self):
+        for metadata in (
+            {"expected_skill": "vss-deploy-dense-captioning"},
+            {"runner": "nemoclaw", "expected_skill": "vss-ask-video"},
+            {"runner": "nemoclaw"},
+        ):
+            with self.subTest(metadata=metadata):
+                self.assertEqual(
+                    brev_env._nemoclaw_ci_rtsp_environment(metadata),
+                    (),
+                )
 
 
 class RegisteredNodeDetection(unittest.TestCase):
@@ -84,10 +118,90 @@ class RegisteredNodeDetection(unittest.TestCase):
         self.assertFalse(asyncio.run(brev_env._is_registered_node("unknown")))
         self.assertFalse(asyncio.run(brev_env._is_registered_node("")))
 
+    def test_configured_pool_is_registered_without_api_inventory(self):
+        brev_env._registered_nodes_cache = None
+        with (
+            mock.patch.dict(
+                brev_env.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(brev_env, "_load_registered_nodes") as load,
+        ):
+            self.assertTrue(
+                asyncio.run(
+                    brev_env._is_registered_node("VSS-EVAL-RTX-2G-VM1B")
+                )
+            )
+        load.assert_not_called()
+
     def test_ssh_alias(self):
         self.assertEqual(brev_env._ssh_alias_for("SPARK"), "spark")
         self.assertEqual(brev_env._ssh_alias_for("H100-VLM"), "h100-vlm")
         self.assertEqual(brev_env._ssh_alias_for("spark"), "spark")
+
+
+class ExplicitSshConfig(unittest.IsolatedAsyncioTestCase):
+    async def test_ssh_and_scp_use_explicit_config(self):
+        class FakeProcess:
+            pid = 12345
+            returncode = 0
+
+        process = FakeProcess()
+        communicate = mock.AsyncMock(return_value=(b"ok\n", b""))
+        spawn = mock.AsyncMock(return_value=process)
+        with tempfile.TemporaryDirectory() as td:
+            config = Path(td) / "ssh_config"
+            config.write_text("Host selected-worker\n", encoding="utf-8")
+            with (
+                mock.patch.dict(
+                    brev_env.os.environ,
+                    {
+                        "BREV_ADMITTED_CACHED_SSH_POOL": "selected-worker",
+                        "BREV_ADMITTED_CACHED_SSH_CONFIG": str(config),
+                    },
+                    clear=True,
+                ),
+                mock.patch.object(
+                    brev_env.asyncio,
+                    "create_subprocess_exec",
+                    new=spawn,
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_communicate_with_cancellation_cleanup",
+                    new=communicate,
+                ),
+                mock.patch.object(brev_env, "_register_transport_process"),
+            ):
+                await brev_env._run_ssh_exec("selected-worker", "true")
+                ssh_args = spawn.await_args.args
+                spawn.reset_mock()
+                await brev_env._run_scp(
+                    "/tmp/source",
+                    "selected-worker:/tmp/destination",
+                )
+                scp_args = spawn.await_args.args
+
+        self.assertEqual(ssh_args[:4], ("ssh", "-F", str(config), "-T"))
+        self.assertEqual(scp_args[:3], ("scp", "-F", str(config)))
+
+    async def test_existing_registered_pool_keeps_default_ssh_config(self):
+        with mock.patch.dict(
+            brev_env.os.environ,
+            {"BREV_REGISTERED_POOL": "registered-worker"},
+            clear=True,
+        ):
+            self.assertEqual(brev_env._ssh_config_args("registered-worker"), [])
+
+    async def test_admitted_cached_worker_requires_private_config(self):
+        with mock.patch.dict(
+            brev_env.os.environ,
+            {"BREV_ADMITTED_CACHED_SSH_POOL": "selected-worker"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "private config"):
+                brev_env._ssh_config_args("selected-worker")
 
 
 class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
@@ -118,6 +232,41 @@ class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
         finally:
             brev_env._run_brev = original
 
+    async def test_configured_pool_resolves_without_brev_api(self):
+        with (
+            mock.patch.dict(
+                brev_env.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(brev_env, "_run_brev") as run_brev,
+        ):
+            result = await brev_env._find_brev_instance(
+                "VSS-EVAL-RTX-2G-VM1B"
+            )
+
+        run_brev.assert_not_called()
+        self.assertTrue(result["_registered"])
+        self.assertTrue(result["_inventory_fallback"])
+        self.assertEqual(result["status"], "CONNECTED")
+
+    async def test_brev_instance_can_be_found_by_id(self):
+        async def fake_run_brev(*args, **kw):
+            return brev_env.ExecResult(
+                stdout='[{"id":"instance-123","name":"vss-eval-rtx-1g-2"}]',
+                stderr=None,
+                return_code=0,
+            )
+
+        original = brev_env._run_brev
+        brev_env._run_brev = fake_run_brev
+        try:
+            result = await brev_env._find_brev_instance("instance-123")
+            self.assertIsNotNone(result)
+            self.assertEqual(result["name"], "vss-eval-rtx-1g-2")
+        finally:
+            brev_env._run_brev = original
+
     async def test_unknown_instance_returns_none(self):
         async def fake_run_brev(*args, **kw):
             return brev_env.ExecResult(stdout="[]", stderr=None, return_code=0)
@@ -133,11 +282,92 @@ class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
 
 class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
-    def test_registered_instance_bypasses_gpu_name_check(self):
-        """Registered nodes often have empty `gpu` field — shouldn't fail."""
+    def test_registered_instance_uses_strict_live_gpu_check(self):
         inst = {"name": "SPARK", "_registered": True, "gpu": ""}
-        # Should not raise
-        asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "GB10"}))
+        requirements = {"gpu_type": "GB10", "gpu_count": 1}
+        with mock.patch.object(
+            brev_env,
+            "_check_direct_gpu_requirements",
+            new=mock.AsyncMock(),
+        ) as check:
+            asyncio.run(brev_env._check_instance_matches(inst, requirements))
+        check.assert_awaited_once_with("SPARK", requirements)
+
+    def test_direct_gpu_inventory_accepts_matching_worker(self):
+        inventory = brev_env.ExecResult(
+            stdout=(
+                "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+                "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+            ),
+            stderr=None,
+            return_code=0,
+        )
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=inventory),
+        ):
+            asyncio.run(
+                brev_env._check_direct_gpu_requirements(
+                    "vss-eval-rtx-2g-4",
+                    {
+                        "gpu_type": "RTX PRO 6000",
+                        "gpu_count": 2,
+                        "min_vram_gb_per_gpu": 96,
+                    },
+                )
+            )
+
+    def test_direct_gpu_inventory_fails_closed_on_probe_error(self):
+        failed = brev_env.ExecResult(
+            stdout=None,
+            stderr="nvidia-smi unavailable",
+            return_code=1,
+        )
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=failed),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "could not be verified"):
+                asyncio.run(
+                    brev_env._check_direct_gpu_requirements(
+                        "vss-eval-rtx-2g-4",
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+                    )
+                )
+
+    def test_direct_gpu_inventory_rejects_wrong_model_or_count(self):
+        inventory = brev_env.ExecResult(
+            stdout="NVIDIA L40S, 46068\n",
+            stderr=None,
+            return_code=0,
+        )
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=inventory),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "requires at least 2"):
+                asyncio.run(
+                    brev_env._check_direct_gpu_requirements(
+                        "vss-eval-rtx-2g-4",
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 2},
+                    )
+                )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            new=mock.AsyncMock(return_value=inventory),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "do not satisfy"):
+                asyncio.run(
+                    brev_env._check_direct_gpu_requirements(
+                        "vss-eval-rtx-2g-4",
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+                    )
+                )
 
     def test_brev_managed_still_checks_gpu(self):
         """Non-registered instances still enforce GPU-name match."""
@@ -153,6 +383,3276 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
                 asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "H100"}))
         finally:
             brev_env._get_instance_gpu_count_from_catalog = original
+
+    def test_larger_gpu_partition_satisfies_smaller_requirement(self):
+        inst = {"name": "test", "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-2g"}
+
+        async def fake_catalog_count(instance_type):
+            return 2
+
+        original = brev_env._get_instance_gpu_count_from_catalog
+        brev_env._get_instance_gpu_count_from_catalog = fake_catalog_count
+        try:
+            asyncio.run(
+                brev_env._check_instance_matches(
+                    inst,
+                    {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+                )
+            )
+        finally:
+            brev_env._get_instance_gpu_count_from_catalog = original
+
+    def test_smaller_gpu_partition_fails_larger_requirement(self):
+        inst = {"name": "test", "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
+
+        async def fake_catalog_count(instance_type):
+            return 1
+
+        original = brev_env._get_instance_gpu_count_from_catalog
+        brev_env._get_instance_gpu_count_from_catalog = fake_catalog_count
+        try:
+            with self.assertRaisesRegex(RuntimeError, "want at least 2"):
+                asyncio.run(
+                    brev_env._check_instance_matches(
+                        inst,
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 2},
+                    )
+                )
+        finally:
+            brev_env._get_instance_gpu_count_from_catalog = original
+
+
+class LiveResourceChecks(unittest.IsolatedAsyncioTestCase):
+    async def test_docker_storage_total_and_free_floors_accept_warm_pool(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:42\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
+                stderr=None,
+                return_code=0,
+            )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {
+                    "min_root_disk_gb": 110,
+                    "min_root_disk_free_gb": 20,
+                },
+            )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "vss-eval-rtx-1g-2")
+        self.assertEqual(calls[0][2], 30)
+        self.assertIn(
+            "docker info --format '{{.DockerRootDir}}'",
+            calls[0][1],
+        )
+        self.assertIn("df -P -BG", calls[0][1])
+        self.assertIn("SKILL_EVAL_STORAGE_TOTAL_GB:", calls[0][1])
+        self.assertIn("SKILL_EVAL_STORAGE_FREE_GB:", calls[0][1])
+
+    async def test_docker_storage_free_floor_rejects_low_headroom(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:10\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
+                stderr=None,
+                return_code=0,
+            )
+
+        with (
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "Docker storage has 10 GB free; task requires at least "
+                "20 GB free",
+            ),
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {
+                    "min_root_disk_gb": 110,
+                    "min_root_disk_free_gb": 20,
+                },
+            )
+
+    async def test_required_docker_storage_free_check_fails_closed(self):
+        for stdout in (
+            (
+                "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                "SKILL_EVAL_STORAGE_FREE_GB:not-a-size\n"
+                "vss-eval-rtx-1g-2\n"
+            ),
+            "SKILL_EVAL_STORAGE_TOTAL_GB:117\nvss-eval-rtx-1g-2\n",
+            (
+                "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                "SKILL_EVAL_STORAGE_FREE_GB:42\n"
+                "SKILL_EVAL_STORAGE_FREE_GB:43\n"
+            ),
+        ):
+            with self.subTest(stdout=stdout):
+                with (
+                    mock.patch.object(
+                        brev_env,
+                        "_run_brev_exec",
+                        new=mock.AsyncMock(
+                            return_value=brev_env.ExecResult(
+                                stdout=stdout,
+                                stderr=None,
+                                return_code=0,
+                            )
+                        ),
+                    ),
+                    self.assertRaisesRegex(
+                        RuntimeError,
+                        "Docker storage free space could not be determined",
+                    ),
+                ):
+                    await brev_env._check_live_resources(
+                        "vss-eval-rtx-1g-2",
+                        {
+                            "min_root_disk_gb": 110,
+                            "min_root_disk_free_gb": 20,
+                        },
+                    )
+
+    async def test_root_disk_parser_ignores_brev_workspace_suffix(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:200\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:80\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
+                stderr=None,
+                return_code=0,
+            )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {"min_root_disk_gb": 160},
+            )
+
+    async def test_root_disk_floor_rejects_decorated_small_disk_output(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout=(
+                    "SKILL_EVAL_STORAGE_TOTAL_GB:117\n"
+                    "SKILL_EVAL_STORAGE_FREE_GB:20\n"
+                    "vss-eval-rtx-1g-2\n"
+                ),
+                stderr=None,
+                return_code=0,
+            )
+
+        with (
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "root disk is 117 GB; task requires at least 160 GB",
+            ),
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {"min_root_disk_gb": 160},
+            )
+
+    async def test_required_root_disk_check_fails_closed_on_malformed_output(self):
+        async def fake_run_brev_exec(instance, command, timeout=30):
+            return brev_env.ExecResult(
+                stdout="workspace status unavailable\nvss-eval-rtx-1g-2\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with (
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "root disk could not be determined",
+            ),
+        ):
+            await brev_env._check_live_resources(
+                "vss-eval-rtx-1g-2",
+                {"min_root_disk_gb": 160},
+            )
+
+
+class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
+
+    async def test_coordinator_cli_payload_is_verified_uploaded_and_activated(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="Activated coordinator-built NemoClaw 0.0.103\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "nemoclaw-cli.tar.gz"
+            archive.write_bytes(b"exact coordinator payload")
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock()
+            with (
+                mock.patch.object(
+                    brev_env,
+                    "_run_brev_exec",
+                    new=fake_run_brev_exec,
+                ),
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "NEMOCLAW_INSTALL_REF": "v0.0.103",
+                        "NEMOCLAW_COORDINATOR_CLI_ARCHIVE": str(archive),
+                        "NEMOCLAW_COORDINATOR_CLI_SHA256": digest,
+                        "NEMOCLAW_COORDINATOR_CLI_VERSION": "0.0.103",
+                        "NEMOCLAW_COORDINATOR_CLI_REVISION": (
+                            "db31c286129e878c3356eed49f76ab259561e47e"
+                        ),
+                    },
+                    clear=False,
+                ),
+            ):
+                await env._install_coordinator_nemoclaw_cli()
+
+        env.upload_file.assert_awaited_once()
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/install_cli_payload.py",
+            command,
+        )
+        self.assertIn(f"--sha256 {digest}", command)
+        self.assertIn("--ref v0.0.103", command)
+        self.assertIn("--version 0.0.103", command)
+        self.assertIn(
+            "--revision db31c286129e878c3356eed49f76ab259561e47e",
+            command,
+        )
+        self.assertNotIn("curl", command)
+        self.assertNotIn("npm", command)
+        self.assertNotIn("git clone", command)
+
+    async def test_coordinator_cli_payload_rejects_incomplete_metadata(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with mock.patch.dict(
+            os.environ,
+            {"NEMOCLAW_COORDINATOR_CLI_ARCHIVE": "/tmp/payload.tar.gz"},
+            clear=False,
+        ):
+            for key in (
+                "NEMOCLAW_COORDINATOR_CLI_SHA256",
+                "NEMOCLAW_COORDINATOR_CLI_VERSION",
+                "NEMOCLAW_COORDINATOR_CLI_REVISION",
+            ):
+                os.environ.pop(key, None)
+            with self.assertRaisesRegex(RuntimeError, "metadata is incomplete"):
+                await env._install_coordinator_nemoclaw_cli()
+
+    def test_sample_fixture_metadata_is_closed_over_published_bundle(self):
+        self.assertEqual(
+            brev_env._nemoclaw_sample_files(
+                {
+                    "nemoclaw_sample_files": [
+                        "warehouse_safety_0001.mp4",
+                        "warehouse_safety_0001.mp4",
+                        "warehouse_sample.mp4",
+                    ]
+                }
+            ),
+            (
+                "warehouse_safety_0001.mp4",
+                "warehouse_sample.mp4",
+            ),
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "unsupported filename",
+        ):
+            brev_env._nemoclaw_sample_files(
+                {"nemoclaw_sample_files": ["../../etc/passwd"]}
+            )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "must be a TOML array",
+        ):
+            brev_env._nemoclaw_sample_files(
+                {"nemoclaw_sample_files": "warehouse_sample.mp4"}
+            )
+
+    def test_attempt_owner_marker_is_optional_and_ci_scoped(self):
+        with mock.patch.dict(
+            os.environ,
+            {"NEMOCLAW_ATTEMPT_OWNER_TOKEN": "not-a-token"},
+        ):
+            os.environ.pop("SKILLS_EVAL_RUNNER", None)
+            self.assertEqual(
+                brev_env._nemoclaw_attempt_owner_setup_command(),
+                "",
+            )
+
+        with mock.patch.dict(
+            os.environ,
+            {"SKILLS_EVAL_RUNNER": "nemoclaw"},
+        ):
+            os.environ.pop("NEMOCLAW_ATTEMPT_OWNER_TOKEN", None)
+            self.assertEqual(
+                brev_env._nemoclaw_attempt_owner_setup_command(),
+                "",
+            )
+
+    def test_attempt_owner_marker_rejects_invalid_ci_tokens(self):
+        invalid_tokens = (
+            "a" * 31,
+            "A" * 32,
+            "g" * 32,
+            ("a" * 31) + "\n",
+        )
+        for token in invalid_tokens:
+            with (
+                self.subTest(token=repr(token)),
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "SKILLS_EVAL_RUNNER": "nemoclaw",
+                        "NEMOCLAW_ATTEMPT_OWNER_TOKEN": token,
+                    },
+                ),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "must be exactly 32 lowercase hexadecimal characters",
+                ),
+            ):
+                brev_env._nemoclaw_attempt_owner_setup_command()
+
+    def test_launcher_guard_runs_payload_once_across_concurrent_replays(self):
+        token = "a" * 32
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner = root / "owner"
+            state_root = root / "launch-state"
+            stdout = root / "headless.stdout"
+            count = root / "payload-count"
+            owner.write_text(token + "\n", encoding="utf-8")
+            owner.chmod(0o600)
+            payload = textwrap.dedent(
+                f"""
+                set -euo pipefail
+                printf 'run\\n' >> {shlex.quote(str(count))}
+                sleep 0.2
+                printf 'payload output\\n' > {shlex.quote(str(stdout))}
+                cat {shlex.quote(str(stdout))}
+                exit 7
+                """
+            ).strip()
+            guarded = brev_env._guard_nemoclaw_launcher_once(
+                payload,
+                token,
+                owner_path=str(owner),
+                state_root=str(state_root),
+            )
+
+            first = subprocess.Popen(
+                ["bash", "-c", guarded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(100):
+                if count.exists():
+                    break
+                if first.poll() is not None:
+                    self.fail("first guarded launcher exited before its payload ran")
+                time.sleep(0.01)
+            else:
+                self.fail("first guarded launcher did not start its payload")
+            second = subprocess.Popen(
+                ["bash", "-c", guarded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            first_stdout, first_stderr = first.communicate(timeout=5)
+            second_stdout, second_stderr = second.communicate(timeout=5)
+            replay = subprocess.run(
+                ["bash", "-c", guarded],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+
+            self.assertEqual(first.returncode, 7, first_stderr)
+            self.assertEqual(second.returncode, 7, second_stderr)
+            self.assertEqual(replay.returncode, 7, replay.stderr)
+            self.assertEqual(first_stdout, "payload output\n")
+            self.assertEqual(second_stdout, first_stdout)
+            self.assertEqual(replay.stdout, first_stdout)
+            self.assertEqual(count.read_text(encoding="utf-8"), "run\n")
+
+    def test_launcher_guard_fails_closed_after_unfinished_claim(self):
+        token = "b" * 32
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner = root / "owner"
+            state_root = root / "launch-state"
+            state = state_root / token
+            count = root / "payload-count"
+            owner.write_text(token + "\n", encoding="utf-8")
+            owner.chmod(0o600)
+            state.mkdir(parents=True)
+            (state / "started").write_text("prior\n", encoding="utf-8")
+            guarded = brev_env._guard_nemoclaw_launcher_once(
+                f"touch {shlex.quote(str(count))}",
+                token,
+                owner_path=str(owner),
+                state_root=str(state_root),
+            )
+
+            result = subprocess.run(
+                ["bash", "-c", guarded],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                brev_env.NEMOCLAW_LAUNCH_GUARD_FAILURE_RC,
+            )
+            self.assertIn(
+                "prior launcher stopped without a terminal result",
+                result.stderr,
+            )
+            self.assertFalse(count.exists())
+
+    def test_launcher_guard_rejects_a_stale_attempt_owner(self):
+        current_token = "c" * 32
+        stale_token = "d" * 32
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner = root / "owner"
+            state_root = root / "launch-state"
+            count = root / "payload-count"
+            owner.write_text(current_token + "\n", encoding="utf-8")
+            owner.chmod(0o600)
+            guarded = brev_env._guard_nemoclaw_launcher_once(
+                f"touch {shlex.quote(str(count))}",
+                stale_token,
+                owner_path=str(owner),
+                state_root=str(state_root),
+            )
+
+            result = subprocess.run(
+                ["bash", "-c", guarded],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                brev_env.NEMOCLAW_LAUNCH_GUARD_FAILURE_RC,
+            )
+            self.assertIn("does not match this launcher", result.stderr)
+            self.assertFalse(state_root.exists())
+            self.assertFalse(count.exists())
+
+    async def test_stray_reap_covers_direct_nemoclaw_launcher_exactly(self):
+        command = brev_env._stray_agent_reap_command()
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertIn(
+            "\\.github/skill-eval/nemoclaw/headless_runne[r]\\.py",
+            command,
+        )
+        self.assertIn(
+            "claude --verbose --output-format=stream-jso[n]",
+            command,
+        )
+        self.assertIn('sort -u', command)
+        self.assertIn('kill -9 -- "-$PGID"', command)
+        self.assertIn("pid_is_live()", command)
+        self.assertIn("group_has_live_members()", command)
+        self.assertIn('FAILED="$FAILED $pid"', command)
+        self.assertIn("exit 1", command)
+
+    async def test_stray_reap_kills_full_direct_launcher_process_group(self):
+        with tempfile.TemporaryDirectory() as td:
+            child_file = Path(td) / "child.pid"
+            worker = (
+                "sleep 30 & child=$!; "
+                f"printf '%s\\n' \"$child\" > {shlex.quote(str(child_file))}; "
+                "exec -a "
+                "'python3 .github/skill-eval/nemoclaw/headless_runner.py' "
+                "sleep 30"
+            )
+            process = subprocess.Popen(
+                ["setsid", "bash", "-c", worker],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            child_pid = 0
+            try:
+                for _ in range(100):
+                    if process.poll() is not None:
+                        self.fail("test direct launcher exited before reap")
+                    if (
+                        child_file.exists()
+                        and os.getpgid(process.pid) == process.pid
+                    ):
+                        child_pid = int(child_file.read_text().strip())
+                        break
+                    time.sleep(0.01)
+                else:
+                    self.fail("test direct launcher child was not started")
+
+                result = subprocess.run(
+                    ["bash", "-lc", brev_env._stray_agent_reap_command()],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=15,
+                )
+                process.wait(timeout=5)
+                members = subprocess.run(
+                    ["ps", "-eo", "pid=,pgid=,stat="],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.splitlines()
+            finally:
+                try:
+                    os.killpg(process.pid, 9)
+                except ProcessLookupError:
+                    pass
+                if process.poll() is None:
+                    process.wait(timeout=5)
+
+        self.assertGreater(child_pid, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"[stray-agent-reap] killed pids: {process.pid}",
+            result.stdout,
+        )
+        self.assertFalse(
+            any(
+                int(fields[1]) == process.pid
+                and not fields[2].startswith("Z")
+                for line in members
+                if len(fields := line.split()) >= 3
+            )
+        )
+
+    async def test_docker_reset_preserves_only_openshell_bridge(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="docker runtime reset OK\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        original_exec = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._reset_docker_runtime(preserve_openshell_gateway=True)
+            await env._reset_docker_runtime()
+        finally:
+            brev_env._run_brev_exec = original_exec
+
+        self.assertEqual(len(calls), 2)
+        command = calls[0][1]
+        non_nemoclaw_command = calls[1][1]
+        self.assertNotIn("docker network prune", command)
+        self.assertIn("preserve_openshell_gateway=1", command)
+        self.assertIn("preserve_openshell_gateway=0", non_nemoclaw_command)
+        self.assertIn("openshell_network=openshell-docker", command)
+        self.assertIn("docker network rm", command)
+        self.assertIn("refusing to preserve OpenShell network with driver", command)
+        self.assertIn("openshell.ai/managed-by", command)
+        self.assertIn("without an IPv4 IPAM gateway", command)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            networks = root / "networks"
+            networks.mkdir()
+            preserved = networks / "keep-id"
+            stale = networks / "stale-id"
+            preserved.write_text(
+                "openshell-docker bridge openshell 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            stale.write_text(
+                "stale-vss bridge unrelated 172.30.0.1\n",
+                encoding="utf-8",
+            )
+            removals = root / "removals.log"
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/bin/sh
+                    set -eu
+                    case "$1" in
+                      info|ps|volume)
+                        exit 0
+                        ;;
+                      images)
+                        printf 'image-id\n'
+                        exit 0
+                        ;;
+                      network)
+                        case "$2" in
+                          ls)
+                            if [ "${FAKE_DOCKER_FAIL:-}" = "network-ls" ]; then
+                              exit 3
+                            fi
+                            for network_file in "$FAKE_DOCKER_NETWORKS"/*; do
+                              [ -f "$network_file" ] || continue
+                              basename "$network_file"
+                            done
+                            exit 0
+                            ;;
+                          inspect)
+                            if [ "${FAKE_DOCKER_FAIL:-}" = "network-inspect" ]; then
+                              exit 4
+                            fi
+                            template="$4"
+                            network_id="$5"
+                            read -r network_name network_driver network_owner network_gateway < \
+                              "$FAKE_DOCKER_NETWORKS/$network_id"
+                            if [ "$template" = "{{.Name}}" ]; then
+                              printf '%s\n' "$network_name"
+                            elif [ "$template" = "{{.Driver}}" ]; then
+                              printf '%s\n' "$network_driver"
+                            elif [ "$template" = '{{index .Labels "openshell.ai/managed-by"}}' ]; then
+                              printf '%s\n' "$network_owner"
+                            elif [ "$template" = "{{range .IPAM.Config}}{{.Gateway}} {{end}}" ]; then
+                              printf '%s\n' "$network_gateway"
+                            else
+                              exit 2
+                            fi
+                            exit 0
+                            ;;
+                          rm)
+                            if [ "${FAKE_DOCKER_FAIL:-}" = "network-rm" ]; then
+                              exit 5
+                            fi
+                            network_id="$3"
+                            printf '%s\n' "$network_id" >> "$FAKE_DOCKER_REMOVALS"
+                            rm "$FAKE_DOCKER_NETWORKS/$network_id"
+                            exit 0
+                            ;;
+                        esac
+                        ;;
+                    esac
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            reset_env = {
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "FAKE_DOCKER_NETWORKS": str(networks),
+                "FAKE_DOCKER_REMOVALS": str(removals),
+            }
+
+            reset = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(reset.returncode, 0, reset.stderr)
+            self.assertIn("images and valid OpenShell bridge preserved", reset.stdout)
+            self.assertTrue(preserved.is_file())
+            self.assertFalse(stale.exists())
+            self.assertEqual(removals.read_text(encoding="utf-8").strip(), "stale-id")
+
+            preserved.write_text(
+                "openshell-docker overlay openshell 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(
+                "refusing to preserve OpenShell network with driver overlay",
+                rejected.stderr,
+            )
+
+            preserved.write_text(
+                "openshell-docker bridge unrelated 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            rejected_owner = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected_owner.returncode, 0)
+            self.assertIn("without managed ownership label", rejected_owner.stderr)
+
+            preserved.write_text(
+                "openshell-docker bridge openshell 2001:db8::1\n",
+                encoding="utf-8",
+            )
+            rejected_ipam = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected_ipam.returncode, 0)
+            self.assertIn("without an IPv4 IPAM gateway", rejected_ipam.stderr)
+
+            failed_list = subprocess.run(
+                ["bash", "-c", command],
+                env={**reset_env, "FAKE_DOCKER_FAIL": "network-ls"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(failed_list.returncode, 0)
+            self.assertIn("failed to enumerate docker networks", failed_list.stderr)
+
+            preserved.write_text(
+                "openshell-docker bridge openshell 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            failed_inspect = subprocess.run(
+                ["bash", "-c", command],
+                env={**reset_env, "FAKE_DOCKER_FAIL": "network-inspect"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(failed_inspect.returncode, 0)
+            self.assertIn("failed to inspect docker network", failed_inspect.stderr)
+
+            stale.write_text(
+                "stale-vss bridge unrelated 172.30.0.1\n",
+                encoding="utf-8",
+            )
+            failed_remove = subprocess.run(
+                ["bash", "-c", command],
+                env={**reset_env, "FAKE_DOCKER_FAIL": "network-rm"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(failed_remove.returncode, 0)
+            self.assertIn("failed to remove docker network", failed_remove.stderr)
+            self.assertTrue(stale.exists())
+            stale.unlink()
+
+            ordinary_reset = subprocess.run(
+                ["bash", "-c", non_nemoclaw_command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ordinary_reset.returncode, 0, ordinary_reset.stderr)
+            self.assertFalse(preserved.exists())
+            self.assertIn("images preserved", ordinary_reset.stdout)
+
+    async def test_host_data_purge_covers_orchestrator_repo_root(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="host data purge OK\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        original_exec = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._purge_host_data_dirs()
+        finally:
+            brev_env._run_brev_exec = original_exec
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn(
+            'repo_mdx="$HOME/video-search-and-summarization/.mdx_data"',
+            command,
+        )
+        self.assertIn("for sub in data_log agent_eval videos nvstreamer", command)
+        self.assertIn('d="$repo_mdx/$sub"', command)
+        self.assertNotIn('find "$repo_mdx" -mindepth 1 -delete', command)
+        self.assertIn("Preserve models/", command)
+
+    async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
+        calls = []
+        lifecycle_events = []
+        live_requirements = []
+        reset_kwargs = []
+        attempt_owner_token = "0123456789abcdef0123456789abcdef"
+
+        async def fake_find_brev_instance(name):
+            return {"name": name, "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
+
+        async def fake_check_instance_matches(instance, requirements):
+            return None
+
+        async def fake_check_live_resources(instance, requirements):
+            lifecycle_events.append("live-resource-check")
+            live_requirements.append(dict(requirements))
+            return None
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            if "echo harbor-ready" in command:
+                return brev_env.ExecResult(stdout="harbor-ready\n", stderr=None, return_code=0)
+            if "sudo rm -rf /logs/artifacts /logs/verifier" in command:
+                lifecycle_events.append("artifact-reset")
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original_find = brev_env._find_brev_instance
+        original_match = brev_env._check_instance_matches
+        original_live = brev_env._check_live_resources
+        original_exec = brev_env._run_brev_exec
+        original_default = brev_env.DEFAULT_INSTANCE
+        brev_env._find_brev_instance = fake_find_brev_instance
+        brev_env._check_instance_matches = fake_check_instance_matches
+        brev_env._check_live_resources = fake_check_live_resources
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env.DEFAULT_INSTANCE = "vss-eval-test"
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                task_dir = Path(td) / "task"
+                env_dir = task_dir / "environment"
+                env_dir.mkdir(parents=True)
+                (task_dir / "task.toml").write_text(
+                    "[metadata]\n"
+                    "runner = \"nemoclaw\"\n"
+                    "min_root_disk_gb = 110\n"
+                    "min_root_disk_free_gb = 20\n",
+                    encoding="utf-8",
+                )
+
+                async def noop(self, *args, **kwargs):
+                    return None
+
+                async def reset_noop(self, *args, **kwargs):
+                    reset_kwargs.append(kwargs)
+                    lifecycle_events.append("docker-reset")
+
+                env = brev_env.BrevEnvironment()
+                env.environment_dir = env_dir
+                env._reset_docker_runtime = types.MethodType(reset_noop, env)
+                env._sync_repo_to_pr_head = types.MethodType(noop, env)
+                env._ensure_nemoclaw_ready = types.MethodType(noop, env)
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "SKILLS_EVAL_RUNNER": "nemoclaw",
+                        "NEMOCLAW_ATTEMPT_OWNER_TOKEN": attempt_owner_token,
+                    },
+                ):
+                    await env.start(force_build=False)
+        finally:
+            brev_env._find_brev_instance = original_find
+            brev_env._check_instance_matches = original_match
+            brev_env._check_live_resources = original_live
+            brev_env._run_brev_exec = original_exec
+            brev_env.DEFAULT_INSTANCE = original_default
+
+        self.assertEqual(
+            reset_kwargs,
+            [{"preserve_openshell_gateway": True}],
+        )
+        self.assertEqual(
+            lifecycle_events,
+            [
+                "artifact-reset",
+                "live-resource-check",
+                "docker-reset",
+                "live-resource-check",
+            ],
+        )
+        self.assertEqual(
+            live_requirements[0]["min_root_disk_free_gb"],
+            0,
+        )
+        self.assertTrue(live_requirements[0]["_check_docker_storage"])
+        self.assertEqual(
+            live_requirements[1],
+            {
+                "min_root_disk_gb": 110,
+                "min_root_disk_free_gb": 20,
+            },
+        )
+        reset_commands = [command for _, command, _ in calls if "sudo rm -rf" in command]
+        self.assertEqual(len(reset_commands), 1)
+        reset = reset_commands[0]
+        self.assertIn("/logs/artifacts", reset)
+        self.assertIn("/logs/verifier", reset)
+        for stale_agent_output in (
+            "/logs/agent/trajectory.json",
+            "/logs/agent/trajectory.jsonl",
+            "/logs/agent/openclaw.session.jsonl",
+            "/logs/agent/openclaw.txt",
+            "/logs/agent/agent.log",
+            "/logs/agent/claude-code.txt",
+            "/logs/agent/nemoclaw-headless-runner.stdout",
+        ):
+            self.assertIn(stale_agent_output, reset)
+        self.assertIn("Refusing to reset symlinked /logs/agent", reset)
+        self.assertNotIn("rm -rf /logs/agent", reset)
+        self.assertNotIn("rm -rf /logs/agent/sessions", reset)
+        self.assertNotIn("rm -rf /tests", reset)
+        self.assertNotIn("rm -rf /solution", reset)
+        self.assertNotIn("rm -rf /skills", reset)
+        self.assertIn("mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills", reset)
+        self.assertLess(reset.index("sudo rm -rf"), reset.index("sudo mkdir -p"))
+        self.assertIn(
+            "attempt_owner_tmp=/logs/artifacts/.nemoclaw-attempt-owner.$$",
+            reset,
+        )
+        self.assertIn("umask 077", reset)
+        self.assertIn(
+            f"printf '%s\\n' {attempt_owner_token} > \"$attempt_owner_tmp\"",
+            reset,
+        )
+        self.assertIn('chmod 600 "$attempt_owner_tmp"', reset)
+        self.assertIn(
+            'mv -f "$attempt_owner_tmp" /logs/artifacts/nemoclaw-attempt-owner',
+            reset,
+        )
+        self.assertLess(
+            reset.index("sudo chown -R"),
+            reset.index("attempt_owner_tmp="),
+        )
+        self.assertLess(
+            reset.index("sudo chown -R"),
+            reset.index("umask 077"),
+        )
+        self.assertLess(
+            reset.index("umask 077"),
+            reset.index("attempt_owner_tmp="),
+        )
+        self.assertLess(
+            reset.index("attempt_owner_tmp="),
+            reset.index('chmod 600 "$attempt_owner_tmp"'),
+        )
+        self.assertLess(
+            reset.index('chmod 600 "$attempt_owner_tmp"'),
+            reset.index('mv -f "$attempt_owner_tmp"'),
+        )
+        archive_commands = [
+            command
+            for _, command, _ in calls
+            if 'PROJ=/logs/agent/sessions/projects' in command
+        ]
+        self.assertEqual(len(archive_commands), 1)
+        self.assertIn(
+            'mv "$PROJ"/* "$ARCHIVE/sessions/"',
+            archive_commands[0],
+        )
+
+    async def test_start_resets_artifact_epoch_before_live_disk_rejection(self):
+        lifecycle_events = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            if "sudo rm -rf /logs/artifacts /logs/verifier" in command:
+                lifecycle_events.append("artifact-reset")
+            stdout = "harbor-ready\n" if "echo harbor-ready" in command else "ok\n"
+            return brev_env.ExecResult(
+                stdout=stdout,
+                stderr=None,
+                return_code=0,
+            )
+
+        async def reject_live_resources(instance, requirements):
+            lifecycle_events.append("live-resource-rejection")
+            raise RuntimeError(
+                f"Brev instance '{instance}' root disk is 117 GB; "
+                "task requires at least 160 GB"
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            task_dir = Path(td) / "task"
+            env_dir = task_dir / "environment"
+            env_dir.mkdir(parents=True)
+            (task_dir / "task.toml").write_text(
+                "[metadata]\nmin_root_disk_gb = 160\n",
+                encoding="utf-8",
+            )
+            env = brev_env.BrevEnvironment()
+            env.environment_dir = env_dir
+            with (
+                mock.patch.object(
+                    env,
+                    "_resolve_instance_name",
+                    return_value="vss-eval-test",
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_find_brev_instance",
+                    new=mock.AsyncMock(
+                        return_value={"name": "vss-eval-test"}
+                    ),
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_check_instance_matches",
+                    new=mock.AsyncMock(return_value=None),
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_check_live_resources",
+                    side_effect=reject_live_resources,
+                ),
+                mock.patch.object(
+                    brev_env,
+                    "_run_brev_exec",
+                    side_effect=fake_run_brev_exec,
+                ),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "root disk is 117 GB",
+                ),
+            ):
+                await env.start(force_build=False)
+
+        self.assertEqual(
+            lifecycle_events,
+            ["artifact-reset", "live-resource-rejection"],
+        )
+
+    async def test_upload_dir_replaces_trial_input_dirs(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            calls.append(("copy", f"{src}->{dst}", timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                source = Path(td) / "tests"
+                source.mkdir()
+                (source / "nemoclaw_prompt.md").write_text("fresh prompt\n", encoding="utf-8")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                await env.upload_dir(source, "/tests")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+
+        extract_commands = [
+            command for _, command, _ in calls
+            if isinstance(command, str) and "tar -xzf" in command
+        ]
+        self.assertEqual(len(extract_commands), 1)
+        command = extract_commands[0]
+        self.assertIn("sudo rm -rf /tests", command)
+        self.assertLess(command.index("sudo rm -rf /tests"), command.index("tar -xzf"))
+
+    async def test_upload_dir_does_not_replace_non_trial_dirs(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            calls.append(("copy", f"{src}->{dst}", timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                source = Path(td) / "payload"
+                source.mkdir()
+                (source / "file.txt").write_text("data\n", encoding="utf-8")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                await env.upload_dir(source, "/tmp/payload")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+
+        extract_commands = [
+            command for _, command, _ in calls
+            if isinstance(command, str) and "tar -xzf" in command
+        ]
+        self.assertEqual(len(extract_commands), 1)
+        self.assertNotIn("sudo rm -rf /tmp/payload", extract_commands[0])
+
+    async def test_gateway_release_recognizes_exact_schema3_launcher(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with (
+            mock.patch.object(brev_env, "_run_brev_exec", new=fake_run_brev_exec),
+            mock.patch.dict(
+                os.environ,
+                {
+                    "NEMOCLAW_COORDINATOR_CLI_ARCHIVE": "",
+                    "NEMOCLAW_COORDINATOR_CLI_SHA256": "",
+                    "NEMOCLAW_COORDINATOR_CLI_VERSION": "",
+                    "NEMOCLAW_COORDINATOR_CLI_REVISION": "",
+                },
+                clear=False,
+            ),
+        ):
+            await env._ensure_nemoclaw_ready({})
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        resolver_marker = (
+            "python3 - \"$cli_path\" <<'__NEMOCLAW_CLI_ROOT__'\n"
+        )
+        resolver_start = command.index(resolver_marker) + len(resolver_marker)
+        resolver_end = command.index(
+            "\n__NEMOCLAW_CLI_ROOT__",
+            resolver_start,
+        )
+        resolver = command[resolver_start:resolver_end]
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            bin_dir = home / ".local" / "bin"
+            bin_dir.mkdir(parents=True)
+            source = home / ".nemoclaw" / "source"
+            node = (
+                home
+                / ".nemoclaw"
+                / "runtime"
+                / "node-v22.22.1-linux-x64"
+                / "bin"
+                / "node"
+            )
+            cli = source / "bin" / "nemoclaw.js"
+            openshell = bin_dir / "openshell"
+            gateway = bin_dir / "openshell-gateway"
+            sandbox = bin_dir / "openshell-sandbox"
+            safe_path = (
+                f"{node.parent}:{bin_dir}:/usr/local/sbin:/usr/local/bin:"
+                "/usr/sbin:/usr/bin:/sbin:/bin"
+            )
+            installer_path = (
+                Path(__file__).resolve().parents[4]
+                / ".github"
+                / "skill-eval"
+                / "nemoclaw"
+                / "install_cli_payload.py"
+            )
+            installer_spec = importlib.util.spec_from_file_location(
+                "registered_node_schema3_installer",
+                installer_path,
+            )
+            assert installer_spec is not None and installer_spec.loader is not None
+            installer = importlib.util.module_from_spec(installer_spec)
+            installer_spec.loader.exec_module(installer)
+            launcher_contents = installer._launcher_content(
+                node=node,
+                script=cli,
+                bin_dir=bin_dir,
+            )
+            launcher = bin_dir / "nemoclaw"
+
+            def resolve(contents, candidate=launcher):
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                candidate.write_text(contents, encoding="utf-8")
+                candidate.chmod(0o755)
+                return subprocess.run(
+                    [sys.executable, "-c", resolver, str(candidate)],
+                    env={**os.environ, "HOME": str(home)},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            accepted = resolve(launcher_contents)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                accepted.stdout.splitlines(),
+                [str(source), str(node)],
+            )
+
+            deviations = {
+                "path": launcher_contents.replace(
+                    f"export PATH={shlex.quote(safe_path)}\n",
+                    f"export PATH={shlex.quote(safe_path + ':/tmp')}\n",
+                ),
+                "openshell export": launcher_contents.replace(
+                    f"export NEMOCLAW_OPENSHELL_GATEWAY_BIN={gateway}\n",
+                    f"export NEMOCLAW_OPENSHELL_GATEWAY_BIN={bin_dir / 'other'}\n",
+                ),
+                "node exec": launcher_contents.replace(
+                    f"exec {node} {cli} \"$@\"\n",
+                    f"exec {node}.other {cli} \"$@\"\n",
+                ),
+                "extra command": launcher_contents + "true\n",
+            }
+            for label, contents in deviations.items():
+                with self.subTest(label=label):
+                    refused = resolve(contents)
+                    self.assertNotEqual(refused.returncode, 0)
+                    self.assertEqual(refused.stdout, "")
+
+            outside = home / "nemoclaw"
+            refused_location = resolve(launcher_contents, outside)
+            self.assertNotEqual(refused_location.returncode, 0)
+            self.assertEqual(refused_location.stdout, "")
+
+    async def test_nemoclaw_setup_sources_profile_without_nounset(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._ensure_nemoclaw_ready({"required_mcp_tools": ["vss_orchestrator__docker_up"]})
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertIn("set -eo pipefail\nset +u\nsource ~/.profile", command)
+        self.assertIn("source ~/.profile 2>/dev/null || true\nset -u\nexport PATH", command)
+        self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
+        self.assertIn(
+            'requested_sandbox_name="$(printf \'%s\' '
+            '"${NEMOCLAW_SANDBOX_NAME:-}"',
+            command,
+        )
+        self.assertIn(
+            'export NEMOCLAW_SANDBOX_NAME="${requested_sandbox_name:-demo}"',
+            command,
+        )
+        self.assertIn(
+            'if [ -n "$requested_sandbox_name" ]; then\n'
+            '  export NEMOCLAW_SANDBOX_NAME="$requested_sandbox_name"',
+            command,
+        )
+        self.assertIn(
+            'export NEMOCLAW_SANDBOX_NAME='
+            '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc103-c1"',
+            command,
+        )
+        self.assertIn(
+            "unset NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE",
+            command,
+        )
+        self.assertLess(
+            command.index(
+                'export NEMOCLAW_SANDBOX_NAME='
+                '"${requested_sandbox_name:-demo}"'
+            ),
+            command.index('/usr/bin/python3 "$legacy_repair_helper"'),
+        )
+        self.assertLess(
+            command.index('/usr/bin/python3 "$legacy_repair_helper"'),
+            command.index(
+                'export NEMOCLAW_SANDBOX_NAME='
+                '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc103-c1"'
+            ),
+        )
+        self.assertLess(
+            command.index(
+                'export NEMOCLAW_SANDBOX_NAME='
+                '"vss-eval-u${sandbox_uid}-p${gateway_port}-nc103-c1"'
+            ),
+            command.index("notebook_setup_adapter.py"),
+        )
+        self.assertIn("--required-tools vss_orchestrator__docker_up", command)
+        self.assertIn(
+            "sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive "
+            "apt-get install -y -qq libcairo2-dev pkg-config lsof",
+            command,
+        )
+        self.assertNotIn(
+            "sudo -n DEBIAN_FRONTEND=noninteractive apt-get",
+            command,
+        )
+        self.assertIn(
+            "PIP_BREAK_SYSTEM_PACKAGES=1 "
+            "python3 -m pip install --user --quiet "
+            "nbformat nbclient ipykernel",
+            command,
+        )
+        apt_start = command.rindex("if command -v apt-get")
+        apt_end = command.index(
+            "# Registered workers use a uv-managed Python",
+            apt_start,
+        )
+        apt_script = (
+            "set -e\n"
+            "stage() { :; }\n"
+            + command[apt_start:apt_end]
+        )
+        with tempfile.TemporaryDirectory() as td:
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            apt_log = Path(td) / "apt.log"
+            fake_sudo = fake_bin / "sudo"
+            fake_sudo.write_text(
+                "#!/bin/sh\n"
+                'if [ "${1:-}" = "-n" ]; then shift; fi\n'
+                'exec "$@"\n',
+                encoding="utf-8",
+            )
+
+            fake_sudo.chmod(0o755)
+            fake_apt = fake_bin / "apt-get"
+            fake_apt.write_text(
+                "#!/bin/sh\n"
+                'printf "%s|%s\\n" "$1" "${DEBIAN_FRONTEND:-}" '
+                '>> "$APT_LOG"\n',
+                encoding="utf-8",
+            )
+            fake_apt.chmod(0o755)
+            apt_result = subprocess.run(
+                ["bash", "-c", apt_script],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "APT_LOG": str(apt_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(apt_result.returncode, 0, apt_result.stderr)
+            self.assertIn(
+                "install|noninteractive",
+                apt_log.read_text(encoding="utf-8").splitlines(),
+            )
+        self.assertNotIn("NEMOCLAW_PRESTAGE_ALERTS_MODELS", command)
+        self.assertNotIn("pre-staged alerts model placeholders", command)
+        self.assertIn(
+            "rm -rf /tmp/skill-eval/nemoclaw "
+            "/logs/artifacts/nemoclaw",
+            command,
+        )
+        self.assertNotRegex(
+            command,
+            r"rm -rf[^\n]*(?:^|\s)/logs/artifacts(?:\s|$)",
+        )
+        repair_index = command.index(
+            'default_gateway_state_dir="$HOME/.local/state/nemoclaw/'
+        )
+        adapter_index = command.index(
+            "python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py"
+        )
+        self.assertLess(repair_index, adapter_index)
+        self.assertIn(
+            "for db_name in openshell.db openshell.db-wal openshell.db-shm",
+            command,
+        )
+        self.assertIn('if [ "$db_uid" != "0" ]', command)
+        self.assertIn(
+            'chown --no-dereference "$current_uid:$current_gid" -- "$db_path"',
+            command,
+        )
+        self.assertNotIn("chown -R $gateway_state_dir", command)
+        self.assertIn(
+            'gateway_release_module="$candidate_root/dist/lib/tunnel/'
+            'gateway-port-release.js"',
+            command,
+        )
+        self.assertIn(
+            'expected_nemoclaw_ref="${NEMOCLAW_INSTALL_REF:-v0.0.103}"',
+            command,
+        )
+        self.assertIn(
+            "installing trusted lsof for scoped gateway recovery",
+            command,
+        )
+        self.assertLess(
+            command.index("installing trusted lsof for scoped gateway recovery"),
+            command.index("resolve_nemoclaw_cli_root"),
+        )
+        self.assertIn(
+            "verified trusted lsof for scoped gateway recovery",
+            command,
+        )
+        self.assertLess(
+            command.index("verified trusted lsof for scoped gateway recovery"),
+            command.index("resolve_nemoclaw_cli_root"),
+        )
+        self.assertIn("resolve_nemoclaw_cli_root", command)
+        self.assertIn("type -P nemoclaw", command)
+        self.assertNotIn("npm root -g", command)
+        self.assertNotIn("$HOME/NemoClaw", command)
+        self.assertIn('package.get("name") != "nemoclaw"', command)
+        self.assertIn("releaseManagedGatewayPort({", command)
+        self.assertIn("result.skipped === true", command)
+        self.assertIn('gateway_release_status" -eq 42', command)
+        self.assertIn(
+            "lifecycle authority refused scoped release",
+            command,
+        )
+        self.assertIn("confirmTimeoutMs: 5000", command)
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/release_gateway_port.py",
+            command,
+        )
+        self.assertIn(
+            "using fail-closed standalone gateway release",
+            command,
+        )
+        self.assertIn(
+            '/usr/bin/python3 "$gateway_release_fallback" --port "$gateway_port"',
+            command,
+        )
+        self.assertIn("gateway_port_is_free", command)
+        self.assertNotIn("docker network create", command)
+        self.assertNotIn("pkill", command)
+        self.assertIn(
+            "python3 .github/skill-eval/nemoclaw/setup_failure.py",
+            command,
+        )
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/repair_legacy_state.py",
+            command,
+        )
+        self.assertIn("SKILL_EVAL_NEMOCLAW_CI=1", command)
+        self.assertLess(
+            command.index("repair_legacy_state.py"),
+            command.index("notebook_setup_adapter.py"),
+        )
+        self.assertIn(
+            "for artifact_name in setup.executed.ipynb "
+            "readiness-summary.json setup-failure.json sample-fixtures.json",
+            command,
+        )
+        self.assertNotIn(
+            "for artifact_name in setup.executed.ipynb "
+            "readiness-summary.json setup-failure.json readiness.json",
+            command,
+        )
+        self.assertNotIn(
+            "cp -a /tmp/skill-eval/nemoclaw/. "
+            "/logs/artifacts/nemoclaw/",
+            command,
+        )
+        self.assertNotIn("tail -n 200 /tmp/skill-eval/nemoclaw/setup.log", command)
+
+        artifact_start = command.index(
+            'set +e\ntimeout --kill-after=30s "$REMOTE_SETUP_TIMEOUT"'
+        )
+        artifact_script = command[artifact_start:]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stage_dir = root / "stage"
+            artifact_dir = root / "artifacts"
+            fake_bin = root / "bin"
+            stage_dir.mkdir()
+            artifact_dir.mkdir()
+            fake_bin.mkdir()
+            (stage_dir / "setup.log").write_text(
+                "setup exceeded its deadline\n",
+                encoding="utf-8",
+            )
+            fake_timeout = fake_bin / "timeout"
+            fake_timeout.write_text(
+                '#!/bin/sh\nexit "${FAKE_TIMEOUT_RC:-0}"\n',
+                encoding="utf-8",
+            )
+            fake_timeout.chmod(0o755)
+            cp_log = root / "cp.log"
+            fake_cp = fake_bin / "cp"
+            fake_cp.write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$*" >> "$FAKE_CP_LOG"\nexit 9\n',
+                encoding="utf-8",
+            )
+            fake_cp.chmod(0o755)
+            isolated_artifact_script = (
+                "set -e\nREMOTE_SETUP_TIMEOUT=10\n"
+                + artifact_script.replace(
+                    "/tmp/skill-eval/nemoclaw",
+                    str(stage_dir),
+                ).replace(
+                    "/logs/artifacts/nemoclaw",
+                    str(artifact_dir),
+                )
+            )
+            timeout_with_failed_copy = subprocess.run(
+                ["bash", "-c", isolated_artifact_script],
+                cwd=Path(__file__).resolve().parents[4],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "FAKE_TIMEOUT_RC": "124",
+                    "FAKE_CP_LOG": str(cp_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(
+                timeout_with_failed_copy.returncode,
+                124,
+                timeout_with_failed_copy.stderr,
+            )
+            self.assertIn(
+                "safe diagnostic artifact collection was incomplete",
+                timeout_with_failed_copy.stderr,
+            )
+            self.assertEqual(
+                json.loads(
+                    (stage_dir / "setup-failure.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["categories"],
+                ["setup_timeout"],
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stage_dir = root / "stage"
+            artifact_dir = root / "artifacts"
+            fake_bin = root / "bin"
+            stage_dir.mkdir()
+            artifact_dir.mkdir()
+            fake_bin.mkdir()
+            (stage_dir / "setup.log").write_text("ok\n", encoding="utf-8")
+            (stage_dir / "setup.executed.ipynb").write_text(
+                '{"safe":true}\n',
+                encoding="utf-8",
+            )
+            raw_secret = "sk-readiness-secret"
+            (stage_dir / "readiness.json").write_text(
+                json.dumps({"stderr_tail": f"authentication failed: {raw_secret}"}),
+                encoding="utf-8",
+            )
+            safe_summary = {
+                "schema_version": 1,
+                "ok": False,
+                "categories": ["host_mcp_unhealthy"],
+            }
+            (stage_dir / "readiness-summary.json").write_text(
+                json.dumps(safe_summary),
+                encoding="utf-8",
+            )
+            fake_timeout = fake_bin / "timeout"
+            fake_timeout.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_timeout.chmod(0o755)
+            isolated_artifact_script = (
+                "set -e\nREMOTE_SETUP_TIMEOUT=10\n"
+                + artifact_script.replace(
+                    "/tmp/skill-eval/nemoclaw",
+                    str(stage_dir),
+                ).replace(
+                    "/logs/artifacts/nemoclaw",
+                    str(artifact_dir),
+                )
+            )
+            safe_copy = subprocess.run(
+                ["bash", "-c", isolated_artifact_script],
+                cwd=Path(__file__).resolve().parents[4],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(safe_copy.returncode, 0, safe_copy.stderr)
+            self.assertTrue((artifact_dir / "setup.executed.ipynb").is_file())
+            self.assertEqual(
+                json.loads(
+                    (artifact_dir / "readiness-summary.json").read_text(
+                        encoding="utf-8"
+                    )
+                ),
+                safe_summary,
+            )
+            self.assertFalse((artifact_dir / "readiness.json").exists())
+            archived_text = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in artifact_dir.iterdir()
+                if path.is_file()
+            )
+            self.assertNotIn(raw_secret, archived_text)
+
+        lsof_preflight_start = command.index("if ! [ -x /usr/bin/lsof ]")
+        lsof_preflight_end = command.index(
+            'expected_nemoclaw_ref="',
+            lsof_preflight_start,
+        )
+        lsof_preflight = command[lsof_preflight_start:lsof_preflight_end]
+        with tempfile.TemporaryDirectory() as td:
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            for original_path, replacement_name in (
+                ("/usr/bin/lsof", "usr-bin-lsof"),
+                ("/usr/sbin/lsof", "usr-sbin-lsof"),
+                ("/bin/lsof", "bin-lsof"),
+                ("/sbin/lsof", "sbin-lsof"),
+            ):
+                lsof_preflight = lsof_preflight.replace(
+                    original_path,
+                    str(Path(td) / replacement_name),
+                )
+            missing_lsof = subprocess.run(
+                [
+                    "/bin/bash",
+                    "-c",
+                    "set -e\nstage() { :; }\n" + lsof_preflight,
+                ],
+                env={
+                    "HOME": str(Path(td) / "home"),
+                    "PATH": str(fake_bin),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(missing_lsof.returncode, 0)
+            self.assertIn(
+                "no executable in trusted system paths",
+                missing_lsof.stderr,
+            )
+
+        reconcile_start = command.index(
+            'gateway_port="${NEMOCLAW_GATEWAY_PORT:-8080}"'
+        )
+        state_init_end = command.index("gateway_port_is_free()", reconcile_start)
+        state_init_script = (
+            "set -e\n"
+            + command[reconcile_start:state_init_end]
+            + 'printf "%s|%s|%s\\n" "$NEMOCLAW_GATEWAY_PORT" '
+            '"$default_gateway_state_dir" "$gateway_state_dir"\n'
+        )
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            home.mkdir()
+            base_env = {
+                **os.environ,
+                "HOME": str(home),
+            }
+            default_state = subprocess.run(
+                ["bash", "-c", state_init_script],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key
+                    not in {
+                        "NEMOCLAW_GATEWAY_PORT",
+                        "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR",
+                    }
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(default_state.returncode, 0, default_state.stderr)
+            self.assertEqual(
+                default_state.stdout.strip(),
+                f"8080|{home}/.local/state/nemoclaw/openshell-docker-gateway|"
+                f"{home}/.local/state/nemoclaw/openshell-docker-gateway",
+            )
+
+            custom_state = subprocess.run(
+                ["bash", "-c", state_init_script],
+                env={
+                    **base_env,
+                    "NEMOCLAW_GATEWAY_PORT": "19080",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(custom_state.returncode, 0, custom_state.stderr)
+            self.assertEqual(
+                custom_state.stdout.strip(),
+                f"19080|{home}/.local/state/nemoclaw/"
+                "openshell-docker-gateway-19080|"
+                f"{home}/.local/state/nemoclaw/openshell-docker-gateway-19080",
+            )
+
+            override_dir = Path(td) / "explicit-state"
+            overridden_state = subprocess.run(
+                ["bash", "-c", state_init_script],
+                env={
+                    **base_env,
+                    "NEMOCLAW_GATEWAY_PORT": "19080",
+                    "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR": str(override_dir),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(overridden_state.returncode, 0, overridden_state.stderr)
+            self.assertEqual(
+                overridden_state.stdout.strip(),
+                f"19080|{home}/.local/state/nemoclaw/"
+                f"openshell-docker-gateway-19080|{override_dir}",
+            )
+
+        reconcile_end = command.index('recreate_value="', reconcile_start)
+        reconcile_script = (
+            "set -eo pipefail\n"
+            "stage() { printf '%s\\n' \"$*\"; }\n"
+            f"REPO={shlex.quote(str(Path(__file__).resolve().parents[4]))}\n"
+            + command[reconcile_start:reconcile_end]
+        )
+
+        def unused_port() -> int:
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                return int(sock.getsockname()[1])
+
+        def wait_until_listening(port: int) -> None:
+            for _ in range(100):
+                with socket.socket() as sock:
+                    if sock.connect_ex(("127.0.0.1", port)) == 0:
+                        return
+                time.sleep(0.02)
+            self.fail(f"test listener did not bind port {port}")
+
+        listener_source = (
+            "import socket,sys,time;"
+            "s=socket.socket();"
+            "s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);"
+            "s.bind(('127.0.0.1',int(sys.argv[1])));"
+            "s.listen();"
+            "time.sleep(30)"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            home.mkdir()
+            npm_root = Path(td) / "npm-root"
+            module = (
+                npm_root
+                / "nemoclaw"
+                / "dist"
+                / "lib"
+                / "tunnel"
+                / "gateway-port-release.js"
+            )
+            module.parent.mkdir(parents=True)
+            module.write_text("// fake pinned module\n", encoding="utf-8")
+            package_root = npm_root / "nemoclaw"
+            (package_root / "bin").mkdir()
+            (package_root / "bin" / "nemoclaw.js").write_text(
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.88\\n'\n",
+                encoding="utf-8",
+            )
+            (package_root / "bin" / "nemoclaw.js").chmod(0o755)
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "nemoclaw",
+                        "bin": {"nemoclaw": "./bin/nemoclaw.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            node_log = Path(td) / "node.log"
+
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                "#!/bin/sh\n"
+                "if [ \"${FAKE_NETWORK_PRESENT:-0}\" = 1 ]; then "
+                "printf 'openshell-docker\\n'; fi\n",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            fake_nemoclaw = fake_bin / "nemoclaw"
+            fake_nemoclaw.symlink_to(package_root / "bin" / "nemoclaw.js")
+            fake_node = fake_bin / "node"
+            fake_node.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$#\" -gt 0 ]; then "
+                "printf 'nemoclaw v0.0.88\\n'; exit 0; fi\n"
+                "if [ -z \"${GATEWAY_RELEASE_PORT:-}\" ]; then exit 0; fi\n"
+                "printf '%s|%s\\n' \"$GATEWAY_RELEASE_MODULE\" "
+                "\"$GATEWAY_RELEASE_PORT\" >> \"$FAKE_NODE_LOG\"\n"
+                "if [ \"${FAKE_NODE_NOOP:-0}\" != 1 ]; then "
+                "kill \"$FAKE_GATEWAY_PID\"; fi\n",
+                encoding="utf-8",
+            )
+            fake_node.chmod(0o755)
+            base_env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "FAKE_NODE_LOG": str(node_log),
+                "NEMOCLAW_INSTALL_REF": "v0.0.88",
+            }
+
+            port = unused_port()
+            listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(port)
+                reconciled = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(port),
+                        "FAKE_GATEWAY_PID": str(listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(reconciled.returncode, 0, reconciled.stderr)
+                listener.wait(timeout=5)
+                self.assertIn(
+                    f"{module}|{port}",
+                    node_log.read_text(encoding="utf-8"),
+                )
+                self.assertIn("released stale host gateway", reconciled.stdout)
+            finally:
+                if listener.poll() is None:
+                    listener.terminate()
+                    listener.wait(timeout=5)
+
+            fake_nemoclaw.unlink()
+            installer_prefix = Path(td) / "installer-prefix"
+            installer_bin = installer_prefix / "bin"
+            installer_bin.mkdir(parents=True)
+            installer_target = installer_bin / "nemoclaw"
+            installer_target.symlink_to(package_root / "bin" / "nemoclaw.js")
+            fake_nemoclaw.write_text(
+                "#!/usr/bin/env bash\n"
+                f'export PATH="{fake_bin}:$PATH"\n'
+                f'exec "{installer_target}" "$@"\n',
+                encoding="utf-8",
+            )
+            fake_nemoclaw.chmod(0o755)
+            installer_port = unused_port()
+            installer_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(installer_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(installer_port)
+                installer_result = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(installer_port),
+                        "FAKE_GATEWAY_PID": str(installer_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    installer_result.returncode,
+                    0,
+                    installer_result.stderr,
+                )
+                installer_listener.wait(timeout=5)
+                self.assertEqual(
+                    node_log.read_text(encoding="utf-8").splitlines()[-1],
+                    f"{module}|{installer_port}",
+                )
+            finally:
+                if installer_listener.poll() is None:
+                    installer_listener.terminate()
+                    installer_listener.wait(timeout=5)
+
+            cli_package_root = Path(td) / "cli-source"
+            cli_module = (
+                cli_package_root
+                / "dist"
+                / "lib"
+                / "tunnel"
+                / "gateway-port-release.js"
+            )
+            cli_module.parent.mkdir(parents=True)
+            cli_module.write_text("// fake CLI-derived module\n", encoding="utf-8")
+            (cli_package_root / "bin").mkdir()
+            cli_target = cli_package_root / "bin" / "nemoclaw.js"
+            cli_target.write_text(
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.88\\n'\n",
+                encoding="utf-8",
+            )
+            cli_target.chmod(0o755)
+            (cli_package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "nemoclaw",
+                        "bin": {"nemoclaw": "./bin/nemoclaw.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_nemoclaw.unlink()
+            dev_shim_contents = (
+                "#!/usr/bin/env bash\n"
+                "# NemoClaw dev-shim - managed by scripts/npm-link-or-shim.sh\n"
+                f'export PATH="{fake_bin}:$PATH"\n'
+                f'exec "{cli_target}" "$@"\n'
+            )
+            fake_nemoclaw.write_text(dev_shim_contents, encoding="utf-8")
+            fake_nemoclaw.chmod(0o755)
+            cli_port = unused_port()
+            cli_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(cli_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(cli_port)
+                cli_result = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(cli_port),
+                        "FAKE_GATEWAY_PID": str(cli_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
+                cli_listener.wait(timeout=5)
+                self.assertEqual(
+                    node_log.read_text(encoding="utf-8").splitlines()[-1],
+                    f"{cli_module}|{cli_port}",
+                )
+            finally:
+                if cli_listener.poll() is None:
+                    cli_listener.terminate()
+                    cli_listener.wait(timeout=5)
+
+            gateway_executable = Path(td) / "gateway-runtime" / "openshell-gateway"
+            gateway_executable.parent.mkdir()
+            shutil.copy2(sys.executable, gateway_executable)
+            mismatch_port = unused_port()
+            mismatch_listener = subprocess.Popen(
+                [
+                    (
+                        "openshell-gateway["
+                        f"nemoclaw=nemoclaw-{mismatch_port};port={mismatch_port}]"
+                    ),
+                    "-c",
+                    listener_source,
+                    str(mismatch_port),
+                ],
+                executable=gateway_executable,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(mismatch_port)
+                mismatched_cli = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(mismatch_port),
+                        "NEMOCLAW_INSTALL_REF": "v0.0.103",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    mismatched_cli.returncode,
+                    0,
+                    mismatched_cli.stderr,
+                )
+                self.assertIn(
+                    "expected nemoclaw v0.0.103, found nemoclaw v0.0.88",
+                    mismatched_cli.stderr,
+                )
+                self.assertIn(
+                    "using fail-closed standalone gateway release",
+                    mismatched_cli.stdout,
+                )
+                mismatch_listener.wait(timeout=5)
+            finally:
+                if mismatch_listener.poll() is None:
+                    mismatch_listener.terminate()
+                    mismatch_listener.wait(timeout=5)
+
+            hidden_cli_module = cli_module.with_suffix(".disabled")
+            cli_module.rename(hidden_cli_module)
+            incomplete_port = unused_port()
+            incomplete_listener = subprocess.Popen(
+                [
+                    str(gateway_executable),
+                    "-c",
+                    listener_source,
+                    str(incomplete_port),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(incomplete_port)
+                incomplete = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(incomplete_port),
+                        "FAKE_GATEWAY_PID": str(incomplete_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(incomplete.returncode, 0, incomplete.stderr)
+                self.assertIn(
+                    "Active NemoClaw gateway release unavailable: "
+                    "package is incomplete",
+                    incomplete.stderr,
+                )
+                self.assertIn(
+                    "using fail-closed standalone gateway release",
+                    incomplete.stdout,
+                )
+                incomplete_listener.wait(timeout=5)
+            finally:
+                if incomplete_listener.poll() is None:
+                    incomplete_listener.terminate()
+                    incomplete_listener.wait(timeout=5)
+                hidden_cli_module.rename(cli_module)
+
+            fake_nemoclaw.write_text(
+                dev_shim_contents + "echo unexpected-command\n",
+                encoding="utf-8",
+            )
+            unexpected_port = unused_port()
+            unexpected_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(unexpected_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(unexpected_port)
+                unexpected = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(unexpected_port),
+                        "FAKE_GATEWAY_PID": str(unexpected_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(unexpected.returncode, 0)
+                self.assertIn(
+                    "Active NemoClaw gateway release unavailable: "
+                    "launcher is not recognized",
+                    unexpected.stderr,
+                )
+                self.assertIsNone(unexpected_listener.poll())
+            finally:
+                unexpected_listener.terminate()
+                unexpected_listener.wait(timeout=5)
+                fake_nemoclaw.write_text(dev_shim_contents, encoding="utf-8")
+
+            node_calls_before = node_log.read_text(encoding="utf-8")
+            preserved_port = unused_port()
+            preserved_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(preserved_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(preserved_port)
+                preserved_result = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(preserved_port),
+                        "FAKE_GATEWAY_PID": str(preserved_listener.pid),
+                        "FAKE_NETWORK_PRESENT": "1",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    preserved_result.returncode,
+                    0,
+                    preserved_result.stderr,
+                )
+                self.assertIsNone(preserved_listener.poll())
+                self.assertEqual(
+                    node_log.read_text(encoding="utf-8"),
+                    node_calls_before,
+                )
+            finally:
+                preserved_listener.terminate()
+                preserved_listener.wait(timeout=5)
+
+            blocked_port = unused_port()
+            blocked_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(blocked_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(blocked_port)
+                blocked = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(blocked_port),
+                        "FAKE_GATEWAY_PID": str(blocked_listener.pid),
+                        "FAKE_NODE_NOOP": "1",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(blocked.returncode, 0)
+                self.assertIn("still busy after scoped release", blocked.stderr)
+                self.assertIsNone(blocked_listener.poll())
+            finally:
+                blocked_listener.terminate()
+                blocked_listener.wait(timeout=5)
+
+            fake_nemoclaw.write_text(
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.88\\n'\n",
+                encoding="utf-8",
+            )
+            cli_module.unlink()
+            module.unlink()
+            missing_port = unused_port()
+            missing_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(missing_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(missing_port)
+                missing = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(missing_port),
+                        "FAKE_GATEWAY_PID": str(missing_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(missing.returncode, 0)
+                self.assertIn(
+                    "Active NemoClaw gateway release unavailable: "
+                    "launcher is not recognized",
+                    missing.stderr,
+                )
+                self.assertIsNone(missing_listener.poll())
+            finally:
+                missing_listener.terminate()
+                missing_listener.wait(timeout=5)
+
+        repair_start = command.index('recreate_value="', repair_index)
+        repair_end = command.index("if command -v apt-get", repair_start)
+        repair_script = (
+            "set -e\n"
+            "stage() { :; }\n"
+            'default_gateway_state_dir="$HOME/.local/state/nemoclaw/'
+            'openshell-docker-gateway"\n'
+            'gateway_state_dir="${NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR:-'
+            '$default_gateway_state_dir}"\n'
+            + command[repair_start:repair_end]
+        )
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            state_dir = (
+                home
+                / ".local"
+                / "state"
+                / "nemoclaw"
+                / "openshell-docker-gateway"
+            )
+            state_dir.mkdir(parents=True)
+            for db_name in ("openshell.db", "openshell.db-wal", "openshell.db-shm"):
+                (state_dir / db_name).write_text("test\n", encoding="utf-8")
+
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            sudo_log = Path(td) / "sudo.log"
+            fake_stat = fake_bin / "stat"
+            fake_stat.write_text("#!/bin/sh\nprintf '0\\n'\n", encoding="utf-8")
+            fake_stat.chmod(0o755)
+            fake_sudo = fake_bin / "sudo"
+            fake_sudo.write_text(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SUDO_LOG\"\n",
+                encoding="utf-8",
+            )
+            fake_sudo.chmod(0o755)
+            repair_env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "SUDO_LOG": str(sudo_log),
+                "NEMOCLAW_RECREATE_SANDBOX": " Yes ",
+            }
+            repaired = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=repair_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(repaired.returncode, 0, repaired.stderr)
+            chown_calls = [
+                line
+                for line in sudo_log.read_text(encoding="utf-8").splitlines()
+                if "chown --no-dereference" in line
+            ]
+            self.assertEqual(len(chown_calls), 3)
+            for db_name in ("openshell.db", "openshell.db-wal", "openshell.db-shm"):
+                self.assertTrue(any(db_name in line for line in chown_calls))
+
+            (state_dir / "openshell.db-wal").unlink()
+            (state_dir / "openshell.db-wal").symlink_to(state_dir / "openshell.db")
+            rejected = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=repair_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("Refusing to repair symlinked", rejected.stderr)
+
+            calls_before_override = sudo_log.read_text(encoding="utf-8")
+            override_env = {
+                **repair_env,
+                "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR": str(Path(td) / "outside"),
+            }
+            skipped = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=override_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(skipped.returncode, 0, skipped.stderr)
+            self.assertEqual(
+                sudo_log.read_text(encoding="utf-8"),
+                calls_before_override,
+            )
+
+            nemoclaw_dir = state_dir.parent
+            real_nemoclaw_dir = nemoclaw_dir.with_name("nemoclaw-real")
+            nemoclaw_dir.rename(real_nemoclaw_dir)
+            nemoclaw_dir.symlink_to(real_nemoclaw_dir, target_is_directory=True)
+            rejected_parent = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=repair_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected_parent.returncode, 0)
+            self.assertIn(
+                "Refusing to repair through symlinked",
+                rejected_parent.stderr,
+            )
+
+    async def test_nemoclaw_setup_stages_allowlisted_sample_without_secret(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._ensure_nemoclaw_ready(
+                {
+                    "nemoclaw_sample_files": [
+                        "warehouse_safety_0001.mp4",
+                    ]
+                }
+            )
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertIn(
+            "sample_files=(warehouse_safety_0001.mp4)",
+            command,
+        )
+        self.assertIn(
+            "nvidia/vss-developer/dev-profile-sample-data:3.2.0",
+            command,
+        )
+        self.assertIn(
+            '"$openshell_bin" -g "$gateway_name" sandbox upload',
+            command,
+        )
+        self.assertIn(
+            '"$openshell_bin" -g "$gateway_name" sandbox exec',
+            command,
+        )
+        self.assertIn(
+            'test -s "$sandbox_sample_dir/$sample_file"',
+            command,
+        )
+        self.assertIn(
+            "/usr/bin/env -u OPENSHELL_GATEWAY_ENDPOINT",
+            command,
+        )
+        self.assertGreaterEqual(command.count("-u NGC_CLI_API_KEY"), 3)
+        self.assertGreaterEqual(command.count("-u NGC_API_KEY"), 3)
+        self.assertIn("sample-fixtures.json", command)
+        self.assertNotIn("export NGC_CLI_API_KEY=", command)
+        self.assertLess(
+            command.index("notebook setup adapter completed"),
+            command.index("staging allowlisted sample fixture"),
+        )
+        self.assertLess(
+            command.index("staging allowlisted sample fixture"),
+            command.index(
+                "python3 .github/skill-eval/nemoclaw/readiness.py"
+            ),
+        )
+
+    async def test_nemoclaw_setup_rejects_untrusted_sample_before_remote_exec(self):
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+        ) as remote_exec:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "unsupported filename",
+            ):
+                await env._ensure_nemoclaw_ready(
+                    {
+                        "nemoclaw_sample_files": [
+                            "not-a-vss-sample.mp4",
+                        ]
+                    }
+                )
+
+        remote_exec.assert_not_called()
+
+    async def test_nemoclaw_setup_exception_uses_secret_safe_categories(self):
+        raw_secret = "sk-secret-value"
+        raw_output = "\n".join(
+            (
+                "Could not authenticate using sk-secret-value",
+                "Cannot safely migrate legacy NemoClaw state for this gateway "
+                "port: onboard-session.json conflicts with its sandbox registry row",
+                "reason=ContainerRestarting Container is restarting after a failure",
+            )
+        )
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            return brev_env.ExecResult(
+                stdout=raw_output,
+                stderr=None,
+                return_code=1,
+            )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "legacy_state_conflict,sandbox_container_restarting",
+            ) as raised:
+                await env._ensure_nemoclaw_ready({})
+
+        self.assertNotIn(raw_secret, str(raised.exception))
+        self.assertNotIn("onboard-session.json", str(raised.exception))
+
+    async def test_nemoclaw_launcher_bypasses_outer_claude(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        previous_fast = os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
+        previous_timeout = os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC")
+        previous_runner = os.environ.get("SKILLS_EVAL_RUNNER")
+        previous_owner = os.environ.get("NEMOCLAW_ATTEMPT_OWNER_TOKEN")
+        attempt_owner_token = "e" * 32
+        os.environ["NEMOCLAW_AGENT_TIMEOUT_SEC"] = "3300"
+        os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
+        os.environ["NEMOCLAW_ATTEMPT_OWNER_TOKEN"] = attempt_owner_token
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-ask-video for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "deployment_profile": "base",
+                    "expected_skill": "vss-ask-video",
+                }
+                await env.exec(
+                    "printf %s \"$HARBOR_CLAUDE_CODE_INSTRUCTION_123\" "
+                    "| claude --verbose --print",
+                    env={
+                        "HARBOR_CLAUDE_CODE_INSTRUCTION_123": (
+                            "Run python3 .github/skill-eval/nemoclaw/"
+                            "headless_runner.py --prompt-file "
+                            "/tests/nemoclaw_prompt.md with the generated prompt."
+                        )
+                    },
+                    timeout_sec=123,
+                )
+        finally:
+            brev_env._run_brev_exec = original
+            if previous_fast is not None:
+                os.environ["NEMOCLAW_FAST_READINESS_MODE"] = previous_fast
+            if previous_timeout is None:
+                os.environ.pop("NEMOCLAW_AGENT_TIMEOUT_SEC", None)
+            else:
+                os.environ["NEMOCLAW_AGENT_TIMEOUT_SEC"] = previous_timeout
+            if previous_runner is None:
+                os.environ.pop("SKILLS_EVAL_RUNNER", None)
+            else:
+                os.environ["SKILLS_EVAL_RUNNER"] = previous_runner
+            if previous_owner is None:
+                os.environ.pop("NEMOCLAW_ATTEMPT_OWNER_TOKEN", None)
+            else:
+                os.environ["NEMOCLAW_ATTEMPT_OWNER_TOKEN"] = previous_owner
+
+        self.assertEqual(len(calls), 2)
+        command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
+        self.assertIn("NemoClaw direct Harbor launcher", command)
+        self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
+        self.assertIn("--launch-mode cli", command)
+        self.assertIn("--agent-log-dir /logs/agent", command)
+        self.assertIn("--wait-profile base", command)
+        self.assertIn("--expected-skill vss-ask-video", command)
+        self.assertNotIn("--runtime-env", command)
+        self.assertIn(
+            "--prompt-file /tmp/skill-eval/nemoclaw/current_prompt.md",
+            command,
+        )
+        self.assertIn(
+            "base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md",
+            command,
+        )
+        self.assertIn(f"attempt_token={attempt_owner_token}", command)
+        self.assertIn("flock -x 9", command)
+        self.assertLess(
+            command.index("flock -x 9"),
+            command.index("NemoClaw direct Harbor launcher"),
+        )
+        self.assertLess(
+            command.index("flock -x 9"),
+            command.index("base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md"),
+        )
+        self.assertLess(
+            command.index("flock -x 9"),
+            command.index(
+                "python3 .github/skill-eval/nemoclaw/headless_runner.py"
+            ),
+        )
+        self.assertNotIn("| claude --verbose --print", command)
+        self.assertNotIn("--prompt-file /tests/nemoclaw_prompt.md", command)
+        self.assertEqual(calls[0][2], 3420)
+
+    async def test_nemoclaw_launcher_can_opt_into_fast_readiness_mode(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        previous_fast = os.environ.get("NEMOCLAW_FAST_READINESS_MODE")
+        brev_env._run_brev_exec = fake_run_brev_exec
+        os.environ["NEMOCLAW_FAST_READINESS_MODE"] = "1"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-ask-video for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "deployment_profile": "base",
+                    "expected_skill": "vss-ask-video",
+                }
+                await env.exec(
+                    "claude --print 'run python3 "
+                    ".github/skill-eval/nemoclaw/headless_runner.py'",
+                    timeout_sec=123,
+                )
+        finally:
+            brev_env._run_brev_exec = original
+            if previous_fast is None:
+                os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
+            else:
+                os.environ["NEMOCLAW_FAST_READINESS_MODE"] = previous_fast
+
+        self.assertIn("--wait-profile base", calls[0][1])
+
+    async def test_nemoclaw_launcher_embeds_current_prompt_when_task_dir_exists(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-deploy-profile for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "expected_skill": "vss-deploy-profile",
+                }
+                await env.exec(
+                    "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
+                    timeout_sec=123,
+                )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 2)
+        command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
+        self.assertIn("/tmp/skill-eval/nemoclaw/current_prompt.md", command)
+        self.assertIn("base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md", command)
+        self.assertIn("--expected-skill vss-deploy-profile", command)
+        self.assertNotIn("--prompt-file /tests/nemoclaw_prompt.md", command)
+
+    async def test_dense_captioning_launcher_has_no_rtsp_argv(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="ok",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task_dir = Path(tmp) / "rtxpro6000bw"
+            tests_dir = task_dir / "tests"
+            env_dir = task_dir / "environment"
+            tests_dir.mkdir(parents=True)
+            env_dir.mkdir()
+            (tests_dir / "nemoclaw_prompt.md").write_text(
+                "Use /vss-deploy-dense-captioning for this trial.\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                side_effect=fake_run_brev_exec,
+            ):
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "expected_skill": "vss-deploy-dense-captioning",
+                }
+                await env.exec(
+                    "claude --print 'run python3 .github/skill-eval/"
+                    "nemoclaw/headless_runner.py'",
+                    timeout_sec=123,
+                )
+
+        self.assertEqual(len(calls), 2)
+        command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
+        self.assertIn(
+            "--expected-skill vss-deploy-dense-captioning",
+            command,
+        )
+        self.assertNotIn("--runtime-env", command)
+        self.assertNotIn(brev_env.DEFAULT_RTSP_SAMPLE_URL, command)
+
+    async def test_nemoclaw_launcher_bypasses_outer_claude_without_metadata(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-deploy-profile for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {}
+                await env.exec(
+                    "claude --verbose --print",
+                    env={
+                        "HARBOR_CLAUDE_CODE_INSTRUCTION_456": (
+                            "Run python3 .github/skill-eval/nemoclaw/"
+                            "headless_runner.py with the generated prompt."
+                        )
+                    },
+                    timeout_sec=123,
+                )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 2)
+        command = calls[0][1]
+        self.assertIn("MATCH_EXACT=1", calls[1][1])
+        self.assertIn("NemoClaw direct Harbor launcher", command)
+        self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
+        self.assertNotIn("claude --verbose --print", command)
+
+    async def test_nemoclaw_launcher_fails_closed_without_current_prompt(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                env_dir = task_dir / "environment"
+                env_dir.mkdir(parents=True)
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {"runner": "nemoclaw"}
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "refusing to fall back",
+                ):
+                    await env.exec(
+                        "claude --verbose --print",
+                        env={
+                            "HARBOR_CLAUDE_CODE_INSTRUCTION_789": (
+                                "Run python3 .github/skill-eval/nemoclaw/"
+                                "headless_runner.py with the generated prompt."
+                            )
+                        },
+                        timeout_sec=123,
+                    )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(calls, [])
+
+    async def test_nemoclaw_intercept_only_matches_launcher(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env._task_metadata = {"runner": "nemoclaw"}
+            await env.exec("echo no launcher here", timeout_sec=123)
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn("echo no launcher here", calls[0][1])
+        self.assertEqual(calls[0][2], 123)
+
+    async def test_repo_sync_injects_pr_head_from_coordinator_env(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="synced repo to abc1234\n", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        old_head = os.environ.get("PR_HEAD_SHA")
+        old_repo = os.environ.get("PR_REPO")
+        brev_env._run_brev_exec = fake_run_brev_exec
+        os.environ["PR_HEAD_SHA"] = "abc1234"
+        os.environ["PR_REPO"] = "NVIDIA-AI-Blueprints/video-search-and-summarization"
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._sync_repo_to_pr_head()
+        finally:
+            brev_env._run_brev_exec = original
+            if old_head is None:
+                os.environ.pop("PR_HEAD_SHA", None)
+            else:
+                os.environ["PR_HEAD_SHA"] = old_head
+            if old_repo is None:
+                os.environ.pop("PR_REPO", None)
+            else:
+                os.environ["PR_REPO"] = old_repo
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("PR_HEAD_SHA=abc1234", command)
+        self.assertIn("PR_REPO=NVIDIA-AI-Blueprints/video-search-and-summarization", command)
+        self.assertNotIn('PR_HEAD_SHA="${PR_HEAD_SHA:-}"', command)
+        self.assertIn('"$REPO/deployments" "$REPO/deploy/docker/data-dir"', command)
+        self.assertIn("sudo rm -rf \"$stale_path\"", command)
+        self.assertIn("git clean failed; repairing checkout ownership", command)
+        self.assertIn("-path \"$REPO/data\" -prune", command)
+        self.assertIn("-path \"$REPO/.mdx_data/models\" -prune", command)
+        self.assertEqual(command.count("-e /.env"), 3)
+        self.assertEqual(command.count("-e /.mdx_data/models/"), 3)
+        self.assertNotIn("-e .env", command)
+        self.assertIn("Nested dotenv files must be removed", command)
+
+
+class CoordinatorRepoArchive(unittest.IsolatedAsyncioTestCase):
+
+    @staticmethod
+    def _git(repo: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+
+    def _make_repo(self, root: Path) -> tuple[Path, str]:
+        repo = root / "coordinator"
+        repo.mkdir()
+        self._git(repo, "init", "--quiet")
+        self._git(repo, "config", "user.email", "skill-eval@example.test")
+        self._git(repo, "config", "user.name", "Skill Eval Test")
+        (repo / "README.md").write_text("first\n", encoding="utf-8")
+        self._git(repo, "add", "README.md")
+        self._git(repo, "commit", "--quiet", "-m", "first")
+        first_sha = self._git(repo, "rev-parse", "HEAD")
+
+        executable = repo / "run.sh"
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o755)
+        (repo / "current-readme").symlink_to("README.md")
+        self._git(repo, "add", "run.sh", "current-readme")
+        # A gitlink proves that the transfer preserves Git's submodule object
+        # contract rather than flattening the checkout into ordinary files.
+        self._git(
+            repo,
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "160000",
+            first_sha,
+            "vendor/dependency",
+        )
+        self._git(repo, "commit", "--quiet", "-m", "exact head")
+        return repo, self._git(repo, "rev-parse", "HEAD")
+
+    async def test_archive_is_clonable_shallow_exact_git_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, head = self._make_repo(root)
+            archive = root / "repo-source.tar.gz"
+            (repo / "README.md").write_text(
+                "dirty coordinator content\n",
+                encoding="utf-8",
+            )
+            (repo / "untracked-secret.txt").write_text(
+                "must not transfer\n",
+                encoding="utf-8",
+            )
+
+            built = await brev_env._build_exact_head_repo_archive(
+                repo_root=repo,
+                pr_head_sha=head,
+                archive_path=archive,
+            )
+
+            self.assertTrue(built)
+            self.assertTrue(archive.is_file())
+            extracted = root / "extracted"
+            extracted.mkdir()
+            subprocess.run(
+                ["tar", "-xzf", str(archive), "-C", str(extracted)],
+                check=True,
+            )
+            bare_repo = extracted / "exact.git"
+            self.assertEqual(
+                self._git(
+                    bare_repo,
+                    "rev-parse",
+                    f"{brev_env.COORDINATOR_REPO_ARCHIVE_REF}^{{commit}}",
+                ),
+                head,
+            )
+            self.assertIn(
+                head,
+                (bare_repo / "shallow").read_text(encoding="utf-8").splitlines(),
+            )
+            self.assertFalse((bare_repo / "FETCH_HEAD").exists())
+            self.assertFalse((bare_repo / "objects" / "info" / "alternates").exists())
+
+            clone = root / "worker"
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--quiet",
+                    "--depth=1",
+                    "--branch",
+                    brev_env.COORDINATOR_REPO_ARCHIVE_REF.removeprefix(
+                        "refs/heads/"
+                    ),
+                    bare_repo.resolve().as_uri(),
+                    str(clone),
+                ],
+                check=True,
+            )
+            self.assertEqual(self._git(clone, "rev-parse", "HEAD"), head)
+            self.assertEqual(self._git(clone, "rev-list", "--count", "HEAD"), "1")
+            self.assertEqual(
+                (clone / "README.md").read_text(encoding="utf-8"),
+                "first\n",
+            )
+            self.assertFalse((clone / "untracked-secret.txt").exists())
+            self.assertTrue((clone / "run.sh").stat().st_mode & 0o100)
+            self.assertTrue((clone / "current-readme").is_symlink())
+            gitlink = self._git(clone, "ls-tree", "HEAD", "vendor/dependency")
+            expected_gitlink = (
+                f"160000 commit {self._git(repo, 'rev-parse', 'HEAD^')}"
+                "\tvendor/dependency"
+            )
+            self.assertEqual(gitlink, expected_gitlink)
+            bare_config = self._git(bare_repo, "config", "--local", "--list")
+            self.assertNotIn("extraheader", bare_config.lower())
+            self.assertNotIn("credential", bare_config.lower())
+            self.assertNotIn(str(repo.resolve()), bare_config)
+
+    async def test_archive_refuses_non_exact_or_abbreviated_head(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, head = self._make_repo(root)
+            for requested in (head[:-1] + ("0" if head[-1] != "0" else "1"), head[:12]):
+                archive = root / f"{len(requested)}.tar.gz"
+                self.assertFalse(
+                    await brev_env._build_exact_head_repo_archive(
+                        repo_root=repo,
+                        pr_head_sha=requested,
+                        archive_path=archive,
+                    )
+                )
+                self.assertFalse(archive.exists())
+
+    async def test_repo_sync_prefers_coordinator_archive_and_verifies_head(self):
+        calls = []
+        uploads = []
+        worker_home = None
+
+        async def fake_upload_file(source, target):
+            uploads.append((Path(source), Path(target)))
+            Path(target).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            self.assertIsNotNone(worker_home)
+            # The test checkout is user-owned, so remove only the sudo command
+            # prefix while exercising the otherwise exact worker shell script.
+            completed = subprocess.run(
+                ["bash", "-c", command.replace("sudo ", "")],
+                env={**os.environ, "HOME": str(worker_home)},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+            return brev_env.ExecResult(
+                stdout=completed.stdout,
+                stderr=completed.stderr,
+                return_code=completed.returncode,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, head = self._make_repo(root)
+            worker_home = root / "worker-home"
+            worker_repo = worker_home / "video-search-and-summarization"
+            (worker_repo / "data").mkdir(parents=True)
+            (worker_repo / "data" / "sample.cache").write_text(
+                "sample cache\n",
+                encoding="utf-8",
+            )
+            (worker_repo / ".mdx_data" / "models").mkdir(parents=True)
+            (worker_repo / ".mdx_data" / "models" / "model.cache").write_text(
+                "model cache\n",
+                encoding="utf-8",
+            )
+            (worker_repo / ".env").write_text("ACTIVE=1\n", encoding="utf-8")
+            (worker_repo / "stale.txt").write_text("stale\n", encoding="utf-8")
+            stale_hook = worker_repo / ".git" / "hooks" / "post-checkout"
+            stale_hook.parent.mkdir(parents=True)
+            stale_hook.write_text(
+                "#!/bin/sh\ntouch \"$HOME/stale-hook-fired\"\n",
+                encoding="utf-8",
+            )
+            stale_hook.chmod(0o755)
+
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock(side_effect=fake_upload_file)
+            with mock.patch.object(
+                brev_env,
+                "_coordinator_repo_root",
+                return_value=repo,
+            ), mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=fake_run_brev_exec,
+            ), mock.patch.dict(
+                os.environ,
+                {
+                    "PR_HEAD_SHA": f"  {head.upper()}  ",
+                    "PR_REPO": (
+                        "NVIDIA-AI-Blueprints/"
+                        "video-search-and-summarization"
+                    ),
+                },
+            ):
+                await env._sync_repo_to_pr_head()
+
+            env.upload_file.assert_awaited_once()
+            self.assertEqual(self._git(worker_repo, "rev-parse", "HEAD"), head)
+            self.assertEqual(
+                (worker_repo / "data" / "sample.cache").read_text(
+                    encoding="utf-8"
+                ),
+                "sample cache\n",
+            )
+            self.assertEqual(
+                (
+                    worker_repo
+                    / ".mdx_data"
+                    / "models"
+                    / "model.cache"
+                ).read_text(encoding="utf-8"),
+                "model cache\n",
+            )
+            self.assertEqual(
+                (worker_repo / ".env").read_text(encoding="utf-8"),
+                "ACTIVE=1\n",
+            )
+            self.assertFalse((worker_repo / "stale.txt").exists())
+            self.assertFalse((worker_home / "stale-hook-fired").exists())
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(uploads), 1)
+        command = calls[0][1]
+        self.assertIn(f"PR_HEAD_SHA={head}", command)
+        self.assertIn('git fetch --depth=1 --no-tags "file://$BARE_REPO"', command)
+        self.assertIn('if [ "$(git rev-parse HEAD)" != "$PR_HEAD_SHA" ]', command)
+        self.assertIn("grep -Fqx \"$PR_HEAD_SHA\" \"$BARE_REPO/shallow\"", command)
+        self.assertNotIn('git fetch --depth=1 origin "$PR_HEAD_SHA"', command)
+        self.assertIn("export GIT_LFS_SKIP_SMUDGE=1", command)
+        self.assertIn("export GIT_CONFIG_GLOBAL=/dev/null", command)
+        self.assertIn("export GIT_CONFIG_SYSTEM=/dev/null", command)
+        self.assertIn('sudo rm -rf -- "$REPO/.git"', command)
+        self.assertIn("git -c init.templateDir= init \"$REPO\"", command)
+        self.assertIn("git config core.hooksPath /dev/null", command)
+        self.assertLess(
+            command.index('sudo rm -rf -- "$REPO/.git"'),
+            command.index('git fetch --depth=1 --no-tags "file://$BARE_REPO"'),
+        )
+        self.assertEqual(command.count("-e /.env"), 3)
+        self.assertEqual(command.count("-e /.mdx_data/models/"), 3)
+
+    async def test_repo_sync_fails_closed_after_archive_install_failure(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            if len(calls) == 1:
+                return brev_env.ExecResult(
+                    stdout="",
+                    stderr="local archive rejected",
+                    return_code=1,
+                )
+            return brev_env.ExecResult(
+                stdout="synced repo from github\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            repo, head = self._make_repo(Path(td))
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock()
+            with mock.patch.object(
+                brev_env,
+                "_coordinator_repo_root",
+                return_value=repo,
+            ), mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=fake_run_brev_exec,
+            ), mock.patch.dict(
+                os.environ,
+                {"PR_HEAD_SHA": head},
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "coordinator source install failed",
+                ):
+                    await env._sync_repo_to_pr_head()
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn('"file://$BARE_REPO"', calls[0][1])
+
+    async def test_repo_sync_uses_github_when_archive_transfer_is_unavailable(self):
+        calls = []
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="synced repo from github\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            repo, head = self._make_repo(Path(td))
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env.upload_file = mock.AsyncMock(
+                side_effect=RuntimeError("copy timed out"),
+            )
+            with mock.patch.object(
+                brev_env,
+                "_coordinator_repo_root",
+                return_value=repo,
+            ), mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=fake_run_brev_exec,
+            ), mock.patch.dict(
+                os.environ,
+                {"PR_HEAD_SHA": head},
+            ):
+                await env._sync_repo_to_pr_head()
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn('git fetch --depth=1 origin "$PR_HEAD_SHA"', calls[0][1])
+        self.assertIn("export GIT_LFS_SKIP_SMUDGE=1", calls[0][1])
 
 
 class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
@@ -232,7 +3732,10 @@ class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
 
                 env = brev_env.BrevEnvironment()
                 env._instance_name = "vss-eval-test"
-                with self.assertRaisesRegex(RuntimeError, "copy failed"):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Upload dir failed on vss-eval-test: copy failed",
+                ):
                     await env.upload_dir(src_dir, "/skills")
         finally:
             brev_env._run_brev_exec = original_exec
@@ -243,6 +3746,85 @@ class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(Path(copied_src).exists())
         self.assertEqual(len(exec_calls), 1)
         self.assertIn("mkdir -p /tmp/skill-eval/uploads/", exec_calls[0][1])
+
+    async def test_upload_dir_binds_remote_mkdir_failure_to_instance(self):
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            return brev_env.ExecResult(
+                stdout="",
+                stderr="No space left on device",
+                return_code=1,
+            )
+
+        original_exec = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src_dir = Path(td) / "skills"
+                src_dir.mkdir()
+                (src_dir / "SKILL.md").write_text("test skill\n")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    (
+                        "Upload dir failed on vss-eval-test: "
+                        "No space left on device"
+                    ),
+                ):
+                    await env.upload_dir(src_dir, "/skills")
+        finally:
+            brev_env._run_brev_exec = original_exec
+
+    async def test_upload_dir_retries_transient_brev_copy_failure(self):
+        exec_calls = []
+        copy_calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            exec_calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            copy_calls.append((src, dst, timeout))
+            if len(copy_calls) == 1:
+                return brev_env.ExecResult(
+                    stdout="",
+                    stderr=(
+                        "waiting for instance to be ready... "
+                        "rpc error: code = Unavailable desc = error reading from server: EOF"
+                    ),
+                    return_code=1,
+                )
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        original_backoff = brev_env.BREV_UPLOAD_BACKOFF_SEC
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        brev_env.BREV_UPLOAD_BACKOFF_SEC = 0
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src_dir = Path(td) / "skills"
+                src_dir.mkdir()
+                (src_dir / "SKILL.md").write_text("test skill\n")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                await env.upload_dir(src_dir, "/skills")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+            brev_env.BREV_UPLOAD_BACKOFF_SEC = original_backoff
+
+        self.assertEqual(len(copy_calls), 2)
+        commands = [call[1] for call in exec_calls]
+        self.assertEqual(sum("mkdir -p /tmp/skill-eval/uploads/" in command for command in commands), 2)
+        self.assertEqual(sum("tar -xzf" in command for command in commands), 1)
 
 
 class VersionCompareSanity(unittest.TestCase):

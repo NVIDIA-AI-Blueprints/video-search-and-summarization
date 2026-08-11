@@ -170,9 +170,10 @@ def _set_bash_timeouts() -> None:
     crosses the Bash *max* timeout (default 600000 ms = 10 min), then
     surfaces it as pollable task output. That silently defeats AGENTS.md's
     "block on run_leg.py / Harbor -- no polling" contract. A full leg can
-    include lock contention plus multiple ordered Harbor subprocesses, so the
-    foreground cap must cover the workflow job window, not just one Harbor
-    attempt. Past the cap the foreground call is backgrounded and the agent
+    include lock contention plus one or more ordered Harbor subprocesses, so
+    the foreground cap must cover the bounded wrapper call, not just one
+    default 10-minute Bash attempt. Past the cap the foreground call is
+    backgrounded and the agent
     falls into polling its task .output files. The
     `_block_bash_background` hook can't prevent it: the runtime sets
     run_in_background *after* the timeout, not in the call input the hook
@@ -313,6 +314,19 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
     print(f"[benchmark] wrote {out_path} ({len(sources)} spec comments)",
           flush=True)
     return out_path
+
+
+def _final_protocol_marker(final_text: list[str]) -> str | None:
+    """Return the final DONE/BLOCKED marker only when it is the last line."""
+    summary = "\n".join(final_text[-10:])
+    for line in reversed(summary.splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if re.match(r"^(DONE|BLOCKED):", stripped):
+            return stripped
+        return None
+    return None
 
 
 # ---------------------------------------------------------------------------

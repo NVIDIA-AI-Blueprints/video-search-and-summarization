@@ -18,7 +18,9 @@ enabled: false
 global: {}
 image:
   repository: docker.io/library/postgres
-  tag: 17.10-alpine
+  # Pin the multi-platform index so shared workers cannot resolve a stale tag
+  # (matches deploy/docker/services/vios/vst.env POSTGRES_IMAGE digest).
+  tag: 17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
   pullPolicy: IfNotPresent
 replicas: 1
 # Args for postgres process (config file and socket dir)
@@ -60,9 +62,11 @@ resources: {}
 nodeSelector: {}
 tolerations: []
 # Use shell so POSTGRES_USER/POSTGRES_DB are expanded (Kubernetes exec does not expand env vars).
+# Use the absolute path to pg_isready so the probe does not depend on $PATH
+# (matches deploy/docker/services/vios/foundational/docker-compose.yaml).
 livenessProbe:
   exec:
-    command: ["/bin/sh", "-c", "pg_isready -h localhost -U \"$POSTGRES_USER\""]
+    command: ["/bin/sh", "-c", "/usr/local/bin/pg_isready -h localhost -U \"$POSTGRES_USER\""]
   failureThreshold: 3
   initialDelaySeconds: 30
   periodSeconds: 20
@@ -70,7 +74,7 @@ livenessProbe:
   timeoutSeconds: 2
 readinessProbe:
   exec:
-    command: ["/bin/sh", "-c", "pg_isready -h localhost -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+    command: ["/bin/sh", "-c", "/usr/local/bin/pg_isready -h localhost -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
   failureThreshold: 5
   initialDelaySeconds: 5
   periodSeconds: 5

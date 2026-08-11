@@ -124,6 +124,19 @@ The canonical harbor command is in § Harbor invocation.
    pre-authorized to deploy autonomously (see the PREAMBLE that every
    adapter renders into the trial prompt).
 
+   **NemoClaw fail-fast contract.** When `SKILLS_EVAL_RUNNER=nemoclaw`
+   or a spec sets `runner: "nemoclaw"`, do not debug by hot-patching
+   the live Brev worker, OpenClaw container, OpenClaw image, notebook
+   output, `~/.eval_env`, or unrelated run artifacts. Run the canonical
+   Harbor command once for the selected scenario, in the foreground.
+   Do not use the `Monitor` tool, background Harbor with `&`, or keep
+   checking remote progress with sleep/poll loops. If setup or Harbor
+   fails, read only this run's `trial.log`, `test-stdout.txt`,
+   `nemoclaw_hooks_response.json`, and readiness/setup artifacts, record
+   a concise `BLOCKED:` or failed-result summary, and exit. Fixes must
+   be made as code changes on the branch and evaluated by a new workflow
+   run, not by mutating the live worker from inside CI.
+
    Skills with no specs at all are runtime libraries — skip them.
 
 3. **For each evaluable skill × spec, ensure an adapter exists under
@@ -316,10 +329,10 @@ The canonical harbor command is in § Harbor invocation.
       requirements from the dataset's `task.toml` `[metadata]`
       (`gpu_type`, `gpu_count`), snapshots `brev ls --json`, filters to
       RUNNING `vss-eval-*` boxes whose GPU matches, and walks the
-      candidates best-first with **non-blocking** `flock` attempts —
-      claiming the first box it can actually lock. Selection and
-      reservation are one atomic step inside the wrapper, so two
-      concurrent legs fan out to different boxes instead of both
+      candidates best-first with **non-blocking** runner-local `flock`
+      attempts, then acquires the shared worker-side lease also used by
+      NemoClaw. A box is claimed only after both layers succeed, so jobs
+      on the same or different runner hosts fan out instead of both
       "choosing" the same lock-free-looking one and serialising
       (check-then-act TOCTOU — the failure mode that motivated this).
 
@@ -347,10 +360,10 @@ The canonical harbor command is in § Harbor invocation.
 
    b. **Run the structural leg wrapper**. Do not acquire or release
       `flock` manually in a separate Bash call, and do not pass
-      `--instance` in CI. `run_leg.py` opens `/tmp/brev/<chosen>.lock`,
-      holds that file descriptor for the entire Harbor run (including
-      all step-1..N invocations), and releases it only when the wrapper
-      exits or dies:
+      `--instance` in CI. `run_leg.py` opens `/tmp/brev/<chosen>.lock`
+      and acquires `/tmp/skill-eval/locks/nemoclaw-worker.lockdir` on
+      the worker. It holds both for the entire Harbor run (including all
+      step-1..N invocations) and releases them when the wrapper exits:
       ```bash
       "$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py \
         --dataset-root "$DS" \
@@ -392,9 +405,12 @@ The canonical harbor command is in § Harbor invocation.
    that survive a volume wipe (docker **image** layers, the repo clone, the
    `data/` sample-data extract — but NOT the model-weight *volumes*, which
    the per-trial reset drops; see § 7).
-   `run_leg.py` releases the per-box lock automatically when its process
-   exits; there is no shell FD for you to close. You never `brev stop` /
-   `brev delete`. Pool lifecycle is strictly an operator concern.
+   `run_leg.py` releases both lock layers automatically when its process
+   exits; there is no shell FD for you to close. If it is killed, the
+   local flock is kernel-released and a later job clears the remote lease
+   only after GitHub proves the exact owner job terminal. You never
+   `brev stop` / `brev delete`. Pool lifecycle is strictly an operator
+   concern.
 
    **The box's docker runtime is reset for you at the *start* of each spec,
    not on exit.** On a spec's first trial — a single-step spec, or `step-1`
@@ -492,13 +508,14 @@ The canonical harbor command is in § Harbor invocation.
 |---|---|---|
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
+| `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Single-GPU RTX 4090 nodes are eligible only when the spec declares `gpu_type: GEFORCE RTX 4090`. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
 Pool naming is operator-managed; the actual fleet is the union of managed
 instances from `brev ls --json` and connected registered nodes from
 `brev ls nodes --json` that are explicitly named in the coordinator's
-comma/space-separated `BREV_REGISTERED_POOL` allowlist. Registered-node
+comma/space-separated `BREV_REGISTERED_POOL` allowlist (or the separate
+`BREV_RTX4090_POOL` for an explicitly requested RTX 4090). Registered-node
 JSON omits GPU metadata, so `run_leg.py` accepts only documented hardware
 prefixes (`vss-eval-rtx*`, `vss-eval-geforce-rtx4090-vm*`,
 `vss-eval-l40s*`, `vss-eval-h100*`) and fails closed for unknown GPU
@@ -508,16 +525,12 @@ the operator's job**; the box lock and the trials both live inside
 `run_leg.py` — see Hard rules about `brev create / start / stop / delete /
 reset`.
 
-`BREV_RTX4090_POOL` is a separate, capability-routed allowlist. Its nodes
-are selected only when the skill and spec stem match the resource-proven
-matrix in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS`. This includes
-the proven ask-video, report, base/LVS/Alerts profile, summarize, alerts,
-query analytics, 2D detection, embedding, calibration, VIOS, setup, and
-standalone dense-captioning tests. Search, Warehouse, dense-captioning
-Alerts, and every 3D detection/calibration test remain on full-capability
-workers. Missing skill/spec metadata fails closed. A registered single-GPU
-node is also filtered from any task requiring two GPUs before lock
-acquisition.
+`BREV_RTX4090_POOL` is a separate, metadata-routed allowlist. Its nodes
+are considered only when the eval spec explicitly declares
+`gpu_type: GEFORCE RTX 4090`; skill names and spec stems never override the
+declared hardware. Missing or different GPU metadata fails closed. A
+registered single-GPU node is also filtered from any task requiring two
+GPUs before lock acquisition.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
@@ -527,11 +540,11 @@ worker; concurrency comes from sibling legs each claiming a different
 box via `run_leg.py`'s try-lock cascade (§ 5a). Just run `run_leg.py`
 (§ Harbor invocation) — it selects the box, exports `BREV_INSTANCE`
 for the claimed instance before Harbor starts (mandatory because
-BrevEnvironment no longer auto-provisions), and holds the per-box lock
-for the whole run. The pool is operator-managed: never `brev create /
-start / stop / reset / delete` a member; if none matches the platform,
-the wrapper waits out its budget and exits 75 — relay that as
-`BLOCKED: pool exhausted for <platform>`.
+BrevEnvironment no longer auto-provisions), and holds both the runner-local
+flock and worker-side lease for the whole run. The pool is operator-managed:
+never `brev create / start / stop / reset / delete` a member; if none
+matches the platform, the wrapper waits out its budget and exits 75 —
+relay that as `BLOCKED: pool exhausted for <platform>`.
 
 **Name prefix is an anchored match, not a substring.** Only instances
 whose name starts with `vss-eval-` are eligible. Ignore everything else
@@ -581,8 +594,8 @@ the box itself:
 ```
 
 Do **not** run `uvx harbor run` directly from the agent. The wrapper
-does that inside the same process that selected the box and holds
-`/tmp/brev/<chosen>.lock`.
+does that inside the same process that selected the box and holds both
+`/tmp/brev/<chosen>.lock` and the worker-side lease.
 It exports `PATH`, `PYTHONPATH`, `BREV_INSTANCE`, and
 `CLAUDE_CODE_DISABLE_THINKING=1`; discovers whether `$DS` contains a
 single-step task or ordered `step-1..N` tasks; dispatches one Harbor

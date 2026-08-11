@@ -35,9 +35,29 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-deploy-profile`)."
+        description: >-
+          Which skill to eval. `*` sweeps every spec with `claude-code`; with
+          `nemoclaw` it runs one bounded representative per skill family and
+          reports unsupported families explicitly as BLOCKED. Otherwise use a
+          bare skill-dir name (e.g. `vss-deploy-profile`).
         required: false
         default: "*"
+        type: string
+      runner:
+        description: >-
+          Execution runtime for manual sweeps. `claude-code` keeps the
+          existing matrix path; `nemoclaw` prepares OpenClaw/NemoClaw and
+          launches scenarios through hooks.
+        required: false
+        default: "claude-code"
+        type: choice
+        options:
+          - claude-code
+          - nemoclaw
+      nemoclaw_instance:
+        description: "Optional Brev worker name for NemoClaw runs, e.g. vss-eval-rtx-2g-5."
+        required: false
+        default: ""
         type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
@@ -45,14 +65,16 @@ on:
 # Mirrors helm-sync.yml — no PAT, no rotation. contents:write covers the
 # adapter push; pull-requests:write covers the PR comment.
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
 # One eval generation per PR (or manual sweep) at a time. A fresh push
 # cancels every in-flight matrix leg of the prior push for this ref;
-# run_leg.py holds /tmp/brev/<INSTANCE_NAME>.lock while Harbor runs, and
-# the kernel releases it automatically when the wrapper process dies
-# (POSIX flock(2) — no userspace trap).
+# run_leg.py holds both /tmp/brev/<INSTANCE_NAME>.lock on its runner and
+# an exact-owner lease on the worker while Harbor runs. The local flock is
+# kernel-released when the wrapper dies; a later job reconciles the remote
+# lease only after GitHub proves its exact owner job is terminal.
 # Stale containers/volumes a cancelled leg left on a box are reconciled by
 # the next trial's own deploy step (the harness no longer pre-deploys or
 # tracks an active-deploy marker). Same path handles SIGKILL (the
@@ -81,7 +103,9 @@ jobs:
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
-    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
+    if: >-
+      startsWith(github.ref, 'refs/heads/pull-request/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.runner != 'nemoclaw')
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -278,6 +302,13 @@ jobs:
           # so concurrent legs — and concurrent PR runs on the same host —
           # never collide (AGENTS.md § "Per-leg scratch isolation").
           export EVAL_SLUG="${{ matrix.slug }}"
+          # The local flock coordinates jobs on this runner. The matching
+          # worker-side lease coordinates other runner hosts and NemoClaw.
+          # Use the exact matrix display name so an abandoned same-run lease
+          # can be reconciled only after this exact job becomes terminal.
+          export SKILL_EVAL_LOCK_OWNER_CONTEXT="${{ matrix.name }}"
+          export SKILL_EVAL_REMOTE_LOCK_HEARTBEAT_SEC=180
+          export SKILL_EVAL_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660
           # `.github` isn't a valid Python package prefix; expose the
           # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
@@ -329,3 +360,452 @@ jobs:
           path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
+
+  # ---------------------------------------------------------------------
+  # nemoclaw-plan — compute the manual NemoClaw/OpenClaw matrix.
+  # ---------------------------------------------------------------------
+  nemoclaw_plan:
+    name: Plan NemoClaw eval matrix
+    if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
+    # Use the Brev coordinator contract shared by both the legacy NemoClaw
+    # validators and the v2 skill validators.  The narrower v2-only selector
+    # needlessly strands the legacy pool when v2 is occupied by generic evals.
+    runs-on: [self-hosted, vss-eval, brev]
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Compute NemoClaw matrix
+        id: plan
+        env:
+          INPUT_SKILLS: ${{ inputs.skills || '*' }}
+        run: |
+          MATRIX=$(python3 .github/skill-eval/nemoclaw/smoke_runner.py \
+            --print-matrix \
+            --skills "${INPUT_SKILLS}")
+          COUNT=$(python3 -c 'import json,sys; print(len(json.loads(sys.stdin.read()).get("include", [])))' <<< "$MATRIX")
+          EVAL_COUNT=$(python3 -c 'import json,sys; print(sum(row.get("kind", "eval") == "eval" for row in json.loads(sys.stdin.read()).get("include", [])))' <<< "$MATRIX")
+          BLOCKED_COUNT=$((COUNT - EVAL_COUNT))
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "has_targets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "## NemoClaw eval matrix"
+            echo ""
+            echo "- Selected rows: \`$COUNT\`"
+            echo "- Runnable rows: \`$EVAL_COUNT\`"
+            echo "- Preflight-blocked rows: \`$BLOCKED_COUNT\`"
+            echo "- Skills input: \`${INPUT_SKILLS}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::The NemoClaw skill selection produced no reportable rows."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------
+  # nemoclaw-eval — deterministic manual NemoClaw/OpenClaw matrix path.
+  # ---------------------------------------------------------------------
+  nemoclaw-eval:
+    name: NemoClaw / ${{ matrix.name }}
+    needs: nemoclaw_plan
+    if: needs.nemoclaw_plan.outputs.has_targets == 'true'
+    # Both coordinator generations carry the eval environment and can drive
+    # managed workers.  v2 additionally carries registered-worker SSH aliases;
+    # the harness discovers whichever transport its selected host supports.
+    runs-on: [self-hosted, vss-eval, brev]
+    strategy:
+      fail-fast: false
+      # Two coordinators can use the two currently healthy large-disk workers
+      # concurrently. The remote lease still enforces one active blueprint
+      # deployment per worker; additional legs wait without colliding.
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
+    # The smoke runner owns a 221-minute shared deadline. Reserve up to 24
+    # minutes for Harbor's INT -> TERM -> KILL recovery path, then retain
+    # another 55 minutes for verdict generation, reporting, and artifacts.
+    timeout-minutes: 300
+    steps:
+      - name: Initialize current-attempt result sentinel
+        env:
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+          RUN_RESULTS: /tmp/skill-eval/results/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          # Self-hosted runners retain /tmp, and reruns reuse github.run_id.
+          # Clear both trees before checkout so even an early checkout failure
+          # overwrites any older stable artifact with an incomplete sentinel.
+          rm -rf "$RUN_SCRATCH" "$RUN_RESULTS"
+          mkdir -p "$RUN_SCRATCH" "$RUN_RESULTS"
+          printf '%s\n' \
+            '# Skills Eval Benchmark - NemoClaw' \
+            '' \
+            '- Status: `MISSING`' \
+            '- This workflow attempt has not completed the planned row.' \
+            > "$RUN_SCRATCH/benchmark.md"
+
+      - name: Publish current-attempt result sentinel
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-benchmark-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/benchmark.md
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 28
+
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Set up pinned NemoClaw build runtime
+        if: matrix.kind == 'eval'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22.22.1
+
+      - name: Prepare exact NemoClaw CLI payload
+        if: matrix.kind == 'eval'
+        env:
+          NEMOCLAW_INSTALL_REF: v0.0.103
+          NEMOCLAW_CLI_PAYLOAD: ${{ runner.temp }}/nemoclaw-cli-${{ github.run_id }}-${{ matrix.slug }}.tar.gz
+          # Cache only within one immutable workflow attempt. A re-run must
+          # rebuild instead of trusting a mutable artifact from an older SHA.
+          NEMOCLAW_CLI_CACHE: ${{ runner.temp }}/nemoclaw-cli-cache-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 .github/skill-eval/nemoclaw/prepare_cli_payload.py \
+            --ref "$NEMOCLAW_INSTALL_REF" \
+            --output "$NEMOCLAW_CLI_PAYLOAD" \
+            --cache-root "$NEMOCLAW_CLI_CACHE" \
+            --github-env "$GITHUB_ENV"
+
+      - name: Prepare NemoClaw result scope
+        env:
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          # Self-hosted coordinators retain /tmp. A blocker must never inherit
+          # an earlier run's benchmark or verdict.
+          rm -rf "$RUN_SCRATCH"
+          mkdir -p "$RUN_SCRATCH"
+
+      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        if: matrix.kind == 'eval'
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run NemoClaw skills eval agent
+        id: nemoclaw-agent
+        if: matrix.kind == 'eval'
+        # Keep the shell alive through the smoke deadline and Harbor's bounded
+        # recovery path. The job cap retains another 30 minutes for verdict and
+        # artifact publication even if this step consumes its full allowance.
+        timeout-minutes: 270
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
+          NEMOCLAW_INPUT_INSTANCE: ${{ inputs.nemoclaw_instance }}
+          NEMOCLAW_ALLOW_CACHED_BREV_SSH: ${{ vars.NEMOCLAW_ALLOW_CACHED_BREV_SSH }}
+          NEMOCLAW_BREV_DIRECT_SSH_POOL: ${{ vars.NEMOCLAW_BREV_DIRECT_SSH_POOL }}
+        run: |
+          mkdir -p "$GH_CONFIG_DIR"
+          skill_eval_python="$(command -v python3)"
+          readonly actions_cached_brev_ssh_opt_in="${NEMOCLAW_ALLOW_CACHED_BREV_SSH:-0}"
+          readonly actions_cached_brev_ssh_pool="${NEMOCLAW_BREV_DIRECT_SSH_POOL:-}"
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
+          set +a
+          # Brev's API session can expire independently of the persistent SSH
+          # entries already provisioned on the coordinator.  Admit only the
+          # operator-owned VSS worker names from protected Actions variables,
+          # and only when the exact Host
+          # alias is present in the coordinator's protected Brev SSH config.
+          # The smoke runner still requires a live SSH probe, remote lease,
+          # matching GPUs, and sufficient disk before it starts Harbor.
+          export BREV_ALLOW_CACHED_SSH="$actions_cached_brev_ssh_opt_in"
+          export BREV_SSH_CONFIG="${BREV_SSH_CONFIG:-$HOME/.brev/ssh_config}"
+          export BREV_DIRECT_SSH_POOL="$actions_cached_brev_ssh_pool"
+          export PATH="$(dirname "$skill_eval_python"):$PATH"
+          hash -r
+          "$skill_eval_python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          # Give warm GPU workers enough time to become available while keeping
+          # the serialized sweep bounded.
+          export NEMOCLAW_LOCK_TIMEOUT_SEC=1200
+          # Share one 221-minute cap across discovery, every worker selection,
+          # every Harbor attempt, and all failovers. This fits a full 20-minute
+          # lock wait plus the 200-minute Harbor backstop with scheduling
+          # jitter; graceful cancellation has its own bounded reserve above.
+          export NEMOCLAW_RUN_TIMEOUT_SEC=13260
+          # Keep the shared lock timestamp fresh for older runners that still
+          # use a 900-second age cutoff. Ownership is rechecked on every beat.
+          export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180
+          export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660
+          # Match the generic skill-eval contract: every Harbor phase plus its
+          # serialized artifact/log recovery fits before the outer backstop.
+          # The following 200-minute cap is strictly above that 168-minute
+          # minimum and leaves Harbor time to publish a reportable outcome.
+          export NEMOCLAW_HARBOR_TIMEOUT_SEC=12000
+          export NEMOCLAW_INSTALL_REF=v0.0.103
+          export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500
+          export NEMOCLAW_SETUP_TIMEOUT_SEC=1620
+          export NEMOCLAW_SETUP_CELL_TIMEOUT=1200
+          # One end-to-end budget shared by gateway recovery, OpenClaw, and
+          # post-agent profile readiness (not one budget per phase).
+          export NEMOCLAW_AGENT_TIMEOUT_SEC=3300
+          export NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER=3.0
+          # Keep the runner's fail-fast default for dependent task chains. It
+          # records later tasks as SKIPPED when a prerequisite fails.
+          export NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE=1
+          # The managed NemoClaw fleet has 120-GiB roots. For the exact eight
+          # validated scenarios, use its bounded storage contract without
+          # changing required model placement. Unlisted scenarios retain their
+          # adapter floor; admitted rows must have free Docker space post-reset.
+          export NEMOCLAW_BREV_POOL_STORAGE_CONTRACT=1
+          # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
+          # is online, the smoke runner can place this 1-GPU profile there.
+          export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"
+          export PR_NUMBER=""
+          export PR_BASE="${{ github.ref_name }}"
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          export NEMOCLAW_LOCK_OWNER_CONTEXT="NemoClaw / ${{ matrix.name }}"
+          export MANUAL_FULL_SWEEP=1
+          export MANUAL_SKILLS_FILTER="${{ matrix.skill }}"
+          export NEMOCLAW_EVAL_SPEC="${{ matrix.spec_stem }}"
+          export NEMOCLAW_EVAL_PLATFORM="${{ matrix.platform }}"
+          export NEMOCLAW_TASK_LIMIT="${{ matrix.task_limit }}"
+          if [ -n "${NEMOCLAW_INPUT_INSTANCE:-}" ]; then
+            export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"
+          fi
+          # Keep the eval gateway off NemoClaw's shared 8080 default. Some warm
+          # workers legitimately use 8080 for unrelated host services, while
+          # NemoClaw v0.0.80 isolates non-default gateways by port.
+          export NEMOCLAW_GATEWAY_PORT=19080
+          # Match the reset/readiness contract and do not let coordinator
+          # defaults collapse the dedicated port back onto another state DB or
+          # Docker network.
+          unset NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR
+          export OPENSHELL_DOCKER_NETWORK_NAME=openshell-docker
+          export NEMOCLAW_RECREATE_SANDBOX=1
+          export SKILLS_EVAL_RUNNER="nemoclaw"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          # NemoClaw is an opt-in CI path. Keep it deterministic: discover the
+          # requested adapter-backed scenarios, lock a matching worker for each
+          # scenario, run Harbor directly, and emit Harbor-style reports.
+          # The generic Claude meta-agent is intentionally not used here
+          # because prior runs fanned out unpredictably and burned the full
+          # generic 12-hour slot.
+          "$skill_eval_python" .github/skill-eval/nemoclaw/smoke_runner.py \
+            --skills "${{ matrix.skill }}" \
+            --spec "${{ matrix.spec_stem }}" \
+            --platform "${{ matrix.platform }}" \
+            --dataset-root "/tmp/skill-eval/datasets/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}" \
+            --results-root "/tmp/skill-eval/results/${{ matrix.slug }}" \
+            --scratch-root "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}"
+
+      - name: Record preflight-blocked coverage result
+        id: nemoclaw-blocked
+        if: matrix.kind == 'blocked'
+        env:
+          ROW_JSON: ${{ toJSON(matrix) }}
+          BLOCKER_REASON: ${{ matrix.reason }}
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          python3 .github/skill-eval/nemoclaw/report_results.py blocked \
+            --row-json "$ROW_JSON" \
+            --reason "$BLOCKER_REASON" \
+            --benchmark-out "$RUN_SCRATCH/benchmark.md"
+
+      - name: Create NemoClaw verdict manifest
+        if: always()
+        env:
+          ROW_JSON: ${{ toJSON(matrix) }}
+          STEP_OUTCOME: ${{ matrix.kind == 'blocked' && steps.nemoclaw-blocked.outcome || steps.nemoclaw-agent.outcome }}
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+        run: |
+          python3 .github/skill-eval/nemoclaw/report_results.py verdict \
+            --row-json "$ROW_JSON" \
+            --step-outcome "${STEP_OUTCOME:-skipped}" \
+            --benchmark "$RUN_SCRATCH/benchmark.md" \
+            --output "$RUN_SCRATCH/verdict.json"
+
+      - name: Collect results for workflow artifact
+        if: always()
+        env:
+          RUN_RESULTS: /tmp/skill-eval/results/${{ matrix.slug }}/${{ github.run_id }}
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
+          RUN_TARBALL: /tmp/skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
+        run: |
+          # Self-hosted runners reuse /tmp across jobs. Always remove a prior
+          # archive first so a blocker run cannot upload stale results.
+          rm -f "$RUN_TARBALL"
+          # Archive every current-run path that exists. A hard Harbor timeout
+          # can leave the outer log in scratch without producing result.json;
+          # that diagnostic must still reach the artifact.
+          TAR_PATHS=()
+          if [ -d "$RUN_RESULTS" ]; then
+            TAR_PATHS+=("results/${{ matrix.slug }}/${{ github.run_id }}")
+          fi
+          if [ -d "$RUN_SCRATCH" ]; then
+            TAR_PATHS+=("nemoclaw/${{ matrix.slug }}/${{ github.run_id }}")
+          fi
+          if [ "${#TAR_PATHS[@]}" -eq 0 ]; then
+            echo "no current-run results or scratch paths to archive"
+            exit 0
+          fi
+          RESULT_COUNT=0
+          if [ -d "$RUN_RESULTS" ]; then
+            RESULT_COUNT=$(find "$RUN_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 | wc -l || true)
+          fi
+          tar czf "$RUN_TARBALL" \
+            -C /tmp/skill-eval \
+            --exclude='agent' \
+            --exclude='hooks_token' \
+            --exclude='*.sig' \
+            "${TAR_PATHS[@]}"
+          echo "archived ${RESULT_COUNT} result.json files plus current-run scratch diagnostics (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 28
+
+      - name: Upload benchmark report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-benchmark-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
+          path: |
+            /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/benchmark.md
+            /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/verdict.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 28
+
+  # ---------------------------------------------------------------------
+  # nemoclaw-report — reconcile every planned row after the whole matrix.
+  # Evaluation FAIL/BLOCKED outcomes are valid reported results. Only a
+  # planned row with no trustworthy verdict makes this reporting job fail.
+  # ---------------------------------------------------------------------
+  nemoclaw-report:
+    name: NemoClaw results
+    needs: [nemoclaw_plan, nemoclaw-eval]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
+    # Keep reporting on the same shared Brev coordinator pool. It runs only
+    # after every eval row, so it does not consume worker capacity while the
+    # matrix is active.
+    runs-on: [self-hosted, vss-eval, brev]
+    timeout-minutes: 15
+    steps:
+      - name: Initialize current-attempt report scope
+        env:
+          REPORT_ROOT: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}
+        run: |
+          # Partial reruns reuse run_id on persistent self-hosted runners.
+          # Never reconcile or re-upload files left by an older attempt.
+          rm -rf "$REPORT_ROOT"
+          mkdir -p "$REPORT_ROOT/artifacts" "$REPORT_ROOT/aggregate"
+
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Download per-row benchmark artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: skills-eval-benchmark-nemoclaw-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/artifacts
+
+      - name: Build consolidated NemoClaw report
+        id: aggregate
+        env:
+          PLAN_RESULT: ${{ needs.nemoclaw_plan.result }}
+          MATRIX_JSON: ${{ needs.nemoclaw_plan.outputs.matrix }}
+          ARTIFACTS_DIR: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/artifacts
+          REPORT_DIR: ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/aggregate
+        run: |
+          if [ "${PLAN_RESULT:-missing}" != "success" ]; then
+            # Preserve the reporting contract even when matrix planning itself
+            # failed: the synthetic planned row reconciles to MISSING.
+            MATRIX_JSON='{"include":[{"kind":"planning",'
+            MATRIX_JSON+='"name":"NemoClaw matrix planning","skill":"workflow",'
+            MATRIX_JSON+='"spec_stem":"planner","spec_path":".github/workflows/skills-eval.yml",'
+            MATRIX_JSON+='"platform":"","slug":"nemoclaw-plan__missing","task_limit":"0",'
+            MATRIX_JSON+='"reason":"NemoClaw matrix planning did not complete successfully"}]}'
+          elif [ -z "${MATRIX_JSON:-}" ]; then
+            MATRIX_JSON='{"include":[]}'
+          fi
+          mkdir -p "$ARTIFACTS_DIR" "$REPORT_DIR"
+          set +e
+          python3 .github/skill-eval/nemoclaw/report_results.py aggregate \
+            --matrix-json "$MATRIX_JSON" \
+            --artifacts-root "$ARTIFACTS_DIR" \
+            --markdown-out "$REPORT_DIR/benchmark.md" \
+            --json-out "$REPORT_DIR/results.json"
+          REPORT_RC=$?
+          set -e
+          if [ -f "$REPORT_DIR/benchmark.md" ]; then
+            cat "$REPORT_DIR/benchmark.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "exit_code=$REPORT_RC" >> "$GITHUB_OUTPUT"
+
+      - name: Upload consolidated NemoClaw report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-benchmark-nemoclaw-all-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/aggregate/benchmark.md
+            ${{ runner.temp }}/nemoclaw-reports-${{ github.run_id }}/aggregate/results.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 28
+
+      - name: Enforce complete result publication
+        if: always()
+        env:
+          PLAN_RESULT: ${{ needs.nemoclaw_plan.result }}
+          REPORT_RC: ${{ steps.aggregate.outputs.exit_code }}
+        run: |
+          if [ "${PLAN_RESULT:-missing}" != "success" ]; then
+            echo "NemoClaw matrix planning did not complete successfully."
+            exit 1
+          fi
+          if [ "${REPORT_RC:-1}" -ne 0 ]; then
+            echo "One or more planned NemoClaw rows did not publish a trustworthy verdict."
+            exit 1
+          fi

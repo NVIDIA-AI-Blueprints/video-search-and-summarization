@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -62,6 +63,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "L40S"
+DEFAULT_MIN_ROOT_DISK_GB = 220
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
 # fires.  Skills default to "ask the user" before /vss-deploy-profile; in CI there is no
@@ -72,6 +74,23 @@ PREAMBLE = (
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
     "setup action the trial requires."
+)
+
+# NemoClaw's OpenShell sandbox reaches the worker through
+# ``host.openshell.internal``. Containers on the worker do not share that DNS
+# namespace, so a local NIM/RT-VLM must receive the raw VST service URL while
+# OpenClaw-side probes use the sandbox-to-worker route. Keep this in the task
+# instruction as well as SKILL.md so the network boundary is explicit before
+# the agent constructs a chat/completions payload.
+NEMOCLAW_MEDIA_ROUTE_GUIDANCE = (
+    "NemoClaw network boundary: when `HOST_IP=host.openshell.internal`, use "
+    "that alias only for OpenClaw-side worker probes or downloads. When VST "
+    "`/url` returns a valid "
+    "service URL such as `http://vst-ingress:30888/...`, preserve that raw URL "
+    "in the `video_url` block sent to a local NIM/RT-VLM container; do not "
+    "rewrite the VLM media URL to `host.openshell.internal`. For a malformed, "
+    "loopback, or sandbox-only VST URL, rebuild the local-VLM route from "
+    "`VST_INTERNAL_URL` (default `http://vst-ingress:30888`) instead."
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
@@ -144,6 +163,40 @@ def _platforms_from_spec(spec: dict) -> list[str]:
     return [p for p in declared if p in PLATFORMS] or [DEFAULT_PLATFORM]
 
 
+def _nemoclaw_sample_files(expect: dict) -> list[str]:
+    """Return the sample fixtures explicitly requested by one eval step."""
+    raw = expect.get("nemoclaw_sample_files") or []
+    if not isinstance(raw, list) or not all(
+        isinstance(value, str) for value in raw
+    ):
+        raise ValueError("nemoclaw_sample_files must be a JSON array of strings")
+    return raw
+
+
+def _substitute_spec(spec: dict, platform: str) -> dict:
+    substitutions = {
+        "platform": platform,
+        "repo_root": "$HOME/video-search-and-summarization",
+    }
+    pattern = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+    def _substitute(value):
+        if isinstance(value, str):
+            return pattern.sub(
+                lambda match: str(
+                    substitutions.get(match.group(1), match.group(0))
+                ),
+                value,
+            )
+        if isinstance(value, list):
+            return [_substitute(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _substitute(item) for key, item in value.items()}
+        return value
+
+    return _substitute(spec)
+
+
 # ---------------------------------------------------------------------------
 # Task generation
 # ---------------------------------------------------------------------------
@@ -162,7 +215,8 @@ def generate_task(
     Single-step specs collapse to a flat ``<profile>/<platform_short>/``."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
-    expects = spec.get("expects") or []
+    rendered_spec = _substitute_spec(spec, platform)
+    expects = rendered_spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
 
     for idx, expect in enumerate(expects, 1):
@@ -177,6 +231,8 @@ def generate_task(
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         lines = [
             PREAMBLE,
+            "",
+            NEMOCLAW_MEDIA_ROUTE_GUIDANCE,
             "",
             "",
             f"## Query {idx} of {len(expects)}",
@@ -216,6 +272,7 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f"min_root_disk_gb = {DEFAULT_MIN_ROOT_DISK_GB}",
             "# vss-ask-video calls the VLM chat/completions endpoint directly (not",
             "# POST /generate). The VLM that serves the clip must be able to fetch the",
             "# VST clip URL: prefer a LOCAL VLM (NIM :30082 / RT-VLM :8018) so the",
@@ -225,6 +282,12 @@ def generate_task(
             f"check_count = {len(expect.get('checks') or [])}",
             "",
         ]
+        sample_files = _nemoclaw_sample_files(expect)
+        if sample_files:
+            meta_lines.insert(
+                -1,
+                f"nemoclaw_sample_files = {json.dumps(sample_files)}",
+            )
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
         # environment/ placeholder (BrevEnvironment takes over)
@@ -238,16 +301,9 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if not spec_src.exists():
-            legacy = skill_dir / "eval" / spec_name
-            if legacy.exists():
-                spec_src = legacy
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            # Fallback: write the in-memory spec so tests/ is complete
-            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # Stage the rendered in-memory spec so the verifier sees the same
+        # platform/repository values as the generated instruction.
+        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"

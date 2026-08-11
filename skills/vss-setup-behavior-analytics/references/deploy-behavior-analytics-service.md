@@ -3,7 +3,7 @@
 Deploy **just** `vss-behavior-analytics` (no agent, no perception, no UI) — useful when you want to:
 
 - Run a behavior-analytics pipeline against an existing broker (or no broker at all).
-- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts) without modifying the image.
+- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts, or the config-driven Composite app) without modifying the image.
 
 Required host runtime: **Docker Engine 28.3.3** with **Docker Compose plugin v2.39.1+**.
 
@@ -74,7 +74,7 @@ Recommended pairings (entrypoint → existing config):
 | `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_search_and_alerts_app.py` (search + alerts) | No single profile ships this — **build it by merging** the two single-mode configs below: union their `kafka.topics` so all of `raw` / `frames` / `incidents` / `behavior` / `embed` / `embedFiltered` are mapped, union their `app[]` params (behavior + embed knobs from the search config, incident toggles from the alerts config), and set all three `numWorkersFor*` non-zero so every processor runs. Mount the merged file the same way as any custom config (Option B). |
+| `main_search_and_alerts_app.py` (search + alerts) | `../../services/analytics/behavior-analytics/configs/search_and_alerts_config.json` relative to `$VSS_APPS_DIR`. This is the repo-owned combined config: it maps the search and incident topics and sets `numWorkersForIncidentGeneration`, `numWorkersForBehaviorCreation`, and `numWorkersForEmbedFiltering` all non-zero. **Use this file directly; do not synthesize or merge a replacement at runtime.** |
 | `main_search_and_alerts_app.py` (alerts only) | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` (behavior + embed workers set to `0`) |
 | `main_search_and_alerts_app.py` (search only) | `developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-<stream>-config.json` (incident-generation workers set to `0`) |
 | `main_smart_city_app.py` | No profile ships one. Start from the service's own `configs/smart_city_config.json` (geo calibration) or `configs/smart_city_config_image.json` (image calibration) and mount it as a custom config (Option B). |
@@ -99,6 +99,39 @@ volumes:
   - /abs/path/to/my-config.json:/resources/vss-behavior-analytics-config.json
 command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json
 ```
+
+### NemoClaw / VSS Orchestrator path for combined search + alerts
+
+The NemoClaw sandbox intentionally cannot write arbitrary host files or patch
+Compose YAML. For a combined search + alerts deployment, use the existing
+search profile and select the repo-owned config through the narrow
+`VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH` override:
+
+1. Call `vss_orchestrator__docker_generate` with `profile: "search"` and:
+
+   ```json
+   {
+     "env_overrides": [
+       "VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH=${VSS_APPS_DIR}/../../services/analytics/behavior-analytics/configs/search_and_alerts_config.json",
+       "COMPOSE_PROFILES=vss-search-analytics-2d-fusion,kafka,kafka-topic-init-container,broker-health-check"
+     ]
+   }
+   ```
+
+   The bounded `COMPOSE_PROFILES` set starts only Behavior Analytics and its
+   CPU broker dependencies. Keep the search profile's GPU-backed perception,
+   RT-Embed, and RT-VLM services out of this standalone CPU task.
+
+2. Call `vss_orchestrator__docker_up` with the returned
+   `docker_compose_id`; set `force_recreate: true` so an existing
+   search-only `vss-behavior-analytics` container cannot retain its old mount.
+3. Poll `vss_orchestrator__docker_status` to completion, then verify the
+   `vss-behavior-analytics` command and mounted config.
+
+The search Compose service mounts this path at
+`/resources/vss-search-analytics-config.json` and already uses
+`main_search_and_alerts_app.py`. Do not attempt to create a merged config from
+inside the sandbox: the canonical file above is the source of truth.
 
 ### Config — what's in it
 
@@ -127,14 +160,14 @@ The type is encoded in the calibration JSON itself, on the top-level `calibratio
 | `calibrationType` | Class | What it does |
 |---|---|---|
 | `"cartesian"` | `CalibrationE` | **Typical for warehouse / smart-city.** Maps image-plane coordinates (pixels) to real-world Cartesian metres via the per-sensor homography (`imageCoordinates[]` ↔ `globalCoordinates[]`). All downstream behavior creation, ROI / tripwire / proximity / space-analytics math is in metres. **Recommended starting point.** |
-| `"geo"` | `Calibration` | Maps image coordinates to geographic lat/lng. Use when sensors are placed against a real map (OSM, GIS) and you want behaviors / events anchored to GPS. |
+| `"geo"` | `CalibrationG` | Maps image coordinates to geographic lat/lng. Use when sensors are placed against a real map (OSM, GIS) and you want behaviors / events anchored to GPS. |
 | `"image"` | `CalibrationI` | No real-world mapping — keeps coordinates in raw pixel space. The downstream pipeline still runs, but distance / speed / area numbers are in pixels, not metres, and most metric-based incident thresholds become meaningless. |
 
 ### What happens if you skip calibration
 
 Don't add a `--calibration` flag and don't mount one. The app starts with a `DynamicCalibration` wrapper that initially behaves as `CalibrationI` (image-plane). It then:
 
-1. **Watches `mdx-notification`** for the first `calibrationType` notification. When one arrives, the wrapper switches itself to the typed subclass (`CalibrationE` / `Calibration` / `CalibrationI`) inferred from the payload's `calibrationType`. After the switch, all subsequent updates go through the typed instance via the same Kafka flow.
+1. **Watches `mdx-notification`** for the first `calibrationType` notification. When one arrives, the wrapper switches itself to the typed subclass (`CalibrationE` / `CalibrationG` / `CalibrationI`) inferred from the payload's `calibrationType`. After the switch, all subsequent updates go through the typed instance via the same Kafka flow.
 2. **Until that first notification arrives**, frames are processed with image-plane coordinates — effectively a no-op for analytics (no real-world distances, no ROI/tripwire firings against a map). If you don't intend to wire a producer for dynamic calibration, supply a static calibration file instead.
 
 ### Pick a calibration source
@@ -147,6 +180,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
   | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_search_and_alerts_app.py` | the search / alerts profiles may not need one. |
+  | `main_composite_app.py` | no profile-specific default; use the calibration required by the processors you enable (image for bbox ROI mode, cartesian 3D for space estimation). |
 - **Bring your own.** Any absolute host path that conforms to the calibration JSON schema. If you're hand-rolling one, start from the `"cartesian"` type — that's the path the rest of the pipeline is tuned for.
 
   Compose change:

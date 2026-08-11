@@ -77,6 +77,11 @@ MODE_LOCAL_SHARED: Final[str] = "local_shared"
 MODE_2D_CV: Final[str] = "2d_cv"
 MODE_2D_VLM: Final[str] = "2d_vlm"
 SUPPORTED_RUNTIME_MODES: Final[frozenset[str]] = frozenset({MODE_LOCAL, MODE_LOCAL_SHARED, MODE_REMOTE})
+RTVI_VLM_PROFILES: Final[frozenset[str]] = frozenset({PROFILE_BASE, PROFILE_SEARCH, PROFILE_LVS, PROFILE_ALERTS})
+# IGX/AGX Thor keep their explicit 0.35 hardware override in the MCP config.
+RTVI_VLM_DEFAULT_HARDWARE_PROFILES: Final[frozenset[str]] = frozenset(
+    {"DGX-SPARK", "H100", "L40S", "OTHER", "RTXPRO4500BW", "RTXPRO6000BW"}
+)
 MODEL_SLUG_NONE: Final[str] = "none"
 THOR_VLM_PORT: Final[int] = 8018
 DEFAULT_ALERTS_VLM_PORT: Final[int] = 30082
@@ -95,7 +100,18 @@ COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "LLM_NAME_SLUG",
     "VLM_NAME_SLUG",
 )
-_COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VLM_MODE"})
+_COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset(
+    {
+        "LLM_DEVICE_ID",
+        "LLM_MODE",
+        "RT_CV_DEVICE_ID",
+        "RT_EMBED_DEVICE_ID",
+        "RT_VLM_DEVICE_ID",
+        "SHARED_LLM_VLM_DEVICE_ID",
+        "VLM_DEVICE_ID",
+        "VLM_MODE",
+    }
+)
 
 
 class ValidationError(ValueError):
@@ -493,6 +509,30 @@ def infer_runtime_mode(
     return MODE_LOCAL
 
 
+def default_rtvi_vllm_gpu_memory_utilization(
+    *,
+    hardware_profile: str,
+    vlm_mode: str,
+) -> str | None:
+    """Return dev-profile.sh's RT-VLM default after runtime mode inference."""
+
+    if (
+        vlm_mode == MODE_REMOTE
+        or vlm_mode not in {MODE_LOCAL, MODE_LOCAL_SHARED}
+        or hardware_profile not in RTVI_VLM_DEFAULT_HARDWARE_PROFILES
+    ):
+        return None
+    if vlm_mode == MODE_LOCAL_SHARED and hardware_profile in {
+        "DGX-SPARK",
+        "H100",
+        "RTXPRO6000BW",
+    }:
+        return "0.4"
+    if hardware_profile in {"L40S", "RTXPRO4500BW"}:
+        return "0.8"
+    return "0.7"
+
+
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
@@ -507,6 +547,16 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   5. per-call env_overrides
     merged = parse_env_file(config.source_env_file)
     merged.update(parse_env_file(config.profile_env_override_file))
+    llm_mode_override = config.env_overrides.get("LLM_MODE", "").strip()
+    vlm_mode_override = config.env_overrides.get("VLM_MODE", "").strip()
+    llm_endpoint_url = config.llm_endpoint_url
+    vlm_endpoint_url = config.vlm_endpoint_url
+    local_modes = {MODE_LOCAL, MODE_LOCAL_SHARED}
+    # Notebook/runtime endpoints are deployment defaults, not mandates. An
+    # explicit per-call local placement has the documented highest precedence
+    # and must suppress the corresponding remote endpoint default.
+    use_llm_endpoint = bool(llm_endpoint_url) and llm_mode_override not in local_modes
+    use_vlm_endpoint = bool(vlm_endpoint_url) and vlm_mode_override not in local_modes
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
     effective_hardware_profile = (
@@ -536,8 +586,9 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key:
         merged["NVIDIA_API_KEY"] = config.nvidia_api_key
-    if config.llm_endpoint_url:
-        merged["LLM_BASE_URL"] = config.llm_endpoint_url
+    if use_llm_endpoint:
+        assert llm_endpoint_url is not None
+        merged["LLM_BASE_URL"] = llm_endpoint_url
         merged["LLM_MODE"] = "remote"
     if config.llm_model_type:
         merged["LLM_MODEL_TYPE"] = config.llm_model_type
@@ -548,8 +599,9 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if config.vlm_name:
         merged["VLM_NAME"] = config.vlm_name
     # Mirror dev-profile.sh `--use-remote-vlm`: VLM_ENDPOINT_URL → VLM_BASE_URL + VLM_MODE=remote.
-    if config.vlm_endpoint_url:
-        merged["VLM_BASE_URL"] = config.vlm_endpoint_url
+    if use_vlm_endpoint:
+        assert vlm_endpoint_url is not None
+        merged["VLM_BASE_URL"] = vlm_endpoint_url
         merged["VLM_MODE"] = "remote"
     if config.vlm_model_type:
         merged["VLM_MODEL_TYPE"] = config.vlm_model_type
@@ -562,8 +614,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
     merged.update(config.env_overrides)
 
-    llm_is_remote = bool(config.llm_endpoint_url) or merged.get("LLM_MODE") == MODE_REMOTE
-    vlm_is_remote = bool(config.vlm_endpoint_url) or merged.get("VLM_MODE") == MODE_REMOTE
+    llm_is_remote = use_llm_endpoint or merged.get("LLM_MODE") == MODE_REMOTE
+    vlm_is_remote = use_vlm_endpoint or merged.get("VLM_MODE") == MODE_REMOTE
     reserved = merged.get("RESERVED_DEVICE_IDS", "")
     fixed_shared = merged.get("FIXED_SHARED_DEVICE_IDS", "")
     llm_dev = merged.get("LLM_DEVICE_ID", "").strip()
@@ -590,6 +642,15 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     )
     if inferred_vlm_mode is not None:
         merged["VLM_MODE"] = inferred_vlm_mode
+
+    rtvi_memory_key = "RTVI_VLLM_GPU_MEMORY_UTILIZATION"
+    if config.profile in RTVI_VLM_PROFILES and not merged.get(rtvi_memory_key, "").strip():
+        rtvi_memory_default = default_rtvi_vllm_gpu_memory_utilization(
+            hardware_profile=effective_hardware_profile,
+            vlm_mode=merged.get("VLM_MODE", ""),
+        )
+        if rtvi_memory_default is not None:
+            merged[rtvi_memory_key] = rtvi_memory_default
 
     if (
         "RT_VLM_DEVICE_ID" not in config.env_overrides
@@ -727,12 +788,24 @@ def render_generated_env(source_env_file: Path, resolved: dict[str, str]) -> str
     return "\n".join(lines) + "\n"
 
 
-def _compose_subprocess_env(extra_defaults: Mapping[str, str] = MappingProxyType({})) -> dict[str, str]:
+def _compose_subprocess_env(
+    env_file: Path,
+    extra_defaults: Mapping[str, str] = MappingProxyType({}),
+) -> dict[str, str]:
+    """Build a Compose process environment with the generated env authoritative.
+
+    Docker Compose gives the invoking shell precedence over ``--env-file`` for
+    interpolation. Remove every generated key, plus optional placement keys that
+    may be absent from the file, so Compose parses ``--env-file`` itself without
+    ambient host variables silently changing the resolved recipe.
+    """
     env = os.environ.copy()
-    for key in _COMPOSE_SHELL_ENV_BLOCKLIST:
+    generated_keys = parse_env_file(env_file).keys()
+    for key in _COMPOSE_SHELL_ENV_BLOCKLIST.union(generated_keys):
         env.pop(key, None)
     for key, value in extra_defaults.items():
-        env.setdefault(key, value)
+        if key not in generated_keys:
+            env.setdefault(key, value)
     return env
 
 
@@ -743,7 +816,7 @@ def resolve_compose(config: DryRunRecipe) -> str:
             cwd=str(config.deployments_dir),
             capture_output=True,
             text=True,
-            env=_compose_subprocess_env(),
+            env=_compose_subprocess_env(config.output_env_file),
         )
     except FileNotFoundError as exc:
         raise RuntimeError("docker command not found. Install Docker with Compose v2.") from exc
@@ -754,7 +827,10 @@ def resolve_compose(config: DryRunRecipe) -> str:
 
 def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path, *args: str) -> None:
     # Prefer plain, non-ANSI output so status logs are visible/persistent in non-interactive captures.
-    compose_env = _compose_subprocess_env({"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"})
+    compose_env = _compose_subprocess_env(
+        env_file,
+        {"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"},
+    )
     try:
         result = subprocess.run(
             ["docker", "compose", "-f", str(compose_file), "--env-file", str(env_file), *args],

@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-report
-description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
+description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B range/latest/specific incident reports via video-analytics, or Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
   version: "3.3.2"
@@ -16,7 +16,7 @@ Generate a video analysis report by routing to one of three backends — **never
 | Mode | Backend |
 |---|---|
 | **A. Video clip** | `A1` `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** OR `A2` local video file on disk or base64 video + explicit VLM endpoint |
-| **B. Incident range** | `/vss-query-analytics` → incident list → narrative report |
+| **B. Incidents** | `/vss-query-analytics` → range, latest, or specific incident → narrative report |
 | **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `${VA_MCP_URL}`) → SOP compliance report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range. See **Examples** below for the request phrasings that route to each mode.
@@ -44,6 +44,10 @@ Output contract for evaluators:
 - Mode B MUST use heading level `#` for the top title. Do not use `## Incident Report`, `## Incident Range Report`, or any alternate wording.
 - Mode B empty-range output MUST be exactly one plain-text line (no markdown heading/table/list/extra lines) in this format:
   `No incidents found for scope <scope> in range <start_time> to <end_time>.`
+- Mode B empty latest-incident output MUST be exactly one plain-text line:
+  `No incidents found for scope <scope>.`
+- Mode B missing specific-ID output MUST be exactly one plain-text line:
+  `No incident found with ID <incident_id>.`
 - Mode C top title MUST be exactly `# SOP Compliance Report`, with the template's Basic Information / Compliance Summary / SOP Violations sections.
 
 ---
@@ -55,6 +59,8 @@ Output contract for evaluators:
 - "Report on incidents from 12:31Z to 12:32Z" → **Mode B**
 - "Report on alerts today" / "what incidents happened on `<sensor>` last hour" → **Mode B**
 - "Summarize alerts on `<sensor>` between `<t1>` and `<t2>`" → **Mode B**
+- "Give me a report on the last incident" / "report the latest alert" → **Mode B latest**
+- "Generate a report for incident `<incident-id>`" → **Mode B specific ID**
 - "Generate an SOP compliance report for `<sensor>` from `<t1>` to `<t2>`" / "compliance report on `<sensor>` last hour" / "SOP status report for `<sensor>`" → **Mode C**
 
 ---
@@ -112,7 +118,7 @@ uses `${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B uses `${VA_MCP_URL}`.
 |---|---|---|---|---|
 | **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
 | **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
-| **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
+| **Mode B (incidents)** | one of: `start_time` / `end_time`; a specific incident ID; or an explicit latest/last-incident request. Sensor scope is optional. | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents` / `video_analytics__get_incident`) | Incident data must already exist in analytics backend for the requested range/scope/ID | VIOS, direct VLM path |
 | **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `${VA_MCP_URL}` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
 
 Hard gate behavior:
@@ -161,19 +167,33 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/v1/models" | jq -r '.data[].id'
 fi
 
-# Docker only — from running vss-agent env (when present). Prefer docker inspect
-# if the image is distroless (no sh/printenv).
+# Docker only — read the running vss-agent configuration with docker inspect;
+# the image is distroless and does not provide sh/printenv. Assign only a fixed
+# whitelist so container environment values are treated as data.
 if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-agent sh -lc '
-  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-    v="$(printenv "$k")"
-    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-  done
-  ' 2>/dev/null || true
+  if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
+    while IFS='=' read -r _k _v; do
+      case "$_k" in
+        HOST_IP)
+          # Preserve a caller/sandbox routing alias such as
+          # host.openshell.internal; import the container value only when unset.
+          if [ -z "${HOST_IP:-}" ]; then
+            HOST_IP="$_v"; export HOST_IP
+          fi ;;
+        VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL)
+          printf -v "$_k" '%s' "$_v"; export "$_k" ;;
+      esac
+    done < <(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}')
+  fi
+  if docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm; then
+    _rtvi_binding="$(docker port vss-rtvi-vlm 8000/tcp | head -n 1)"
+    RTVI_VLM_PORT="${_rtvi_binding##*:}"
+    export RTVI_VLM_PORT
+  fi
 
   # Probe common local endpoints
-  curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # base RT-VLM default
-  curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'    # alerts RT-VLM default
+  curl -sf --max-time 5 "http://${HOST_IP:-localhost}:${RTVI_VLM_PORT:-8018}/v1/models" | jq -r '.data[].id'  # integrated RT-VLM
+  curl -sf --max-time 5 "http://${HOST_IP:-localhost}:30082/v1/models" | jq -r '.data[].id'                    # explicit standalone VLM NIM
 fi
 ```
 
@@ -362,7 +382,7 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 |---|---|---|---|
 | **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` | Kubernetes / Helm base when `VSS_PUBLIC_URL` is set (preferred) |
 | **NIM Cosmos** | `VLM_BASE_URL`, `VLM_NAME`, `VLM_MODE`, `VLM_MODEL_TYPE` | `${VLM_BASE_URL}/v1` (no trailing `/v1` on the env var; the agent appends it) | Docker: `VLM_MODEL_TYPE != rtvi` **and** `VLM_MODE` ∈ {`local`, `local_shared`, `remote`} **and** `VLM_BASE_URL` is non-empty |
-| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE`, `VLM_MODEL_TYPE` | `${RTVI_VLM_BASE_URL}/v1` — if unset, derive from `${HOST_IP}` (`http://${HOST_IP}:8018/v1` for alerts, `http://${HOST_IP}:30082/v1` for base) | Docker: `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
+| **RT-VLM Cosmos** | `VLM_NAME`, `VLM_MODEL_TYPE`, running `vss-rtvi-vlm` port binding | Host-published integrated RT-VLM endpoint discovered with `docker port vss-rtvi-vlm 8000/tcp` (default `http://${HOST_IP}:8018/v1`) | Docker: `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
 
 If the user already supplied a `VLM_ENDPOINT` + model id, use those directly.
 
@@ -377,41 +397,72 @@ fi
 ```
 
 Otherwise, on **Docker only**, read the live values off a running `vss-agent`
-container (when present) and do not guess:
+container (when present) and do not guess. The image is distroless, so read its
+configured env with `docker inspect`, not `docker exec`. Assign only the fixed
+whitelist so environment values are treated as data:
 
 ```bash
 if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-agent sh -lc '
-  for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
-    v="$(printenv "$k")"
-    [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
-  done
-  ' 2>/dev/null || true
+  if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
+    while IFS='=' read -r _k _v; do
+      case "$_k" in
+        HOST_IP)
+          # Preserve a caller/sandbox routing alias such as
+          # host.openshell.internal; import the container value only when unset.
+          if [ -z "${HOST_IP:-}" ]; then
+            HOST_IP="$_v"; export HOST_IP
+          fi ;;
+        VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL)
+          printf -v "$_k" '%s' "$_v"; export "$_k" ;;
+      esac
+    done < <(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}')
+  fi
+  if docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm; then
+    _rtvi_binding="$(docker port vss-rtvi-vlm 8000/tcp | head -n 1)"
+    RTVI_VLM_PORT="${_rtvi_binding##*:}"
+    export RTVI_VLM_PORT
+  fi
 fi
 ```
 
-Do not require `RTVI_VLM_ENDPOINT` from `vss-agent` env; several profiles do not inject it.
+`RTVI_VLM_MODEL_TO_USE` is an internal backend selector such as
+`cosmos-reason3`, not the OpenAI API model id. Use `VLM_NAME`, which must match
+the id advertised by `/v1/models`. Do not require `RTVI_VLM_ENDPOINT` from
+`vss-agent` env; several profiles do not inject it. `RTVI_VLM_BASE_URL` is
+usually Compose-internal (`http://rtvi-vlm:8000`), so host-side calls discover
+the actual published port from the running `vss-rtvi-vlm` container. Port
+`8018` is only the fallback when no custom binding is discoverable.
 
-Selection rule (Docker host discovery when `VLM_ENDPOINT` is still unset):
+Selection rule:
+
+Apply this Docker host-discovery branch only when `VLM_ENDPOINT` is still unset.
 
 ```bash
 if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
   if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
     VLM_BACKEND="rtvlm"
-    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
-    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:8018/v1"   # alerts default
-    VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
-  elif [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
+    VLM_ENDPOINT="http://${HOST_IP:-localhost}:${RTVI_VLM_PORT:-8018}/v1"
+    VLM_MODEL="${VLM_NAME:-}"
+  elif [ -n "${VLM_BASE_URL:-}" ] && [ "${VLM_MODE:-}" != "none" ]; then
     VLM_BACKEND="nim_cosmos"
     VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
-    VLM_MODEL="${VLM_NAME}"
+    VLM_MODEL="${VLM_NAME:-}"
   else
     VLM_BACKEND="rtvlm"
-    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
-    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default
-    VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
+    VLM_ENDPOINT="http://${HOST_IP:-localhost}:${RTVI_VLM_PORT:-8018}/v1"
+    VLM_MODEL="${VLM_NAME:-}"
   fi
 fi
+
+# The endpoint is authoritative when VLM_NAME is absent. Never send an empty
+# model or substitute the RT-VLM backend selector for the advertised API id.
+if [ -z "${VLM_MODEL:-}" ]; then
+  VLM_MODEL="$(curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | jq -r '.data[0].id // empty')"
+fi
+[ -n "${VLM_MODEL:-}" ] || {
+  echo "Could not resolve a VLM model id for ${VLM_ENDPOINT}; set VLM_MODEL explicitly"
+  exit 1
+}
 ```
 
 Probe `/v1/models` before sending a chat request to confirm the chosen endpoint is alive and the model is loaded:
@@ -598,16 +649,27 @@ Load the matching template from [`references/report-templates/video-analysis-rep
 
 ---
 
-## Mode B — Report on incidents in a time range
+## Mode B — Report on one or more incidents
 
-### Step 1 — Resolve the time range and (optionally) sensor
+### Step 1 — Select range, latest, or specific-ID retrieval
 
-- `start_time` / `end_time` must be ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`). Resolve relative phrases ("last hour", "today") against the current host clock.
-- If the user names a sensor, capture it as `source` + `source_type=sensor`. Otherwise leave both unset for an all-sensors query.
+- **Range:** `start_time` / `end_time` must be ISO 8601 UTC
+  (`YYYY-MM-DDTHH:MM:SS.sssZ`). Resolve relative phrases ("last hour",
+  "today") against the current host clock.
+- **Latest/last incident:** when the user explicitly asks for the latest or
+  last incident, do not require or invent `start_time` / `end_time`. Query
+  `video_analytics__get_incidents` with `max_count=1`.
+- **Specific incident:** when the user supplies an incident ID, query
+  `video_analytics__get_incident` with that ID.
+- If the user names a sensor, capture it as `source` +
+  `source_type=sensor`. Otherwise leave both unset for an all-sensors query.
 
-### Step 2 — Fetch incidents via `/vss-query-analytics`
+### Step 2 — Fetch incident data via `/vss-query-analytics`
 
-Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
+Hand off to `/vss-query-analytics` (initialize → `tools/call`) with the
+matching read-only request.
+
+Range:
 
 ```json
 {
@@ -628,6 +690,41 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 }
 ```
 
+Latest/last incident (omit `source` and `source_type` unless the user names a
+sensor):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "video_analytics__get_incidents",
+    "arguments": {
+      "max_count": 1,
+      "includes": ["objectIds", "info"]
+    }
+  },
+  "id": 1
+}
+```
+
+Specific incident ID:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "video_analytics__get_incident",
+    "arguments": {
+      "id": "<incident-id>",
+      "includes": ["objectIds", "info"]
+    }
+  },
+  "id": 1
+}
+```
+
 Read-only boundary (mandatory):
 - Mode B is strictly read-only analytics retrieval. Never write, seed, backfill, or mutate Elasticsearch/VA data.
 - Forbidden examples: indexing synthetic incidents, replaying fixture payloads into ES, calling write/update/delete APIs to "make data available" for the report.
@@ -639,15 +736,28 @@ For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place
 
 Load the matching template from [`references/report-templates/incident-range-report.md`](references/report-templates/incident-range-report.md). Treat the template as read-only — copy its structure, then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens, or internal-only URLs in user output. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL.
 
+For a latest/specific single-incident report, still use this exact template.
+Set `Range` from the returned incident's `timestamp` and `end` values (use the
+same timestamp for both ends if `end` is absent), set `Total Incidents` to
+`1`, and derive all verdict totals from that incident. Do not ask the user for
+a separate range.
+
 For non-empty results, rendered output MUST start exactly with:
 - `# Incident Range Report`
 - `## Basic Information`
 - a pipe table containing rows: `Report Identifier`, `Range`, `Scope`, `Total Incidents`, `Confirmed / Rejected / Unverified`
 
-If `get_incidents` returns zero results, STOP and return exactly this one-line sentence shape (single line only):
+When a range query returns zero results, STOP and return exactly this one-line
+sentence shape (single line only):
 `No incidents found for scope <scope> in range <start_time> to <end_time>.`
 
-When zero results:
+When a latest query returns zero results, STOP and return exactly:
+`No incidents found for scope <scope>.`
+
+When a specific-ID query returns no result, STOP and return exactly:
+`No incident found with ID <incident_id>.`
+
+For every empty result:
 - Do not render `# Incident Range Report`.
 - Do not render `## Basic Information`.
 - Do not render any markdown table, bullets, or summary section.

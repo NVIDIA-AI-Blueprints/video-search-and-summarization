@@ -189,65 +189,65 @@ network_policies:
 
   vss-backend:
     name: vss-backend-readwrite
-    # Keep this scoped to Docker bridge CIDRs used by supported OpenShell /
-    # NemoClaw drivers. Do not use the full 172.16.0.0/12 private range.
+    # host.openshell.internal resolves to a driver-selected host gateway.
+    # Keep RFC1918 access scoped by the exact hostname and fixed VSS ports.
     endpoints:
       - host: host.openshell.internal
         port: 8000
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 30888
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 5601
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 9200
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 8081
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 9080
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 9988
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 18789
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       # Agent UI (3000), Auto-Calibration UI (5000), Phoenix (6006), VST MCP (8001),
       # Auto-Calibration MS (8010), RT-Embed (8017), RT-VLM (8018), Kafka (9092),
       # VA-MCP (9901), NvStreamer UI (31000), LVS REST (38111), LVS MCP (38112).
@@ -255,86 +255,86 @@ network_policies:
         port: 3000
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 5000
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 6006
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 8001
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 8010
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 8017
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 8018
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 9092
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 9901
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 31000
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 38111
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
       - host: host.openshell.internal
         port: 38112
         access: full
         allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
     binaries:
       - { path: /usr/bin/curl }
       - { path: /usr/local/bin/node }

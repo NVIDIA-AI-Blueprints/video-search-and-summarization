@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -72,6 +73,7 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "L40S"
+DEFAULT_MIN_ROOT_DISK_GB = 220
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
 # fires. Skills default to "ask the user" before /vss-deploy-profile; in CI
@@ -120,10 +122,11 @@ def generate_solve_script(platform: str) -> str:
         "# script simply asserts the VA-MCP endpoint is live, then defers.\n"
         "set -euo pipefail\n"
         "\n"
-        'code=$(curl -sf --max-time 5 -o /dev/null -w "%{http_code}" '
-        '"http://${HOST_IP:-localhost}:9901/mcp" || true)\n'
+        'VA_MCP_URL="${VA_MCP_URL:-http://${HOST_IP:-localhost}:9901}"\n'
+        'code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" '
+        '"${VA_MCP_URL%/}/health" || true)\n'
         'case "$code" in\n'
-        "    2*|3*|405) echo \"VA-MCP is live (HTTP $code) — verifier will drive queries.\" ;;\n"
+        "    2*|3*) echo \"VA-MCP is live (HTTP $code) — verifier will drive queries.\" ;;\n"
         "    *) echo \"VA-MCP not reachable (HTTP ${code:-000}) — cannot solve analytics task\"; exit 1 ;;\n"
         "esac\n"
     )
@@ -134,6 +137,39 @@ def _platforms_from_spec(spec: dict) -> list[str]:
     if not declared:
         return [DEFAULT_PLATFORM]
     return [p for p in declared if p in PLATFORMS] or [DEFAULT_PLATFORM]
+
+
+def _substitute_spec(spec: dict, platform: str) -> dict:
+    """Render supported placeholders recursively and reject spec drift."""
+    substitutions = {
+        "platform": platform,
+        "repo_root": "$HOME/video-search-and-summarization",
+    }
+    pattern = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+    def _substitute(value):
+        if isinstance(value, str):
+            return pattern.sub(
+                lambda match: str(
+                    substitutions.get(match.group(1), match.group(0))
+                ),
+                value,
+            )
+        if isinstance(value, list):
+            return [_substitute(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _substitute(item) for key, item in value.items()}
+        return value
+
+    rendered = _substitute(spec)
+    unresolved = sorted(
+        set(pattern.findall(json.dumps(rendered))) - {"end"}
+    )
+    if unresolved:
+        raise ValueError(
+            "unresolved eval placeholders: " + ", ".join(unresolved)
+        )
+    return rendered
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +189,8 @@ def generate_task(
     Single-step specs collapse to a flat ``<profile>/<platform_short>/``."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
-    expects = spec.get("expects") or []
+    rendered_spec = _substitute_spec(spec, platform)
+    expects = rendered_spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
 
     for idx, expect in enumerate(expects, 1):
@@ -213,6 +250,7 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f"min_root_disk_gb = {DEFAULT_MIN_ROOT_DISK_GB}",
             # No profile / requires_deployed_vss / prerequisite_deploy_mode:
             # nothing in the harness reads them (the _ensure_prerequisite_deployed
             # pre-deploy hook is gone). The spec's first expects[] query deploys
@@ -235,12 +273,11 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            # Fallback: write the in-memory spec so tests/ is complete
-            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # The verifier must grade the same rendered values that instruction.md
+        # presents to the agent.
+        (tests_dir / spec_name).write_text(
+            json.dumps(rendered_spec, indent=2)
+        )
 
         # solution/
         solution_dir = step_dir / "solution"

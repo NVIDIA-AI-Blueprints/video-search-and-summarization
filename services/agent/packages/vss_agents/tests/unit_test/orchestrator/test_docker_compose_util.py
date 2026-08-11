@@ -153,6 +153,54 @@ class TestParseEnvFile:
         }
 
 
+class TestComposeSubprocessEnv:
+    def test_generated_env_removes_ambient_placement(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        env_file = tmp_path / "generated.env"
+        env_file.write_text(
+            _env_text(
+                "LLM_DEVICE_ID=0  # profile default",
+                "VLM_DEVICE_ID=0",
+                "RT_VLM_DEVICE_ID=0",
+                "LLM_MODE=local_shared",
+                "VLM_MODE=local_shared",
+            )
+            + "\n"
+        )
+        for key in (
+            "LLM_DEVICE_ID",
+            "VLM_DEVICE_ID",
+            "RT_VLM_DEVICE_ID",
+            "SHARED_LLM_VLM_DEVICE_ID",
+        ):
+            monkeypatch.setenv(key, "1")
+        monkeypatch.setenv("LLM_MODE", "local")
+        monkeypatch.setenv("VLM_MODE", "local")
+
+        result = dcu._compose_subprocess_env(env_file)
+
+        assert "LLM_DEVICE_ID" not in result
+        assert "VLM_DEVICE_ID" not in result
+        assert "RT_VLM_DEVICE_ID" not in result
+        assert "SHARED_LLM_VLM_DEVICE_ID" not in result
+        assert "LLM_MODE" not in result
+        assert "VLM_MODE" not in result
+
+    def test_compose_output_defaults_do_not_replace_explicit_values(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        env_file = tmp_path / "generated.env"
+        env_file.write_text("COMPOSE_PROGRESS=quiet\n")
+        monkeypatch.delenv("COMPOSE_ANSI", raising=False)
+
+        result = dcu._compose_subprocess_env(
+            env_file,
+            {"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"},
+        )
+
+        assert "COMPOSE_PROGRESS" not in result
+        assert result["COMPOSE_ANSI"] == "never"
+
+
 class TestFirstNonPlaceholder:
     def test_first_non_placeholder_skips_known_placeholders(self):
         result = dcu.first_non_placeholder(
@@ -1106,16 +1154,26 @@ class TestPrecedence:
 
         assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.10"
 
-    def test_key_absent_at_all_layers_is_not_in_resolved_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_remote_vlm_does_not_get_local_rtvi_memory_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(
             tmp_path,
-            _env_text(*_base_env("thor")),
+            _env_text(
+                *_base_env(
+                    "RTXPRO6000BW",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "RTVI_VLLM_GPU_MEMORY_UTILIZATION=",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"RTXPRO6000BW"}),
+            edge_hardware_profiles=frozenset(),
+            vlm_endpoint_url="http://remote-vlm:8000",
         )
         _patch_network(monkeypatch)
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert "RTVI_VLLM_GPU_MEMORY_UTILIZATION" not in resolved
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == ""
 
     def test_named_param_writes_key_when_dotenv_lacks_it(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(
@@ -1269,6 +1327,115 @@ class TestModeInferenceIntegration:
         assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
         assert resolved["VLM_MODE"] == dcu.MODE_REMOTE
 
+    def test_shared_rtx_base_gets_rtvi_memory_cap_and_shared_device(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "RTXPRO6000BW",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "RTVI_VLLM_GPU_MEMORY_UTILIZATION=",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"RTXPRO6000BW"}),
+            edge_hardware_profiles=frozenset(),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL_SHARED
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL_SHARED
+        assert resolved["RT_VLM_DEVICE_ID"] == "0"
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.4"
+
+    def test_dedicated_rtx_base_gets_dedicated_rtvi_memory_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "RTXPRO6000BW",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "RT_VLM_DEVICE_ID=0",
+                    "RTVI_VLLM_GPU_MEMORY_UTILIZATION=",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"RTXPRO6000BW"}),
+            edge_hardware_profiles=frozenset(),
+            env_overrides={"LLM_DEVICE_ID": "0", "VLM_DEVICE_ID": "1"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["RT_VLM_DEVICE_ID"] == "1"
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.7"
+
+    @pytest.mark.parametrize(
+        ("hardware_profile", "device_ids", "expected"),
+        [
+            ("H100", ("0", "0"), "0.4"),
+            ("L40S", ("0", "1"), "0.8"),
+        ],
+    )
+    def test_rtvi_memory_defaults_match_dev_profile(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        hardware_profile: str,
+        device_ids: tuple[str, str],
+        expected: str,
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    hardware_profile,
+                    f"LLM_DEVICE_ID={device_ids[0]}",
+                    f"VLM_DEVICE_ID={device_ids[1]}",
+                    "RTVI_VLLM_GPU_MEMORY_UTILIZATION=",
+                )
+            ),
+            supported_hardware_profiles=frozenset({hardware_profile}),
+            edge_hardware_profiles=frozenset(),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == expected
+
+    def test_explicit_rtvi_memory_override_wins_over_inferred_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "RTXPRO6000BW",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "RTVI_VLLM_GPU_MEMORY_UTILIZATION=",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"RTXPRO6000BW"}),
+            edge_hardware_profiles=frozenset(),
+            env_overrides={"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.55"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.55"
+
     def test_both_remote_endpoints_yields_both_remote(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(
             tmp_path,
@@ -1285,6 +1452,87 @@ class TestModeInferenceIntegration:
 
         assert resolved["LLM_MODE"] == dcu.MODE_REMOTE
         assert resolved["VLM_MODE"] == dcu.MODE_REMOTE
+
+    @pytest.mark.parametrize(
+        "requested_vlm_mode",
+        [dcu.MODE_LOCAL, dcu.MODE_LOCAL_SHARED],
+    )
+    def test_per_call_local_vlm_suppresses_runtime_remote_endpoint(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        requested_vlm_mode: str,
+    ):
+        """A task can request integrated RT-VLM despite a coordinator default."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "RTXPRO6000BW",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "VLM_BASE_URL=http://rtvi-vlm:8000",
+                    "RTVI_VLM_ENDPOINT=",
+                    "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final",
+                    "RTVI_VLM_MODEL_TO_USE=cosmos-reason3",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"RTXPRO6000BW"}),
+            edge_hardware_profiles=frozenset(),
+            llm_endpoint_url="http://remote-llm:8000",
+            vlm_endpoint_url="http://remote-vlm:8000",
+            vlm_name="remote-vlm",
+            env_overrides={
+                "VLM_MODE": requested_vlm_mode,
+                "VLM_MODEL_TYPE": "rtvi",
+                "VLM_NAME": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+                "VLM_NAME_SLUG": dcu.MODEL_SLUG_NONE,
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_REMOTE
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_BASE_URL"] == "http://rtvi-vlm:8000"
+        assert resolved["VLM_MODEL_TYPE"] == "rtvi"
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+        assert resolved["RTVI_VLM_ENDPOINT"] == ""
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason3"
+
+    def test_per_call_local_llm_suppresses_runtime_remote_endpoint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "H100",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=0",
+                    "LLM_BASE_URL=http://local-llm:8000",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+            llm_endpoint_url="http://remote-llm:8000",
+            vlm_endpoint_url="http://remote-vlm:8000",
+            env_overrides={
+                "LLM_MODE": dcu.MODE_LOCAL,
+                "LLM_NAME": "local-llm",
+                "LLM_NAME_SLUG": "local-llm",
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_MODE"] == dcu.MODE_REMOTE
+        assert resolved["LLM_BASE_URL"] == "http://local-llm:8000"
+        assert resolved["LLM_NAME"] == "local-llm"
 
     def test_fixed_shared_device_ids_from_profile_env_force_shared(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

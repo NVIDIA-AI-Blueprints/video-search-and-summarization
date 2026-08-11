@@ -18,6 +18,7 @@ from collections import deque
 from collections.abc import AsyncIterator
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 import subprocess
 from unittest.mock import MagicMock
@@ -42,6 +43,7 @@ from vss_agents.orchestrator.tools import ModelArtifactEntry
 from vss_agents.orchestrator.tools import ModelPackageConfig
 from vss_agents.orchestrator.tools import ModelResolutionConfig
 from vss_agents.orchestrator.tools import OrchestratorToolConfig
+from vss_agents.orchestrator.tools import RtspSampleProbeInput
 from vss_agents.orchestrator.tools import vss_orchestrator
 
 
@@ -103,6 +105,7 @@ def _make_orchestrator_config(
         include = [
             "profiles",
             "prereqs",
+            "rtsp_sample_probe",
             "docker_generate",
             "docker_read",
             "docker_list",
@@ -234,11 +237,22 @@ def _register_compose_operation(
 
 
 @pytest.mark.asyncio
-async def test_profiles_lists_supported_profiles(tmp_path: Path):
+async def test_profiles_lists_supported_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("VSS_ORCHESTRATOR_MCP_INSTANCE_ID", "instance-123")
+    monkeypatch.setenv("VSS_ORCHESTRATOR_MCP_GIT_SHA", "a" * 40)
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         result = await _call(group, "profiles", DockerProfilesInput())
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["profiles"] == ["alerts", "base", "lvs", "search"]
+    assert result["runtime_instance_id"] == "instance-123"
+    assert len(result["runtime_source_sha256"]) == 64
+    assert result["runtime_git_sha"] == "a" * 40
+
+
+def test_default_config_exposes_rtsp_sample_probe() -> None:
+    default_include = OrchestratorToolConfig.model_fields["include"].default
+    assert isinstance(default_include, list)
+    assert "rtsp_sample_probe" in default_include
 
 
 @pytest.mark.asyncio
@@ -260,6 +274,302 @@ async def test_prereqs_runtime_error(tmp_path: Path):
             result = await _call(group, "prereqs", DockerPrereqsInput())
     assert result["status"] == ComposeStatus.ERROR.value
     assert "docker missing" in result["error"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.test/video",
+        "rtsp://example.test/live\ninjected",
+        "rtsps://example.test/live\x7f",
+        "rtsp://example.test/live\x85",
+        "rtsp://example.test/live\u202e",
+        "rtsp://example.test/live\u2066",
+        "rtsp://example.test/live\u200d",
+        "rtsp://example.test/live path",
+        "rtsp:///missing-host",
+        "rtsp://example.test:70000/live",
+    ],
+)
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_rejects_invalid_config_without_disclosure(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    url: str,
+) -> None:
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+            ) as to_thread:
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "invalid_sample_url"
+    assert url not in output
+    assert url not in repr(result)
+    to_thread.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_requires_configured_url(
+    tmp_path: Path,
+) -> None:
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("RTSP_SAMPLE_URL", None)
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+            ) as to_thread:
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "sample_url_unconfigured"
+    to_thread.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_uses_only_server_config_and_requires_video(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsps://alice:s3cr3t@example.test:7441/live/camera?token=top-secret"
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout='{"streams":[{"index":0,"codec_type":"video","codec_name":"h264"}]}',
+        stderr="",
+    )
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ) as to_thread:
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result == {
+        "status": ComposeStatus.SUCCESS.value,
+        "reachable": True,
+        "has_video": True,
+        "video_stream_count": 1,
+        "video_streams": [{"index": 0, "codec_name": "h264"}],
+        "transport": "tcp",
+        "timeout_s": tools_mod._RTSP_PROBE_TIMEOUT_S,
+        "message": "RTSP endpoint is reachable and carries a video stream.",
+    }
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+
+    run_fn, command = to_thread.call_args.args[:2]
+    assert run_fn is subprocess.run
+    assert command[-1] == rtsp_url
+    assert command[:5] == ["ffprobe", "-v", "error", "-rtsp_transport", "tcp"]
+    assert command[5:7] == ["-select_streams", "v:0"]
+    assert to_thread.call_args.kwargs["timeout"] == tools_mod._RTSP_PROBE_TIMEOUT_S
+    assert to_thread.call_args.kwargs["stdin"] is subprocess.DEVNULL
+    assert to_thread.call_args.kwargs["stdout"] is subprocess.PIPE
+    assert to_thread.call_args.kwargs["stderr"] is subprocess.DEVNULL
+    assert to_thread.call_args.kwargs["check"] is False
+    assert to_thread.call_args.kwargs["shell"] is False
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_omits_failure_diagnostics(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsp://alice:s3cr3t@example.test/live?token=top-secret"
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=1,
+        stdout="",
+        stderr=(f"Unable to open {rtsp_url}\nRedirect from rtsp://mirror.example.test/other failed."),
+    )
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "probe_failed"
+    assert "diagnostic" not in result
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+    assert "mirror.example.test" not in output
+    assert "mirror.example.test" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_timeout_is_bounded_and_secret_safe(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsp://alice:s3cr3t@example.test/live"
+    timeout = subprocess.TimeoutExpired(
+        cmd=["ffprobe", rtsp_url],
+        timeout=tools_mod._RTSP_PROBE_TIMEOUT_S,
+    )
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                side_effect=timeout,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "probe_timeout"
+    assert result["timeout_s"] == tools_mod._RTSP_PROBE_TIMEOUT_S
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_unexpected_error_does_not_disclose_secret(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    rtsp_url = "rtsp://user:password@example.test/live"
+
+    with patch.dict(os.environ, {"RTSP_SAMPLE_URL": rtsp_url}, clear=False):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                side_effect=RuntimeError(f"unexpected failure while probing {rtsp_url}"),
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    output = capsys.readouterr().out
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "probe_internal_error"
+    assert "diagnostic" not in result
+    assert rtsp_url not in output
+    assert rtsp_url not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_rejects_successful_non_video_probe(
+    tmp_path: Path,
+) -> None:
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout='{"streams":[]}',
+        stderr="",
+    )
+
+    with patch.dict(
+        os.environ,
+        {"RTSP_SAMPLE_URL": "rtsp://example.test/audio-only"},
+        clear=False,
+    ):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "no_video_stream"
+    assert result["video_stream_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rtsp_sample_probe_rejects_invalid_ffprobe_json(
+    tmp_path: Path,
+) -> None:
+    completed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="not-json",
+        stderr="",
+    )
+    with patch.dict(
+        os.environ,
+        {"RTSP_SAMPLE_URL": "rtsp://example.test/video"},
+        clear=False,
+    ):
+        async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+            with patch(
+                "vss_agents.orchestrator.tools.asyncio.to_thread",
+                return_value=completed,
+            ):
+                result = await _call(
+                    group,
+                    "rtsp_sample_probe",
+                    RtspSampleProbeInput(),
+                )
+
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert result["error_code"] == "invalid_probe_output"
+    assert "diagnostic" not in result
+
+
+@pytest.mark.asyncio
+async def test_prereqs_gpu_indices_reject_unavailable_generate_override(tmp_path: Path):
+    async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+        with patch(
+            "vss_agents.orchestrator.tools.run_prereqs_checks",
+            return_value={"gpus": [{"index": 0}]},
+        ):
+            prereqs = await _call(group, "prereqs", DockerPrereqsInput())
+
+        with patch("vss_agents.orchestrator.tools.create_dry_run_recipe") as mock_recipe:
+            result = await _call(
+                group,
+                "docker_generate",
+                GenerateInput(
+                    profile="base",
+                    env_overrides=["LLM_DEVICE_ID=0", "VLM_DEVICE_ID=1"],
+                ),
+            )
+
+    assert prereqs["status"] == ComposeStatus.SUCCESS.value
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert "VLM_DEVICE_ID=1" in result["error"]
+    assert "detected GPU indices: 0" in result["error"]
+    assert "Retry docker_generate without GPU device overrides" in result["error"]
+    mock_recipe.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -292,7 +602,15 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_docker_list_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="alpha\nbeta\n", stderr="")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=(
+                "alpha\trunning\tUp 2 minutes (healthy)\talpha:latest\t0.0.0.0:8000->8000/tcp\n"
+                "beta\tcreated\tCreated\tbeta:latest\t\n"
+            ),
+            stderr="",
+        )
 
         with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(
@@ -302,6 +620,27 @@ async def test_docker_list_success(tmp_path: Path):
             )
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["container_names"] == ["alpha", "beta"]
+    assert result["running_container_names"] == ["alpha"]
+    assert result["containers"] == [
+        {
+            "name": "alpha",
+            "state": "running",
+            "status": "Up 2 minutes (healthy)",
+            "health": "healthy",
+            "image": "alpha:latest",
+            "ports": "0.0.0.0:8000->8000/tcp",
+        },
+        {
+            "name": "beta",
+            "state": "created",
+            "status": "Created",
+            "health": "none",
+            "image": "beta:latest",
+            "ports": "",
+        },
+    ]
+    assert result["includes_stopped"] is False
+    assert "created or stopped" in result["readiness_warning"]
 
 
 @pytest.mark.asyncio
@@ -322,13 +661,22 @@ async def test_docker_list_failure(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_docker_logs_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="log line\n", stderr="")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="stdout line\nstderr line\n",
+            stderr=None,
+        )
 
-        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
+        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed) as to_thread:
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="vss-agent"))
     assert result["status"] == ComposeStatus.SUCCESS.value
-    assert result["logs"] == "log line\n"
+    assert result["logs"] == "stdout line\nstderr line\n"
     assert result["logs_truncated"] is False
+    assert result["streams_merged"] is True
+    assert to_thread.call_args.kwargs["stdout"] is subprocess.PIPE
+    assert to_thread.call_args.kwargs["stderr"] is subprocess.STDOUT
+    assert "capture_output" not in to_thread.call_args.kwargs
 
 
 @pytest.mark.asyncio
@@ -347,7 +695,12 @@ async def test_docker_logs_truncates_large_output(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_docker_logs_failure(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="No such container")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="No such container",
+            stderr=None,
+        )
 
         with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="missing"))
@@ -777,6 +1130,67 @@ async def test_docker_up_search_profile_runs_model_artifact_check(tmp_path: Path
     mock_models.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    ("profile_mode", "expected_model_checks"),
+    (("2d_vlm", 0), ("2d_cv", 1), ("", 1)),
+)
+@pytest.mark.asyncio
+async def test_docker_up_alerts_model_check_matches_profile_mode(
+    tmp_path: Path,
+    profile_mode: str,
+    expected_model_checks: int,
+) -> None:
+    config = _make_orchestrator_config(
+        tmp_path,
+        model_artifacts={
+            "alerts": (
+                ModelPackageConfig(
+                    package_ref="nvidia/pkg:1",
+                    artifacts=(
+                        ModelArtifactEntry(
+                            src="model.onnx",
+                            out="model.onnx",
+                            kind="file",
+                        ),
+                    ),
+                ),
+            ),
+        },
+    )
+    async with _orchestrator_group(tmp_path, config=config) as (group, cfg, _tmp_path):
+        compose_id = f"alerts-models-{profile_mode}"
+        env_path = Path(cfg.output_dir) / f"generated.{compose_id}.dry-run.env"
+        compose_path = Path(cfg.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
+        _register_compose_spec(
+            docker_compose_id=compose_id,
+            env_path=env_path,
+            compose_path=compose_path,
+            profile="alerts",
+            env_text=(f"VSS_DATA_DIR={cfg.mdx_data_dir}\nNGC_CLI_API_KEY=test\nMODE={profile_mode}\n"),
+        )
+
+        with (
+            patch(
+                "vss_agents.orchestrator.tools.threading.Thread",
+                side_effect=_run_target_immediately,
+            ),
+            patch("vss_agents.orchestrator.tools.ensure_model_artifacts") as mock_models,
+            patch("vss_agents.orchestrator.tools.ensure_alerts_engine_directories"),
+            patch(
+                "vss_agents.orchestrator.tools.subprocess.Popen",
+                lambda *args, **kwargs: _FakePopen(*args, **kwargs),
+            ),
+        ):
+            result = await _call(
+                group,
+                "docker_up",
+                ComposeUpOperationInput(docker_compose_id=compose_id),
+            )
+
+    assert result["status"] == ComposeStatus.STARTED.value
+    assert mock_models.call_count == expected_model_checks
+
+
 @pytest.mark.asyncio
 async def test_docker_up_alerts_profile_runs_engine_directory_check(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, config, _tmp_path):
@@ -908,6 +1322,37 @@ async def test_docker_up_watcher_success_streams_logs_and_finishes(tmp_path: Pat
     assert op.pid == 4321
     assert any("started" in line for line in op.log_lines)
     assert any("Compose operation succeeded" in line for line in op.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_docker_up_watcher_stops_on_terminal_dependency_failure(tmp_path: Path):
+    async with _orchestrator_group(tmp_path) as (group, config, _tmp_path):
+        compose_id = "base-depfail1"
+        env_path = Path(config.output_dir) / f"generated.{compose_id}.dry-run.env"
+        compose_path = Path(config.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
+        _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
+
+        process = _FakePopen(
+            lines=[
+                "Container vss-vios-postgres Waiting",
+                "Container vss-vios-postgres Error dependency centralizedb failed to start",
+            ],
+            exit_code=0,
+        )
+        with (
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.subprocess.Popen", return_value=process),
+        ):
+            result = await _call(group, "docker_up", ComposeUpOperationInput(docker_compose_id=compose_id))
+
+    op = tools_mod._COMPOSE_OPERATIONS.peek(result["docker_compose_ops_id"])
+    assert op is not None
+    assert op.status == ComposeStatus.ERROR.value
+    assert op.running is False
+    assert op.exit_code == 1
+    assert process.terminate_calls == 1
+    assert any("Detected terminal compose dependency failure" in line for line in op.log_lines)
+    assert any("retry docker_up after remediation" in line for line in op.log_lines)
 
 
 @pytest.mark.asyncio

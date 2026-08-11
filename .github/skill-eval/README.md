@@ -7,9 +7,16 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Selects an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
-4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
+4. Calls [`run_leg.py`](run_leg.py), which acquires both a runner-local per-instance `flock` and a worker-side lease shared with NemoClaw, holds them while every Harbor subprocess for this `(spec, platform)` runs, and invokes Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
+
+NemoClaw/OpenClaw is available as an opt-in runner. Specs can set
+`runner: "nemoclaw"` / `requires_nemoclaw: true`, or an operator can select
+`runner=nemoclaw` from the manual workflow dispatch. Harbor remains the
+entrypoint and result owner; the generated Harbor task prepares NemoClaw on
+the selected `vss-eval-*` worker, then launches the real scenario through the
+OpenClaw hooks endpoint.
 
 The whole thing runs inside the 14-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
 
@@ -31,7 +38,7 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 |---|---|---|
 | `l40s` | `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2` | `massedcompute_L40S` / `massedcompute_L40Sx2` |
 | `h100` | `vss-eval-h100` (when needed) | launchpad `dmz.h100x2.pcie` preferred |
-| `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and capability-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or approved RTX 4090 |
+| `rtx` | Managed `vss-eval-rtx-*`, registered RTX PRO workers such as `vss-eval-rtx-2g-VM1b`–`VM4b`, and metadata-routed `vss-eval-geforce-rtx4090-vm*` workers | AWS `g7e.4xlarge` / `g7e.12xlarge`, registered RTX PRO Server 6000, or spec-declared RTX 4090 |
 | `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
 Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-deploy-profile` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
@@ -49,7 +56,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `HF_TOKEN` | Required by the Edge 4B vLLM on SPARK / Thor `shared` mode |
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
-| `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
+| `BREV_RTX4090_POOL` | Registered RTX 4090 workers; considered only when the eval spec declares `gpu_type: GEFORCE RTX 4090` |
 
 ## Layout
 
@@ -70,6 +77,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 │       └── generate.py
 ├── envs/
 │   └── brev_env.py        ← Harbor environment for pre-existing Brev instances
+├── nemoclaw/              ← notebook setup adapter + headless OpenClaw hook launcher
 └── verifiers/
     └── generic_judge.py   ← routes checks to shell / trajectory /
                              response / rubric evaluators
@@ -113,6 +121,34 @@ Schema:
 | `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. There is no separate `env` field: every prerequisite (deployed profile, required env vars, ports, sample-data ingest, platform notes) goes **inside the relevant `expects[].query`** — usually the first/setup query, often a `/vss-deploy-profile …` deploy step. |
 | `expects[].query` | `string` | What the agent is asked to do at this step, in plain English — including any prerequisites/environment the step needs. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl` / `docker` / `grep` commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
+| `runner` | `string` | Optional. `nemoclaw` runs the scenario through the NemoClaw/OpenClaw setup and hook launcher. Omitted keeps the current Harbor + Claude Code path. |
+| `requires_mcp` / `required_mcp_tools` | `bool` / `string[]` | Optional NemoClaw metadata. The setup checks the orchestrator MCP health before dispatch; tool-use assertions are evaluated from the scenario artifacts/checks after the run. |
+
+## NemoClaw runner
+
+The NemoClaw runner keeps `deploy/docker/scripts/deploy_nemoclaw.ipynb` and
+`deploy/docker/scripts/deploy_vss_orchestrator.ipynb` as the human runbooks.
+CI does not edit the notebooks. Instead,
+`.github/skill-eval/nemoclaw/notebook_setup_adapter.py` builds a temporary
+combined notebook from stable cell ids listed in `notebook_cells.json`,
+injects CI parameters from environment variables into both setup phases,
+executes setup-only cells, and writes the executed notebook plus
+`/tmp/skill-eval/nemoclaw/nemoclaw.env` on the Brev worker.
+
+Once readiness passes, Harbor still invokes `-a claude-code`. In NemoClaw
+mode that Claude process is only a launcher: `instruction.md` tells it to run
+`.github/skill-eval/nemoclaw/headless_runner.py`, which posts the actual skill
+prompt to OpenClaw hooks. The NemoClaw/OpenClaw agent then uses the same
+repository `skills/` content installed with the canonical NemoClaw CLI and
+the VSS Orchestrator MCP server exposed by the notebook setup.
+
+The NemoClaw smoke runner publishes the same high-level `Harbor Eval` Markdown
+shape as the Claude Code path, with NemoClaw runtime details, failing checks,
+trace links, and a benchmark artifact under `/tmp/skill-eval/<run_id>/`.
+Manual dispatch with `runner=nemoclaw` supports both the default
+`vss-deploy-profile/base` smoke and `skills=*` sweeps across adapter-backed
+`skills/*/evals/*.json` specs. Skills with eval specs but no Harbor adapter are
+reported as blocked coverage gaps rather than silently skipped.
 
 ### Eval-profile vs deploy-profile (vss-deploy-profile adapter only)
 
@@ -179,11 +215,11 @@ python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
 #    (all containers, user-defined networks, and volumes; images are kept).
 #    NEVER point a manual run at a box a CI run currently holds — it will
 #    `docker rm -f` that run's deployment mid-trial. Use run_leg.py so the
-#    same per-box lock contract applies to manual runs.
+#    same two-layer per-box lock contract applies to manual runs.
 INSTANCE_NAME=vss-eval-l40s
 
 # 3. Run one trial. run_leg.py discovers single-step vs multi-step task
-#    layouts, holds /tmp/brev/$INSTANCE_NAME.lock, and invokes Harbor.
+#    layouts, holds the runner-local + worker-side locks, and invokes Harbor.
 export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
 
 python3 .github/skill-eval/run_leg.py \

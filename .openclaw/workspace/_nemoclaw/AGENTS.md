@@ -8,7 +8,20 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 
 ## Every Session
 
-Before doing anything else:
+One narrowly scoped prerequisite may come before the normal session bootstrap.
+Only in the automated `/vss-deploy-dense-captioning` evaluation, when the
+active task explicitly requires the first shell action to be exactly
+`test -n "${RTSP_SAMPLE_URL:-}" && printf 'RTSP_SAMPLE_URL is set\n'`, run that
+exact command once through the OpenClaw `exec` tool before reading or exporting
+`ENV.md`. Require exit code 0 and the sole output `RTSP_SAMPLE_URL is set`; if
+it fails, stop with a missing-prerequisite error. Do not prepend `cat ENV.md`,
+combine the probe with another command, expand the URL through another tool,
+or print the variable's value. In particular, do not run
+`export HOST_IP=host.openshell.internal` or an `echo $HOST_IP` check first.
+This exception does not apply to another skill, an interactive request, or a
+different command; no other request may reorder the session bootstrap.
+
+After that prerequisite (or immediately when it does not apply):
 
 1. Run every `export` in `ENV.md` to set the sandbox environment. The sandbox's `/sandbox/.bashrc` is root-owned read-only, so these can't be persisted to a shell init file — re-run every session. `ENV.md` is the single source of truth for these values; do not hardcode them anywhere else.
 2. Read `SOUL.md` — this is who you are
@@ -121,9 +134,11 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 
 ### VSS Deploy Conventions
 
-> **Deployment is handled by the VSS Orchestrator MCP server at `http://host.openshell.internal:9988/mcp`. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown — call MCP tools using the recipe in TOOLS.md. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
+> **Deployment is handled by the VSS Orchestrator MCP server. Prefer the native `vss_orchestrator__*` MCP tools exposed by OpenClaw. If native tools are unavailable, use the streamable HTTP fallback at `http://host.openshell.internal:9988/mcp` using the recipe in TOOLS.md. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
 
-> The tool names below (`vss_orchestrator__*`) are listed for orientation, but **always confirm them against `tools/list` output** (per TOOLS.md) before invoking — use whatever names discovery returns.
+> The `vss_orchestrator__*` tool names below are stable. Use the native tools
+> exposed by OpenClaw when present; otherwise use the streamable HTTP fallback
+> in `TOOLS.md`. Do not call `tools/list`.
 
 - When the user says **"deploy VSS base"**, **"deploy VSS search"**, **"deploy VSS lvs"**, or **"deploy VSS alerts"**:
   1. Call `vss_orchestrator__prereqs` — abort if it fails; tell the user to run the matching cell in `deploy/docker/scripts/deploy_vss_orchestrator.ipynb` (the notebook lives on the host, not in the sandbox — do not try to read, list, find, or open it from inside the sandbox; just tell the user).
@@ -138,6 +153,16 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
       - `cancelled` → send `"⚠️ VSS <profile> deployment was cancelled (likely by a docker_down)."`
 
 - For **status, logs, or container inspection**: use `vss_orchestrator__docker_list`, `vss_orchestrator__docker_logs`, or `vss_orchestrator__docker_read`. Do not run `docker ps` directly.
+
+- For **dense-captioning RTSP validation** when `RTSP_SAMPLE_URL` is provided:
+  1. Check only that the variable is non-empty; never print, echo, or include its
+     value in the final response.
+  2. Call `vss_orchestrator__rtsp_sample_probe` with no URL argument. The host
+     tool can probe only its configured `RTSP_SAMPLE_URL`; never pass or expand
+     the value through MCP. Require `status: success`, `has_video: true`, and
+     `video_stream_count >= 1` before registering the stream.
+  3. A timeout, probe error, or `no_video_stream` is terminal for that stream;
+     report the sanitized error and do not register a substitute URL.
 
 - For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` using the cadence the server returns in `recommended_poll_interval_s` (currently 10s for `down`). Print the same 1-line chat update after every poll. **When `status` becomes terminal, in the same turn**, send a clear final message: `success` → `"✅ Teardown complete (elapsed Ms)."` | `error` → `"❌ Teardown failed (exit_code=X)"` plus a log snippet | `cancelled` → `"⚠️ Teardown was cancelled."` Do not end the turn before this message is sent.
 

@@ -13,8 +13,11 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import stat
+import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -233,6 +236,24 @@ class PhaseBudgets(unittest.TestCase):
                 )
         self.assertEqual(raised.exception.code, 2)
 
+    def test_parse_args_preserves_valid_timeout_env_overrides(self):
+        required = [
+            "--dataset-root", "/tmp/data",
+            "--results-root", "/tmp/results",
+        ]
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {
+                "SKILL_EVAL_LOCK_TIMEOUT_SEC": "123",
+                "SKILL_EVAL_HARBOR_TIMEOUT_SEC": "13000",
+            },
+            clear=False,
+        ):
+            args = run_leg.parse_args(required)
+
+        self.assertEqual(args.lock_timeout_sec, 123)
+        self.assertEqual(args.harbor_timeout_sec, 13000)
+
     def test_agent_deadline_is_inherited_and_expired_values_fail_closed(self):
         with (
             mock.patch.dict(
@@ -268,6 +289,73 @@ class PhaseBudgets(unittest.TestCase):
                 run_leg.resolve_work_deadline(),
                 15000 - run_leg.AGENT_VERDICT_RESERVE_SEC,
             )
+
+
+class BrevAuthenticationFailures(unittest.TestCase):
+    AUTH_TRACE = (
+        "github.com/brevdev/brev-cli/pkg/auth.Auth.PromptForLogin\n"
+        "/go/src/github.com/brevdev/brev-cli/pkg/auth/auth.go:247\n"
+        ": [error]\n"
+        "github.com/brevdev/brev-cli/pkg/auth.shouldLogin\n"
+        ": EOF\nEOF\n"
+    )
+
+    def test_managed_inventory_fails_fast_on_headless_login_eof(self):
+        result = subprocess.CompletedProcess(
+            ["brev", "ls", "--json"],
+            1,
+            "",
+            self.AUTH_TRACE,
+        )
+        with (
+            mock.patch.object(
+                run_leg.subprocess,
+                "run",
+                return_value=result,
+            ) as run,
+            mock.patch.object(run_leg.time, "sleep") as sleep,
+            self.assertRaisesRegex(
+                run_leg.BrevAuthenticationError,
+                "PromptForLogin reached EOF",
+            ),
+        ):
+            run_leg._list_brev_instances()
+
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_registered_inventory_fails_fast_on_headless_login_eof(self):
+        result = subprocess.CompletedProcess(
+            ["brev", "ls", "nodes", "--json"],
+            1,
+            "",
+            self.AUTH_TRACE,
+        )
+        with (
+            mock.patch.object(
+                run_leg.subprocess,
+                "run",
+                return_value=result,
+            ) as run,
+            mock.patch.object(run_leg.time, "sleep") as sleep,
+            self.assertRaisesRegex(
+                run_leg.BrevAuthenticationError,
+                "PromptForLogin reached EOF",
+            ),
+        ):
+            run_leg._list_registered_nodes()
+
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_generic_transport_eof_is_not_classified_as_auth(self):
+        reason = run_leg._brev_auth_failure_reason(
+            "",
+            "rpc error: error reading from server: EOF",
+            "brev exec worker",
+        )
+
+        self.assertIsNone(reason)
 
 
 class HarborEnvironment(unittest.TestCase):
@@ -919,6 +1007,373 @@ class TraceUrls(unittest.TestCase):
             self.assertFalse((results_root / "trace-urls.tsv").exists())
 
 
+class CachedManagedSSH(unittest.TestCase):
+    AUTH_ERROR = run_leg.BrevAuthenticationError("expired")
+
+    def setUp(self):
+        self.original_transports = dict(run_leg._WORKER_TRANSPORTS)
+        self.original_configs = dict(run_leg._WORKER_SSH_CONFIGS)
+        self.original_snapshot_count = len(
+            run_leg._CACHED_MANAGED_SSH_SNAPSHOTS
+        )
+        self.original_snapshot_cache = dict(
+            run_leg._CACHED_MANAGED_SSH_SNAPSHOT_CACHE
+        )
+
+    def tearDown(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+        run_leg._WORKER_TRANSPORTS.update(self.original_transports)
+        run_leg._WORKER_SSH_CONFIGS.clear()
+        run_leg._WORKER_SSH_CONFIGS.update(self.original_configs)
+        while (
+            len(run_leg._CACHED_MANAGED_SSH_SNAPSHOTS)
+            > self.original_snapshot_count
+        ):
+            run_leg._CACHED_MANAGED_SSH_SNAPSHOTS.pop().cleanup()
+        run_leg._CACHED_MANAGED_SSH_SNAPSHOT_CACHE.clear()
+        run_leg._CACHED_MANAGED_SSH_SNAPSHOT_CACHE.update(
+            self.original_snapshot_cache
+        )
+
+    @staticmethod
+    def _write_config(root: Path, source: str, mode: int = 0o600) -> Path:
+        brev_home = root / ".brev"
+        brev_home.mkdir(mode=0o700)
+        config = brev_home / "ssh_config"
+        config.write_text(source, encoding="utf-8")
+        config.chmod(mode)
+        return config
+
+    def test_cache_requires_explicit_opt_in_and_allowlist(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            base_env = {
+                "BREV_SSH_CONFIG": str(config),
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+            }
+            with mock.patch.dict(os.environ, base_env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+            enabled_without_allowlist = {
+                "BREV_SSH_CONFIG": str(config),
+                "BREV_ALLOW_CACHED_SSH": "1",
+            }
+            with mock.patch.dict(
+                os.environ, enabled_without_allowlist, clear=True
+            ):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+    def test_cache_intersects_only_exact_safe_host_aliases(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "\n".join(
+                    (
+                        "Host VSS-EVAL-RTX-2G-2",
+                        "  HostName 192.0.2.10",
+                        "Host vss-eval-rtx-2g-5-host",
+                        "Host unrelated-host",
+                    )
+                ),
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "true",
+                "BREV_DIRECT_SSH_POOL": (
+                    "vss-eval-rtx-2g-2,vss-eval-rtx-2g-3,"
+                    "vss-eval-rtx-2g-5-host,unrelated-host"
+                ),
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                # One unsafe operator entry rejects the entire allowlist.
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+                os.environ["BREV_DIRECT_SSH_POOL"] = (
+                    "vss-eval-rtx-2g-2,vss-eval-rtx-2g-3"
+                )
+                candidates = run_leg._cached_managed_ssh_candidates()
+                expected_source = config.read_text(encoding="utf-8")
+
+        self.assertEqual(set(candidates), {"vss-eval-rtx-2g-2"})
+        snapshot = candidates["vss-eval-rtx-2g-2"]
+        self.assertNotEqual(snapshot, config)
+        self.assertEqual(snapshot.read_text(encoding="utf-8"), expected_source)
+        self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o400)
+        self.assertEqual(stat.S_IMODE(snapshot.parent.stat().st_mode), 0o500)
+
+    def test_cache_accepts_owner_only_file_in_writable_brev_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            config.parent.chmod(0o777)
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                candidates = run_leg._cached_managed_ssh_candidates()
+
+        self.assertEqual(set(candidates), {"vss-eval-rtx-2g-2"})
+        snapshot = candidates["vss-eval-rtx-2g-2"]
+        self.assertTrue(snapshot.is_file())
+        self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o400)
+        self.assertEqual(stat.S_IMODE(snapshot.parent.stat().st_mode), 0o500)
+
+    def test_cache_snapshot_is_stable_after_source_path_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config = self._write_config(
+                root,
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            config.parent.chmod(0o777)
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                snapshot = run_leg._cached_managed_ssh_candidates()[
+                    "vss-eval-rtx-2g-2"
+                ]
+
+            config.unlink()
+            config.write_text(
+                "Host vss-eval-rtx-2g-2\n"
+                "  ProxyCommand /tmp/untrusted-proxy %h %p\n",
+                encoding="utf-8",
+            )
+
+        self.assertIn("HostName 192.0.2.10", snapshot.read_text(
+            encoding="utf-8"
+        ))
+        self.assertNotIn("ProxyCommand", snapshot.read_text(encoding="utf-8"))
+
+    def test_cache_reuses_private_snapshot_across_inventory_retries(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                first = run_leg._cached_managed_ssh_candidates()
+                second = run_leg._cached_managed_ssh_candidates()
+
+        self.assertEqual(
+            first["vss-eval-rtx-2g-2"],
+            second["vss-eval-rtx-2g-2"],
+        )
+        self.assertEqual(
+            len(run_leg._CACHED_MANAGED_SSH_SNAPSHOTS),
+            self.original_snapshot_count + 1,
+        )
+
+    def test_cache_rejects_patterns_and_executable_proxy_stanzas(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = self._write_config(
+                Path(td),
+                "\n".join(
+                    (
+                        "Host *",
+                        "  ProxyCommand /tmp/untrusted-proxy %h %p",
+                        "Host vss-eval-rtx-2g-2",
+                        "  HostName 192.0.2.10",
+                    )
+                ),
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+            safe_stanza = (
+                "Host vss-eval-rtx-2g-2\n"
+                "  HostName 192.0.2.10\n"
+            )
+            unsafe_stanza = (
+                "Host vss-eval-rtx-2g-2\n"
+                "  ProxyCommand /tmp/untrusted-proxy %h %p\n"
+            )
+            for source in (
+                safe_stanza + unsafe_stanza,
+                unsafe_stanza + safe_stanza,
+            ):
+                config.write_text(source, encoding="utf-8")
+                with mock.patch.dict(os.environ, env, clear=True):
+                    self.assertEqual(
+                        run_leg._cached_managed_ssh_candidates(),
+                        {},
+                    )
+
+            config.write_text(
+                "Host vss-eval-rtx-2g-2\n"
+                "  ProxyCommand /tmp/untrusted-proxy %h %p\n",
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+    def test_cache_rejects_writable_or_symlinked_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config = self._write_config(
+                root,
+                "Host vss-eval-rtx-2g-2\n  HostName 192.0.2.10\n",
+                mode=0o666,
+            )
+            env = {
+                "BREV_ALLOW_CACHED_SSH": "1",
+                "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+                "BREV_SSH_CONFIG": str(config),
+            }
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+            config.chmod(0o600)
+            link = root / "cached-config-link"
+            link.symlink_to(config)
+            env["BREV_SSH_CONFIG"] = str(link)
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(run_leg._cached_managed_ssh_candidates(), {})
+
+    def test_auth_failure_merges_cached_alias_and_propagates_to_harbor(self):
+        config = Path("/safe/operator/.brev/ssh_config")
+        env = {
+            "BREV_ALLOW_CACHED_SSH": "1",
+            "BREV_DIRECT_SSH_POOL": "vss-eval-rtx-2g-2",
+        }
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(
+                run_leg,
+                "_cached_managed_ssh_candidates",
+                return_value={"vss-eval-rtx-2g-2": config},
+            ),
+            mock.patch.object(
+                run_leg,
+                "_list_brev_instances",
+                side_effect=self.AUTH_ERROR,
+            ),
+            mock.patch.object(
+                run_leg,
+                "_list_registered_nodes",
+                side_effect=self.AUTH_ERROR,
+            ),
+        ):
+            instances = run_leg._list_pool_instances("RTX PRO 6000")
+            propagated = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_ENV
+            )
+            propagated_config = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV
+            )
+
+        self.assertEqual([item["name"] for item in instances], [
+            "vss-eval-rtx-2g-2"
+        ])
+        self.assertTrue(instances[0]["_registered"])
+        self.assertTrue(instances[0]["_cached_managed_ssh"])
+        self.assertEqual(propagated, "vss-eval-rtx-2g-2")
+        self.assertEqual(propagated_config, str(config))
+        self.assertEqual(
+            run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"], "ssh"
+        )
+        self.assertEqual(
+            run_leg._WORKER_SSH_CONFIGS["vss-eval-rtx-2g-2"], str(config)
+        )
+
+    def test_empty_inventory_merges_only_allowlisted_cached_alias(self):
+        config = Path("/safe/operator/.brev/ssh_config")
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(
+                run_leg,
+                "_cached_managed_ssh_candidates",
+                return_value={"vss-eval-rtx-2g-3": config},
+            ),
+            mock.patch.object(run_leg, "_list_brev_instances", return_value=[]),
+            mock.patch.object(run_leg, "_list_registered_nodes", return_value=[]),
+        ):
+            instances = run_leg._list_pool_instances("RTX PRO 6000")
+
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0]["name"], "vss-eval-rtx-2g-3")
+        self.assertTrue(instances[0]["_cached_managed_ssh"])
+
+    def test_healthy_api_inventory_does_not_merge_different_cached_worker(self):
+        config = Path("/safe/operator/.brev/ssh_config")
+        managed = {
+            "name": "vss-eval-rtx-2g-2",
+            "status": "RUNNING",
+            "gpu": "RTX PRO 6000",
+        }
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(
+                run_leg,
+                "_cached_managed_ssh_candidates",
+                return_value={"vss-eval-rtx-2g-3": config},
+            ) as cached,
+            mock.patch.object(
+                run_leg, "_list_brev_instances", return_value=[managed]
+            ),
+            mock.patch.object(run_leg, "_list_registered_nodes", return_value=[]),
+        ):
+            instances = run_leg._list_pool_instances("RTX PRO 6000")
+            propagated = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_ENV
+            )
+            propagated_config = os.environ.get(
+                run_leg.CACHED_MANAGED_SSH_ADMITTED_CONFIG_ENV
+            )
+
+        self.assertEqual(instances, [managed])
+        cached.assert_not_called()
+        self.assertEqual(
+            run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"], "brev"
+        )
+        self.assertIsNone(propagated)
+        self.assertIsNone(propagated_config)
+
+    def test_cached_worker_remote_lock_uses_explicit_ssh_config(self):
+        calls = []
+        run_leg._WORKER_TRANSPORTS["vss-eval-rtx-2g-2"] = "ssh"
+        run_leg._WORKER_SSH_CONFIGS["vss-eval-rtx-2g-2"] = (
+            "/home/ubuntu/.brev/ssh_config"
+        )
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0, "ok\n", "")
+
+        with mock.patch.object(run_leg.subprocess, "run", side_effect=fake_run):
+            result = run_leg._remote_lock_executor(
+                "vss-eval-rtx-2g-2"
+            )("echo ok", 60)
+
+        self.assertEqual(result.returncode, 0)
+        command, kwargs = calls[0]
+        self.assertEqual(command[:4], [
+            "ssh", "-F", "/home/ubuntu/.brev/ssh_config", "-T"
+        ])
+        self.assertEqual(command[-2:], ["vss-eval-rtx-2g-2", "echo ok"])
+        self.assertEqual(kwargs["input"], "")
+
+
 class PoolCandidates(unittest.TestCase):
     FLEET = [
         {"name": "vss-eval-rtx-1g-2", "status": "RUNNING",
@@ -942,7 +1397,7 @@ class PoolCandidates(unittest.TestCase):
     def setUp(self):
         self._orig = run_leg._list_pool_instances
         run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: self.FLEET
+            lambda _required_gpu_type=None: self.FLEET
         )
 
     def tearDown(self):
@@ -1039,10 +1494,114 @@ class PoolCandidates(unittest.TestCase):
 
         self.assertEqual(
             [instance["name"] for instance in instances],
-            ["vss-eval-rtx-2g-VM1b"],
+            ["vss-eval-rtx-2g-VM1b", "vss-eval-rtx-2g-vm2b"],
         )
+        self.assertNotIn(
+            "vss-eval-rtx-2g-skybridge",
+            [instance["name"] for instance in instances],
+        )
+        self.assertTrue(instances[1]["_inventory_fallback"])
 
-    def test_4090_pool_is_limited_to_approved_skills(self):
+    def test_empty_api_inventory_uses_registered_ssh_allowlist(self):
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(
+                run_leg, "_list_brev_instances", return_value=[]
+            ),
+            mock.patch.object(
+                run_leg, "_list_registered_nodes", return_value=[]
+            ),
+        ):
+            instances = self._orig("RTX PRO 6000")
+
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0]["name"], "vss-eval-rtx-2g-vm1b")
+        self.assertTrue(instances[0]["_registered"])
+        self.assertTrue(instances[0]["_inventory_fallback"])
+
+    def test_expired_brev_auth_falls_back_to_registered_ssh_allowlist(self):
+        auth_error = run_leg.BrevAuthenticationError("expired")
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "BREV_REGISTERED_POOL": (
+                        "vss-eval-rtx-2g-VM1b,vss-eval-rtx-2g-VM2b"
+                    )
+                },
+                clear=True,
+            ),
+            mock.patch.object(
+                run_leg, "_list_brev_instances", side_effect=auth_error
+            ),
+            mock.patch.object(
+                run_leg, "_list_registered_nodes", side_effect=auth_error
+            ),
+        ):
+            instances = self._orig("RTX PRO 6000")
+
+        self.assertEqual(
+            [instance["name"] for instance in instances],
+            ["vss-eval-rtx-2g-vm1b", "vss-eval-rtx-2g-vm2b"],
+        )
+        self.assertTrue(all(instance["_registered"] for instance in instances))
+        self.assertTrue(
+            all(instance["_inventory_fallback"] for instance in instances)
+        )
+        self.assertTrue(all(instance["status"] == "RUNNING" for instance in instances))
+
+    def test_expired_brev_auth_without_allowlist_still_fails_closed(self):
+        auth_error = run_leg.BrevAuthenticationError("expired")
+        with (
+            mock.patch.dict(run_leg.os.environ, {}, clear=True),
+            mock.patch.object(
+                run_leg, "_list_brev_instances", side_effect=auth_error
+            ),
+        ):
+            with self.assertRaisesRegex(
+                run_leg.BrevAuthenticationError, "expired"
+            ):
+                self._orig("RTX PRO 6000")
+
+    def test_allowlisted_worker_uses_ssh_without_brev_inventory(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                clear=True,
+            ),
+            mock.patch.object(run_leg, "_list_brev_instances") as managed,
+            mock.patch.object(run_leg, "_list_registered_nodes") as registered,
+        ):
+            self.assertTrue(run_leg._worker_uses_ssh("VSS-EVAL-RTX-2G-VM1B"))
+
+        managed.assert_not_called()
+        registered.assert_not_called()
+
+    def test_allowlisted_4090_worker_uses_ssh_without_brev_inventory(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_RTX4090_POOL": "vss-eval-geforce-rtx4090-vm1"},
+                clear=True,
+            ),
+            mock.patch.object(run_leg, "_list_brev_instances") as managed,
+            mock.patch.object(run_leg, "_list_registered_nodes") as registered,
+        ):
+            self.assertTrue(
+                run_leg._worker_uses_ssh("vss-eval-geforce-rtx4090-vm1")
+            )
+
+        managed.assert_not_called()
+        registered.assert_not_called()
+
+    def test_4090_pool_is_gated_by_explicit_gpu_type(self):
         env = {
             "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
             "BREV_RTX4090_POOL": (
@@ -1051,79 +1610,90 @@ class PoolCandidates(unittest.TestCase):
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
-            approved = run_leg._registered_pool_allowlist(
-                "vss-ask-video", "base_profile_video_understanding"
-            )
-            unapproved = run_leg._registered_pool_allowlist(
-                "vss-deploy-profile", "search"
+            rtx_pro = run_leg._registered_pool_allowlist("RTX PRO 6000")
+            rtx4090 = run_leg._registered_pool_allowlist(
+                "GEFORCE RTX 4090"
             )
 
+        self.assertEqual(rtx_pro, {"vss-eval-rtx-2g-vm1b"})
         self.assertEqual(
-            approved,
+            rtx4090,
             {
                 "vss-eval-rtx-2g-vm1b",
                 "vss-eval-geforce-rtx4090-vm1",
                 "vss-eval-geforce-rtx4090-vm2",
             },
         )
-        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
 
-    def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "alerts_cv"
-        ))
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-manage-alerts", "subscriptions_lifecycle"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "search"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "warehouse"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-dense-captioning", "alerts_profile_api"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-detection-tracking-3d", "deploy"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+    def test_registered_4090_discovery_requires_explicit_gpu_type(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_pool_instances = self._orig
+            run_leg._list_brev_instances = lambda: []
+            run_leg._list_registered_nodes = lambda: [
+                {
+                    "name": "vss-eval-geforce-rtx4090-vm1",
+                    "status": "Connected",
+                },
+            ]
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "BREV_RTX4090_POOL":
+                        "vss-eval-geforce-rtx4090-vm1",
+                },
+                clear=True,
+            ):
+                rtx_pro = run_leg.pool_candidates({
+                    "gpu_type": "RTX PRO 6000",
+                    "gpu_count": 1,
+                })
+                rtx4090 = run_leg.pool_candidates({
+                    "gpu_type": "GEFORCE RTX 4090",
+                    "gpu_count": 1,
+                })
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
 
-    def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
+        self.assertEqual(rtx_pro, [])
+        self.assertEqual(rtx4090, ["vss-eval-geforce-rtx4090-vm1"])
+
+    def test_4090_selection_requires_explicit_gpu_type(self):
         fleet = [{
             "name": "vss-eval-geforce-rtx4090-vm1",
             "status": "RUNNING",
             "gpu": "GEFORCE RTX 4090",
             "_registered": True,
-            "_rtx4090_capability_routed": True,
         }]
         run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: fleet
+            lambda _required_gpu_type=None: fleet
         )
         requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
 
-        approved = run_leg.pool_candidates({
+        legacy_route = run_leg.pool_candidates({
             **requirements,
             "skill": "vss-ask-video",
         }, "base_profile_video_understanding")
-        unapproved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-deploy-dense-captioning",
-        }, "alerts_profile_api")
+        explicit_route = run_leg.pool_candidates({
+            "gpu_type": "GEFORCE RTX 4090",
+            "gpu_count": 1,
+            "skill": "vss-ask-video",
+        }, "base_profile_video_understanding")
 
-        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
-        self.assertEqual(unapproved, [])
+        self.assertEqual(legacy_route, [])
+        self.assertEqual(explicit_route, ["vss-eval-geforce-rtx4090-vm1"])
 
     def test_underprovisioned_registered_node_is_filtered(self):
         fleet = [
             {"name": "vss-eval-geforce-rtx4090-vm1", "status": "RUNNING",
-             "gpu": "GEFORCE RTX 4090", "_registered": True,
-             "_rtx4090_capability_routed": True},
+             "gpu": "GEFORCE RTX 4090", "_registered": True},
             {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
              "gpu": "RTX PRO 6000", "_registered": True},
         ]
         run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: fleet
+            lambda _required_gpu_type=None: fleet
         )
 
         names = run_leg.pool_candidates({
@@ -1144,13 +1714,22 @@ class HoldPoolLock(unittest.TestCase):
             # Hold the preferred box's lock as if another leg owns it.
             held = (lock_dir / "box-a.lock").open("a+")
             fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            remote_lease = mock.Mock(lost_event=threading.Event())
             try:
-                with run_leg.hold_pool_lock(
-                    lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
-                ) as chosen:
-                    self.assertEqual(chosen, "box-b")
+                with (
+                    mock.patch.object(
+                        run_leg,
+                        "_try_acquire_remote_worker_lease",
+                        return_value=remote_lease,
+                    ),
+                    run_leg.hold_pool_lock(
+                        lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
+                    ) as worker,
+                ):
+                    self.assertEqual(worker.instance, "box-b")
             finally:
                 held.close()
+            remote_lease.release.assert_called_once()
 
     def test_times_out_when_all_held(self):
         import fcntl
@@ -1161,11 +1740,15 @@ class HoldPoolLock(unittest.TestCase):
             fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             try:
                 start = time.monotonic()
-                with self.assertRaises(run_leg.LockTimeoutError):
-                    with run_leg.hold_pool_lock(
-                        lambda: ["box-a"], lock_dir, timeout_sec=0
-                    ):
-                        pass
+                with (
+                    self.assertRaises(run_leg.LockTimeoutError),
+                    run_leg.hold_pool_lock(
+                        lambda: ["box-a"],
+                        lock_dir,
+                        timeout_sec=0,
+                    ),
+                ):
+                    pass
                 self.assertLess(time.monotonic() - start, 5)
             finally:
                 held.close()
@@ -1175,13 +1758,143 @@ class HoldPoolLock(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             lock_dir = Path(tmp)
-            with run_leg.hold_pool_lock(lambda: ["box-a"], lock_dir, 5) as chosen:
-                self.assertEqual(chosen, "box-a")
+            remote_lease = mock.Mock(lost_event=threading.Event())
+            with (
+                mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    return_value=remote_lease,
+                ),
+                run_leg.hold_pool_lock(
+                    lambda: ["box-a"],
+                    lock_dir,
+                    5,
+                ) as worker,
+            ):
+                self.assertEqual(worker.instance, "box-a")
             probe = (lock_dir / "box-a.lock").open("a+")
             try:
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             finally:
                 probe.close()
+            remote_lease.release.assert_called_once()
+
+    def test_remote_busy_candidate_releases_local_lock_and_uses_next(self):
+        import fcntl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            remote_lease = mock.Mock(lost_event=threading.Event())
+            attempts: list[str] = []
+
+            def acquire(instance: str):
+                attempts.append(instance)
+                return None if instance == "box-a" else remote_lease
+
+            with (
+                mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    side_effect=acquire,
+                ),
+                run_leg.hold_pool_lock(
+                    lambda: ["box-a", "box-b"],
+                    lock_dir,
+                    5,
+                ) as worker,
+            ):
+                self.assertEqual(worker.instance, "box-b")
+                probe = (lock_dir / "box-a.lock").open("a+")
+                try:
+                    fcntl.flock(
+                        probe.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+                finally:
+                    probe.close()
+
+        self.assertEqual(attempts, ["box-a", "box-b"])
+        remote_lease.release.assert_called_once()
+
+
+class RemoteWorkerLeaseIntegration(unittest.TestCase):
+    def tearDown(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+
+    def test_remote_executor_routes_managed_and_registered_workers(self):
+        result = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.object(
+            run_leg.subprocess,
+            "run",
+            return_value=result,
+        ) as run:
+            run_leg._WORKER_TRANSPORTS["managed-box"] = "brev"
+            managed = run_leg._remote_lock_executor("managed-box")
+            managed("echo managed", 17)
+
+            run_leg._WORKER_TRANSPORTS["registered-box"] = "ssh"
+            registered = run_leg._remote_lock_executor("Registered-Box")
+            registered("echo registered", 19)
+
+        managed_cmd = run.call_args_list[0].args[0]
+        registered_cmd = run.call_args_list[1].args[0]
+        self.assertEqual(managed_cmd[:3], ["brev", "exec", "managed-box"])
+        self.assertEqual(registered_cmd[0], "ssh")
+        self.assertIn("registered-box", registered_cmd)
+        self.assertEqual(run.call_args_list[0].kwargs["timeout"], 17)
+        self.assertEqual(run.call_args_list[1].kwargs["timeout"], 19)
+
+    def test_run_command_lease_loss_wins_over_child_completion(self):
+        lost_event = threading.Event()
+        lost_event.set()
+
+        rc = run_leg.run_command(
+            [sys.executable, "-c", "pass"],
+            os.environ.copy(),
+            timeout_sec=10,
+            abort_event=lost_event,
+        )
+
+        self.assertEqual(rc, 125)
+
+    def test_multistep_chain_stops_immediately_after_lease_loss(self):
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path("/tmp/profile"),
+                include_task_name=f"step-{index}",
+                chain_key="chain",
+                step_index=index,
+                step_count=2,
+            )
+            for index in (1, 2)
+        ]
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "ANTHROPIC_MODEL": "model",
+                    "ANTHROPIC_BASE_URL": "https://example.test/v1",
+                },
+                clear=True,
+            ),
+            mock.patch.object(
+                run_leg,
+                "run_command",
+                side_effect=[125, 0],
+            ) as run_command,
+        ):
+            rc = run_leg.run_invocations(
+                invocations,
+                "worker",
+                Path("/tmp/results"),
+                Path("/tmp/scratch"),
+                "spec",
+                "RTXPRO6000BW",
+                60,
+            )
+
+        self.assertEqual(rc, 125)
+        run_command.assert_called_once()
 
 
 if __name__ == "__main__":

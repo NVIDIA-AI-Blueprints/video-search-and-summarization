@@ -56,6 +56,9 @@ import sys
 from pathlib import Path
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
+NEMOCLAW_DEPLOY_PROFILE_VERIFIER = (
+    Path(__file__).resolve().parents[2] / "verifiers" / "nemoclaw_deploy_profile.py"
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -126,7 +129,7 @@ PLATFORMS: dict[str, dict] = {
 
 PROFILES: dict[str, dict] = {
     "base": {
-        "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
+        "description": "VSS base profile — agent, UI, VST, LLM NIM, integrated RT-VLM",
     },
     "alerts_cv": {
         "description": "VSS alerts profile, CV mode (`vss-deploy-profile -m verification`)",
@@ -164,20 +167,19 @@ def deploy_profile(eval_profile: str) -> str:
 #
 # Without a fixed placement at task-generation time, we always reserve disk
 # and require a current driver. Reasoning: a deploy that ends up using
-# remote LLM + remote VLM has zero local-NIM footprint, but the eval pool
-# instances already have headroom for these defaults, and trying to
-# negotiate dynamically would just leak the placement decision back into
-# the adapter. Cost of over-reserving disk on a stoppable instance is
-# negligible compared to a failed pull.
+# remote LLM + remote VLM has zero local-NIM footprint, but trying to
+# negotiate dynamically would leak the placement decision back into the
+# adapter. The managed NemoClaw warm-pool workflow may replace this generic
+# worst-case reservation with its own total + free Docker-storage contract;
+# it does so without changing the eval's model-placement instructions.
 
 _DEFAULT_MIN_ROOT_DISK_GB = 220        # base stack ~80GB + 2 local NIMs ~70GB each
 _DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
 # Caveats — both defaults are enforced unconditionally by
 # `envs/brev_env.py::_check_live_resources` on the resolved pool box:
-# - The disk default would reject otherwise-eligible smaller-root
-#   pool members for trials that end up running fully remote and would
-#   actually fit on <220GB. Acceptable today because every `vss-eval-*`
-#   pool member has ≥220GB.
+# - The disk default rejects smaller-root pool members. A workflow that owns
+#   a pre-warmed fleet may override it only after enforcing an explicit free
+#   space floor on the filesystem that backs Docker.
 # - The driver default is skipped when `nvidia-smi` is absent (the
 #   resource check warns instead of erroring), so CPU-only boxes still
 #   pass; don't tighten that branch to a hard error without revisiting
@@ -227,6 +229,127 @@ def generate_instruction(profile: str, platform: str, spec_query: str | None = N
     ]) + "\n"
 
 
+def _spec_path_for(skill_dir: Path | None, profile: str) -> Path | None:
+    if skill_dir is None:
+        return None
+    for dirname in ("evals", "eval"):
+        candidate = skill_dir / dirname / f"{profile}.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _requested_runner(spec: dict) -> str:
+    override = os.environ.get("SKILLS_EVAL_RUNNER", "").strip()
+    if override:
+        return override
+    return str(spec.get("runner") or "claude-code").strip()
+
+
+def _uses_nemoclaw(spec: dict) -> bool:
+    return _requested_runner(spec).lower() == "nemoclaw" or bool(spec.get("requires_nemoclaw"))
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(str(value))
+
+
+def _toml_string_list(values: list[str]) -> str:
+    return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def _nemoclaw_required_tools(spec: dict) -> list[str]:
+    tools = spec.get("required_mcp_tools")
+    if isinstance(tools, list) and tools:
+        return [str(tool) for tool in tools]
+    return [
+        "vss_orchestrator__prereqs",
+        "vss_orchestrator__docker_generate",
+        "vss_orchestrator__docker_up",
+        "vss_orchestrator__docker_status",
+    ]
+
+
+def generate_nemoclaw_prompt(
+    profile: str,
+    platform: str,
+    profile_def: dict,
+    gpu_count: int,
+) -> str:
+    underlying = deploy_profile(profile)
+    deploy_mode = profile_def.get("deploy_mode")
+    mode_phrase = f" in {deploy_mode} mode" if deploy_mode else ""
+    if gpu_count <= 0:
+        gpu_requirement = (
+            "- This trial reserves no GPUs. Use remote model endpoints and never request a local GPU device."
+        )
+    elif gpu_count == 1:
+        gpu_requirement = (
+            "- This trial reserves exactly 1 GPU; the only valid device ID is 0. "
+            "Leave GPU device-ID overrides unset so the profile uses shared placement on GPU 0. "
+            "Never request GPU 1 or another out-of-range device."
+        )
+    else:
+        gpu_requirement = (
+            f"- This trial reserves exactly {gpu_count} GPUs; valid device IDs are 0 through {gpu_count - 1}. "
+            "Never request an out-of-range device."
+        )
+    return "\n".join([
+        "You are running inside the automated GitHub VSS skill evaluation with NemoClaw/OpenClaw.",
+        "",
+        f"Deploy the VSS {underlying} profile{mode_phrase} on {platform}.",
+        "",
+        "Requirements:",
+        "- Use the `/vss-deploy-profile` skill installed in this OpenClaw workspace.",
+        "- Use the VSS Orchestrator MCP server for deployment.",
+        "- Do not run raw docker compose, dev-profile.sh, or host shell deploy commands directly.",
+        "- Call the orchestrator flow: prereqs, docker_generate, docker_up, then docker_status until terminal.",
+        gpu_requirement,
+        "- Summarize the final deployment state and any failing service if deployment fails.",
+        "",
+        "Run autonomously. The evaluation harness has already authorized the deployment.",
+    ]) + "\n"
+
+
+def generate_nemoclaw_launcher_instruction(profile: str, platform: str) -> str:
+    return "\n".join([
+        "This Harbor trial is a thin launcher for NemoClaw/OpenClaw.",
+        "",
+        "Do not deploy VSS directly from Claude Code. Use the Bash tool immediately to run exactly this command:",
+        "",
+        "```bash",
+        "cd \"$HOME/video-search-and-summarization\"",
+        "python3 .github/skill-eval/nemoclaw/headless_runner.py \\",
+        "  --prompt-file /tests/nemoclaw_prompt.md \\",
+        "  --log-dir /logs/artifacts/nemoclaw \\",
+        "  --launch-mode cli \\",
+        "  --timeout 1500 \\",
+        f"  --wait-profile {deploy_profile(profile)}",
+        "```",
+        "",
+        f"The NemoClaw prompt deploys the `{profile}` profile on `{platform}` through the VSS Orchestrator MCP server.",
+        "After the command exits, report whether the OpenClaw CLI launch completed.",
+    ]) + "\n"
+
+
+def _nemoclaw_meta_lines(spec: dict, profile: str, platform: str, profile_def: dict) -> list[str]:
+    if not _uses_nemoclaw(spec):
+        return []
+    underlying = deploy_profile(profile)
+    lines = [
+        'runner = "nemoclaw"',
+        "requires_nemoclaw = true",
+        "requires_mcp = true",
+        f"deployment_profile = {_toml_string(underlying)}",
+        f"expected_skill = {_toml_string('vss-deploy-profile')}",
+        f"required_mcp_tools = {_toml_string_list(_nemoclaw_required_tools(spec))}",
+    ]
+    deploy_mode = profile_def.get("deploy_mode")
+    if deploy_mode:
+        lines.append(f"deployment_profile_mode = {_toml_string(deploy_mode)}")
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # Spec rendering
 # ---------------------------------------------------------------------------
@@ -269,11 +392,16 @@ def _render_eval_spec(spec: dict, profile: str, platform: str) -> dict:
     return _sub(spec)
 
 
+def _render_nemoclaw_eval_spec(spec: dict) -> dict:
+    """Copy the live-probe spec without narrative evidence fallbacks."""
+    return json.loads(json.dumps(spec))
+
+
 # ---------------------------------------------------------------------------
 # Test script generation
 # ---------------------------------------------------------------------------
 
-def generate_test_script(spec_name: str, profile: str) -> str:
+def generate_test_script(spec_name: str, profile: str, *, nemoclaw: bool = False) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
     /logs/verifier/reward.txt.
@@ -284,6 +412,19 @@ def generate_test_script(spec_name: str, profile: str) -> str:
     `_ensure_prerequisite_deployed`) is gone. Each trial deploys
     inside its own agent turn now; nothing reads a marker."""
     del profile  # retained in signature for caller compatibility
+    if nemoclaw:
+        return (
+            "#!/bin/bash\n"
+            "# vss-deploy-profile NemoClaw verifier: fail-closed harness\n"
+            "# attestation plus deterministic live probes.\n"
+            "set -uo pipefail\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            'python3 "$TEST_DIR/nemoclaw_deploy_profile.py" \\\n'
+            f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+            "\n"
+            "exit 0\n"
+        )
     return (
         "#!/bin/bash\n"
         "# vss-deploy-profile verifier: delegates to the generic LLM-as-judge\n"
@@ -399,7 +540,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
         "    git -c advice.detachedHead=false checkout --force FETCH_HEAD",
         "    git reset --hard FETCH_HEAD",
         "fi",
-        "git clean -fdx -e data/ -e .env",
+        "git clean -fdx -e data/ -e /.env -e /.mdx_data/models/",
         "cd - > /dev/null",
         'mkdir -p "$REPO/data"',
         "",
@@ -448,6 +589,9 @@ def generate_task(
     task_id = platform_spec["short_name"]
     task_dir = output_root / profile / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
+    spec_path = _spec_path_for(skill_dir, profile)
+    raw_spec = json.loads(spec_path.read_text()) if spec_path else {}
+    nemoclaw = bool(spec_path and spec_path.exists() and _uses_nemoclaw(raw_spec))
 
     # -- instruction.md --
     # Prefer the spec's expects[0].query (with {{platform}} substituted) so
@@ -474,9 +618,12 @@ def generate_task(
                 print(f"WARN: could not read spec query for {profile}: {exc}",
                       file=sys.stderr)
 
-    (task_dir / "instruction.md").write_text(
-        generate_instruction(profile, platform, spec_query=spec_query),
+    instruction = (
+        generate_nemoclaw_launcher_instruction(profile, platform)
+        if nemoclaw
+        else generate_instruction(profile, platform, spec_query=spec_query)
     )
+    (task_dir / "instruction.md").write_text(instruction)
 
     # -- task.toml --
     meta_lines = [
@@ -500,6 +647,7 @@ def generate_task(
         # _ensure_prerequisite_deployed pre-deploy hook is gone. The
         # `platform` key below is purely informational.
         f'platform = "{platform}"',
+        *(_nemoclaw_meta_lines(raw_spec, profile, platform, profile_def) if nemoclaw else []),
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:
@@ -538,22 +686,23 @@ def generate_task(
     # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    if skill_dir:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-    else:
-        spec_path = None
     if spec_path and spec_path.exists():
-        raw_spec = json.loads(spec_path.read_text())
         rendered = _render_eval_spec(raw_spec, profile, platform)
+        if nemoclaw:
+            rendered = _render_nemoclaw_eval_spec(rendered)
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
-        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile))
+        (tests_dir / "test.sh").write_text(
+            generate_test_script(spec_name, profile, nemoclaw=nemoclaw)
+        )
+        if nemoclaw:
+            (tests_dir / "nemoclaw_prompt.md").write_text(
+                generate_nemoclaw_prompt(profile, platform, profile_def, gpu_count)
+            )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        if nemoclaw and NEMOCLAW_DEPLOY_PROFILE_VERIFIER.exists():
+            shutil.copy(NEMOCLAW_DEPLOY_PROFILE_VERIFIER, tests_dir / "nemoclaw_deploy_profile.py")
     else:
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
@@ -594,12 +743,8 @@ def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] 
     A warning is printed so authors notice the dead field."""
     if skill_dir is None:
         return None
-    spec_path = skill_dir / "evals" / f"{profile}.json"
-    if not spec_path.exists():
-        legacy = skill_dir / "eval" / f"{profile}.json"
-        if legacy.exists():
-            spec_path = legacy
-    if not spec_path.exists():
+    spec_path = _spec_path_for(skill_dir, profile)
+    if spec_path is None:
         return None
     try:
         spec = json.loads(spec_path.read_text())

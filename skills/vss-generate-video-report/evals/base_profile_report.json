@@ -13,60 +13,87 @@
   },
   "expects": [
     {
-      "query": "Deploy the necessary prerequisites for report generation on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** Need a **locally deployed** CR3 VLM NIM (nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner on localhost:30082 or RT-VLM on localhost:8018; VLM_MODE=local or local_shared — do NOT use remote VLM) and the full VIOS stack reachable at http://localhost:30888/vst/api/v1 so `/vss-generate-video-report` can upload clips and call the VLM.",
+      "query": "Deploy the necessary prerequisites for report generation on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously. For the orchestrator generation step, call `vss_orchestrator__docker_generate` with `profile=base` and `env_overrides=[\"VLM_MODE=local_shared\", \"VLM_MODEL_TYPE=rtvi\", \"VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final\", \"VLM_NAME_SLUG=none\"]` exactly; do not omit these overrides or inherit the notebook's remote VLM coordinator defaults. Request `VLM_MODE=local_shared` in this call even though `docker_generate` may resolve the final mode to `VLM_MODE=local` when the peer LLM remains remote; either final local mode is acceptable, but `VLM_MODE=remote` is not.\n\n**Environment & prerequisites:** Need the **locally deployed** integrated CR3 RT-VLM (`vss-rtvi-vlm`, reachable from the caller at `http://${HOST_IP:-localhost}:8018`, with default advertised id `nim_nvidia_cosmos3-nano-reasoner_bf16-final` or another id containing the `cosmos3-nano-reasoner` / `cosmos3-super-reasoner` family substring; `VLM_MODEL_TYPE=rtvi` and final `VLM_MODE=local` or `VLM_MODE=local_shared` — do NOT use remote VLM) and the full VIOS stack reachable at `http://${HOST_IP:-localhost}:30888/vst/api/v1` so `/vss-generate-video-report` can upload clips and call the VLM.",
       "checks": [
-        "A local CR3 VLM is ready: `curl -sf --max-time 10` to either http://localhost:30082/v1/models or http://localhost:8018/v1/models returns HTTP 200 with at least one `.data[].id` containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check",
-        "`curl -sf --max-time 10` against http://localhost:30888/vst/api/v1/sensor/version (or an equivalent VST health/version endpoint) succeeds",
-        "The VIOS stack is up — containers for VST ingress, sensor, stream processing, and postgres are running (exact container names may vary)"
+        "The trajectory contains a `vss_orchestrator__docker_generate` call with `profile=base` and `env_overrides` containing all four required key/value pairs in any order: `VLM_MODE=local_shared`, `VLM_MODEL_TYPE=rtvi`, `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final`, and `VLM_NAME_SLUG=none`. Unrelated extra overrides are allowed, but omitting a required pair or supplying a conflicting value for any of those four VLM keys does NOT satisfy this check. The resulting `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'` must show an exact `VLM_MODE=local` or `VLM_MODE=local_shared` environment line, plus `VLM_MODEL_TYPE=rtvi` and `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final`; `VLM_MODE=remote` does NOT satisfy this check",
+        "`docker inspect vss-rtvi-vlm --format '{{range .Config.Env}}{{println .}}{{end}}'` shows an empty `VIA_VLM_ENDPOINT=`, a non-`none` CR3 `MODEL_PATH` (default `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`), and `VLM_MODEL_TO_USE=cosmos-reason3`. A remote/openai-compat RT-VLM proxy does NOT satisfy this check",
+        "`docker ps --format '{{.Names}}'` includes vss-rtvi-vlm, and `curl -sf --max-time 10 http://${HOST_IP:-localhost}:8018/v1/models` returns HTTP 200 with at least one `.data[].id` identifying a CR3 reasoner — i.e. the id contains `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` as a substring. Any vendor prefix, separator style, or build/quantization suffix RT-VLM advertises satisfies this (e.g. `nim_nvidia_cosmos3-nano-reasoner_bf16-final`); only the model-family substring is required",
+        "`curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/version` returns exit 0 (VST ingress + sensor-ms reachable on port 30888)",
+        "`docker ps --format '{{.Names}}'` includes vss-vios-ingress, vss-vios-sensor, vss-vios-streamprocessing, and vss-vios-postgres (full VIOS group for upload + clip materialization)",
+        "`docker ps --filter name=vss-vios-streamprocessing --format '{{.Status}}'` reports Up (and healthy if a healthcheck is defined)"
       ]
     },
     {
-      "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading. Only consider the upload successful once /sensor/list actually shows the sensor.",
+      "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the exact staged source file `/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4` to VIOS with timestamp 2025-01-01T00:00:00.000Z. Do not synthesize or substitute media. If it exists, skip the uploading. Only consider the upload successful once /sensor/list actually shows the sensor.",
+      "nemoclaw_sample_files": [
+        "warehouse_safety_0001.mp4"
+      ],
       "checks": [
-        "The run checked whether warehouse_safety_0001 was already present on VST/VIOS before uploading (or skipped upload because it already existed)",
-        "VST sensor list includes a sensor for warehouse_safety_0001",
-        "The sensor has at least one registered stream whose URL is a local file path (not rtsp://)"
+        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 before deciding to upload — for example listing sensors/streams via the agent tools (or equivalent REST such as GET /vst/api/v1/sensor/list); probe order not enforced",
+        "`curl -sf http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/list` returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
+        "`curl -sf http://${HOST_IP:-localhost}:${VSS_PUBLIC_PORT:-7777}/vst/api/v1/sensor/<sensorId>/streams` returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
       ]
     },
     {
-      "query": "Verify the VSS stack is ready for the **vss-generate-video-report** skill. Confirm VST is reachable with at least one stream registered, the local CR3 VLM is ready, and a short clip can be materialized for warehouse_safety_0001.",
+      "query": "Verify the VSS stack is ready for the **vss-generate-video-report** skill. Confirm VST is reachable with at least one stream registered, the local integrated CR3 RT-VLM at `http://${HOST_IP:-localhost}:8018` is ready, and a short clip can be materialized for warehouse_safety_0001.",
       "checks": [
-        "VST reports at least one registered stream",
-        "The run resolved warehouse_safety_0001 and obtained a non-empty clip videoUrl from VST for that sensor",
-        "A local CR3 VLM is ready on localhost:30082 (NIM) or localhost:8018 (RT-VLM) — whichever the deployment serves, `/v1/models` returns HTTP 200 with an id containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` (any vendor prefix, separator, or quantization suffix is fine). Remote VLM does NOT satisfy this check"
+        "`curl -sf --max-time 10 http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/streams` returns HTTP 200 and a non-empty JSON body",
+        "The run resolved the streamId/sensorId for warehouse_safety_0001 from GET /vst/api/v1/sensor/list (matching name=warehouse_safety_0001) and used that exact id verbatim — whatever its shape (a UUID on a warm VST registry, or the sensor name such as warehouse_safety_0001 on a fresh/host-purged registry) — then a GET to a VST timelines endpoint for that id returned a non-empty {startTime, endTime} range anchored near 2025-01-01T00:00:00.000Z before constructing any clip URL",
+        "A GET to the VST clip-URL endpoint on port 30888 at path `/vst/api/v1/storage/file/<sensorId>/url` (with startTime, endTime, container=mp4, disableAudio=true), using the sensorId resolved for warehouse_safety_0001 and the caller host selected by `HOST_IP` (falling back to localhost), returns HTTP 200 with a non-empty videoUrl",
+        "Local CR3 RT-VLM is ready: `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'` shows `VLM_MODE=local` or `VLM_MODE=local_shared` plus `VLM_MODEL_TYPE=rtvi`; `docker inspect vss-rtvi-vlm --format '{{range .Config.Env}}{{println .}}{{end}}'` shows empty `VIA_VLM_ENDPOINT=`, non-`none` CR3 `MODEL_PATH`, and `VLM_MODEL_TO_USE=cosmos-reason3`; `docker ps --format '{{.Names}}'` includes vss-rtvi-vlm; and `curl -sf --max-time 10 http://${HOST_IP:-localhost}:8018/v1/models` returns HTTP 200 with at least one `.data[].id` containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` as a substring (for example `nim_nvidia_cosmos3-nano-reasoner_bf16-final`). Remote/openai-compat RT-VLM does NOT satisfy this check"
       ]
     },
     {
       "query": "Give me a report for warehouse_safety_0001.",
       "checks": [
-        "The run sourced a VST clip URL for warehouse_safety_0001 (Mode A path A1) rather than posting to http://localhost:8000/generate",
-        "The run called a local CR3 VLM `/v1/chat/completions` endpoint (localhost:30082 or localhost:8018) with a cosmos3-nano-reasoner or cosmos3-super-reasoner model and received HTTP 2xx",
-        "The run generated a user-facing video analysis report for warehouse_safety_0001",
-        "The report content is grounded in the warehouse_safety_0001 clip: it describes a warehouse/industrial scene with at least one person/worker, and mentions concrete details related to a ladder and shelving units."
+        "The run sourced the clip via Mode A path A1 (VST clip URL) rather than an A2 base64 data URL or POST /generate. It is sufficient that the run made a GET to the caller's `HOST_IP` (falling back to localhost) on port 30888 at `/vst/api/v1/storage/file/<streamId>/url`, with startTime/endTime query params plus container=mp4&disableAudio=true, and received a JSON body containing videoUrl — this MAY reuse a clip URL already materialized in step 3",
+        "The run performed at least one successful POST to the caller's `HOST_IP` (falling back to localhost) on port 8018 at `/v1/chat/completions`, with Content-Type application/json, model set to a CR3 id — i.e. the value contains `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` as a substring, with any vendor prefix, separator style, or build/quantization suffix (e.g. `nim_nvidia_cosmos3-nano-reasoner_bf16-final` passes), and matching an id advertised by GET `/v1/models` on that endpoint — and a messages array whose first user content list contains both a text block and a video_url block referencing the clip URL; HTTP 2xx. A fallback to a non-CR3 model (e.g. cosmos-reason2, meta/llama-3.2-90b-vision-instruct) does NOT satisfy this check",
+        "The run did NOT POST to any VSS-agent `/generate` endpoint, regardless of hostname (including port 8000 on `HOST_IP` or localhost)",
+        "The user-facing markdown has a single top-level title line matching # Video Analysis Report (allows leading whitespace after #)",
+        "The markdown contains ## Basic Information followed by a pipe-table (Field | Value) including every row header from the skill template: Report Identifier; Date of Analysis; Time of Analysis; Video Source; Clip Range; Clip URL; VLM; Analysis Request — each paired cell filled with concrete text (no raw placeholders like literal <sensor_id>, <YYYY-MM-DD>, or duplicate Field names without values)",
+        "The markdown contains ## Analysis Results and beneath it substantive content: the VLM caption summary with timestamps or time segments (seconds or ranges), chronological sense, non-empty — not only headings or placeholders. Any <think>...</think> reasoning block from Cosmos Reason VLMs is stripped before insertion",
+        "The report content is grounded in the warehouse_safety_0001 clip: it describes a warehouse or industrial scene with at least one person or worker and mentions concrete details related to a ladder and shelving units"
       ]
     },
     {
-      "query": "Before generating an incident report, use `/vss-query-analytics` to verify VA-MCP incident analytics is ready. If analytics is unavailable, deploy `alerts` via `/vss-deploy-profile -p alerts`, then re-check until it initializes successfully.",
+      "query": "Give me a new report on warehouse_safety_0001.",
       "checks": [
-        "The run used `/vss-query-analytics` (or equivalent VA-MCP calls) to verify incident analytics is ready on localhost:9901",
-        "If analytics was unavailable, the run deployed alerts and re-checked until ready",
-        "The run did NOT generate a video/incident report via VLM or POST /generate during this readiness step"
+        "The run defaulted to Mode A because the query names a sensor/video but does not ask for incidents or provide an incident time range; it did not ask the user to choose a mode",
+        "The run resolved or reused a non-empty warehouse_safety_0001 clip URL through the VST clip endpoint on the caller's `HOST_IP` (falling back to localhost), port 30888, before generating the new report",
+        "The run performed a successful POST to the integrated CR3 RT-VLM on the caller's `HOST_IP` (falling back to localhost), port 8018, path `/v1/chat/completions`, using a model id advertised by that endpoint whose value contains `cosmos3-nano-reasoner` or `cosmos3-super-reasoner`, and a video_url block referencing the resolved clip",
+        "The run did NOT initialize a VA-MCP session on port 9901 and did NOT POST to any VSS-agent `/generate` endpoint, regardless of hostname",
+        "The user-facing markdown is a newly rendered, non-empty `# Video Analysis Report` with the required `## Basic Information` table and substantive `## Analysis Results` content"
       ]
     },
     {
-      "query": "Insert one VLM-verified incident into Elasticsearch index mdx-vlm-incidents (include Id, id, timestamp, end, sensorId, category, type, objectIds, and info.verdict=confirmed), refresh the index, and verify video_analytics__get_incidents(max_count=1) returns it. Assume the alerts deployment is already up.",
+      "query": "Before generating an incident report, use `/vss-query-analytics` to verify VA-MCP incident analytics is ready. This trusted non-interactive evaluation step explicitly authorizes prerequisite deployment with `VSS_AUTO_DEPLOY=true`. If analytics is unavailable, hand off to `/vss-deploy-profile -p alerts -m real-time`, configure the one reserved GPU for shared placement on device 0 (`LLM_MODE=local_shared`, `VLM_MODE=local_shared`, `LLM_DEVICE_ID=0`, `VLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=0`, and `FIXED_SHARED_DEVICE_IDS=0`), then re-check until VA-MCP initializes successfully.",
       "checks": [
-        "Elasticsearch is reachable on localhost:9200",
-        "The run inserted an incident document into mdx-vlm-incidents (not only mdx-incidents), including a confirmed verdict",
-        "video_analytics__get_incidents (or equivalent VA-MCP lookup) returned the inserted incident — success was not claimed from the Elasticsearch insert alone",
-        "The run did NOT redeploy the alerts profile for this step"
+        "After an initial VA-MCP probe fails, the run honors the trusted `VSS_AUTO_DEPLOY=true` authorization and deploys alerts explicitly in real-time mode (`/vss-deploy-profile -p alerts -m real-time`, yielding MODE=2d_vlm) without asking which alerts mode to use",
+        "The alerts deployment uses only the one reserved GPU: LLM_DEVICE_ID=0, VLM_DEVICE_ID=0, RT_VLM_DEVICE_ID=0, and FIXED_SHARED_DEVICE_IDS=0, with LLM_MODE=local_shared and VLM_MODE=local_shared; it never requests GPU 1 or another out-of-range device",
+        "The run initializes a VA-MCP session against the caller's `HOST_IP` (falling back to localhost), port 9901, path `/mcp`, by POSTing method=initialize and extracting mcp-session-id from the response header",
+        "The run issues at least one tools/call POST to that same VA-MCP `/mcp` endpoint with the mcp-session-id header using the /vss-query-analytics skill",
+        "The run does NOT POST to any VSS-agent `/generate` endpoint and does NOT POST to any VLM `/v1/chat/completions` endpoint while performing this analytics-readiness step, regardless of hostname"
+      ]
+    },
+    {
+      "query": "Use `/vss-query-analytics` to retrieve at most the single most recent incident from the already-running alerts deployment. This is a strictly read-only check: do not seed, index, backfill, or mutate Elasticsearch/VA data. If no incident exists, report that result accurately instead of creating one.",
+      "checks": [
+        "The run initializes a VA-MCP session against the caller's `HOST_IP` (falling back to localhost), port 9901, path `/mcp`, by POSTing method=initialize and extracting mcp-session-id from the response header",
+        "The run issues at least one tools/call POST to that same VA-MCP `/mcp` endpoint with the mcp-session-id header, calling video_analytics__get_incidents with arguments including max_count=1",
+        "The run does NOT write to Elasticsearch or VA data: no incident indexing, fixture replay, seed/backfill, or write/update/delete request is used",
+        "The run does NOT redeploy alerts and does NOT call any VSS-agent `/generate` endpoint or any VLM `/v1/chat/completions` endpoint, regardless of hostname",
+        "The user-facing result accurately reflects the VA-MCP response: it identifies the most recent returned incident when one exists, or clearly states that no incidents were found when the response is empty"
       ]
     },
     {
       "query": "Give me a report on the last incident.",
       "checks": [
-        "If incidents were available, the run generated a user-facing incident report for the last incident",
-        "If no incidents were found, the agent says so clearly and does not fabricate a report"
+        "The run selects the documented Mode B latest/single-incident path without asking for start_time or end_time",
+        "The run initializes a VA-MCP session against the caller's `HOST_IP` (falling back to localhost), port 9901, path `/mcp`, by POSTing method=initialize and extracting mcp-session-id from the response header",
+        "The run issues at least one tools/call POST to that same VA-MCP `/mcp` endpoint with the mcp-session-id header, calling video_analytics__get_incidents with max_count=1 and includes containing objectIds and info",
+        "The run does NOT POST to any VSS-agent `/generate` endpoint or any VLM `/v1/chat/completions` endpoint for this latest-incident query, regardless of hostname",
+        "If get_incidents returns zero results, the user-facing response clearly states that no incidents were found and does NOT silently fall back to calling the VLM or generating a fabricated report",
+        "If get_incidents returns an incident, the run generates a user-facing `# Incident Range Report` for that incident whose `## Basic Information` table contains Report Identifier, Range, Scope, Total Incidents, Confirmed / Rejected / Unverified, with Range derived from the incident timestamp/end and every value consistent with the VA-MCP response"
       ]
     }
   ]
