@@ -72,7 +72,7 @@ services:
         required: false
 
   sdr-controller:
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.4.0-2026.08.3-1}
     container_name: sdr-controller
     ports:
       # SDRC router API for workload-scoped lifecycle calls.
