@@ -1152,7 +1152,15 @@ int getMediaInformation (const string& filename, Json::Value &media_info, bool m
             }
 
             gst_discoverer_info_unref (info);
-        } while ((container_string.empty() || video_codec_string.empty()) && ++retry_count < 3);
+
+            // Incremented here rather than inside the while condition. As
+            // `&& ++retry_count < 3` the increment sat on the right operand of
+            // a short-circuiting &&, so it only ran when the left side was
+            // true. Behaviour is unchanged -- retry_count is read only at the
+            // top of this loop, and when the left side is false the loop exits
+            // anyway -- but the count no longer depends on evaluation order.
+            ++retry_count;
+        } while ((container_string.empty() || video_codec_string.empty()) && retry_count < 3);
 
         g_object_unref (discoverer);
     }
