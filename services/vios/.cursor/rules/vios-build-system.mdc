@@ -80,7 +80,6 @@ python3 deployment/stream-processing/oneclick_dc_deployment.py stop vst         
 python3 deployment/stream-processing/oneclick_dc_deployment.py stop nvstreamer                       # stop only NVStreamer
 python3 deployment/stream-processing/oneclick_dc_deployment.py stop --clean                         # stop and remove persistent data
 python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --fresh-start --force          # clean start
-python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --with-monitoring --force      # deploy with Grafana/Prometheus
 python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --pull-always --force          # pull latest images
 python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --interactive                  # opt in to prompts
 ```
@@ -96,7 +95,6 @@ python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --interact
 
 **Access URLs (after deploy):**
 - VIOS UI: `http://<HOST_IP>:30888/vst/#/dashboard`
-- Grafana: `http://<HOST_IP>:3000` (with `--with-monitoring`)
 
 **VIOS containers (direct mode):** `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms-1`
 

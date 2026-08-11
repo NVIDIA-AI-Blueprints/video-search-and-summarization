@@ -103,7 +103,7 @@ services:
   # by the root docker-compose.yaml's `include:` directive.
   sdr-controller:
     profiles: ["sdrc"]
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.4.0-2026.08.3-1}
     container_name: sdr-controller
     network_mode: host
     restart: unless-stopped

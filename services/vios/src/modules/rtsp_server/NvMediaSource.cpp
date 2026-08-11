@@ -63,7 +63,10 @@ NvMediaSource
             m_demux->setUrlParams(url_params);
             m_demux->setSessionId(m_sessionId);
         }
-        if (GET_CONFIG().nv_streamer_sync_playback == true)
+        /* Legacy sync_playback engine only. The sync_file_count quorum engine
+         * takes precedence and manages sources itself, so skip the legacy
+         * demuxer registration when it is active. */
+        if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
         {
             RtspSyncPlayback::getInstance()->insertDemuxer(m_demux);
         }
@@ -270,7 +273,7 @@ void NvMediaSource::onFrame(FrameParams& params)
                     if (m_sourceState.find("play") != string::npos)
                     {
                         int randomTimeInMilliSeconds = 0;
-                        if (GET_CONFIG().nv_streamer_sync_playback == true)
+                        if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
                         {
                             randomTimeInMilliSeconds = RtspSyncPlayback::getInstance()->getSimulationWaitTime();
                         }
@@ -807,7 +810,8 @@ void NvMediaSource::destroy()
     if (m_sourceType == SourceTypeFile && m_demux)
     {
         m_demux->deregisterDataCallback(getself(), m_filename);
-        if (GET_CONFIG().nv_streamer_sync_playback == true)
+        /* Mirror the insert gate: only the legacy engine registered this demux. */
+        if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
         {
             RtspSyncPlayback::getInstance()->removeDemuxer(m_demux);
         }

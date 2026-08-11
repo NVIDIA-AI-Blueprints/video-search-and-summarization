@@ -50,7 +50,6 @@
 /vios-deployment deploy                              # deploy stream-processor (default; "VST"/"VIOS" = stream-processor)
 /vios-deployment deploy --target nvstreamer          # deploy NVStreamer only
 /vios-deployment deploy --target all                 # deploy NVStreamer + stream-processor
-/vios-deployment deploy --with-monitoring            # deploy stream-processor + Grafana/Prometheus
 /vios-deployment stop                                # stop all services
 /vios-deployment stop --target vst                   # stop VIOS only (alias: vios)
 /vios-deployment stop --target nvstreamer            # stop NVStreamer only

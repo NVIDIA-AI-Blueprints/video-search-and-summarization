@@ -164,9 +164,6 @@ Deployment target?
 │      BUILD_TAG is from build-containers.md Step 6 (default: "latest")
 │      See deploy.md Step 1b for the standalone-deploy probe path
 │
-├─ Test metrics / alerting
-│   └─ Add --with-monitoring
-│
 ├─ Test a specific image build
 │   └─ Add --all-tag <TAG> or per-service tag flag
 │

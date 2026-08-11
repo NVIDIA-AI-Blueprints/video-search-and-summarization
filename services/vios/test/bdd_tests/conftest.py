@@ -56,6 +56,18 @@ def pytest_addoption(parser):
         help="VST API base URL (overrides config.json, e.g., http://<HOST>:30888)"
     )
     parser.addoption(
+        "--ui-base-url",
+        action="store",
+        default=None,
+        help="VIOS UI base URL (defaults to the configured API base URL)"
+    )
+    parser.addoption(
+        "--headed",
+        action="store_true",
+        default=False,
+        help="Run browser UI tests in headed mode"
+    )
+    parser.addoption(
         "--monitor-interval",
         action="store",
         default=None,
@@ -264,11 +276,10 @@ def perf_iterations(request, config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Reorder tests and skip mcp_gateway tests unless explicitly selected.
+    """Reorder tests and skip opt-in tests unless explicitly selected.
 
-    MCP gateway tests require the vios-mcp container which is not always
-    deployed.  They are skipped by default and can be included with:
-        pytest -m mcp_gateway
+    Environment-specific tests are skipped by default and can be included
+    by explicitly selecting their marker, for example: pytest -m ui.
     """
     # Skip mcp_gateway tests unless the user explicitly selected them via -m
     markexpr = config.getoption("-m", default="")
@@ -276,11 +287,13 @@ def pytest_collection_modifyitems(config, items):
     run_longrun = "longrun" in markexpr
     run_iptables = "needs_iptables" in markexpr
     run_bbox = "needs_bbox_metadata" in markexpr
+    run_ui = "ui" in markexpr
 
     skip_mcp = pytest.mark.skip(reason="MCP gateway tests skipped by default (use -m mcp_gateway)")
     skip_longrun = pytest.mark.skip(reason="Long-running test skipped by default (use -m longrun)")
     skip_iptables = pytest.mark.skip(reason="Test requires iptables/privileged runner (use -m needs_iptables)")
     skip_bbox = pytest.mark.skip(reason="Test requires stored bbox metadata (use -m needs_bbox_metadata)")
+    skip_ui = pytest.mark.skip(reason="Browser UI test skipped by default (use -m ui)")
 
     priority_order = [
         "test_live_webrtc_stream",
@@ -299,6 +312,8 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_iptables)
         if not run_bbox and item.get_closest_marker("needs_bbox_metadata"):
             item.add_marker(skip_bbox)
+        if not run_ui and item.get_closest_marker("ui"):
+            item.add_marker(skip_ui)
 
         module_name = item.module.__name__.rsplit(".", 1)[-1]
         if module_name in priority_buckets:
@@ -390,4 +405,3 @@ def pytest_sessionfinish(session, exitstatus):
     
     # Cleanup
     cleanup_monitor()
-

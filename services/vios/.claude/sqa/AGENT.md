@@ -172,7 +172,6 @@ When a deployment or an ad-hoc test needs a video source and none is available:
 | VIOS API + UI | `BASE_URL` (default port 30888) |
 | VIOS Dashboard | `BASE_URL/vios/#/dashboard` |
 | NVStreamer (0–4) | `http://<HOST>:31000–31004/#/dashboard` |
-| Grafana (if enabled) | `http://<HOST>:3000` |
 | MinIO Console (if enabled) | `http://<HOST>:9001` |
 
 ---

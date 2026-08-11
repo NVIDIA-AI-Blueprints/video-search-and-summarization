@@ -137,7 +137,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 |---|---|
 | [vss-search-archive](vss-search-archive/SKILL.md) | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
 | [vss-summarize-video](vss-summarize-video/SKILL.md) | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
-| [vss-ask-video](vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip via the VSS agent's `video_understanding` (VLM) tool. |
+| [vss-ask-video](vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip by calling the VLM/RT-VLM `chat/completions` endpoint directly — on a VIOS clip URL or a video the user supplies; never the agent's `/generate`. |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
 | [vss-query-analytics](vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
