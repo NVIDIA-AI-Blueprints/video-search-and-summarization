@@ -76,6 +76,14 @@ class NotebookAdapterTests(unittest.TestCase):
             skill_source.index("finally:\n"),
             skill_source.index("shields up"),
         )
+        workspace_source = cells["s35-code"]["source"]
+        self.assertIn("_remote_doc =", workspace_source)
+        self.assertIn("rm -rf --", workspace_source)
+        self.assertIn("workspace cleanup failed", workspace_source)
+        self.assertLess(
+            workspace_source.index("_cleanup_script"),
+            workspace_source.index("_upload_cmd"),
+        )
         self.assertIn("mcporter", cells["s36-code"]["source"])
         self.assertIn("--no-install-package", cells["c13aaf5e"]["source"])
         self.assertIn("ensure_agent_venv", cells["c13aaf5e"]["source"])

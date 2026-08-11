@@ -409,12 +409,31 @@ def ensure_agent_venv() -> None:
             "sh -c"
         )
         if anchor in source:
-            patched["source"] = source.replace(
+            source = source.replace(
                 anchor,
                 "!openshell sandbox exec --name {NEMOCLAW_SANDBOX_NAME} "
                 "-g {NEMOCLAW_GATEWAY_NAME} -- sh -c",
                 1,
             )
+        loop_anchor = """    for doc in docs:
+        # dest is a DIRECTORY: the OpenShell transport does mkdir + tar-extract
+"""
+        if loop_anchor not in source:
+            raise ValueError(
+                "NemoClaw workspace cell changed: upload loop anchor missing"
+            )
+        cleanup = """    for doc in docs:
+        # OpenShell upload is create-only. Remove exactly the selected target
+        # from a prior eval before re-uploading the notebook-selected document.
+        _remote_doc = f"{WORKSPACE_REMOTE_DIR.rstrip('/')}/{doc.name}"
+        _cleanup_script = shlex.quote(
+            f"rm -rf -- {shlex.quote(_remote_doc)}"
+        )
+        !openshell sandbox exec --name {NEMOCLAW_SANDBOX_NAME} -g {NEMOCLAW_GATEWAY_NAME} -- sh -c {_cleanup_script}
+        assert _exit_code == 0, f"workspace cleanup failed: {doc.name}"
+        # dest is a DIRECTORY: the OpenShell transport does mkdir + tar-extract
+"""
+        patched["source"] = source.replace(loop_anchor, cleanup, 1)
     elif cell_id == "s36-code":
         patched["source"] = OPENCLAW_MCP_SOURCE
     return patched
