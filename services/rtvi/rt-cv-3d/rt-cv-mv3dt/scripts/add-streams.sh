@@ -26,7 +26,8 @@
 # Usage:
 #   ./scripts/add-streams.sh Camera=rtsp://host/cam0 Camera_01=rtsp://host/cam1 ...
 #   ./scripts/add-streams.sh --file streams.txt          # one NAME=URL per line, # comments
-#   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # remove one stream
+#   ./scripts/add-streams.sh --remove Camera_01                   # remove one stream
+#   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # also accepted
 #   ./scripts/add-streams.sh --remove --file streams.txt          # remove every listed stream
 #   ./scripts/add-streams.sh --list                      # show current stream-info
 #
@@ -59,11 +60,12 @@ while (($#)); do
     --ready-timeout)  READY_TIMEOUT="$2"; shift 2 ;;
     -h|--help)        usage 0 ;;
     *=*)              STREAMS+=("$1"); shift ;;
-    *) echo "Unknown arg: $1" >&2; usage 2 ;;
+    *) if [[ "$MODE" == remove ]]; then STREAMS+=("$1"); shift; else echo "Unknown arg: $1" >&2; usage 2; fi ;;
   esac
 done
 
 BASE="http://${DS_HOST}:${DS_PORT}"
+STREAM_INFO_JSON=""
 
 show_stream_info() {
   local code tmp
@@ -110,6 +112,34 @@ for s in info.get("stream-info", []):
   rm -f "$tmp"
 }
 
+lookup_stream_url() {  # $1=camera_id; prints URL when stream-info includes one.
+  local cam="$1"
+  if [[ -z "$STREAM_INFO_JSON" ]]; then
+    if ! STREAM_INFO_JSON="$(curl -fsS --max-time 5 --connect-timeout 3 \
+                             "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null)"; then
+      return 2
+    fi
+  fi
+  printf '%s' "$STREAM_INFO_JSON" | python3 -c '
+import json, sys
+
+camera_id = sys.argv[1]
+d = json.load(sys.stdin)
+info = d.get("stream-info", {})
+streams = info.get("stream-info", [])
+for stream in streams:
+    if str(stream.get("camera_id", "")) != camera_id:
+        continue
+    for key in ("camera_url", "url", "rtsp_url", "uri"):
+        value = stream.get(key)
+        if isinstance(value, str):
+            print(value)
+            break
+    sys.exit(0)
+sys.exit(1)
+' "$cam"
+}
+
 post_sensor() {  # $1=camera_id  $2=url  $3=change (camera_add|camera_remove)
   local body code tmp
   body=$(python3 -c '
@@ -134,6 +164,18 @@ print(json.dumps({
     echo "   ✓ HTTP ${code}  $(grep -o '"reason" *: *"[^"]*"' "$tmp" | head -1 | tr -s ' ')"
     rm -f "$tmp"; return 0
   fi
+  if [[ "$code" == "000" ]]; then
+    # curl got no reply at all. The service can stop answering while its
+    # container is still up -- removing the last registered stream has been seen
+    # to leave it that way -- so say that rather than a bare HTTP 000 after a
+    # silent wait.
+    echo "   ✗ no reply from ${BASE} (timed out or refused)" >&2
+    echo "     The perception REST API is not responding. Check whether it is alive:" >&2
+    echo "       docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
+    echo "     If it is running but unresponsive, recreate it:" >&2
+    echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
+    rm -f "$tmp"; return 1
+  fi
   echo "   ✗ HTTP ${code}"; cat "$tmp" >&2 || true; echo >&2
   rm -f "$tmp"; return 1
 }
@@ -148,18 +190,65 @@ fi
 
 (( ${#STREAMS[@]} )) || { echo "ERROR: no streams given (NAME=URL args or --file)" >&2; usage 2; }
 
-# ── --remove mode: delete each listed stream (same NAME=URL as adding) ────────
+# ── --remove mode: delete each listed stream (camera_id or NAME=URL) ──────────
 # Paced by --delay, mirroring the add path.
+# True when the requested removals would leave the perception service with no
+# registered streams. On this build the REST API stops answering once no sources
+# remain: the container keeps running but every /api/v1 request times out, and it
+# has to be recreated. Worth saying before it happens rather than after a silent
+# timeout, but not worth refusing -- clearing every stream is a normal request.
+removal_empties_registry() {
+  local payload
+  payload="$(curl -fsS --max-time 5 --connect-timeout 3 \
+             "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null)" || return 1
+  STREAM_INFO_PAYLOAD="$payload" python3 -c '
+import json, os, sys
+
+wanted = {a.split("=", 1)[0] for a in sys.argv[1:] if a}
+try:
+    streams = json.loads(os.environ["STREAM_INFO_PAYLOAD"])["stream-info"]["stream-info"]
+except Exception:
+    sys.exit(1)
+registered = {str(s.get("camera_id", "")) for s in streams if isinstance(s, dict)}
+registered.discard("")
+sys.exit(0 if registered and registered <= wanted else 1)
+' "$@"
+}
+
 if [[ "$MODE" == remove ]]; then
+  if removal_empties_registry "${STREAMS[@]}"; then
+    echo "   ⚠ this removes every registered stream. With no sources left the perception" >&2
+    echo "     REST API stops responding: the container keeps running but /api/v1 requests" >&2
+    echo "     time out, and it has to be recreated before streams can be added again:" >&2
+    echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
+  fi
   echo "── Removing ${#STREAMS[@]} stream(s) (delay=${DELAY}s)"
   rc=0; idx=0
   for entry in "${STREAMS[@]}"; do
-    cam="${entry%%=*}"; url="${entry#*=}"
-    if [[ -z "$cam" || "$url" == "$entry" || "$url" != rtsp://* ]]; then
-      echo "   ⚠ removal needs NAME=rtsp://... (the exact registered URL): [${entry}]" >&2
-      rc=2; continue
+    if [[ "$entry" == *=* ]]; then
+      cam="${entry%%=*}"; url="${entry#*=}"
+      if [[ -z "$cam" || "$url" != rtsp://* ]]; then
+        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=rtsp://... or camera_id)" >&2
+        rc=2; continue
+      fi
+    else
+      cam="$entry"; url=""
+      if [[ -z "$cam" ]]; then
+        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=rtsp://... or camera_id)" >&2
+        rc=2; continue
+      fi
+      lu=0; url="$(lookup_stream_url "$cam")" || lu=$?
+      if (( lu == 2 )); then
+        echo "   ✗ cannot reach the perception REST API at ${BASE} to look up [${cam}]" >&2
+        echo "     Check whether it is alive:  docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
+        rc=2; continue
+      fi
+      if (( lu != 0 )); then
+        echo "   ⚠ camera_id is not registered: [${cam}] (see --list)" >&2
+        rc=2; continue
+      fi
     fi
-    echo "── Removing camera_id=${cam}"
+    echo "── Removing camera_id=${cam} (waiting up to 30s for a reply)"
     post_sensor "$cam" "$url" camera_remove || rc=2
     idx=$((idx + 1))
     (( idx < ${#STREAMS[@]} )) && sleep "$DELAY"
