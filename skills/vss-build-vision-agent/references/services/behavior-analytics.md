@@ -20,6 +20,12 @@
   class-label taxonomy the resolved RT-CV detector emits — label set and casing.
   In a combined build these follow the single converged detector, not the value
   a source profile's config happened to ship.
+- This service's operating mode — `inSimulationMode`, the `numWorkersFor*` gates,
+  `playbackLoop`, class scope — lives in the mounted analytics JSON, not env or
+  `COMPOSE_PROFILES`, so env-delta resolution cannot touch it. A build that adds a
+  capability or ingestion mode the source config did not assume **must replace**
+  that JSON; env reconciliation alone silently inherits the source mode (Search
+  ships `inSimulationMode=true` with incidents off, yielding no alerts).
 - To serve more than one capability at once, run a single combined instance
   rather than two, mounting the shipped joint config
   `<repo-root>/services/analytics/behavior-analytics/configs/search_and_alerts_config.json`.
@@ -34,6 +40,9 @@
   analytics, embed filtering for search embeddings — leave the rest at zero. In
   particular, alerts that do not derive from this owner (see the Alerts owner)
   leave incident generation off.
+- Verify the mounted config matches the request: incident workers non-zero only
+  when alerts are requested, `inSimulationMode` unset for live-stream builds, and
+  multi-capability builds on the joint config.
 - A combined instance writes more than one Elasticsearch index family, so its
   Kibana initializer must seed all of them — see `elk.md` (Kibana seeding).
 

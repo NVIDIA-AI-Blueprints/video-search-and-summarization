@@ -320,6 +320,9 @@ Then verify:
 - Every checked-in bind source exists and a file target is not backed by a
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.
+- A service governed by a mounted config file has that config reconciled to the
+  requested capabilities and ingestion mode per its owner contract, not left at a
+  source profile's default.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 
