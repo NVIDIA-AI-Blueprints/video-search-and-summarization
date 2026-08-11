@@ -34,6 +34,10 @@
 # Options / env:
 #   --ds-port P        perception REST port      (default: $DS_HTTP_PORT or 9000)
 #   --delay S          seconds between adds      (default: 1)
+#   --no-url-check     skip the pre-add RTSP reachability check
+#   --activation-timeout S  wait for added streams to produce frames (default: 60;
+#                      0 disables). A stream the server accepts but never decodes
+#                      is reported as inactive.
 #   --ready-timeout S  wait for ds-ready: YES    (default: 600 — a cold TensorRT
 #                      engine build for a new batch size takes minutes)
 set -euo pipefail
@@ -43,6 +47,12 @@ DS_HOST="${DS_HOST:-localhost}"
 DS_PORT="${DS_PORT:-${DS_HTTP_PORT:-9000}}"
 DELAY="${DELAY:-1}"
 READY_TIMEOUT="${READY_TIMEOUT:-600}"
+# Seconds to wait for added streams to start producing frames before reporting
+# them as inactive. 0 disables the check.
+ACTIVATION_TIMEOUT="${ACTIVATION_TIMEOUT:-60}"
+# Seconds to wait for a TCP connection to an RTSP endpoint before adding it.
+# 0 disables the pre-add reachability check.
+RTSP_PROBE_TIMEOUT="${RTSP_PROBE_TIMEOUT:-2}"
 
 STREAMS=()
 MODE=add
@@ -59,6 +69,8 @@ while (($#)); do
     --ds-port)        DS_PORT="$2"; shift 2 ;;
     --delay)          DELAY="$2"; shift 2 ;;
     --ready-timeout)  READY_TIMEOUT="$2"; shift 2 ;;
+    --activation-timeout) ACTIVATION_TIMEOUT="$2"; shift 2 ;;
+    --no-url-check)   RTSP_PROBE_TIMEOUT=0; shift ;;
     -h|--help)        usage 0 ;;
     *=*)              STREAMS+=("$1"); shift ;;
     *) if [[ "$MODE" == remove ]]; then STREAMS+=("$1"); shift; else echo "Unknown arg: $1" >&2; usage 2; fi ;;
@@ -518,6 +530,45 @@ if [[ "$MODE" == remove ]]; then
   exit "$rc"
 fi
 
+# The REST API accepts any well-formed URL, including one pointing at a closed
+# port, and reports STREAM_ADD_SUCCESS for a source that will never decode. A TCP
+# connect to the endpoint tells us that much before the stream is registered and
+# occupies one of the max-batch-size slots.
+#
+# Only a refused connection or an unresolvable host is treated as definitive. A
+# timeout is inconclusive -- a slow or filtered network looks the same as a dead
+# one -- so it warns and continues, and verify_streams_active catches it later if
+# the source really is dead. Reachability is judged from this host, which is the
+# same network namespace the perception container uses.
+#
+# Returns 0 reachable, 1 definitely unreachable, 2 inconclusive.
+probe_rtsp_endpoint() {  # $1=rtsp url
+  [[ "$RTSP_PROBE_TIMEOUT" =~ ^[0-9]+$ ]] || return 0
+  (( RTSP_PROBE_TIMEOUT > 0 )) || return 0
+  RTSP_URL="$1" RTSP_TIMEOUT="$RTSP_PROBE_TIMEOUT" python3 -c '
+import os, socket, sys
+from urllib.parse import urlparse
+
+url = os.environ["RTSP_URL"]
+try:
+    parsed = urlparse(url)
+    host, port = parsed.hostname, parsed.port or 554
+except Exception:
+    sys.exit(0)
+if not host:
+    sys.exit(0)
+try:
+    with socket.create_connection((host, port), timeout=float(os.environ["RTSP_TIMEOUT"])):
+        sys.exit(0)
+except (ConnectionRefusedError, socket.gaierror) as exc:
+    print(f"{host}:{port}: {exc}", file=sys.stderr)
+    sys.exit(1)
+except Exception as exc:
+    print(f"{host}:{port}: {exc}", file=sys.stderr)
+    sys.exit(2)
+'
+}
+
 # ── 1. Wait for the perception REST API ─────────────────────────────────────
 echo "── Waiting up to ${READY_TIMEOUT}s for ${BASE}/api/v1/ready → ds-ready: YES"
 deadline=$(( SECONDS + READY_TIMEOUT ))
@@ -528,6 +579,170 @@ while (( SECONDS < deadline )); do
   sleep 3
 done
 grep -q '"YES"' <<< "$state" || { echo "ERROR: perception never reported ready" >&2; exit 1; }
+
+# Streams the server accepted but which never produce frames are invisible to
+# /api/v1/stream/get-stream-info: it reports registration, not health. The
+# /api/v1/metrics endpoint reports per-stream stats and omits sources that are
+# not decoding, so a camera present in stream-info but absent from stream-stats
+# was accepted and is dead.
+#
+# Deliberately NOT keyed on the reported fps: on a healthy 4-camera deployment
+# three of the four sources report fps 0.0 while their frame_number advances at
+# ~30/s, so fps is not a usable liveness signal. Presence in stream-stats is.
+# Echoes "<registered> <required>": the streams the perception service currently
+# has, and how many the deployment expects -- NUM_CAMS when set, else the number
+# of configured camInfo entries. Echoes "0 0" when neither can be determined.
+registered_and_required() {
+  local payload
+  payload="$(curl -fsS --max-time 5 --connect-timeout 3 \
+             "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null)" || { echo "0 0"; return 0; }
+  STREAM_INFO_PAYLOAD="$payload" NUM_CAMS_VALUE="${NUM_CAMS:-}" ROOT_DIR="$ROOT" \
+  python3 -c '
+import glob, json, os
+
+try:
+    info = json.loads(os.environ["STREAM_INFO_PAYLOAD"])["stream-info"]
+    registered = int(info.get("stream-count") or 0)
+except Exception:
+    registered = 0
+
+raw = (os.environ.get("NUM_CAMS_VALUE") or "").strip()
+if raw.isdigit() and int(raw) > 0:
+    required = int(raw)
+else:
+    cams = set()
+    root = os.environ.get("ROOT_DIR", ".")
+    for pat in ("*.yml", "*.yaml"):
+        for f in glob.glob(os.path.join(root, "generated", "camInfo", pat)):
+            cams.add(os.path.splitext(os.path.basename(f))[0])
+    required = len(cams)
+
+print(registered, required)
+' 2>/dev/null || echo "0 0"
+}
+
+verify_streams_active() {  # args: camera IDs added in this run
+  (( $# )) || return 0
+  [[ "$ACTIVATION_TIMEOUT" =~ ^[0-9]+$ ]] || return 0
+  (( ACTIVATION_TIMEOUT > 0 )) || return 0
+
+  # MV3DT batches its sources: until every configured camera is registered,
+  # nvstreammux has no complete batch and no source produces frames. That is the
+  # normal state while streams are added one at a time, so checking then would
+  # stall for the whole timeout and then report a failure that is not one.
+  local registered required
+  read -r registered required <<<"$(registered_and_required)"
+  if [[ -n "$required" ]] && (( required > 0 )) && (( registered < required )); then
+    return 0
+  fi
+
+  # Liveness is frame_number advancing, not membership of stream-stats. That list
+  # is a rolling buffer of recent per-source samples, not one row per stream: a
+  # single payload can carry the same sensor_id twice with consecutive frame
+  # numbers, and stream-count can exceed the number of distinct sensors in it. A
+  # source that is decoding therefore shows up repeatedly across a few seconds of
+  # polling with a rising frame_number, while one that is not either never
+  # appears or stays frozen -- observed live at frame_number 296 while DeepStream
+  # retried its RTSP connect. Both count as not producing; only the wording of
+  # the report differs, because only cameras added by this run are judged.
+  echo "── Waiting up to ${ACTIVATION_TIMEOUT}s for the sources to produce frames"
+
+  local out rc=0
+  out="$(BASE="$BASE" ACTIVATION_TIMEOUT="$ACTIVATION_TIMEOUT" \
+         python3 - "$@" <<'PY'
+import json
+import os
+import sys
+import time
+import urllib.request
+
+base = os.environ["BASE"]
+timeout = int(os.environ["ACTIVATION_TIMEOUT"])
+wanted = [c for c in sys.argv[1:] if c]
+
+# Bypass any http_proxy in the environment: this endpoint is local.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def sample():
+    """{sensor_id: frame_number}, or None when the endpoint is not there."""
+    try:
+        with opener.open(base + "/api/v1/metrics", timeout=5) as resp:
+            payload = json.load(resp)
+    except Exception:
+        return None
+    stats = payload.get("metrics-info", {}).get("stream-stats")
+    if not isinstance(stats, list):
+        return {}
+    seen = {}
+    for entry in stats:
+        if not isinstance(entry, dict):
+            continue
+        sensor = entry.get("sensor_id")
+        try:
+            frames = int(entry.get("frame_number"))
+        except (TypeError, ValueError):
+            continue
+        if sensor is not None:
+            seen[str(sensor)] = frames
+    return seen
+
+
+if sample() is None:
+    sys.exit(3)          # older perception build, no metrics endpoint
+
+baseline, producing, last = {}, set(), {}
+deadline = time.monotonic() + timeout
+while True:
+    current = sample()
+    if current is None:
+        sys.exit(3)
+    for sensor, frames in current.items():
+        if sensor not in baseline:
+            baseline[sensor] = frames
+        elif frames > baseline[sensor]:
+            producing.add(sensor)
+    if all(cam in producing for cam in wanted):
+        sys.exit(0)
+    last = current
+    if time.monotonic() >= deadline:
+        break
+    time.sleep(2)
+
+for cam in wanted:
+    if cam in producing:
+        continue
+    print(("STATIC " if cam in baseline else "UNSEEN ") + cam)
+for sensor in sorted(last or {}):
+    print("OBS %s frame_number=%s" % (sensor, last[sensor]))
+sys.exit(1)
+PY
+)" || rc=$?
+
+  if (( rc == 0 || rc == 3 )); then
+    return 0
+  fi
+
+  echo >&2
+  echo "ERROR: the perception service accepted these streams but they are not producing frames" >&2
+  echo "       after ${ACTIVATION_TIMEOUT}s:" >&2
+  printf '%s\n' "$out" | grep -v '^OBS ' | sed 's/^/         /' >&2
+  echo "       Their frame_number never advanced in /api/v1/metrics: STATIC means the" >&2
+  echo "       stream was sampled but frozen, UNSEEN that it was never sampled at all." >&2
+  if printf '%s\n' "$out" | grep -q '^OBS '; then
+    echo "       Last /api/v1/metrics sample:" >&2
+    printf '%s\n' "$out" | sed -n 's/^OBS /         /p' >&2
+  fi
+  echo "       A stream re-added into a running batch has to realign with the sources" >&2
+  echo "       already going, which usually takes under 15s but is not bounded. If the" >&2
+  echo "       sample above looks healthy, re-check before treating this as a failure:" >&2
+  echo "         curl -s ${BASE}/api/v1/metrics" >&2
+  echo "       A source that cannot decode stalls the whole batch, so expect" >&2
+  echo "       \"Active sources : 0\" in the perception log until it is removed." >&2
+  echo "       Check the RTSP URL is reachable, then re-add. Use --activation-timeout to" >&2
+  echo "       wait longer, or 0 to skip this check." >&2
+  return 1
+}
 
 # ── 2. Add each stream ───────────────────────────────────────────────────────
 echo "── Adding ${#STREAMS[@]} stream(s) (delay=${DELAY}s)"
@@ -544,6 +759,18 @@ for entry in "${STREAMS[@]}"; do
   echo ">> [$((idx+1))/${#STREAMS[@]}] camera_id=${cam}"
   echo "                       url=${url}"
   validate_camera_configured "$cam" || exit 2
+  # After the config check: that one is local and instant, this one costs a
+  # connect attempt, and an unconfigured camera_id is the more basic mistake.
+  probe_rc=0; probe_err="$(probe_rtsp_endpoint "$url" 2>&1 >/dev/null)" || probe_rc=$?
+  if (( probe_rc == 1 )); then
+    echo "   ✗ nothing is listening at ${probe_err}" >&2
+    echo "     The REST API would accept this stream and never activate it, holding a" >&2
+    echo "     source slot. Check the URL, or pass --no-url-check to add it anyway." >&2
+    exit 2
+  elif (( probe_rc == 2 )); then
+    echo "   ⚠ no answer from ${probe_err}; adding anyway" >&2
+    echo "     If the source never starts it is reported after the add." >&2
+  fi
   post_sensor "$cam" "$url" camera_add || exit 2
   ADDED_CAMS+=("$cam")
   show_registration_progress "${ADDED_CAMS[@]}"
@@ -555,5 +782,7 @@ done
 echo
 echo "── Reading stream-info"
 show_stream_info
+
+verify_streams_active "${ADDED_CAMS[@]}" || exit 2
 echo
 echo "Check per-source FPS:  docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -A$(( ${#STREAMS[@]} + 1 )) '\\*\\*PERF' | tail -8"
