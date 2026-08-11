@@ -7,16 +7,17 @@ KB_URL="${KIBANA_URL:-http://localhost:5601}"
 ES_URL="${ELASTICSEARCH_URL:-http://localhost:9200}"
 OBJECTS_FILE="${KIBANA_OBJECTS_FILE:-kibana-objects.ndjson}"
 KB_CONNECTION_RETRY_ATTEMPTS=0
-KB_CONNECTION_MAX_ATTEMPTS=30
+KB_CONNECTION_MAX_ATTEMPTS="${KB_CONNECTION_MAX_ATTEMPTS:-120}"
 ES_CONNECTION_RETRY_ATTEMPTS=0
-ES_CONNECTION_MAX_ATTEMPTS=30
+ES_CONNECTION_MAX_ATTEMPTS="${ES_CONNECTION_MAX_ATTEMPTS:-120}"
+SLEEP_INTERVAL="${SLEEP_SECONDS:-5}"
 
 check_ES_status(){
     until curl -sf -o /dev/null -XGET "$ES_URL"; do
         if [ "${ES_CONNECTION_RETRY_ATTEMPTS}" -eq "${ES_CONNECTION_MAX_ATTEMPTS}" ]; then echo "Max ES connection attempts reached."; exit 1; fi
         ES_CONNECTION_RETRY_ATTEMPTS=$((ES_CONNECTION_RETRY_ATTEMPTS+1))
         echo "Waiting for ES... (${ES_CONNECTION_RETRY_ATTEMPTS}/${ES_CONNECTION_MAX_ATTEMPTS})"
-        sleep 5
+        sleep "${SLEEP_INTERVAL}"
     done
 }
 check_kibana_status(){
@@ -24,7 +25,7 @@ check_kibana_status(){
         if [ "${KB_CONNECTION_RETRY_ATTEMPTS}" -eq "${KB_CONNECTION_MAX_ATTEMPTS}" ]; then echo "Max Kibana connection attempts reached."; exit 1; fi
         KB_CONNECTION_RETRY_ATTEMPTS=$((KB_CONNECTION_RETRY_ATTEMPTS+1))
         echo "Waiting for Kibana... (${KB_CONNECTION_RETRY_ATTEMPTS}/${KB_CONNECTION_MAX_ATTEMPTS})"
-        sleep 5
+        sleep "${SLEEP_INTERVAL}"
     done
 }
 

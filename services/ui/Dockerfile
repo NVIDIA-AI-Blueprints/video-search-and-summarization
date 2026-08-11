@@ -5,7 +5,7 @@ ARG BUILD_TYPE=prod
 
 # Builder phase. This remains target-platform-specific because the dependency
 # graph includes native SWC/Sharp/Turbo packages.
-FROM node:22.22.3 AS builder
+FROM node:22.23.2 AS builder
 ARG USER_ID
 ARG GROUP_ID
 
@@ -35,10 +35,10 @@ RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
 
 
 # Conditional runner phase
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.7 AS runner-prod
+FROM nvcr.io/nvidia/distroless/node:22-v4.0.11 AS runner-prod
 ARG BUILD_TYPE
 
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.7-dev AS runner-dev
+FROM nvcr.io/nvidia/distroless/node:22-v4.0.11-dev AS runner-dev
 ARG BUILD_TYPE
 
 

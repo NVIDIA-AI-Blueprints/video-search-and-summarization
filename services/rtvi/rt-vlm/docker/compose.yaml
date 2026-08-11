@@ -199,7 +199,7 @@ services:
       start_period: 30s
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.10.0-alpine
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:

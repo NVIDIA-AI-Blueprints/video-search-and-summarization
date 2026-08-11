@@ -54,7 +54,6 @@ This skill explains the **stream-processor microservice (MS) + sensor-MS** deplo
 | `centralizedb` (postgres) | `5432` | Shared metadata DB. Sensor list, recording manifests, configs. Both sensor-MS and every stream-processor pod open connections. |
 | `redis-server` | `6379` | Message bus + routing table. SDR consumes the `vst_events` topic here; Envoy reads the streamid→pod hash here on every request. |
 | `nvstreamer` | `31000–31004` (HTTP, one per instance), `31554`, `31564`, `31574`, `31584`, `31594` (RTSP, spaced by 10) | **Separately deployed** loopback RTSP source farm for testing / video-file-driven sensors. VIOS treats nvstreamer endpoints as a regular RTSP camera fleet. |
-| `prometheus` / `grafana` | `9090` / `3000` | Optional, gated by `--profile monitoring`. |
 | `minio` | `9000` / `9001` | Optional object storage, gated by `--profile minio`. |
 
 Pod 2 (`streamprocessing-ms-2`) is shipped commented-out — bring it up by uncommenting the matching blocks in the compose / Envoy / SDR-cluster configs (each marked `# [Pod 2 disabled]`).

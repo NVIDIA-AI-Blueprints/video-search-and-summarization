@@ -30,3 +30,7 @@ assets/orchestrator_mcp_*.pem
 # labels only its _builds/<name>/ directory; it is never a Compose profile.
 # override.env and resolved.yml may contain credentials, so ignore the tree.
 _builds/
+
+# Packaged Helm dependencies produced by `helm dependency update` (subchart
+# sources under charts/ are tracked; the .tgz artifacts are not).
+deploy/helm/**/charts/*.tgz

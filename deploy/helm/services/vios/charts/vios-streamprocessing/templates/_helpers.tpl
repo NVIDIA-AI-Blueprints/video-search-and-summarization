@@ -80,14 +80,13 @@
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $eh := index $g "externalHost" | default "" | trim }}
-{{- $ep := index $g "externalPort" | default "" | trim }}
-{{- $globVlm := trim (default "" (index $g "vlmBaseUrl")) }}
+{{- $ep := index $g "externalPort" | default "" | toString | trim }}
 {{- $explicit := trim (default "" .Values.vstIngressEndpoint) }}
 {{- if ne $explicit "" }}
 {{- $explicit }}
 {{- else }}
 {{- $internal := ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx }}
-{{- if and (ne $globVlm "") (ne $eh "") }}
+{{- if ne $eh "" }}
 {{- if ne $ep "" }}
 {{- printf "%s:%s/vst" $eh $ep }}
 {{- else }}

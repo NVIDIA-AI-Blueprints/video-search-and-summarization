@@ -46,9 +46,12 @@ spec:
       {{- $kafkaDef := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
       {{- $redisDef := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
       {{- $esDef := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+      {{- $mcpDef := ternary (printf "%s-vss-va-mcp" .Release.Name) "vss-va-mcp" $pfx }}
       {{- $kafkaH := .Values.waitForDependencies.kafkaHost | default $kafkaDef }}
       {{- $redisH := .Values.waitForDependencies.redisHost | default $redisDef }}
       {{- $esH := .Values.waitForDependencies.elasticsearchHost | default $esDef }}
+      {{- $mcpH := .Values.waitForDependencies.mcpHost | default $mcpDef }}
+      {{- $waitMcp := .Values.waitForDependencies.waitForMcp | default false }}
       initContainers:
         - name: wait-for-kafka-redis-elasticsearch
           image: {{ .Values.waitForDependencies.image.repository }}:{{ .Values.waitForDependencies.image.tag }}
@@ -57,18 +60,20 @@ spec:
             - sh
             - -c
             - |
-              echo "Waiting for Kafka {{ $kafkaH }}:{{ .Values.waitForDependencies.kafkaPort }}, Redis {{ $redisH }}:{{ .Values.waitForDependencies.redisPort }}, Elasticsearch {{ $esH }}:{{ .Values.waitForDependencies.elasticsearchPort }}"
+              echo "Waiting for Kafka {{ $kafkaH }}:{{ .Values.waitForDependencies.kafkaPort }}, Redis {{ $redisH }}:{{ .Values.waitForDependencies.redisPort }}, Elasticsearch {{ $esH }}:{{ .Values.waitForDependencies.elasticsearchPort }}{{ if $waitMcp }}, MCP {{ $mcpH }}:{{ .Values.waitForDependencies.mcpPort }}{{ end }}"
               for i in $(seq 1 {{ .Values.waitForDependencies.maxRetries }}); do
                 if nc -z {{ $kafkaH }} {{ .Values.waitForDependencies.kafkaPort }} 2>/dev/null \
                    && nc -z {{ $redisH }} {{ .Values.waitForDependencies.redisPort }} 2>/dev/null \
-                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null; then
-                  echo "Kafka, Redis, and Elasticsearch are accepting connections"
+                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null \
+                   {{ if $waitMcp }}&& nc -z {{ $mcpH }} {{ .Values.waitForDependencies.mcpPort }} 2>/dev/null \{{ end }}
+                   ; then
+                  echo "All dependencies are accepting connections"
                   exit 0
                 fi
                 echo "Attempt $i: waiting..."
                 sleep {{ .Values.waitForDependencies.retryInterval }}
               done
-              echo "Timeout waiting for Kafka, Redis, or Elasticsearch"
+              echo "Timeout waiting for dependencies"
               exit 1
       {{- end }}
       containers:

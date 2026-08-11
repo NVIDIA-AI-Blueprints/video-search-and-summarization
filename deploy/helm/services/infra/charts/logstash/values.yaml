@@ -18,7 +18,7 @@ image:
   repository: docker.elastic.co/logstash/logstash
   tag: "9.4.4"
   pullPolicy: IfNotPresent
-javaOpts: "-Xmx1536m -Xms512m"
+javaOpts: "-Xmx1024m -Xms256m"
 streamType: "kafka"
 kafka:
   bootstrapServers: ""

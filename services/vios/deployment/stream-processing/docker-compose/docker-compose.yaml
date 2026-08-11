@@ -15,7 +15,6 @@
 
 include:
   - path: ./sdrc/docker-compose.yaml
-  - path: ./monitoring/docker-compose.yml
 
 services:
   sensor-ms:

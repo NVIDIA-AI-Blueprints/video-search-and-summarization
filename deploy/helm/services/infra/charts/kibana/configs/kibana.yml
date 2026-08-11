@@ -14,6 +14,10 @@
 # limitations under the License.
 
 server.host: "0.0.0.0"
+{{- with .Values.basePath }}
+server.basePath: "{{ . }}"
+server.rewriteBasePath: true
+{{- end }}
 server.shutdownTimeout: "5s"
 elasticsearch.hosts: ["{{ .Values.elasticsearchHosts | default (printf "http://%s:9200" (include "kibana.elasticsearchServiceHostname" .)) }}"]
 monitoring.ui.container.elasticsearch.enabled: true

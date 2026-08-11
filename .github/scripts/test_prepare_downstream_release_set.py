@@ -176,7 +176,8 @@ class DownstreamVariablesTest(unittest.TestCase):
             )
             self.assertEqual(
                 output_path.read_text(),
-                "has_ghcr_build_entries=false\nrun_downstream=false\n",
+                "has_ghcr_build_entries=false\n"
+                "run_downstream=false\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
 
@@ -226,6 +227,25 @@ class DownstreamGateTest(unittest.TestCase):
     def test_source_path_prefix_is_not_matched_loosely(self):
         run, _ = downstream_relevant(["services/agent-extras/x.py"], INVENTORY)
         self.assertFalse(run)
+
+
+class WorkflowSeparationTest(unittest.TestCase):
+    def test_sdu_has_an_independent_workflow_and_handoff(self):
+        workflows = Path(__file__).resolve().parents[1] / "workflows"
+        main = (workflows / "ci.yml").read_text()
+        sdu = (workflows / "spatialai-data-utils.yml").read_text()
+
+        self.assertNotIn("spatialai-data-utils-test", main)
+        self.assertNotIn("SPATIALAI_PACKAGE_VERSION_SUFFIX", main)
+        self.assertIn("name: Spatial AI Data Utils", sdu)
+        self.assertIn("name: Gate", sdu)
+        self.assertIn('suffix = f".dev0+g{commit[:12]}"', sdu)
+        self.assertIn("DOWNSTREAM_REF: main", sdu)
+        self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
+
+    def test_release_set_preparation_has_no_sdu_transport(self):
+        script = Path(module.__file__).read_text()
+        self.assertNotIn("SPATIALAI_", script)
 
 
 if __name__ == "__main__":
