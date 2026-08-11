@@ -759,6 +759,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
         {uploadProgress.length > 0 && hasActiveUploads && (
           <UploadProgressPopup
+            overlay="contained"
             files={uploadProgressPopupFiles}
             onCancelAll={handleCancelAllUploads}
             onCancelSingle={handleCancelSingleUpload}
@@ -767,6 +768,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
         {showUploadSuccessPopup && uploadResults.length > 0 && (
           <UploadSuccessPopup
+            overlay="contained"
             results={uploadResults}
             onClose={handleClearUploadProgress}
           />
