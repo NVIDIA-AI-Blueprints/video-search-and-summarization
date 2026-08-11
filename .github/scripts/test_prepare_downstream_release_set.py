@@ -17,11 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import prepare_downstream_release_set as module  # noqa: E402
 from prepare_downstream_release_set import (  # noqa: E402
     candidate_container_tag,
-    downstream_build_type,
     downstream_relevant,
     downstream_variables,
     pr_merge_base_sha,
-    spatialai_publish_variables,
 )
 
 
@@ -179,161 +177,9 @@ class DownstreamVariablesTest(unittest.TestCase):
             self.assertEqual(
                 output_path.read_text(),
                 "has_ghcr_build_entries=false\n"
-                "run_downstream=false\n"
-                "build_type=ghcr-acceptance\n"
-                "publish_spatialai_data_utils=false\n"
-                "spatialai_package_version_suffix=\n"
-                "spatialai_data_utils_tree_sha=\n",
+                "run_downstream=false\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
-
-    def test_unrelated_develop_run_triggers_lightweight_sdu_reconciliation(self):
-        sha = "a" * 40
-        tree_sha = "b" * 40
-        suffix = f".dev123+t{tree_sha}.g{sha[:12]}.gh.r1"
-        release_set = {
-            "source": {"commit": sha, "ref": "develop"},
-            "release_set_id": "sha256:" + "1" * 64,
-            "images": [],
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            release_path = Path(tmp) / "release-set.json"
-            env_path = Path(tmp) / "github.env"
-            output_path = Path(tmp) / "github.output"
-            release_path.write_text(json.dumps(release_set))
-            argv = [
-                "prepare_downstream_release_set.py",
-                "--sha",
-                sha,
-                "--ref-name",
-                "develop",
-                "--release-set",
-                str(release_path),
-                "--spatialai-package-version-suffix",
-                suffix,
-                "--spatialai-data-utils-tree-sha",
-                tree_sha,
-            ]
-            with mock.patch("sys.argv", argv), mock.patch.dict(
-                os.environ,
-                {
-                    "GITHUB_ENV": str(env_path),
-                    "GITHUB_OUTPUT": str(output_path),
-                },
-                clear=True,
-            ), mock.patch.object(
-                module, "validate_release_set", return_value=[]
-            ), mock.patch.object(
-                module, "resolve_diff_base", return_value=(sha, "pinned")
-            ), mock.patch.object(
-                module, "changed_paths", return_value=["docs/readme.md"]
-            ), mock.patch.object(
-                module, "load_inventory", return_value={"images": []}
-            ):
-                self.assertEqual(module.main(), 0)
-
-            env_text = env_path.read_text()
-            payload = env_text.split("<<EOF\n", 1)[1].split("\nEOF", 1)[0]
-            variables = json.loads(payload)
-            self.assertEqual(variables["BUILD_TYPE"], "spatialai-reconcile")
-            self.assertEqual(
-                variables["SPATIALAI_DATA_UTILS_RECONCILE"], "true"
-            )
-            self.assertEqual(variables["SPATIALAI_DATA_UTILS_PUBLISH"], "false")
-            self.assertEqual(variables["SPATIALAI_SOURCE_TREE_SHA"], tree_sha)
-            self.assertIn("run_downstream=true\n", output_path.read_text())
-
-    def run_handoff_without_git(self, tmp, *extra_args):
-        """Drive main() the way the trigger job does: an unpacked source tree.
-
-        That job works from a downloaded archive with no ``.git``, so the diff
-        and the gate it feeds cannot be recomputed there. Mocking
-        resolve_diff_base/changed_paths hides exactly that, so this helper
-        leaves both real.
-        """
-        sha = "a" * 40
-        tree_sha = "b" * 40
-        suffix = f".dev123+t{tree_sha}.g{sha[:12]}.gh.r1"
-        release_set = {
-            "source": {"commit": sha, "ref": "develop"},
-            "release_set_id": "sha256:" + "1" * 64,
-            "images": [],
-        }
-        root = Path(tmp)
-        self.assertFalse((root / ".git").exists())
-        (root / "deploy/docker").mkdir(parents=True)
-        (root / "deploy/docker/container-inventory.json").write_text(
-            json.dumps(INVENTORY)
-        )
-        release_path = root / "release-set.json"
-        env_path = root / "github.env"
-        output_path = root / "github.output"
-        release_path.write_text(json.dumps(release_set))
-        argv = [
-            "prepare_downstream_release_set.py",
-            "--sha",
-            sha,
-            "--ref-name",
-            "develop",
-            "--repo-root",
-            str(root),
-            "--before",
-            "c" * 40,
-            "--release-set",
-            str(release_path),
-            "--spatialai-package-version-suffix",
-            suffix,
-            "--spatialai-data-utils-tree-sha",
-            tree_sha,
-            *extra_args,
-        ]
-        previous = Path.cwd()
-        os.chdir(root)
-        try:
-            with mock.patch("sys.argv", argv), mock.patch.dict(
-                os.environ,
-                {
-                    "GITHUB_ENV": str(env_path),
-                    "GITHUB_OUTPUT": str(output_path),
-                    "PATH": os.environ.get("PATH", ""),
-                },
-                clear=True,
-            ), mock.patch.object(
-                module, "validate_release_set", return_value=[]
-            ):
-                self.assertEqual(module.main(), 0)
-        finally:
-            os.chdir(previous)
-        env_text = env_path.read_text()
-        payload = env_text.split("<<EOF\n", 1)[1].split("\nEOF", 1)[0]
-        return json.loads(payload), output_path.read_text()
-
-    def test_trigger_job_replays_the_build_type_decided_upstream(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            variables, output = self.run_handoff_without_git(
-                tmp, "--build-type", "spatialai-reconcile"
-            )
-        self.assertEqual(variables["BUILD_TYPE"], "spatialai-reconcile")
-        self.assertIn("build_type=spatialai-reconcile\n", output)
-        self.assertEqual(
-            variables["SPATIALAI_SOURCE_TREE_SHA"], "b" * 40
-        )
-
-    def test_trigger_job_rejects_an_unknown_replayed_build_type(self):
-        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(
-            ValueError, "Downstream build type"
-        ):
-            self.run_handoff_without_git(
-                tmp, "--build-type", "spatialai-reconclie"
-            )
-
-    def test_recomputed_build_type_is_unchanged_without_a_handoff(self):
-        # Without the flag the trigger job re-decides from a diff it cannot
-        # resolve, which is why the upstream job has to hand the answer over.
-        with tempfile.TemporaryDirectory() as tmp:
-            variables, output = self.run_handoff_without_git(tmp)
-        self.assertEqual(variables["BUILD_TYPE"], "ghcr-acceptance")
-        self.assertIn("build_type=ghcr-acceptance\n", output)
 
 
 
@@ -383,149 +229,24 @@ class DownstreamGateTest(unittest.TestCase):
         self.assertFalse(run)
 
 
-class SpatialAiPublishGateTest(unittest.TestCase):
-    TREE_SHA = "b" * 40
-    COMMIT_SHA = "a" * 40
-    SUFFIX = ".dev123+t" + TREE_SHA + ".gaaaaaaaaaaaa.gh.r1"
+class WorkflowSeparationTest(unittest.TestCase):
+    def test_sdu_has_an_independent_workflow_and_handoff(self):
+        workflows = Path(__file__).resolve().parents[1] / "workflows"
+        main = (workflows / "ci.yml").read_text()
+        sdu = (workflows / "spatialai-data-utils.yml").read_text()
 
-    def variables(self, changed, ref_name="develop", requested=""):
-        return spatialai_publish_variables(
-            changed,
-            ref_name,
-            self.SUFFIX,
-            self.TREE_SHA,
-            self.COMMIT_SHA,
-            requested,
-        )
+        self.assertNotIn("spatialai-data-utils-test", main)
+        self.assertNotIn("SPATIALAI_PACKAGE_VERSION_SUFFIX", main)
+        self.assertIn("name: Spatial AI Data Utils", sdu)
+        self.assertIn("name: Gate", sdu)
+        self.assertIn("GITHUB_RUN_ID", sdu)
+        self.assertIn("DOWNSTREAM_REF: spatialai-publisher", sdu)
+        self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
 
-    def test_develop_change_requests_internal_publish(self):
-        self.assertEqual(
-            self.variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"]
-            ),
-            {
-                "SPATIALAI_DATA_UTILS_PUBLISH": "true",
-                "SPATIALAI_DATA_UTILS_RECONCILE": "true",
-                "SPATIALAI_SOURCE_TREE_SHA": self.TREE_SHA,
-                "SPATIALAI_PACKAGE_VERSION_SUFFIX": self.SUFFIX,
-            },
-        )
-
-    def test_pr_change_never_requests_publish(self):
-        self.assertEqual(
-            self.variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"],
-                "pull-request/1562",
-            ),
-            {},
-        )
-
-    def test_unrelated_develop_change_reconciles_without_immediate_publish(self):
-        variables = self.variables(["docs/readme.md"])
-        self.assertEqual(variables["SPATIALAI_DATA_UTILS_PUBLISH"], "false")
-        self.assertEqual(variables["SPATIALAI_DATA_UTILS_RECONCILE"], "true")
-        self.assertEqual(variables["SPATIALAI_SOURCE_TREE_SHA"], self.TREE_SHA)
-
-    def test_every_develop_run_can_recover_a_missing_tree(self):
-        self.assertEqual(
-            self.variables(["services/agent/app.py"])[
-                "SPATIALAI_PACKAGE_VERSION_SUFFIX"
-            ],
-            self.SUFFIX,
-        )
-
-    def test_sdu_only_handoff_uses_lightweight_downstream_pipeline(self):
-        self.assertEqual(
-            downstream_build_type(False, self.variables(["docs/readme.md"])),
-            "spatialai-reconcile",
-        )
-        self.assertEqual(
-            downstream_build_type(True, self.variables(["services/agent/app.py"])),
-            "ghcr-acceptance",
-        )
-
-    def test_unavailable_develop_diff_fails_open(self):
-        self.assertEqual(
-            self.variables(None)["SPATIALAI_DATA_UTILS_PUBLISH"],
-            "true",
-        )
-
-    def test_publish_rejects_missing_or_malformed_suffix(self):
-        changed = ["libs/analytics/spatialai-data-utils/README.md"]
-        for suffix in ("", "dev123", ".dev0+g0123456789ab.r1"):
-            with self.subTest(suffix=suffix), self.assertRaisesRegex(
-                ValueError, "version suffix"
-            ):
-                spatialai_publish_variables(
-                    changed,
-                    "develop",
-                    suffix,
-                    self.TREE_SHA,
-                    self.COMMIT_SHA,
-                )
-
-    def test_publish_rejects_tree_or_commit_identity_mismatch(self):
-        changed = ["libs/analytics/spatialai-data-utils/README.md"]
-        for tree_sha, commit_sha, message in (
-            ("c" * 40, self.COMMIT_SHA, "source tree"),
-            (self.TREE_SHA, "c" * 40, "source commit"),
-        ):
-            with self.subTest(message=message), self.assertRaisesRegex(
-                ValueError, message
-            ):
-                spatialai_publish_variables(
-                    changed,
-                    "develop",
-                    self.SUFFIX,
-                    tree_sha,
-                    commit_sha,
-                )
-
-    def test_publish_rejects_malformed_full_tree_sha(self):
-        with self.assertRaisesRegex(ValueError, "full source tree SHA"):
-            spatialai_publish_variables(
-                ["libs/analytics/spatialai-data-utils/README.md"],
-                "develop",
-                self.SUFFIX,
-                "b" * 12,
-                self.COMMIT_SHA,
-            )
-
-    def test_explicit_false_keeps_reconciliation_in_handoff_job(self):
-        variables = self.variables(None, requested="false")
-        self.assertEqual(variables["SPATIALAI_DATA_UTILS_PUBLISH"], "false")
-        self.assertEqual(variables["SPATIALAI_DATA_UTILS_RECONCILE"], "true")
-
-    def test_explicit_true_preserves_first_job_decision(self):
-        self.assertEqual(
-            self.variables(["docs/readme.md"], requested="true")[
-                "SPATIALAI_DATA_UTILS_PUBLISH"
-            ],
-            "true",
-        )
-
-    def test_explicit_true_is_rejected_outside_develop(self):
-        with self.assertRaisesRegex(ValueError, "only for develop"):
-            self.variables(None, "pull-request/1562", "true")
-
-
-class WorkflowDependencyGateTest(unittest.TestCase):
-    def test_path_gated_sdu_skip_cannot_disable_downstream_trigger(self):
-        workflow = (
-            Path(__file__).resolve().parents[1] / "workflows/ci.yml"
-        ).read_text()
-        trigger = workflow.split(
-            "\n  trigger-downstream-pipeline:\n", 1
-        )[1].split("\n    runs-on:", 1)[0]
-
-        self.assertNotIn("success() &&", trigger)
-        self.assertIn("!contains(needs.*.result, 'failure')", trigger)
-        self.assertIn("!contains(needs.*.result, 'cancelled')", trigger)
-        self.assertIn("!contains(needs.*.result, 'skipped')", trigger)
-        self.assertIn(
-            "needs.wait-for-build-dev-images.outputs.run-downstream == 'true'",
-            trigger,
-        )
+    def test_release_set_preparation_has_no_sdu_transport(self):
+        script = Path(module.__file__).read_text()
+        self.assertNotIn("SPATIALAI_", script)
+        self.assertNotIn("spatialai-reconcile", script)
 
 
 if __name__ == "__main__":
