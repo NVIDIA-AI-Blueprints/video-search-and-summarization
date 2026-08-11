@@ -44,10 +44,8 @@ def test_wdm_router_does_not_mirror_compliance_artifacts():
 
 
 def test_runtime_requirements_do_not_pin_setuptools():
-    requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert "setuptools==" not in requirements
     assert '"setuptools==' not in pyproject
 
 
@@ -58,20 +56,24 @@ def test_wdm_router_creates_usr_local_bin_before_envoy_symlink():
 
 
 def test_runtime_dependency_pins_remediate_non_protobuf_cves():
-    requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     sdr_spec = (REPO_ROOT / "sdr.spec").read_text(encoding="utf-8")
     sdr_mw_spec = (REPO_ROOT / "sdr-mw.spec").read_text(encoding="utf-8")
 
-    for dependency_file in (requirements, pyproject):
-        assert "redis==4.4.4" in dependency_file
-        assert "werkzeug==3.1.8" in dependency_file
-        assert "redis==4.4.2" not in dependency_file
-        assert "werkzeug==2.3.8" not in dependency_file
-        assert "envoy-reader" not in dependency_file
+    assert '"redis==4.4.4"' in pyproject
+    assert '"werkzeug==3.1.8"' in pyproject
+    assert "redis==4.4.2" not in pyproject
+    assert "werkzeug==2.3.8" not in pyproject
+    assert "envoy-reader" not in pyproject
 
     assert "envoy_reader" not in sdr_spec
     assert "envoy_reader" not in sdr_mw_spec
     assert "PyJWT" not in pyproject
-    assert "protobuf==3.20.0" in requirements
     assert '"protobuf==3.20.0"' in pyproject
+
+
+def test_dockerfile_does_not_copy_requirements_txt():
+    dockerfile = (REPO_ROOT / "envoy" / "Dockerfile.wdm-router").read_text(encoding="utf-8")
+
+    assert "requirements.txt" not in dockerfile
+    assert not (REPO_ROOT / "requirements.txt").exists()

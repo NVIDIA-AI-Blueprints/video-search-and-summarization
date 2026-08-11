@@ -58,7 +58,6 @@ ENV PATH="/wdm/.venv/bin:$PATH"
 WORKDIR /wdm
 
 COPY pyproject.toml uv.lock /wdm/
-COPY ./requirements.txt /wdm/requirements.txt
 # CI license injection anchor: COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
 COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md
 

@@ -87,7 +87,7 @@ def merge_collect(package: str) -> None:
     hiddenimports += ret[2]
 
 
-# Third-party: same roots as sdr-mw.spec / requirements.txt (kubernetes, docker, kafka, etc.).
+# Third-party: same roots as sdr-mw.spec / pyproject.toml (kubernetes, docker, kafka, etc.).
 for _pkg in (
     "backports",
     "certifi",
@@ -105,7 +105,6 @@ for _pkg in (
     "idna",
     "jinja2",
     "kafka",
-    "kopf",
     "kubernetes",
     "prometheus_client",
     "redis",
@@ -114,7 +113,6 @@ for _pkg in (
     "simple_settings",
     "stringcase",
     "urllib3",
-    "websockets",
     "werkzeug",
     "yaml",
 ):
