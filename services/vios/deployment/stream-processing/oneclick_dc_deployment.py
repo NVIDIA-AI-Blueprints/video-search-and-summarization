@@ -151,7 +151,6 @@ class DeploymentConfig:
         self.nvstreamer_path_explicit: bool = False
 
         # Deployment flags
-        self.with_monitoring = False
         self.force_deployment = False
         # Auto-detect / non-interactive by default. Pass --interactive on the
         # CLI to get the old prompt-driven behavior.
@@ -467,8 +466,12 @@ VST_CONTAINERS = [
     "sdr-controller",
     "sdrc-init-dirs",
     "sdrc-render-config",
-    # Legacy sdr+envoy names (kept so stop/cleanup still works on old deploys
-    # that pre-date the SDRC refactor; harmless when containers are absent).
+    # Legacy names, kept so stop/cleanup still works on deployments made by an
+    # older version; harmless when the containers are absent.
+    #   sdr-*/envoy-*      pre-date the SDRC refactor
+    #   prometheus/grafana VIOS no longer deploys a monitoring stack, but an
+    #                      existing deployment may still be running one, and
+    #                      dropping these would strand those containers.
     "sdr-streamprocessing",
     "envoy-streamprocessing",
     "prometheus",
@@ -1756,8 +1759,6 @@ class DeploymentManager:
     def _stop_vst_compose(self):
         stop_commands = [
             "docker compose -f docker-compose.yaml --env-file ./compose.env "
-            "--profile monitoring down --remove-orphans",
-            "docker compose -f docker-compose.yaml --env-file ./compose.env "
             "down --remove-orphans",
         ]
         for cmd in stop_commands:
@@ -1855,7 +1856,6 @@ class DeploymentManager:
         ports = [
             5432,   # PostgreSQL
             6379,   # Redis
-            3000,   # Grafana
             30000,  # Sensor HTTP
             30001,  # Stream Processor HTTP
             30554,  # Stream Processor RTSP
@@ -2022,8 +2022,6 @@ class DeploymentManager:
         Logger.info("Deploying VST stream-processing services...")
 
         profiles = ""
-        if self.config.with_monitoring:
-            profiles += " --profile monitoring"
 
         compose_base_cmd = (
             f"docker compose -f docker-compose.yaml --env-file ./compose.env{profiles}"
@@ -2651,8 +2649,6 @@ class DeploymentManager:
             Logger.info("No running deployments found, attempting cleanup anyway...")
             stop_commands = [
                 "docker compose -f docker-compose.yaml --env-file ./compose.env "
-                "--profile monitoring down --remove-orphans -v",
-                "docker compose -f docker-compose.yaml --env-file ./compose.env "
                 "down --remove-orphans -v",
             ]
             for cmd in stop_commands:
@@ -2702,8 +2698,6 @@ class DeploymentManager:
         print()
         print("VST Services:")
         print(f"  VST UI:        http://{self.config.host_ip}:30888/vst/#/dashboard")
-        if self.config.with_monitoring:
-            print(f"  Grafana:       http://{self.config.host_ip}:3000")
         print()
         print("Host Path Information:")
         print("=====================")
@@ -2729,8 +2723,6 @@ class DeploymentManager:
         print()
         print("Access URLs:")
         print(f"  VST UI:        http://{self.config.host_ip}:30888/vst/#/dashboard")
-        if self.config.with_monitoring:
-            print(f"  Grafana:       http://{self.config.host_ip}:3000")
         print()
         print("Host Path Information:")
         print(f"  VST Config Path:  {self.config.vst_config_path}")
@@ -2813,7 +2805,6 @@ TARGETS (--target, default: vst):
     all             VST + NVStreamer together
 
 DEPLOYMENT OPTIONS:
-    --with-monitoring   Deploy with monitoring services (Grafana, Prometheus)
     --force             Automatically stop existing deployments without prompting
     --interactive       Prompt for confirmation of every value
                         (default: auto-detect & use smart defaults)
@@ -3134,8 +3125,6 @@ def main():
         help='Deployment target (default: vst)',
     )
 
-    parser.add_argument('--with-monitoring', action='store_true',
-                        help='Deploy with monitoring services')
     parser.add_argument('--force', action='store_true',
                         help='Automatically stop existing deployments')
     parser.add_argument('--interactive', action='store_true',
@@ -3244,7 +3233,6 @@ def main():
             sys.exit(2)
 
     config = DeploymentConfig()
-    config.with_monitoring = args.with_monitoring
     config.force_deployment = args.force
     config.auto_mode = not args.interactive
     config.fresh_start = args.fresh_start
