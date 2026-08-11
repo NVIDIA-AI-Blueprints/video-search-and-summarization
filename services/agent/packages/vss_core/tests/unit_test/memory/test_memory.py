@@ -17,16 +17,20 @@ from vss_core.memory.adapters import clear_adapter_registry
 from vss_core.memory.adapters import get_adapter
 from vss_core.memory.adapters import register_adapter
 from vss_core.memory.adapters import utc_now_iso
+from vss_core.memory.backends.in_memory import InMemoryStore
 from vss_core.memory.models import SCHEMA_ID
+from vss_core.memory.models import JobInfo
 from vss_core.memory.models import MemoryGroup
 from vss_core.memory.models import MemoryInput
 from vss_core.memory.models import MemoryOutput
+from vss_core.memory.models import TimestampPoint
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.service import MemoryNotFoundError
 from vss_core.memory.service import MemoryService
-from vss_core.memory.store import InMemoryStore
 from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
+from vss_core._foundation.time import datetime_to_iso8601
+from vss_core._foundation.time import iso8601_to_datetime
 
 
 def _sample_record(**overrides: object) -> UnifiedMemoryRecord:
@@ -56,7 +60,7 @@ def _sample_record(**overrides: object) -> UnifiedMemoryRecord:
             },
             "ext": {
                 "event_ids": ["evt-1"],
-                "events": [{"id": "evt-1", "description": "forklift"}],
+                "events": [{"id": "evt-1", "description": "forklift", "timestamp": "2026-07-22T12:01:00Z"}],
             },
         },
         "error": None,
@@ -161,14 +165,19 @@ def test_idempotent_upsert_preserves_created_at() -> None:
     second = first.model_copy(
         deep=True,
         update={
-            "job": first.job.model_copy(
-                update={"status": "running", "updated_at": "2026-07-22T12:01:00Z", "created_at": "2099-01-01T00:00:00Z"}
+            "job": JobInfo.model_validate(
+                {
+                    **first.job.model_dump(mode="json"),
+                    "status": "running",
+                    "updated_at": "2026-07-22T12:01:00Z",
+                    "created_at": "2099-01-01T00:00:00Z",
+                }
             )
         },
     )
     stored = store.upsert(second)
-    assert stored.job.created_at == "2026-07-22T12:00:00Z"
-    assert stored.job.updated_at == "2026-07-22T12:01:00Z"
+    assert stored.job.created_at == iso8601_to_datetime("2026-07-22T12:00:00Z")
+    assert stored.job.updated_at == iso8601_to_datetime("2026-07-22T12:01:00Z")
     assert store.upsert_ids == [first.job.job_id, first.job.job_id]
 
 
@@ -192,13 +201,16 @@ def test_lifecycle_transitions_via_service() -> None:
         created_at=created,
         status="completed",
         input_data=input_data,
-        output=SummaryAdapter.build_output(answer="done", events=[{"id": "e1"}]),
+        output=SummaryAdapter.build_output(
+            answer="done",
+            events=[{"id": "e1", "timestamp": "2026-07-22T12:01:00Z"}],
+        ),
     )
     service.upsert(terminal)
     got = service.get("summary-1", reconcile=False)
     assert got.job.status == "completed"
-    assert got.job.created_at == created
-    assert got.job.updated_at != created or got.output.answer == "done"
+    assert got.job.created_at == iso8601_to_datetime(created)
+    assert got.job.updated_at != iso8601_to_datetime(created) or got.output.answer == "done"
     assert store.upsert_ids == ["summary-1", "summary-1", "summary-1"]
 
 
@@ -281,7 +293,15 @@ def test_events_match_scans_beyond_former_record_cap() -> None:
                     "answer": "noise",
                     "Embedding": [],
                     "handles": {"media_urls": [], "related_job_ids": []},
-                    "ext": {"events": [{"id": f"n-{index}", "description": "unrelated activity"}]},
+                    "ext": {
+                        "events": [
+                            {
+                                "id": f"n-{index}",
+                                "description": "unrelated activity",
+                                "timestamp": "2026-07-22T14:00:00Z",
+                            }
+                        ]
+                    },
                 },
             )
         )
@@ -311,6 +331,7 @@ def test_events_match_scans_beyond_former_record_cap() -> None:
                         {
                             "id": "evt-old",
                             "description": "yellow forklift entered loading bay",
+                            "timestamp": "2026-07-22T10:00:30Z",
                         }
                     ]
                 },
@@ -327,7 +348,7 @@ def test_events_match_scans_beyond_former_record_cap() -> None:
 def test_search_and_summary_adapters_map_results() -> None:
     summary_out = SummaryAdapter.build_output(
         answer="text",
-        events=[{"event_id": "e1", "description": "x"}],
+        events=[{"event_id": "e1", "description": "x", "timestamp": "2026-07-22T12:01:00Z"}],
         ext={"model": "m"},
     )
     assert summary_out.ext["event_ids"] == ["e1"]
@@ -344,6 +365,47 @@ def test_search_and_summary_adapters_map_results() -> None:
     assert "event_ids" not in search_out.handles.model_dump()
     assert "object_ids" not in search_out.handles.model_dump()
     assert "frame_ids" not in search_out.handles.model_dump()
+
+
+def test_summary_events_require_timestamp() -> None:
+    with pytest.raises(ValueError, match="require a timestamp"):
+        SummaryAdapter.build_output(answer="text", events=[{"id": "e1", "description": "x"}])
+
+
+def test_search_build_input_rejects_half_open_window() -> None:
+    with pytest.raises(ValueError, match="both start and end"):
+        SearchAdapter.build_input(
+            query="q",
+            sensors=None,
+            window={"start": {"timestamp": "2026-07-22T10:00:00Z"}},
+            params=None,
+        )
+
+
+def test_events_time_filter_excludes_untimestamped() -> None:
+    store = InMemoryStore()
+    service = MemoryService(store)
+    service.upsert(
+        _sample_record(
+            output={
+                "answer": "a",
+                "Embedding": [],
+                "handles": {"media_urls": [], "related_job_ids": []},
+                "ext": {
+                    "events": [
+                        {"id": "with-ts", "description": "forklift", "timestamp": "2026-07-22T10:30:00Z"},
+                        {"id": "no-ts", "description": "forklift"},
+                    ]
+                },
+            }
+        )
+    )
+    events = service.events(
+        asset_id="cam-1",
+        start_time="2026-07-22T10:00:00Z",
+        end_time="2026-07-22T11:00:00Z",
+    )
+    assert [event["id"] for event in events] == ["with-ts"]
 
 
 def test_register_fake_future_adapter_without_common_code_changes() -> None:
@@ -405,3 +467,55 @@ def test_bare_memory_import_is_nat_free() -> None:
     )
     completed = subprocess.run([sys.executable, "-c", code], check=False, capture_output=True, text=True)
     assert completed.returncode == 0, completed.stderr
+
+
+def test_iso_instants_reject_garbage_and_normalize_wire() -> None:
+    with pytest.raises(ValidationError):
+        JobInfo.model_validate(
+            {
+                "job_id": "summary-1",
+                "group": "summary",
+                "operation": "run",
+                "status": "completed",
+                "created_at": "banana",
+                "updated_at": "not-a-timestamp-at-all",
+            }
+        )
+    with pytest.raises(ValidationError):
+        TimestampPoint.model_validate({"timestamp": ""})
+
+    record = _sample_record(
+        job={
+            "job_id": "summary-1",
+            "group": "summary",
+            "operation": "run",
+            "status": "completed",
+            "created_at": "2026-07-22T12:00:00+00:00",
+            "updated_at": "2026-07-22T12:00:00.500000Z",
+            "backend_ref": None,
+        }
+    )
+    dumped = record.model_dump_memory()
+    assert dumped["job"]["created_at"] == "2026-07-22T12:00:00Z"
+    assert dumped["job"]["updated_at"] == "2026-07-22T12:00:00.500000Z"
+
+
+def test_inmemory_since_filter_uses_instant_not_lexicographic_iso() -> None:
+    """Fractional-second created_at must not sort before a whole-second since bound."""
+    store = InMemoryStore()
+    store.upsert(
+        _sample_record(
+            job={
+                "job_id": "summary-frac",
+                "group": "summary",
+                "operation": "run",
+                "status": "completed",
+                "created_at": "2026-07-22T12:00:00.500000Z",
+                "updated_at": "2026-07-22T12:00:00.500000Z",
+                "backend_ref": None,
+            }
+        )
+    )
+    assert len(store.query(MemoryQuery(since="2026-07-22T12:00:00Z"))) == 1
+    assert len(store.query(MemoryQuery(until="2026-07-22T12:00:00Z"))) == 0
+    assert datetime_to_iso8601(store.get("summary-frac").job.created_at) == "2026-07-22T12:00:00.500000Z"

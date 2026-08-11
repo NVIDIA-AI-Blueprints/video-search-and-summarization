@@ -1,16 +1,37 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Implementation-neutral store interface and in-memory backend for tests."""
+"""Implementation-neutral store contract for unified memory.
+
+Concrete backends live under ``memory.backends`` (``InMemoryStore``,
+``ElasticsearchMemoryStore``). Keep this module free of backend code so the
+tree matches ``vss_core.knowledge`` (contract vs implementations).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC
+from datetime import datetime
 from typing import Protocol
-from typing import runtime_checkable
+
+from vss_core._foundation.time import iso8601_to_datetime
 
 from .models import JobStatus
 from .models import MemoryGroup
 from .models import UnifiedMemoryRecord
+
+
+def coerce_utc_instant(value: datetime | str | None) -> datetime | None:
+    """Parse/normalize an optional UTC instant; reject naive or unparseable values."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware UTC ISO-8601")
+        return value.astimezone(UTC)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"invalid ISO-8601 timestamp: {value!r}")
+    return iso8601_to_datetime(value).astimezone(UTC)
 
 
 @dataclass(slots=True)
@@ -22,9 +43,13 @@ class MemoryQuery:
     status: JobStatus | None = None
     sensor_id: str | None = None
     job_id: str | None = None
-    since: str | None = None
-    until: str | None = None
+    since: datetime | str | None = None
+    until: datetime | str | None = None
     limit: int = 20
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "since", coerce_utc_instant(self.since))
+        object.__setattr__(self, "until", coerce_utc_instant(self.until))
 
 
 @dataclass(slots=True)
@@ -34,12 +59,15 @@ class JobFilters:
     group: MemoryGroup | None = None
     status: JobStatus | None = None
     sensor_id: str | None = None
-    since: str | None = None
-    until: str | None = None
+    since: datetime | str | None = None
+    until: datetime | str | None = None
     limit: int = 50
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "since", coerce_utc_instant(self.since))
+        object.__setattr__(self, "until", coerce_utc_instant(self.until))
 
-@runtime_checkable
+
 class MemoryStore(Protocol):
     """Durable store for unified memory records.
 
@@ -56,94 +84,9 @@ class MemoryStore(Protocol):
     def list_jobs(self, filters: JobFilters) -> list[UnifiedMemoryRecord]: ...
 
 
-def _sensor_match(record: UnifiedMemoryRecord, sensor_id: str | None) -> bool:
-    if not sensor_id:
-        return True
-    return any(sensor.id == sensor_id for sensor in record.input.sensors)
-
-
-def _time_in_range(value: str, since: str | None, until: str | None) -> bool:
-    if since is not None and value < since:
-        return False
-    return not (until is not None and value > until)
-
-
-def _matches_query(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
-    if query.job_id is not None and record.job.job_id != query.job_id:
-        return False
-    if query.group is not None and record.job.group != query.group:
-        return False
-    if query.status is not None and record.job.status != query.status:
-        return False
-    if not _sensor_match(record, query.sensor_id):
-        return False
-    if not _time_in_range(record.job.created_at, query.since, query.until):
-        return False
-    if query.text:
-        haystacks: list[str] = []
-        if record.input.query:
-            haystacks.append(record.input.query)
-        if record.output.answer:
-            haystacks.append(record.output.answer)
-        ext = record.output.ext
-        for key in ("events", "results", "incidents"):
-            value = ext.get(key)
-            if value is not None:
-                haystacks.append(str(value))
-        needle = query.text.casefold()
-        if not any(needle in item.casefold() for item in haystacks):
-            return False
-    return True
-
-
-def _matches_filters(record: UnifiedMemoryRecord, filters: JobFilters) -> bool:
-    if filters.group is not None and record.job.group != filters.group:
-        return False
-    if filters.status is not None and record.job.status != filters.status:
-        return False
-    if not _sensor_match(record, filters.sensor_id):
-        return False
-    return _time_in_range(record.job.created_at, filters.since, filters.until)
-
-
-class InMemoryStore:
-    """Process-local store used by hermetic tests."""
-
-    def __init__(self) -> None:
-        self._records: dict[str, UnifiedMemoryRecord] = {}
-        self.upsert_ids: list[str] = []
-
-    def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
-        existing = self._records.get(record.job.job_id)
-        if existing is not None:
-            # Preserve immutable created_at across lifecycle writes.
-            job = record.job.model_copy(update={"created_at": existing.job.created_at})
-            record = record.model_copy(update={"job": job})
-        self._records[record.job.job_id] = record
-        self.upsert_ids.append(record.job.job_id)
-        return record
-
-    def get(self, job_id: str) -> UnifiedMemoryRecord | None:
-        return self._records.get(job_id)
-
-    def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
-        matched = [record for record in self._records.values() if _matches_query(record, query)]
-        matched.sort(key=lambda item: item.job.updated_at, reverse=True)
-        return matched[: max(query.limit, 0)]
-
-    def list_jobs(self, filters: JobFilters) -> list[UnifiedMemoryRecord]:
-        matched = [record for record in self._records.values() if _matches_filters(record, filters)]
-        matched.sort(key=lambda item: item.job.updated_at, reverse=True)
-        return matched[: max(filters.limit, 0)]
-
-    def clear(self) -> None:
-        self._records.clear()
-        self.upsert_ids.clear()
-
-
 __all__ = [
-    "InMemoryStore",
     "JobFilters",
     "MemoryQuery",
     "MemoryStore",
+    "coerce_utc_instant",
 ]

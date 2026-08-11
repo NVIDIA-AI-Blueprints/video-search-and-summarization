@@ -39,9 +39,9 @@ _LAZY_EXPORTS = {
     "MemoryOutput": ".models",
     "JobInfo": ".models",
     "MemoryStore": ".store",
-    "InMemoryStore": ".store",
     "MemoryQuery": ".store",
     "JobFilters": ".store",
+    "InMemoryStore": ".backends.in_memory",
     "MemoryService": ".service",
     "MemoryNotFoundError": ".service",
     "build_memory_service": ".service",
@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from .adapters import SummaryAdapter
     from .adapters import get_adapter
     from .adapters import register_adapter
+    from .backends.in_memory import InMemoryStore
     from .models import SCHEMA_ID
     from .models import JobInfo
     from .models import MemoryInput
@@ -66,7 +67,6 @@ if TYPE_CHECKING:
     from .service import MemoryNotFoundError
     from .service import MemoryService
     from .service import build_memory_service
-    from .store import InMemoryStore
     from .store import JobFilters
     from .store import MemoryQuery
     from .store import MemoryStore

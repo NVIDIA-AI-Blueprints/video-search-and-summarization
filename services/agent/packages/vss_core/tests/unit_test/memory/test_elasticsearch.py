@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from vss_core.memory.elasticsearch import ElasticsearchMemoryStore
+from vss_core._foundation.time import iso8601_to_datetime
+from vss_core.memory.backends.elasticsearch import ElasticsearchMemoryStore
 from vss_core.memory.models import SCHEMA_ID
+from vss_core.memory.models import JobInfo
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
@@ -79,8 +81,12 @@ def test_elasticsearch_upsert_same_id_through_lifecycle() -> None:
     running = running.model_copy(
         deep=True,
         update={
-            "job": running.job.model_copy(
-                update={"updated_at": "2026-07-22T12:01:00Z", "created_at": "2099-01-01T00:00:00Z"}
+            "job": JobInfo.model_validate(
+                {
+                    **running.job.model_dump(mode="json"),
+                    "updated_at": "2026-07-22T12:01:00Z",
+                    "created_at": "2099-01-01T00:00:00Z",
+                }
             )
         },
     )
@@ -88,7 +94,14 @@ def test_elasticsearch_upsert_same_id_through_lifecycle() -> None:
     terminal = _record(status="completed")
     terminal = terminal.model_copy(
         deep=True,
-        update={"job": terminal.job.model_copy(update={"updated_at": "2026-07-22T12:02:00Z"})},
+        update={
+            "job": JobInfo.model_validate(
+                {
+                    **terminal.job.model_dump(mode="json"),
+                    "updated_at": "2026-07-22T12:02:00Z",
+                }
+            )
+        },
     )
     store.upsert(terminal)
 
@@ -96,7 +109,7 @@ def test_elasticsearch_upsert_same_id_through_lifecycle() -> None:
     got = store.get("summary-1")
     assert got is not None
     assert got.job.status == "completed"
-    assert got.job.created_at == "2026-07-22T12:00:00Z"
+    assert got.job.created_at == iso8601_to_datetime("2026-07-22T12:00:00Z")
     assert len(store.query(MemoryQuery(group="summary"))) == 1
     assert len(store.list_jobs(JobFilters(group="summary"))) == 1
 
@@ -117,3 +130,4 @@ def test_build_search_body_filters() -> None:
     )
     assert body["size"] == 5
     assert "bool" in body["query"]
+    assert body["query"]["bool"]["filter"][3]["range"]["job.created_at"]["gte"] == "2026-01-01T00:00:00Z"

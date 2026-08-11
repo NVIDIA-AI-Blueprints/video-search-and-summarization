@@ -10,6 +10,7 @@ document. This module uses the synchronous Elasticsearch client so the
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from elasticsearch import Elasticsearch
@@ -19,10 +20,12 @@ from elasticsearch.exceptions import TransportError as ESTransportError
 
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
+from vss_core._foundation.time import datetime_to_iso8601
 
-from .models import UnifiedMemoryRecord
-from .store import JobFilters
-from .store import MemoryQuery
+from ..models import UnifiedMemoryRecord
+from ..store import JobFilters
+from ..store import MemoryQuery
+from ..store import coerce_utc_instant
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +128,8 @@ class ElasticsearchMemoryStore:
         status: str | None = None,
         sensor_id: str | None = None,
         job_id: str | None = None,
-        since: str | None = None,
-        until: str | None = None,
+        since: datetime | str | None = None,
+        until: datetime | str | None = None,
         text: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
@@ -140,12 +143,14 @@ class ElasticsearchMemoryStore:
             filters.append({"term": {"job.status.keyword": status}})
         if sensor_id:
             filters.append({"term": {"input.sensors.id.keyword": sensor_id}})
-        if since or until:
+        since_dt = coerce_utc_instant(since)
+        until_dt = coerce_utc_instant(until)
+        if since_dt or until_dt:
             range_body: dict[str, Any] = {}
-            if since:
-                range_body["gte"] = since
-            if until:
-                range_body["lte"] = until
+            if since_dt is not None:
+                range_body["gte"] = datetime_to_iso8601(since_dt)
+            if until_dt is not None:
+                range_body["lte"] = datetime_to_iso8601(until_dt)
             filters.append({"range": {"job.created_at": range_body}})
         if text:
             must.append(

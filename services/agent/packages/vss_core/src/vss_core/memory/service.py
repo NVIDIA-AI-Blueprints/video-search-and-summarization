@@ -4,20 +4,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from datetime import UTC
+from datetime import datetime
 from typing import Any
 from typing import Protocol
 
 from vss_core._foundation.errors import ConfigurationError
 
-from .adapters import utc_now_iso
+from .backends.in_memory import InMemoryStore
 from .models import PENDING_STATUSES
 from .models import TERMINAL_STATUSES
 from .models import UnifiedMemoryRecord
-from .store import InMemoryStore
 from .store import JobFilters
 from .store import MemoryQuery
 from .store import MemoryStore
+from .store import coerce_utc_instant
 
 
 class BackendReconciler(Protocol):
@@ -37,6 +38,21 @@ class MemoryNotFoundError(LookupError):
 #: Max jobs scanned per ``events()`` call for one asset. ``limit`` applies to
 #: filtered *events* only; applying it (or ``limit * 4``) to the job query first
 #: drops older records before match / time / anchor filters run.
+#:
+#: ``start_time`` / ``end_time`` are *not* pushed to the store today — only
+#: ``sensor_id`` is — so this cap bounds a full-asset fetch that is then
+#: filtered in Python. Do **not** map those args onto ``MemoryQuery.since`` /
+#: ``until``: those range on ``job.created_at`` (when the job ran), whereas
+#: event windows describe footage time. A summary run at 14:00 over 10:00–11:00
+#: must match ``events(start_time=10:00, end_time=11:00)``; a ``created_at``
+#: pushdown would drop it.
+#:
+#: Follow-up: push an ``input.window`` overlap predicate
+#: (``window.end >= start_time AND window.start <= end_time``) via a new
+#: ``MemoryQuery`` field and ``_build_search_body`` clause — §5.1's temporal
+#: envelope — so the index can prune before transfer. ``size: 10000`` also
+#: sits on ES ``index.max_result_window`` with no headroom once payloads are
+#: large (full ``output.ext`` per hit).
 _EVENTS_RECORD_SCAN_CAP = 10_000
 
 
@@ -110,6 +126,10 @@ class MemoryService:
 
         Reads ``output.ext.events``, ``output.ext.incidents``, and
         ``output.ext.results`` only — never pipeline Elasticsearch indices.
+
+        Temporal args are applied in-process after the asset-scoped scan (see
+        ``_EVENTS_RECORD_SCAN_CAP``). Store-side pruning must use
+        ``input.window`` overlap, not ``MemoryQuery.since`` / ``until``.
         """
         del window  # reserved for duration windows per design FR-5
         records = self._store.query(MemoryQuery(sensor_id=asset_id, limit=_EVENTS_RECORD_SCAN_CAP))
@@ -133,6 +153,8 @@ class MemoryService:
             needle = match.casefold()
             collected = [item for item in collected if needle in str(item).casefold()]
 
+        # Event-time filter (not job.created_at). Index pushdown belongs on
+        # input.window overlap — see _EVENTS_RECORD_SCAN_CAP.
         if start_time or end_time:
             collected = [item for item in collected if _event_in_window(item, start_time, end_time)]
 
@@ -152,7 +174,7 @@ class MemoryService:
             return None
         # Ensure updated_at advances on write-through reconciliation.
         if updated.job.updated_at == record.job.updated_at:
-            job = updated.job.model_copy(update={"updated_at": utc_now_iso()})
+            job = updated.job.model_copy(update={"updated_at": datetime.now(UTC)})
             updated = updated.model_copy(update={"job": job})
         return updated
 
@@ -168,8 +190,8 @@ def build_memory_service(
     if store is not None:
         return MemoryService(store, reconciler=reconciler)
     if es_endpoint:
-        from .elasticsearch import DEFAULT_MEMORY_INDEX
-        from .elasticsearch import ElasticsearchMemoryStore
+        from .backends.elasticsearch import DEFAULT_MEMORY_INDEX
+        from .backends.elasticsearch import ElasticsearchMemoryStore
 
         es_store = ElasticsearchMemoryStore(
             endpoint=es_endpoint,
@@ -182,11 +204,18 @@ def build_memory_service(
 def _event_in_window(event: dict[str, Any], start: str | None, end: str | None) -> bool:
     stamp = event.get("timestamp") or event.get("start_time") or event.get("start") or event.get("ts")
     if stamp is None:
-        return True
-    value = str(stamp)
-    if start is not None and value < start:
+        # Fail closed: a time-bounded query must not treat missing stamps as matches.
         return False
-    return not (end is not None and value > end)
+    try:
+        value = coerce_utc_instant(str(stamp))
+        start_dt = coerce_utc_instant(start)
+        end_dt = coerce_utc_instant(end)
+    except ValueError:
+        return False
+    assert value is not None
+    if start_dt is not None and value < start_dt:
+        return False
+    return not (end_dt is not None and value > end_dt)
 
 
 def _adjacent_events(
@@ -214,9 +243,6 @@ def _adjacent_events(
     end = min(len(events), index + 6)
     return events[start:end]
 
-
-# Silence unused-import style for Callable used by type checkers in stubs.
-_PersistCallback = Callable[[UnifiedMemoryRecord], Any]
 
 __all__ = [
     "PENDING_STATUSES",

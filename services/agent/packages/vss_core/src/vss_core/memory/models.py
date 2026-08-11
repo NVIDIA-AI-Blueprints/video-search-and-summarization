@@ -4,15 +4,20 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from datetime import UTC
+from datetime import datetime
+from typing import Annotated
 from typing import Any
 from typing import Literal
 
+from pydantic import AwareDatetime
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import PlainSerializer
 from pydantic import field_validator
-from pydantic import model_validator
+
+from vss_core._foundation.time import datetime_to_iso8601
 
 SCHEMA_ID: Literal["nv.vss.memory/1.0"] = "nv.vss.memory/1.0"
 
@@ -24,14 +29,15 @@ JobStatus = Literal["submitted", "running", "completed", "failed", "partial", "t
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "partial", "timeout"})
 PENDING_STATUSES: frozenset[str] = frozenset({"submitted", "running"})
 
+#: Aware UTC instant on the model; JSON wire form stays ISO-8601 with ``Z`` (§5.2).
+IsoInstant = Annotated[
+    AwareDatetime,
+    PlainSerializer(datetime_to_iso8601, return_type=str, when_used="json"),
+]
 
-class MemoryGroupEnum(StrEnum):
-    """Enumerated job groups accepted by ``nv.vss.memory/1.0``."""
 
-    SUMMARY = "summary"
-    SEARCH = "search"
-    ALERT = "alert"
-    VLM = "vlm"
+def _as_utc(value: datetime) -> datetime:
+    return value.astimezone(UTC)
 
 
 class JobInfo(BaseModel):
@@ -43,8 +49,8 @@ class JobInfo(BaseModel):
     group: MemoryGroup
     operation: JobOperation = "run"
     status: JobStatus
-    created_at: str
-    updated_at: str
+    created_at: IsoInstant
+    updated_at: IsoInstant
     backend_ref: str | None = None
 
     @field_validator("group", mode="before")
@@ -53,6 +59,11 @@ class JobInfo(BaseModel):
         if isinstance(value, str) and value not in KNOWN_GROUPS:
             raise ValueError(f"unknown job.group {value!r}; expected one of {sorted(KNOWN_GROUPS)}")
         return value
+
+    @field_validator("created_at", "updated_at", mode="after")
+    @classmethod
+    def _utc_instants(cls, value: datetime) -> datetime:
+        return _as_utc(value)
 
 
 class SensorInfo(BaseModel):
@@ -77,7 +88,12 @@ class TimestampPoint(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    timestamp: str
+    timestamp: IsoInstant
+
+    @field_validator("timestamp", mode="after")
+    @classmethod
+    def _utc_instant(cls, value: datetime) -> datetime:
+        return _as_utc(value)
 
 
 class TimeWindow(BaseModel):
@@ -162,12 +178,6 @@ class UnifiedMemoryRecord(BaseModel):
     output: MemoryOutput = Field(default_factory=MemoryOutput)
     error: MemoryError | None = None
 
-    @model_validator(mode="after")
-    def _validate_job_id_prefix(self) -> UnifiedMemoryRecord:
-        # Soft convention: prefer ``<group>-<ULID>``; do not hard-fail historical
-        # ids that still round-trip, but reject empty ids (already Field-checked).
-        return self
-
     def model_dump_memory(self) -> dict[str, Any]:
         """Serialize with the wire field name ``Embedding`` and ``schema``."""
         return self.model_dump(by_alias=True, mode="json")
@@ -179,12 +189,12 @@ __all__ = [
     "SCHEMA_ID",
     "TERMINAL_STATUSES",
     "EmbeddingRef",
+    "IsoInstant",
     "JobInfo",
     "JobOperation",
     "JobStatus",
     "MemoryError",
     "MemoryGroup",
-    "MemoryGroupEnum",
     "MemoryInput",
     "MemoryOutput",
     "OutputHandles",

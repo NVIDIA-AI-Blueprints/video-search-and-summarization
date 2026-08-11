@@ -13,7 +13,6 @@ from datetime import UTC
 from datetime import datetime
 from typing import Any
 from typing import Protocol
-from typing import runtime_checkable
 
 from vss_core._foundation.time import datetime_to_iso8601
 
@@ -28,6 +27,7 @@ from .models import SensorInfo
 from .models import TimestampPoint
 from .models import TimeWindow
 from .models import UnifiedMemoryRecord
+from .store import coerce_utc_instant
 
 _ADAPTER_REGISTRY: dict[MemoryGroup, type[MemoryAdapter]] = {}
 
@@ -37,7 +37,6 @@ def utc_now_iso() -> str:
     return datetime_to_iso8601(datetime.now(UTC))
 
 
-@runtime_checkable
 class MemoryAdapter(Protocol):
     """Per-group mapper between domain payloads and unified memory records."""
 
@@ -231,7 +230,7 @@ class SummaryAdapter(_BaseGroupAdapter):
         media_urls: list[str] | None = None,
         related_job_ids: list[str] | None = None,
     ) -> MemoryOutput:
-        normalized_events = list(events or [])
+        normalized_events = [_require_event_timestamp(dict(event)) for event in (events or [])]
         resolved_event_ids = list(event_ids or _event_ids_from(normalized_events))
         payload_ext = dict(ext or {})
         if normalized_events:
@@ -274,12 +273,23 @@ class SearchAdapter(_BaseGroupAdapter):
         window_model: TimeWindow | None = None
         if isinstance(window, TimeWindow):
             window_model = window
-        elif isinstance(window, dict) and window.get("start") and window.get("end"):
-            start = window["start"]
-            end = window["end"]
-            start_ts = start["timestamp"] if isinstance(start, dict) else str(start)
-            end_ts = end["timestamp"] if isinstance(end, dict) else str(end)
-            window_model = TimeWindow(start=TimestampPoint(timestamp=start_ts), end=TimestampPoint(timestamp=end_ts))
+        elif isinstance(window, dict):
+            has_start = bool(window.get("start"))
+            has_end = bool(window.get("end"))
+            if has_start ^ has_end:
+                raise ValueError(
+                    "input.window requires both start and end; a single bound is not "
+                    "silently dropped (resolve the covering segment or reject upstream)"
+                )
+            if has_start and has_end:
+                start = window["start"]
+                end = window["end"]
+                start_ts = start["timestamp"] if isinstance(start, dict) else str(start)
+                end_ts = end["timestamp"] if isinstance(end, dict) else str(end)
+                window_model = TimeWindow(
+                    start=TimestampPoint(timestamp=start_ts),
+                    end=TimestampPoint(timestamp=end_ts),
+                )
         return MemoryInput(query=query, sensors=sensor_models, window=window_model, params=dict(params or {}))
 
     @staticmethod
@@ -313,6 +323,29 @@ class SearchAdapter(_BaseGroupAdapter):
         if resolved_frame_ids:
             payload_ext.setdefault("frame_ids", resolved_frame_ids)
         return MemoryOutput(answer=answer, Embedding=[], handles=handles, ext=payload_ext)
+
+
+def _event_stamp(event: dict[str, Any]) -> str | None:
+    for key in ("timestamp", "start_time", "start", "ts"):
+        value = event.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
+    return None
+
+
+def _require_event_timestamp(event: dict[str, Any]) -> dict[str, Any]:
+    """Normalize/require a parseable event instant at the summary adapter boundary."""
+    stamp = _event_stamp(event)
+    if stamp is None:
+        raise ValueError(
+            "summary events require a timestamp field "
+            "(timestamp|start_time|start|ts) for time-windowed recall"
+        )
+    coerce_utc_instant(stamp)
+    if "timestamp" not in event:
+        event = dict(event)
+        event["timestamp"] = stamp
+    return event
 
 
 def _event_ids_from(events: list[dict[str, Any]]) -> list[str]:
