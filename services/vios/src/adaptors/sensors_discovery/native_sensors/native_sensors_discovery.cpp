@@ -269,11 +269,21 @@ void NativeSensorsDiscovery::start()
 }
 void  NativeSensorsDiscovery::stop()
 {
-    std::lock_guard<std::mutex> sensorsLock(m_monitorMutex);
-    m_exit = true;
+    // Release m_monitorMutex BEFORE joining. The worker now runs the blocking
+    // v4l2 scan unlocked and re-acquires this mutex afterwards, so holding it
+    // across join() deadlocks: stop() waits for a worker that is waiting for
+    // the very lock stop() holds. Deterministic, not a race -- any stop()
+    // landing during a scan hangs.
+    {
+        std::lock_guard<std::mutex> sensorsLock(m_monitorMutex);
+        m_exit = true;
+    }
     m_sleeperWait.notify_all();
     LOG(info) << "Stoping Native Sensor discovery task" << endl;
-    m_nativeSensorDiscoveryThread.join();
+    if (m_nativeSensorDiscoveryThread.joinable())
+    {
+        m_nativeSensorDiscoveryThread.join();
+    }
     LOG(info) << "Stopped Native Sensor discovery task" << endl;
 }
 
