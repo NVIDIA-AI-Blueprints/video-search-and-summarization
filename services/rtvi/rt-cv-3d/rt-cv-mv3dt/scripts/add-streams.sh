@@ -140,6 +140,60 @@ sys.exit(1)
 ' "$cam"
 }
 
+response_reports_stream_change_failure() {  # $1=response_file  $2=add|remove
+  python3 - "$1" "$2" <<'PY'
+import json
+import re
+import sys
+
+path, action = sys.argv[1], sys.argv[2]
+
+try:
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+except OSError:
+    sys.exit(1)
+
+
+def normalized(value):
+    return re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
+
+
+def value_reports_failure(value):
+    folded = normalized(value)
+    return (
+        f"stream_{action}_fail" in folded
+        or f"stream_{action}_failed" in folded
+        or (
+            "stream" in folded
+            and action in folded
+            and ("fail" in folded or "error" in folded)
+        )
+    )
+
+
+try:
+    payload = json.loads(text)
+except json.JSONDecodeError:
+    sys.exit(0 if value_reports_failure(text) else 1)
+
+stack = [payload]
+while stack:
+    item = stack.pop()
+    if isinstance(item, dict):
+        for key, value in item.items():
+            if normalized(key) in {"success", "ok"} and value is False:
+                sys.exit(0)
+            stack.append(value)
+    elif isinstance(item, list):
+        stack.extend(item)
+    elif isinstance(item, str) and value_reports_failure(item):
+        sys.exit(0)
+
+sys.exit(1)
+PY
+}
+
 post_sensor() {  # $1=camera_id  $2=url  $3=change (camera_add|camera_remove)
   local body code tmp
   body=$(python3 -c '
@@ -160,6 +214,12 @@ print(json.dumps({
           --max-time 30 --connect-timeout 5 \
           -X POST "${BASE}/api/v1/stream/${3#camera_}" \
           -H 'Content-Type: application/json' --data-binary @-) || code=000
+  if response_reports_stream_change_failure "$tmp" "${3#camera_}"; then
+    echo "   ✗ HTTP ${code} failed to ${3#camera_} stream"
+    cat "$tmp" >&2 || true
+    echo >&2
+    rm -f "$tmp"; return 1
+  fi
   if [[ "$code" == "200" || "$code" == "201" ]]; then
     echo "   ✓ HTTP ${code}  $(grep -o '"reason" *: *"[^"]*"' "$tmp" | head -1 | tr -s ' ')"
     rm -f "$tmp"; return 0
