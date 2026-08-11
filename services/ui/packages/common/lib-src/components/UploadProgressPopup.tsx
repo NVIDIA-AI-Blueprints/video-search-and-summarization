@@ -11,7 +11,9 @@ export interface UploadProgressFileItem {
   uploadError?: string;
 }
 
-const POPUP_OVERLAY_CLASS = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+const POPUP_OVERLAY_VIEWPORT = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+/** Covers only the parent `relative` region (e.g. Video Management main pane), not the whole browser window */
+const POPUP_OVERLAY_CONTAINED = 'absolute inset-0 z-40 flex items-center justify-center bg-black/50';
 const POPUP_CONTAINER_CLASS =
   'mx-4 w-full max-w-xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-2xl';
 
@@ -51,18 +53,23 @@ export interface UploadProgressPopupProps {
   files: UploadProgressFileItem[];
   onCancelAll: () => void;
   onCancelSingle?: (fileId: string) => void;
+  /** `contained` = overlay only the nearest positioned ancestor (e.g. Video Management pane). Default `viewport` = full window. */
+  overlay?: 'viewport' | 'contained';
 }
 
 export function UploadProgressPopup({
   files,
   onCancelAll,
   onCancelSingle,
+  overlay = 'viewport',
 }: Readonly<UploadProgressPopupProps>) {
   const hasActive = files.some(f => f.uploadStatus === 'pending' || f.uploadStatus === 'uploading');
+  const overlayClass =
+    overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
   return (
     <div
       data-testid="upload-progress-panel"
-      className={POPUP_OVERLAY_CLASS}
+      className={overlayClass}
       role="dialog"
       aria-modal="true"
       aria-label="Upload progress"
