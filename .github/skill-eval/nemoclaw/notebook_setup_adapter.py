@@ -256,7 +256,10 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
 
     patched = deepcopy(cell)
     if cell_id == "e67f6da4":
-        anchor = "AGENT_HOOKS_ENABLED = True     # agent webhooks (/hooks)"
+        anchor = (
+            "AGENT_HOOKS_ENABLED = True     # enable agent inbound webhooks "
+            "when the harness supports them"
+        )
         if anchor not in source:
             raise ValueError("NemoClaw settings cell changed: hooks anchor missing")
         patched["source"] = source.replace(
