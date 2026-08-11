@@ -71,7 +71,7 @@ current paths, questions, IDs, addresses, labels, and timestamps.
 
 The Markdown procedure must use this compact structure:
 
-```markdown
+````markdown
 # Procedure
 
 ## Description
@@ -122,7 +122,7 @@ Group uninterrupted deterministic actions when safe.
 - Minimum observable checks that prove success. When a template is required,
   verify the produced artifact preserves its required title, headings,
   sections, fields, ordering, placeholders, and format.
-```
+````
 
 Pass every instruction dependency as a separate `--source`; prefer the owning
 instruction directory so any relevant change invalidates the procedure. The
