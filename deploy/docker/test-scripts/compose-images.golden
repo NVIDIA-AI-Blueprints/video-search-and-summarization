@@ -2,7 +2,7 @@
 # Regenerate with:  python3 .github/scripts/compose_image_golden.py --update
 # A diff in this file means a registry, image name, or default tag changed.
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
-deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
+deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvstaging/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml nvcr.io/nvstaging/vss-core/vss-configurator:3.3.0-2026.08.2-1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvstaging/vss-core/vss-configurator:3.3.0-2026.08.2-1
