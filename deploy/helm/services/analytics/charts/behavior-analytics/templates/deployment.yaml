@@ -61,16 +61,30 @@ spec:
             - |
               BOOTSTRAP="{{ required "waitForKafka.host must be set" .Values.waitForKafka.host }}:{{ .Values.waitForKafka.port | default 9092 }}"
               TOPIC="{{ .Values.waitForKafka.topic }}"
+              MAX_ATTEMPTS={{ .Values.waitForKafka.maxAttempts | default 120 }}
+              SLEEP={{ .Values.waitForKafka.sleepSeconds | default 5 }}
+              n=0
               echo "[wait-for-kafka] waiting for broker ${BOOTSTRAP}..."
               until kafka-topics --bootstrap-server "${BOOTSTRAP}" --list >/dev/null 2>&1; do
-                echo "[wait-for-kafka] broker not ready, retrying..."
-                sleep 2
+                n=$((n+1))
+                if [ "$n" -ge "$MAX_ATTEMPTS" ]; then
+                  echo "[wait-for-kafka] broker not ready after ${MAX_ATTEMPTS} attempts, giving up"
+                  exit 1
+                fi
+                echo "[wait-for-kafka] broker not ready, retrying (${n}/${MAX_ATTEMPTS})..."
+                sleep "$SLEEP"
               done
               {{- if .Values.waitForKafka.topic }}
+              n=0
               echo "[wait-for-kafka] broker ready, waiting for topic ${TOPIC}..."
               until kafka-topics --bootstrap-server "${BOOTSTRAP}" --list 2>/dev/null | grep -qx "${TOPIC}"; do
-                echo "[wait-for-kafka] topic ${TOPIC} not yet created, retrying..."
-                sleep 2
+                n=$((n+1))
+                if [ "$n" -ge "$MAX_ATTEMPTS" ]; then
+                  echo "[wait-for-kafka] topic ${TOPIC} not ready after ${MAX_ATTEMPTS} attempts, giving up"
+                  exit 1
+                fi
+                echo "[wait-for-kafka] topic ${TOPIC} not yet created, retrying (${n}/${MAX_ATTEMPTS})..."
+                sleep "$SLEEP"
               done
               echo "[wait-for-kafka] topic ${TOPIC} exists, waiting 5s for broker to stabilize..."
               sleep 5

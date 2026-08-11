@@ -403,6 +403,10 @@ agent:
   # va-mcp is off in the agent chart by default; alerts needs it.
   vss-va-mcp:
     enabled: true
+  vss-agent:
+    waitForDependencies:
+      enabled: true
+      waitForMcp: true
 
 # Prometheus + Grafana (K8s port of deploy/docker/services/monitoring).
 # dcgmExporter stays off because the NVIDIA GPU operator already runs

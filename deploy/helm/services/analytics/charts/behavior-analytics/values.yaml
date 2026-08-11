@@ -37,6 +37,8 @@ waitForKafka:
   port: 9092
   topic: ""
   image: confluentinc/cp-kafka:8.3.0
+  maxAttempts: 120
+  sleepSeconds: 5
 
 # Container command (including app entrypoint and --config path).
 command: []
