@@ -321,8 +321,10 @@ Then verify:
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.
 - A service governed by a mounted config file has that config reconciled to the
-  requested capabilities and ingestion mode per its owner contract, not left at a
-  source profile's default.
+  requested capabilities and ingestion mode — e.g. a mounted analytics JSON's
+  live-vs-simulation mode and processor gates must match the request, as
+  env-delta resolution cannot express them — per its owner contract, not left at
+  a source profile's default.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 

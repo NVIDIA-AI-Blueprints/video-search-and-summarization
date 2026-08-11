@@ -26,6 +26,11 @@
   Behavior-Analytics container that produces `mdx-embed-filtered` and
   `mdx-behavior`. Both are in the Search Foundation's service set; do not
   confuse or substitute one for the other.
+- When this container also serves another capability on one shared instance (a
+  combined build), it is the shared **Behavior-Analytics** instance — converge its
+  mounted JSON config per [`behavior-analytics.md`](behavior-analytics.md); its
+  operating mode (`inSimulationMode`, `numWorkersFor*` gates) is not
+  env-expressible.
 
 ## Write-path topic flow
 
