@@ -30,7 +30,7 @@ Packages under the MIT License:
   - konva                    @ ^9.3.22
   - lodash                   @ 4.18.1
   - lucide-react             @ 0.454.0
-  - next                     @ 15.5.15
+  - next                     @ 15.5.23
   - next-auth                @ 4.24.13
   - next-i18next             @ 13.3.0
   - react-konva              @ ^18.2.14
@@ -79,14 +79,14 @@ Packages under the MIT License:
   - dotenv                                @ 17.2.3
   - endent                                @ 2.1.0
   - eslint                                @ 9.39.4
-  - eslint-config-next                    @ 15.5.15
+  - eslint-config-next                    @ 15.5.23
   - gpt-3-encoder                         @ 1.1.4
   - identity-obj-proxy                    @ 3.0.0
   - jest                                  @ 30.3.0
   - jest-environment-jsdom                @ 30.3.0
   - jsdom                                 @ 28.1.0
   - node-fetch                            @ 2.7.0
-  - postcss                               @ 8.5.6
+  - postcss                               @ 8.5.26
   - prettier                              @ 2.8.8
   - prettier-plugin-tailwindcss           @ 0.2.8
   - tailwindcss                           @ 3.4.19
@@ -94,7 +94,7 @@ Packages under the MIT License:
   - turbo                                 @ 2.9.6
   - typescript                            @ 4.9.5
   - whatwg-fetch                          @ 3.6.20
-  - ws                                    @ 8.19.0
+  - ws                                    @ 8.21.3
 
 Packages under the ISC License:
   - idb                      @ 8.0.3
@@ -226,7 +226,7 @@ dependency is dual-licensed (MPL-2.0 OR Apache-2.0); the Apache License, Version
 section above documents the Apache option, and this section reproduces MPL-2.0 in full.
 
 Packages under the Mozilla Public License 2.0:
-  - dompurify                  @ 3.3.3 (transitive via isomorphic-dompurify; dual-licensed MPL-2.0 OR Apache-2.0)
+  - dompurify                  @ 3.4.13 (transitive via isomorphic-dompurify; dual-licensed MPL-2.0 OR Apache-2.0)
 
 Full Mozilla Public License 2.0 Text (same text as in the dompurify package LICENSE file):
 --------------------------------------------------
