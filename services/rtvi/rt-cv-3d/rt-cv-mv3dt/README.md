@@ -17,7 +17,8 @@ container images, and how to build them.
   capture the **same scene moment**, and frames of that moment carry timestamps that
   **agree to within one frame's duration (33 ms at 30 FPS)**, so they bucket into the
   same frame interval. Larger skew degrades cross-camera alignment and BEV fusion
-  accuracy.
+  accuracy. For **live RTSP** that correspondence is carried in-band, as an SEI
+  frame ID embedded by the VST proxy — see [§4](#4-add-streams-dynamically-rtsp).
 
 You can feed that footage in one of two ways. The simplest is to point the pipeline at
 **recorded per-camera `.mp4` files**: this needs no streaming server, and
@@ -265,6 +266,30 @@ docker run -d --rm --name vss-rtvi-cv-mv3dt \
 
 *This is the input step for **live RTSP** (`INPUT_MODE=stream`). Skip it when
 testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
+
+> **Live RTSP requires SEI-carrying streams.** The staged DeepStream config sets
+> `extract-sei-sim-time=1` with `attach-sys-ts-as-ntp=0`, so each frame's
+> timestamp is read from `NVDS_CUSTOMMETA` SEI and is never replaced with host
+> time. **Every RTSP source must carry that SEI** — it is what lets MV3DT line
+> frames up across cameras. If it is missing, streams register successfully and
+> `ds-ready` reports `YES`, but no source ever activates and no `mdx-raw`
+> metadata is produced.
+>
+> In this deployment the VST proxy injects it (its upstream NVStreamer sources do
+> not: VST unifies their SEI). A source that does not go through VST must supply
+> `NVDS_CUSTOMMETA` SEI itself.
+>
+> `scripts/add-streams.sh` checks this before registering anything and refuses
+> with the remedy. To fix it, set `"enable_proxy_server_sei_metadata": true` in
+> both the VST and NVStreamer `vst_config.json` your deployment uses, redeploy,
+> then confirm inside the containers:
+>
+> ```bash
+> docker exec nvstreamer-1 sh -lc \
+>   'grep -n enable_proxy_server_sei_metadata /home/vst/vst_release/configs/vst_config.json'
+> docker exec streamprocessing-ms-1 sh -lc \
+>   'grep -n enable_proxy_server_sei_metadata /home/vst/vst_release/configs/vst_config.json'
+> ```
 
 Register your RTSP streams via the perception REST API — one
 `<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.

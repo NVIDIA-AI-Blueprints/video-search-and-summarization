@@ -35,6 +35,7 @@
 #   --ds-port P        perception REST port      (default: $DS_HTTP_PORT or 9000)
 #   --delay S          seconds between adds      (default: 1)
 #   --no-url-check     skip the pre-add RTSP reachability check
+#   --no-sei-check     skip the VST SEI frame-ID prerequisite check
 #   --activation-timeout S  wait for added streams to produce frames (default: 60;
 #                      0 disables). A stream the server accepts but never decodes
 #                      is reported as inactive.
@@ -53,6 +54,10 @@ ACTIVATION_TIMEOUT="${ACTIVATION_TIMEOUT:-60}"
 # Seconds to wait for a TCP connection to an RTSP endpoint before adding it.
 # 0 disables the pre-add reachability check.
 RTSP_PROBE_TIMEOUT="${RTSP_PROBE_TIMEOUT:-2}"
+# VST management API, used to confirm the proxy emits SEI frame IDs before
+# streams are registered. Port is VST's http_port; host is taken from the RTSP
+# URLs. Set VST_HTTP_PORT=0 or pass --no-sei-check to skip.
+VST_HTTP_PORT="${VST_HTTP_PORT:-30000}"
 
 STREAMS=()
 MODE=add
@@ -71,6 +76,7 @@ while (($#)); do
     --ready-timeout)  READY_TIMEOUT="$2"; shift 2 ;;
     --activation-timeout) ACTIVATION_TIMEOUT="$2"; shift 2 ;;
     --no-url-check)   RTSP_PROBE_TIMEOUT=0; shift ;;
+    --no-sei-check)   VST_HTTP_PORT=0; shift ;;
     -h|--help)        usage 0 ;;
     *=*)              STREAMS+=("$1"); shift ;;
     *) if [[ "$MODE" == remove ]]; then STREAMS+=("$1"); shift; else echo "Unknown arg: $1" >&2; usage 2; fi ;;
@@ -569,7 +575,65 @@ except Exception as exc:
 '
 }
 
+# With INPUT_MODE=stream every RTSP source must carry NVDS_CUSTOMMETA SEI: the
+# staged DeepStream config sets extract-sei-sim-time=1 with
+# attach-sys-ts-as-ntp=0, so frame timestamps come from the SEI. File input is
+# staged the other way round (SEI extraction off, attach-sys-ts-as-ntp=1) and
+# takes them from the host clock, so this prerequisite is specific to the live
+# stream path, not to MV3DT as such.
+# In this deployment the VST proxy is what injects that SEI. With
+# "enable_proxy_server_sei_metadata": false the proxy serves video without it,
+# and the perception service accepts every stream but never activates any
+# source -- no bbox, no mdx-raw. That misconfiguration is invisible from the
+# perception side, so ask VST directly before registering anything.
+#
+# VST exposes it at GET /api/v1/proxy/configuration on its http_port as
+# "enableProxyServerFrameIdSupport". Fails open: deployments that feed RTSP
+# from cameras rather than a VST proxy have no such endpoint, and must not be
+# blocked by a check that cannot apply to them.
+check_sei_frame_ids() {  # $1=an rtsp:// url the streams will come from
+  [[ "$VST_HTTP_PORT" =~ ^[0-9]+$ ]] || return 0
+  (( VST_HTTP_PORT > 0 )) || return 0
+
+  local host payload enabled
+  host="${1#rtsp://}"; host="${host%%/*}"; host="${host%%:*}"
+  [[ -n "$host" ]] || return 0
+
+  payload="$(curl -fsS --max-time 3 --connect-timeout 2 \
+             "http://${host}:${VST_HTTP_PORT}/api/v1/proxy/configuration" 2>/dev/null)" || return 0
+
+  enabled="$(printf '%s' "$payload" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+v = d.get("enableProxyServerFrameIdSupport")
+if isinstance(v, bool):
+    print("true" if v else "false")
+' 2>/dev/null)"
+
+  [[ "$enabled" == "false" ]] || return 0
+
+  echo "ERROR: the VST proxy at ${host}:${VST_HTTP_PORT} is not emitting SEI frame IDs" >&2
+  echo "       (enableProxyServerFrameIdSupport=false)." >&2
+  echo "       MV3DT stamps frames from the host clock or from NVDS_CUSTOMMETA SEI," >&2
+  echo "       depending on the input mode. This deployment is staged for live streams" >&2
+  echo "       (extract-sei-sim-time=1 with attach-sys-ts-as-ntp=0), so the SEI is required" >&2
+  echo "       and there is no host-time fallback: the streams would be accepted, ds-ready" >&2
+  echo "       would report YES, and no source would ever activate -- no bbox in the OSD" >&2
+  echo "       and no mdx-raw metadata." >&2
+  echo >&2
+  echo "       Set \"enable_proxy_server_sei_metadata\": true in the VST and NVStreamer" >&2
+  echo "       vst_config.json your deployment uses, redeploy, and confirm inside the" >&2
+  echo "       containers (see README section 4). Pass --no-sei-check to override." >&2
+  echo "       A source that is not proxied by VST must carry NVDS_CUSTOMMETA SEI itself." >&2
+  return 1
+}
+
 # ── 1. Wait for the perception REST API ─────────────────────────────────────
+check_sei_frame_ids "${STREAMS[0]#*=}" || exit 2
+
 echo "── Waiting up to ${READY_TIMEOUT}s for ${BASE}/api/v1/ready → ds-ready: YES"
 deadline=$(( SECONDS + READY_TIMEOUT ))
 state=""
