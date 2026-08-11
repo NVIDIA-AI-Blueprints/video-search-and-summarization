@@ -23,9 +23,8 @@ name: CI
       - "pull-request/[0-9]+"
 
 concurrency:
-  # Preserve every delivery run on develop/main. A later merge must not cancel
-  # an in-flight SDU handoff before internal CI can publish it. Synthetic PR
-  # mirror branches still cancel stale runs after a newer PR revision arrives.
+  # Preserve every delivery run on develop/main. Synthetic PR mirror branches
+  # still cancel stale runs after a newer PR revision arrives.
   group: >-
     ${{ github.workflow }}-${{
       startsWith(github.ref_name, 'pull-request/') && github.ref || github.run_id
@@ -55,9 +54,7 @@ jobs:
       build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
       current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
       current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
-      spatialai-data-utils-changed: ${{ steps.changed-paths.outputs.spatialai-data-utils-changed }}
       trigger-from-src-change: ${{ steps.changed-paths.outputs.trigger-from-src-change }}
-      spatialai-data-utils-tree-sha: ${{ steps.changed-paths.outputs.spatialai-data-utils-tree-sha }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -76,8 +73,6 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
-          import re
-          import subprocess
           import sys
           from pathlib import Path
 
@@ -109,32 +104,16 @@ jobs:
           )
           paths = changed_paths(repo, base) if base else None
           if base and paths is None:
-              reason += "; diff failed; running Spatial AI Data Utils CI and downstream"
+              reason += "; diff failed; running downstream acceptance"
 
-          source_path = "libs/analytics/spatialai-data-utils"
-          changed = paths_changed_under(paths, source_path)
-          tree_sha = subprocess.check_output(
-              ["git", "rev-parse", f"HEAD:{source_path}"],
-              text=True,
-          ).strip()
-          if not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
-              raise RuntimeError(f"invalid Spatial AI source tree SHA: {tree_sha!r}")
           trigger_from_src = any(
               paths_changed_under(paths, folder)
               for folder in DOWNSTREAM_TRIGGER_PATHS
           )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(
-                  f"spatialai-data-utils-changed={str(changed).lower()}\n"
-              )
-              output.write(
                   f"trigger-from-src-change={str(trigger_from_src).lower()}\n"
               )
-              output.write(f"spatialai-data-utils-tree-sha={tree_sha}\n")
-          print(
-              f"Spatial AI Data Utils changed: {changed}; "
-              f"tree: {tree_sha} ({reason})"
-          )
           print(f"Downstream trigger from source: {trigger_from_src} ({reason})")
           PY
 
@@ -659,121 +638,7 @@ jobs:
           path: services/analytics/video-analytics-api/test/coverage/
 
   # ---------------------------------------------------------------------------
-  # Job 5c: Spatial AI Data Utils tests and package build
-  # ---------------------------------------------------------------------------
-  spatialai-data-utils-test:
-    name: Test (Spatial AI Data Utils)
-    needs: prepare-source
-    if: needs.prepare-source.outputs.spatialai-data-utils-changed == 'true'
-    outputs:
-      package-version-suffix: ${{ steps.package-version.outputs.suffix }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    defaults:
-      run:
-        working-directory: libs/analytics/spatialai-data-utils
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        working-directory: ${{ github.workspace }}
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          rm -rf .source-artifact
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: "3.13"
-
-      - name: Install system build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends g++ git
-
-      - name: Install hash-locked Python dependencies
-        run: |
-          python -m pip install --upgrade \
-            "pip==26.1.2" \
-            "pipenv==2026.6.2" \
-            "setuptools==82.0.1" \
-            "wheel==0.47.0"
-          python -m pip install \
-            "meson-python==0.20.0" \
-            "ninja==1.11.1.1" \
-            "Cython==3.0.12"
-          pipenv requirements --dev --hash > .ci-requirements.txt
-          python -m pip install \
-            --require-hashes \
-            --no-deps \
-            --no-cache-dir \
-            -r .ci-requirements.txt
-          python -m pip install "pytest==9.0.3" "pytest-cov==7.1.0"
-
-      - name: Install CPU-only PyTorch and PyTorch3D
-        run: |
-          python -m pip install \
-            --no-cache-dir \
-            "torch==2.10.0+cpu" \
-            --extra-index-url https://download.pytorch.org/whl/cpu
-          git clone --filter=blob:none https://github.com/facebookresearch/pytorch3d.git /tmp/vss-spatialai-pytorch3d
-          git -C /tmp/vss-spatialai-pytorch3d checkout 33824be
-          MAX_JOBS=4 FORCE_CUDA=0 python -m pip install \
-            --no-build-isolation \
-            /tmp/vss-spatialai-pytorch3d
-
-      - name: Install Spatial AI Data Utils test extras
-        run: python -m pip install --no-build-isolation -e './release[eval,viz]'
-
-      - name: Run tests with coverage
-        run: |
-          mkdir -p tests/coverage
-          pytest tests/ -v \
-            --junitxml=tests/coverage/test-results.xml \
-            --cov=spatialai_data_utils \
-            --cov-report=html:tests/coverage \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
-
-      - name: Compute development package version
-        id: package-version
-        run: |
-          short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
-          tree_sha="${{ needs.prepare-source.outputs.spatialai-data-utils-tree-sha }}"
-          suffix=".dev${GITHUB_RUN_NUMBER}+t${tree_sha}.g${short_sha}.gh.r${GITHUB_RUN_ATTEMPT}"
-          echo "suffix=${suffix}" >> "$GITHUB_OUTPUT"
-          echo "Spatial AI Data Utils version suffix: ${suffix}"
-
-      - name: Build and validate development package
-        env:
-          VERSION_SUFFIX: ${{ steps.package-version.outputs.suffix }}
-        run: |
-          python -m pip install "twine==6.2.0"
-          cd release
-          python setup.py sdist bdist_wheel
-          python -m twine check dist/*
-
-      - name: Upload test and coverage reports
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        if: always()
-        with:
-          name: spatialai-data-utils-test-reports
-          path: |
-            libs/analytics/spatialai-data-utils/tests/coverage/
-            libs/analytics/spatialai-data-utils/coverage.xml
-
-      - name: Upload Python package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: spatialai-data-utils-python-package
-          path: libs/analytics/spatialai-data-utils/release/dist/
-
-  # ---------------------------------------------------------------------------
-  # Job 5d: Behavior analytics Docker Compose integration test
+  # Job 5c: Behavior analytics Docker Compose integration test
   # ---------------------------------------------------------------------------
   behavior-analytics-integration-test:
     name: Integration (behavior analytics)
@@ -821,7 +686,7 @@ jobs:
           ./test.sh warehouse_2d kafka prod
 
   # ---------------------------------------------------------------------------
-  # Job 5f: Video analytics API Docker Compose integration test
+  # Job 5d: Video analytics API Docker Compose integration test
   # ---------------------------------------------------------------------------
   video-analytics-api-integration-test:
     name: Integration (video analytics API)
@@ -1414,24 +1279,14 @@ jobs:
   # exact artifact to the downstream trigger job.
   wait-for-build-dev-images:
     name: Wait for Build Dev Images
-    needs:
-      - prepare-source
-      - spatialai-data-utils-test
-    if: >-
-      always() &&
-      needs.prepare-source.result == 'success' &&
-      (needs.spatialai-data-utils-test.result == 'success' ||
-       needs.spatialai-data-utils-test.result == 'skipped')
+    needs: prepare-source
+    if: needs.prepare-source.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 140
     outputs:
       trigger-from-new-image: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
       has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
       run-downstream: ${{ steps.release-set.outputs.run_downstream }}
-      build-type: ${{ steps.release-set.outputs.build_type }}
-      publish-spatialai-data-utils: ${{ steps.release-set.outputs.publish_spatialai_data_utils }}
-      spatialai-package-version-suffix: ${{ steps.release-set.outputs.spatialai_package_version_suffix }}
-      spatialai-data-utils-tree-sha: ${{ steps.release-set.outputs.spatialai_data_utils_tree_sha }}
     permissions:
       actions: read
       contents: read
@@ -1450,20 +1305,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          suffix="${{ needs.spatialai-data-utils-test.outputs.package-version-suffix }}"
-          if [[ -z "${suffix}" ]]; then
-            tree_sha="${{ needs.prepare-source.outputs.spatialai-data-utils-tree-sha }}"
-            short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
-            suffix=".dev${GITHUB_RUN_NUMBER}+t${tree_sha}.g${short_sha}.gh.r${GITHUB_RUN_ATTEMPT}"
-          fi
           python3 .github/scripts/prepare_downstream_release_set.py \
             --attempts 520 \
             --interval-seconds 15 \
             --repo-root . \
             --before "${{ github.event.before }}" \
-            --spatialai-package-version-suffix "${suffix}" \
-            --spatialai-data-utils-tree-sha \
-              "${{ needs.prepare-source.outputs.spatialai-data-utils-tree-sha }}" \
             --release-set-output downstream-release-set.json
 
       - name: Upload downstream release-set handoff
@@ -1497,11 +1343,6 @@ jobs:
       - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
-    # Do not use success() here. wait-for-build-dev-images deliberately uses
-    # always() to survive a skipped, path-gated Spatial AI Data Utils test, but
-    # success() still inherits that transitive skip and would silently disable
-    # every downstream acceptance run where SDU did not change. Check only this
-    # job's direct dependencies, then apply the gate prepared by the wait job.
     if: >-
       !cancelled() &&
       !contains(needs.*.result, 'failure') &&
@@ -1553,14 +1394,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .github/scripts/prepare_downstream_release_set.py \
-            --release-set .downstream-release-set/downstream-release-set.json \
-            --publish-spatialai-data-utils \
-              "${{ needs.wait-for-build-dev-images.outputs.publish-spatialai-data-utils }}" \
-            --spatialai-package-version-suffix \
-              "${{ needs.wait-for-build-dev-images.outputs.spatialai-package-version-suffix }}" \
-            --spatialai-data-utils-tree-sha \
-              "${{ needs.wait-for-build-dev-images.outputs.spatialai-data-utils-tree-sha }}" \
-            --build-type "${{ needs.wait-for-build-dev-images.outputs.build-type }}"
+            --release-set .downstream-release-set/downstream-release-set.json
 
       - name: Trigger pipeline
         id: trigger
