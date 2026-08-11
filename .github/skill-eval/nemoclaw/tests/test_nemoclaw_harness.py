@@ -281,7 +281,11 @@ class WorkflowScopeTests(unittest.TestCase):
         source = (
             REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("uv venv --python 3.12", source)
+        self.assertIn(
+            "uv python install --reinstall --force --no-cache 3.12",
+            source,
+        )
+        self.assertIn("uv venv --managed-python --python 3.12", source)
         self.assertNotIn("python3 -m venv", source)
 
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
