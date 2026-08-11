@@ -118,6 +118,18 @@
       "tag_variables": ["RTVI_EMBED_TAG"]
     },
     {
+      "name": "vss-rt-cv",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/rtvi/rt-cv",
+      "context": "services/rtvi/rt-cv",
+      "dockerfile": "services/rtvi/rt-cv/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-rt-cv"],
+      "tag_variables": ["VSS_RT_CV_TAG"],
+      "notes": "Built by GitHub with the managed first-party image set. WORKAROUND: docker/Dockerfile builds on the public DeepStream SDK, not the private nvstaging vss-rt-cv base, which needs NGC credentials GitHub Actions does not have. The result is a valid build artifact but does not yet carry the models/engines/configs the NGC image ships; see the header of that Dockerfile. The sbsa variant is not part of this multiarch entry."
+    },
+    {
       "name": "vss-vios-nvstreamer",
       "strategy": "mirror",
       "platforms": ["linux/amd64", "linux/arm64"],
@@ -165,13 +177,6 @@
       "platforms": ["linux/amd64"],
       "compose_image_names": ["vss-video-analytics-ui"],
       "tag_variables": ["VIDEO_ANALYTICS_UI_IMAGE_TAG"]
-    },
-    {
-      "name": "vss-rt-cv",
-      "strategy": "external-pin",
-      "platforms": ["linux/amd64"],
-      "compose_image_names": ["vss-rt-cv"],
-      "tag_variables": ["PERCEPTION_TAG"]
     },
     {
       "name": "vss-rt-cv-mv3dt-bev-fusion",
