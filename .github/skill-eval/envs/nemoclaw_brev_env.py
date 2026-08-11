@@ -87,8 +87,12 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 # Some Brev images still default to Python 3.10, while the current notebook
 # helpers use StrEnum. Run the notebook with the repo's CI Python contract.
+# Reinstall without uv's download cache because warm workers can retain a
+# partially written managed interpreter after an interrupted prior setup.
 timeout --signal=TERM --kill-after=30 600s \
-  uv venv --python 3.12 --clear "$venv"
+  uv python install --reinstall --force --no-cache 3.12
+timeout --signal=TERM --kill-after=30 600s \
+  uv venv --managed-python --python 3.12 --clear "$venv"
 timeout --signal=TERM --kill-after=30 600s \
   uv pip install --python "$venv/bin/python" \
     nbformat nbclient ipykernel
