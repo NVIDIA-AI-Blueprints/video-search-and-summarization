@@ -202,6 +202,9 @@ spec:
       annotations:
         scripts-configmap: {{ include "vss-rtvi-cv.scriptsConfigMapName" . | quote }}
     spec:
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName | quote }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
