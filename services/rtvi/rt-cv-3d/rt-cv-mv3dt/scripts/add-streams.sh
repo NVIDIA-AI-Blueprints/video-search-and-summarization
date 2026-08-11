@@ -94,6 +94,7 @@ show_stream_info() {
     return 1
   fi
 
+  STREAM_INFO_JSON="$(<"$tmp")"
   if ! python3 -c '
 import json, sys
 try:
@@ -111,6 +112,116 @@ for s in info.get("stream-info", []):
   fi
 
   rm -f "$tmp"
+}
+
+show_registration_progress() {  # args: camera IDs known to have been added in this run.
+  local payload
+  if [[ -n "$STREAM_INFO_JSON" ]]; then
+    payload="$STREAM_INFO_JSON"
+  elif ! payload="$(curl -fsS --max-time 5 --connect-timeout 3 \
+                    "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null)"; then
+    return 0
+  else
+    STREAM_INFO_JSON="$payload"
+  fi
+
+  STREAM_INFO_PAYLOAD="$payload" NUM_CAMS_VALUE="${NUM_CAMS:-}" \
+  python3 - "$ROOT" "$@" <<'PY' || true
+import glob, json, os, sys
+
+root, known_registered = sys.argv[1], sys.argv[2:]
+
+
+def parse_int(value, minimum):
+    try:
+        value = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value >= minimum else None
+
+
+def unique(items):
+    result, seen = [], set()
+    for item in items:
+        if item not in seen:
+            result.append(item)
+            seen.add(item)
+    return result
+
+
+def configured_camera_ids():
+    generated = os.path.join(root, "generated")
+    tracker = os.path.join(generated, "configs", "ds-mv3dt-tracker-config.yml")
+    try:
+        import yaml
+        with open(tracker, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        models = data.get("ObjectModelProjection", {}).get("cameraModelFilepath", {})
+        if isinstance(models, dict) and models:
+            return unique(str(camera_id) for camera_id in models)
+    except Exception:
+        pass
+
+    patterns = (
+        os.path.join(generated, "camInfo", "*.yml"),
+        os.path.join(generated, "camInfo", "*.yaml"),
+    )
+    return unique(
+        os.path.splitext(os.path.basename(path))[0]
+        for pattern in patterns
+        for path in sorted(glob.glob(pattern))
+    )
+
+
+try:
+    info = json.loads(os.environ.get("STREAM_INFO_PAYLOAD", "")).get("stream-info", {})
+except (AttributeError, json.JSONDecodeError):
+    sys.exit(0)
+if not isinstance(info, dict):
+    sys.exit(0)
+
+streams = info.get("stream-info", [])
+streams = streams if isinstance(streams, list) else []
+registered = parse_int(info.get("stream-count"), 0)
+registered = len(streams) if registered is None else registered
+expected_ids = configured_camera_ids()
+required = parse_int(os.environ.get("NUM_CAMS_VALUE"), 1) or len(expected_ids)
+if not required:
+    sys.exit(0)
+
+expected_ids = expected_ids[:required]
+registered_ids, unnamed_sources = set(), []
+for stream in streams:
+    if not isinstance(stream, dict):
+        continue
+    camera_id = stream.get("camera_id")
+    if isinstance(camera_id, str) and camera_id:
+        registered_ids.add(camera_id)
+    else:
+        unnamed_sources.append(parse_int(stream.get("source_id"), 0))
+
+for camera_id in known_registered:
+    if len(registered_ids) >= registered:
+        break
+    registered_ids.add(camera_id)
+for source_id in unnamed_sources:
+    if len(registered_ids) >= registered:
+        break
+    if source_id is not None and source_id < len(expected_ids):
+        registered_ids.add(expected_ids[source_id])
+
+missing = [camera_id for camera_id in expected_ids if camera_id not in registered_ids]
+remaining = max(required - registered, 0)
+
+print(f"Registered streams: {registered}/{required}")
+if registered < required:
+    print(f"INFO: MV3DT requires {required} streams.")
+    if missing:
+        print("Waiting for: " + ", ".join(missing))
+    elif remaining:
+        suffix = "stream" if remaining == 1 else "streams"
+        print(f"Waiting for {remaining} additional {suffix}.")
+PY
 }
 
 lookup_stream_url() {  # $1=camera_id; prints URL when stream-info includes one.
@@ -310,6 +421,7 @@ print(json.dumps({
   fi
   if [[ "$code" == "200" || "$code" == "201" ]]; then
     echo "   ✓ HTTP ${code}  $(grep -o '"reason" *: *"[^"]*"' "$tmp" | head -1 | tr -s ' ')"
+    STREAM_INFO_JSON=""
     rm -f "$tmp"; return 0
   fi
   if [[ "$code" == "000" ]]; then
@@ -331,6 +443,7 @@ print(json.dumps({
 # ── --list mode ──────────────────────────────────────────────────────────────
 if (( LIST )); then
   if show_stream_info; then
+    show_registration_progress
     exit 0
   fi
   exit 1
@@ -419,6 +532,7 @@ grep -q '"YES"' <<< "$state" || { echo "ERROR: perception never reported ready" 
 # ── 2. Add each stream ───────────────────────────────────────────────────────
 echo "── Adding ${#STREAMS[@]} stream(s) (delay=${DELAY}s)"
 idx=0
+ADDED_CAMS=()
 for entry in "${STREAMS[@]}"; do
   cam="${entry%%=*}"
   url="${entry#*=}"
@@ -431,6 +545,8 @@ for entry in "${STREAMS[@]}"; do
   echo "                       url=${url}"
   validate_camera_configured "$cam" || exit 2
   post_sensor "$cam" "$url" camera_add || exit 2
+  ADDED_CAMS+=("$cam")
+  show_registration_progress "${ADDED_CAMS[@]}"
   idx=$((idx + 1))
   (( idx < ${#STREAMS[@]} )) && sleep "$DELAY"
 done
