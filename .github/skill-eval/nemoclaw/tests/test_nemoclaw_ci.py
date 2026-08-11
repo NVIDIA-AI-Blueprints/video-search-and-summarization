@@ -12571,6 +12571,80 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn('expected_skill = "vss-ask-video"', task_toml)
         self.assertIn("vss_orchestrator__docker_status", task_toml)
 
+    def test_scenario_discovery_isolates_task_wrapper_failures(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            spec_path = root / "base_profile_video_understanding.json"
+            broken_task = root / "generated" / "broken-task"
+            conflicting_task = root / "generated" / "conflicting-task"
+            valid_task = root / "generated" / "valid-task"
+            expected = smoke_runner.NemoClawScenario(
+                skill="vss-ask-video",
+                spec_name=spec_path.stem,
+                spec_path=spec_path,
+                platform="RTXPRO6000BW",
+                gpu_count=1,
+                task_dir=valid_task,
+                harbor_path=valid_task.parent,
+                task_name=valid_task.name,
+                deployment_profile="base",
+            )
+
+            def wrap_task(**kwargs):
+                if kwargs["task_dir"] == broken_task:
+                    raise FileNotFoundError("missing instruction.md")
+                if kwargs["task_dir"] == conflicting_task:
+                    raise RuntimeError("GPU resource boundary mismatch")
+                return expected
+
+            with (
+                mock.patch.object(
+                    smoke_runner,
+                    "_selected_specs",
+                    return_value=(
+                        [
+                            (
+                                "vss-ask-video",
+                                spec_path,
+                                ["RTXPRO6000BW"],
+                            )
+                        ],
+                        [],
+                    ),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_run_adapter",
+                    return_value=[broken_task, conflicting_task, valid_task],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_wrap_task_for_nemoclaw",
+                    side_effect=wrap_task,
+                ) as wrapper,
+            ):
+                scenarios, blockers = smoke_runner._discover_scenarios(
+                    skills_filter="vss-ask-video",
+                    profile_filter=None,
+                    platform_filter=None,
+                    spec_filter=None,
+                    dataset_root=root / "dataset",
+                )
+
+        self.assertEqual(scenarios, [expected])
+        self.assertEqual(wrapper.call_count, 3)
+        self.assertEqual(
+            blockers,
+            [
+                "vss-ask-video/base_profile_video_understanding.json/"
+                "RTXPRO6000BW/broken-task: NemoClaw task wrapping failed: "
+                "FileNotFoundError: missing instruction.md",
+                "vss-ask-video/base_profile_video_understanding.json/"
+                "RTXPRO6000BW/conflicting-task: NemoClaw task wrapping failed: "
+                "RuntimeError: GPU resource boundary mismatch",
+            ],
+        )
+
     def test_managed_brev_storage_contract_preserves_local_model_placement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

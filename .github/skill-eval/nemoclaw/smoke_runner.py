@@ -1163,14 +1163,21 @@ def _discover_scenarios(
             if task_limit and task_limit > 0:
                 task_dirs = task_dirs[:task_limit]
             for task_dir in task_dirs:
-                scenarios.append(
-                    _wrap_task_for_nemoclaw(
+                try:
+                    scenario = _wrap_task_for_nemoclaw(
                         task_dir=task_dir,
                         skill=skill,
                         spec_path=spec_path,
                         platform=platform,
                     )
-                )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    blockers.append(
+                        f"{skill}/{spec_path.name}/{platform}/{task_dir.name}: "
+                        "NemoClaw task wrapping failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    continue
+                scenarios.append(scenario)
     return scenarios, blockers
 
 
