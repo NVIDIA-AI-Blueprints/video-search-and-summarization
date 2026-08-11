@@ -240,7 +240,7 @@ class WorkflowSeparationTest(unittest.TestCase):
         self.assertIn("name: Spatial AI Data Utils", sdu)
         self.assertIn("name: Gate", sdu)
         self.assertIn("GITHUB_RUN_ID", sdu)
-        self.assertIn("DOWNSTREAM_REF: spatialai-publisher", sdu)
+        self.assertIn("DOWNSTREAM_REF: main", sdu)
         self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
 
     def test_release_set_preparation_has_no_sdu_transport(self):
