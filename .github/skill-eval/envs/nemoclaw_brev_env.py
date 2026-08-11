@@ -79,9 +79,19 @@ scratch=/tmp/skill-eval/nemoclaw
 venv="$scratch/notebook-venv"
 rm -rf "$venv"
 mkdir -p "$scratch"
-python3 -m venv "$venv"
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v uv >/dev/null 2>&1; then
+  timeout --signal=TERM --kill-after=30 300s \
+    sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+# Some Brev images still default to Python 3.10, while the current notebook
+# helpers use StrEnum. Run the notebook with the repo's CI Python contract.
 timeout --signal=TERM --kill-after=30 600s \
-  "$venv/bin/python" -m pip install --quiet nbformat nbclient ipykernel
+  uv venv --python 3.12 --clear "$venv"
+timeout --signal=TERM --kill-after=30 600s \
+  uv pip install --python "$venv/bin/python" \
+    nbformat nbclient ipykernel
 "$venv/bin/python" -m ipykernel install --user \
   --name nemoclaw-skill-eval --display-name "NemoClaw skill eval"
 export NEMOCLAW_CI_KERNEL=nemoclaw-skill-eval
