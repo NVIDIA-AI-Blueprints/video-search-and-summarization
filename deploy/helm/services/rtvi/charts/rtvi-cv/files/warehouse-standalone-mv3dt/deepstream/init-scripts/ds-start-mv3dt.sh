@@ -183,44 +183,99 @@ GENERATED_DIR="/tmp/generated"
 mkdir -p "${GENERATED_DIR}"
 PUB_SUB_OUT="${GENERATED_DIR}/pub_sub_info_config.yml"
 
-echo "Generating MQTT pub/sub config..."
-PROVIDED_PUB_SUB=""
-for candidate in "${CONFIG_DIR}/pub_sub_info_config.yml"; do
-  [ -f "${candidate}" ] && PROVIDED_PUB_SUB="${candidate}" && break
-done
-
-if [ -n "${PROVIDED_PUB_SUB}" ]; then
-  echo "Using provided pub/sub config: ${PROVIDED_PUB_SUB} (rewriting host:port to ${MQTT_ENDPOINT})"
-  sed -E "s|[^[:space:];]+:[0-9]+;|${MQTT_ENDPOINT};|g" "${PROVIDED_PUB_SUB}" > "${PUB_SUB_OUT}"
+echo "Resolving MQTT pub/sub config..."
+if [ -f "${PUB_SUB_OUT}" ]; then
+  # config-init already wrote it with MQTT host:port baked in
+  echo "Using generated pub/sub config: ${PUB_SUB_OUT}"
 else
-  mapfile -t CAM_NAMES < <(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; basename "${f}" .yml; done | sort -V)
-  [ ${#CAM_NAMES[@]} -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }
+  PROVIDED_PUB_SUB=""
+  for candidate in "${CONFIG_DIR}/pub_sub_info_config.yml"; do
+    [ -f "${candidate}" ] && PROVIDED_PUB_SUB="${candidate}" && break
+  done
 
-  {
-    echo "pubBrokerTopicStr:"
-    for cam in "${CAM_NAMES[@]}"; do
-      echo "  ${cam}: ${MQTT_ENDPOINT};/trck/${cam}"
-    done
-    echo "subPeerBrokerTopicStrs:"
-    for cam in "${CAM_NAMES[@]}"; do
-      echo "  ${cam}:"
-      for peer in "${CAM_NAMES[@]}"; do
-        [ "${peer}" != "${cam}" ] && echo "  - ${MQTT_ENDPOINT};/trck/${peer}"
+  if [ -n "${PROVIDED_PUB_SUB}" ]; then
+    echo "Using provided pub/sub config: ${PROVIDED_PUB_SUB} (rewriting host:port to ${MQTT_ENDPOINT})"
+    sed -E "s|[^[:space:];]+:[0-9]+;|${MQTT_ENDPOINT};|g" "${PROVIDED_PUB_SUB}" > "${PUB_SUB_OUT}"
+  else
+    mapfile -t CAM_NAMES < <(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; basename "${f}" .yml; done | sort -V)
+    [ ${#CAM_NAMES[@]} -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }
+
+    {
+      echo "pubBrokerTopicStr:"
+      for cam in "${CAM_NAMES[@]}"; do
+        echo "  ${cam}: ${MQTT_ENDPOINT};/trck/${cam}"
       done
-    done
-  } > "${PUB_SUB_OUT}"
+      echo "subPeerBrokerTopicStrs:"
+      for cam in "${CAM_NAMES[@]}"; do
+        echo "  ${cam}:"
+        for peer in "${CAM_NAMES[@]}"; do
+          [ "${peer}" != "${cam}" ] && echo "  - ${MQTT_ENDPOINT};/trck/${peer}"
+        done
+      done
+    } > "${PUB_SUB_OUT}"
+  fi
 fi
 
 echo -e "\nPub/sub config:"
 cat "${PUB_SUB_OUT}"
 
+# Select the main config for the active stream type.
+if [ "${STREAM_TYPE}" = "redis" ]; then
+  MAIN_BASENAME="ds-main-redis-config-mv3dt.txt"
+else
+  [ "${STREAM_TYPE}" = "kafka" ] || echo "STREAM_TYPE not set or invalid. Defaulting to kafka..."
+  MAIN_BASENAME="ds-main-config-mv3dt.txt"
+fi
+MAIN_CONFIG="${CONFIG_DIR}/${MAIN_BASENAME}"
+TRACKER_EFFECTIVE="${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+
+if [ "${MV3DT_DYNAMIC_CAMERA_CONFIG}" = "true" ]; then
+  NUM_CAMS=$(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; echo x; done | wc -l)
+  [ "${NUM_CAMS}" -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }
+  echo "Dynamic camera config: ${NUM_CAMS} camera(s) from calibration."
+
+  # Camera count is bounded by the DS model engine's max batch size; fail fast
+  # rather than silently drop sources (streammux caps at batch-size).
+  MAX_BATCH=$(grep -oE "^max-batch-size=[0-9]+" "${MAIN_CONFIG}" | head -1 | cut -d= -f2)
+  if [ -n "${MAX_BATCH}" ] && [ "${NUM_CAMS}" -gt "${MAX_BATCH}" ]; then
+    echo "ERROR: calibration has ${NUM_CAMS} cameras but DS max-batch-size is ${MAX_BATCH}."
+    echo "       Rebuild the model engine for >= ${NUM_CAMS} cameras or reduce the calibration."
+    exit 1
+  fi
+
+  # Rebuild the tracker cameraModelFilepath map (sensor ids come from calibration).
+  # ll-config-file points at this writable copy when dynamic config is enabled.
+  # Only cameraModelFilepath changes; pubSubInfoConfigPath is absolute and
+  # mqttProtoAdaptorConfigPath is cwd-relative, so both still resolve. Batch size
+  # is left as configured — it is bounded by the DS model engine, not camera count.
+  TRACKER_EFFECTIVE="${GENERATED_DIR}/ds-mv3dt-tracker-config.yml"
+  CAM_ENTRIES=""
+  while IFS= read -r cam; do
+    CAM_ENTRIES+="    ${cam}: /tmp/camInfo/${cam}.yml"$'\n'
+  done < <(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; basename "${f}" .yml; done | sort -V)
+
+  # Drop the old cameraModelFilepath block up to the next key at 2-space or
+  # top-level indent, then splice in the dynamic entries.
+  awk -v entries="${CAM_ENTRIES}" '
+    /^  cameraModelFilepath:/ { print; printf "%s", entries; inblock=1; next }
+    inblock && /^ ? ?[^ ]/ { inblock=0 }
+    inblock { next }
+    { print }
+  ' "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml" > "${TRACKER_EFFECTIVE}"
+  grep -q "^    .*: /tmp/camInfo/" "${TRACKER_EFFECTIVE}" \
+    || { echo "ERROR: failed to inject cameraModelFilepath entries into ${TRACKER_EFFECTIVE}"; exit 1; }
+
+  echo -e "\nTracker cameraModelFilepath map:"
+  sed -n '/^  cameraModelFilepath:/,/^  [^ ]/p' "${TRACKER_EFFECTIVE}"
+fi
+
 echo -e "\nPGIE config:"
 cat "${CONFIG_DIR}/ds-pgie-config.yml"
 
 echo -e "\nTracker config:"
-cat "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+cat "${TRACKER_EFFECTIVE}"
 
 echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
 echo -e "\nMain config:"
-cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
-exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
+cat "${MAIN_CONFIG}"
+exec_as_runtime_user ./metropolis_perception_app -c "${MAIN_CONFIG}" -m 1 -t 0 -l 5 --message-rate 1
