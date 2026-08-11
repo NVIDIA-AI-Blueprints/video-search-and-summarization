@@ -919,10 +919,14 @@ int stopOnvifDiscovery()
     return 0;
 }
 
-static size_t curlWriteCallback(const char *contents, size_t size, size_t nmemb, std::string *userp)
+// libcurl/librdkafka define this signature; the C ABI requires it verbatim.
+// Narrowing the parameter types makes the call go through an incompatible
+// function-pointer type, which is undefined behaviour even where the
+// pointers happen to be the same width. Cast inside the body instead.
+static size_t curlWriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
     const size_t totalBytes(size * nmemb);
-    userp->append(contents, totalBytes);
+    static_cast<std::string *>(userp)->append(static_cast<const char *>(contents), totalBytes);
     return totalBytes;
 }
 
