@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,6 +40,193 @@ interface ExistingTripwireDisplay {
     wire: TripwireCoordinates;
     direction?: TripwireCoordinates;
 }
+
+type CalibrationSensor = CalibrationData['sensors'][number];
+type CalibrationROI = NonNullable<CalibrationSensor['rois']>[number];
+
+// For image calibration, coordinates might have negative Y values that need transformation
+const toImageCalibrationROICoords = (sensorData: CalibrationSensor, roi: CalibrationROI): CoordinatePoint[] => {
+    const rawCoords = roi.roiCoordinates.map(coord => ({
+        x: coord.x,
+        y: coord.y,
+    }));
+
+    // Check if coordinates need transformation (negative Y values)
+    if (!rawCoords.some(coord => coord.y < 0)) {
+        return rawCoords;
+    }
+
+    // Find frame height from sensor attributes
+    const sensorWithAttrs = sensorData as CalibrationSensor & {
+        attributes?: Array<{ name: string; value: string }>;
+    };
+    const frameHeightAttr = sensorWithAttrs.attributes?.find(attr => attr.name === 'frameHeight');
+    const frameHeight = frameHeightAttr?.value ? parseInt(frameHeightAttr.value, 10) : 1080;
+
+    // Transform coordinates: y = frameHeight + originalY (convert from bottom-left to top-left origin)
+    const imageCoords = rawCoords.map(coord => ({
+        x: coord.x,
+        y: frameHeight + coord.y,
+    }));
+
+    LOG.info('[VST_ANALYTICS_DEBUG] Transformed image calibration ROI coordinates:', {
+        roiId: roi.id,
+        frameHeight,
+        original: rawCoords,
+        transformed: imageCoords,
+    });
+
+    return imageCoords;
+};
+
+type CalibrationTripwire = NonNullable<CalibrationSensor['tripwires']>[number];
+
+interface TripwireImageCoordinates {
+    wire: TripwireCoordinates;
+    direction?: TripwireCoordinates;
+}
+
+const getSensorFrameHeight = (sensorData: CalibrationSensor): number => {
+    const sensorWithAttrs = sensorData as typeof sensorData & {
+        attributes?: Array<{ name: string; value: string }>;
+    };
+    const frameHeightAttr = sensorWithAttrs.attributes?.find(attr => attr.name === 'frameHeight');
+    return frameHeightAttr?.value ? parseInt(frameHeightAttr.value, 10) : 1080;
+};
+
+const toWireCoordinates = (line: TripwireCoordinates): TripwireCoordinates => ({
+    p1: { x: line.p1.x, y: line.p1.y },
+    p2: { x: line.p2.x, y: line.p2.y },
+});
+
+const offsetWireByFrameHeight = (line: TripwireCoordinates, frameHeight: number): TripwireCoordinates => ({
+    p1: { x: line.p1.x, y: frameHeight + line.p1.y },
+    p2: { x: line.p2.x, y: frameHeight + line.p2.y },
+});
+
+// For image calibration, coordinates might have negative Y values that need transformation
+const transformTripwireForImageCalibration = (
+    sensorData: CalibrationSensor,
+    tripwire: CalibrationTripwire
+): TripwireImageCoordinates => {
+    const rawWireCoords = toWireCoordinates(tripwire.wire);
+    const rawDirectionCoords = tripwire.direction ? toWireCoordinates(tripwire.direction) : undefined;
+
+    // Check if coordinates need transformation (negative Y values)
+    const needsTransform = [rawWireCoords.p1, rawWireCoords.p2].some(coord => coord.y < 0);
+    if (!needsTransform) {
+        return { wire: rawWireCoords, direction: rawDirectionCoords };
+    }
+
+    const frameHeight = getSensorFrameHeight(sensorData);
+    const wireImageCoords = offsetWireByFrameHeight(rawWireCoords, frameHeight);
+
+    LOG.info('[VST_ANALYTICS_DEBUG] Transformed image calibration tripwire coordinates:', {
+        tripwireId: tripwire.id,
+        frameHeight,
+        originalWire: rawWireCoords,
+        transformedWire: wireImageCoords,
+    });
+
+    return {
+        wire: wireImageCoords,
+        direction: rawDirectionCoords ? offsetWireByFrameHeight(rawDirectionCoords, frameHeight) : undefined,
+    };
+};
+
+const transformTripwireFor2DCalibration = (
+    sensorData: CalibrationSensor,
+    tripwire: CalibrationTripwire
+): TripwireImageCoordinates | null => {
+    const { imageCoordinates, globalCoordinates } = sensorData;
+    if (!imageCoordinates || !globalCoordinates) {
+        LOG.warn('2D calibration data missing for reverse transformation');
+        return null;
+    }
+
+    const toImageCoords = (line: TripwireCoordinates): TripwireCoordinates => {
+        const transformedPoints = transform2DWorldToImage(
+            [
+                { x: line.p1.x, y: line.p1.y, z: 0 },
+                { x: line.p2.x, y: line.p2.y, z: 0 },
+            ],
+            imageCoordinates,
+            globalCoordinates
+        );
+
+        return { p1: transformedPoints[0], p2: transformedPoints[1] };
+    };
+
+    return {
+        wire: toImageCoords(tripwire.wire),
+        direction: tripwire.direction ? toImageCoords(tripwire.direction) : undefined,
+    };
+};
+
+const transformTripwireFor3DCalibration = (
+    reverseCalibration: ReverseCalibration,
+    sensorId: string,
+    tripwire: CalibrationTripwire
+): TripwireImageCoordinates | null => {
+    const wireImageCoords = reverseCalibration.transformTripwireToImage(
+        {
+            p1: { x: tripwire.wire.p1.x, y: tripwire.wire.p1.y, z: 0 },
+            p2: { x: tripwire.wire.p2.x, y: tripwire.wire.p2.y, z: 0 },
+        },
+        sensorId
+    );
+
+    if (!wireImageCoords) {
+        LOG.warn(`Failed to transform tripwire ${tripwire.id}`);
+        return null;
+    }
+
+    if (!tripwire.direction) {
+        return { wire: wireImageCoords };
+    }
+
+    const directionImageCoords = reverseCalibration.transformTripwireToImage(
+        {
+            p1: { x: tripwire.direction.p1.x, y: tripwire.direction.p1.y, z: 0 },
+            p2: { x: tripwire.direction.p2.x, y: tripwire.direction.p2.y, z: 0 },
+        },
+        sensorId
+    );
+
+    if (!directionImageCoords) {
+        LOG.warn(`Failed to transform tripwire direction ${tripwire.id}`);
+    }
+
+    return { wire: wireImageCoords, direction: directionImageCoords ?? undefined };
+};
+
+const resolveTripwireImageCoordinates = (
+    calibrationData: CalibrationData,
+    sensorData: CalibrationSensor,
+    tripwire: CalibrationTripwire,
+    sensorId: string,
+    reverseCalibration: ReverseCalibration | null
+): TripwireImageCoordinates | null => {
+    // Check calibration type
+    const is2DCalibration = calibrationData.calibrationType === 'cartesian' && !sensorData.homography;
+
+    if (calibrationData.calibrationType === 'image') {
+        return transformTripwireForImageCalibration(sensorData, tripwire);
+    }
+
+    if (is2DCalibration) {
+        // Use 2D reverse transformation
+        return transformTripwireFor2DCalibration(sensorData, tripwire);
+    }
+
+    // Use 3D reverse transformation
+    if (!reverseCalibration) {
+        LOG.warn('Reverse calibration instance not available for 3D transformation');
+        return null;
+    }
+
+    return transformTripwireFor3DCalibration(reverseCalibration, sensorId, tripwire);
+};
 
 export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyticsProps) => {
     // Drawing state
@@ -164,6 +351,66 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
         [sensor, calibrationData, calibrationInstance, enqueueSnackbar]
     );
 
+    const handleROIClick = useCallback(
+        (clickPoint: CoordinatePoint, isDoubleClick: boolean) => {
+            if (isDoubleClick && roiPoints.length >= 3) {
+                // Close the ROI polygon on double-click
+                LOG.info('ROI polygon completed with points:', roiPoints);
+                enqueueSnackbar?.('ROI polygon completed', { variant: 'success' });
+                setDrawingMode('none');
+            } else {
+                // Add new ROI point
+                const newPoints = [...roiPoints, clickPoint];
+                setROIPoints(newPoints);
+            }
+        },
+        [roiPoints, enqueueSnackbar]
+    );
+
+    const handleTripwireLineClick = useCallback(
+        (clickPoint: CoordinatePoint) => {
+            if (!tempTripwireStart) {
+                // If tripwire line already exists, clear it and start new line
+                if (tripwirePoints) {
+                    setTripwirePoints(null);
+                    LOG.info('Cleared existing tripwire line, starting new line');
+                }
+                // First point of new tripwire line
+                setTempTripwireStart(clickPoint);
+            } else {
+                // Second point of tripwire - complete the line
+                const newTripwire = { p1: tempTripwireStart, p2: clickPoint };
+                setTripwirePoints(newTripwire);
+                LOG.info('Tripwire line drawn:', newTripwire);
+                setTempTripwireStart(null);
+                // Stay in tripwire-line mode for continuous editing
+            }
+        },
+        [tempTripwireStart, tripwirePoints]
+    );
+
+    const handleTripwireDirectionClick = useCallback(
+        (clickPoint: CoordinatePoint) => {
+            if (!tempDirectionStart) {
+                // If direction already exists, clear it and start new direction
+                if (directionPoints) {
+                    setDirectionPoints(null);
+                    LOG.info('Cleared existing direction, starting new direction');
+                }
+                // First point of new direction
+                setTempDirectionStart(clickPoint);
+            } else {
+                // Second point of direction - complete the direction
+                const newDirection = { p1: tempDirectionStart, p2: clickPoint };
+                setDirectionPoints(newDirection);
+                LOG.info('Tripwire direction drawn:', newDirection);
+                setTempDirectionStart(null);
+                // Stay in tripwire-direction mode for continuous editing
+            }
+        },
+        [tempDirectionStart, directionPoints]
+    );
+
     // Handle canvas clicks for drawing
     const handleCanvasClick = useCallback(
         (event: React.MouseEvent<HTMLCanvasElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -186,57 +433,19 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
             const currentTime = Date.now();
 
             // Check for double-click
-            const isDoubleClick =
+            const isDoubleClick = !!(
                 currentTime - lastClickTime < 300 &&
                 lastClickPoint &&
                 Math.abs(clickPoint.x - lastClickPoint.x) < 10 &&
-                Math.abs(clickPoint.y - lastClickPoint.y) < 10;
+                Math.abs(clickPoint.y - lastClickPoint.y) < 10
+            );
 
             if (drawingMode === 'roi') {
-                if (isDoubleClick && roiPoints.length >= 3) {
-                    // Close the ROI polygon on double-click
-                    LOG.info('ROI polygon completed with points:', roiPoints);
-                    enqueueSnackbar?.('ROI polygon completed', { variant: 'success' });
-                    setDrawingMode('none');
-                } else {
-                    // Add new ROI point
-                    const newPoints = [...roiPoints, clickPoint];
-                    setROIPoints(newPoints);
-                }
+                handleROIClick(clickPoint, isDoubleClick);
             } else if (drawingMode === 'tripwire-line') {
-                if (!tempTripwireStart) {
-                    // If tripwire line already exists, clear it and start new line
-                    if (tripwirePoints) {
-                        setTripwirePoints(null);
-                        LOG.info('Cleared existing tripwire line, starting new line');
-                    }
-                    // First point of new tripwire line
-                    setTempTripwireStart(clickPoint);
-                } else {
-                    // Second point of tripwire - complete the line
-                    const newTripwire = { p1: tempTripwireStart, p2: clickPoint };
-                    setTripwirePoints(newTripwire);
-                    LOG.info('Tripwire line drawn:', newTripwire);
-                    setTempTripwireStart(null);
-                    // Stay in tripwire-line mode for continuous editing
-                }
+                handleTripwireLineClick(clickPoint);
             } else if (drawingMode === 'tripwire-direction') {
-                if (!tempDirectionStart) {
-                    // If direction already exists, clear it and start new direction
-                    if (directionPoints) {
-                        setDirectionPoints(null);
-                        LOG.info('Cleared existing direction, starting new direction');
-                    }
-                    // First point of new direction
-                    setTempDirectionStart(clickPoint);
-                } else {
-                    // Second point of direction - complete the direction
-                    const newDirection = { p1: tempDirectionStart, p2: clickPoint };
-                    setDirectionPoints(newDirection);
-                    LOG.info('Tripwire direction drawn:', newDirection);
-                    setTempDirectionStart(null);
-                    // Stay in tripwire-direction mode for continuous editing
-                }
+                handleTripwireDirectionClick(clickPoint);
             }
 
             setLastClickTime(currentTime);
@@ -244,14 +453,11 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
         },
         [
             drawingMode,
-            roiPoints,
-            tempTripwireStart,
-            tempDirectionStart,
             lastClickTime,
             lastClickPoint,
-            handleTransformROI,
-            handleTransformTripwire,
-            enqueueSnackbar,
+            handleROIClick,
+            handleTripwireLineClick,
+            handleTripwireDirectionClick,
         ]
     );
 
@@ -466,38 +672,7 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
                     const isImageCalibration = calibrationData.calibrationType === 'image';
 
                     if (isImageCalibration) {
-                        // For image calibration, coordinates might have negative Y values that need transformation
-                        const rawCoords = roi.roiCoordinates.map(coord => ({
-                            x: coord.x,
-                            y: coord.y,
-                        }));
-
-                        // Check if coordinates need transformation (negative Y values)
-                        const needsTransform = rawCoords.some(coord => coord.y < 0);
-
-                        if (needsTransform) {
-                            // Find frame height from sensor attributes
-                            const sensorWithAttrs = sensorData as typeof sensorData & {
-                                attributes?: Array<{ name: string; value: string }>;
-                            };
-                            const frameHeightAttr = sensorWithAttrs.attributes?.find(attr => attr.name === 'frameHeight');
-                            const frameHeight = frameHeightAttr?.value ? parseInt(frameHeightAttr.value, 10) : 1080;
-
-                            // Transform coordinates: y = frameHeight + originalY (convert from bottom-left to top-left origin)
-                            imageCoords = rawCoords.map(coord => ({
-                                x: coord.x,
-                                y: frameHeight + coord.y,
-                            }));
-
-                            LOG.info('[VST_ANALYTICS_DEBUG] Transformed image calibration ROI coordinates:', {
-                                roiId: roi.id,
-                                frameHeight,
-                                original: rawCoords,
-                                transformed: imageCoords,
-                            });
-                        } else {
-                            imageCoords = rawCoords;
-                        }
+                        imageCoords = toImageCalibrationROICoords(sensorData, roi);
                     } else if (is2DCalibration) {
                         // Use 2D reverse transformation
                         if (!sensorData.imageCoordinates || !sensorData.globalCoordinates) {
@@ -558,155 +733,22 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
                 if (!tripwire) return;
 
                 try {
-                    let wireImageCoords: TripwireCoordinates;
-                    let directionImageCoords: TripwireCoordinates | undefined;
+                    const transformed = resolveTripwireImageCoordinates(
+                        calibrationData,
+                        sensorData,
+                        tripwire,
+                        sensor.sensorId,
+                        reverseCalibrationInstance
+                    );
 
-                    // Check calibration type
-                    const is2DCalibration = calibrationData.calibrationType === 'cartesian' && !sensorData.homography;
-                    const isImageCalibration = calibrationData.calibrationType === 'image';
-
-                    if (isImageCalibration) {
-                        // For image calibration, coordinates might have negative Y values that need transformation
-                        const rawWireCoords = {
-                            p1: { x: tripwire.wire.p1.x, y: tripwire.wire.p1.y },
-                            p2: { x: tripwire.wire.p2.x, y: tripwire.wire.p2.y },
-                        };
-
-                        // Check if coordinates need transformation (negative Y values)
-                        const needsTransform = [rawWireCoords.p1, rawWireCoords.p2].some(coord => coord.y < 0);
-
-                        if (needsTransform) {
-                            // Find frame height from sensor attributes
-                            const sensorWithAttrs = sensorData as typeof sensorData & {
-                                attributes?: Array<{ name: string; value: string }>;
-                            };
-                            const frameHeightAttr = sensorWithAttrs.attributes?.find(attr => attr.name === 'frameHeight');
-                            const frameHeight = frameHeightAttr?.value ? parseInt(frameHeightAttr.value, 10) : 1080;
-
-                            // Transform wire coordinates
-                            wireImageCoords = {
-                                p1: { x: rawWireCoords.p1.x, y: frameHeight + rawWireCoords.p1.y },
-                                p2: { x: rawWireCoords.p2.x, y: frameHeight + rawWireCoords.p2.y },
-                            };
-
-                            LOG.info('[VST_ANALYTICS_DEBUG] Transformed image calibration tripwire coordinates:', {
-                                tripwireId: tripwire.id,
-                                frameHeight,
-                                originalWire: rawWireCoords,
-                                transformedWire: wireImageCoords,
-                            });
-                        } else {
-                            wireImageCoords = rawWireCoords;
-                        }
-
-                        // Direction coordinates if available
-                        if (tripwire.direction) {
-                            const rawDirectionCoords = {
-                                p1: { x: tripwire.direction.p1.x, y: tripwire.direction.p1.y },
-                                p2: { x: tripwire.direction.p2.x, y: tripwire.direction.p2.y },
-                            };
-
-                            if (needsTransform) {
-                                const sensorWithAttrs = sensorData as typeof sensorData & {
-                                    attributes?: Array<{ name: string; value: string }>;
-                                };
-                                const frameHeightAttr = sensorWithAttrs.attributes?.find(attr => attr.name === 'frameHeight');
-                                const frameHeight = frameHeightAttr?.value ? parseInt(frameHeightAttr.value, 10) : 1080;
-
-                                directionImageCoords = {
-                                    p1: { x: rawDirectionCoords.p1.x, y: frameHeight + rawDirectionCoords.p1.y },
-                                    p2: { x: rawDirectionCoords.p2.x, y: frameHeight + rawDirectionCoords.p2.y },
-                                };
-                            } else {
-                                directionImageCoords = rawDirectionCoords;
-                            }
-                        }
-                    } else if (is2DCalibration) {
-                        // Use 2D reverse transformation
-                        if (!sensorData.imageCoordinates || !sensorData.globalCoordinates) {
-                            LOG.warn('2D calibration data missing for reverse transformation');
-                            return;
-                        }
-
-                        // Transform wire coordinates
-                        const tripwireWorldPoints = [
-                            { x: tripwire.wire.p1.x, y: tripwire.wire.p1.y, z: 0 },
-                            { x: tripwire.wire.p2.x, y: tripwire.wire.p2.y, z: 0 },
-                        ];
-
-                        const transformedWirePoints = transform2DWorldToImage(
-                            tripwireWorldPoints,
-                            sensorData.imageCoordinates,
-                            sensorData.globalCoordinates
-                        );
-
-                        wireImageCoords = {
-                            p1: transformedWirePoints[0],
-                            p2: transformedWirePoints[1],
-                        };
-
-                        // Transform direction coordinates if available
-                        if (tripwire.direction) {
-                            const directionWorldPoints = [
-                                { x: tripwire.direction.p1.x, y: tripwire.direction.p1.y, z: 0 },
-                                { x: tripwire.direction.p2.x, y: tripwire.direction.p2.y, z: 0 },
-                            ];
-
-                            const transformedDirectionPoints = transform2DWorldToImage(
-                                directionWorldPoints,
-                                sensorData.imageCoordinates,
-                                sensorData.globalCoordinates
-                            );
-
-                            directionImageCoords = {
-                                p1: transformedDirectionPoints[0],
-                                p2: transformedDirectionPoints[1],
-                            };
-                        }
-                    } else {
-                        // Use 3D reverse transformation
-                        if (!reverseCalibrationInstance) {
-                            LOG.warn('Reverse calibration instance not available for 3D transformation');
-                            return;
-                        }
-
-                        const transformedTripwire = reverseCalibrationInstance.transformTripwireToImage(
-                            {
-                                p1: { x: tripwire.wire.p1.x, y: tripwire.wire.p1.y, z: 0 },
-                                p2: { x: tripwire.wire.p2.x, y: tripwire.wire.p2.y, z: 0 },
-                            },
-                            sensor.sensorId
-                        );
-
-                        if (transformedTripwire) {
-                            wireImageCoords = transformedTripwire;
-                        } else {
-                            LOG.warn(`Failed to transform tripwire ${tripwireId}`);
-                            return;
-                        }
-
-                        // Transform direction coordinates if available
-                        if (tripwire.direction) {
-                            const transformedDirection = reverseCalibrationInstance.transformTripwireToImage(
-                                {
-                                    p1: { x: tripwire.direction.p1.x, y: tripwire.direction.p1.y, z: 0 },
-                                    p2: { x: tripwire.direction.p2.x, y: tripwire.direction.p2.y, z: 0 },
-                                },
-                                sensor.sensorId
-                            );
-
-                            if (transformedDirection) {
-                                directionImageCoords = transformedDirection;
-                            } else {
-                                LOG.warn(`Failed to transform tripwire direction ${tripwireId}`);
-                            }
-                        }
+                    if (!transformed) {
+                        return;
                     }
 
                     displayTripwires.push({
                         id: tripwire.id,
-                        wire: wireImageCoords,
-                        direction: directionImageCoords,
+                        wire: transformed.wire,
+                        direction: transformed.direction,
                     });
                 } catch (error) {
                     LOG.error(`Failed to reverse transform Tripwire ${tripwireId}:`, error);
