@@ -1605,17 +1605,15 @@ bool ping(const string& ip)
     {
         return false;
     }
-ping_retry:
-    cmd = string("timeout 1 ping -c1 ") + ip.c_str() + string(" > /dev/null 2>&1");
-    int ret = system(cmd.c_str());
-    if (ret == 0)
+    do
     {
-        return true;
-    }
-    else if (retry-- > 0)
-    {
-        goto ping_retry;
-    }
+        cmd = string("timeout 1 ping -c1 ") + ip.c_str() + string(" > /dev/null 2>&1");
+        int ret = system(cmd.c_str());
+        if (ret == 0)
+        {
+            return true;
+        }
+    } while (retry-- > 0);
     return false;
 }
 

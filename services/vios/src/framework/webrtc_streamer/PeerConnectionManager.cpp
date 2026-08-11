@@ -3475,11 +3475,16 @@ Json::Value PeerConnectionManager::getLocalIceCandidates(shared_ptr<PeerConnecti
     int waitCountForRelayCandidate = 3;
     string peer_id = in.get("peerid", EMPTY_STRING).asString();
 
-retryForRelayCandidate:
     Json::Value local_iceCandidates;
-    peerConnection->post("getIceCandidate", peer_id, in, req_info, local_iceCandidates);
-    if (expectRelayCandidates == true)
+    while (true)
     {
+        local_iceCandidates = Json::Value();
+        peerConnection->post("getIceCandidate", peer_id, in, req_info, local_iceCandidates);
+        if (expectRelayCandidates == false)
+        {
+            break;
+        }
+
         bool isRelayCandidateFound = false;
         for (Json::Value::ArrayIndex i = 0; i != local_iceCandidates.size(); ++i)
         {
@@ -3495,12 +3500,12 @@ retryForRelayCandidate:
                 break;
             }
         }
-        if (isRelayCandidateFound == false && waitCountForRelayCandidate > 0)
+        if (isRelayCandidateFound == true || waitCountForRelayCandidate <= 0)
         {
-            waitCountForRelayCandidate--;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            goto retryForRelayCandidate;
+            break;
         }
+        waitCountForRelayCandidate--;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     return local_iceCandidates;
 }
