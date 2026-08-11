@@ -287,6 +287,11 @@ class WorkflowScopeTests(unittest.TestCase):
         )
         self.assertIn("uv venv --managed-python --python 3.12", source)
         self.assertNotIn("python3 -m venv", source)
+        self.assertIn(
+            "openshell.db openshell.db-wal openshell.db-shm", source
+        )
+        self.assertIn("Refusing symlinked OpenShell database", source)
+        self.assertNotIn("chown -R", source)
 
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
         workflow = (
