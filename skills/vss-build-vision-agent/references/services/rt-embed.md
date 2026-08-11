@@ -39,6 +39,13 @@ build `override.env`. The root Compose include path does not load
 write path is broken: RT-Embed produces no Kafka output and
 `mdx-embed-filtered` remains empty.
 
+## Placement and sizing
+
+RT-Embed has a fixed footprint determined primarily by its model, stream count,
+workers, and batch size. Prefer a dedicated device; share only when the measured
+combined budget fits. See `../sizing.md` for placement resolution and benchmark
+stream ceilings.
+
 ## Sources
 
 - `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`

@@ -15,6 +15,34 @@
 - Redis is required only when `ENABLE_REDIS_ERROR_MESSAGES=true`.
 - Do not add `vlm_${VLM_MODE}_${VLM_NAME_SLUG}` for an integrated RT-VLM path.
 
+## Singleton and variant convergence
+
+RT-VLM is a singleton owner: one instance, one checkpoint, and one
+variant/placement knob-set per build. When capabilities bring different
+integrated Cosmos3 Nano variants, resolve the placement first, then converge on
+one variant:
+
+- a dedicated GPU selects the heavier BF16 variant;
+- co-residence with another GPU service selects the lighter FP8 variant.
+
+Resolve the variant/placement knobs as one set:
+`RTVI_VLM_MODEL_PATH`, `VLM_NAME`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`,
+`RTVI_VLM_MAX_MODEL_LEN`, and `RT_VLM_DEVICE_ID`. Take the checkpoint and model
+name from the profile that ships the resolved variant; resolve maximum model
+length, device ID, and utilization together for the selected hardware and
+placement. Keep `VLM_NAME` aligned with the model id advertised by
+`RTVI_VLM_MODEL_PATH`; do not combine values from different variants.
+
+Consumer wiring is not part of that set.
+`RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_KAFKA_TOPIC`, and verifier config mounts
+follow the consuming capability and operating mode, never the profile that
+supplied the variant. Realtime VLM alerting must set Kafka enablement to `true`
+even when the variant profile defaults it to `false`, or no incidents are
+published. For the integrated path, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` and
+the `http://rtvi-vlm:8000` endpoint (a consumer's `VLM_BASE_URL`) are invariant
+across BF16 and FP8; a consumer owns that URL but never inherits it from the
+variant profile.
+
 ## Configuration knobs
 
 | Environment variable | Use |
@@ -31,5 +59,6 @@
 ## Sources
 
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
+- `skills/vss-build-vision-agent/references/composition.md`
 - `skills/vss-deploy-dense-captioning/references/deploy-rt-vlm-service.md`
 - `skills/vss-deploy-dense-captioning/references/integrate-rt-vlm.md`
