@@ -58,8 +58,12 @@ for md in "$REPO"/.openclaw/workspace/_nemoclaw/*.md ; do
   nemoclaw sandbox upload "$SB" "$md" /sandbox/.openclaw/workspace/
 done
 
-# 6. Register the host-side VSS Orchestrator MCP (OpenShell-enforced Streamable HTTP)
-nemoclaw sandbox mcp "$SB" add vss_orchestrator --url http://host.openshell.internal:9988/mcp
+# 6. Orchestrator MCP registration — only for HTTPS.
+#    Default path: leave this out. deploy_vss_orchestrator.ipynb starts the
+#    host-side HTTP MCP at http://host.openshell.internal:9988/mcp; the agent
+#    reaches it without a sandbox `mcp add`.
+#    HTTPS only: set ORCHESTRATOR_ENABLE_HTTPS=true in both notebooks, then:
+# nemoclaw sandbox mcp "$SB" add vss_orchestrator --url https://host.openshell.internal:9988/mcp
 
 # 7. Sandbox config: only the optional webhooks need config set.
 #    gateway.* (incl. controlUi.allowedOrigins) is rejected — it comes from
