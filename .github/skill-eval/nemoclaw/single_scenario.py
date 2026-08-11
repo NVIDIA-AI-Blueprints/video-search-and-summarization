@@ -350,29 +350,15 @@ def _inner_metrics(trial: Path | None) -> dict[str, Any]:
         value = _read_json(path)
         if value:
             return value
-    trajectory = _read_json(trial / "agent/trajectory.json")
-    final = trajectory.get("final_metrics")
-    if isinstance(final, dict):
-        total_prompt = final.get("total_prompt_tokens")
-        cached = final.get("total_cached_tokens")
-        uncached_prompt = (
-            max(0, total_prompt - cached)
-            if isinstance(total_prompt, (int, float))
-            and not isinstance(total_prompt, bool)
-            and isinstance(cached, (int, float))
-            and not isinstance(cached, bool)
-            else None
-        )
-        return {
-            "turns": sum(
-                step.get("source") == "agent"
-                for step in trajectory.get("steps", [])
-                if isinstance(step, dict)
-            ),
-            "prompt_tokens": uncached_prompt,
-            "cached_tokens": cached,
-        }
     return {}
+
+
+def _trial_succeeded(result: dict[str, Any]) -> bool:
+    return (
+        bool(result)
+        and "exception_info" in result
+        and result.get("exception_info") is None
+    )
 
 
 def _format_number(value: Any) -> str:
@@ -410,13 +396,15 @@ def _report(
     results_root: Path,
     harbor_rc: int,
     elapsed: float,
-) -> tuple[float | None, Path | None, bool]:
-    trial, _result = _latest_trial(results_root / run_id)
+) -> tuple[float | None, Path | None, bool, bool]:
+    trial, result = _latest_trial(results_root / run_id)
     reward = _reward(trial)
     metrics = _inner_metrics(trial)
     metrics_ok = _native_metrics_valid(metrics)
+    trial_ok = _trial_succeeded(result)
     passed = (
         harbor_rc == 0
+        and trial_ok
         and reward is not None
         and reward >= 1.0
         and metrics_ok
@@ -447,6 +435,7 @@ def _report(
             "",
             "- Runtime path: Harbor -> NemoClaw/OpenClaw -> VSS Orchestrator MCP",
             f"- Harbor exit code: {harbor_rc}",
+            f"- Harbor trial execution: {'successful' if trial_ok else 'failed'}",
             f"- Native OpenClaw metrics: {'present' if metrics_ok else 'missing'}",
             f"- Result: {trial / 'result.json' if trial else 'missing'}",
             "",
@@ -463,7 +452,7 @@ def _report(
         "# Skills Eval Benchmark - NemoClaw\n\n" + report,
         encoding="utf-8",
     )
-    return reward, trial, metrics_ok
+    return reward, trial, metrics_ok, trial_ok
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -522,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
         args.harbor_timeout,
     )
     elapsed = time.monotonic() - started
-    reward, trial, metrics_ok = _report(
+    reward, trial, metrics_ok, trial_ok = _report(
         instance=args.instance,
         run_id=run_id,
         results_root=results_root,
@@ -531,6 +520,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if (
         harbor_rc == 0
+        and trial_ok
         and reward is not None
         and trial is not None
         and metrics_ok
