@@ -98,6 +98,48 @@ def test_unknown_group_rejected() -> None:
         )
 
 
+def test_media_group_rejected_per_vios8() -> None:
+    """VIOS does not write memory — ``media`` is not a valid job.group."""
+    with pytest.raises(ValidationError):
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": SCHEMA_ID,
+                "job": {
+                    "job_id": "media-01TESTJOBID000000000000",
+                    "group": "media",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                    "updated_at": "2026-07-22T12:00:00Z",
+                },
+                "input": {},
+                "output": {},
+                "error": None,
+            }
+        )
+
+
+def test_input_intent_accepted_and_optional() -> None:
+    """SDD v0.9 ``intent`` must not hard-fail under ``extra=\"forbid\"``."""
+    without = _sample_record()
+    assert without.input.intent is None
+
+    with_intent = _sample_record(
+        input={
+            "query": "summarize the loading bay",
+            "intent": "video-qa",
+            "sensors": [{"id": "cam-1", "type": "video", "info": {"source": "vst"}}],
+            "window": None,
+            "params": {"model": "cosmos"},
+        }
+    )
+    assert with_intent.input.intent == "video-qa"
+    dumped = with_intent.model_dump_memory()
+    assert dumped["input"]["intent"] == "video-qa"
+    restored = UnifiedMemoryRecord.model_validate(dumped)
+    assert restored.input.intent == "video-qa"
+
+
 def test_open_params_info_and_ext() -> None:
     record = _sample_record()
     assert record.input.params["temperature"] == 0.2

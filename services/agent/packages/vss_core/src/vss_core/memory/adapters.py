@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Group adapters that map CLI/backend payloads into ``nv.vss.memory/1.0`` records.
 
-Adapters are separate from storage: registering a future ``alert``, ``media``,
-or ``vlm`` adapter must not require changes to the store, lifecycle engine, or
-common schema models.
+Adapters are separate from storage: registering a future ``alert`` or ``vlm``
+adapter must not require changes to the store, lifecycle engine, or common
+schema models. VIOS does not write memory (no ``media`` group).
 """
 
 from __future__ import annotations

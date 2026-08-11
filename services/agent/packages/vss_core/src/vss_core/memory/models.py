@@ -16,8 +16,8 @@ from pydantic import model_validator
 
 SCHEMA_ID: Literal["nv.vss.memory/1.0"] = "nv.vss.memory/1.0"
 
-MemoryGroup = Literal["summary", "search", "alert", "media", "vlm"]
-KNOWN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "media", "vlm"})
+MemoryGroup = Literal["summary", "search", "alert", "vlm"]
+KNOWN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "vlm"})
 
 JobOperation = Literal["run"]
 JobStatus = Literal["submitted", "running", "completed", "failed", "partial", "timeout"]
@@ -31,7 +31,6 @@ class MemoryGroupEnum(StrEnum):
     SUMMARY = "summary"
     SEARCH = "search"
     ALERT = "alert"
-    MEDIA = "media"
     VLM = "vlm"
 
 
@@ -57,7 +56,14 @@ class JobInfo(BaseModel):
 
 
 class SensorInfo(BaseModel):
-    """Sensor / video source identity carried on a memory record."""
+    """Sensor / video source identity carried on a memory record.
+
+    Wire shape is ``{id, type, info}`` only (``extra="forbid"``). nvschema
+    ``nv.Sensor`` also carries ``description``, ``location``, and
+    ``coordinate``; fold those into ``info`` before
+    ``UnifiedMemoryRecord.model_validate`` — see
+    ``SearchAdapter.build_input``, which does this for raw sensor dicts.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -84,11 +90,17 @@ class TimeWindow(BaseModel):
 
 
 class MemoryInput(BaseModel):
-    """Common request envelope shared by every group."""
+    """Common request envelope shared by every group.
+
+    ``sensors`` entries must already be wire-shaped ``SensorInfo`` values;
+    adapters are responsible for folding full nvschema sensor dicts into
+    ``{id, type, info}`` before construction.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     query: str | None = None
+    intent: str | None = None
     sensors: list[SensorInfo] = Field(default_factory=list)
     window: TimeWindow | None = None
     params: dict[str, Any] = Field(default_factory=dict)
