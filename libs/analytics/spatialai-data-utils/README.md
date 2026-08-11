@@ -295,4 +295,3 @@ Copyright (c) 2020 Jonathon Luiten, licensed under the MIT License. Each
 file in that subtree is dual-licensed `MIT AND Apache-2.0`: the MIT terms
 cover the upstream TrackEval portions; the NVIDIA modifications are
 released under Apache-2.0.
-
