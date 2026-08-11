@@ -303,6 +303,8 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 240", workflow)
         self.assertIn("timeout-minutes: 220", workflow)
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
+        self.assertIn("NEMOCLAW_SANDBOX_NAME=demo", workflow)
+        self.assertNotIn("NEMOCLAW_SANDBOX_NAME=\"skill-eval-", workflow)
         self.assertIn("--exclude='agent'", workflow)
 
     def test_excluded_subsystems_are_not_in_scoped_sources(self) -> None:
