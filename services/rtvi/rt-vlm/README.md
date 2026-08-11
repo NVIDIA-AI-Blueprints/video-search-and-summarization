@@ -366,7 +366,7 @@ To enable password authentication for Redis in the Docker Compose deployment, mo
 
 ```yaml
 redis:
-  image: redis:7-alpine
+  image: redis:8.10.0-alpine
   ports:
     - "6379:6379"
   volumes:
