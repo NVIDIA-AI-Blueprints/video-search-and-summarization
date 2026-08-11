@@ -3,19 +3,15 @@
 VSS creates and configures its NemoClaw/OpenClaw sandbox using **only canonical
 upstream NemoClaw, OpenShell, and OpenClaw commands** — there is no VSS-specific
 install/patch script and no hand-editing of `openclaw.json`. The flow is driven
-from [`deploy_nemoclaw_vss.ipynb`](../deploy_nemoclaw_vss.ipynb) (section 3); this
+from [`deploy_nemoclaw.ipynb`](../deploy_nemoclaw.ipynb) (section 3); this
 document is the equivalent command reference for running it by hand.
 
-> Removed in favour of this flow: `init_nemoclaw.sh` and `update_openclaw_config.py`.
-> The VSS OpenClaw *plugin* (`.openclaw/{index.ts,package.json,openclaw.plugin.json}`)
-> is also gone — skills are installed with `nemoclaw sandbox skill install` and the
-> workspace docs under `.openclaw/workspace/` are pushed with `nemoclaw sandbox upload`.
 
 ## Prerequisites
 
-- A recent NemoClaw release pinned via `NEMOCLAW_INSTALL_REF` that ships the
-  `nemoclaw sandbox {policy add, skill install, mcp add, config set, upload}`
-  subcommands.
+- A recent NemoClaw release pinned via `NEMOCLAW_INSTALL_REF` (this repo pins
+  `v0.0.80+`) that ships the sandbox-first grammar:
+  `nemoclaw <sandbox> {policy-add, skill install, mcp, config set, upload, gateway-token}`.
 - `docker`, `node`/`npm`, `nemoclaw`, and `openshell` on `PATH`.
 - Provider credentials in the environment (`NVIDIA_API_KEY`, or
   `NEMOCLAW_ENDPOINT_URL` + `COMPATIBLE_API_KEY` for a custom OpenAI-compatible
@@ -42,20 +38,20 @@ CHAT_UI_URL="https://18789-${BREV_ENV_ID}.<brev-link-domain>" \
   nemoclaw onboard --non-interactive --agent "$RUNTIME"
 
 # 3. Apply the VSS sandbox policy (merges into the base OpenShell policy)
-nemoclaw sandbox policy add "$SB" --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
+nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
 
 # 4. Install VSS skills (one validated SKILL.md directory at a time)
 for skill in "$REPO"/skills/*/ ; do
-  [ -f "$skill/SKILL.md" ] && nemoclaw sandbox skill install "$SB" "$skill"
+  [ -f "$skill/SKILL.md" ] && nemoclaw "$SB" skill install "$skill"
 done
 
 # 5. Push workspace bootstrap docs (base, then the _nemoclaw overlay)
 # NOTE: the destination is a DIRECTORY (OpenShell mkdir + tar-extracts into it)
 for md in "$REPO"/.openclaw/workspace/*.md ; do
-  nemoclaw sandbox upload "$SB" "$md" /sandbox/.openclaw/workspace/
+  nemoclaw "$SB" upload "$md" /sandbox/.openclaw/workspace/
 done
 for md in "$REPO"/.openclaw/workspace/_nemoclaw/*.md ; do
-  nemoclaw sandbox upload "$SB" "$md" /sandbox/.openclaw/workspace/
+  nemoclaw "$SB" upload "$md" /sandbox/.openclaw/workspace/
 done
 
 # 6. Orchestrator MCP registration — only for HTTPS.
@@ -63,18 +59,18 @@ done
 #    host-side HTTP MCP at http://host.openshell.internal:9988/mcp; the agent
 #    reaches it without a sandbox `mcp add`.
 #    HTTPS only: set ORCHESTRATOR_ENABLE_HTTPS=true in both notebooks, then:
-# nemoclaw sandbox mcp "$SB" add vss_orchestrator --url https://host.openshell.internal:9988/mcp
+# nemoclaw "$SB" mcp add vss_orchestrator --url https://host.openshell.internal:9988/mcp
 
 # 7. Sandbox config: only the optional webhooks need config set.
 #    gateway.* (incl. controlUi.allowedOrigins) is rejected — it comes from
 #    CHAT_UI_URL at onboard; agents.defaults.workspace already defaults to
 #    ~/.openclaw/workspace (= /sandbox/.openclaw/workspace in the sandbox).
-nemoclaw sandbox config set "$SB" --key hooks.enabled \
+nemoclaw "$SB" config set --key hooks.enabled \
   --value true --config-accept-new-path --restart
 
 # 8. Forward the dashboard + read the UI token
 openshell forward start --background 18789 "$SB"
-nemoclaw sandbox gateway token "$SB"
+nemoclaw "$SB" gateway-token
 ```
 
 ## Why canonical
