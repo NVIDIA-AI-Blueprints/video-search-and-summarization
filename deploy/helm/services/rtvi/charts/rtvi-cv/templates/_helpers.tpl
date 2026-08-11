@@ -45,7 +45,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-headless" (include "vss-rtvi-cv.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "vss-rtvi-cv.image" -}}{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}{{- end -}}
+{{/*
+Resolve the perception container image. When `global.container_prefix` is
+set, rewrite the repository to `<prefix>/vss-rt-cv` — same rule used by
+vss-summarization/vss-alert-bridge so QA can flip an entire umbrella release
+between the ghcr managed channel and a promoted NGC staging drop with two
+values. `global.container_tag` overrides `image.tag` the same way.
+*/}}
+{{- define "vss-rtvi-cv.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-rt-cv" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
 
 {{- define "vss-rtvi-cv.scriptsConfigMapName" -}}
 {{- if .Values.scripts.existingConfigMap }}

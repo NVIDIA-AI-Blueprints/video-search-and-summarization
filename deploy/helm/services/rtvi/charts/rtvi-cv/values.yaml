@@ -25,11 +25,16 @@ scripts:
   existingConfigMap: ""
   data: {}
 
+# Managed first-party image: defaults follow the shared GHCR channel used by
+# the docker compose files (VSS_RT_CV_IMAGE / VSS_RT_CV_TAG in containers.env).
+# The `vss-rtvi-cv.image` helper resolves `global.container_prefix` and
+# `global.container_tag` so QA can promote an NGC staging drop by setting
+# those two knobs alone; leave this block untouched for the managed default.
+# For DGX-SPARK (SBSA) deploys still on the private nvstaging coordinate,
+# override `image.repository` and pin `image.tag` to `3.3.0-sbsa-26.07.2`.
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-  # For multi-arch: 3.3.0-26.07.2
-  # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
-  tag: "3.3.0-26.07.2"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 
 replicas: 1
