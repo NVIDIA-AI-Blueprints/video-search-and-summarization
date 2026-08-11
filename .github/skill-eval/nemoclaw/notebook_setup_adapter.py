@@ -250,6 +250,29 @@ def _normalize_cell(cell: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+def _with_shields_window(source: str, *, reason: str, activity: str) -> str:
+    guarded_source = textwrap.indent(source.rstrip() + "\n", "    ")
+    return (
+        "# A reused sandbox is normally locked after its prior run. Open only a\n"
+        "# bounded maintenance window for this notebook mutation.\n"
+        "try:\n"
+        "    _shields_down_cmd = (\n"
+        "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields down \"\n"
+        f"        '--timeout 15m --reason \"{reason}\"'\n"
+        "    )\n"
+        "    !{_shields_down_cmd}\n"
+        f"    assert _exit_code == 0, \"shields down failed before {activity}\"\n"
+        + guarded_source
+        + "finally:\n"
+        "    _shields_up_cmd = (\n"
+        "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields up\"\n"
+        "    )\n"
+        "    !{_shields_up_cmd}\n"
+        "    if _exit_code != 0:\n"
+        f"        raise RuntimeError(\"shields up failed after {activity}\")\n"
+    )
+
+
 def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
     source = cell.get("source")
     if not isinstance(source, str):
@@ -383,25 +406,10 @@ def ensure_agent_venv() -> None:
                 "NemoClaw skill cell changed: maintenance anchors missing: "
                 + ", ".join(missing)
             )
-        guarded_source = textwrap.indent(source.rstrip() + "\n", "    ")
-        patched["source"] = (
-            "# A reused sandbox is normally locked after its prior run. Open only a\n"
-            "# bounded maintenance window for the notebook's native skill install.\n"
-            "try:\n"
-            "    _shields_down_cmd = (\n"
-            "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields down \"\n"
-            "        '--timeout 15m --reason \"skill-eval setup\"'\n"
-            "    )\n"
-            "    !{_shields_down_cmd}\n"
-            "    assert _exit_code == 0, \"shields down failed before skill install\"\n"
-            + guarded_source
-            + "finally:\n"
-            "    _shields_up_cmd = (\n"
-            "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields up\"\n"
-            "    )\n"
-            "    !{_shields_up_cmd}\n"
-            "    if _exit_code != 0:\n"
-            "        raise RuntimeError(\"shields up failed after skill install\")\n"
+        patched["source"] = _with_shields_window(
+            source,
+            reason="skill-eval skill setup",
+            activity="skill install",
         )
     elif cell_id == "s35-code":
         anchor = (
@@ -433,7 +441,11 @@ def ensure_agent_venv() -> None:
         assert _exit_code == 0, f"workspace cleanup failed: {doc.name}"
         # dest is a DIRECTORY: the OpenShell transport does mkdir + tar-extract
 """
-        patched["source"] = source.replace(loop_anchor, cleanup, 1)
+        patched["source"] = _with_shields_window(
+            source.replace(loop_anchor, cleanup, 1),
+            reason="skill-eval workspace setup",
+            activity="workspace upload",
+        )
     elif cell_id == "s36-code":
         patched["source"] = OPENCLAW_MCP_SOURCE
     return patched
