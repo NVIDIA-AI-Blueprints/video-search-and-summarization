@@ -135,6 +135,18 @@
 		{
 			"name": "proximityViolationIncidentThreshold",
 			"value": "2"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "confinedAreaViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "proximityViolationIncidentExpirationWindow",
+			"value": "1"
 		}
 	]
 }

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Literal
 
@@ -278,3 +279,69 @@ def test_rt_vlm_is_discovered_from_the_same_origin(tmp_path, monkeypatch) -> Non
     assert recorded.services.keys() == {"rt_vlm"}
     assert recorded.endpoint("rt_vlm") == "http://h:7777/rtvi-vlm"
     assert recorded.services["rt_vlm"].models == ["cosmos-reason"]
+
+
+def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
+    from vss_cli.search_group import _critic_from
+
+    deployment = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={
+            "vst": config_mod.Service(url="http://h:7777/vst"),
+            "elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch"),
+        },
+    )
+
+    assert asyncio.run(_critic_from(deployment)) == (None, None)
+
+
+def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vss_cli import search_group
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.example",
+        services={
+            "vst": config_mod.Service(url="https://vss.example/vst"),
+            "rt_vlm": config_mod.Service(
+                url="https://vss.example/rtvi-vlm",
+                models=["cosmos-reason3"],
+            ),
+        },
+    )
+
+    async def available(_url: str, _model: str) -> bool:
+        return True
+
+    monkeypatch.setattr(search_group, "_rt_vlm_available", available)
+    critic, vlm = asyncio.run(search_group._critic_from(deployment))
+
+    assert critic is not None and vlm is not None
+    assert critic._time_format == "offset"
+    assert critic._default_eval_count is None
+    assert vlm._base_url == "https://vss.example/rtvi-vlm/v1"
+    assert vlm._model == "cosmos-reason3"
+    assert vlm._media_mode == "video_url"
+    assert vlm._video_url_scope == "external"
+    assert vlm._cosmos_nim_runtime_options is False
+
+
+def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vss_cli import search_group
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.example",
+        services={
+            "vst": config_mod.Service(url="https://vss.example/vst"),
+            "rt_vlm": config_mod.Service(url="https://vss.example/rtvi-vlm", models=["cosmos-reason3"]),
+        },
+    )
+    probes: list[tuple[str, str]] = []
+
+    async def unavailable(url: str, model: str) -> bool:
+        probes.append((url, model))
+        return False
+
+    monkeypatch.setattr(search_group, "_rt_vlm_available", unavailable)
+
+    assert asyncio.run(search_group._critic_from(deployment)) == (None, None)
+    assert probes == [("https://vss.example/rtvi-vlm", "cosmos-reason3")]

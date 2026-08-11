@@ -59,12 +59,22 @@ The frame enhancement pre-calculates these violations and embeds them in the fra
 
 ## Time Parameters
 
-Each violation type has configurable timing parameters:
+Each violation type has two timing parameters. Both are in seconds, both accept fractional
+values, and both are measured on the sensor's own frame timestamps — never the wall clock.
 
-| Parameter | Purpose | Typical Value |
-|-----------|---------|---------------|
-| **Expiration Window** | Max gap between detections before creating new state | 0.5-2 sec |
-| **Incident Threshold** | Min duration to become reportable incident | 0.1-3 sec |
+| Parameter | Purpose | Default | Typical range |
+|-----------|---------|---------|---------------|
+| **Expiration Window** | Largest gap between detections tolerated before the current violation run is closed | `0.5` | 0.2-1 sec |
+| **Incident Threshold** | Minimum duration of a run before it is reported as an incident | `1` | 0.5-3 sec |
+
+**Keep the window below the threshold.** The number of detections needed to raise an incident is
+`ceil(threshold / window) + 1`, so at window >= threshold that collapses to two: a single tolerated
+gap spans the whole threshold, and two isolated detections raise a full-duration incident.
+
+Size the window from the detector rather than the policy — roughly twice the worst-case dropout
+(missed detection, occlusion, tracker ID churn) for that camera. The two failure modes are not
+symmetric: too large only overstates an incident's duration, while too small fragments one real
+event into runs that each fall under the threshold and are discarded with no record.
 
 ## Configuration
 
@@ -256,11 +266,11 @@ Enhanced Frames → This Module (update_frames):
     },
     {
       "name": "restrictedAreaViolationIncidentThreshold",
-      "value": "0.1"
+      "value": "0.5"
     },
     {
       "name": "restrictedAreaViolationIncidentExpirationWindow",
-      "value": "0.5"
+      "value": "0.2"
     },
     {
       "name": "fovCountViolationIncidentEnable",

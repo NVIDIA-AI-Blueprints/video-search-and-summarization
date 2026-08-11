@@ -54,7 +54,7 @@ Source-of-truth definitions: `deploy/docker/services/analytics/behavior-analytic
 
 - **Method:** Dynamic config / calibration (consume) — runtime updates
   **Topic:** `notification` → `mdx-notification`.
-  **Schema:** JSON config/calibration update notifications. Lets operators push `AppConfig` changes and calibration reloads without a restart (read-at-use-time properties auto-refresh). See `dynamic-config.md` / `dynamic-calibration.md`.
+  **Schema:** JSON config/calibration update notifications. Lets operators push `AppConfig` changes and calibration reloads without a restart (values are re-read at use time, so they take effect on the next access). See `dynamic-config.md` / `dynamic-calibration.md`.
 
 - **Method:** Mounted file — calibration JSON (optional at startup)
   **Path:** `--calibration <path>` (host bind). Defines the sensor map, ROIs, tripwires, geo/homography.
@@ -101,7 +101,7 @@ The base compose is deliberately thin — broker endpoints, topics, and all tuni
 - **Ports exposed:** none inbound (no REST surface).
 - **Outbound traffic:**
   - Message broker — Kafka `kafka:29092`, Redis `redis:6379`, or MQTT `<mqtt-broker>:1883` (per `sourceType`/`sinkType`), as set in the config JSON's broker block.
-  - NGC registry `nvcr.io` for the image pull on first boot.
+  - GitHub Container Registry `ghcr.io` for the image pull on first boot (the image is public; no login needed). Only if you override `VSS_CONTAINER_REGISTRY` to NGC do you also need `nvcr.io`.
 - **DNS / hostname assumptions:** peers resolve by **Docker DNS service name** on the compose bridge network (`kafka`, `redis`, …) — the base compose uses the default bridge network (no `network_mode: host`), and the profile composes join it via the `default` network with alias `vss-behavior-analytics`.
 - **`network_mode`:** default bridge (not host).
 
@@ -126,7 +126,10 @@ The base (`deploy/docker/services/analytics/behavior-analytics/compose.yml`) plu
 # --- base (copied into the patched tree so `extends:` resolves) ---
 services:
   vss-behavior-analytics-base:
-    image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:<tag>   # authoritative image lives in services/analytics/behavior-analytics/compose.yml
+    # Same expansion as the authoritative file, so an override of
+    # VSS_CONTAINER_REGISTRY / VSS_BEHAVIOR_ANALYTICS_TAG still works.
+    # Source of truth: deploy/docker/services/analytics/behavior-analytics/compose.yml
+    image: ${VSS_BEHAVIOR_ANALYTICS_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-behavior-analytics}:${VSS_BEHAVIOR_ANALYTICS_TAG:-develop-latest}
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json

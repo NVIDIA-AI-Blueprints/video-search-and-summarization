@@ -38,7 +38,6 @@ The service runs as a containerized application using Gunicorn as the WSGI serve
 ```
 vss-configurator/
 ├── 3rdParty_Licenses.md                      # Full third-party license text; copied into image at build
-├── NVIDIA-Software-License-Agreement.pdf     # Copied into container image at build
 ├── pyproject.toml                            # Python project metadata and runtime dependencies
 ├── uv.lock                                   # Locked Python dependency graph
 ├── app/                                      # Runtime source copied into /usr/src/app
@@ -49,10 +48,10 @@ vss-configurator/
 │   └── utils/                                # Kafka/Redis, uploads, sensor mapping
 ├── tests/                                    # pytest unit tests and fixtures
 ├── docker/
-│   └── Dockerfile                            # Container build recipe
+│   └── Dockerfile                            # Container build recipe (monorepo-root context)
 ```
 
-Python dependencies are managed with **uv** at the repository root (`requires-python >= 3.13`). The runtime image is **distroless** (no shell); startup uses `entrypoint.py`.
+Python dependencies are managed with **uv** in this service directory (`requires-python >= 3.13`). The `spatialai-data-utils` dependency is built from the monorepo source under `libs/analytics/spatialai-data-utils`. The runtime image is **distroless** (no shell); startup uses `entrypoint.py`.
 
 ---
 
@@ -303,33 +302,34 @@ Container Start
 
 ### Build the container image
 
-Build from the **repository root** so the Dockerfile can copy `app/`, `pyproject.toml`, `uv.lock`, and the legal artifacts directly:
+Build from the **monorepo root** so the Dockerfile can copy the service files and the `spatialai-data-utils` source:
 
 ```bash
-cd vss-configurator   # repository root
-docker build -f docker/Dockerfile -t vss-configurator .
+docker build \
+  -f services/configurators/vss-configurator/docker/Dockerfile \
+  -t vss-configurator .
 ```
 
-The image uses a multi-stage build: **Python 3.13** dependencies via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidian/distroless/python:3.13-v4.0.5`**.
+The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidian/distroless/python:3.13-v4.0.5`**.
 
 **Legal requirements (container distribution):**
 
 | # | Requirement | How it is met |
 |---|-------------|----------------|
 | 1 | NVIDIA application **source** in the image stays **Apache-2.0** (SPDX headers; no proprietary re-license) | All shipped `.py` under `app/` (excluding `tests/`) include `SPDX-License-Identifier: Apache-2.0` and the standard NVIDIA Apache header block |
-| 2 | **NVIDIA Software License Agreement** PDF is **in the shipped image** | `NVIDIA-Software-License-Agreement.pdf` at repo root is copied into `/usr/src/app/NVIDIA-Software-License-Agreement.pdf` via `docker/Dockerfile` |
-| 3 | **Third-party license text** is **in the shipped image** | `3rdParty_Licenses.md` at repo root is copied into `/usr/src/app/3rdParty_Licenses.md` via `docker/Dockerfile` |
+| 2 | **Third-party license text** is **in the shipped image** | `services/configurators/vss-configurator/3rdParty_Licenses.md` is copied into `/usr/src/app/3rdParty_Licenses.md` via `docker/Dockerfile` |
 
 Build before release:
 
 ```bash
-docker build -f docker/Dockerfile -t vss-configurator .
+docker build \
+  -f services/configurators/vss-configurator/docker/Dockerfile \
+  -t vss-configurator .
 ```
 
 | In image? | Path | Notes |
 |-----------|------|--------|
 | Yes | `/usr/src/app/**/*.py` (app code only) | Apache-2.0 SPDX headers |
-| Yes | `/usr/src/app/NVIDIA-Software-License-Agreement.pdf` | NVIDIA SLA |
 | Yes | `/usr/src/app/3rdParty_Licenses.md` | Full third-party license text |
 
 ### Run: sensor API only
@@ -379,7 +379,7 @@ docker run --rm \
 
 ### Using Docker Compose
 
-Use the repository root as the Compose build context:
+Use the monorepo root as the Compose build context:
 
 ```yaml
 version: '3.8'
@@ -388,7 +388,7 @@ services:
   vss-configurator:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: services/configurators/vss-configurator/docker/Dockerfile
     ports:
       - "5000:5000"
     environment:
@@ -628,7 +628,7 @@ Status for NVStreamer/VMS video upload (for init-container polling).
 
 | Item | Value |
 |------|--------|
-| Build context | repository root (`.`) |
+| Build context | monorepo root (`.`) |
 | Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` |
 | Runtime base | `nvcr.io/nvidian/distroless/python:3.13-v4.0.5` |
 | Entrypoint | `python entrypoint.py` (no shell in image) |
@@ -965,7 +965,7 @@ Runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 | redis | 5.0.1 | Redis streams / duplicator |
 | requests | 2.32.3 | HTTP client (calibration, MSB, NVStreamer, VMS) |
 | ruamel.yaml | 0.18.15 | Profile YAML read/write |
-| spatialai_data_utils | 2.0.1 | BEV center recomputation (optional, 3D mode only) |
+| spatialai-data-utils | in-repo path (`libs/analytics/spatialai-data-utils/release`) | BEV center recomputation (optional, 3D mode only) |
 
 Full transitive runtime licenses: [3rdParty_Licenses.md](3rdParty_Licenses.md).
 

@@ -372,8 +372,14 @@ get_data_types_for_profile() {
         "warehouse_2d")
             echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-incidents-data.json mdx-raw-data.json"
             ;;
+        # Space utilization is not compared for warehouse_3d: it is emitted on a
+        # timer rather than per frame, so its record spacing and count track host
+        # load. It has failed in two unrelated ways -- a 266ms timestamp delta
+        # against a 100ms tolerance, and a short extract (738 of 741 records) --
+        # while passing in between, so it reports host timing rather than a
+        # regression in this service.
         "warehouse_3d")
-            echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-space-utilization-data.json"
+            echo "mdx-behavior-data.json mdx-events-data.json mdx-frames-data.json mdx-incidents-data.json"
             ;;
         "smart_city")
             echo "mdx-behavior-data.json mdx-raw-data.json"

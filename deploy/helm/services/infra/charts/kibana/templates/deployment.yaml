@@ -80,7 +80,7 @@ spec:
             {{- $gk := index $g "kibanaPublicUrl" | default "" | trim }}
             {{- $eh := index $g "externalHost" | default "" | trim }}
             {{- $es := index $g "externalScheme" | default "http" }}
-            {{- $ep := index $g "externalPort" | default "" | trim }}
+            {{- $ep := index $g "externalPort" | default "" | toString | trim }}
             {{- if and (eq $gk "") (ne $eh "") }}
             {{- $kibHost := printf "kibana.%s" $eh }}
             {{- if ne $ep "" }}
@@ -89,8 +89,15 @@ spec:
             {{- $gk = printf "%s://%s" $es $kibHost }}
             {{- end }}
             {{- end }}
+            {{- $pub := .Values.kibanaPublicUrl | default .Values.serverPublicBaseUrl | default $gk | default (include "kibana.httpServiceUrl" .) }}
+            {{- /* Kibana rejects a publicBaseUrl that does not carry basePath. */}}
+            {{- with .Values.basePath }}
+            {{- if not (hasSuffix . $pub) }}
+            {{- $pub = printf "%s%s" (trimSuffix "/" $pub) . }}
+            {{- end }}
+            {{- end }}
             - name: SERVER_PUBLICBASEURL
-              value: {{ .Values.kibanaPublicUrl | default .Values.serverPublicBaseUrl | default $gk | default (include "kibana.httpServiceUrl" .) | quote }}
+              value: {{ $pub | quote }}
             - name: SERVER_SECURITYRESPONSEHEADERS_DISABLEEMBEDDING
               value: {{ .Values.serverSecurityResponseHeadersDisableEmbedding | default "false" | quote }}
             - name: CSP_STRICT
@@ -101,13 +108,13 @@ spec:
               subPath: kibana.yml
           livenessProbe:
             httpGet:
-              path: /api/status
+              path: {{ .Values.basePath | default "" }}/api/status
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /api/status
+              path: {{ .Values.basePath | default "" }}/api/status
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
