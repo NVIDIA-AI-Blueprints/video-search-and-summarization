@@ -38,6 +38,7 @@
 #                      engine build for a new batch size takes minutes)
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DS_HOST="${DS_HOST:-localhost}"
 DS_PORT="${DS_PORT:-${DS_HTTP_PORT:-9000}}"
 DELAY="${DELAY:-1}"
@@ -194,6 +195,93 @@ sys.exit(1)
 PY
 }
 
+validate_camera_configured() {  # $1=camera_id
+  python3 - "$ROOT" "$1" <<'PY'
+import os
+import sys
+
+root, camera_id = sys.argv[1], sys.argv[2]
+generated_dir = os.path.join(root, "generated")
+cam_info_dir = os.path.join(generated_dir, "camInfo")
+tracker_config = os.path.join(generated_dir, "configs", "ds-mv3dt-tracker-config.yml")
+pub_sub_config = os.path.join(generated_dir, "configs", "pub_sub_info_config.yml")
+
+# Some ad hoc deployments do not stage generated configs beside this helper.
+# In that case there is no local source of truth to check.
+if not any(os.path.exists(path) for path in (cam_info_dir, tracker_config, pub_sub_config)):
+    sys.exit(0)
+
+missing = []
+if not any(
+    os.path.isfile(os.path.join(cam_info_dir, f"{camera_id}.{ext}"))
+    for ext in ("yml", "yaml")
+):
+    missing.append(f"generated/camInfo/{camera_id}.yml")
+
+try:
+    import yaml
+except ImportError:
+    if missing:
+        print(
+            f"ERROR: camera_id {camera_id} is not configured in camInfo/tracker/pub-sub config",
+            file=sys.stderr,
+        )
+        for item in missing:
+            print(f"  missing: {item}", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(0)
+
+
+def load_yaml(path):
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception as exc:
+        rel = os.path.relpath(path, root)
+        print(f"ERROR: cannot parse {rel}: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+tracker = load_yaml(tracker_config)
+if tracker is not None:
+    object_model = (
+        tracker.get("ObjectModelProjection", {}) if isinstance(tracker, dict) else {}
+    )
+    camera_models = (
+        object_model.get("cameraModelFilepath", {})
+        if isinstance(object_model, dict)
+        else {}
+    )
+    if not isinstance(camera_models, dict) or camera_id not in camera_models:
+        missing.append(
+            "generated/configs/ds-mv3dt-tracker-config.yml "
+            "ObjectModelProjection.cameraModelFilepath"
+        )
+
+pub_sub = load_yaml(pub_sub_config)
+if pub_sub is not None:
+    if not isinstance(pub_sub, dict):
+        pub_sub = {}
+    pub_topics = pub_sub.get("pubBrokerTopicStr", {})
+    sub_topics = pub_sub.get("subPeerBrokerTopicStrs", {})
+    if not isinstance(pub_topics, dict) or camera_id not in pub_topics:
+        missing.append("generated/configs/pub_sub_info_config.yml pubBrokerTopicStr")
+    if not isinstance(sub_topics, dict) or camera_id not in sub_topics:
+        missing.append("generated/configs/pub_sub_info_config.yml subPeerBrokerTopicStrs")
+
+if missing:
+    print(
+        f"ERROR: camera_id {camera_id} is not configured in camInfo/tracker/pub-sub config",
+        file=sys.stderr,
+    )
+    for item in missing:
+        print(f"  missing: {item}", file=sys.stderr)
+    sys.exit(2)
+PY
+}
+
 post_sensor() {  # $1=camera_id  $2=url  $3=change (camera_add|camera_remove)
   local body code tmp
   body=$(python3 -c '
@@ -341,6 +429,7 @@ for entry in "${STREAMS[@]}"; do
   echo
   echo ">> [$((idx+1))/${#STREAMS[@]}] camera_id=${cam}"
   echo "                       url=${url}"
+  validate_camera_configured "$cam" || exit 2
   post_sensor "$cam" "$url" camera_add || exit 2
   idx=$((idx + 1))
   (( idx < ${#STREAMS[@]} )) && sleep "$DELAY"
