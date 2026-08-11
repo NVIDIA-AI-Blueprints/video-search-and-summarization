@@ -458,7 +458,7 @@ If these assets are missing, return to `Resolve BEV Assets`. Continue with perce
 
 ## RTSP Stream Registration
 
-Use this only after compose is running and `docker logs vss-rtvi-cv-mv3dt` shows `ds-ready: YES`.
+Use this after stream-mode compose is running. Do not wait separately for a log marker; `scripts/add-streams.sh` polls REST `/api/v1/ready` until `ds-ready` is `YES` before registering streams.
 
 If the user supplied RTSP URLs, run this registration step as part of deployment. Use explicit `<sensor_id>=<rtsp_url>` pairs when present. If the user supplied only bare RTSP URLs, map them to calibration sensor ids in order only when the URL count exactly matches the generated camInfo count and the order is clear from the calibration handoff; otherwise ask the user for the sensor-id mapping before registering streams.
 

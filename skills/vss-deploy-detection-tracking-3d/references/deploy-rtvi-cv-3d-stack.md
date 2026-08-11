@@ -634,7 +634,7 @@ If BEV recording/viewing is enabled, run the `Two-Phase Launch For BEV` recorder
 start_perception || exit 1
 ```
 
-For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because streams are registered only after `ds-ready: YES`:
+For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because `scripts/add-streams.sh` registers streams only after REST `/api/v1/ready` reports `ds-ready=YES`:
 
 ```bash
 cd "${RTCV3D_APP}" || exit 1
@@ -647,4 +647,4 @@ else
 fi
 ```
 
-For stream redeploy with saved/live BEV prestart, start the BEV recorder/visualizer first with the two-phase BEV block, then register streams with `scripts/add-streams.sh` only after `ds-ready: YES`.
+For stream redeploy with saved/live BEV prestart, start the BEV recorder/visualizer first with the two-phase BEV block, then register streams with `scripts/add-streams.sh`; the helper waits on REST readiness before registering.
