@@ -28,6 +28,9 @@ general:
       rtvi_embed_model: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       rtvi_embed_chunk_duration: 5
       rtvi_cv_base_url: ${RTVI_CV_ENDPOINT}
+      vlm_tagging_base_url: ${RTVI_VLM_BASE_URL}
+      vlm_tagging_model: ${VLM_NAME}
+      vlm_tagging_chunk_duration: 5
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
       # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.

@@ -52,6 +52,7 @@ __all__ = [
     "SearchEvent",
     "SearchRuntime",
     "StatusEvent",
+    "TagIngestor",
     "TagSearch",
     "VSSSearch",
     "models",
@@ -75,6 +76,7 @@ _LAZY_EXPORTS = {
     "SearchRuntime": ".runtime",
     "StatusEvent": ".events",
     "TagSearch": ".primitives.tag_search",
+    "TagIngestor": ".tag_ingest",
     "VSSSearch": ".host",
     "models": ".models",
 }
@@ -99,6 +101,7 @@ if TYPE_CHECKING:
     from .primitives.search import Search
     from .primitives.tag_search import TagSearch
     from .runtime import SearchRuntime
+    from .tag_ingest import TagIngestor
 
 
 def __getattr__(name: str) -> Any:

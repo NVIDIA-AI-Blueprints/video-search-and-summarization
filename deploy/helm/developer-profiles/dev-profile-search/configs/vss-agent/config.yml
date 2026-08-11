@@ -30,6 +30,9 @@ general:
       rtvi_cv_base_url: ${RTVI_CV_BASE_URL}
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
+      vlm_tagging_base_url: ${RTVI_VLM_BASE_URL}
+      vlm_tagging_model: ${VLM_NAME}
+      vlm_tagging_chunk_duration: 5
       # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
       enable_audio: ${ENABLE_AUDIO:-false}
     endpoints:

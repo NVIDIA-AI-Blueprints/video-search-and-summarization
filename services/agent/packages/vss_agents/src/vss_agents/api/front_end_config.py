@@ -81,6 +81,12 @@ class StreamingIngestConfig(BaseModel):
             "registers streams with RTVI-VLM (LVS path) instead of the RTVI-CV/embed search path."
         ),
     )
+    vlm_tagging_base_url: str = Field(
+        default="",
+        description="Existing RT-VLM base URL used for search-tag generation without enabling LVS mode",
+    )
+    vlm_tagging_model: str = Field(default="", description="RT-VLM model used for controlled tag generation")
+    vlm_tagging_chunk_duration: int = Field(default=5, gt=0, description="VLM tag interval duration in seconds")
     elasticsearch_url: str = Field(default="", description="Elasticsearch endpoint URL")
     rtvi_embed_es_index: str = Field(default="", description="Elasticsearch index for embeddings")
 

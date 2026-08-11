@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 class TagSearch:
-    """Keyword search over the Kafka/Logstash RT-VLM tag index."""
+    """Keyword search over validated RT-VLM tag documents."""
 
     def __init__(
         self,
