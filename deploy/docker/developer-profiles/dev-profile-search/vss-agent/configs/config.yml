@@ -124,7 +124,7 @@ functions:
 
   critic_agent:
     _type: critic_agent
-    max_concurrent_verifications: 5
+    max_concurrent_verifications: 1
     num_videos_to_evaluate: 5
     video_analysis_tool: video_understanding
     time_format: offset
