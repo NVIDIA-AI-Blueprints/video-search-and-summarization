@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import sys
+import textwrap
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -370,6 +371,37 @@ def ensure_agent_venv() -> None:
             anchor,
             'UV_NO_SYNC = "1"\nos.environ["UV_NO_SYNC"] = UV_NO_SYNC\n' + anchor,
             1,
+        )
+    elif cell_id == "s34-code":
+        anchors = (
+            "_skill_install_cmd = AGENT_SKILL_INSTALL_CMD.format(",
+            "_gateway_restart_cmd = AGENT_GATEWAY_RESTART_CMD.format(",
+        )
+        missing = [anchor for anchor in anchors if anchor not in source]
+        if missing:
+            raise ValueError(
+                "NemoClaw skill cell changed: maintenance anchors missing: "
+                + ", ".join(missing)
+            )
+        guarded_source = textwrap.indent(source.rstrip() + "\n", "    ")
+        patched["source"] = (
+            "# A reused sandbox is normally locked after its prior run. Open only a\n"
+            "# bounded maintenance window for the notebook's native skill install.\n"
+            "try:\n"
+            "    _shields_down_cmd = (\n"
+            "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields down \"\n"
+            "        '--timeout 15m --reason \"skill-eval setup\"'\n"
+            "    )\n"
+            "    !{_shields_down_cmd}\n"
+            "    assert _exit_code == 0, \"shields down failed before skill install\"\n"
+            + guarded_source
+            + "finally:\n"
+            "    _shields_up_cmd = (\n"
+            "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields up\"\n"
+            "    )\n"
+            "    !{_shields_up_cmd}\n"
+            "    if _exit_code != 0:\n"
+            "        raise RuntimeError(\"shields up failed after skill install\")\n"
         )
     elif cell_id == "s35-code":
         anchor = (

@@ -54,6 +54,28 @@ class NotebookAdapterTests(unittest.TestCase):
             "AGENT_HOOKS_ENABLED = False",
             cells["e67f6da4"]["source"],
         )
+        skill_source = cells["s34-code"]["source"]
+        self.assertIn("shields down ", skill_source)
+        self.assertIn("--timeout 15m --reason", skill_source)
+        self.assertIn("try:\n", skill_source)
+        self.assertIn("finally:\n", skill_source)
+        self.assertIn("shields up", skill_source)
+        self.assertLess(
+            skill_source.index("try:\n"),
+            skill_source.index("shields down"),
+        )
+        self.assertLess(
+            skill_source.index("shields down"),
+            skill_source.index("_skill_install_cmd"),
+        )
+        self.assertLess(
+            skill_source.index("_skill_install_cmd"),
+            skill_source.index("finally:\n"),
+        )
+        self.assertLess(
+            skill_source.index("finally:\n"),
+            skill_source.index("shields up"),
+        )
         self.assertIn("mcporter", cells["s36-code"]["source"])
         self.assertIn("--no-install-package", cells["c13aaf5e"]["source"])
         self.assertIn("ensure_agent_venv", cells["c13aaf5e"]["source"])
