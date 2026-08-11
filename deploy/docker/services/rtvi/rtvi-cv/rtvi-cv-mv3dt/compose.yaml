@@ -43,7 +43,7 @@ services:
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
 
   measurement-fusion:
-    image: ${VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE:-${BEV_FUSION_MV3DT_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion}}:${VSS_RT_CV_MV3DT_BEV_FUSION_TAG:-${BEV_FUSION_MV3DT_TAG:-develop-latest}}
+    image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0}
     container_name: vss-rtvi-cv-bev-fusion
     restart: always
     environment:
