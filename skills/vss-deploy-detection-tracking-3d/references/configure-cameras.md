@@ -445,6 +445,21 @@ grep -qxF "${EXPECTED_CONN}" generated/configs/ds-main-config-mv3dt.txt || {
   grep '^msg-broker-conn-str=' generated/configs/ds-main-config-mv3dt.txt >&2 || true
   exit 1
 }
+
+INPUT_MODE_EFFECTIVE="${INPUT_MODE:-$(read_env INPUT_MODE)}"
+if [ "${INPUT_MODE_EFFECTIVE}" = "file" ]; then
+  require_ini() {
+    section="$1"; key="$2"; expected="$3"
+    actual="$(awk -F= -v sec="[${section}]" -v key="${key}" '/^\[/ { in_sec = ($0 == sec) } in_sec && $1 == key { print $2; exit }' generated/configs/ds-main-config-mv3dt.txt)"
+    [ "${actual}" = "${expected}" ] || {
+      echo "ERROR: file-mode staged config requires [${section}] ${key}=${expected}; found ${actual:-missing}" >&2
+      exit 1
+    }
+  }
+  require_ini source-list low-latency-mode 0
+  require_ini source-attr-all drop-on-latency 0
+  require_ini source-attr-all latency 100000
+fi
 ```
 
 If saved BEV is selected/defaulted, verify resolved BEV assets before launch:

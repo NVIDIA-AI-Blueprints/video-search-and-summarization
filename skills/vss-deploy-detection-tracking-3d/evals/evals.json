@@ -7,7 +7,7 @@
     "expected_behavior": [
       "Loads vss-deploy-detection-tracking-3d for generic MV3DT intent.",
       "Identifies the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
-      "Uses bundled broker mode, but for file input runs bundled resource preflight before config generation/staging, starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
+      "Uses bundled broker mode, but for file input runs bundled resource preflight before config generation/staging, verifies staged file-mode latency dropping is disabled, starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
       "Reports resolved runtime images only from docker compose config --images and does not hardcode a runtime image version.",
       "Does not mention warehouse compose as the deployment path.",
       "Does not print plaintext API tokens."

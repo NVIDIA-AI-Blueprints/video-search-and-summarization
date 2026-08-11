@@ -18,6 +18,7 @@ Load this reference when setup, staging, launch, RTSP registration, Kafka flow, 
 - [Host Tool Or Python Prerequisite Missing](#host-tool-or-python-prerequisite-missing)
 - [`mdx-raw` Grows But `mdx-bev` Does Not](#mdx-raw-grows-but-mdx-bev-does-not)
 - [OSD Window Missing](#osd-window-missing)
+- [File OSD Blank Or No Active Sources](#file-osd-blank-or-no-active-sources)
 - [File-Input Completion Versus Crash](#file-input-completion-versus-crash)
 - [Kafka Verification Hangs](#kafka-verification-hangs)
 - [Saved Video Missing Or Stale](#saved-video-missing-or-stale)
@@ -205,6 +206,20 @@ Fixes:
 - Ask before modifying X11 access.
 - Do not use broad `xhost +`.
 - If no display is available, restage with `SAVE_VIDEO=1` and saved BEV output when BEV assets are present.
+
+## File OSD Blank Or No Active Sources
+
+Symptom: `INPUT_MODE=file` with `OSD=1` reaches `Pipeline running`, but the OSD window remains empty, `Active sources : 0` persists, FPS stays zero, and `mdx-raw` does not grow.
+
+For file input, the staged config should disable live-source latency dropping:
+
+```bash
+cd "${RTCV3D_APP}"
+awk '/^\[source-list\]/{s=1} /^\[/{if($0!="[source-list]")s=0} s && /^low-latency-mode=/' generated/configs/ds-main-config-mv3dt.txt
+awk '/^\[source-attr-all\]/{s=1} /^\[/{if($0!="[source-attr-all]")s=0} s && /^(drop-on-latency|latency)=/' generated/configs/ds-main-config-mv3dt.txt
+```
+
+Expected values for `INPUT_MODE=file` are `[source-list] low-latency-mode=0`, `[source-attr-all] drop-on-latency=0`, and `[source-attr-all] latency=100000`. If not, rerun the current `scripts/stage-configs.sh`, then rerun the staging assertions in `configure-cameras.md` before starting perception. Keep `low-latency-mode=1` and `drop-on-latency=1` for live RTSP stream mode.
 
 ## File-Input Completion Versus Crash
 
