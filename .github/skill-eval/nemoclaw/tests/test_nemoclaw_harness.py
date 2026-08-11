@@ -164,7 +164,36 @@ class HeadlessTrajectoryTests(unittest.TestCase):
             NEMOCLAW_DIR / "headless_runner.py",
         )
 
-    def test_openclaw_exec_is_normalized_to_bash_with_metrics(self) -> None:
+    def test_real_openclaw_result_envelope_is_unwrapped(self) -> None:
+        document = {
+            "runId": "run-1",
+            "status": "success",
+            "summary": "completed",
+            "result": {
+                "payloads": [{"text": "done"}],
+                "meta": {
+                    "agentMeta": {
+                        "sessionId": "session-1",
+                        "sessionFile": (
+                            "/sandbox/.openclaw/agents/main/sessions/"
+                            "session-1.jsonl"
+                        ),
+                    }
+                },
+            },
+        }
+
+        envelope = self.runner._json_object(
+            "OpenClaw warning before result\n" + json.dumps(document, indent=2)
+        )
+
+        self.assertEqual(envelope, document["result"])
+        self.assertEqual(
+            self.runner._session_file(envelope),
+            "/sandbox/.openclaw/agents/main/sessions/session-1.jsonl",
+        )
+
+    def test_openclaw_wrapped_exec_is_normalized_with_metrics(self) -> None:
         rows = [
             {
                 "type": "message",
@@ -180,8 +209,14 @@ class HeadlessTrajectoryTests(unittest.TestCase):
                         {
                             "type": "toolCall",
                             "id": "call-1",
-                            "name": "exec",
-                            "arguments": {"cmd": "echo ready"},
+                            "name": "tool_call",
+                            "arguments": {
+                                "id": "openclaw:core:exec",
+                                "args": {
+                                    "command": "echo ready",
+                                    "yieldMs": 30_000,
+                                },
+                            },
                         }
                     ],
                     "usage": {
@@ -217,6 +252,7 @@ class HeadlessTrajectoryTests(unittest.TestCase):
         call = trajectory["steps"][1]["tool_calls"][0]
         self.assertEqual(call["function_name"], "Bash")
         self.assertEqual(call["arguments"]["command"], "echo ready")
+        self.assertEqual(call["arguments"]["yieldMs"], 30_000)
         self.assertEqual(metrics["turns"], 1)
         self.assertEqual(metrics["prompt_tokens"], 10)
         self.assertEqual(metrics["cached_tokens"], 2)
