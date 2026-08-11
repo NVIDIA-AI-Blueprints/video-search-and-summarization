@@ -27,6 +27,7 @@
 
 class VodOverlayManager;
 class AvLoopSyncCoordinator;
+class NvFileServerMediaSubsession;
 
 using namespace std;
 
@@ -62,7 +63,7 @@ static unsigned const samplingFrequencyTable[16] = {
   7350, 0, 0, 0
 };
 
-typedef void (*cb_frameSourceEvent_t)(eFrameSourceEvent sourceEvent, void *owner);
+typedef void (*cb_frameSourceEvent_t)(eFrameSourceEvent sourceEvent, NvFileServerMediaSubsession *owner);
 
 /*
  * AAC parameter bundle returned by NvMediaSource::getAacParams().
@@ -110,9 +111,9 @@ class NvMediaSource : public IMediaDataConsumer
         void setClock(GstClock* global_clock, GstClockTime base_time);
         void seek (int64_t seek_pos , uint64_t end_time, float rate);
         void seekToStart ();
-        static void process_source_message(std::shared_ptr<EventLoopData> data, void* parent);
+        void process_source_message(std::shared_ptr<EventLoopData> data);
         void setBufferState(eBufferMsg buffer_msg);
-        void registerCallback(cb_frameSourceEvent_t callback, void *owner);
+        void registerCallback(cb_frameSourceEvent_t callback, NvFileServerMediaSubsession *owner);
         void sendSourceEvent(eFrameSourceEvent sourceEvent);
         string getCodecConfigId();
 
@@ -160,7 +161,7 @@ class NvMediaSource : public IMediaDataConsumer
         std::string             m_sourceState;
         shared_ptr<GstDeMux>    m_demux;
         shared_ptr<VodOverlayManager> m_vodOverlayManager = nullptr;
-        std::map<void *, cb_frameSourceEvent_t> m_callback;
+        std::map<NvFileServerMediaSubsession *, cb_frameSourceEvent_t> m_callback;
         bool                    m_includeFrameId = false;
         int64_t                 m_frameId;
         string                  m_uuid;

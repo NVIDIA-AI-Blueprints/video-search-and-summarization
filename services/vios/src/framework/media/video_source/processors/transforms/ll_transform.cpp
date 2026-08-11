@@ -326,7 +326,7 @@ void NvLLTransform::doTransformTask()
             }
             else if (!sink_frame->m_sample)
             {
-                ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, (void **)&ip_surf);
+                ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, &ip_surf);
                 if (ret < 0)
                 {
                     LOG(error) << "NvBufSurfaceFromFd failed" << endl;
@@ -378,7 +378,7 @@ void NvLLTransform::doTransformTask()
             {
                 if (!is_sw_mode)
                 {
-                    ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, (void **)&dst_surf);
+                    ret = NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, &dst_surf);
                     if (ret < 0)
                     {
                         LOG(error) << "NvBufSurfaceFromFd failed" << endl;

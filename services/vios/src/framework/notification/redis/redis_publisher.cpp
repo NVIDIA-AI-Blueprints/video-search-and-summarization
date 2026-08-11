@@ -56,15 +56,15 @@ NvRedis::NvRedis()
     // Temporary solution to load libnvds_logger in memory
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_logger.so");
-    m_redisHandle = dlopen(lib_path, RTLD_LAZY);
+    m_redisHandle = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_redisHandle)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_logger.so");
-        m_redisHandle = dlopen(lib_path, RTLD_LAZY);
+        m_redisHandle = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvds_logger.so");
-    m_redisHandle = dlopen(lib_path, RTLD_LAZY);
+    m_redisHandle = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_redisHandle)
     {
@@ -74,15 +74,15 @@ NvRedis::NvRedis()
 
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_redis_proto.so");
-    m_handle_redis_proto = dlopen(lib_path, RTLD_LAZY);
+    m_handle_redis_proto = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!m_handle_redis_proto)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libnvds_redis_proto.so");
-        m_handle_redis_proto = dlopen(lib_path, RTLD_LAZY);
+        m_handle_redis_proto = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libnvds_redis_proto.so");
-    m_handle_redis_proto = dlopen(lib_path, RTLD_LAZY);
+    m_handle_redis_proto = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
 #endif
 
     if (!m_handle_redis_proto)

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 
 #include "../unified_storage_types.h"
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -57,7 +58,7 @@ public:
                                      size_t estimated_size = 0) = 0;
 
     // Write operations - buffering handled internally for cloud storage
-    virtual bool writeData(const std::string& session_id, const void* data, size_t size, int64_t pts = 0,
+    virtual bool writeData(const std::string& session_id, const uint8_t* data, size_t size, int64_t pts = 0,
                            const std::string& media_type = "video") = 0;
 
     virtual StorageResult completeSession(const std::string& session_id, const std::string& stream_id) = 0;
@@ -106,7 +107,7 @@ public:
                              size_t estimated_size = 0) override;
 
     // Override write operations to use buffering
-    bool writeData(const std::string& session_id, const void* data, size_t size, int64_t pts = 0,
+    bool writeData(const std::string& session_id, const uint8_t* data, size_t size, int64_t pts = 0,
                    const std::string& media_type = "video") override final;
 
     StorageResult completeSession(const std::string& session_id, const std::string& stream_id) override final;
@@ -132,7 +133,7 @@ protected:
     }
 
     // Abstract methods for cloud storage implementations
-    virtual bool doWriteData(const std::string& session_id, const void* data, size_t size, int64_t pts = 0,
+    virtual bool doWriteData(const std::string& session_id, const uint8_t* data, size_t size, int64_t pts = 0,
                              const std::string& media_type = "video") = 0;
 
     virtual StorageResult doCompleteSession(const std::string& session_id, const std::string& stream_id) = 0;
@@ -152,7 +153,7 @@ private:
     // Internal methods
     void initializeBuffering(const std::string& stream_id, const std::string& session_id);
     void stopBuffering();
-    bool handleBufferedWrite(const std::string& session_id, const void* data, size_t size, int64_t pts = 0,
+    bool handleBufferedWrite(const std::string& session_id, const unsigned char* data, size_t size, int64_t pts = 0,
                              const std::string& media_type = "video");
     void updateBufferingStats();
 };

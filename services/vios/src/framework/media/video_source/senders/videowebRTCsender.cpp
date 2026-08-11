@@ -22,12 +22,11 @@
 #include "api/make_ref_counted.h"
 using namespace std;
 
-void VideoWebRTCSender::unRefDataStructure(void *ptr)
+void VideoWebRTCSender::unRefDataStructure(encoder_params *params)
 {
-    if (ptr)
+    if (params)
     {
         std::lock_guard<std::mutex> lock(m_encParamsLock);
-        encoder_params* params = (encoder_params*) ptr;
         /* Copy encoder feedback params as member variables */
         m_qp        = params->m_qp;
         m_targetBps = params->m_targetBps;
@@ -250,7 +249,7 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
         memset(params, 0, sizeof(encoder_params));
         nv_video_frame_buffer_ptr->m_clientBuffer = (void*)params;
         nv_video_frame_buffer_ptr->setPassThrough(true);
-        nv_video_frame_buffer_ptr->registerCB([this](void* params) { unRefDataStructure(params); });
+        nv_video_frame_buffer_ptr->registerCB([this](auto* client_buffer) { unRefDataStructure(static_cast<encoder_params*>(client_buffer)); });
         if (frame_params.m_latencyStartTime.tv_sec != std::numeric_limits<time_t>::max() && GET_CONFIG().enable_latency_logging)
         {
             nv_video_frame_buffer->rtspToWebrtcStartTime = frame_params.m_latencyStartTime;

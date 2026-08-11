@@ -28,9 +28,12 @@
 using namespace nv_vms;
 
 #if !defined(AARCH64_PLATFORM)
+struct KafkaLibHandle;
+struct KafkaMsgOpaque;
+
 typedef rd_kafka_conf_t* (*rd_kafka_conf_new_t) (void);
 typedef rd_kafka_conf_res_t (*rd_kafka_conf_set_t) (rd_kafka_conf_t*, const char*, const char*, char*, size_t);
-typedef void (*dr_msg_cb_t) (rd_kafka_t*, const rd_kafka_message_t*, void*);
+typedef void (*dr_msg_cb_t) (rd_kafka_t*, const rd_kafka_message_t*, KafkaMsgOpaque*);
 typedef void (*rd_kafka_conf_set_dr_msg_cb_t) (rd_kafka_conf_t*, dr_msg_cb_t);
 typedef rd_kafka_t* (*rd_kafka_new_t) (rd_kafka_type_t, rd_kafka_conf_t*, char*, size_t);
 typedef rd_kafka_resp_err_t (*rd_kafka_producev_t) (rd_kafka_t*, ...);
@@ -58,7 +61,7 @@ private:
     std::mutex m_messageLock;
 
 #if !defined(AARCH64_PLATFORM)
-    void* m_kafkaHandle;
+    KafkaLibHandle* m_kafkaHandle;
     rd_kafka_conf_new_t rd_kafka_conf_new;
     rd_kafka_conf_set_t rd_kafka_conf_set;
     rd_kafka_conf_set_dr_msg_cb_t rd_kafka_conf_set_dr_msg_cb;

@@ -479,7 +479,8 @@ static bool hasVclNalInBuffer(const uint8_t* data, size_t size, bool is_h265, bo
 
 ClipReaderProducer::ClipReaderProducer(const ClipReaderConfig& cfg)
 : mCfg(cfg)
-, m_recoveryEventLoop(std::make_unique<EventLoop>("clip_reader_retry", &ClipReaderProducer::process_retry_message))
+, m_recoveryEventLoop(std::make_unique<EventLoop>("clip_reader_retry",
+      [this](std::shared_ptr<EventLoopData> data) { processRetryMessage(data); }))
 {
 #if CLIP_READER_GIOSRC_EXTRA_DEBUG
     const char* env = std::getenv("VST_CLIP_READER_GIOSRC_DEBUG");
@@ -884,8 +885,6 @@ bool ClipReaderProducer::start()
 {
     if (mRunning.load()) return true;
     if (!gst_is_initialized()) { gst_init(nullptr, nullptr); }
-
-    m_recoveryEventLoop->setParent(this);
 
     // Save original seek_start_ms before any retries can modify it
     mOriginalSeekStartMs.store(mCfg.seek_start_ms);
@@ -1669,41 +1668,40 @@ bool ClipReaderProducer::postRetryPipeline(bool isError, const std::string& erro
     return true;
 }
 
-void ClipReaderProducer::process_retry_message(std::shared_ptr<EventLoopData> data, void* parent)
+void ClipReaderProducer::processRetryMessage(const std::shared_ptr<EventLoopData>& data)
 {
-    ClipReaderProducer* producer = static_cast<ClipReaderProducer*>(parent);
-    if (!producer || !data)
+    if (!data)
     {
-        LOG(error) << "ClipReaderProducer::process_retry_message: null producer or data" << endl;
+        LOG(error) << "ClipReaderProducer::processRetryMessage: null data" << endl;
         return;
     }
 
     // Clear mRetryInProgress and notify BEFORE any pipeline operations so stop() can proceed
     // without racing with retryPipeline() (avoids stop() tearing down a freshly rebuilt pipeline
     // concurrently with the retry callback).
-    producer->mRetryInProgress.store(false);
-    producer->mRetrySync.signal();
+    mRetryInProgress.store(false);
+    mRetrySync.signal();
 
     bool isError = data->m_inData["isError"].asBool();
     std::string errorMsg = data->m_inData["errorMsg"].asString();
 
-    bool ok = producer->retryPipeline();
+    bool ok = retryPipeline();
     if (!ok)
     {
         if (isError)
         {
-            if (producer->mRunning.load())
+            if (mRunning.load())
             {
-                producer->notifyErrorOnce(errorMsg, 1);
+                notifyErrorOnce(errorMsg, 1);
             }
         }
         else
         {
-            if (producer->mRunning.load())
+            if (mRunning.load())
             {
-                LOG(warning) << producer->mLogPrefix << "ClipReaderProducer: Retry failed, truncated clip" << endl;
-                producer->mRunning.store(false);
-                producer->notifyFinishedOnce();
+                LOG(warning) << mLogPrefix << "ClipReaderProducer: Retry failed, truncated clip" << endl;
+                mRunning.store(false);
+                notifyFinishedOnce();
             }
         }
     }

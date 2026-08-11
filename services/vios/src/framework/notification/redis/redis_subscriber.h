@@ -27,6 +27,8 @@ typedef NvDsMsgApiHandle (*msgapi_connect_ptr) (char*, nvds_msgapi_connect_cb_t,
 typedef NvDsMsgApiErrorType (*msgapi_subscribe_ptr) (NvDsMsgApiHandle, char **, int, nvds_msgapi_subscribe_request_cb_t, void*);
 typedef NvDsMsgApiErrorType (*msgapi_disconnect_ptr) (NvDsMsgApiHandle);
 
+struct DynamicLibrary;
+
 class RedisSubscriber : public nv_vms::INotificationInterface
 {
 public:
@@ -35,7 +37,7 @@ public:
     bool isError()  { return m_error; }
     void registerMessageListener(nv_vms::INotificationListener* listener) override;
     void deregisterMessageListener(nv_vms::INotificationListener* listener) override;
-    void deliverMessage(void *msg, int len);
+    void deliverMessage(const unsigned char *msg, int len);
 
     bool deliverMessage (Json::Value& message) override { return true; }
     void retryConnection () override
@@ -51,8 +53,8 @@ private:
     msgapi_subscribe_ptr                            nvds_msgapi_subscribe;
     msgapi_disconnect_ptr                           nvds_msgapi_disconnect;
     NvDsMsgApiHandle                                m_connHandle;
-    void*                                           m_handleRedis;
-    void*                                           m_handleRedisProto;
+    DynamicLibrary*                                 m_handleRedis;
+    DynamicLibrary*                                 m_handleRedisProto;
     std::string                                     m_redisEndpoint;
     std::string                                     m_subscribeTopic;
     std::string                                     m_sensorMngtTopic;

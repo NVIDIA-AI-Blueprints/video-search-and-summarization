@@ -124,8 +124,8 @@ public:
     void onError(std::function<void(const std::string& /*errorMsg*/, int /*errorCode*/)> cb) override;
 
     // Expose internal handles for advanced debug if needed
-    void* getGstPipeline() const { return mPipeline; }
-    void* getReaderSrc() const { return mReaderSrc; }
+    GstElement* getGstPipeline() const { return mPipeline; }
+    GstElement* getReaderSrc() const { return mReaderSrc; }
     const std::string& logPrefix() const { return mLogPrefix; }
 
     // Used by appsink collect probe (post-seek buffer queue)
@@ -233,7 +233,7 @@ private:
     // Returns true if retry was posted or already in progress.
     bool postRetryPipeline(bool isError, const std::string& errorMsg);
 
-    static void process_retry_message(std::shared_ptr<EventLoopData> data, void* parent);
+    void processRetryMessage(const std::shared_ptr<EventLoopData>& data);
 
     // Cap retries for premature EOS gaps (separate from empty-stream retries)
     std::atomic<int> mPrematureEosRetryCount{0};

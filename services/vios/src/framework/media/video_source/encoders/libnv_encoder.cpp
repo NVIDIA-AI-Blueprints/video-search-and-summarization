@@ -1452,10 +1452,10 @@ int NvVideoEncoder::GetEncodedPartitions(unsigned char** data, ssize_t *size, bo
     }
     else
     {
-        void* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
+        unsigned char* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
         if (surface_data_ptr)
         {
-            memcpy(*data,  (unsigned char*)surface_data_ptr,  capplane_buffer->planes[0].bytesused);
+            memcpy(*data,  surface_data_ptr,  capplane_buffer->planes[0].bytesused);
         }
     }
 

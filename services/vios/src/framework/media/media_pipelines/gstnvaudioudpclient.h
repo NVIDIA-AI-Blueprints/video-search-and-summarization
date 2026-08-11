@@ -48,7 +48,8 @@ namespace nv_vms
                       , m_bus(nullptr)
                       , m_busWatchId(0)
                       , m_freq (8000)
-                      , m_eventLoop("udp_audio_event_loop", process_eventloop_message)
+                      , m_eventLoop("udp_audio_event_loop",
+                                    [this](std::shared_ptr<EventLoopData> data) { process_eventloop_message(data); })
                       , m_is_error(false)
                       {
                           LOG(info) << "GstUDPAudioClient::GstUDPAudioClient port:" << id << endl;
@@ -70,7 +71,7 @@ namespace nv_vms
             bool pause_internal();
             void resume_internal();
             void destroy_internal();
-            static void process_eventloop_message(std::shared_ptr<EventLoopData> data, void* parent);
+            void process_eventloop_message(std::shared_ptr<EventLoopData> data);
             friend gboolean busWatchFunc (GstBus *bus, GstMessage *message, gpointer data);
             GstFlowReturn processNewSampleFromSink(GstElement * appsink);
 

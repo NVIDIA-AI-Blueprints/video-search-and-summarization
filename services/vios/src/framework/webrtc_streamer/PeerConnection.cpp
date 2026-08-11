@@ -261,11 +261,10 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
     return dependencies;
 }
 
-void process_pc_message(std::shared_ptr<EventLoopData> data, void* parent)
+void process_pc_message(std::shared_ptr<EventLoopData> data, PeerConnection* peer)
 {
     shared_ptr<PeerData> in_data = std::static_pointer_cast<PeerData>(data);
     shared_ptr<PeerOutData> out_data = std::static_pointer_cast<PeerOutData>(data->m_outResult);
-    PeerConnection* peer = static_cast <PeerConnection*>(parent);
     if (in_data == nullptr || peer == nullptr)
     {
         LOG(error) << "Received null in data" << endl;
@@ -430,7 +429,8 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
             , m_deleting(false)
             , m_publishFilter(std::string(".*"))
             , m_audioDecoderfactory(webrtc::CreateBuiltinAudioDecoderFactory())
-            , m_eventLoop("peerconnection_event_loop", process_pc_message)
+            , m_eventLoop("peerconnection_event_loop",
+                          [this](std::shared_ptr<EventLoopData> data) { process_pc_message(data, this); })
             , m_deviceManager(m_peerConnectionManager->getDeviceManager())
             , m_prevTimestamp(0)
             , m_prevBytesReceived(0)
@@ -491,7 +491,6 @@ PeerConnection::PeerConnection(PeerConnectionManager* peerConnectionManager,
     }
 
     m_statsCallback = webrtc::make_ref_counted<PeerConnectionStatsCollectorCallback>();
-    m_eventLoop.setParent(this);
 }
 
 PeerConnection::~PeerConnection()

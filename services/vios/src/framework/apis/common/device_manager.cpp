@@ -473,7 +473,7 @@ DeviceManager::~DeviceManager()
 
     clearSensorList();
 
-    destroyControlObject_t delObject = (destroyControlObject_t) m_sensorControlobjectPair.second;
+    destroyControlObject_t delObject = m_sensorControlobjectPair.second;
     if (m_sensorControlobjectPair.first != nullptr && delObject != nullptr)
     {
         delObject(m_sensorControlobjectPair.first);

@@ -68,7 +68,7 @@ CudaLoader::CudaLoader()
 #endif
     for (const char* cand : cudaCandidates)
     {
-        m_handleCuda = dlopen(cand, RTLD_LAZY);
+        m_handleCuda = static_cast<SharedLibraryHandle*>(dlopen(cand, RTLD_LAZY));
         if (m_handleCuda)
         {
             break;
@@ -77,7 +77,7 @@ CudaLoader::CudaLoader()
     }
     for (const char* cand : cudartCandidates)
     {
-        m_handleCudart = dlopen(cand, RTLD_LAZY);
+        m_handleCudart = static_cast<SharedLibraryHandle*>(dlopen(cand, RTLD_LAZY));
         if (m_handleCudart)
         {
             break;

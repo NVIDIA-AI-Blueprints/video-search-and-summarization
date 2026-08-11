@@ -651,7 +651,7 @@ void NvLLOverlay::doDrawTask()
         GstMetaUnion meta_union;
         int64_t pts = 0;
         bool is_drc = false;
-        void *data_ptr = nullptr;
+        unsigned char *data_ptr = nullptr;
         bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
         {
@@ -707,7 +707,7 @@ void NvLLOverlay::doDrawTask()
                 }
                 else
                 {
-                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, (void **)&ip_surf);
+                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, &ip_surf);
                     if (isJetsonPlatform() && m_isIPCMeta)
                     {
                         meta_union.setIpcMeta((GstNvIpcMeta*)sink_frame->meta);
@@ -789,7 +789,7 @@ void NvLLOverlay::doDrawTask()
                 }
                 else
                 {
-                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, (void **)&dst_surf);
+                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, &dst_surf);
                     NvBufWrapper::getInstance()->NvBufSurfaceCopy (ip_surf, dst_surf);
                 }
                 if (sink_frame->m_gstBuffer)
@@ -814,12 +814,12 @@ void NvLLOverlay::doDrawTask()
                 // Perform overlay using GPU/CPU based on config
                 if (!isJetsonPlatform() && is_sw_mode)
                 {
-                    data_ptr = (void *)m_cpuPtr[index].data();
+                    data_ptr = m_cpuPtr[index].data();
                     ret = m_overlay->doDraw(data_ptr, &meta_union, pts);
                 }
                 else
                 {
-                    ret = m_overlay->doDraw((void *)dst_surf, &meta_union, pts);
+                    ret = m_overlay->doDraw(reinterpret_cast<unsigned char *>(dst_surf), &meta_union, pts);
                 }
 
                 if (ret == false)

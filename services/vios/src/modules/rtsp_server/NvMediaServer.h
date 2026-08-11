@@ -91,7 +91,7 @@ protected: // redefined virtual functions
                     unsigned& rtpTimestamp,
                     ServerRequestAlternativeByteHandler* serverRequestAlternativeByteHandler,
                     void* serverRequestAlternativeByteHandlerClientData);
-  void pauseStream(unsigned clientSessionId, void* streamToken);
+  virtual void pauseStream(unsigned clientSessionId, void* streamToken);
   virtual void deleteStream(unsigned clientSessionId, void*& streamToken);
   void createMediaSource(eMediaType mediaType, eSourceType sourceType);
   void destroyMediaSource();
@@ -111,7 +111,7 @@ private:
   string m_url_params;
   TaskToken m_PlayModeCheckTask;
   eStreamState m_stream_state;
-  void *m_streamToken;
+  StreamState *m_streamToken;
   eMediaType m_mediaType;
   eSourceType m_sourceType;
   H264ByteStreamSource* m_videoStreamSource = nullptr;

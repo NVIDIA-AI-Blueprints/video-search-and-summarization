@@ -22,6 +22,11 @@
 #include <memory>
 #include "libjpeg-8b/jpeglib.h"
 
+namespace nv_vms {
+// Opaque handle to a dynamically loaded shared library.
+struct SharedLibrary;
+}
+
 typedef struct jpeg_error_mgr* (*jpeg_std_error_t) (struct jpeg_error_mgr*);
 typedef void (*jpeg_CreateCompress_t) (j_compress_ptr, int, size_t);
 typedef void (*jpeg_suppress_tables_t) (j_compress_ptr, boolean);
@@ -65,7 +70,7 @@ private:
 
     static std::unique_ptr<NvJpegEncLoader> m_instance;
     bool m_error;
-    void* m_handleNvJpeg;
+    nv_vms::SharedLibrary* m_handleNvJpeg;
 
     NvJpegEncLoader();
     ~NvJpegEncLoader();

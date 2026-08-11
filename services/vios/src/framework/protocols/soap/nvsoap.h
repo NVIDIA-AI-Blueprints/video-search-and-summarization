@@ -283,6 +283,7 @@ struct nvsoap_
     std::string jsonData;
 };
 
+typedef int (*composeMethodXml) (xmlTextWriterPtr& writer, nvsoap_& soap);
 
 class NvSoap
 {
@@ -374,8 +375,8 @@ private:
     SensorNetworkInfo getCameraNetworkInterfacesResponse(const std::string& xmlData);
     bool setCameraNetworkInterfacesResponse(const std::string& xmlData);
     std::string rebootCameraResponse(const std::string& xmlData);
-    std::string composeXml(nvsoap_& soap, void* methodxml);
-    std::string composeXmlWithoutUsertoken(nvsoap_& soap, void* methodxml);
+    std::string composeXml(nvsoap_& soap, composeMethodXml methodxml);
+    std::string composeXmlWithoutUsertoken(nvsoap_& soap, composeMethodXml methodxml);
     std::string composeProbeXml();
     int sendProbe(std::map<std::string, SensorInfo>& deviceList);
     int receiveProbeMatch(std::string& outData);

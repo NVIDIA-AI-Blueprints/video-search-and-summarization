@@ -691,7 +691,7 @@ public:
             }
             if (m_webrtcSinkConsumer)
             {
-                m_webrtcSinkConsumer->setWebrtcBroadcaster ((void*)&m_broadcaster);
+                m_webrtcSinkConsumer->setWebrtcBroadcaster (&m_broadcaster);
             }
         }
         m_broadcaster.AddOrUpdateSink(sink, wants);

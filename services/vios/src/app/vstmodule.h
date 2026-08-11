@@ -135,14 +135,14 @@ class ModuleLoader
         int loadMediaAdaptor();
         void unloadMediaAdaptor();
 
-        void* m_handleRtspServer = nullptr;
-        void* m_handleStreamRecorder = nullptr;
-        void* m_handleStorageManagement = nullptr;
-        void* m_handleSensorManagement = nullptr;
-        void* m_handlePeerConnectionManager = nullptr;
-        void* m_handlePeerConnectionLiveManager = nullptr;
-        void* m_handlePeerConnectionReplayManager = nullptr;
-        void* m_handleStreamBridge = nullptr;
+        nv_vms::SharedLibrary* m_handleRtspServer = nullptr;
+        nv_vms::SharedLibrary* m_handleStreamRecorder = nullptr;
+        nv_vms::SharedLibrary* m_handleStorageManagement = nullptr;
+        nv_vms::SharedLibrary* m_handleSensorManagement = nullptr;
+        nv_vms::SharedLibrary* m_handlePeerConnectionManager = nullptr;
+        nv_vms::SharedLibrary* m_handlePeerConnectionLiveManager = nullptr;
+        nv_vms::SharedLibrary* m_handlePeerConnectionReplayManager = nullptr;
+        nv_vms::SharedLibrary* m_handleStreamBridge = nullptr;
         AdaptorLoader m_loader;
         std::shared_ptr<DeviceManager> m_deviceManager;
         nv_vms::MediaAdaptorLoader::MediaAdaptorHandle m_mediaAdaptorHandle{};

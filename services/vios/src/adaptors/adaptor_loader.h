@@ -35,8 +35,10 @@ public:
     ~AdaptorLoader();
     std::shared_ptr<DeviceManager> loadAdaptor(ModuleId module_id = ModuleAll);
 private:
-    int loadControlAdaptorLibrary(const std::string& path, ISensorControlInterface** object, void** delObject);
-    int loadDiscoveryAdaptorLibrary(const std::string& path, ISensorDiscoveryInterface** object, void** delObject);
+    int loadControlAdaptorLibrary(const std::string& path, ISensorControlInterface** object,
+                                  destroyControlObject_t* delObject);
+    int loadDiscoveryAdaptorLibrary(const std::string& path, ISensorDiscoveryInterface** object,
+                                    destroyDiscoveryObject_t* delObject);
     int loadSensorControlAdaptorLibrary(const std::string& path, ISensorControlInterface** object, void** delObject);
 private:
     std::vector <destroyControlObject_t> m_adaptorDistructorList;
@@ -44,5 +46,4 @@ private:
 };
 
 } //nv_vms
-
 

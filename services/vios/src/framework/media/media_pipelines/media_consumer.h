@@ -30,6 +30,11 @@
 
 using namespace std;
 
+namespace webrtc
+{
+    class VideoBroadcaster;
+}
+
 typedef enum
 {
     InvalidMedia = -1,
@@ -219,7 +224,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         bool isPpsAvailable();
         bool isSpsPpsAvailable();
 
-        virtual void setWebrtcBroadcaster(void* broadcaster) { /* Default no-op: only WebRTC consumers hold a broadcaster reference. */ };
+        virtual void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) { /* Default no-op: only WebRTC consumers hold a broadcaster reference. */ };
         virtual void onLastFrame() { /* No-op by default: only consumers that finalize output on end-of-stream override this. */ }
         virtual void reset() { /* Default no-op: only consumers holding restartable state (encoders, overlays, transforms) override this. */ }
         /* Update start time for overlay */
@@ -257,7 +262,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         virtual bool waitForCompletion(int64_t /*timeout_secs*/) { return true; }
         virtual bool hasError() const { return false; }
         virtual std::shared_ptr<IMediaDataConsumer> getAudioConsumer() { return nullptr; }
-        virtual void* getPipeline() const { return nullptr; }
+        virtual GstElement* getPipeline() const { return nullptr; }
 
         // Get actual first frame PTS in milliseconds (for remux mode filename correction)
         // Returns -1 if not available/not tracked

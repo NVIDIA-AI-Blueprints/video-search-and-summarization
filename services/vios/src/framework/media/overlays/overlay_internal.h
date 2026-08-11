@@ -270,8 +270,8 @@ class NvLLOverlayInternal
         void readTripwire();
         void readRoi();
         void readCalibrationData();
-        bool processOsdSinkPadBufferProbeStreamer (void* buf, GstNvVstMeta *meta);
-        bool processOsdSinkPadBufferProbe (void* buf, GstMetaUnion *meta, int64_t pts = 0);
+        bool processOsdSinkPadBufferProbeStreamer (unsigned char* buf, GstNvVstMeta *meta);
+        bool processOsdSinkPadBufferProbe (unsigned char* buf, GstMetaUnion *meta, int64_t pts = 0);
         void fetchMetadataAgain (string new_start);
         void updateIdList(std::vector<string> idList[OVERLAYCOUNT]);
         void updateClassTypeList(std::vector<string> classTypeList);
@@ -296,7 +296,7 @@ class NvLLOverlayInternal
         void updateIPCStreamResolution(int width, int height);
         bool isOverlayEnabled();
         bool isBboxEnabled() { return m_enableBbox; }
-        bool doDraw (void* data, GstMetaUnion *meta, int64_t pts = 0);
+        bool doDraw (unsigned char* data, GstMetaUnion *meta, int64_t pts = 0);
         void draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData* box_params,
                 vector<string> m_bboxList, vector<string> m_classTypeList, OsdContext_t context, GstBuffer *buffer);
         GstElement* create();

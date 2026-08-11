@@ -18,6 +18,8 @@
 #ifndef NV_LIBS_H
 #define NV_LIBS_H
 
+struct NvV4l2LibHandle;
+
 typedef int (*v4l2_ioctl_t) (int , unsigned long int , ...);
 typedef int (*v4l2_open_t) (const char *, int, ...);
 typedef int (*v4l2_close_t) (int);
@@ -37,7 +39,7 @@ public:
 
 private:
   bool error;
-  void* handle_v4l2;
+  NvV4l2LibHandle* handle_v4l2;
 
   NvLibs();
 

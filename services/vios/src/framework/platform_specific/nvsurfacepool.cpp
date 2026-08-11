@@ -141,7 +141,7 @@ void NvSurfacePool::addFreeSurfaceToQ (FdIndexInfo fd_index_info)
         // Dummy FDs are created in SW overlay mode, avoid calling getNvSurface for them
         if (!sw_mode)
         {
-            nvbuf_surf = (NvBufSurface *)NvBufWrapper::getInstance()->getNvSurface(fd_index_pair.first);
+            nvbuf_surf = NvBufWrapper::getInstance()->getNvSurface(fd_index_pair.first);
         }
 
         if (nvbuf_surf != nullptr)

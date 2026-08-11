@@ -27,7 +27,7 @@ using namespace std;
 
 #if !defined(AARCH64_PLATFORM)
 static void
-DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaque)
+DeliveryCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, KafkaMsgOpaque *opaque)
 {
     if (rkmessage->err)
     {
@@ -72,7 +72,7 @@ NvKafka::NvKafka()
 #endif
 {
 #if !defined(AARCH64_PLATFORM)
-    m_kafkaHandle = dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY);
+    m_kafkaHandle = static_cast<KafkaLibHandle*>(dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY));
     if (!m_kafkaHandle)
     {
         LOG(error) << "Cannot open librdkafka library: " << dlerror() << endl;

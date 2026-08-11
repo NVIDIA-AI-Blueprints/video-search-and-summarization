@@ -42,6 +42,8 @@
 //#define DUMP_BITSTREAM
 using namespace std;
 
+struct encoder_params;
+
 struct VideoSink
 {
     VideoSink(): m_broadcaster(nullptr)  {}
@@ -78,7 +80,7 @@ class VideoWebRTCSender : public IMediaDataConsumer
             }
         }
 
-        void unRefDataStructure(void *ptr);
+        void unRefDataStructure(encoder_params *params);
         void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate);
         int  createPassThroughMode(string& device_id);
         void appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster);

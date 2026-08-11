@@ -27,6 +27,11 @@ typedef CUresult (*cuInit_t) (unsigned int);
 typedef CUresult (*cuDeviceGet_t) (CUdevice*, int);
 typedef CUresult (*cuCtxGetCurrent_t) (CUcontext*);
 typedef cudaError_t (*cudaSetDevice_t) (int);
+
+// Opaque stand-in for the dlopen() handle, so the handles are typed instead of
+// raw void*. Only ever held and passed back to dlsym()/dlclose().
+struct SharedLibraryHandle;
+
 class CudaLoader
 {
 public:
@@ -41,8 +46,8 @@ public:
 
 private:
     bool m_error;
-    void* m_handleCuda;
-    void* m_handleCudart;
+    SharedLibraryHandle* m_handleCuda;
+    SharedLibraryHandle* m_handleCudart;
 
     CudaLoader();
     ~CudaLoader();

@@ -2111,7 +2111,7 @@ bool process_tripwire_stats(const string &sensorName, const string &tripwireId, 
     return true;
 }
 
-bool NvLLOverlayInternal::doDraw (void* data, GstMetaUnion *meta, int64_t pts)
+bool NvLLOverlayInternal::doDraw (unsigned char* data, GstMetaUnion *meta, int64_t pts)
 {
     bool ret = false;
     if (m_useId)
@@ -3388,7 +3388,7 @@ void NvLLOverlayInternal::readCalibrationData()
     }
 }
 
-bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUnion *union_meta, int64_t pts)
+bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (unsigned char* buffer, GstMetaUnion *union_meta, int64_t pts)
 {
     GstNvIpcMeta* ipc_meta = nullptr;
     GstNvVstMeta* vst_meta = nullptr;
@@ -3419,7 +3419,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
         }
         m_cpuCtx->width = m_width;
         m_cpuCtx->height = m_height;
-        m_cpuCtx->data = &buffer;
+        m_cpuCtx->data = (void **)&buffer;
         m_cpuCtx->size = (m_width * m_height * 3) / 2;
         ip_buffer = m_cpuCtx.get();
     }
@@ -3836,7 +3836,7 @@ Json::Value NvLLOverlayInternal::getMetadata(int64_t frameTS)
     return metadata;
 }
 
-bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, GstNvVstMeta *meta)
+bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (unsigned char* buffer, GstNvVstMeta *meta)
 {
 #ifdef USE_CUOSD
     void *ip_buffer = buffer;
@@ -3855,7 +3855,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
         }
         m_cpuCtx->width = m_width;
         m_cpuCtx->height = m_height;
-        m_cpuCtx->data = &buffer;
+        m_cpuCtx->data = (void **)&buffer;
         m_cpuCtx->size = (m_width * m_height * 3) / 2;
         ip_buffer = m_cpuCtx.get();
     }
@@ -4509,9 +4509,9 @@ GstPadProbeReturn osd_sink_pad_buffer_probe (GstPad* pad, GstPadProbeInfo* info,
 
         if (overlay->m_useId)
         {
-            ret = overlay->processOsdSinkPadBufferProbeStreamer(buffer, meta);
+            ret = overlay->processOsdSinkPadBufferProbeStreamer((unsigned char *)buffer, meta);
         }
-        ret = overlay->processOsdSinkPadBufferProbe(buffer, &meta_union, frameTS);
+        ret = overlay->processOsdSinkPadBufferProbe((unsigned char *)buffer, &meta_union, frameTS);
         return (ret == true) ? GST_PAD_PROBE_OK : GST_PAD_PROBE_REMOVE;
     }
     return GST_PAD_PROBE_REMOVE;

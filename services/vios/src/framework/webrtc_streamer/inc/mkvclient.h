@@ -61,13 +61,7 @@ class MKVClient
 	
 	private:
 		void onMatroskaFileCreation(MatroskaFile* newFile);
-		static void onMatroskaFileCreation(MatroskaFile* newFile, void* clientData) {
-			((MKVClient*)(clientData))->onMatroskaFileCreation(newFile);
-		}
 		void onEndOfFile();
-		static void onEndOfFile(void* clientData) {
-			((MKVClient*)(clientData))->onEndOfFile();
-		}
 		
 	private:
 		Environment&             m_env;

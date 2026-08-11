@@ -919,10 +919,11 @@ int stopOnvifDiscovery()
     return 0;
 }
 
-static size_t curlWriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
+static size_t curlWriteCallback(const char *contents, size_t size, size_t nmemb, std::string *userp)
 {
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
-    return size * nmemb;
+    const size_t totalBytes(size * nmemb);
+    userp->append(contents, totalBytes);
+    return totalBytes;
 }
 
 bool curlGetRequest(const string& url, long& http_code)

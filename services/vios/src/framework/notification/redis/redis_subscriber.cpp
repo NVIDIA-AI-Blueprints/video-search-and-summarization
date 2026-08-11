@@ -26,7 +26,9 @@
 
 using namespace std;
 
-static void* openLibrary(const char* libName)
+struct DynamicLibrary;
+
+static DynamicLibrary* openLibrary(const char* libName)
 {
     std::string lib_path;
     void* handle = nullptr;
@@ -44,9 +46,11 @@ static void* openLibrary(const char* libName)
     handle = dlopen(lib_path.c_str(), RTLD_LAZY);
 #endif
 
-    return handle;
+    return static_cast<DynamicLibrary*>(handle);
 }
 
+extern "C"
+{
 static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *topic, void *user_ptr)
 {
     if(flag == NVDS_MSGAPI_ERR)
@@ -55,12 +59,13 @@ static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *top
     }
     else
     {
-        RedisSubscriber* subscriber = (RedisSubscriber*) user_ptr;
+        RedisSubscriber* subscriber = static_cast<RedisSubscriber*>(user_ptr);
         if (subscriber)
         {
-            subscriber->deliverMessage(msg, len);
+            subscriber->deliverMessage(static_cast<const unsigned char*>(msg), len);
         }
     }
+}
 }
 
 std::unique_ptr<RedisSubscriber> RedisSubscriber::_instance = nullptr;
@@ -195,7 +200,7 @@ void RedisSubscriber::deregisterMessageListener(nv_vms::INotificationListener* l
     m_listeners.erase(listener);
 }
 
-void RedisSubscriber::deliverMessage(void *msg, int len)
+void RedisSubscriber::deliverMessage(const unsigned char *msg, int len)
 {
     if (!m_listeners.size())
     {

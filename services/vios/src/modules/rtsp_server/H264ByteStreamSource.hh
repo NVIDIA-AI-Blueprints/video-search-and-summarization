@@ -55,9 +55,9 @@ private:
     virtual void doGetNextFrame();
 
 private:
-    static void onSourceClosure(void* clientData);
+    static void onSourceClosure(H264ByteStreamSource* source);
     void onSourceClosure1();
-    static void afterGettingFrame(void* clientData,
+    static void afterGettingFrame(H264ByteStreamSource* source,
           unsigned frameSize, unsigned numTruncatedBytes,
                                   struct timeval presentationTime,
           unsigned durationInMicroseconds);

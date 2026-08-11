@@ -110,7 +110,6 @@ private:
     std::string                                    m_peerid;
     std::string                                    m_isoStartTime;
     std::string                                    m_isoEndTime;
-    void*                                          m_broadcaster = nullptr;
     std::vector<uint8_t>                           m_cpuPtr[OUTPUT_PLANE_NUM_BUFFERS];
     bool                                           m_imageCapture = false;
     bool                                           m_isIPCMeta = false;

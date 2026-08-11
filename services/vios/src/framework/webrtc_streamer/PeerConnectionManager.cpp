@@ -300,11 +300,10 @@ static std::string createUniqueStreamId(std::shared_ptr<SensorInfo> sensor)
 }
 
 #ifdef ASYNC_API
-void process_peer_message(std::shared_ptr<EventLoopData> data, void* parent)
+void process_peer_message(std::shared_ptr<EventLoopData> data, PeerConnectionManager* peer)
 {
     shared_ptr<PeerData> in_data = std::static_pointer_cast<PeerData>(data);
     shared_ptr<PeerOutData> out_data = std::static_pointer_cast<PeerOutData>(data->m_outResult);
-    PeerConnectionManager* peer = static_cast <PeerConnectionManager*>(parent);
     Json::Value in = in_data->m_dataParams;
     Json::Value out;
     VmsErrorCode error_code = VmsErrorCode::NoError;
@@ -670,7 +669,8 @@ PeerConnectionManager::PeerConnectionManager(std::string pcType,
 #endif
       m_publishFilter(publishFilter), m_deviceManager(deviceManager)
 #ifdef ASYNC_API
-      , m_eventLoop("peer_event_loop", process_peer_message)
+      , m_eventLoop("peer_event_loop",
+                    [this](std::shared_ptr<EventLoopData> data) { process_peer_message(data, this); })
 #endif
 {
     InitializePeerConnection();
@@ -2029,9 +2029,6 @@ void PeerConnectionManager::InitializePeerConnection()
     }
     configureWebrtcLogging(logLevel);
     LOG(info) << "Logger level:" <<  webrtc::LogMessage::GetLogToDebug() << std::endl;
-#ifdef ASYNC_API
-    m_eventLoop.setParent(this);
-#endif
     webrtc::InitializeSSL();
     if (GET_CONFIG().use_reverse_proxy == true)
     {

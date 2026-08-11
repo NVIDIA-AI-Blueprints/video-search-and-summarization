@@ -78,7 +78,7 @@ struct data
 static
 int my_trace(CURL *handle, curl_infotype type,
              char *data, size_t size,
-             void *userp)
+             struct data *userp)
 {
     cout << string(data) << endl;
     return 0;

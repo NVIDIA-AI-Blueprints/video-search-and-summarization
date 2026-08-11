@@ -68,6 +68,9 @@ static void createMainStreamForFirstUpload(shared_ptr<StreamInfo> stream, shared
 static void createSubsequentStream(shared_ptr<StreamInfo> stream, shared_ptr<SensorInfo> sensor, const vector<SensorStreamsDBColumns>& existingStreams, Json::Value& response);
 static void updateStreamUrls(shared_ptr<StreamInfo> stream, shared_ptr<SensorInfo> sensor, const string& rtsp_url, shared_ptr<DeviceManager> deviceMngr, const vector<SensorStreamsDBColumns>& existingStreams);
 
+// Opaque handle type for a dynamically loaded shared library
+struct SharedLibraryHandle;
+
 // Function pointer types for dynamic loading
 typedef nv_vms::VideoSegmentExtractor* (*CreateVideoSegmentExtractor_t)();
 typedef void (*DestroyVideoSegmentExtractor_t)(nv_vms::VideoSegmentExtractor*);
@@ -78,7 +81,7 @@ typedef bool (*IsExtractorAvailable_t)(nv_vms::VideoSegmentExtractor*);
 // Dynamic VideoSegmentExtractor loader class
 class DynamicVideoSegmentExtractor {
 private:
-    void* m_handle;
+    SharedLibraryHandle* m_handle;
     CreateVideoSegmentExtractor_t m_createFunc;
     DestroyVideoSegmentExtractor_t m_destroyFunc;
     ExtractSegmentStreamCopy_t m_extractFunc;
@@ -87,7 +90,7 @@ private:
     nv_vms::VideoSegmentExtractor* m_instance;
 
     // Secure library loading function with path validation
-    void* tryLoadLibrary(const char* lib_path)
+    SharedLibraryHandle* tryLoadLibrary(const char* lib_path)
     {
         if (!lib_path || lib_path[0] == '\0')
         {
@@ -143,7 +146,7 @@ private:
             LOG(error) << "Failed to load library " << resolved_path << ": " << dlerror() << endl;
         }
 
-        return handle;
+        return static_cast<SharedLibraryHandle*>(handle);
     }
 
 public:
@@ -341,7 +344,7 @@ typedef struct {
 /* ---------------------------------------------------------------------------
 **  Civet mg_form_data_handler callback
 ** -------------------------------------------------------------------------*/
-int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data)
+int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data) // NOSONAR
 {
     struct FileData* data = (FileData *) user_data;
     if(!data)
@@ -418,7 +421,8 @@ int field_found(const char *key, const char *filename, char *path, size_t pathle
 	return MG_FORM_FIELD_STORAGE_GET;
 }
 
-int field_get(const char *key, const char *value, size_t valuelen, void *user_data)
+/* Parameter types are fixed by the civetweb mg_form_data_handler::field_get callback. */
+int field_get(const char *key, const char *value, size_t valuelen, void *user_data) // NOSONAR
 {
 	if ((key != nullptr) && (key[0] == '\0'))
     {
@@ -491,9 +495,8 @@ int field_get(const char *key, const char *value, size_t valuelen, void *user_da
 	return 0;
 }
 
-int field_stored(const char *path, long long file_size, void *user_data)
+int field_stored(const char *path, long long file_size, FileData *data)
 {
-    struct FileData* data = (FileData *) user_data;
     if(!data)
     {
         LOG(error) << "FileData is NULL" << endl;
@@ -1455,7 +1458,10 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
         }
 
         //assign form handler callbacks
-        struct mg_form_data_handler fdh = {field_found, field_get, field_stored, (void *)&data};
+        auto field_stored_cb = [](const char *path, long long file_size, void *user_data) {
+            return field_stored(path, file_size, static_cast<FileData *>(user_data));
+        };
+        struct mg_form_data_handler fdh = {field_found, field_get, field_stored_cb, (void *)&data};
 
         mg_handle_form_request(conn, &fdh);
     }

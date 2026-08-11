@@ -58,7 +58,7 @@ public:
     bool start();
     void stop();
     bool isRunning() const { return mRunning.load(); }
-    void* getPipeline() const { return mPipeline; }
+    GstElement* getPipeline() const override { return mPipeline; }
     
     // Wait on this writer's bus for EOS or ERROR. Returns true on EOS/ERROR, false on timeout.
     bool waitForCompletion(int64_t timeout_secs);

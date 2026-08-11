@@ -35,7 +35,7 @@ public:
 
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void onFrame(FrameParams& params) override;
-    void setWebrtcBroadcaster(void* broadcaster) override;
+    void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) override;
     void removeWebrtcBroadcaster(const std::string& peerid); // New method to remove broadcaster safely
     void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate) override;
     
@@ -55,7 +55,7 @@ private:
 private:
     shared_ptr<VideoWebRTCSender>                  m_videowebRTCSender = nullptr;
     std::mutex                                     m_broadcasterMutex;
-    void*                                          m_broadcaster = nullptr;
+    webrtc::VideoBroadcaster*                      m_broadcaster = nullptr;
     std::string                                    m_peerIdStreamId{""};
     std::shared_ptr<IMediaDataConsumer>            m_bitstreamConsumer = nullptr;
     WebrtcFrameTimestamper                         m_frameTimestamper;

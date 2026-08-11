@@ -76,6 +76,9 @@ bool WebsocketClient::processReceivedMessage(struct mg_connection *conn, int fla
     return true;
 }
 
+// civetweb invokes these from C code, so they must carry C language linkage
+extern "C"
+{
 // WebSocket data handler
 static int wSDataHandler(struct mg_connection *conn, int flags, char *data, size_t data_len, void *user_data)
 {
@@ -85,12 +88,13 @@ static int wSDataHandler(struct mg_connection *conn, int flags, char *data, size
 // WebSocket close handler
 static void wSCloseHandler(const struct mg_connection *conn, void *user_data)
 {
-    WebsocketClient *ws = (WebsocketClient *)user_data;
+    WebsocketClient *ws = static_cast<WebsocketClient *>(user_data);
     if (ws)
     {
         return ws->handleClose(conn);
     }
     return;
+}
 }
 
 // Constructor

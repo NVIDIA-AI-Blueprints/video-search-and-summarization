@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -426,7 +426,7 @@ ClientSession::~ClientSession()
 
 ClientSession::ClientSession()
 {
-    m_curl = curl_easy_init();
+    m_curl = static_cast<CurlEasyHandle*>(curl_easy_init());
     m_nvsoap = std::make_shared<NvSoap>();
 
     if (!m_curl || !m_nvsoap)
@@ -435,7 +435,7 @@ ClientSession::ClientSession()
     }
 }
 
-CURL* ClientSession::getCurlClient()
+CurlEasyHandle* ClientSession::getCurlClient()
 {
     if (m_curl != nullptr)
     {

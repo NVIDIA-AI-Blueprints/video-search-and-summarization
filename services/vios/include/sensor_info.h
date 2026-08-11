@@ -138,6 +138,9 @@ struct HashingAlgorithmInfo
     std::string algorithm;  // e.g., "SHA-256"/"MD5,SHA-256"/"MD5"
 };
 
+// Opaque, typed stand-in for a libcurl easy handle (libcurl declares CURL as void)
+struct CurlEasyHandle;
+
 class ClientSession
 {
     public:
@@ -149,10 +152,10 @@ class ClientSession
         ClientSession(ClientSession&&) = delete;
         ClientSession& operator=(ClientSession&&) = delete;
 
-        CURL* getCurlClient();
+        CurlEasyHandle* getCurlClient();
         std::shared_ptr<NvSoap> getNvSoap();
     private:
-        CURL* m_curl;
+        CurlEasyHandle* m_curl;
         std::shared_ptr<NvSoap> m_nvsoap;
 };
 

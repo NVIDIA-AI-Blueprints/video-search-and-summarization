@@ -50,7 +50,7 @@ NvLibs::NvLibs()
 #else
     lib_path = ABSOLUTE_LIBRARY_PATH_X86_64;
 #endif
-    handle_v4l2 = dlopen(lib_path, RTLD_LAZY); 
+    handle_v4l2 = static_cast<NvV4l2LibHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!handle_v4l2)
     {
         LOG(error) << "Cannot open v4l2 library: " << dlerror() << endl;

@@ -170,7 +170,7 @@ void DsProtoParser::resetSchemaFunctionPointers()
     m_frame_get_info = nullptr;
 }
 
-Json::Value DsProtoParser::parseMessage(const void* msg, int len, int64_t& frameTimeMs)
+Json::Value DsProtoParser::parseMessage(const unsigned char* msg, int len, int64_t& frameTimeMs)
 {
     if (!m_schemaLibHandle && !loadSchemaLibrary())
     {

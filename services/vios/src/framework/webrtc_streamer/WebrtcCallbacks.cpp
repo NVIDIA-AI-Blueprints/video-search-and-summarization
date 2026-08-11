@@ -287,7 +287,7 @@ void VideoSink::OnFrame(const webrtc::VideoFrame& video_frame)
     webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer(frame_buffer->ToI420());
     int width = frame_buffer->width();
     int height = frame_buffer->height();
-    void* dataY = nullptr;
+    unsigned char* dataY = nullptr;
     /* Size is 1.5 times resolution for I420 Buffer
        and Size is stored in width and codec type is specified in height for pass through */
     unsigned int size = width * height * 1.5;
@@ -301,13 +301,13 @@ void VideoSink::OnFrame(const webrtc::VideoFrame& video_frame)
     if (buffer == nullptr)
     {
         size = sizeof(NvBufSurface);
-        dataY = (void *)&frame_buffer; //webrtc::scoped_refptr<NvVideoFrameBuffer>*
+        dataY = (unsigned char *)&frame_buffer; //webrtc::scoped_refptr<NvVideoFrameBuffer>*
     }
     else
     {
         width = buffer->width();
         height = buffer->height();
-        dataY = m_passThrough ? (void *)buffer.get()->DataY() : (void *)buffer.get();
+        dataY = m_passThrough ? (unsigned char *)buffer.get()->DataY() : (unsigned char *)buffer.get();
     }
 
     /* Frame rate measurements */

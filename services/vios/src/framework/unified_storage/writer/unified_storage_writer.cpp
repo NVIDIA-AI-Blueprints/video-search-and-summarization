@@ -161,7 +161,7 @@ std::string UnifiedStorageWriter::startWrite(const std::string& remote_path, con
     return session_id;
 }
 
-bool UnifiedStorageWriter::onFrame(const std::string& session_id, const void* data, size_t size, int64_t pts,
+bool UnifiedStorageWriter::onFrame(const std::string& session_id, const unsigned char* data, size_t size, int64_t pts,
                                    const std::string& media_type)
 {
     if (!m_session_active.load() || session_id != m_current_session_id)
@@ -179,7 +179,7 @@ bool UnifiedStorageWriter::onFrame(const std::string& session_id, const void* da
     }
 
     // Push buffer to pipeline with PTS and media type
-    return pushBufferToPipeline(data, size, pts, media_type);
+    return pushBufferToPipeline(static_cast<const unsigned char*>(data), size, pts, media_type);
 }
 
 StorageResult UnifiedStorageWriter::stopWrite(const std::string& session_id, const std::string& stream_id)
@@ -993,7 +993,7 @@ bool UnifiedStorageWriter::resetPipeline()
     return createPipeline(m_videoCodec, m_audioSupported, current_stream_id);
 }
 
-bool UnifiedStorageWriter::pushBufferToPipeline(const void* data, size_t size, int64_t pts,
+bool UnifiedStorageWriter::pushBufferToPipeline(const unsigned char* data, size_t size, int64_t pts,
                                                 const std::string& media_type)
 {
     // Validate input parameters to prevent crashes

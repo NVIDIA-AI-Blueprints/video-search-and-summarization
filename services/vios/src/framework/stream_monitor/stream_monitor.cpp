@@ -239,14 +239,14 @@ void StreamMonitor::addCurlRequest(const std::string& url)
         retM = curl_multi_add_handle(m_curlMultiHandle, curl);
         CURL_CHECK_ERROR2(curl_multi_add_handle, retM)
 
-        m_curlList.push_back(std::make_tuple(curl, url, isResponsePending));
+        m_curlList.push_back(std::make_tuple(static_cast<CurlEasyHandle*>(curl), url, isResponsePending));
     }
 }
 
-void StreamMonitor::removeCurlRequest(CURL *curl)
+void StreamMonitor::removeCurlRequest(CurlEasyHandle *curl)
 {
     CURLMcode retM = CURLM_OK;
-    std::vector<std::tuple<CURL*, std::string, bool>>::iterator it;
+    std::vector<std::tuple<CurlEasyHandle*, std::string, bool>>::iterator it;
     for(it = m_curlList.begin(); it != m_curlList.end(); ++it)
     {
         if(get<0>(*it) == curl)
@@ -275,18 +275,18 @@ bool StreamMonitor::isCurlResponsePendingForUri(const std::string& url)
     return false;
 }
 
-void StreamMonitor::setCurlResponsePendingStatus(CURL *curl, bool isResponsePending)
+void StreamMonitor::setCurlResponsePendingStatus(const std::string& url, bool isResponsePending)
 {
     for(auto &i : m_curlList)
     {
-        if(get<0>(i) == curl)
+        if(get<1>(i) == url)
         {
             get<2>(i) = isResponsePending;
         }
     }
 }
 
-std::string StreamMonitor::getUriByUsingCurlHandle(const CURL *curl)
+std::string StreamMonitor::getUriByUsingCurlHandle(const CurlEasyHandle *curl)
 {
     std::string url;
     for(const auto &i : m_curlList)
@@ -302,7 +302,7 @@ std::string StreamMonitor::getUriByUsingCurlHandle(const CURL *curl)
 
 void StreamMonitor::livenessMonitorTask()
 {
-    CURL *curl = nullptr;
+    CurlEasyHandle *curl = nullptr;
     CURLMsg *msg = nullptr;
     CURLcode return_code = CURLE_OK;
     int still_running = 0, msgs_left = 0, repeats = 0;
@@ -359,7 +359,7 @@ void StreamMonitor::livenessMonitorTask()
                 {
                         if (msg->msg == CURLMSG_DONE)
                         {
-                            curl = msg->easy_handle;
+                            curl = static_cast<CurlEasyHandle*>(msg->easy_handle);
                             return_code = msg->data.result;
                             // Ignore few curl errors
                             if (return_code == CURLE_RTSP_CSEQ_ERROR || return_code == CURLE_RECV_ERROR)
@@ -369,14 +369,14 @@ void StreamMonitor::livenessMonitorTask()
                             if(return_code != CURLE_OK)
                             {
                                 LOG(error) << "CURL error:" << curl_easy_strerror(return_code) << " [" << return_code << "] for url:" << secureUrlForLogging(getUriByUsingCurlHandle(curl)) << endl;
-                                setCurlResponsePendingStatus(curl, false);
+                                setCurlResponsePendingStatus(getUriByUsingCurlHandle(curl), false);
                                 updateUriStatus(getUriByUsingCurlHandle(curl), STREAM_STATUS_OFFLINE, return_code);
 
                             }
                             else
                             {
                                 //LOG(info) << "Response[" << return_code << "] " << curl_easy_strerror(return_code) << " for url:" << getUriByUsingCurlHandle(curl) << endl;
-                                setCurlResponsePendingStatus(curl, false);
+                                setCurlResponsePendingStatus(getUriByUsingCurlHandle(curl), false);
                                 updateUriStatus(getUriByUsingCurlHandle(curl), STREAM_STATUS_ONLINE, return_code);
                             }
                             removeCurlRequest(curl);

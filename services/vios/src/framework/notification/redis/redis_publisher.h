@@ -30,6 +30,9 @@ typedef NvDsMsgApiHandle (*nvds_msgapi_connect_t) (char*, nvds_msgapi_connect_cb
 typedef NvDsMsgApiErrorType (*nvds_msgapi_send_t) (NvDsMsgApiHandle, char*, const uint8_t*, size_t);
 typedef NvDsMsgApiErrorType (*nvds_msgapi_disconnect_t) (NvDsMsgApiHandle);
 
+/* Opaque handle to a dynamically loaded shared library (as returned by dlopen). */
+struct SharedLibraryHandle;
+
 class NvRedis : public INotificationInterface
 {
 public:
@@ -49,8 +52,8 @@ public:
 private:
     static std::unique_ptr<NvRedis> _instance;
     bool m_error;
-    void* m_redisHandle;
-    void* m_handle_redis_proto;
+    SharedLibraryHandle* m_redisHandle;
+    SharedLibraryHandle* m_handle_redis_proto;
     NvDsMsgApiHandle m_conn_handle;
     std::string m_topic_vms_event;
     std::string m_message;

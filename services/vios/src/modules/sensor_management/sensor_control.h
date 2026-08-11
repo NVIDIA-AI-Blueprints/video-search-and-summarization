@@ -72,7 +72,7 @@ class SensorControl
 
     private:
         DeviceManager* m_deviceManager;
-        std::pair<ISensorControlInterface*, void*> m_sensorControlobjectPair;
+        std::pair<ISensorControlInterface*, destroyControlObject_t> m_sensorControlobjectPair;
         ISensorControlInterface* m_adaptor;
 };
 

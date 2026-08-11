@@ -156,7 +156,7 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
 void DynamicRTSPServer
 ::lookupServerMediaSession(char const* streamName,
                            lookupServerMediaSessionCompletionFunc* completionFunc,
-                           void* completionClientData,
+                           void* completionClientData, // NOSONAR
                            Boolean isFirstLookupInSession)
 {
   string stream_name(streamName);

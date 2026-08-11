@@ -176,7 +176,7 @@ void MqttSubscriber::handleMessageArrived(mqtt::const_message_ptr msg)
     }
 
     int64_t frameTimeMs = 0;
-    Json::Value payload = DsProtoParser::getInstance()->parseMessage(str_payload.c_str(), str_payload.length(), frameTimeMs);
+    Json::Value payload = DsProtoParser::getInstance()->parseMessage(reinterpret_cast<const unsigned char*>(str_payload.c_str()), str_payload.length(), frameTimeMs);
     if (payload == Json::nullValue)
     {
         static std::atomic<uint64_t> logError{0};

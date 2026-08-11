@@ -293,7 +293,6 @@ void GstUDPAudioClient::destroy_internal ()
 
 int GstUDPAudioClient::create(int freq)
 {
-    m_eventLoop.setParent(this);
     std::shared_ptr<EventLoopData> data(new EventLoopData);
     m_freq = freq;
     data->m_taskName = "create";
@@ -303,7 +302,6 @@ int GstUDPAudioClient::create(int freq)
 
 void GstUDPAudioClient::start()
 {
-    m_eventLoop.setParent(this);
     std::shared_ptr<EventLoopData> data(new EventLoopData);
     data->m_taskName = "play";
     m_eventLoop.postMsg(data);
@@ -334,11 +332,10 @@ void GstUDPAudioClient::destroy(bool expect_result)
     return;
 }
 
-void GstUDPAudioClient::process_eventloop_message(std::shared_ptr<EventLoopData> data, void* parent)
+void GstUDPAudioClient::process_eventloop_message(std::shared_ptr<EventLoopData> data)
 {
     shared_ptr<EventLoopData> ev_data = std::static_pointer_cast<EventLoopData>(data);
-    GstUDPAudioClient* udpClient = static_cast <GstUDPAudioClient*>(parent);
-    if (udpClient == nullptr || ev_data == nullptr)
+    if (ev_data == nullptr)
     {
         LOG(error) << "Received null data" << endl;
         return;
@@ -346,23 +343,23 @@ void GstUDPAudioClient::process_eventloop_message(std::shared_ptr<EventLoopData>
     LOG(verbose) << ev_data->m_taskName << endl;
     if (ev_data->m_taskName == "create")
     {
-        udpClient->create_internal();
+        create_internal();
     }
     else if (ev_data->m_taskName == "play")
     {
-        udpClient->play_internal();
+        play_internal();
     }
     else if (ev_data->m_taskName == "pause")
     {
-        udpClient->pause_internal();
+        pause_internal();
     }
     else if (ev_data->m_taskName == "resume")
     {
-        udpClient->resume_internal();
+        resume_internal();
     }
     else if (ev_data->m_taskName == "destroy")
     {
-        udpClient->destroy_internal();
+        destroy_internal();
     }
     else
     {
