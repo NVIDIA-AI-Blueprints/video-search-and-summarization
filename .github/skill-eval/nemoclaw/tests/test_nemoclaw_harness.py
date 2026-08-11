@@ -277,6 +277,13 @@ class SingleScenarioTests(unittest.TestCase):
 
 
 class WorkflowScopeTests(unittest.TestCase):
+    def test_remote_notebook_kernel_uses_supported_python(self) -> None:
+        source = (
+            REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("uv venv --python 3.12", source)
+        self.assertNotIn("python3 -m venv", source)
+
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
         workflow = (
             REPO_ROOT / ".github/workflows/skills-eval.yml"
