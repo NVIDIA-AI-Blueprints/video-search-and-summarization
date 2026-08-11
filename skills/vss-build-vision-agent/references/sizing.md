@@ -13,9 +13,11 @@ contract.
 3. Place fixed-footprint services first according to the placement and sizing
    contracts for [RT-CV](services/rt-cv.md) and
    [RT-Embed](services/rt-embed.md).
-4. Place singleton RT-VLM last. When composition must converge different
-   integrated Cosmos3 Nano variants, use BF16 if a GPU can be dedicated to
-   RT-VLM; otherwise use FP8 co-resident on the RT-CV device
+4. Place singleton RT-VLM last, into the capacity step 3 leaves behind; never
+   displace or co-pack a fixed service to free a GPU for it. When composition
+   must converge different integrated Cosmos3 Nano variants, use BF16 only if a
+   GPU remains free after every fixed-footprint service has its preferred
+   dedicated device; otherwise use FP8 co-resident on the RT-CV device
    (`RT_VLM_DEVICE_ID = RT_CV_DEVICE_ID`), which retains the most headroom among
    the fixed-footprint services placed in step 3. Share only when the combined
    budget fits. Resolve the atomic variant/placement set without inheriting
