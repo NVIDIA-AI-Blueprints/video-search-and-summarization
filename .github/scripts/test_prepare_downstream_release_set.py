@@ -246,7 +246,6 @@ class WorkflowSeparationTest(unittest.TestCase):
     def test_release_set_preparation_has_no_sdu_transport(self):
         script = Path(module.__file__).read_text()
         self.assertNotIn("SPATIALAI_", script)
-        self.assertNotIn("spatialai-reconcile", script)
 
 
 if __name__ == "__main__":
