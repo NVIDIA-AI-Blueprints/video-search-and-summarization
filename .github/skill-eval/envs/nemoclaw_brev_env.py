@@ -155,14 +155,13 @@ if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
     echo "OpenShell bridge is absent; fresh onboarding will recreate it"
   else
     gateway_release_module="$HOME/.nemoclaw/source/dist/lib/tunnel/gateway-port-release.js"
-    if ! command -v node >/dev/null 2>&1 || \
-       [ ! -f "$gateway_release_module" ]; then
-      echo "Cannot safely release stale OpenShell gateway: pinned lifecycle helper is unavailable" >&2
-      exit 1
-    fi
-    GATEWAY_RELEASE_MODULE="$gateway_release_module" \
-    GATEWAY_RELEASE_PORT="$gateway_port" \
-      node <<'__NEMOCLAW_GATEWAY_RELEASE__'
+    gateway_release_status=0
+    if command -v node >/dev/null 2>&1 && \
+       [ -f "$gateway_release_module" ]; then
+      (
+        GATEWAY_RELEASE_MODULE="$gateway_release_module" \
+        GATEWAY_RELEASE_PORT="$gateway_port" \
+          node <<'__NEMOCLAW_GATEWAY_RELEASE__'
 const modulePath = process.env.GATEWAY_RELEASE_MODULE;
 const port = Number(process.env.GATEWAY_RELEASE_PORT);
 const runtime = require(modulePath);
@@ -171,6 +170,9 @@ const result = runtime.releaseManagedGatewayPort({{
   confirmTimeoutMs: 5000,
   confirmPollIntervalMs: 100,
 }});
+if (result && result.skipped === true) {{
+  process.exit(42);
+}}
 if (!result || result.released !== true) {{
   console.error(
     `Scoped NemoClaw gateway release failed for port ${{port}}: ` +
@@ -179,6 +181,30 @@ if (!result || result.released !== true) {{
   process.exit(1);
 }}
 __NEMOCLAW_GATEWAY_RELEASE__
+      ) || gateway_release_status=$?
+    else
+      gateway_release_status=1
+    fi
+    if [ "$gateway_release_status" -eq 42 ]; then
+      echo "Cannot safely release stale OpenShell gateway: lifecycle authority refused" >&2
+      exit 1
+    fi
+    if [ "$gateway_release_status" -ne 0 ]; then
+      if ! [ -x /usr/bin/lsof ] && ! [ -x /usr/sbin/lsof ] && \
+         ! [ -x /bin/lsof ] && ! [ -x /sbin/lsof ]; then
+        if ! command -v apt-get >/dev/null 2>&1 || \
+           ! sudo -n true >/dev/null 2>&1; then
+          echo "Cannot install trusted lsof for scoped gateway recovery" >&2
+          exit 1
+        fi
+        sudo -n apt-get update -qq
+        sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive \
+          apt-get install -y -qq lsof
+      fi
+      /usr/bin/python3 \
+        .github/skill-eval/nemoclaw/release_gateway_port.py \
+        --port "$gateway_port"
+    fi
     gateway_port_is_free || {{
       echo "OpenShell gateway port $gateway_port remains busy after recovery" >&2
       exit 1

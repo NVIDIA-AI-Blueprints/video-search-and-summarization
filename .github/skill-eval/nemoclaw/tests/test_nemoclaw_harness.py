@@ -130,6 +130,33 @@ class HeadlessTrajectoryTests(unittest.TestCase):
         )
 
 
+class GatewayReleaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.release = _load(
+            "release_gateway_port",
+            NEMOCLAW_DIR / "release_gateway_port.py",
+        )
+
+    def test_release_is_scoped_to_exact_nemoclaw_gateway_identity(self) -> None:
+        identity = self.release.ProcessIdentity(
+            pid=123,
+            start_time=456,
+            argv=("openshell-gateway[nemoclaw=nemoclaw;port=8080]",),
+            executable="/usr/local/bin/openshell-gateway",
+        )
+        unrelated = self.release.ProcessIdentity(
+            pid=124,
+            start_time=457,
+            argv=("python3", "-m", "http.server", "8080"),
+            executable="/usr/bin/python3",
+        )
+
+        self.assertTrue(self.release._is_managed_gateway(identity, 8080))
+        self.assertFalse(self.release._is_managed_gateway(identity, 19080))
+        self.assertFalse(self.release._is_managed_gateway(unrelated, 8080))
+
+
 class SingleScenarioTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -312,6 +339,8 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("openshell_network_names", source)
         self.assertIn("gateway-port-release.js", source)
         self.assertIn("releaseManagedGatewayPort", source)
+        self.assertIn("release_gateway_port.py", source)
+        self.assertIn('gateway_release_status" -eq 42', source)
         self.assertIn('. "$HOME/.profile"', source)
         self.assertIn("gateway_port_is_free", source)
         self.assertNotIn("pkill", source)
