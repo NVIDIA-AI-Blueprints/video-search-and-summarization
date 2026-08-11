@@ -180,7 +180,7 @@
       "source_path": "services/rtvi/rt-cv-3d/rt-cv-bev-fusion",
       "context": "services/rtvi/rt-cv-3d/rt-cv-bev-fusion",
       "dockerfile": "services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile",
-      "platforms": ["linux/amd64"],
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-cv-mv3dt-bev-fusion"],
       "tag_variables": ["VSS_RT_CV_MV3DT_BEV_FUSION_TAG"]
     },
