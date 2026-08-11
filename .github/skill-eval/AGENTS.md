@@ -316,8 +316,9 @@ The canonical harbor command is in § Harbor invocation.
       requirements from the dataset's `task.toml` `[metadata]`
       (`gpu_type`, `gpu_count`), snapshots `brev ls --json`, filters to
       RUNNING `vss-eval-*` boxes whose GPU matches, and walks the
-      candidates best-first with **non-blocking** `flock` attempts —
-      claiming the first box it can actually lock. Selection and
+      candidates best-first with **non-blocking** runner-local `flock`
+      attempts, then atomically acquires a lease on the candidate worker —
+      claiming the first box it can lock at both layers. Selection and
       reservation are one atomic step inside the wrapper, so two
       concurrent legs fan out to different boxes instead of both
       "choosing" the same lock-free-looking one and serialising
@@ -333,8 +334,8 @@ The canonical harbor command is in § Harbor invocation.
       `gpu_count = 0` specs (remote-all / GPU-independent) accept any
       RUNNING pool box.
 
-      When every candidate is held — or none is eligible — the wrapper
-      re-snapshots the fleet and retries every 60s up to its 21000s
+      When every candidate is held at either lock layer — or none is eligible —
+      the wrapper re-snapshots the fleet and retries every 60s up to its 21000s
       budget (the pool is operator-managed; a box may come online
       mid-run), then exits 75 with `BLOCKED: lock timeout`. You do not
       implement any of this; you just invoke the wrapper and read its
@@ -347,10 +348,14 @@ The canonical harbor command is in § Harbor invocation.
 
    b. **Run the structural leg wrapper**. Do not acquire or release
       `flock` manually in a separate Bash call, and do not pass
-      `--instance` in CI. `run_leg.py` opens `/tmp/brev/<chosen>.lock`,
-      holds that file descriptor for the entire Harbor run (including
-      all step-1..N invocations), and releases it only when the wrapper
-      exits or dies:
+      `--instance` in CI. `run_leg.py` first opens
+      `/tmp/brev/<chosen>.lock`, then acquires the exact-owner lease under
+      `/tmp/skill-eval/locks/` on that worker. It heartbeats the remote lease
+      without a fixed stale-age expiry, holds both reservations for the entire
+      Harbor run (including all step-1..N invocations), and releases the
+      remote lease only when its owner still matches. If heartbeat ownership
+      is lost or cannot be confirmed within the bounded safety window, the
+      wrapper cancels Harbor and exits 125 instead of continuing unsafely:
       ```bash
       "$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py \
         --dataset-root "$DS" \
@@ -392,9 +397,12 @@ The canonical harbor command is in § Harbor invocation.
    that survive a volume wipe (docker **image** layers, the repo clone, the
    `data/` sample-data extract — but NOT the model-weight *volumes*, which
    the per-trial reset drops; see § 7).
-   `run_leg.py` releases the per-box lock automatically when its process
-   exits; there is no shell FD for you to close. You never `brev stop` /
-   `brev delete`. Pool lifecycle is strictly an operator concern.
+   On normal shutdown `run_leg.py` releases both per-box locks automatically;
+   there is no shell FD or worker lease for you to close. If the coordinator
+   is hard-killed, the kernel drops its local `flock`, while a later allocator
+   removes the remote lease only after GitHub proves that exact owner job is
+   terminal. You never `brev stop` / `brev delete`. Pool lifecycle is strictly
+   an operator concern.
 
    **The box's docker runtime is reset for you at the *start* of each spec,
    not on exit.** On a spec's first trial — a single-step spec, or `step-1`

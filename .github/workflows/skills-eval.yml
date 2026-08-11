@@ -43,16 +43,19 @@ on:
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
 # Mirrors helm-sync.yml — no PAT, no rotation. contents:write covers the
-# adapter push; pull-requests:write covers the PR comment.
+# adapter push; pull-requests:write covers the PR comment; actions:read lets
+# the shared-worker lease prove an abandoned owner job is terminal.
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
 # One eval generation per PR (or manual sweep) at a time. A fresh push
-# cancels every in-flight matrix leg of the prior push for this ref;
-# run_leg.py holds /tmp/brev/<INSTANCE_NAME>.lock while Harbor runs, and
-# the kernel releases it automatically when the wrapper process dies
-# (POSIX flock(2) — no userspace trap).
+# cancels every in-flight matrix leg of the prior push for this ref.
+# run_leg.py holds a runner-local flock plus a lease on the worker while
+# Harbor runs. The kernel releases the flock when the wrapper dies; the next
+# allocator removes the remote lease only after Actions proves its owner job
+# terminal.
 # Stale containers/volumes a cancelled leg left on a box are reconciled by
 # the next trial's own deploy step (the harness no longer pre-deploys or
 # tracks an active-deploy marker). Same path handles SIGKILL (the

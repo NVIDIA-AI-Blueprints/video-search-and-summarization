@@ -13,8 +13,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -187,8 +189,12 @@ class PhaseBudgets(unittest.TestCase):
         self.assertEqual(run_leg.HARBOR_SIGINT_GRACE_SEC, 1380)
         self.assertEqual(run_leg.HARBOR_SHUTDOWN_GRACE_SEC, 1420)
         self.assertEqual(
+            run_leg.remote_worker_lock.REMOTE_LEASE_RELEASE_BUDGET_SEC,
+            92,
+        )
+        self.assertEqual(
             run_leg.invocation_reserve_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC),
-            13480,
+            13572,
         )
         self.assertGreater(
             run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
@@ -498,6 +504,52 @@ class RunCommand(unittest.TestCase):
 
         self.assertEqual(rc, 124)
 
+    def test_lease_loss_skips_sigint_and_uses_bounded_term_kill(self):
+        proc = mock.Mock(pid=4321)
+        lost_event = threading.Event()
+        lost_event.set()
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(run_leg.os, "killpg") as killpg,
+            mock.patch.object(
+                run_leg,
+                "_wait_for_process_group_exit",
+                side_effect=[False, True],
+            ) as wait_group,
+        ):
+            rc = run_leg.run_command(
+                self.COMMAND,
+                self.ENV,
+                timeout_sec=42,
+                abort_event=lost_event,
+            )
+
+        self.assertEqual(rc, 125)
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                mock.call(4321, run_leg.signal.SIGTERM),
+                mock.call(4321, run_leg.signal.SIGKILL),
+            ],
+        )
+        self.assertEqual(
+            wait_group.call_args_list,
+            [
+                mock.call(
+                    proc,
+                    4321,
+                    run_leg.LEASE_LOSS_SIGTERM_GRACE_SEC,
+                    mock.ANY,
+                ),
+                mock.call(
+                    proc,
+                    4321,
+                    run_leg.LEASE_LOSS_SIGKILL_GRACE_SEC,
+                    mock.ANY,
+                ),
+            ],
+        )
+
 
 class ProcessGroupShutdown(unittest.TestCase):
     def test_leader_exit_is_not_enough_when_group_still_exists(self):
@@ -671,6 +723,41 @@ class RunInvocations(unittest.TestCase):
 
         self.assertEqual(rc, 124)
         run.assert_called_once()
+
+    def test_child_rc125_without_lease_loss_keeps_existing_semantics(self):
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path("/tmp/datasets/spec"),
+                include_task_name=f"task-{index}",
+                chain_key=f"task-{index}",
+            )
+            for index in (1, 2)
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, self.ENV, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ),
+                mock.patch.object(
+                    run_leg, "run_command", return_value=125
+                ) as run,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 125)
+        self.assertEqual(run.call_count, 2)
 
     def test_chain_timeout_writes_skip_markers_before_stopping(self):
         invocations = [
@@ -1144,13 +1231,24 @@ class HoldPoolLock(unittest.TestCase):
             # Hold the preferred box's lock as if another leg owns it.
             held = (lock_dir / "box-a.lock").open("a+")
             fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            remote_lease = mock.Mock(lost_event=threading.Event())
             try:
-                with run_leg.hold_pool_lock(
-                    lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
-                ) as chosen:
-                    self.assertEqual(chosen, "box-b")
+                with (
+                    mock.patch.object(
+                        run_leg,
+                        "_try_acquire_remote_worker_lease",
+                        return_value=remote_lease,
+                    ),
+                    run_leg.hold_pool_lock(
+                        lambda _deadline: ["box-a", "box-b"],
+                        lock_dir,
+                        timeout_sec=5,
+                    ) as worker,
+                ):
+                    self.assertEqual(worker.instance, "box-b")
             finally:
                 held.close()
+            remote_lease.release.assert_called_once()
 
     def test_times_out_when_all_held(self):
         import fcntl
@@ -1163,7 +1261,9 @@ class HoldPoolLock(unittest.TestCase):
                 start = time.monotonic()
                 with self.assertRaises(run_leg.LockTimeoutError):
                     with run_leg.hold_pool_lock(
-                        lambda: ["box-a"], lock_dir, timeout_sec=0
+                        lambda _deadline: ["box-a"],
+                        lock_dir,
+                        timeout_sec=0,
                     ):
                         pass
                 self.assertLess(time.monotonic() - start, 5)
@@ -1175,13 +1275,233 @@ class HoldPoolLock(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             lock_dir = Path(tmp)
-            with run_leg.hold_pool_lock(lambda: ["box-a"], lock_dir, 5) as chosen:
-                self.assertEqual(chosen, "box-a")
+            remote_lease = mock.Mock(lost_event=threading.Event())
+            with (
+                mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    return_value=remote_lease,
+                ),
+                run_leg.hold_pool_lock(
+                    lambda _deadline: ["box-a"], lock_dir, 5
+                ) as worker,
+            ):
+                self.assertEqual(worker.instance, "box-a")
             probe = (lock_dir / "box-a.lock").open("a+")
             try:
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             finally:
                 probe.close()
+            remote_lease.release.assert_called_once()
+
+    def test_remote_busy_candidate_releases_local_lock_and_uses_next(self):
+        import fcntl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            remote_lease = mock.Mock(lost_event=threading.Event())
+            attempts: list[str] = []
+
+            def acquire(instance: str, *, deadline: float | None = None):
+                self.assertIsNotNone(deadline)
+                attempts.append(instance)
+                return None if instance == "box-a" else remote_lease
+
+            with (
+                mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    side_effect=acquire,
+                ),
+                run_leg.hold_pool_lock(
+                    lambda _deadline: ["box-a", "box-b"], lock_dir, 5
+                ) as worker,
+            ):
+                self.assertEqual(worker.instance, "box-b")
+                probe = (lock_dir / "box-a.lock").open("a+")
+                try:
+                    fcntl.flock(
+                        probe.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+                finally:
+                    probe.close()
+
+        self.assertEqual(attempts, ["box-a", "box-b"])
+        remote_lease.release.assert_called_once()
+
+    def test_remote_release_failure_invalidates_the_locked_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lost_event = threading.Event()
+            remote_lease = mock.Mock(lost_event=lost_event)
+            remote_lease.release.return_value = False
+            with (
+                mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    return_value=remote_lease,
+                ),
+                run_leg.hold_pool_lock(
+                    lambda _deadline: ["box-a"], Path(tmp), 5
+                ) as worker,
+            ):
+                self.assertFalse(worker.lost_event.is_set())
+
+            self.assertTrue(worker.lost_event.is_set())
+
+
+class RemoteWorkerLeaseIntegration(unittest.TestCase):
+    def tearDown(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+
+    def test_remote_executor_routes_managed_and_registered_workers(self):
+        result = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.object(
+            run_leg.subprocess,
+            "run",
+            return_value=result,
+        ) as run:
+            run_leg._WORKER_TRANSPORTS["managed-box"] = "brev"
+            run_leg._remote_lock_executor("managed-box")("echo managed", 17)
+
+            run_leg._WORKER_TRANSPORTS["registered-box"] = "ssh"
+            run_leg._remote_lock_executor("Registered-Box")(
+                "echo registered", 19
+            )
+
+        managed_cmd = run.call_args_list[0].args[0]
+        registered_cmd = run.call_args_list[1].args[0]
+        self.assertEqual(managed_cmd[:3], ["brev", "exec", "managed-box"])
+        self.assertEqual(registered_cmd[0], "ssh")
+        self.assertIn("registered-box", registered_cmd)
+        self.assertEqual(run.call_args_list[0].kwargs["timeout"], 17)
+        self.assertEqual(run.call_args_list[1].kwargs["timeout"], 19)
+
+    def test_pinned_registered_worker_is_discovered_without_allowlist(self):
+        with (
+            mock.patch.dict(run_leg.os.environ, {}, clear=True),
+            mock.patch.object(run_leg, "_list_brev_instances", return_value=[]),
+            mock.patch.object(
+                run_leg,
+                "_list_registered_nodes",
+                return_value=[
+                    {"name": "Pinned-Registered", "status": "Connected"}
+                ],
+            ),
+        ):
+            self.assertTrue(run_leg._worker_uses_ssh("pinned-registered"))
+
+    def test_unknown_pinned_worker_transport_fails_explicitly(self):
+        with (
+            mock.patch.dict(run_leg.os.environ, {}, clear=True),
+            mock.patch.object(run_leg, "_list_brev_instances", return_value=[]),
+            mock.patch.object(run_leg, "_list_registered_nodes", return_value=[]),
+            self.assertRaisesRegex(RuntimeError, "could not resolve pinned worker"),
+        ):
+            run_leg._worker_uses_ssh("missing-worker")
+
+    def test_run_command_lease_loss_aborts_harbor(self):
+        lost_event = threading.Event()
+        lost_event.set()
+
+        rc = run_leg.run_command(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            os.environ.copy(),
+            timeout_sec=10,
+            abort_event=lost_event,
+        )
+
+        self.assertEqual(rc, 125)
+
+    def test_multistep_chain_stops_immediately_after_lease_loss(self):
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path("/tmp/profile"),
+                include_task_name=f"step-{index}",
+                chain_key="chain",
+                step_index=index,
+                step_count=2,
+            )
+            for index in (1, 2)
+        ]
+        lost_event = threading.Event()
+        lost_event.set()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "ANTHROPIC_MODEL": "model",
+                    "ANTHROPIC_BASE_URL": "https://example.test",
+                },
+                clear=True,
+            ),
+            mock.patch.object(run_leg, "harbor_env", return_value={}),
+            mock.patch.object(run_leg, "run_command") as run,
+        ):
+            root = Path(tmp)
+            rc = run_leg.run_invocations(
+                invocations,
+                "worker",
+                root / "results",
+                root / "scratch",
+                "spec",
+                "platform",
+                run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                abort_event=lost_event,
+            )
+
+        self.assertEqual(rc, 125)
+        run.assert_not_called()
+
+    def test_lease_loss_racing_with_last_child_exit_invalidates_result(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/profile"),
+            include_task_name="task",
+            chain_key="chain",
+        )
+        lost_event = threading.Event()
+
+        def finish_as_lease_is_lost(*_args, **_kwargs):
+            lost_event.set()
+            return 0
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "ANTHROPIC_MODEL": "model",
+                    "ANTHROPIC_BASE_URL": "https://example.test",
+                },
+                clear=True,
+            ),
+            mock.patch.object(run_leg, "harbor_env", return_value={}),
+            mock.patch.object(
+                run_leg,
+                "build_harbor_command",
+                return_value=["harbor"],
+            ),
+            mock.patch.object(
+                run_leg,
+                "run_command",
+                side_effect=finish_as_lease_is_lost,
+            ),
+            mock.patch.object(run_leg, "publish_trace", return_value=None),
+        ):
+            root = Path(tmp)
+            rc = run_leg.run_invocations(
+                [invocation],
+                "worker",
+                root / "results",
+                root / "scratch",
+                "spec",
+                "platform",
+                run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                abort_event=lost_event,
+            )
+
+        self.assertEqual(rc, 125)
 
 
 if __name__ == "__main__":
