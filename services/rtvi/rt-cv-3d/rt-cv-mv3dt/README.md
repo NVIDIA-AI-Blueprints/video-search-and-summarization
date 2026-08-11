@@ -357,7 +357,7 @@ OSD) to an encoded video, useful on a headless machine with no display. Enable i
 `SAVE_VIDEO=1`, either set in [docker/.env](docker/.env) or passed inline to the staging
 command ([§2.3](#23-stage-the-deepstream-configs)), then launch. It writes
 `video-output/grid-view.mkv`: all cameras tiled into one video, with the 3D boxes and the
-class/ID labels overlaid. It works with either input:
+class/ID labels overlaid.
 
 - **Recorded files** ([§2.3](#23-stage-the-deepstream-configs)) — the clips play
   once and the file finalizes automatically at end-of-stream (the container then exits):
@@ -365,16 +365,15 @@ class/ID labels overlaid. It works with either input:
   # Add the SAVE_VIDEO=1 flag to the staging command in §2.3
   INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh
   ```
-- **Live RTSP** — recording runs until you stop the stack (`docker compose down`, or
-  `docker stop` on the perception container). A live stream has no natural end-of-stream,
-  so the `.mkv` is left **playable** but not finalized: it decodes fully, only without a
-  duration or seek index.
+- **Live RTSP** — the DeepStream file sink writes one continuous file and does not
+  configure segment rotation, size limits, or retention cleanup. Because a live stream
+  has no natural end-of-stream, `stage-configs.sh` refuses `INPUT_MODE=stream
+  SAVE_VIDEO=1` by default. To explicitly accept an unbounded live recording, opt in:
   ```bash
-  # Add the SAVE_VIDEO=1 flag to the staging command in §2.3
-  SAVE_VIDEO=1 ./scripts/stage-configs.sh
+  ALLOW_UNBOUNDED_RECORDING=1 SAVE_VIDEO=1 ./scripts/stage-configs.sh
   ```
 
-Both cases write `video-output/grid-view.mkv`. To convert it to `.mp4` (and, for live RTSP,
+Both supported modes write `video-output/grid-view.mkv`. To convert it to `.mp4` (and, for live RTSP,
 produce a finalized/seekable file), run a lossless conversion with no re-encode:
 
 ```bash

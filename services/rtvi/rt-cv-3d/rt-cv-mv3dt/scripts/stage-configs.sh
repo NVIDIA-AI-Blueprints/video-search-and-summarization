@@ -32,14 +32,17 @@
 #   - RT-DETR model-engine-file batch suffix = NUM_CAMS
 #   - INPUT_MODE=file: static [source-list] of file:///videos/<cam>.mp4 + SEI/sync
 #     off (plays local clips once; no add-streams.sh registration)
-#   - SAVE_VIDEO=1: enable the [sink2] tiled grid file sink → video-output/grid-view.mkv
-#     (the whole annotated camera grid; see README). Works with file or stream input
-#     (stream saves stay playable but unfinalized until remuxed; see README §6.2).
+#   - SAVE_VIDEO=1: enable the [sink2] tiled grid file sink -> video-output/grid-view.mkv
+#     (the whole annotated camera grid; see README). File input is finite; stream input
+#     requires ALLOW_UNBOUNDED_RECORDING=1 because the DeepStream file sink does not
+#     rotate or expire live recordings.
 #
 # Usage:  [OSD=0|1] [INPUT_MODE=stream|file] [SAVE_VIDEO=0|1]
+#         [ALLOW_UNBOUNDED_RECORDING=0|1]
 #         [TRACKER_CONFIG=/path/to/tracker.yml] ./scripts/stage-configs.sh
 # Reads NUM_CAMS / DS_HTTP_PORT / KAFKA_BOOTSTRAP / RAW_TOPIC / INPUT_MODE /
-# VIDEO_DIR / SAVE_VIDEO from docker/.env (already-exported env values win).
+# VIDEO_DIR / SAVE_VIDEO / ALLOW_UNBOUNDED_RECORDING from docker/.env
+# (already-exported env values win).
 #   TRACKER_CONFIG  base tracker config to stage (default:
 #                   configs/ds-mv3dt-tracker-config.yml). Point this at your
 #                   own tracker config to use it instead of the sample.
@@ -66,6 +69,14 @@ RAW_TOPIC="${RAW_TOPIC:-mdx-raw}"
 OSD="${OSD:-0}"
 INPUT_MODE="${INPUT_MODE:-stream}"
 SAVE_VIDEO="${SAVE_VIDEO:-0}"
+ALLOW_UNBOUNDED_RECORDING="${ALLOW_UNBOUNDED_RECORDING:-0}"
+
+if [ "$INPUT_MODE" = "stream" ] && [ "$SAVE_VIDEO" = "1" ] && [ "$ALLOW_UNBOUNDED_RECORDING" != "1" ]; then
+  echo "ERROR: INPUT_MODE=stream SAVE_VIDEO=1 would write an unbounded live recording to video-output/grid-view.mkv." >&2
+  echo "       The current DeepStream file sink does not configure segment rotation, size limits, or retention cleanup." >&2
+  echo "       Use INPUT_MODE=file for finite clips, or set ALLOW_UNBOUNDED_RECORDING=1 to explicitly accept this risk." >&2
+  exit 1
+fi
 
 TRACKER_CONFIG="${TRACKER_CONFIG:-$ROOT/configs/ds-mv3dt-tracker-config.yml}"
 [ -f "$TRACKER_CONFIG" ] || { echo "ERROR: tracker config not found: $TRACKER_CONFIG" >&2; exit 1; }
@@ -179,7 +190,11 @@ fi
 if [ "$SAVE_VIDEO" = "1" ]; then
   mkdir -p "$ROOT/video-output"
   chmod 777 "$ROOT/video-output"   # the container (possibly non-root) writes here
-  echo "   SAVE_VIDEO=1 → grid view into video-output/grid-view.mkv"
+  if [ "$INPUT_MODE" = "stream" ]; then
+    echo "   SAVE_VIDEO=1 with ALLOW_UNBOUNDED_RECORDING=1 -> unbounded live grid view into video-output/grid-view.mkv"
+  else
+    echo "   SAVE_VIDEO=1 -> finite grid view into video-output/grid-view.mkv"
+  fi
 fi
 
 # The container's runtime user must be able to read the bind-mounted configs
