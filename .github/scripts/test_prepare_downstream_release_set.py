@@ -239,7 +239,7 @@ class WorkflowSeparationTest(unittest.TestCase):
         self.assertNotIn("SPATIALAI_PACKAGE_VERSION_SUFFIX", main)
         self.assertIn("name: Spatial AI Data Utils", sdu)
         self.assertIn("name: Gate", sdu)
-        self.assertIn("GITHUB_RUN_ID", sdu)
+        self.assertIn("commit[:12]", sdu)
         self.assertIn("DOWNSTREAM_REF: main", sdu)
         self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
 
