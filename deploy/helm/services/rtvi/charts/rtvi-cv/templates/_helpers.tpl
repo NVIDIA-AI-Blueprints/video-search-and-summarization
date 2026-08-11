@@ -47,6 +47,28 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- define "vss-rtvi-cv.image" -}}{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}{{- end -}}
 
+{{/*
+Managed-image resolution for the MV3DT BEV fusion container.
+Mirrors the shared managed-image channel used by Docker Compose:
+- Default repository/tag come from values (ghcr.io/.../vss-rt-cv-mv3dt-bev-fusion:develop-latest).
+- global.container_prefix overrides the repository prefix (uses image basename).
+- global.container_tag overrides the tag.
+This lets QA switch to a promoted NGC staging drop by setting the two globals
+without editing this subchart.
+*/}}
+{{- define "vss-rtvi-cv.fusionImage" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $fusion := ((.Values.standaloneWarehouse | default dict).mv3dt | default dict).fusion | default dict -}}
+{{- $img := $fusion.image | default dict -}}
+{{- $repository := $img.repository -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-rt-cv-mv3dt-bev-fusion" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default $img.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+
 {{- define "vss-rtvi-cv.scriptsConfigMapName" -}}
 {{- if .Values.scripts.existingConfigMap }}
 {{- .Values.scripts.existingConfigMap }}
