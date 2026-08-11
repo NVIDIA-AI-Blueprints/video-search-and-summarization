@@ -98,20 +98,28 @@ def _ensure_gateway(sandbox: str) -> None:
 
 def _json_object(raw: str) -> dict[str, Any]:
     try:
-        value = json.loads(raw)
+        parsed = json.loads(raw)
+        documents = parsed if isinstance(parsed, list) else [parsed]
     except json.JSONDecodeError:
-        value = None
-        for line in reversed(raw.splitlines()):
-            try:
-                candidate = json.loads(line)
-            except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        documents: list[Any] = []
+        index = 0
+        while index < len(raw):
+            if raw[index] not in "[{":
+                index += 1
                 continue
-            if isinstance(candidate, dict):
-                value = candidate
-                break
-    if not isinstance(value, dict):
+            try:
+                parsed, end = decoder.raw_decode(raw, index)
+            except json.JSONDecodeError:
+                index += 1
+                continue
+            documents.extend(parsed if isinstance(parsed, list) else [parsed])
+            index = end
+    if not documents or not isinstance(documents[-1], dict):
         raise TypeError("OpenClaw CLI did not return a JSON object")
-    return value
+    document = documents[-1]
+    nested = document.get("result")
+    return nested if isinstance(nested, dict) else document
 
 
 def _int(value: Any) -> int:
@@ -154,10 +162,18 @@ def _tool_calls(content: Any) -> list[dict[str, Any]]:
         else:
             arguments = {}
         # Generic Harbor judges use Claude's canonical Bash tool name and
-        # command field. OpenClaw emits the equivalent operation as exec.
-        function_name = "Bash" if name == "exec" else name
+        # command field. OpenClaw exposes exec through its core tool wrapper.
         if (
-            name == "exec"
+            name == "tool_call"
+            and arguments.get("id") == "openclaw:core:exec"
+            and isinstance(arguments.get("args"), dict)
+        ):
+            function_name = "Bash"
+            arguments = dict(arguments["args"])
+        else:
+            function_name = "Bash" if name == "exec" else name
+        if (
+            function_name == "Bash"
             and "command" not in arguments
             and isinstance(arguments.get("cmd"), str)
         ):
