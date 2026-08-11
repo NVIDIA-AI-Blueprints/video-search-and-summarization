@@ -79,6 +79,40 @@ scratch=/tmp/skill-eval/nemoclaw
 venv="$scratch/notebook-venv"
 rm -rf "$venv"
 mkdir -p "$scratch"
+# Reuse #925's narrow warm-worker repair: a prior sudo-run gateway can leave
+# only its SQLite files root-owned. Refuse symlinks and unexpected owners;
+# never recurse through the user's state tree.
+gateway_state="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
+if [ -d "$gateway_state" ]; then
+  for state_path in \
+    "$HOME/.local" \
+    "$HOME/.local/state" \
+    "$HOME/.local/state/nemoclaw" \
+    "$gateway_state"; do
+    [ ! -L "$state_path" ] || {{
+      echo "Refusing symlinked OpenShell state path: $state_path" >&2
+      exit 1
+    }}
+  done
+  current_uid=$(id -u)
+  current_gid=$(id -g)
+  for db_name in openshell.db openshell.db-wal openshell.db-shm; do
+    db_path="$gateway_state/$db_name"
+    [ -e "$db_path" ] || continue
+    [ ! -L "$db_path" ] || {{
+      echo "Refusing symlinked OpenShell database: $db_path" >&2
+      exit 1
+    }}
+    db_uid=$(stat -c %u -- "$db_path")
+    [ "$db_uid" != "0" ] || \
+      sudo -n chown --no-dereference "$current_uid:$current_gid" -- "$db_path"
+    db_uid=$(stat -c %u -- "$db_path")
+    [ "$db_uid" = "$current_uid" ] || {{
+      echo "Unexpected OpenShell database owner $db_uid: $db_path" >&2
+      exit 1
+    }}
+  done
+fi
 export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv >/dev/null 2>&1; then
   timeout --signal=TERM --kill-after=30 300s \
