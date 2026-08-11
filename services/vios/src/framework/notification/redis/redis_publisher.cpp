@@ -155,6 +155,7 @@ NvRedis::~NvRedis()
 void NvRedis::redis_init()
 {
     string payload_key;
+    char redis_config_file[] = REDIS_CONFIG_FILE;
     m_topic_vms_event = GET_CONFIG().message_broker_topic;
     m_redisEndpoint = getRedisServerEndpoint();
 
@@ -176,8 +177,8 @@ void NvRedis::redis_init()
     }
 
     LOG(info) << "Radis server address:port= " << m_redisEndpoint << endl;
-    m_conn_handle = nvds_msgapi_connect((char*)m_redisEndpoint.c_str(),
-                                        nullptr, (char*)REDIS_CONFIG_FILE);
+    m_conn_handle = nvds_msgapi_connect(m_redisEndpoint.data(),
+                                        nullptr, redis_config_file);
     if (!m_conn_handle)
     {
         LOG(error) << "Redis Connect failed. Exiting" << endl;
@@ -222,7 +223,7 @@ bool NvRedis::sendToRedis(std::string& payload)
         return false;
     }
 
-    int ret = nvds_msgapi_send(m_conn_handle, (char*)m_topic_vms_event.c_str(),
+    int ret = nvds_msgapi_send(m_conn_handle, m_topic_vms_event.data(),
                             (const uint8_t*) payload.c_str(), payload.size());
     if(ret == 0)
     {

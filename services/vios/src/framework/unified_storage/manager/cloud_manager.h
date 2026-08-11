@@ -66,7 +66,7 @@ struct CloudManagerConfig
     } request;
     
     CloudManagerConfig() = default;
-    CloudManagerConfig(CloudStorageType type) : storageType(type)
+    explicit CloudManagerConfig(CloudStorageType type) : storageType(type)
     {
     }
 };

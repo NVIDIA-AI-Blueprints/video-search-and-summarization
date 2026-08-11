@@ -383,7 +383,7 @@ void AudioSink::OnData(const void* audio_data,
         }
     }
     size_t streamSizeBytes = (bits_per_sample / 8) * number_of_channels * number_of_frames;
-    m_producer->addFrame ("audio", (unsigned char *)audio_data, streamSizeBytes, sample_rate, number_of_channels);
+    m_producer->addAudioFrame (static_cast<const unsigned char *>(audio_data), streamSizeBytes, sample_rate, number_of_channels);
     m_webrtcAudioInDataFlow = true;
 }
 

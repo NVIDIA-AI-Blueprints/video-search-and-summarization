@@ -67,11 +67,13 @@ public:
 
     virtual ~AudioSink();
 
-    virtual void OnData(const void* audio_data,
+    using webrtc::AudioTrackSinkInterface::OnData;
+
+    void OnData(const void* audio_data,
         int bits_per_sample,
         int sample_rate,
         size_t number_of_channels,
-        size_t number_of_frames);
+        size_t number_of_frames) override;
 
     std::atomic<bool>   m_webrtcAudioInDataFlow{false};
 private:

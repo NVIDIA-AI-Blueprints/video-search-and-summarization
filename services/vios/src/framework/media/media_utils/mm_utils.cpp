@@ -390,7 +390,7 @@ int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_
         ssize_t sei_uuid_index = nal_start_code_size + 1;
         if (size >= sei_uuid_index)
         {
-            uint8_t *uuid_buf  = (uint8_t *)&buffer[sei_uuid_index];
+            const uint8_t *uuid_buf  = &buffer[sei_uuid_index];
             uuid_str = hexBytesToString(uuid_buf, UUID_STANDARD_SIZE);
             if (uuid_str.find(SEI_CUSTOM_META_UUID) == string::npos && uuid_str.find(MEGA_SEI_CUSTOM_META_UUID) == string::npos)
             {
@@ -412,15 +412,17 @@ int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_
         /* Parse the actual payload frameId + time */
         if (size >= seiPayload_index)
         {
-            uint8_t *seiPayload  = (uint8_t *)&buffer[seiPayload_index];
+            const uint8_t *seiPayload  = reinterpret_cast<const uint8_t *>(&buffer[seiPayload_index]);
             vect_sei_payload.assign(seiPayload, seiPayload + size - 1);
 #ifdef ENABLE_EMULATION_PREVENTATION_BYTE_SUPPORT
             checkAndRemoveEmulationPrevByte(vect_sei_payload);
 #endif
             if (uuid_str.find(SEI_CUSTOM_META_UUID) != string::npos)
             {
-                /* Copy at most the struct size; the payload may carry extra trailing bytes */
-                for (size_t i = 0; i < vect_sei_payload.size() && i < sizeof(FrameInfoSeiPayload); i++)
+                /* Copy at most sizeof(FrameInfoSeiPayload) bytes, the payload can be larger */
+                const size_t copy_size = vect_sei_payload.size() < sizeof(FrameInfoSeiPayload) ?
+                                         vect_sei_payload.size() : sizeof(FrameInfoSeiPayload);
+                for (size_t i = 0; i < copy_size; i++)
                 {
                     frameInfo_ptr[i] = vect_sei_payload[i];
                 }
@@ -967,7 +969,7 @@ int getMediaInformation (const string& filename, Json::Value &media_info, bool m
         // Local file path, add file:// prefix
         uri_string = string("file://") + filename;
     }
-    gchar *uri = (gchar *) uri_string.c_str();
+    const gchar *uri = uri_string.c_str();
 
     discoverer = gst_discoverer_new (4 * GST_SECOND, &err);
     if (err != nullptr)

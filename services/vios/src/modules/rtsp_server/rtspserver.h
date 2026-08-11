@@ -62,7 +62,7 @@ typedef struct _StreamDetails
 class RtspServer
 {
     public:
-        RtspServer(u_int16_t port);
+        explicit RtspServer(u_int16_t port);
         ~RtspServer();
         int16_t getPort() { return m_rtspServerPortNum; }
         std::string createProxy(const string& id, const string& name, const string& url);

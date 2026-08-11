@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,7 +54,7 @@ class VideoWebRTCSender : public IMediaDataConsumer
     public:
         VideoWebRTCSender (const std::string& consumer_name, const std::string& uri);
         VideoWebRTCSender (const std::string& consumer_name, double frame_rate, bool enable_frame_sync = false);
-        VideoWebRTCSender (const std::string& consumer_name);
+        explicit VideoWebRTCSender (const std::string& consumer_name);
         ~VideoWebRTCSender ()
         {
             try {
@@ -83,7 +83,8 @@ class VideoWebRTCSender : public IMediaDataConsumer
         int  createPassThroughMode(string& device_id);
         void appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster);
         void removeWebrtcBroacaster(const std::string& peerid);
-        virtual void onFrame(FrameParams& params);
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override;
         void checkEarlyFramesAndSynchronize();
 
         void resume(const std::string& peerid);

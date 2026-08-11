@@ -27,6 +27,8 @@
 class VstPrefixRedirectHandler : public CivetHandler
 {
 public:
+    using CivetHandler::handleGet;
+
     bool handleGet(CivetServer *server, struct mg_connection *conn) override
     {
         const struct mg_request_info *req_info = mg_get_request_info(conn);

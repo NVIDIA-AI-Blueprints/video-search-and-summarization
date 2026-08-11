@@ -63,7 +63,7 @@ enum Level {
 
 struct CoutToString
 {
-    CoutToString( std::streambuf * new_buffer ) 
+    explicit CoutToString( std::streambuf * new_buffer )
         : old( std::cout.rdbuf( new_buffer ) )
     { }
 
@@ -259,18 +259,21 @@ class Logger {
             return m_logStream.str();
         }
 #endif
-        void log_qos(std::string format, ...)
+        void log_qos(std::string text)
         {
-            va_list args;
+            m_qosStream << text;
+            m_qosStream.flush();
+        }
+
+        template <typename... Args>
+        void log_qos(std::string format, Args... args)
+        {
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
 
-            // retrieve the variable arguments (last named parameter before ... must be used for va_start)
-            va_start(args, format);
-            
             // Safe formatted output with bounds checking and null termination
-            int written = vsnprintf(buffer, max_len, format.c_str(), args);
-            
+            int written = std::snprintf(buffer, max_len, format.c_str(), args...);
+
             // Ensure null termination and handle potential truncation
             if (written >= max_len)
             {
@@ -279,27 +282,30 @@ class Logger {
             else if (written < 0)
             {
                 buffer[0] = '\0';  // Handle encoding error
-                LOG(error) << "Error in vsnprintf" << std::endl;
+                LOG(error) << "Error in snprintf" << std::endl;
             }
 
             m_qosStream << buffer;
             m_qosStream.flush();
-
-            va_end(args);
         }
 
-        void log_color(std::string color, std::string format, ...)
+        template <typename... Args>
+        void log_color(std::string color, std::string format, Args... args)
         {
-            va_list args;
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
 
-            // retrieve the variable arguments (last named parameter before ... must be used for va_start)
-            va_start(args, format);
-            
             // Safe formatted output with bounds checking and null termination
-            int written = vsnprintf(buffer, max_len, format.c_str(), args);
-            
+            int written;
+            if constexpr (sizeof...(args) == 0)
+            {
+                written = std::snprintf(buffer, max_len, "%s", format.c_str());
+            }
+            else
+            {
+                written = std::snprintf(buffer, max_len, format.c_str(), args...);
+            }
+
             // Ensure null termination and handle potential truncation
             if (written >= max_len)
             {
@@ -308,7 +314,7 @@ class Logger {
             else if (written < 0)
             {
                 buffer[0] = '\0';  // Handle encoding error
-                LOG(error) << "Error in vsnprintf" << std::endl;
+                LOG(error) << "Error in snprintf" << std::endl;
             }
 
             if (m_enableFileLog)
@@ -327,7 +333,6 @@ class Logger {
                     std::cout << buffer << std::endl;
                 }
             }
-            va_end(args);
         }
 };
 } // nv_logger

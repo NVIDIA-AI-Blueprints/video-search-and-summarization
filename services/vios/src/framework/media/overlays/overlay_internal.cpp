@@ -3224,8 +3224,7 @@ void NvLLOverlayInternal::readCalibrationData()
     LOG(info) << "Recentering: " << recentering << endl;
 
     {
-        std::lock_guard<std::mutex> guard_id(m_idLock);
-        std::lock_guard<std::mutex> guard_classType(m_classTypeLock);
+        std::scoped_lock guard(m_idLock, m_classTypeLock);
         if (find(m_idList[BBOX].begin(), m_idList[BBOX].end(), "none") != m_idList[BBOX].end() &&
             find(m_classTypeList.begin(), m_classTypeList.end(), "none") != m_classTypeList.end())
         {

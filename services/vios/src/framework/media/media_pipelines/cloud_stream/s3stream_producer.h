@@ -102,6 +102,10 @@ public:
     // IMediaDataProducer Interface Implementation
     // ========================================================================
     
+    // Keep the base class registerConsumer overloads visible (e.g. the
+    // time-range variant) so they are not hidden by the overloads below.
+    using IMediaDataProducer::registerConsumer;
+
     /**
      * @brief Register a consumer to receive data from this producer
      * @param consumer The consumer to register

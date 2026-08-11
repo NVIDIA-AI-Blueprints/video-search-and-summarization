@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -333,7 +333,7 @@ void VideoWebRTCSender::dump_input_stream(const unsigned char *buffer, ssize_t s
     }
     else if (m_dumpFile.is_open())
     {
-        m_dumpFile.write((char*)buffer, size);
+        m_dumpFile.write(reinterpret_cast<const char*>(buffer), size);
         LOG(info) << "contant data: " << size << "frame count : " << m_frameCount << endl;
         m_frameCount ++;
     }

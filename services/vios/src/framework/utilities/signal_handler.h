@@ -31,7 +31,7 @@ class SignalHandler
 {
 public:
     SignalHandler() = default;
-    SignalHandler(void (*handler)(int))
+    explicit SignalHandler(void (*handler)(int))
     {
         signal(SIGINT, handler);
         signal(SIGTERM, handler);

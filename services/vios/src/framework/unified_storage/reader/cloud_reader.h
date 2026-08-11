@@ -146,7 +146,7 @@ struct AsyncDownloadSession
     {
     }
     
-    AsyncDownloadSession(const std::string& id) : sessionId(id), startTime(std::chrono::system_clock::now()),
+    explicit AsyncDownloadSession(const std::string& id) : sessionId(id), startTime(std::chrono::system_clock::now()),
                                                  completedTasks(0), successfulDownloads(0), failedDownloads(0),
                                                  totalBytesDownloaded(0), isCompleted(false) {}
 };

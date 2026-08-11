@@ -184,7 +184,7 @@ RtspServer::~RtspServer()
 
     if (m_rtspServer != nullptr)
     {
-        ((DynamicRTSPServer *)m_rtspServer)->cleanup();
+        ((DynamicRTSPServer *)m_rtspServer)->cleanupAndDestroy();
         m_rtspServer = nullptr;
     }
     LOG(info) << "Exited RTSP Server" << endl;

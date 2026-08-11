@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -83,7 +83,7 @@ struct BucketInfo
     BucketInfo() : objectCount(0), totalSize(0)
     {
     }
-    BucketInfo(const std::string& name) : name(name), objectCount(0), totalSize(0)
+    explicit BucketInfo(const std::string& name) : name(name), objectCount(0), totalSize(0)
     {
     }
 };
@@ -116,7 +116,7 @@ struct CloudResult {
     std::chrono::milliseconds duration{0};
     
     CloudResult() = default;
-    CloudResult(bool success, const std::string& message = "") 
+    explicit CloudResult(bool success, const std::string& message = "")
         : success(success), message(message) {}
 };
 
@@ -133,9 +133,9 @@ struct StorageResult
     size_t bytes_written;
     size_t bytes_read;
     std::chrono::milliseconds duration;
-    
+
     StorageResult() : success(false), bytes_written(0), bytes_read(0), duration(0) {}
-    StorageResult(bool success, const std::string& message = "") 
+    explicit StorageResult(bool success, const std::string& message = "")
         : success(success), message(message), bytes_written(0), bytes_read(0), duration(0) {}
 };
 
@@ -152,7 +152,7 @@ struct CloudListResult : public CloudResult {
     std::string nextMarker;
     
     CloudListResult() = default;
-    CloudListResult(bool success, const std::string& message = "") 
+    explicit CloudListResult(bool success, const std::string& message = "")
         : CloudResult(success, message) {}
 };
  
@@ -256,7 +256,7 @@ struct FileListResult : public StorageResult
     std::string nextMarker;             // Marker for pagination
     
     FileListResult() : totalSize(0), count(0), isTruncated(false) {}
-    FileListResult(bool success, const std::string& message = "") 
+    explicit FileListResult(bool success, const std::string& message = "")
         : StorageResult(success, message), totalSize(0), count(0), isTruncated(false) {}
 };
  

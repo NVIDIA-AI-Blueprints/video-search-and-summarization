@@ -156,12 +156,13 @@ RedisSubscriber::~RedisSubscriber()
 void RedisSubscriber::redisInit()
 {
     m_subscribeTopic = GET_CONFIG().message_broker_topic_consumer;
-    const char *topic[] = {m_subscribeTopic.c_str()};
+    char *topic[] = {m_subscribeTopic.data()};
+    char connectConfig[] = "";
 
     m_redisEndpoint = getRedisServerEndpoint();
     // Connect to Redis server
-    m_connHandle = nvds_msgapi_connect((char*)m_redisEndpoint.c_str(),
-                                        nullptr, (char*)"");
+    m_connHandle = nvds_msgapi_connect(m_redisEndpoint.data(),
+                                        nullptr, connectConfig);
     if (!m_connHandle)
     {
         LOG(error) << "Redis Subscriber Connect failed. Exiting" << endl;
@@ -170,7 +171,7 @@ void RedisSubscriber::redisInit()
     LOG(info) << "Redis Subscriber connect success." << endl;
 
     //Subscribe to topic
-    if(nvds_msgapi_subscribe(m_connHandle, (char **)topic, 1, subscribe_cb, (void*)this) != NVDS_MSGAPI_OK)
+    if(nvds_msgapi_subscribe(m_connHandle, topic, 1, subscribe_cb, static_cast<void*>(this)) != NVDS_MSGAPI_OK)
     {
         LOG(error) << "Redis subscription to topic[s] failed. Exiting" << endl;
         goto error;

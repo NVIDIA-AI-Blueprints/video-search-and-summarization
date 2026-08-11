@@ -59,9 +59,9 @@ DynamicRTSPServer::~DynamicRTSPServer()
     LOG(info) << "~DynamicRTSPServer" << endl;
 }
 
-void DynamicRTSPServer::cleanup()
+void DynamicRTSPServer::cleanupAndDestroy()
 {
-    LOG(info) << "DynamicRTSPServer::cleanup()" << endl;
+    LOG(info) << "DynamicRTSPServer::cleanupAndDestroy()" << endl;
 
     std::vector<std::string> streamNames;
     {
@@ -83,7 +83,7 @@ void DynamicRTSPServer::cleanup()
     {
         removeServerMediaSession(name.c_str());
     }
-    LOG(info) << "DynamicRTSPServer::cleanup() - deleted streams" << endl;
+    LOG(info) << "DynamicRTSPServer::cleanupAndDestroy() - deleted streams" << endl;
     Medium::close(this);
 }
 

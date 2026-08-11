@@ -84,7 +84,7 @@ struct curlData {
 class AutoDestroyXml
 {
 public:
-    AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
+    explicit AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
     ~AutoDestroyXml() { xmlBufferFree(m_xml); }
     AutoDestroyXml(const AutoDestroyXml&) = delete;
     AutoDestroyXml& operator=(const AutoDestroyXml&) = delete;
@@ -267,7 +267,7 @@ static bool getProbeResponse(const string& xmlData, SensorInfo& sensor)
         return false;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {

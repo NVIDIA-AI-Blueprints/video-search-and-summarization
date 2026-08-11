@@ -35,7 +35,7 @@ class CloudReader;
 class UnifiedStorageReader
 {
 public:
-    UnifiedStorageReader(StorageType type);
+    explicit UnifiedStorageReader(StorageType type);
     virtual ~UnifiedStorageReader();
 
     // Core interface

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -56,11 +56,12 @@ namespace nv_vms
             ~GstUDPAudioClient () { LOG(info) << "~GstUDPAudioClient" << endl; }
 
             // UdpClient interfaces
-            int create (int freq);
-            void destroy (bool expect_result);
-            void start ();
+            using UdpClient::create;
+            int create (int freq) override;
+            void destroy (bool expect_result) override;
+            void start () override;
 
-            void pause ();
+            void pause () override;
             void resume ();
             bool isCreated() { return m_pipeline != nullptr; }
             int create_internal();

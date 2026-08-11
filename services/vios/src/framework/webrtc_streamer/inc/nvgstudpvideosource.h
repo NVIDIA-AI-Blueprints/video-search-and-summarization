@@ -84,7 +84,8 @@ class VideoDataConsumer : public IMediaDataConsumer
             return m_videoSinkList.size();
         }
 
-        void onFrame(FrameParams& params)
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override
         {
             std::lock_guard<std::mutex> lock(m_videoSinkLock);
             m_sourceWidth  = params.m_width;

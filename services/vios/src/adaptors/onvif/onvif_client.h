@@ -54,7 +54,7 @@ public:
     int synchronizeSensorTime(shared_ptr<SensorInfo>& sensor);
     bool isServerOnline(const string & url);
     int setPTZ(shared_ptr<SensorInfo>& sensor, PTZAction, string x, string y);
-    map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo> sensor);
+    map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo>& sensor) override;
     bool validateCredentials(shared_ptr<SensorInfo>& sensor, const string username, const string password);
     int getNetworkInfo(shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo);
     int setNetworkInfo(shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);

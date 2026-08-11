@@ -115,7 +115,7 @@ namespace
 class AutoDestroyXml
 {
 public:
-    AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
+    explicit AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
     ~AutoDestroyXml() { xmlBufferFree(m_xml); }
 private:
     xmlBufferPtr m_xml;
@@ -730,7 +730,7 @@ bool NvSoap::getProbeResponse(const string& xmlData, SensorInfo& sensor)
         return false;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar *>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -814,7 +814,7 @@ void NvSoap::getSystemDateAndTimeResponse(const string& xmlData, string& respons
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if (cursor)
     {
@@ -901,7 +901,7 @@ void NvSoap::getNTPResponse(const string& xmlData, string& response)
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if (cursor)
     {
@@ -988,7 +988,7 @@ void NvSoap::getDeviceInformationResponse(const string& xmlData, map<string, str
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if (cursor)
     {
@@ -1046,7 +1046,7 @@ int NvSoap::getCapabilitiesResponse(const string& xmlData, map<string, OnvifServ
         return -1;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     xmlNodePtr cur = findNode(doc, cursor, ONVIF_MEDIA_SERVICE);
     if (cur)
@@ -1122,7 +1122,7 @@ void NvSoap::getProfileResponse(const string& xmlData, SensorSettings& setting, 
     SensorVideoEncoderSettingsValues& encoderValues = setting.encoderValues;
     MultiCast& multiCast = setting.multiCast;
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -1395,7 +1395,7 @@ void NvSoap::getProfilesResponse(const string& xmlData, vector<SensorSettings>& 
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -1663,7 +1663,7 @@ void NvSoap::getPTZProfilesResponse(const string& xmlData, vector<Profile>& prof
 
     Profile profile;
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -1720,7 +1720,7 @@ string NvSoap::getUriResponse(const string& xmlData)
         return value;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Uri");
     if (!cur)
@@ -1782,7 +1782,7 @@ vector<PTZSpaces> NvSoap::getPTZNodeResponse(const string& xmlData)
         return spaces;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -1873,7 +1873,7 @@ SensorImageSettingsValues NvSoap::getCameraGetImageSettingsResponse(const string
         return values;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "ImagingSettings");
     if (cur)
@@ -2045,7 +2045,7 @@ SensorImageSettingsOptions NvSoap::getCameraGetImageOptionResponse(const string&
         return options;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "ImagingOptions");
     if (cur)
@@ -2334,7 +2334,7 @@ bool NvSoap::setCameraNetworkInterfacesResponse(const string& xmlData)
         return false;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar *>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "RebootNeeded");
     if (cur)
@@ -2359,7 +2359,7 @@ SensorNetworkInfo NvSoap::getCameraNetworkInterfacesResponse(const string& xmlDa
         return networkInfo;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "NetworkInterfaces");
     if (cur)
@@ -2557,7 +2557,7 @@ string NvSoap::rebootCameraResponse(const string& xmlData)
         return rebootMessage;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Message");
     if (cur)
@@ -2685,7 +2685,7 @@ SensorEncoderSettingsOptions NvSoap::getVideoEncoderConfigurationOptionsMediaRes
 
     VideoEncoderConfigurationsOptions option;
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Options");
     if (cur)
@@ -2797,7 +2797,7 @@ SensorVideoEncoderSettingsValues NvSoap::getVideoEncoderConfigurationMediaRespon
     }
 
     Token token;
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Configuration");
     if (cur)
@@ -2926,7 +2926,7 @@ static void getCameraPositionResult(const string& xmlData, SensorPosition& posit
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cursor = xmlDocGetRootElement(doc);
     if (cursor == nullptr)
     {
@@ -5696,7 +5696,7 @@ void NvSoap::getServicesResponse(const string& xmlData, map<string, OnvifService
         return;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -5809,7 +5809,7 @@ SensorEncoderSettingsOptions NvSoap::getVideoEncoderConfigurationOptionsMedia2Re
         return options;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     xmlNodePtr cursor = xmlDocGetRootElement(doc);
     if(cursor)
     {
@@ -6009,7 +6009,7 @@ SensorVideoEncoderSettingsValues NvSoap::getVideoEncoderConfigurationsMedia2Resp
     }
 
     Token token;
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "Configurations");
     if (cur)
@@ -6140,7 +6140,7 @@ ServiceCapabilities NvSoap::getServiceCapabilitiesResponse(const string& xmlData
     }
 
     Token token;
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find the Security node
@@ -6198,7 +6198,7 @@ RecordingSummary NvSoap::getRecordingSummaryResponse(const string& xmlData)
         return summary;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find GetRecordingSummaryResponse node
@@ -6249,7 +6249,7 @@ string NvSoap::getFindRecordingsResponse(const string& xmlData)
         return searchToken;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find FindRecordingsResponse node
@@ -6280,7 +6280,7 @@ RecordingSearchResults NvSoap::getRecordingSearchResultsResponse(const string& x
         return results;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
 
     // Find GetRecordingSearchResultsResponse node
@@ -6303,7 +6303,7 @@ RecordingSearchResults NvSoap::getRecordingSearchResultsResponse(const string& x
             while (node != nullptr)
             {
                 if (node->type == XML_ELEMENT_NODE &&
-                    xmlStrcmp(node->name, BAD_CAST "RecordingInformation") == 0)
+                    xmlStrcmp(node->name, reinterpret_cast<const xmlChar *>("RecordingInformation")) == 0)
                 {
                     RecordingInformation recInfo;
 
@@ -6375,7 +6375,7 @@ RecordingSearchResults NvSoap::getRecordingSearchResultsResponse(const string& x
                     while (trackSearchNode != nullptr)
                     {
                         if (trackSearchNode->type == XML_ELEMENT_NODE &&
-                            xmlStrcmp(trackSearchNode->name, BAD_CAST "Track") == 0)
+                            xmlStrcmp(trackSearchNode->name, (const xmlChar *)"Track") == 0)
                         {
                             RecordingTrack track;
 

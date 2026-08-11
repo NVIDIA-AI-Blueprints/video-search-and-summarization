@@ -793,7 +793,7 @@ bool OnvifClient::isServerOnline(const string & url)
     return true;
 }
 
- map<PTZAction, ptzRange> OnvifClient::getPTZ(shared_ptr<SensorInfo> sensor)
+ map<PTZAction, ptzRange> OnvifClient::getPTZ(shared_ptr<SensorInfo>& sensor)
  {
     map<PTZAction, ptzRange> ptz;
     if (sensor != nullptr && sensor->streams.size() > 0)

@@ -43,7 +43,7 @@ class UnifiedStorageWriter
 {
 public:
 
-    UnifiedStorageWriter(StorageType type);
+    explicit UnifiedStorageWriter(StorageType type);
     virtual ~UnifiedStorageWriter();
 
     // Independent interface

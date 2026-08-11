@@ -73,7 +73,7 @@ class GstMux;
 class GstMux : public IMediaDataConsumer
 {
    public:
-    GstMux(RecordState record_state)
+    explicit GstMux(RecordState record_state)
         : IMediaDataConsumer("GstMux"),
           m_totalFileSize(0),
           m_isError(false),
@@ -115,7 +115,8 @@ class GstMux : public IMediaDataConsumer
     bool isPlaying();
     bool isAudioSupported();
     void checkStatus();
-    virtual void onFrame(FrameParams& params);
+    using IMediaDataConsumer::onFrame;
+    void onFrame(FrameParams& params) override;
     GstMux* getSelf()
     {
         return this;

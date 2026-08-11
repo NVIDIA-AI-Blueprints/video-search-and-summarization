@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,7 +28,7 @@ class
 WebrtcSinkConsumer : public IMediaDataConsumer
 {
 public:
-    WebrtcSinkConsumer(const std::string& consumer_name);
+    explicit WebrtcSinkConsumer(const std::string& consumer_name);
     WebrtcSinkConsumer(const std::string& consumer_name, string peer_id, double frame_rate, 
                     const std::map<std::string, std::string, std::less<>> &opts, bool enable_frame_sync = false);
     ~WebrtcSinkConsumer();

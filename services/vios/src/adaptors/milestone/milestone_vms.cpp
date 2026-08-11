@@ -64,7 +64,7 @@ extern "C" void destroyObject( MilestoneVmsVendor* object )
 class AutoDestroyXml
 {
 public:
-    AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
+    explicit AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
     ~AutoDestroyXml() { xmlBufferFree(m_xml); }
 private:
     xmlBufferPtr m_xml;
@@ -747,7 +747,7 @@ static string getToken(const string& xmlData)
         return token;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cursor = xmlDocGetRootElement(doc);
     if (cursor == nullptr)
     {
@@ -781,7 +781,7 @@ static string getStartStatusSessionResult(const string& xmlData)
         return result;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cursor = xmlDocGetRootElement(doc);
     if (cursor == nullptr)
     {
@@ -815,7 +815,7 @@ static string getCurrentStatusResult(const string& xmlData, vector<SensorStatus>
         return result;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cursor = xmlDocGetRootElement(doc);
     if (cursor == nullptr)
     {
@@ -874,7 +874,7 @@ map<string, string> getEventResult(const string& xmlData)
         return result;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cursor = xmlDocGetRootElement(doc);
     if (cursor == nullptr)
     {
@@ -1026,7 +1026,7 @@ int MilestoneVmsVendor::parseCameraInfo(const string& server_url, const string& 
         return -1;
     }
 
-    doc = xmlParseDoc(BAD_CAST xmlData.c_str());
+    doc = xmlParseDoc(reinterpret_cast<const xmlChar*>(xmlData.c_str()));
     cur = xmlDocGetRootElement(doc);
     cur = findNode(doc, cur, "cameras");
     if (!cur)

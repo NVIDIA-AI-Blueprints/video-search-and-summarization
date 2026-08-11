@@ -49,6 +49,7 @@ public:
     ~NvLLOverlay();
 
     void doDrawTask();
+    using IMediaDataConsumer::onFrame;
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void setConsumer(std::shared_ptr<IMediaDataConsumer> consumer);
     std::string getUri() { return m_uri; }

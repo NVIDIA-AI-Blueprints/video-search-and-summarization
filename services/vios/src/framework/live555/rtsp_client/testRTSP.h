@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -142,7 +142,7 @@ public:
         m_env.mainloop();
     }
 
-    videoClient(char const* rtspURL)
+    explicit videoClient(char const* rtspURL)
       : m_env(m_stop)
     {
         LOG(info) << "videoClient" << endl;

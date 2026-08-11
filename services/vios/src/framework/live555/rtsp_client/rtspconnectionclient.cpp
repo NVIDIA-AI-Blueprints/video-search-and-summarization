@@ -325,11 +325,11 @@ void RTSPConnection::RTSPClientConnection::sendNextCommand()
 		else
 		{
 			std::string updated_endTime;
-			char *absEndTime = nullptr;
+			const char *absEndTime = nullptr;
 			if (!m_endTime.empty())
 			{
 				m_endTime = getUpdatedTime (m_endTime, m_framerate);
-				absEndTime = (char*)m_endTime.c_str();
+				absEndTime = m_endTime.c_str();
 				LOG(info) << "Updated End Time:" << updated_endTime << endl;
 			}
 			// no more subsession to SETUP, send PLAY
@@ -447,7 +447,7 @@ void RTSPConnection::RTSPClientConnection::sessionByeHandler(char const* reason)
   LOG(info) << ":Received RTCP \"BYE\"" << endl;
   if (reason != nullptr) {
     LOG(info) << " (reason:\"" << reason << "\")";
-    delete[] (char*)reason;
+    delete[] reason;
   }
 
   envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalTimeoutTask);

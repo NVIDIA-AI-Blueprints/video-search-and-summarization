@@ -181,7 +181,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         }
 
         // Constructor with consumer name - preferred way
-        IMediaDataConsumer(const std::string& consumerName) : m_consumerName(consumerName)
+        explicit IMediaDataConsumer(const std::string& consumerName) : m_consumerName(consumerName)
         {
             m_transcodeStats.setElementName(m_consumerName);
         }

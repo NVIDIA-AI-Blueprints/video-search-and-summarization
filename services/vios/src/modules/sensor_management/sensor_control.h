@@ -37,7 +37,7 @@ struct SensorContollerLoader
 class SensorControl
 {
     public:
-        SensorControl(DeviceManager* deviceMngr);
+        explicit SensorControl(DeviceManager* deviceMngr);
         ~SensorControl();
 
         SensorControl(const SensorControl&) = delete;

@@ -411,7 +411,7 @@ void GstNvVideoDecoder::pushBufferToDecoder(const unsigned char *buffer, ssize_t
     /* Map the Gst Buffer to write the data */
     gst_buffer_map (gstbuffer, &map, GST_MAP_WRITE);
 
-    memcpy (map.data, (uint8_t*)buffer, size);
+    memcpy (map.data, buffer, size);
     map.size = size;
 
     /* Unmap the Gst Buffer */

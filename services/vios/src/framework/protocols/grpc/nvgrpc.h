@@ -51,7 +51,7 @@ using vstserver::IceCandidate;
 class  GrpcUdpService final : public VstGrpcServer::Service
 {
 public:
-    GrpcUdpService(std::shared_ptr<nv_vms::DeviceManager> deviceMngr): m_deviceManager(deviceMngr)
+    explicit GrpcUdpService(std::shared_ptr<nv_vms::DeviceManager> deviceMngr): m_deviceManager(deviceMngr)
     {}
 
     ~GrpcUdpService() = default;
@@ -137,7 +137,7 @@ private:
 class GrpcClient
 {
 public:
-    GrpcClient(std::shared_ptr<Channel> channel)
+    explicit GrpcClient(std::shared_ptr<Channel> channel)
         : m_stub(VstGrpcServer::NewStub(channel)) {}
     GrpcClient();
 
