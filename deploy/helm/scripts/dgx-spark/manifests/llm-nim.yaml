@@ -1,0 +1,177 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# LLM NIM — shared model endpoint
+#
+# Standalone, OpenAI-compatible Nemotron-Nano-9B-v2 service using the
+# DGX-Spark-optimized NIM build. One of the three cluster-wide model
+# instances (exactly one LLM, one VLM, one embedding). Deployed as a plain
+# Deployment + ClusterIP Service (no NIM Operator dependency) into the `vss`
+# namespace.
+#
+# Wiring: reachable cluster-wide at http://llm-nim.vss.svc:8000/v1
+# Served model id: nvidia/nemotron-nano-9b-v2 (probe /v1/models after
+# rollout to confirm the exact id).
+#
+# Image: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant
+# This is the DGX Spark-specific NIM (per skills/vss-deploy-profile/references/
+# edge.md). Do NOT use the standard nvidia-nemotron-nano-9b-v2:1 image on DGX
+# Spark — it has an arm64 manifest problem in this blueprint context.
+#
+# The DGX Spark NIM has built-in GB10 optimizations (unified-memory aware,
+# pre-tuned for the 128 GiB LPDDR5x pool). No additional NIM_* env vars are
+# needed — the image's defaults are designed for the GB10. The upstream's
+# Docker Compose graph does not yet include a hw-DGX-SPARK.env for this NIM
+# (the directory deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-dgx-spark/
+# does not exist yet); when it does, any env vars it defines should be
+# mirrored here.
+#
+# Note: This is the NIM image, not the vLLM FP8 path
+# (NVIDIA-Nemotron-Nano-9B-v2-FP8 + vllm:25.12) that the edge deployment doc
+# references for single-device deployments. The NIM image is preferred for
+# Kubernetes because it provides health endpoints (/v1/health/ready) and
+# NGC-native model weight management.
+#
+# Prerequisites:
+#   - NVIDIA GPU operator / device plugin installed
+#   - ngc-docker-reg-secret (image pull) and ngc-api-key-secret (model weights) k8s Secrets
+#     pre-created in namespace vss (see README.md)
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-nim-cache
+  namespace: vss
+  labels:
+    app: nvidia-nemotron-nano-9b-v2
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # Uses the cluster default StorageClass. Override with:
+  #   kubectl apply -f <(sed 's/# storageClassName:/storageClassName: local-path/' llm-nim.yaml)
+  # storageClassName: local-path
+  resources:
+    requests:
+      storage: 60Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-nim
+  namespace: vss
+  labels:
+    app: nvidia-nemotron-nano-9b-v2
+    component: llm-nim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nvidia-nemotron-nano-9b-v2
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: nvidia-nemotron-nano-9b-v2
+        component: llm-nim
+    spec:
+      # Uncomment to pin the LLM to a dedicated node in a multi-node cluster.
+      # nodeSelector:
+      #   vss-role: llm
+      runtimeClassName: nvidia
+      imagePullSecrets:
+        - name: ngc-docker-reg-secret
+      # fsGroup ensures PVC files are group-readable. runAsUser/runAsGroup
+      # are deliberately omitted: the DGX Spark NIM variant does not support
+      # running as a non-default user (per edge.md). The image runs as its
+      # built-in default user.
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: nim
+          image: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ngc-api-key-secret
+                  key: NGC_API_KEY
+            # The DGX Spark NIM has built-in GB10 optimizations.
+            # No NIM_GPU_MEMORY_CAP_MIB / NIM_LOW_MEMORY_MODE / NIM_MAX_MODEL_LEN
+            # overrides — the image defaults are pre-tuned for the GB10's
+            # 128 GiB unified memory. When the upstream adds a
+            # hw-DGX-SPARK.env for this NIM, mirror any env vars here.
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: nim-cache
+              mountPath: /opt/nim/.cache
+            - name: dshm
+              mountPath: /dev/shm
+          startupProbe:
+            httpGet:
+              path: /v1/health/ready
+              port: http
+            # NIM weight download + engine build can take tens of minutes.
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 240
+          readinessProbe:
+            httpGet:
+              path: /v1/health/ready
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/health/live
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: nim-cache
+          persistentVolumeClaim:
+            claimName: llm-nim-cache
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-nim
+  namespace: vss
+  labels:
+    app: nvidia-nemotron-nano-9b-v2
+    component: llm-nim
+spec:
+  type: ClusterIP
+  selector:
+    app: nvidia-nemotron-nano-9b-v2
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

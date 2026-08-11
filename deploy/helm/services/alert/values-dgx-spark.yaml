@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# DGX Spark overlay for the alert-bridge chart.
+# Points the VLM at the shared cluster-wide VLM NIM instead of a local model,
+# and tunes the VLM request timeout for remote inference.
+#
+# Usage (standalone release):
+#   helm upgrade --install vss-alert ./alert \
+#     -f alert/values-dgx-spark.yaml \
+#     -n vss --create-namespace
+
+enabled: true
+
+global:
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+  ngcApiSecret:
+    name: ngc-api-key-secret
+    key: NGC_API_KEY
+  # Shared remote VLM.
+  vlmBaseUrl: "http://vlm-nim.vss.svc:8000"
+  vlmName: "nvidia/cosmos3-nano-reasoner"
+
+# Subchart-level VLM wiring (wins over global; keeps VLM_* identical to agent).
+vlmBaseUrl: "http://vlm-nim.vss.svc:8000"
+vlmName: "nvidia/cosmos3-nano-reasoner"
+# In-cluster VST for media fetch (no external ingress on this cluster).
+vstBaseUrl: "http://vss-vios-ingress:30888"
+
+# Point at the shared infra services (release-independent names).
+kafkaBootstrapServers: "kafka-kafka:9092"
+redisHost: "redis"
+redisPort: "6379"
+elasticHosts: "http://elasticsearch:9200"
+
+waitForDependencies:
+  enabled: true
+  kafkaHost: "kafka-kafka"
+  kafkaPort: "9092"
+  redisHost: "redis"
+  redisPort: "6379"
+  elasticsearchHost: "elasticsearch"
+  elasticsearchPort: "9200"

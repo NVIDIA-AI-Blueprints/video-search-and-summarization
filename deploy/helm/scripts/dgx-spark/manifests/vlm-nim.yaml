@@ -1,0 +1,189 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VLM NIM — shared model endpoint
+#
+# Standalone, memory-capped, OpenAI-compatible Cosmos Reason 3 service.
+# One of the three cluster-wide model instances (exactly one LLM, one VLM,
+# one embedding). Deployed as a plain Deployment + ClusterIP Service (no NIM
+# Operator dependency) into the `vss` namespace.
+#
+# Wiring: reachable cluster-wide at http://vlm-nim.vss.svc:8000/v1
+# Served model id: nvidia/cosmos3-nano-reasoner (probe /v1/models after
+# rollout to confirm the exact id).
+#
+# The cosmos3-reasoner:1.7 tag is multi-arch (arm64 + amd64) so the same tag
+# pulls natively on the GB10 Spark. Uses the NANO variant (~8B, fits one GPU).
+# Do NOT use the super-reasoner 32B variant (requires 2 GPUs, would break the
+# single-instance-per-node design).
+#
+# GB10 parameters are sourced from the upstream's official Docker Compose
+# profile: deploy/docker/services/nim/cosmos3-reasoner/hw-DGX-SPARK.env.
+# This pins the BF16 model profile and sets the memory/utilization knobs
+# validated by the VSS team for the GB10 unified-memory architecture.
+#
+# Prerequisites:
+#   - NVIDIA GPU operator / device plugin installed
+#   - ngc-docker-reg-secret (image pull) and ngc-api-key-secret (model weights) k8s Secrets
+#     pre-created in namespace vss (see README.md)
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vlm-nim-cache
+  namespace: vss
+  labels:
+    app: cosmos3-nano-reasoner
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # Uses the cluster default StorageClass. Override with:
+  #   kubectl apply -f <(sed 's/# storageClassName:/storageClassName: local-path/' vlm-nim.yaml)
+  # storageClassName: local-path
+  resources:
+    requests:
+      storage: 60Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vlm-nim
+  namespace: vss
+  labels:
+    app: cosmos3-nano-reasoner
+    component: vlm-nim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cosmos3-nano-reasoner
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: cosmos3-nano-reasoner
+        component: vlm-nim
+    spec:
+      # Uncomment to pin the VLM to a dedicated node in a multi-node cluster.
+      # nodeSelector:
+      #   vss-role: vlm
+      runtimeClassName: nvidia
+      imagePullSecrets:
+        - name: ngc-docker-reg-secret
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: nim
+          image: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ngc-api-key-secret
+                  key: NGC_API_KEY
+            # GB10 DGX Spark parameters — sourced from the upstream's
+            # deploy/docker/services/nim/cosmos3-reasoner/hw-DGX-SPARK.env
+            # to stay aligned with the official Docker Compose profile.
+            # NIM_GPU_MEMORY_UTILIZATION: unified-memory fraction (0.7 =
+            #   70% of the GB10's 128 GiB shared CPU/GPU pool).
+            # NIM_MODEL_PROFILE: pins the BF16 profile so it isn't
+            #   auto-resolved to a GPU-tuned nvfp4/fp8 profile that may
+            #   not exist on the GB10.
+            # NIM_MAX_NUM_SEQS: limits concurrent requests on one GPU.
+            # NIM_DISABLE_CUDA_GRAPH: avoids CUDA graph capture issues
+            #   on the GB10's unified memory architecture.
+            # NIM_DISABLE_MM_PREPROCESSOR_CACHE: saves memory by
+            #   disabling the multimodal preprocessor cache.
+            # NIM_DELETE_LAST_FRAMES: Cosmos3-specific optimization that
+            #   drops the last frame batch to avoid padding artifacts.
+            - name: NIM_GPU_MEMORY_UTILIZATION
+              value: "0.7"
+            - name: NIM_MAX_MODEL_LEN
+              value: "32768"
+            - name: NIM_MAX_NUM_SEQS
+              value: "4"
+            - name: NIM_DISABLE_CUDA_GRAPH
+              value: "1"
+            - name: NIM_DISABLE_MM_PREPROCESSOR_CACHE
+              value: "1"
+            - name: NIM_DELETE_LAST_FRAMES
+              value: "1"
+            - name: NIM_MODEL_PROFILE
+              value: "e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3"
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: nim-cache
+              mountPath: /opt/nim/.cache
+            - name: dshm
+              mountPath: /dev/shm
+          startupProbe:
+            httpGet:
+              path: /v1/health/ready
+              port: http
+            # NIM weight download + engine build can take tens of minutes.
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 240
+          readinessProbe:
+            httpGet:
+              path: /v1/health/ready
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/health/live
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: nim-cache
+          persistentVolumeClaim:
+            claimName: vlm-nim-cache
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vlm-nim
+  namespace: vss
+  labels:
+    app: cosmos3-nano-reasoner
+    component: vlm-nim
+spec:
+  type: ClusterIP
+  selector:
+    app: cosmos3-nano-reasoner
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

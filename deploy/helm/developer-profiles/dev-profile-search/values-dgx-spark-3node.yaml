@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# values-dgx-spark-3node.yaml
+# Optional node placement for a 3-node DGX Spark cluster. Stacks on top of
+# values-dgx-spark.yaml; a single-node Spark does not need this file.
+#
+# Assumes these node labels:
+#   kubectl label node <spark-1> vss-role=llm
+#   kubectl label node <spark-2> vss-role=vlm vss-infra=infra2
+#   kubectl label node <spark-3> vss-role=vss
+#
+# spark-1 and spark-2 host the LLM and VLM NIMs (see
+# scripts/dgx-spark/manifests/). Everything below lands on spark-3, except the
+# RAM-heavy infra moved to spark-2 to keep spark-3 free for GPU workloads.
+#
+# Usage:
+#   helm upgrade --install vss-search ./dev-profile-search \
+#     -f dev-profile-search/values-dgx-spark.yaml \
+#     -f dev-profile-search/values-dgx-spark-3node.yaml \
+#     -n vss --create-namespace
+
+infra:
+  phoenix:
+    nodeSelector:
+      vss-role: vss
+  sdrc:
+    nodeSelector:
+      vss-role: vss
+  kibana:
+    nodeSelector:
+      vss-role: vss
+    # No ingress controller on the Spark cluster.
+    service:
+      type: NodePort
+      nodePort: 30784
+  # RAM-heavy infra moved off the VSS core node.
+  redis:
+    nodeSelector:
+      vss-infra: infra2
+  elasticsearch:
+    nodeSelector:
+      vss-infra: infra2
+  kafka:
+    nodeSelector:
+      vss-infra: infra2
+  logstash:
+    nodeSelector:
+      vss-infra: infra2
+
+vios:
+  vss-vios-postgres:
+    nodeSelector:
+      vss-role: vss
+  vss-vios-sensor:
+    nodeSelector:
+      vss-role: vss
+  vss-vios-streamprocessing:
+    nodeSelector:
+      vss-role: vss
+  vss-vios-ingress:
+    nodeSelector:
+      vss-role: vss
+
+agent:
+  vss-agent:
+    nodeSelector:
+      vss-role: vss
+
+vss-agent-ui:
+  nodeSelector:
+    vss-role: vss
+
+rtvi:
+  vss-rtvi-cv:
+    nodeSelector:
+      vss-role: vss
+
+analytics:
+  vss-video-analytics-api:
+    nodeSelector:
+      vss-role: vss
+  vss-behavior-analytics:
+    nodeSelector:
+      vss-role: vss
