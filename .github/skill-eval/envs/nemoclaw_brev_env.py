@@ -72,7 +72,10 @@ def _setup_command(timeout: int) -> str:
     # minutes of command/transport headroom inside the total setup budget.
     adapter_timeout = max(300, timeout - 1500)
     return f"""
-set -eu
+set -e
+set +u
+. "$HOME/.profile" 2>/dev/null || true
+set -u
 . "$HOME/.eval_env"
 cd "$HOME/video-search-and-summarization"
 scratch=/tmp/skill-eval/nemoclaw
@@ -114,6 +117,75 @@ if [ -d "$gateway_state" ]; then
   done
 fi
 export PATH="$HOME/.local/bin:$PATH"
+# The OpenShell gateway is a host process. A previous generic Docker reset
+# may have pruned its bridge while leaving the listener alive. Reuse #925's
+# scoped lifecycle helper so onboarding can recreate the bridge; a free port
+# needs no repair.
+gateway_port="${{NEMOCLAW_GATEWAY_PORT:-8080}}"
+case "$gateway_port" in
+  ""|*[!0-9]*)
+    echo "Invalid NEMOCLAW_GATEWAY_PORT: $gateway_port" >&2
+    exit 1
+    ;;
+esac
+if [ "$gateway_port" -lt 1024 ] || [ "$gateway_port" -gt 65535 ]; then
+  echo "NEMOCLAW_GATEWAY_PORT is outside 1024-65535: $gateway_port" >&2
+  exit 1
+fi
+gateway_port_is_free() {{
+  python3 - "$gateway_port" <<'__NEMOCLAW_PORT_PROBE__'
+import socket
+import sys
+
+with socket.socket() as probe:
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind(("127.0.0.1", int(sys.argv[1])))
+    except OSError:
+        raise SystemExit(1)
+__NEMOCLAW_PORT_PROBE__
+}}
+openshell_network_names="$(docker network ls \
+  --filter type=custom --format '{{{{.Name}}}}')" || {{
+  echo "Failed to inspect the OpenShell Docker network before setup" >&2
+  exit 1
+}}
+if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
+  if gateway_port_is_free; then
+    echo "OpenShell bridge is absent; fresh onboarding will recreate it"
+  else
+    gateway_release_module="$HOME/.nemoclaw/source/dist/lib/tunnel/gateway-port-release.js"
+    if ! command -v node >/dev/null 2>&1 || \
+       [ ! -f "$gateway_release_module" ]; then
+      echo "Cannot safely release stale OpenShell gateway: pinned lifecycle helper is unavailable" >&2
+      exit 1
+    fi
+    GATEWAY_RELEASE_MODULE="$gateway_release_module" \
+    GATEWAY_RELEASE_PORT="$gateway_port" \
+      node <<'__NEMOCLAW_GATEWAY_RELEASE__'
+const modulePath = process.env.GATEWAY_RELEASE_MODULE;
+const port = Number(process.env.GATEWAY_RELEASE_PORT);
+const runtime = require(modulePath);
+const result = runtime.releaseManagedGatewayPort({{
+  port,
+  confirmTimeoutMs: 5000,
+  confirmPollIntervalMs: 100,
+}});
+if (!result || result.released !== true) {{
+  console.error(
+    `Scoped NemoClaw gateway release failed for port ${{port}}: ` +
+      JSON.stringify(result),
+  );
+  process.exit(1);
+}}
+__NEMOCLAW_GATEWAY_RELEASE__
+    gateway_port_is_free || {{
+      echo "OpenShell gateway port $gateway_port remains busy after recovery" >&2
+      exit 1
+    }}
+    echo "Released stale OpenShell gateway; onboarding will recreate its bridge"
+  fi
+fi
 if ! command -v uv >/dev/null 2>&1; then
   timeout --signal=TERM --kill-after=30 300s \
     sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
@@ -153,6 +225,132 @@ class NemoClawBrevEnvironment(BrevEnvironment):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._nemoclaw_ready = False
+
+    async def _reset_docker_runtime(self) -> None:
+        """Reset the worker while retaining a valid OpenShell bridge.
+
+        OpenShell's Docker gateway runs on the host. The base reset removes
+        unused custom networks, which can strand that live gateway with a
+        recorded route to a deleted ``openshell-docker`` bridge. This is the
+        scoped preservation behavior already proven in #925: only the exact
+        OpenShell-managed IPv4 bridge is allowed to survive.
+        """
+        cmd = r"""set -euo pipefail
+docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
+cids=$(docker ps -aq) || { echo "failed to enumerate docker containers" >&2; exit 1; }
+if [ -n "$cids" ]; then
+  docker rm -f $cids >/dev/null || {
+    echo "failed to remove docker containers during reset" >&2
+    exit 1
+  }
+fi
+vols=$(docker volume ls -q) || { echo "failed to enumerate docker volumes" >&2; exit 1; }
+if [ -n "$vols" ]; then
+  docker volume rm -f $vols >/dev/null || {
+    echo "failed to remove docker volumes during reset" >&2
+    exit 1
+  }
+fi
+validate_openshell_network() {
+  network_id="$1"
+  network_driver=$(docker network inspect --format '{{.Driver}}' "$network_id") || {
+    echo "failed to inspect driver for OpenShell network $network_id" >&2
+    return 1
+  }
+  network_owner=$(docker network inspect \
+    --format '{{index .Labels "openshell.ai/managed-by"}}' "$network_id") || {
+    echo "failed to inspect owner for OpenShell network $network_id" >&2
+    return 1
+  }
+  network_gateways=$(docker network inspect \
+    --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' "$network_id") || {
+    echo "failed to inspect IPAM for OpenShell network $network_id" >&2
+    return 1
+  }
+  [ "$network_driver" = "bridge" ] || {
+    echo "refusing to preserve OpenShell network with driver $network_driver" >&2
+    return 1
+  }
+  [ "$network_owner" = "openshell" ] || {
+    echo "refusing to preserve OpenShell network without managed ownership label" >&2
+    return 1
+  }
+  has_ipv4_gateway=0
+  for network_gateway in $network_gateways; do
+    if python3 -c \
+      'import ipaddress,sys; raise SystemExit(ipaddress.ip_address(sys.argv[1]).version != 4)' \
+      "$network_gateway"; then
+      has_ipv4_gateway=1
+      break
+    fi
+  done
+  [ "$has_ipv4_gateway" = "1" ] || {
+    echo "refusing to preserve OpenShell network without an IPv4 IPAM gateway" >&2
+    return 1
+  }
+}
+network_ids=$(docker network ls --filter type=custom -q) || {
+  echo "failed to enumerate docker networks during reset" >&2
+  exit 1
+}
+for network_id in $network_ids; do
+  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
+    echo "failed to inspect docker network $network_id during reset" >&2
+    exit 1
+  }
+  if [ "$network_name" = "openshell-docker" ]; then
+    validate_openshell_network "$network_id"
+    continue
+  fi
+  docker network rm "$network_id" >/dev/null || {
+    echo "failed to remove docker network $network_name ($network_id)" >&2
+    exit 1
+  }
+done
+docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
+rc=$(docker ps -aq | wc -l | tr -d ' ')
+rv=$(docker volume ls -q | wc -l | tr -d ' ')
+rn=0
+surviving_network_ids=$(docker network ls --filter type=custom -q) || {
+  echo "failed to enumerate surviving docker networks" >&2
+  exit 1
+}
+for network_id in $surviving_network_ids; do
+  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
+    echo "failed to inspect surviving docker network $network_id" >&2
+    exit 1
+  }
+  if [ "$network_name" = "openshell-docker" ]; then
+    validate_openshell_network "$network_id"
+  else
+    rn=$((rn + 1))
+  fi
+done
+if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
+  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} unexpected user-defined networks remain" >&2
+  exit 1
+fi
+echo "docker runtime reset OK; images and valid OpenShell bridge preserved when present ($(docker images -q | wc -l | tr -d ' ') layers)"
+"""
+        logger.info(
+            "Resetting Docker runtime while preserving the validated "
+            "OpenShell bridge on %s",
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"Docker runtime reset failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Docker reset on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip().splitlines()[-1]
+            if result.stdout
+            else "<no output>",
+        )
 
     async def start(self, force_build: bool) -> None:
         if self._nemoclaw_ready:

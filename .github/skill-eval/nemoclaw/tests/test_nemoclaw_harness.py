@@ -293,6 +293,30 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("Refusing symlinked OpenShell database", source)
         self.assertNotIn("chown -R", source)
 
+    def test_docker_reset_preserves_only_validated_openshell_bridge(self) -> None:
+        source = (
+            REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("async def _reset_docker_runtime", source)
+        self.assertIn('network_name" = "openshell-docker', source)
+        self.assertIn('network_driver" = "bridge', source)
+        self.assertIn('network_owner" = "openshell', source)
+        self.assertIn('index .Labels "openshell.ai/managed-by"', source)
+        self.assertNotIn("docker network prune", source)
+        self.assertNotIn("docker network create", source)
+
+    def test_missing_bridge_uses_scoped_gateway_recovery(self) -> None:
+        source = (
+            REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("openshell_network_names", source)
+        self.assertIn("gateway-port-release.js", source)
+        self.assertIn("releaseManagedGatewayPort", source)
+        self.assertIn('. "$HOME/.profile"', source)
+        self.assertIn("gateway_port_is_free", source)
+        self.assertNotIn("pkill", source)
+        self.assertNotIn("killall", source)
+
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
         workflow = (
             REPO_ROOT / ".github/workflows/skills-eval.yml"
