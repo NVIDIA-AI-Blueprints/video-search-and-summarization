@@ -170,7 +170,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: measurement-fusion
-    image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0}
+    image: ${VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE:-${BEV_FUSION_MV3DT_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion}}:${VSS_RT_CV_MV3DT_BEV_FUSION_TAG:-${BEV_FUSION_MV3DT_TAG:-develop-latest}}
     profiles: ["vss-rtvi-cv-bev-fusion"]
     depends_on:
       broker-health-check:
