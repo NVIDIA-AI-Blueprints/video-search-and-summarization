@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,7 +52,100 @@ class NotebookAdapterTests(unittest.TestCase):
         self.assertEqual(len(composed["cells"]), 22)
         self.assertIn("mcporter", cells["s36-code"]["source"])
         self.assertIn("--no-install-package", cells["c13aaf5e"]["source"])
+        self.assertIn("ensure_agent_venv", cells["c13aaf5e"]["source"])
+        self.assertIn(
+            'env.pop("UV_PROJECT_ENVIRONMENT", None)',
+            cells["c13aaf5e"]["source"],
+        )
+        self.assertIn(
+            "Refusing to replace symlinked orchestrator environment",
+            cells["c13aaf5e"]["source"],
+        )
+        compile(
+            cells["c13aaf5e"]["source"],
+            "deploy_vss_orchestrator.ipynb:c13aaf5e",
+            "exec",
+        )
         self.assertIn("ci-persist-env", cells)
+
+    def test_invalid_orchestrator_venv_is_rebuilt(self) -> None:
+        notebook = json.loads(
+            (
+                REPO_ROOT
+                / "deploy/docker/scripts/deploy_vss_orchestrator.ipynb"
+            ).read_text(encoding="utf-8")
+        )
+        cell = next(
+            cell for cell in notebook["cells"] if cell.get("id") == "c13aaf5e"
+        )
+        patched = self.adapter._patch_ci_cell(
+            "c13aaf5e", self.adapter._normalize_cell(cell)
+        )
+        tree = ast.parse(patched["source"])
+        functions = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"uv_env_for_agent", "ensure_agent_venv"}
+        ]
+        module = ast.fix_missing_locations(
+            ast.Module(body=functions, type_ignores=[])
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            agent_dir = Path(temporary) / "services/agent"
+            venv_dir = agent_dir / ".venv"
+            venv_dir.mkdir(parents=True)
+            commands: list[tuple[list[str], dict[str, object]]] = []
+
+            def fake_run(command, **kwargs):
+                commands.append((command, kwargs))
+                if command == ["uv", "venv", "--help"]:
+                    return subprocess.CompletedProcess(
+                        command, 0, stdout="  --force\n"
+                    )
+                python = venv_dir / "bin/python"
+                python.parent.mkdir(parents=True, exist_ok=True)
+                python.write_text("#!/bin/sh\n", encoding="utf-8")
+                python.chmod(0o755)
+                return subprocess.CompletedProcess(command, 0)
+
+            namespace = {
+                "AGENT_DIR": agent_dir,
+                "ORCHESTRATOR_MCP_VENV_DIR": venv_dir,
+                "ORCHESTRATOR_MCP_PYTHON_VERSION": "3.13",
+                "os": os,
+                "subprocess": mock.Mock(run=fake_run),
+            }
+            exec(
+                compile(module, "orchestrator-venv-repair", "exec"),
+                namespace,
+            )
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "VIRTUAL_ENV": "/outside/kernel",
+                    "UV_PROJECT_ENVIRONMENT": "/outside/project",
+                },
+            ):
+                namespace["ensure_agent_venv"]()
+
+            self.assertEqual(commands[0][0], ["uv", "venv", "--help"])
+            self.assertEqual(
+                commands[1][0],
+                [
+                    "uv",
+                    "venv",
+                    "--clear",
+                    "--force",
+                    "--python",
+                    "3.13",
+                    str(venv_dir),
+                ],
+            )
+            for _, kwargs in commands:
+                self.assertNotIn("VIRTUAL_ENV", kwargs["env"])
+                self.assertNotIn("UV_PROJECT_ENVIRONMENT", kwargs["env"])
 
     def test_adapter_has_no_custom_secret_scrubber(self) -> None:
         source = (NEMOCLAW_DIR / "notebook_setup_adapter.py").read_text(

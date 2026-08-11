@@ -265,6 +265,92 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             1,
         )
     elif cell_id == "c13aaf5e":
+        env_helper = '''def uv_env_for_agent() -> dict[str, str]:
+    env = os.environ.copy()
+    # Do not inherit the notebook kernel venv; uv should use services/agent/.venv.
+    env.pop("VIRTUAL_ENV", None)
+    return env
+'''
+        if env_helper not in source:
+            raise ValueError(
+                "Orchestrator setup cell changed: uv environment anchor missing"
+            )
+        source = source.replace(
+            env_helper,
+            env_helper.replace(
+                '    return env\n',
+                '    env.pop("UV_PROJECT_ENVIRONMENT", None)\n    return env\n',
+            ),
+            1,
+        )
+        sync_anchor = "\ndef run_uv_sync() -> subprocess.CompletedProcess[str]:\n"
+        if sync_anchor not in source:
+            raise ValueError(
+                "Orchestrator setup cell changed: sync function anchor missing"
+            )
+        ensure_venv = '''
+def ensure_agent_venv() -> None:
+    venv_python = ORCHESTRATOR_MCP_VENV_DIR / "bin" / "python"
+    if ORCHESTRATOR_MCP_VENV_DIR.is_symlink():
+        raise RuntimeError(
+            f"Refusing to replace symlinked orchestrator environment: {ORCHESTRATOR_MCP_VENV_DIR}"
+        )
+    if venv_python.is_file() and os.access(venv_python, os.X_OK):
+        return
+
+    command = ["uv", "venv"]
+    if ORCHESTRATOR_MCP_VENV_DIR.exists():
+        print(f"Replacing invalid orchestrator environment in {ORCHESTRATOR_MCP_VENV_DIR} ...")
+        command.append("--clear")
+        uv_venv_help = subprocess.run(
+            ["uv", "venv", "--help"],
+            cwd=str(AGENT_DIR),
+            env=uv_env_for_agent(),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if "--force" in uv_venv_help.stdout:
+            command.append("--force")
+    else:
+        print(
+            f"Creating Python {ORCHESTRATOR_MCP_PYTHON_VERSION} venv "
+            f"in {ORCHESTRATOR_MCP_VENV_DIR} ..."
+        )
+    command.extend(
+        [
+            "--python",
+            ORCHESTRATOR_MCP_PYTHON_VERSION,
+            str(ORCHESTRATOR_MCP_VENV_DIR),
+        ]
+    )
+    subprocess.run(
+        command,
+        cwd=str(AGENT_DIR),
+        env=uv_env_for_agent(),
+        check=True,
+    )
+    if not (venv_python.is_file() and os.access(venv_python, os.X_OK)):
+        raise RuntimeError(
+            "uv venv completed without creating an executable Python at "
+            f"{venv_python}"
+        )
+
+'''
+        source = source.replace(sync_anchor, ensure_venv + sync_anchor, 1)
+        create_venv = '''if not ORCHESTRATOR_MCP_VENV_DIR.is_dir():
+    print(f"Creating Python {ORCHESTRATOR_MCP_PYTHON_VERSION} venv in {ORCHESTRATOR_MCP_VENV_DIR} ...")
+    subprocess.run(
+        ["uv", "venv", "--python", ORCHESTRATOR_MCP_PYTHON_VERSION],
+        cwd=str(AGENT_DIR),
+        check=True,
+    )
+'''
+        if create_venv not in source:
+            raise ValueError(
+                "Orchestrator setup cell changed: venv creation anchor missing"
+            )
+        source = source.replace(create_venv, "ensure_agent_venv()\n", 1)
         sync = '["uv", "sync", "--no-dev", "--extra", "agent"]'
         if sync not in source:
             raise ValueError("Orchestrator setup cell changed: uv sync anchor missing")
