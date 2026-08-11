@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import re
+import site
 import shutil
 import subprocess
 import sys
@@ -209,16 +210,28 @@ def _wrap_task(task_dir: Path, agent_timeout: int) -> None:
 
 
 def _uvx() -> str:
-    found = shutil.which("uvx")
-    if found:
-        return found
+    candidates = (
+        shutil.which("uvx"),
+        str(Path(sys.executable).parent / "uvx"),
+        str(Path(site.getuserbase()) / "bin" / "uvx"),
+    )
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
     install = _run(
         [sys.executable, "-m", "pip", "install", "--user", "--quiet", "uv"],
         timeout=180,
     )
-    if install.returncode != 0 or not (found := shutil.which("uvx")):
-        raise RuntimeError("uvx is unavailable")
-    return found
+    if install.returncode == 0:
+        for candidate in (
+            shutil.which("uvx"),
+            str(Path(sys.executable).parent / "uvx"),
+            str(Path(site.getuserbase()) / "bin" / "uvx"),
+        ):
+            if candidate and Path(candidate).is_file():
+                return candidate
+    detail = (install.stderr or install.stdout or "")[-500:]
+    raise RuntimeError(f"uvx is unavailable after installation: {detail}")
 
 
 def _validate_timeouts(
