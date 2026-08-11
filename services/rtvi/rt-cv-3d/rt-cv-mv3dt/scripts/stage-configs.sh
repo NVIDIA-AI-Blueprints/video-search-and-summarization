@@ -70,6 +70,7 @@ OSD="${OSD:-0}"
 INPUT_MODE="${INPUT_MODE:-stream}"
 SAVE_VIDEO="${SAVE_VIDEO:-0}"
 ALLOW_UNBOUNDED_RECORDING="${ALLOW_UNBOUNDED_RECORDING:-0}"
+GPU_DEVICE="${GPU_DEVICE:-0}"
 
 if [ "$INPUT_MODE" = "stream" ] && [ "$SAVE_VIDEO" = "1" ] && [ "$ALLOW_UNBOUNDED_RECORDING" != "1" ]; then
   echo "ERROR: INPUT_MODE=stream SAVE_VIDEO=1 would write an unbounded live recording to video-output/grid-view.mkv." >&2
@@ -83,6 +84,30 @@ TRACKER_CONFIG="${TRACKER_CONFIG:-$ROOT/configs/ds-mv3dt-tracker-config.yml}"
 
 KAFKA_HOST="${KAFKA_BOOTSTRAP%%:*}"
 KAFKA_PORT_ONLY="${KAFKA_BOOTSTRAP##*:}"
+NVENC_LESS_GPU_NAME=""
+
+# /dev/v4l2-nvenc is a Tegra signal, not a dGPU signal. For dGPU hosts, only
+# switch when the selected GPU is a known encoder-less compute SKU.
+is_nvenc_less_gpu_name() {
+  local name="$1"
+  [[ "$name" =~ (^|[^[:alnum:]])(A100|H100|H200|GB200|GB300)([^[:alnum:]]|$) ]]
+}
+
+detect_nvenc_less_gpu() {
+  local name
+
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    if is_nvenc_less_gpu_name "$name"; then
+      NVENC_LESS_GPU_NAME="$name"
+      return 0
+    fi
+  done < <(nvidia-smi --id="$GPU_DEVICE" --query-gpu=name --format=csv,noheader 2>/dev/null || true)
+
+  return 1
+}
 
 STAGE="$ROOT/generated/configs"
 GEN="$ROOT/generated"
@@ -165,6 +190,10 @@ set_ini sink1        msg-broker-conn-str "$KAFKA_HOST;$KAFKA_PORT_ONLY;$RAW_TOPI
 set_ini sink0 enable "$([ "$OSD" = 1 ] && echo 1 || echo 0)"          # on-screen OSD (needs a display)
 set_ini sink1 enable 1                                                # Kafka metadata sink
 set_ini sink2 enable "$([ "$SAVE_VIDEO" = 1 ] && echo 1 || echo 0)"   # grid file sink (SAVE_VIDEO)
+if [ "$SAVE_VIDEO" = "1" ] && detect_nvenc_less_gpu; then
+  set_ini sink2 enc-type 1
+  echo "   SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} -> using software encoder for sink2 (enc-type=1; no NVENC hardware encoder available)"
+fi
 
 # File input: static file:// [source-list], SEI extraction off, clips play once, and the
 # system clock stamped as NTP so the Kafka/BEV output has per-frame timestamps.

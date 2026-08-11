@@ -381,15 +381,16 @@ ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
 # For live RTSP input, a few "Non-monotonic DTS" warnings are expected and harmless.
 ```
 
-> **NVENC-less GPUs (e.g. A100, H100).** The video output from the perception container is encoded with the GPU's NVENC hardware
-> encoder (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). If your GPU has no
-> NVENC, switch to the software (CPU) encoder. First prepare the image once:
+> **NVENC-less GPUs (e.g. A100, H100, H200, GB200, GB300).** The video output from the perception container is encoded with the GPU's NVENC hardware
+> encoder by default (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). When `SAVE_VIDEO=1`,
+> `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder
+> (`enc-type=1`) instead. First prepare the image once:
 > ```bash
 > docker exec -it vss-rtvi-cv-mv3dt \
 >   bash -c 'cd /opt/nvidia/deepstream/deepstream/ && bash user_additional_install.sh'   # install the software encoder
 > docker commit vss-rtvi-cv-mv3dt <your-image>:<tag>    # then set this image in docker/.env
 > ```
-> Then set `enc-type=1` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`, stage, and launch.
+> Then stage and launch normally.
 
 ### 6.3 BEV visualizer — live window
 
