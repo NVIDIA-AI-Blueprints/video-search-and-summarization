@@ -22,7 +22,7 @@ services:
   # are root-owned (rm only needs write+exec on the parent dir).
   init-dirs:
     profiles: ["init-dirs"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     container_name: sdrc-init-dirs
@@ -45,23 +45,18 @@ services:
   # completing successfully.
   render-config:
     profiles: ["render-config"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
+    # Loop over *.tmpl inside render-config.sh — not here. Nested Compose
+    # includes can interpolate $$tmpl more than once, leaving an empty path.
     command:
       - |
         echo "render-config: NUM_STREAMS is ${NUM_STREAMS}"
         echo "render-config: NUM_SENSORS is ${NUM_SENSORS}"
         set -e
         echo "render-config: HOST_IP=$${HOST_IP} NUM_STREAMS=$${NUM_STREAMS} NUM_SENSORS=$${NUM_SENSORS} BP_PROFILE=$${BP_PROFILE} MODE=$${MODE} STREAM_TYPE=$${STREAM_TYPE} COMPOSE_PROFILES=$${COMPOSE_PROFILES}"
-        rendered=0
-        for tmpl in /tmpl/*.tmpl; do
-          [ -e "$$tmpl" ] || { echo "render-config: no *.tmpl files found in /tmpl"; exit 1; }
-          base="$$(basename "$$tmpl" .tmpl)"
-          /render-config.sh "$$tmpl" "/tmpl/$$base"
-          rendered=$$((rendered + 1))
-        done
-        echo "render-config: rendered $$rendered template(s)"
+        /render-config.sh /tmpl
     environment:
       HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
       NUM_STREAMS: ${NUM_STREAMS:-1}
@@ -79,7 +74,7 @@ services:
 
   wdm-env-from-config:
     profiles: ["wdm-env-from-config"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     # yq image runs as non-root; bind-mounted ./.wdm-env is often root-owned — write as root.
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
@@ -103,7 +98,7 @@ services:
 
   wait-for-redis:
     profiles: ["wait-for-redis"]
-    image: redis:8.6.2-alpine
+    image: redis:8.10.0-alpine
     restart: "no"
     depends_on:
       wdm-env-from-config:
@@ -120,7 +115,7 @@ services:
 
   wait-for-docker-workloads:
     profiles: ["wait-for-docker-workloads"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     entrypoint: ["/bin/sh", "-c"]
     command:
       - apk add --no-cache docker-cli >/dev/null && /wait-for-docker-workloads.sh
@@ -141,7 +136,7 @@ services:
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
   sdr-controller:
     profiles: ["sdr-controller"]
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.10}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2}
     container_name: sdr-controller
     ports:
       - ${SDRC_CONTROLLER_HOST_PORT:-5003}:5003

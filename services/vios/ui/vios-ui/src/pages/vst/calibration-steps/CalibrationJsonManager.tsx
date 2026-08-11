@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState } from 'react';
 import {
     Box,
@@ -154,7 +155,7 @@ const CalibrationJsonManager: React.FC<CalibrationJsonManagerProps> = ({ project
                 }
             });
         } catch (e) {
-            console.warn('Failed to parse ROI polygon:', e);
+            LOG.warn('Failed to parse ROI polygon:', e);
         }
 
         // Generate place array (simplified for now)
@@ -190,7 +191,7 @@ const CalibrationJsonManager: React.FC<CalibrationJsonManagerProps> = ({ project
                 imageCoordinates = convertLatLngToXY(sensorPolygons[0].points);
             }
         } catch (e) {
-            console.warn('Failed to parse sensor polygon:', e);
+            LOG.warn('Failed to parse sensor polygon:', e);
         }
 
         // Parse edge lengths for global coordinates
@@ -210,7 +211,7 @@ const CalibrationJsonManager: React.FC<CalibrationJsonManagerProps> = ({ project
                 }));
             }
         } catch (e) {
-            console.warn('Failed to parse edge lengths:', e);
+            LOG.warn('Failed to parse edge lengths:', e);
         }
 
         // Parse ROIs (with homography transformation for cartesian)
@@ -232,7 +233,7 @@ const CalibrationJsonManager: React.FC<CalibrationJsonManagerProps> = ({ project
                 }
             });
         } catch (e) {
-            console.warn('Failed to parse ROI polygon:', e);
+            LOG.warn('Failed to parse ROI polygon:', e);
         }
 
         // Generate place array like React UI
@@ -316,7 +317,7 @@ const CalibrationJsonManager: React.FC<CalibrationJsonManagerProps> = ({ project
                 throw new Error(`Failed to save to backend: ${response.statusText}`);
             }
         } catch (error) {
-            console.error('Error saving calibration JSON to backend:', error);
+            LOG.error('Error saving calibration JSON to backend:', error);
         }
     };
 

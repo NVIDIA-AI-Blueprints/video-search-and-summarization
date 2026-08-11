@@ -510,6 +510,17 @@ VmsConfigManager::VmsConfigManager()
         {
             m_vmsConfig.default_file_expiry_minutes = stringToInt(string(default_file_expiry_minutes_env), DEFAULT_FILE_EXPIRY_MINUTES);
         }
+
+        // Operator-facing kill switch for /url cache reuse. When true the
+        // server still tracks generated files in TEMP_VIDEO_FILES (so
+        // expiry/cleanup keep working) but bypasses the lookup step and
+        // regenerates on every call. Defaults off so production keeps the
+        // cache speedup; useful for debug deployments where the operator
+        // wants every /url and /picture/url request to hit the pipeline.
+        // The DISABLE_URL_CACHING env override is applied unconditionally
+        // below (outside this branch) so it still works when the config
+        // file omits the "data" section.
+        m_vmsConfig.disable_url_caching = data.get("disable_url_caching", false).asBool();
         m_vmsConfig.ingress_endpoint = data.get("ingress_endpoint", "").asString();
         char *default_ingress_endpoint = getenv("VST_INGRESS_ENDPOINT");
         if (default_ingress_endpoint != nullptr)
@@ -686,6 +697,17 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.audio_codecs.push_back(DEFAULT_AUDIO_CODEC);
     }
 
+    // DISABLE_URL_CACHING env override - applied unconditionally so it
+    // works even when the config file omits the "data" section. The
+    // baseline value comes from either data.get("disable_url_caching",
+    // false) above when "data" was present, or the DeviceConfig
+    // constructor default (false) when it wasn't.
+    if (const char* disableUrlCachingEnv = getenv("DISABLE_URL_CACHING"))
+    {
+        const std::string v(disableUrlCachingEnv);
+        m_vmsConfig.disable_url_caching = (v == "1" || v == "true" || v == "TRUE" || v == "True");
+    }
+
     Json::Value gpu_indices = data.get("gpu_indices", Json::nullValue);
     if(gpu_indices != Json::nullValue && gpu_indices.isArray())
     {
@@ -700,7 +722,9 @@ VmsConfigManager::VmsConfigManager()
         g_gpuIndex = m_vmsConfig.gpu_indices[0];  // Currenlty only first gpu index is supported
     }
 
-    Json::Value notifications = config.get("notifications", Json::nullValue);
+    // message_broker config now lives in the dedicated notification_config.json.
+    Json::Value notificationConfig = loadNotificationConfig(NOTIFICATION_CONFIG_FILE);
+    Json::Value notifications = notificationConfig.get("message_broker", Json::nullValue);
     if (notifications != Json::nullValue)
     {
         m_vmsConfig.enable_notification = notifications.get("enable_notification", true).asBool();

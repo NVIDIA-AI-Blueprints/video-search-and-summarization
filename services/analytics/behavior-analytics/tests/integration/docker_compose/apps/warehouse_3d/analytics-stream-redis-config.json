@@ -98,16 +98,16 @@
 			"value": "100"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "20"
-		},
-		{
 			"name": "behaviorWatermarkSec",
 			"value": "30"
 		},
 		{
 			"name": "behaviorMaxPoints",
 			"value": "300"
+		},
+		{
+			"name": "behaviorEmitOnce",
+			"value": "true"
 		},
 		{
 			"name": "in3dMode",
@@ -134,10 +134,6 @@
 			"value": "90"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
-		},
-		{
 			"name": "sourceType",
 			"value": "redisStream"
 		},
@@ -156,6 +152,18 @@
 		{
 			"name": "numWorkersForSpaceEstimation",
 			"value": "1"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "confinedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "proximityViolationIncidentEnable",
+			"value": "true"
 		}
 	]
 }

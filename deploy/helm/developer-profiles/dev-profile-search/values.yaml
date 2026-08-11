@@ -16,8 +16,6 @@
 global:
   # Bare node IP, or full main hostname (e.g. vss-search.<ip>.nip.io) for install --set global.externalHost=…
   externalHost: ''
-  # Search: critic behavior in vss-agent configs (vss-agent / search config.yml). Cosmos NIM is toggled with nims.cosmos3.enabled — keep the same boolean (defaults below match true).
-  enableCritic: true
   ngcApiKey: ''
   imagePullPolicy: IfNotPresent
   imagePullSecrets:
@@ -31,6 +29,10 @@ global:
   # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
   vios:
     useSdrc: true
+
+  ngcApiSecret:
+    name: ngc-api-key-secret
+    key: NGC_API_KEY
 
   # rtviInternalIngress lives under `global` so the agent sub-chart's env-var
   # templates (rendered via `tpl` in the agent context) can read it — only
@@ -83,6 +85,31 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+  # Edge routes `vss configure` probes, mirroring the four the Docker edge
+  # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
+  # same paths resolve on Compose and Kubernetes. Each mount carries whatever
+  # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
+  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/... .
+  #
+  # Off by default. Enabling this publishes Elasticsearch on the public origin
+  # with no per-path guard, because an Ingress annotation cannot express one.
+  # The Docker edge is not a read-only baseline either: its deny rules stop
+  # PUT/DELETE, cluster-admin paths and the two-segment mutating operations, but
+  # POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
+  # there. Enable only where a writable Elasticsearch is acceptable, or front it
+  # with your own guard.
+  #
+  # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
+  # enabled -- that Ingress already publishes both paths. /rtvi-vlm is not one
+  # of them, so it follows cliRoutes.enabled alone.
+  cliRoutes:
+    enabled: false
+    elasticsearchPort: 9200
+    rtviEmbedPort: 8000
+    rtviCvPort: 9000
+    # RT-VLM's cluster Service port. Not 8018 -- that is the Compose
+    # host-published port and has no meaning in Kubernetes.
+    rtviVlmPort: 8000
 
 sharedStorage:
   streamerVideos:
@@ -221,13 +248,23 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      # For multi-arch: 3.3.0-26.07.1
-      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.1
-      tag: 3.3.0-26.07.1
+      # For multi-arch: 3.3.0-26.07.2
+      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
+      tag: 3.3.0-26.07.2
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
-    modelType: cnn
+    env:
+      DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_CONFIG_FILE: ds-main-config.txt
+      DS_VISION_ENCODER: "true"
+      DS_TRACKER_REID: "true"
+      DS_SHOW_SENSOR_ID: "false"
+      DS_MODE_FLAG: "1"
+      DS_MESSAGE_RATE: "1"
+      VISION_ENCODER_MODEL: siglip_v2
+      VISION_ENCODER_VERSION: v1.1
+      STREAM_TYPE: kafka
     otelSdkDisabled: 'true'
     otelServiceName: rtvi-cv
     downloadModelsFromNgc: true
@@ -249,15 +286,19 @@ rtvi:
     # here to match models.visionEncoder.model / .version when swapping encoders.
     ngcModelsToDownload:
       - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
         destPath: siglip_v2_v1.1.onnx
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
         destPath: siglip_v2_v1.1_weights.bin
       - model: nvidia/tao/siglip_v2:deployable_v1.1
+        org: nvidia
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
         destPath: siglip_v2_v1.1_tokenizer
     models:
@@ -294,8 +335,8 @@ rtvi:
     enabled: true
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-      tag: "3.2.1"
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+      tag: "3.3.0-26.07.4"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -308,8 +349,6 @@ rtvi:
       enabled: true
       sizeLimit: 16Gi
     clearCachedEnginesOnStart: false
-    kafkaEnabled: true
-    kafkaTopic: mdx-embed
     kafkaBootstrapServers: ''
     redisHost: ''
     redisPort: '6379'
@@ -373,6 +412,151 @@ rtvi:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
+  # VLM backend (rtvi-vlm): serves the Cosmos3 checkpoint in-pod, replacing the
+  # cosmos3-reasoner NIM. Both the critic and video_understanding call it over HTTP via
+  # the rtvi_vlm agent profile. Search does not publish VLM events, so Kafka is disabled
+  # and there is no topic wait.
+  vss-rtvi-vlm:
+    enabled: true
+    useSharedNim: false
+    modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
+    sharedNimPort: "8000"
+    waitForKafka:
+      enabled: false
+    # Docker parity: shape from services/rtvi/charts/rtvi-vlm/values.yaml.
+    # Full list is required because the subchart replaces `env` rather than merging.
+    env:
+      - name: OPENAI_API_KEY
+        value: "NOAPIKEYSET"
+      - name: OPENAI_API_VERSION
+        value: ""
+      - name: NVIDIA_API_KEY
+        value: "NOAPIKEYSET"
+      - name: NVIDIA_VISIBLE_DEVICES
+        value: "all"
+      - name: VLM_MODEL_TO_USE
+        value: "cosmos-reason3"
+      # Search critic is request/response over HTTP; no VLM event publishing.
+      - name: KAFKA_ENABLED
+        value: "false"
+      - name: ERROR_MESSAGE_TOPIC
+        value: "vision-llm-errors"
+      # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
+      - name: MESSAGE_BUS
+        value: "kafka"
+      - name: MESSAGE_BUS_TOPIC
+        value: "mdx-vlm-captions"
+      - name: ERROR_BUS
+        value: "kafka"
+      - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
+        value: "true"
+      # Optional EVS++ session controls.
+      - name: VIA_EVS_DECISION_LAG
+        value: ""
+      - name: VIA_EVS_SESSION
+        value: ""
+      - name: VLLM_EVS_SIMILARITY_THRESHOLD
+        value: ""
+      - name: VLLM_NUM_PREPROCESS_WORKERS
+        value: "16"
+      - name: VIA_EVS_TOKEN_BUDGET
+        value: ""
+      - name: VIA_EVS_MAX_SESSIONS
+        value: ""
+      - name: VIA_EVS_MIN_CLIPS
+        value: ""
+      - name: VIA_EVS_EVENT_ONLY
+        value: ""
+      - name: VIA_EVS_EMA_MEMORY_S
+        value: ""
+      - name: VIA_EVS_SPIKE_STD_K
+        value: ""
+      - name: VIA_EVS_SETTLING_STD_K
+        value: ""
+      - name: VIA_EVS_STD_FLOOR_RATIO
+        value: ""
+      - name: VIA_EVS_DOWNWARD_BASELINE_MIN
+        value: ""
+      - name: VIA_EVS_STREAMING_PREFILL
+        value: ""
+      - name: VIA_PD_SERVER_URL
+        value: ""
+      - name: VIA_PD_SERVER_TIMEOUT_S
+        value: ""
+      - name: VLLM_USE_AOT_COMPILE
+        value: "0"
+      - name: VLLM_DISABLE_COMPILE_CACHE
+        value: "1"
+      - name: VLLM_LOGGING_LEVEL
+        value: "INFO"
+      - name: LOG_LEVEL
+        value: "INFO"
+      - name: ENABLE_OTEL_MONITORING
+        value: "false"
+      - name: ENABLE_REDIS_ERROR_MESSAGES
+        value: "false"
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "http://otel-collector:4318"
+      - name: OTEL_METRIC_EXPORT_INTERVAL
+        value: "60000"
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: ""
+      - name: OTEL_TRACES_EXPORTER
+        value: "otlp"
+      - name: NUM_GPUS
+        value: "1"
+      - name: NUM_VLM_PROCS
+        value: ""
+      - name: MODEL_IMPLEMENTATION_PATH
+        value: ""
+      - name: HF_TOKEN
+        value: ""
+      - name: INSTALL_PROPRIETARY_CODECS
+        value: "false"
+      - name: FORCE_SW_AV1_DECODER
+        value: ""
+      - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
+        value: ""
+      - name: RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS
+        value: "true"
+      - name: RTVI_EXTRA_ARGS
+        value: ""
+      - name: RTVI_RTSP_LATENCY
+        value: ""
+      - name: RTVI_RTSP_TIMEOUT
+        value: ""
+      - name: RTVI_RTSP_RECONNECTION_INTERVAL
+        value: "5"
+      - name: RTVI_RTSP_RECONNECTION_WINDOW
+        value: "60"
+      - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
+        value: "10"
+      # Intentionally empty: under K8s each rtvi-vlm pod holds a dedicated GPU
+      # (nvidia.com/gpu: 1 in services/rtvi/charts/rtvi-vlm), so vLLM's own
+      # default applies. Docker's 0.4 compensates for sharing device 0 with
+      # RT-CV in local_shared mode, which has no Kubernetes equivalent.
+      - name: VLLM_GPU_MEMORY_UTILIZATION
+        value: ""
+      - name: VLM_BATCH_SIZE
+        value: ""
+      - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
+        value: "1"
+      - name: VLM_INPUT_WIDTH
+        value: ""
+      - name: VLM_INPUT_HEIGHT
+        value: ""
+      - name: VLM_SYSTEM_PROMPT
+        value: ""
+      - name: VSS_NUM_GPUS_PER_VLM_PROC
+        value: ""
+      - name: VSS_SKIP_INPUT_MEDIA_VERIFICATION
+        value: ""
+      - name: VLM_MODEL_SUPPORTS_AUDIO
+        value: "false"
+      - name: VLM_TRUST_REMOTE_CODE
+        value: "false"
+      - name: VLM_VIDEO_PRUNING_RATE
+        value: "0.0"
 # Analytics umbrella: Search uses search_and_alerts behavior analytics (incident generation disabled) + video-analytics-api (REST API for raw/analytics data).
 analytics:
   enabled: true
@@ -424,8 +608,8 @@ analytics:
           },
           "sensors": [],
           "app": [
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
-            {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "objectConfidenceThreshold", "value": "0.5"},
             {"name": "embedEnableDownsampling", "value": "false"},
@@ -468,7 +652,16 @@ agent:
     replicas: 1
     rtviEmbedModelName: cosmos-embed1-448p-anomaly-detection
     llmName: nvidia/nvidia-nemotron-nano-9b-v2
-    vlmName: nvidia/cosmos3-nano-reasoner
+    # The VLM is served by rtvi-vlm (see rtvi.vss-rtvi-vlm) for both the critic and
+    # video_understanding. Model id must match the rtvi-vlm /v1/models advertisement,
+    # not the cosmos3-reasoner NIM id.
+    vlmName: nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix
+    # Search routes VLM calls (critic and video_understanding) through vss-rtvi-vlm.
+    # rtviVlmServiceName feeds the RTVI_VLM_BASE_URL env below; leave rtviVlmBaseUrl empty
+    # to use the in-cluster service.
+    rtviVlmEnabled: true
+    rtviVlmServiceName: "vss-rtvi-vlm"
+    rtviVlmBaseUrl: ''
     llmBaseUrl: ''
     vlmBaseUrl: ''
     evalLlmJudgeName: nvidia/nvidia-nemotron-nano-9b-v2
@@ -526,8 +719,9 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $vlm }}remote{{- else }}local{{- end }}'
       - name: LLM_MODEL_TYPE
         value: nim
+      # rtvi routes the VLM through vss-rtvi-vlm; set `nim` to hit a NIM VLM directly.
       - name: VLM_MODEL_TYPE
-        value: nim
+        value: rtvi
       - name: VSS_AGENT_OBJECT_STORE_TYPE
         value: local_object_store
       - name: EXTERNAL_IP
@@ -572,8 +766,11 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+      # VLM endpoint (vss-rtvi-vlm) for the critic and video_understanding. Consumed by the rtvi_vlm agent profile.
+      - name: RTVI_VLM_BASE_URL
+        value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
       - name: VLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $vlm := default "" (coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos3-reasoner:8000" .Release.Name) "http://nvidia-cosmos3-reasoner:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := default "" (coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-vlm:8000" .Release.Name) "http://vss-rtvi-vlm:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
       - name: VST_EXTERNAL_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{- $vstPubExplicit := coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl }}{{ if $vstPubExplicit }}{{ $vstPubExplicit }}{{ else if and $useNip (ne $nipBase "") }}{{ $nipBase }}{{ else }}{{ coalesce $globalBase $vssAgentHttp }}{{ end }}'
       - name: VST_INTERNAL_URL
@@ -581,7 +778,7 @@ agent:
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos3-nano-reasoner") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix") }}'
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
@@ -592,8 +789,6 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{- $agentPubExplicit := coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl }}{{ if $agentPubExplicit }}{{ $agentPubExplicit }}{{ else if and $useNip (ne $nipBase "") }}{{ $nipBase }}{{ else }}{{ coalesce $globalBase $vssAgentHttp }}{{ end }}'
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{- $agentBaseExplicit := coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl }}{{ if $agentBaseExplicit }}{{ $agentBaseExplicit }}{{ else if and $useNip (ne $nipBase "") }}{{ $nipBase }}{{ else }}{{ coalesce $globalBase $vssAgentHttp }}{{ end }}'
-      - name: ENABLE_CRITIC
-        value: '{{- if and .Values.global (hasKey .Values.global "enableCritic") }}{{ (index .Values.global "enableCritic") | toString }}{{- else }}true{{- end }}'
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
@@ -606,9 +801,6 @@ vss-agent-ui:
   global:
     externalHost: ''
     imagePullPolicy: IfNotPresent
-  image:
-    repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.1-26.07.1-dd945777eef9"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
@@ -774,7 +966,10 @@ nims:
     env:
       CUDA_VISIBLE_DEVICES: '0'
   cosmos3:
-    enabled: true
+    # Disabled: the VLM (used by the critic and video_understanding) is served by
+    # rtvi.vss-rtvi-vlm (in-pod Cosmos3 checkpoint). Set true only to bypass RTVI and
+    # serve the VLM as a standalone NIM (also flip agent VLM_MODEL_TYPE back to `nim`).
+    enabled: false
     image:
       repository: nvcr.io/nim/nvidia/cosmos3-reasoner
       tag: '1.7'
@@ -782,6 +977,7 @@ nims:
     replicas: 1
     nimModelSize: 'nano'
     # Empty so the NIM uses its built-in manifest; BF16 pinned via nimModelProfile.
+    # This standalone path stays BF16 while rtvi.vss-rtvi-vlm defaults to the FP8 checkpoint.
     nimModelName: ''
     nimModelProfile: 'e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3'
     resources:

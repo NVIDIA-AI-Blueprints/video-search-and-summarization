@@ -39,7 +39,8 @@ class TestAppConfig(unittest.TestCase):
         # Clear specific @cached_property attributes if they exist
         cached_properties = [
             'in_3d_mode', 'state_mgmt_filter', 'behavior_time_threshold',
-            'behavior_max_points', 'cluster_threshold', 'object_confidence_threshold'
+            'behavior_max_points', 'cluster_threshold', 'object_confidence_threshold',
+            'roi_event_detection_mode'
         ]
         for prop in cached_properties:
             if hasattr(self.config, prop):
@@ -115,6 +116,26 @@ class TestAppConfig(unittest.TestCase):
         self.clear_all_caches()
         self.config.set_app_config("stateManagementFilter", '["car", "truck"]')
         self.assertEqual(self.config.state_mgmt_filter, {"car", "truck"})
+
+    def test_roi_event_detection_mode(self):
+        """Test the ROI-event detection mode."""
+        # Default value: coordinate-inside detection
+        self.assertEqual(self.config.roi_event_detection_mode, "coordinate")
+
+        # Select bbox-overlap detection
+        self.clear_all_caches()
+        self.config.set_app_config("roiEventDetectionMode", "bbox")
+        self.assertEqual(self.config.roi_event_detection_mode, "bbox")
+
+        # Back to coordinate detection
+        self.clear_all_caches()
+        self.config.set_app_config("roiEventDetectionMode", "coordinate")
+        self.assertEqual(self.config.roi_event_detection_mode, "coordinate")
+
+        # Unrecognized value normalizes to coordinate
+        self.clear_all_caches()
+        self.config.set_app_config("roiEventDetectionMode", "garbage")
+        self.assertEqual(self.config.roi_event_detection_mode, "coordinate")
 
     def test_behavior_time_threshold(self):
         """Test behavior time threshold property."""

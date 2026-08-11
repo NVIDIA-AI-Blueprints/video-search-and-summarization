@@ -18,4 +18,4 @@ name: redis
 description: Redis message broker for VST event routing
 type: application
 version: 3.2.0
-appVersion: "8.2.2"
+appVersion: "8.10.0"

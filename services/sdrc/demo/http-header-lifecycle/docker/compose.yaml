@@ -1,0 +1,130 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: sdrc-http-header-lifecycle
+
+# VSS_APPS_DIR must point at deploy/docker. VSS_DATA_DIR is the warehouse data root.
+include:
+  - path: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/foundational/docker-compose.yaml
+    env_file:
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/vst.env
+  - path: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/initiator/docker-compose.yaml
+    env_file:
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/vst.env
+  - path: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/streamprocessing/docker-compose.yaml
+    env_file:
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/vst.env
+
+services:
+  redis:
+    image: redis:8.10.0-alpine
+    container_name: sdrc-http-header-redis
+    ports:
+      - ${REDIS_HOST_PORT:-6379}:6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nvstreamer:
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG:-2.1.0-26.07.1}
+    container_name: vss-vios-nvstreamer
+    user: "0:0"
+    runtime: nvidia
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+          /home/vst/vst_release/tools/user_additional_install.sh
+        fi &&
+        /home/vst/vst_release/tools/configure_nvstreamer_ui.sh &&
+        exec /home/vst/vst_release/launch_vst
+    environment:
+      NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES: ${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES:-true}
+      ADAPTOR: streamer
+      HTTP_PORT: ${NVSTREAMER_HTTP_PORT:-31000}
+      NVSTREAMER_UI_BASE_PATH: ${NVSTREAMER_UI_BASE_PATH:-}
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
+    volumes:
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json:ro
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json:ro
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json:ro
+      - ${VSS_DATA_DIR:?VSS_DATA_DIR}/videos:/tmp/nv_streamer/videos
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh:ro
+    depends_on:
+      streamprocessing-ms:
+        condition: service_healthy
+        required: false
+
+  sdr-controller:
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2}
+    container_name: sdr-controller
+    ports:
+      # SDRC router API for workload-scoped lifecycle calls.
+      - ${SDRC_CONTROLLER_HOST_PORT:-5003}:5003
+      # RTVI-CV workload listener generated from WDM_MS_LISTENER_PORT=10001.
+      # Example: /api/v1/stream/add on this listener.
+      - ${SDRC_RTVI_CV_PROXY_HOST_PORT:-10001}:10001
+      # Direct SDRC listener and Envoy admin.
+      - ${SDRC_DIRECT_HOST_PORT:-8011}:8011
+      - ${SDRC_ENVOY_ADMIN_HOST_PORT:-9902}:9902
+    restart: unless-stopped
+    environment:
+      WDM_WORKLOADS_CONFIG: /configs/config.yml
+      WDM_WL_REDIS_SERVER: redis
+      WDM_WL_REDIS_PORT: 6379
+      WDM_CONTROLLER_HOST: sdr-controller
+      WDM_CONTROLLER_PORT: 5003
+      WDM_SDRC_DIRECT_LISTENER_PORT: 8011
+      ENVOY_ADMIN_PORT: 9902
+      PORT: 5003
+      ROUTER_PORT: 5003
+      WDM_CLUSTER_TYPE: docker
+      OTEL_SDK_DISABLED: "true"
+    volumes:
+      - ./.generated/log:/logs
+      - ./configs:/configs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+      perception:
+        condition: service_started
+
+  perception:
+    extends:
+      file: ${VSS_APPS_DIR:?VSS_APPS_DIR}/services/rtvi/rtvi-cv/compose.yaml
+      service: perception
+    container_name: vss-rtvi-cv
+    volumes:
+      - type: bind
+        source: ${VSS_APPS_DIR:?VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs
+        target: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
+        read_only: true
+      - ${VSS_DATA_DIR:?VSS_DATA_DIR}/models/mtmc:/opt/storage/
+    environment:
+      GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
+      TRANSFORMERS_OFFLINE: 0
+      HF_HUB_OFFLINE: 0
+      DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_MODE_FLAG: "1"
+      DS_TRACKER_REID: "false"
+      DS_SHOW_SENSOR_ID: "false"
+      STREAM_TYPE: redis
+      HARDWARE_PROFILE: ${HARDWARE_PROFILE:-dGPU}
+      OTEL_SDK_DISABLED: "true"

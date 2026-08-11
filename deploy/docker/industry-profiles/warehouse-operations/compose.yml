@@ -30,5 +30,7 @@ include:
   # Warehouse Configuration - includes 2D, 3D (Sparse4D), and MV3DT apps
 
   # Services are differentiated by -2d, -3d, and -mv3dt suffixes.
-  # Each service carries profiles: ["<service-name>"]; active services are selected
-  # via COMPOSE_PROFILES in generated.env, using warehouse and playback variant lists from .env and overrides.env.
+  # Primary services carry profiles: ["<service-name>"]; model-download helpers share
+  # their perception service profile so they cannot be omitted from a perception start.
+  # Active services are selected via COMPOSE_PROFILES in generated.env, using warehouse
+  # and playback variant lists from .env and overrides.env.

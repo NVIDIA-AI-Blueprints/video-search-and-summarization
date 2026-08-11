@@ -17,7 +17,7 @@ ARG PYTHON_VERSION=3.13
 # manylinux CPython tag for the OpenCV build; must track PYTHON_VERSION
 # (e.g. 3.13 -> cp313-cp313, 3.14 -> cp314-cp314).
 ARG PYBIN_TAG=cp313-cp313
-ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.8
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.9
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
 
 ###################################################
@@ -75,8 +75,10 @@ COPY docker/deps.json deps.json
 RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/dpkg/status.d
 
-RUN curl -o generate_metadata.sh https://urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v0.3.sh  && \
-    chmod +x generate_metadata.sh && \
+# Vendored from urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v1.0.sh
+# Copied in locally instead of curl-at-build-time so the build does not depend on Artifactory reachability.
+COPY docker/generate_metadata.sh generate_metadata.sh
+RUN chmod +x generate_metadata.sh && \
     ./generate_metadata.sh deps.json
 
 # Download GCC source code
@@ -92,7 +94,6 @@ RUN echo "deb-src http://deb.debian.org/debian trixie main" >> /etc/apt/sources.
 
 # Copy python app here
 WORKDIR /behavior-analytics
-
 
 # Resolves issue with installing python package fiona on arch64
 RUN if [ "$TARGETARCH" = "arm64" ]; then \

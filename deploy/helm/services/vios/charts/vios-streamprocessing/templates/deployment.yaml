@@ -33,7 +33,7 @@ spec:
         app.kubernetes.io/name: vss-vios-streamprocessing
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
-        checksum/config: {{ list (.Files.Get "configs/vst_config.json") (.Files.Get "configs/adaptor_config.json") (.Files.Get "configs/vst_storage.json") (.Files.Get "configs/rtsp_streams.json") | join "" | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       {{- with .Values.securityContext }}
       securityContext:
@@ -46,8 +46,36 @@ spec:
       {{- /* ConfigMap mounts are read-only; seed into emptyDir when overlay HTTP
            endpoints are set so VIOS can write calibration.json / Top.png. */}}
       {{- $writableConfigs := or .Values.calibrationFileEndpoint .Values.floormapImageEndpoint }}
-      {{- if $writableConfigs }}
+      {{- $waitRedis := (.Values.waitForRedis | default dict).enabled }}
+      {{- if or $writableConfigs $waitRedis }}
       initContainers:
+        {{- if $waitRedis }}
+        {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index (.Values.global | default dict) "useReleaseNamePrefix")) }}
+        {{- $redisH := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+        # Compose parity with the wait-for-redis service. VST builds its
+        # notification manager at startup and does not retry.
+        - name: wait-for-redis
+          image: "{{ (.Values.waitForRedis.image | default dict).repository | default "busybox" }}:{{ (.Values.waitForRedis.image | default dict).tag | default "1.37.0" }}"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              host={{ .Values.waitForRedis.host | default $redisH | quote }}
+              port={{ .Values.waitForRedis.port | default 6379 | quote }}
+              timeout={{ .Values.waitForRedis.timeoutSeconds | default 120 }}
+              i=0
+              until nc -z "${host}" "${port}"; do
+                i=$((i + 2))
+                if [ "${i}" -ge "${timeout}" ]; then
+                  echo "timed out waiting for redis at ${host}:${port}" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              echo "redis ${host}:${port} is up"
+        {{- end }}
+        {{- if $writableConfigs }}
         - name: seed-vst-configs
           image: {{ .Values.configSeed.image.repository | default "docker.io/library/busybox" }}:{{ .Values.configSeed.image.tag | default "1.36" }}
           imagePullPolicy: {{ .Values.configSeed.image.pullPolicy | default "IfNotPresent" }}
@@ -58,6 +86,7 @@ spec:
               readOnly: true
             - name: configs
               mountPath: /home/vst/vst_release/configs
+        {{- end }}
       {{- end }}
       containers:
         - name: vss-vios-streamprocessing

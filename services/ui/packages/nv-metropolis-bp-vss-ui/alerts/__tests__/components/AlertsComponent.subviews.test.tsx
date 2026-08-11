@@ -36,7 +36,7 @@ jest.mock('@nvidia/foundations-react-core', () => {
   };
 });
 
-jest.mock('@aiqtoolkit-ui/common', () => ({
+jest.mock('common', () => ({
   VideoModal: jest.fn(() => null),
   useVideoModal: jest.fn(() => ({
     videoModal: { isOpen: false, videoUrl: '', title: '' },

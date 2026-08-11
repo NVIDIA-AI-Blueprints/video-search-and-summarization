@@ -11,11 +11,13 @@
 #ifndef API_CRYPTO_FRAME_DECRYPTOR_INTERFACE_H_
 #define API_CRYPTO_FRAME_DECRYPTOR_INTERFACE_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
 #include "api/media_types.h"
-#include "rtc_base/ref_count.h"
+#include "api/ref_count.h"
 
 namespace webrtc {
 
@@ -27,7 +29,7 @@ namespace webrtc {
 // without it. You may assume that this interface will have the same lifetime
 // as the RTPReceiver it is attached to. It must only be attached to one
 // RTPReceiver. Additional data may be null.
-class FrameDecryptorInterface : public rtc::RefCountInterface {
+class FrameDecryptorInterface : public RefCountInterface {
  public:
   // The Status enum represents all possible states that can be
   // returned when attempting to decrypt a frame. kRecoverable indicates that
@@ -58,16 +60,16 @@ class FrameDecryptorInterface : public rtc::RefCountInterface {
   // kRecoverable should be returned if the failure was due to something other
   // than a decryption failure. kFailedToDecrypt should be returned in all other
   // cases.
-  virtual Result Decrypt(cricket::MediaType media_type,
+  virtual Result Decrypt(MediaType media_type,
                          const std::vector<uint32_t>& csrcs,
-                         rtc::ArrayView<const uint8_t> additional_data,
-                         rtc::ArrayView<const uint8_t> encrypted_frame,
-                         rtc::ArrayView<uint8_t> frame) = 0;
+                         std::span<const uint8_t> additional_data,
+                         std::span<const uint8_t> encrypted_frame,
+                         std::span<uint8_t> frame) = 0;
 
   // Returns the total required length in bytes for the output of the
   // decryption. This can be larger than the actual number of bytes you need but
   // must never be smaller as it informs the size of the frame buffer.
-  virtual size_t GetMaxPlaintextByteSize(cricket::MediaType media_type,
+  virtual size_t GetMaxPlaintextByteSize(MediaType media_type,
                                          size_t encrypted_frame_size) = 0;
 };
 

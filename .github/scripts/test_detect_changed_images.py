@@ -33,7 +33,6 @@ INVENTORY = {
             "source_path": "services/agent",
             "context": "services",
             "dockerfile": "services/agent/docker/Dockerfile",
-            "lfs_include": "services/agent/3rdparty/ffmpeg/*",
             "platforms": ["linux/amd64", "linux/arm64"],
             "compose_image_names": ["vss-agent"],
         },
@@ -204,6 +203,49 @@ class SelectImagesTest(unittest.TestCase):
             commit_change(repo, "services/ui-tools/x.js", "v1\n", "other folder")
             self.assertEqual(selected_names(repo, before), [])
 
+    def test_repository_inventory_builds_both_analytics_images(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        by_name = {entry["name"]: entry for entry in inventory["images"]}
+
+        expected = {
+            "vss-video-analytics-api": "services/analytics/video-analytics-api",
+            "vss-behavior-analytics": "services/analytics/behavior-analytics",
+        }
+        for name, context in expected.items():
+            entry = by_name[name]
+            self.assertTrue(entry["ghcr_build"])
+            self.assertEqual(entry["strategy"], "build")
+            self.assertEqual(entry["context"], context)
+            self.assertEqual(entry["source_path"], context)
+            self.assertEqual(
+                entry["platforms"], ["linux/amd64", "linux/arm64"]
+            )
+
+        va_entries, _ = dci.select_images(
+            inventory, ["services/analytics/video-analytics-api/src/app.ts"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in va_entries],
+            ["vss-video-analytics-api"],
+        )
+
+        ba_entries, _ = dci.select_images(
+            inventory, ["services/analytics/behavior-analytics/src/app.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in ba_entries],
+            ["vss-behavior-analytics"],
+        )
+
+        agent_entries, _ = dci.select_images(
+            inventory, ["services/agent/app.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in agent_entries],
+            ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
+        )
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
@@ -216,7 +258,7 @@ class SelectImagesTest(unittest.TestCase):
                         "name": "vss-agent",
                         "context": "services",
                         "dockerfile": "services/agent/docker/Dockerfile",
-                        "lfs_include": "services/agent/3rdparty/ffmpeg/*",
+                        "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
                     },
@@ -231,6 +273,156 @@ class SelectImagesTest(unittest.TestCase):
                 ]
             },
         )
+
+    def test_only_behavior_analytics_uses_arch_specific_runners(self):
+        entries = [
+            {
+                "name": "vss-behavior-analytics",
+                "context": "services/analytics/behavior-analytics",
+                "dockerfile": "services/analytics/behavior-analytics/docker/Dockerfile",
+                "platforms": ["linux/amd64", "linux/arm64"],
+                "source_path": "services/analytics/behavior-analytics",
+            },
+            {
+                "name": "vss-video-analytics-api",
+                "context": "services/analytics/video-analytics-api",
+                "dockerfile": (
+                    "services/analytics/video-analytics-api/docker/Dockerfile"
+                ),
+                "platforms": ["linux/amd64", "linux/arm64"],
+                "source_path": "services/analytics/video-analytics-api",
+            },
+            INVENTORY["images"][0],
+        ]
+
+        matrices = dci.split_build_matrices(entries)
+
+        self.assertEqual(
+            [entry["name"] for entry in matrices["standard_matrix"]["include"]],
+            ["vss-video-analytics-api", "vss-agent"],
+        )
+        self.assertEqual(
+            [entry["name"] for entry in matrices["native_matrix"]["include"]],
+            ["vss-behavior-analytics"],
+        )
+        self.assertEqual(
+            [
+                (
+                    entry["platform"],
+                    entry["arch"],
+                    entry["runner"],
+                    entry["runner_arch"],
+                    entry["kernel_arch"],
+                )
+                for entry in matrices["native_platform_matrix"]["include"]
+            ],
+            [
+                ("linux/amd64", "amd64", "ubuntu-24.04", "X64", "x86_64"),
+                ("linux/arm64", "arm64", "ubuntu-24.04-arm", "ARM64", "aarch64"),
+            ],
+        )
+
+    def test_native_matrix_rejects_platform_without_runner(self):
+        entries = [
+            {
+                "name": "vss-behavior-analytics",
+                "context": "services/analytics/behavior-analytics",
+                "dockerfile": (
+                    "services/analytics/behavior-analytics/docker/Dockerfile"
+                ),
+                "platforms": ["linux/s390x"],
+                "source_path": "services/analytics/behavior-analytics",
+            }
+        ]
+        with self.assertRaisesRegex(ValueError, "no native runner configured"):
+            dci.split_build_matrices(entries)
+
+
+class PathsChangedUnderTest(unittest.TestCase):
+    def test_descendant_matches(self):
+        self.assertTrue(
+            dci.paths_changed_under(
+                ["libs/analytics/spatialai-data-utils/release/setup.py"],
+                "libs/analytics/spatialai-data-utils",
+            )
+        )
+
+    def test_similarly_named_sibling_does_not_match(self):
+        self.assertFalse(
+            dci.paths_changed_under(
+                ["libs/analytics/spatialai-data-utils-old/setup.py"],
+                "libs/analytics/spatialai-data-utils",
+            )
+        )
+
+    def test_unavailable_diff_fails_open(self):
+        self.assertTrue(
+            dci.paths_changed_under(
+                None,
+                "libs/analytics/spatialai-data-utils",
+            )
+        )
+
+
+BUILDABLE = [
+    {"name": "vss-agent", "source_path": "services/agent",
+     "strategy": "build", "ghcr_build": True},
+    {"name": "vss-agent-ui", "source_path": "services/ui",
+     "strategy": "build", "ghcr_build": True},
+]
+
+
+def _content_repo() -> Path:
+    root = Path(tempfile.mkdtemp())
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for path in ("services/agent", "services/ui"):
+        d = root / path
+        d.mkdir(parents=True)
+        (d / "f").write_text("x")
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "init"], check=True)
+    return root
+
+
+class ContentTagGapTest(unittest.TestCase):
+    """A path diff says the source did not change; it cannot say the content
+    tag was ever published. The post-merge retag sources from tree-<sha>, so a
+    missing one must pull the image back into the matrix."""
+
+    def test_missing_content_tag_is_added_to_the_matrix(self):
+        selected, added = dci.add_missing_content_tags(
+            BUILDABLE, [], _content_repo(), "HEAD",
+            lambda ref: "vss-agent:" not in ref, "Org")
+        self.assertEqual(added, ["vss-agent"])
+
+    def test_present_content_tag_is_not_added(self):
+        selected, added = dci.add_missing_content_tags(
+            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: True, "Org")
+        self.assertEqual(added, [])
+        self.assertEqual(selected, [])
+
+    def test_probe_failure_fails_open_to_building(self):
+        """Unknown must never look like 'already published'."""
+        _, added = dci.add_missing_content_tags(
+            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: None, "Org")
+        self.assertEqual(added, ["vss-agent", "vss-agent-ui"])
+
+    def test_already_selected_images_are_not_reprobed(self):
+        selected, added = dci.add_missing_content_tags(
+            BUILDABLE, [BUILDABLE[0]], _content_repo(), "HEAD",
+            lambda _ref: None, "Org")
+        self.assertEqual(added, ["vss-agent-ui"])
+        self.assertEqual(len(selected), 2)
+
+    def test_probe_reference_is_the_content_tag(self):
+        seen: list[str] = []
+        dci.add_missing_content_tags(
+            BUILDABLE[:1], [], _content_repo(), "HEAD",
+            lambda ref: seen.append(ref) or True, "Org")
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
 
 
 if __name__ == "__main__":

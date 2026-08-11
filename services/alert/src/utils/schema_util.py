@@ -80,6 +80,19 @@ def convert_json_to_protobuf(anomaly_json: dict) -> nvSchemaBehavior:
             f"Error converting JSON to Protobuf: {e}", exc_info=True)
         raise
 
+def _as_dict(value: Any) -> Dict[str, Any]:
+    """Return ``value`` when it is a dict, otherwise an empty dict.
+
+    The ``/alerts`` JSON endpoint hands the request body straight to the
+    converters with no schema validation, so a nested block may arrive as
+    ``null`` or as the wrong type. ``dict.get(key, {})`` does not help there:
+    the default only fires when the key is absent, not when it is present and
+    null. Coercing keeps a malformed block from raising midway through a
+    half-built protobuf message.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def _stringify_map_values(target: Dict[str, Any]) -> None:
     for key, value in list(target.items()):
         if isinstance(value, dict) or isinstance(value, list):
@@ -162,21 +175,35 @@ def convert_behavior_to_protobuf_behavior(behavior: dict) -> nvSchemaBehavior:
     map_geo_location(protobuf_behavior.smoothLocations, behavior.get("smoothLocations"))
 
     # Place
-    protobuf_behavior.place.CopyFrom(place_to_nv_place(behavior.get("place", {})))
+    protobuf_behavior.place.CopyFrom(place_to_nv_place(behavior.get("place")))
 
     # Sensor, Analytics Module, Object, and Event
-    protobuf_behavior.sensor.id = behavior.get("sensor", {}).get("id", "")
-    protobuf_behavior.analyticsModule.id = behavior.get("analyticsModule", {}).get("id", "")
+    sensor = _as_dict(behavior.get("sensor"))
+    am = _as_dict(behavior.get("analyticsModule"))
+    obj = _as_dict(behavior.get("object"))
+
+    # ``Behavior`` has no flat ``sensorId`` field, so a client that carries the
+    # id there rather than under ``sensor`` would publish an empty sensor and be
+    # dropped downstream for a missing ``sensorId``. The Kafka key derivation in
+    # ``AlertSubmissionService`` already accepts the flat form as an identifier;
+    # honour the same fallback here so the two agree. Only a string is taken:
+    # assigning any other type straight into the protobuf field would turn a
+    # submission that used to be accepted into a 500.
+    flat_sensor_id = behavior.get("sensorId")
+    protobuf_behavior.sensor.id = sensor.get("id") or (
+        flat_sensor_id if isinstance(flat_sensor_id, str) else ""
+    )
+    protobuf_behavior.analyticsModule.id = am.get("id", "")
 
     protobuf_behavior.analyticsModule.info['dropped'] = str(behavior.get("dropped", False))
-    am_info = dict(behavior.get("analyticsModule", {}).get("info", {}))
+    am_info = dict(_as_dict(am.get("info")))
     _stringify_map_values(am_info)
     for key, value in am_info.items():
         protobuf_behavior.analyticsModule.info[key] = value
 
-    protobuf_behavior.object.id = behavior.get("object", {}).get("id", "")
-    protobuf_behavior.object.type = behavior.get("object", {}).get("type", "")
-    protobuf_behavior.object.confidence = behavior.get("object", {}).get("confidence", 0.0)
+    protobuf_behavior.object.id = obj.get("id", "")
+    protobuf_behavior.object.type = obj.get("type", "")
+    protobuf_behavior.object.confidence = obj.get("confidence", 0.0)
 
     # Video path and info
     protobuf_behavior.videoPath = behavior.get("videoPath", "")
@@ -188,15 +215,20 @@ def convert_behavior_to_protobuf_behavior(behavior: dict) -> nvSchemaBehavior:
 
     # Embeddings
     for embedding in behavior.get("embeddings", []):
-        protobuf_behavior.embeddings.add().vector.extend(embedding.get("vector", []))
+        protobuf_behavior.embeddings.add().vector.extend(_as_dict(embedding).get("vector", []))
 
     
     return protobuf_behavior
 
 def map_geo_location(proto_geo_location, geo_location_dict):
     """Maps geo-location data from dict to protobuf."""
+    geo_location_dict = _as_dict(geo_location_dict)
     if geo_location_dict:
         proto_geo_location.type = geo_location_dict.get("type", "")
+        # The entries are deliberately not coerced. A coordinate carried in a
+        # shape this does not understand — a bare ``[lon, lat]`` pair, say —
+        # would silently become an empty point and publish a trajectory with no
+        # geometry. Raising keeps that visible to the caller.
         for coord in geo_location_dict.get("coordinates", []):
             point = GeoLocation.Point(point=coord.get("point", []))
             proto_geo_location.coordinates.append(point)
@@ -212,7 +244,7 @@ def place_to_nv_place(place: Optional[dict]) -> Any:
         Place: Protobuf Place object.
     """
     proto_place = Place(
-        name=place.get("name", "")
+        name=_as_dict(place).get("name", "")
     )
     return proto_place
 

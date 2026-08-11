@@ -15,7 +15,7 @@
 
 services:
   rtvi-server:
-    image: ${RTVI_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1}
+    image: ${RTVI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4}
     shm_size: '16gb'
     runtime: nvidia
     user: "1001:1001"
@@ -89,7 +89,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
       OTEL_METRIC_EXPORT_INTERVAL: "${OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
       KAFKA_ENABLED: "${KAFKA_ENABLED:-true}"
-      KAFKA_TOPIC: "${KAFKA_TOPIC:-mdx-vlm-captions}"
+      MESSAGE_BUS: "${MESSAGE_BUS:-kafka}"
+      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
+      ERROR_BUS: "${ERROR_BUS:-kafka}"
       KAFKA_INCIDENT_TOPIC: "${KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
       KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
       KAFKA_LOG4J_ROOT_LOGLEVEL: ERROR

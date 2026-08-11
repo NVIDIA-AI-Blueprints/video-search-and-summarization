@@ -136,8 +136,6 @@ services:
       COSMOS_EMBED_ENDPOINT: ${COSMOS_EMBED_ENDPOINT}
       ELASTIC_SEARCH_ENDPOINT: ${ELASTIC_SEARCH_ENDPOINT}
       ELASTIC_SEARCH_INDEX: ${ELASTIC_SEARCH_INDEX}
-      # Critic agent toggles (for search profile)
-      ENABLE_CRITIC: ${ENABLE_CRITIC:-true}
       # Evaluation, used with nat eval workflow
       EVAL_LLM_JUDGE_NAME: ${EVAL_LLM_JUDGE_NAME}
       EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL:-http://vss-llm-nim:8000}

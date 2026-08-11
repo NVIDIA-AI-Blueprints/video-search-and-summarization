@@ -21,8 +21,8 @@
 {{- $kafkaBs := .Values.kafkaBootstrapServers | default (printf "%s:9092" $kafkaH) }}
 {{- $wfk := .Values.waitForKafka | default dict }}
 {{- $wfkImg := $wfk.image | default dict }}
-{{- $wfkRepo := $wfkImg.repository | default "confluentinc/cp-kafka" }}
-{{- $wfkTag := $wfkImg.tag | default "8.2.0" }}
+{{- $wfkRepo := $wfkImg.repository | default "docker.io/confluentinc/cp-kafka" }}
+{{- $wfkTag := $wfkImg.tag | default "8.3.0" }}
 {{- $wfkTopics := $wfk.topics | default (list "mdx-vlm" "mdx-vlm-incidents") }}
 apiVersion: apps/v1
 kind: Deployment
@@ -188,8 +188,15 @@ spec:
                   name: {{ $hfTokName }}
                   key: {{ $hfTokKey }}
             {{- end }}
+            {{- if .Values.useSharedNim }}
+            # Shared-NIM mode uses the OpenAI-compatible VIA endpoint rather than
+            # the integrated Cosmos pipeline.
+            - name: VLM_MODEL_TO_USE
+              value: "openai-compat"
+            {{- end }}
+            {{- $useSharedNim := .Values.useSharedNim }}
             {{- range .Values.env }}
-            {{- if or (eq $hfTokName "") (ne .name "HF_TOKEN") }}
+            {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useSharedNim) (ne .name "VLM_MODEL_TO_USE")) }}
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}

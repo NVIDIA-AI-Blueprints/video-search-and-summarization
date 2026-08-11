@@ -70,12 +70,12 @@
 			"value": "30"
 		},
 		{
-			"name": "behaviorStateTimeout",
-			"value": "10"
-		},
-		{
 			"name": "behaviorMaxPoints",
 			"value": "200"
+		},
+		{
+			"name": "behaviorEmitOnce",
+			"value": "true"
 		},
 		{
 			"name": "playbackLoop",
@@ -88,10 +88,6 @@
 		{
 			"name": "playbackStartUpDelaySec",
 			"value": "90"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
 		},
 		{
 			"name": "sourceType",
@@ -136,6 +132,18 @@
 		{
 			"name": "proximityViolationIncidentThreshold",
 			"value": "2"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "confinedAreaViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "proximityViolationIncidentExpirationWindow",
+			"value": "1"
 		}
 	]
 }

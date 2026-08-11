@@ -1,357 +1,222 @@
-# Calibration workflow (chain into AMC)
+# Calibration Handoff
 
-Parent: [`../SKILL.md`](../SKILL.md). Load this reference **only when** the user picked `videos` or `rtsp` in Q1 AND the calibration check in Q2 found `calibration.json` + `camInfo/` missing or incomplete.
+Load this reference when a user wants MV3DT / RT-CV-3D deployment but does not already have a usable `calibration.json` for the same cameras.
 
-**Skip when:** Q1 = `sample` (calibration ships with the repo and is already normalized) — go straight to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md). If the user supplied a calibration path, go to [`configure-cameras.md`](configure-cameras.md) first so camera names and `NUM_STREAMS` are validated before deploy.
+## Contents
 
-This reference drives AMC end-to-end via its REST API — the user does **not** open the AMC UI. Hand-back to SKILL.md happens once calibration files are landed at the MV3DT mount path.
+- [Rule](#rule)
+- [Inputs To Preserve](#inputs-to-preserve)
+- [Local MP4 Calibration](#local-mp4-calibration)
+- [RTSP Calibration](#rtsp-calibration)
+- [Fetch AMC Outputs For Standalone RT-CV-3D](#fetch-amc-outputs-for-standalone-rt-cv-3d)
+- [Validate The Result Before Returning](#validate-the-result-before-returning)
+- [BEV Map Assets](#bev-map-assets)
 
-## Where calibration must end up
+## Rule
 
-For perception and BEV fusion to read them, calibration files must live at:
+Do not duplicate the AutoMagicCalib workflow here. Hand off to `vss-generate-video-calibration`, then return to this standalone deployment skill with a validated `calibration.json`.
 
-```
-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/
-├── calibration.json                        # consumed by vss-behavior-analytics-mv3dt (warehouse-mv3dt-app.yml:25)
-├── camInfo/cam_*.yaml                      # consumed by vss-rtvi-cv-mv3dt (warehouse-mv3dt-app.yml:283)
-└── images/                                 # optional reference frames, matches sample layout
-```
+- Use `vss-generate-video-calibration` for local MP4 calibration and RTSP calibration.
+- Do not load `vss-manage-video-io-storage` for normal AMC calibration execution. Use it only when the user is calibrating RTSP streams and the AMC RTSP prerequisite check shows VIOS is not already deployed/reachable. In that case, use the VIOS skill to bring up or verify VIOS, then return to the AMC RTSP flow.
 
-The user's Q3 slug becomes the `${SAMPLE_VIDEO_DATASET}` directory name.
+## Inputs To Preserve
 
-## Step 1 — Hand off to the AMC skill for setup
+Before handing off, capture these values so the standalone RT-CV-3D workflow can resume cleanly:
 
-**Do not reinvent AMC setup here.** Walk the full deploy flow in [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) end-to-end. The AMC skill owns its deploy profile, VIOS prerequisites, RTSP capture flow, and API contract; this MV3DT skill only adds the MV3DT export and final-deploy handoff.
+- Desired input mode: `file` or `stream`.
+- For file mode: path to synchronized MP4 directory or explicit `<sensor_id>=/path/file.mp4` mapping.
+- For RTSP mode: ordered list of `<sensor_id or camera label>=rtsp://...` URLs.
+- Desired project/dataset label.
+- Whether the user asked for live OSD, saved perception video, saved BEV video, or both.
+- Broker mode. For an explicit external broker request, preserve `MQTT_HOST`, `MQTT_PORT`, and `KAFKA_BOOTSTRAP`.
 
-The MV3DT chain has two skill-specific requirements on top of the AMC skill's defaults:
+## Local MP4 Calibration
 
-### 1a. Stage VGGT before the calibration run (recommended for MV3DT)
+For local MP4s without calibration:
 
-The AMC skill marks VGGT as **optional Step 2** ("Skip unless the user explicitly asks for VGGT-refined output"). For the MV3DT use case, **stage it anyway** — the MV3DT export endpoint (`GET /v1/result/<id>/mv3dt_result?result_type=vggt`) returns VGGT-refined calibration which yields better BEV Fusion accuracy than the bare AMC output. The wall-clock cost is one-time (model download ~4.7 GB + a separate VGGT calibration pass after the main calibration completes).
+1. Route to the `vss-generate-video-calibration` skill by name; do not hardcode a filesystem path.
+2. Use its local-video mode and references.
+3. Let the AMC skill create the project, upload videos, verify alignment/layout, run calibration, optionally run VGGT when requested or already staged, and report the result files.
+4. Return here after `project_state == COMPLETED`; then run `Fetch AMC Outputs For Standalone RT-CV-3D`.
 
-Follow `deploy-auto-calibration-service.md` **Step 2** verbatim — HuggingFace license-accept, `HF_TOKEN`, `hf download facebook/VGGT-1B-Commercial`, place at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt`, `chmod a+r`. Skip only if the user explicitly opts out of VGGT (small accuracy hit, but still works).
+## RTSP Calibration
 
-### 1b. RTSP preflight (rtsp mode only)
+For RTSP cameras without calibration:
 
-If Q1 was `rtsp`, follow [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md) for the VIOS probe, capture request, polling, ingest, and alignment/layout upload flow. For `videos` mode, use the AMC `videos.md` reference instead.
+1. Route to the `vss-generate-video-calibration` skill by name and use its RTSP mode; do not hardcode a filesystem path.
+2. Let the AMC RTSP flow perform its VIOS prerequisite check and confirm that the AMC microservice has a correct `VIOS_BASE_URL`.
+3. If VIOS is reachable but the AMC microservice env is missing or has the wrong `VIOS_BASE_URL`, follow the AMC deploy reference to set `VIOS_BASE_URL` in the AMC generated env and recreate/restart AMC before capture. Do not add VIOS settings to standalone RT-CV-3D `docker/.env`; RT-CV-3D does not consume them.
+4. If VIOS is missing, route to `vss-manage-video-io-storage` by name only to bring up or verify VIOS, then return to the AMC RTSP flow and repeat the `VIOS_BASE_URL` env confirmation. Do not treat VIOS as a standalone RT-CV-3D deployment prerequisite.
+5. Preserve the final ordered RTSP URL list. The final standalone deployment will register streams with `scripts/add-streams.sh` after `ds-ready: YES`.
+6. Return here after `project_state == COMPLETED`; then run `Fetch AMC Outputs For Standalone RT-CV-3D`.
 
-### 1c. Deploy AMC
+## Fetch AMC Outputs For Standalone RT-CV-3D
 
-Use [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) as the source of truth for bringing up AMC. Do not hardcode an RTSP-specific compose profile in this MV3DT reference; use whatever deployment/profile that AMC skill selects for the user's calibration mode.
+After the AMC skill returns, capture `project_id` and fetch the downstream artifacts this standalone deployment needs:
 
-### 1d. Verify
+- `calibration.json` from the AMC `export_calibration` endpoint. This becomes `CALIBRATION_JSON` for `scripts/generate-configs.sh`.
+- `mv3dt_result` ZIP from AMC. Use it for `transforms.yml` and any BEV helper assets. BEV is ready only when the final `BEV_DATASET_PATH` has both `map.png` and `transforms.yml`.
 
-Per `deploy-auto-calibration-service.md` **Step 4**:
-
-```bash
-curl -sf "http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready"
-# Expected: {"code":0,"message":"VSS Auto Calibration Microservice is ready"}
-```
-
-AMC readiness, VIOS configuration, and RTSP capture prerequisites are owned by the AMC skill. Confirm AMC is ready here, then continue with the mode-specific AMC reference in Step 2.
-
-Even though this flow drives AMC via the API, **tell the user they can watch live calibration progress in the AMC UI** at `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}` (open the project created in Step 2).
-
-### 1e. Open perms on the project-state bind-mount (pre-empt UID-1000 gotcha)
-
-The AMC microservice writes project state to `${VSS_APPS_DIR}/services/auto-calibration/projects/` as UID 1000. On a fresh checkout this directory either doesn't exist yet, or compose's bind-mount created it as `root:root 0755` at `up` time — either way, the first `POST /v1/create_project` (Step 2) fails with `HTTP 500 {"detail":"Failed to Create Project ...: [Errno 13] Permission denied: 'projects/project_<timestamp>'"}`. Open it before driving the API.
-
-These commands need `sudo`. Detect the sudo mode first — same pattern as [`../../vss-deploy-profile/SKILL.md#pre-flight-check`](../../vss-deploy-profile/SKILL.md) — so this step works on hosts where sudo is passwordless **and** on hosts where it prompts for a password:
-
-```bash
-if sudo -n true 2>/dev/null; then
-  sudo mkdir -p "${VSS_APPS_DIR}/services/auto-calibration/projects"
-  # Grant the AMC container user (UID 1000) write access — scoped ACL, not 777, not chown.
-  sudo setfacl -m u:1000:rwx "${VSS_APPS_DIR}/services/auto-calibration/projects"
-  echo "AMC projects directory ready."
-else
-  echo "Sudo requires a password on this host. Please run the two commands below in your shell, then confirm to continue:"
-  echo "  sudo mkdir -p \"${VSS_APPS_DIR}/services/auto-calibration/projects\""
-  echo "  sudo setfacl -m u:1000:rwx \"${VSS_APPS_DIR}/services/auto-calibration/projects\""
-fi
-```
-
-When sudo prompts for a password, hand the block above to the user with a *"run this once and confirm"* note and resume Step 2 only after they confirm. Do not retry the `sudo -n` check in a loop — it will not change without user action.
-
-Scoped ACL for UID 1000 — not world-writable and not chown. This matches how the AMC skill itself handles this directory (see [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) Step 5) and the convention in [`../../vss-deploy-profile/references/data-directory.md`](../../vss-deploy-profile/references/data-directory.md). Idempotent and safe to re-run.
-
-## Step 2 — Drive AMC end-to-end
-
-**Do not reinvent the API flow here.** Walk the AMC skill's mode-specific reference for the input portion, then the shared tail in its `SKILL.md` for verify → calibrate → poll → results. The AMC skill owns the canonical API contract.
-
-| Q1 mode | AMC reference to walk |
-|---|---|
-| `videos` | [`../../vss-generate-video-calibration/references/videos.md`](../../vss-generate-video-calibration/references/videos.md) (input handling) → [`../../vss-generate-video-calibration/SKILL.md#shared-calibration-tail`](../../vss-generate-video-calibration/SKILL.md) (verify / calibrate / poll) |
-| `rtsp` | [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md) (VIOS-mediated ingest) → same shared tail |
-
-Inputs the AMC flow needs from the parent SKILL.md's Q3:
-
-- `project_name` — short slug
-- `detector_type` — `resnet` or `transformer`, passed at the AMC shared-tail Step B (`POST /v1/calibrate/<id>`)
-- `VIDEO_DIR` (videos mode) or RTSP URLs (rtsp mode)
-
-For `rtsp`, keep the ordered RTSP URL list from the AMC capture request. After calibration export and camera-name normalization, final MV3DT deployment needs the same URLs in `camera_info.json`, with camera names matching the normalized `calibration.json` sensor IDs (`Camera`, `Camera_01`, ...).
-
-Capture the `project_id` from the AMC flow's project-creation step — you'll need it in Step 3 to fetch the MV3DT export. Wait until `project_state == COMPLETED` before proceeding.
-
-### 2a. Alignment + layout gate — do not skip
-
-The gate here is that **`alignment_data.json` + `layout.png` are actually present** before `/verify_project` — *not* that the user opened the UI. Two paths:
-
-- **Files on disk (common):** if `alignment_data.json` and `layout.png` exist (the AMC `videos` flow auto-detects them in the videos dir / its parent), they're uploaded via `/upload_alignment` + `/upload_layout` — **no UI step needed.** Skip straight to the on-disk verification below.
-- **Files missing:** **pause and direct the user to the AMC UI** ([`../../vss-generate-video-calibration/SKILL.md#ui-fallback-pattern`](../../vss-generate-video-calibration/SKILL.md)) to provide them:
-  - **Step 3 — Parameters**: tune or review settings, then **Save**. Also confirm the detector you'll pass to `/calibrate` — Step 3 does not cover it.
-  - **Step 4 — Alignment**: upload `alignment_data.json` or mark correspondence points on `layout.png`, then **Save**.
-
-Either way, verify on disk before continuing:
+Prefer VGGT output when VGGT completed; otherwise use the base AMC output.
 
 ```bash
-MANUAL_DIR="${VSS_APPS_DIR}/services/auto-calibration/projects/project_${project_id}/manual_adjustment"
-test -f "${MANUAL_DIR}/alignment_data.json" && test -f "${MANUAL_DIR}/layout.png" \
-  || { echo "ERROR: alignment/layout missing — upload via API, or have the user Save them in AMC UI Step 4"; exit 1; }
-```
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+project_id="${project_id:?set AMC project_id}"
+AMC_BASE="${AMC_BASE:-http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1}"
+AMC_OUT="${RTCV3D_APP}/generated/amc/project_${project_id}"
+BEV_DATASET_PATH="${AMC_OUT}/bev-dataset"
+mkdir -p "${AMC_OUT}" "${BEV_DATASET_PATH}"
 
-**Do not treat `verify_project` returning `READY` as sufficient** — some microservice versions return READY without alignment, but calibration will produce unusable poses. The on-disk check above is the gate.
-
-## Step 3 — Run VGGT refinement, then fetch the MV3DT export
-
-The AMC microservice exposes a dedicated MV3DT export endpoint (documented in [`../../vss-generate-video-calibration/SKILL.md:176-196`](../../vss-generate-video-calibration/SKILL.md)), with two `result_type` variants: `amc` (base) and `vggt` (refined). MV3DT chaining should prefer `vggt` when available.
-
-### 3a. Run VGGT (if staged in Step 1a)
-
-After Step 2's `project_state == COMPLETED`, check `vggt_state` in `/v1/get_project_info/<id>`. If `READY` (model staged + base calibration done), fire VGGT and poll:
-
-```bash
-curl -sf -X POST "http://localhost:8010/v1/vggt/calibrate/${project_id}"
-
-while true; do
-  vggt_state=$(curl -s "http://localhost:8010/v1/get_project_info/${project_id}" \
-    | jq -r '.project_info.vggt_state')
-  case "${vggt_state}" in
-    COMPLETED) echo "VGGT done"; break ;;
-    ERROR)     echo "VGGT failed — falling back to AMC result"; break ;;
-    *)         sleep 10 ;;
-  esac
-done
-```
-
-If VGGT wasn't staged (user opted out in Step 1a) or hit `ERROR`, skip 3a and use `result_type=amc` in 3b.
-
-### 3b. Pick the best available result type
-
-```bash
-# Prefer VGGT when available; fall back to AMC
-if [ "${vggt_state}" = "COMPLETED" ]; then
+info="$(curl -sf "${AMC_BASE}/get_project_info/${project_id}")"
+RESULT_TYPE=amc
+if printf '%s' "${info}" | jq -e '.project_info.vggt_state == "COMPLETED"' >/dev/null 2>&1; then
   RESULT_TYPE=vggt
-else
-  RESULT_TYPE=amc
 fi
-```
+echo "Using AMC result_type=${RESULT_TYPE}"
 
-### 3c. Fetch the MV3DT export (camInfo + transforms.yml)
+ZIP="${AMC_OUT}/mv3dt_output_${RESULT_TYPE}.zip"
+curl -sfL "${AMC_BASE}/result/${project_id}/mv3dt_result?result_type=${RESULT_TYPE}" -o "${ZIP}"
+unzip -l "${ZIP}"
 
-```bash
-curl -sfL "http://localhost:8010/v1/result/${project_id}/mv3dt_result?result_type=${RESULT_TYPE}" \
-  -o /tmp/mv3dt_output.zip
+EXPORT_URL="${AMC_BASE}/result/${project_id}/export_calibration?result_type=${RESULT_TYPE}&calibration_type=cartesian"
+EXPORT_RESPONSE="$(mktemp "${AMC_OUT}/export_response.XXXXXX.json")"
+EXPORT_HTTP="$(curl -sS -o "${EXPORT_RESPONSE}" -w '%{http_code}' -X POST "${EXPORT_URL}")"
+case "${EXPORT_HTTP}" in 2*) ;; *) echo "ERROR: AMC export_calibration POST failed HTTP ${EXPORT_HTTP}" >&2; cat "${EXPORT_RESPONSE}" >&2; exit 1 ;; esac
+EXPORT_RESPONSE="${EXPORT_RESPONSE}" python3 - <<'PY'
+import json, os
+path = os.environ['EXPORT_RESPONSE']
+with open(path, encoding='utf-8') as f:
+    text = f.read().strip()
+if not text:
+    raise SystemExit('ERROR: empty AMC export_calibration response')
+try:
+    d = json.loads(text)
+except json.JSONDecodeError as exc:
+    raise SystemExit(f'ERROR: export_calibration response is not JSON: {exc}: {text[:500]}')
+if d.get('code', 0) != 0:
+    raise SystemExit(f"ERROR: export_calibration returned code={d.get('code')}: {text[:1000]}")
+export_file = d.get('export_file') or d.get('file') or d.get('path')
+if 'export_file' in d and not export_file:
+    raise SystemExit(f"ERROR: export_calibration response has empty export_file: {text[:1000]}")
+print('export_calibration response OK')
+PY
 
-# Inspect — ZIP contains transforms.yml and per-cam camInfo files
-unzip -l /tmp/mv3dt_output.zip
-```
+CAL_TMP="$(mktemp "${AMC_OUT}/calibration.XXXXXX.json")"
+curl -sfL "${EXPORT_URL}" -o "${CAL_TMP}"
+CAL_TMP="${CAL_TMP}" python3 - <<'PY'
+import json, os, re
+path = os.environ['CAL_TMP']
+with open(path, encoding='utf-8') as f:
+    d = json.load(f)
+sensors = d.get('sensors')
+if not isinstance(sensors, list):
+    raise SystemExit('ERROR: exported calibration.json lacks sensors list')
+ids = []
+for s in sensors:
+    if not isinstance(s, dict) or s.get('type') != 'camera':
+        continue
+    sid = s.get('id')
+    if not isinstance(sid, str) or not sid:
+        raise SystemExit('ERROR: exported camera sensor has missing/invalid id')
+    if sid in {'.', '..'} or '/' in sid or '\\' in sid:
+        raise SystemExit(f'ERROR: unsafe camera id in exported calibration: {sid!r}')
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in sid):
+        raise SystemExit(f'ERROR: control character in camera id: {sid!r}')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+', sid):
+        raise SystemExit(f'ERROR: unsafe camera id in exported calibration: {sid!r}')
+    if 'cameraMatrix' not in s:
+        raise SystemExit(f'ERROR: camera {sid!r} missing cameraMatrix')
+    ids.append(sid)
+if len(ids) < 2:
+    raise SystemExit(f'ERROR: MV3DT requires at least 2 camera sensors; found {len(ids)}')
+if len(ids) != len(set(ids)):
+    raise SystemExit('ERROR: duplicate camera sensor ids in exported calibration')
+print('validated exported camera sensors:', ', '.join(ids))
+PY
+mv -f "${CAL_TMP}" "${AMC_OUT}/calibration.json"
+export CALIBRATION_JSON="${AMC_OUT}/calibration.json"
 
-### 3d. Trigger + fetch `calibration.json` (BEV grid + sensor world coords)
-
-The MV3DT ZIP gives you per-camera intrinsics/extrinsics (`camInfo/`), which is what perception needs. `vss-behavior-analytics-mv3dt` needs a different file — the Metropolis-format `calibration.json` with `scaleFactor`, sensor world coordinates, and any ROIs/tripwires defined in the AMC UI. AMC's `export_calibration` endpoints produce this directly:
-
-```bash
-# Generate (server writes the export to disk inside the project)
-curl -sf -X POST \
-  "http://localhost:8010/v1/result/${project_id}/export_calibration?result_type=${RESULT_TYPE}&calibration_type=cartesian"
-
-# Verify the export was written
-curl -sf "http://localhost:8010/v1/result/${project_id}/export_exists" | jq -r '.export_file // empty'
-
-# Download to /tmp; Step 4 places it under ${CAL_DIR}
-curl -sfL \
-  "http://localhost:8010/v1/result/${project_id}/export_calibration?result_type=${RESULT_TYPE}&calibration_type=cartesian" \
-  -o /tmp/calibration.json
-```
-
-`calibration_type=cartesian` produces the full schema (BA results — same shape as the shipped sample). Use `calibration_type=image` only as a fallback for projects that didn't complete the full BA pass — it produces a pixel-ROI-only file behavior-analytics can still load.
-
-ROI / tripwire arrays defined via the AMC UI Parameters dialog are included in the export; empty arrays don't block deploy (behavior-analytics just runs without those rules). **But** `group`, `region`, and `place` per sensor are a different story — when the API-only AMC/VGGT path leaves them blank, `vss-behavior-analytics-mv3dt`'s schema validator rejects the file at startup with `calibration 'upsert-all' payload failed schema validation: sensors/0/group/alias: '' should be non-empty; sensors/0/group/dimensions: [] is too short; ...` and the container enters a restart loop. Step 4 below patches these fields with placeholder values when they're empty so deploy can proceed; for metrically meaningful values, populate them in the AMC UI Parameters step before export.
-
-## Step 4 — Land everything at the MV3DT mount path
-
-```bash
-DATASET="${SAMPLE_VIDEO_DATASET:?slug from Q3}"
-CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
-
-mkdir -p "${CAL_DIR}/camInfo" "${CAL_DIR}/images"
-
-# camInfo/*.yaml — perception mounts this directory at /tmp/camInfo/
-unzip -j -o /tmp/mv3dt_output.zip 'camInfo/*' -d "${CAL_DIR}/camInfo/" 2>/dev/null \
-  || unzip -j -o /tmp/mv3dt_output.zip '*.yaml' -d "${CAL_DIR}/camInfo/"
-
-# calibration.json — fetched in Step 3d
-cp /tmp/calibration.json "${CAL_DIR}/calibration.json"
-
-# Optional: reference images for the dataset layout (skip if unavailable)
-PROJECT_OUTPUT="${VSS_APPS_DIR}/services/auto-calibration/projects/project_${project_id}/output"
-ls "${PROJECT_OUTPUT}"/*.png 2>/dev/null | head -4 | xargs -I{} cp {} "${CAL_DIR}/images/" || true
-
-# Permissions — perception mount must be readable inside the container.
-# Auto-proceed when sudo is passwordless; otherwise surface the command for the user.
-if sudo -n true 2>/dev/null; then
-  sudo chmod -R a+rX "${CAL_DIR}"
-else
-  echo "Sudo requires a password on this host. Please run the command below in your shell, then confirm to continue:"
-  echo "  sudo chmod -R a+rX \"${CAL_DIR}\""
+unzip -j -o "${ZIP}" '*transforms.yml' -d "${BEV_DATASET_PATH}"
+if unzip -l "${ZIP}" | awk '{print $4}' | grep -Eq '(^|/)map[.]png$'; then
+  unzip -j -o "${ZIP}" '*map.png' -d "${BEV_DATASET_PATH}"
 fi
-```
 
-> **Permission rule:** always `chmod`, never `chown`. Containers run as varied UIDs; world-readable is the safe baseline. This matches the convention in `vss-deploy-profile/references/data-directory.md`.
-
-### 4a — Patch empty `group` / `region` / `place` (custom-data exports)
-
-`vss-behavior-analytics-mv3dt` validates `sensors[].group`, `sensors[].region`, and `sensors[].place` at startup. API-only AMC or VGGT exports can leave one of these sections empty, so inject placeholder values that pass the validator and let deploy proceed.
-
-> These placeholders only satisfy the schema so the stack starts — they are **not** geometrically meaningful. The square `dimensions` will make the BEV top-view floor map look squished/stretched and any region-scoped analytics use the wrong bounds. Getting accurate values is a **post-deploy tuning step**, not a blocker: leave the placeholders here and point the user to [`verify-and-view.md` § "Tune BEV `group`/`region` for better overlays"](verify-and-view.md) after the stack is up. (The BEV `origin`/`dimensions` are normally derived from camera FOV coverage by the VSS Configurator / `spatial-ai-data-utils`'s `calculate_origin.py`, or set per the NVIDIA 3D-profile customization docs.)
-
-Idempotent — re-running this block is safe and does nothing once values are populated.
-
-```bash
-# `//` makes this null-safe. VGGT can populate group while leaving region
-# empty, so test every schema-required group/region/place field before deploy.
-if jq -e '
-  any(.sensors[]?;
-    ((.group.name // "") == "")
-    or ((.group.alias // "") == "")
-    or ((.group.dimensions // []) | length < 4)
-    or ((.region.placeLevel // "") == "")
-    or ((.region.origin // []) | length < 2)
-    or (((.region.dimensions.length // 0) | tonumber? // 0) <= 0)
-    or (((.region.dimensions.width // 0) | tonumber? // 0) <= 0)
-    or ((.place // []) | length < 3)
-  )
-' "${CAL_DIR}/calibration.json" >/dev/null 2>&1; then
-  jq '
-    .sensors |= map(
-        .group = {
-          name: "bev-sensor-1",
-          alias: "area-1",
-          type: "bev",
-          origin: [0.0, 0.0],
-          dimensions: [-25.0, -25.0, 25.0, 25.0]
-        }
-      | .region = {
-          placeLevel: "region",
-          origin: [-25.0, -25.0],
-          dimensions: { length: 50.0, width: 50.0 }
-        }
-      | .place = [
-          { name: "building", value: "Warehouse" },
-          { name: "room",     value: "Room-1"    },
-          { name: "region",   value: "Region-1"  }
-        ]
-    )
-  ' "${CAL_DIR}/calibration.json" > "${CAL_DIR}/calibration.json.patched" \
-    && mv "${CAL_DIR}/calibration.json.patched" "${CAL_DIR}/calibration.json"
-  echo "patched group/region/place placeholders into ${CAL_DIR}/calibration.json"
-fi
-```
-
-### 4b — Synthesize `images/Top.png` + `imageMetadata.json` (extended profile only)
-
-`vss-import-calibration-output-mv3dt` (deployed under `MINIMAL_PROFILE=""`) requires both files; it exits 1 with `imageMetadata.json not found at /opt/vss/images/imageMetadata.json` otherwise, leaving the overlay index unpopulated in Elasticsearch. The AMC export doesn't produce them — synthesize from the user-supplied layout (or any AMC project output PNG as a fallback). Place hierarchy is derived from the patched `calibration.json` so the two stay in sync.
-
-```bash
-mkdir -p "${CAL_DIR}/images"
-
-if [ ! -f "${CAL_DIR}/images/Top.png" ]; then
-  # Priority order: user-supplied layout > AMC manual_adjustment layout > any AMC project output PNG
-  for cand in \
-      "${LAYOUT_PNG:-/dev/null}" \
-      "${VSS_APPS_DIR}/services/auto-calibration/projects/project_${project_id}/manual_adjustment/layout.png" \
-      "${VSS_APPS_DIR}/services/auto-calibration/projects/project_${project_id}/output"/*.png; do
-    if [ -f "${cand}" ]; then
-      cp "${cand}" "${CAL_DIR}/images/Top.png"
-      echo "Top.png sourced from ${cand}"
+if [ ! -f "${BEV_DATASET_PATH}/map.png" ]; then
+  for candidate in     "${LAYOUT_PNG:-}"     "${VSS_APPS_DIR:-}/services/auto-calibration/projects/project_${project_id}/manual_adjustment/layout.png"; do
+    if [ -n "${candidate}" ] && [ -f "${candidate}" ]; then
+      cp "${candidate}" "${BEV_DATASET_PATH}/map.png"
       break
     fi
   done
 fi
 
-if [ -f "${CAL_DIR}/images/Top.png" ] && [ ! -f "${CAL_DIR}/images/imageMetadata.json" ]; then
-  # Build place= string from sensors[0].place (Step 4a guarantees this is populated)
-  PLACE_PATH=$(jq -r '
-    (.sensors[0].place // [])
-    | map("\(.name)=\(.value)")
-    | join("/")
-    | if . == "" then "building=Warehouse/room=Room-1/region=Region-1" else . end
-  ' "${CAL_DIR}/calibration.json")
-  cat > "${CAL_DIR}/images/imageMetadata.json" <<JSON
-{
-  "images": [
-    { "place": "${PLACE_PATH}", "view": "plan-view", "fileName": "Top.png" }
-  ]
-}
-JSON
-  echo "synthesized imageMetadata.json with place=${PLACE_PATH}"
+test -f "${CALIBRATION_JSON}" || { echo "ERROR: exported calibration.json missing"; exit 1; }
+test -f "${BEV_DATASET_PATH}/transforms.yml" || { echo "ERROR: transforms.yml missing from MV3DT ZIP"; exit 1; }
+if [ ! -f "${BEV_DATASET_PATH}/map.png" ]; then
+  echo "WARN: map.png is missing; BEV visualizer cannot run until the map image used during calibration is provided."
+fi
+if [ -f "${BEV_DATASET_PATH}/map.png" ] && [ -f "${BEV_DATASET_PATH}/transforms.yml" ]; then
+  echo "BEV_READY=1"
+else
+  echo "BEV_READY=0"
 fi
 
-if sudo -n true 2>/dev/null; then
-  sudo chmod -R a+rX "${CAL_DIR}/images"
-else
-  echo "Sudo requires a password on this host. Please run the command below in your shell, then confirm to continue:"
-  echo "  sudo chmod -R a+rX \"${CAL_DIR}/images\""
-fi
+echo "CALIBRATION_JSON=${CALIBRATION_JSON}"
+echo "BEV_DATASET_PATH=${BEV_DATASET_PATH}"
 ```
 
-If no candidate PNG is available (rare — most users have a layout for the AMC alignment step), the import container will still exit 1, but the rest of the stack runs without overlays. Either re-deploy with `MINIMAL_PROFILE="true"` or source a plan-view PNG manually.
-
-**Sanity check** before moving on:
+Then generate standalone runtime configs from the exported `calibration.json`:
 
 ```bash
-ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null | wc -l   # must equal user's camera count
-test -f "${CAL_DIR}/calibration.json" && jq -e '.sensors | length' "${CAL_DIR}/calibration.json" >/dev/null && echo "calibration.json OK"
-jq -e '(.sensors[0].group.name // "") != ""' "${CAL_DIR}/calibration.json" >/dev/null && echo "group/region/place populated"
-# Extended profile only:
-test -f "${CAL_DIR}/images/Top.png" && test -f "${CAL_DIR}/images/imageMetadata.json" && echo "overlay assets OK"
+cd "${RTCV3D_APP}"
+./scripts/generate-configs.sh "${CALIBRATION_JSON}"
 ```
 
-All checks should pass (or be N/A under `MINIMAL_PROFILE="true"`). If `camInfo/` is empty, the ZIP layout was unexpected — open `/tmp/mv3dt_output.zip` and confirm where the YAML files live. If `calibration.json` is missing or has no `sensors[]` entries, re-check the Step 3d export status via `/v1/result/${project_id}/export_exists` and pull the calibration log: `curl http://localhost:8010/v1/amc/calibrate/${project_id}/log`.
+Use the generated `generated/camInfo/*.yml` from this script as runtime camInfo. If the AMC ZIP also contains camInfo files, keep them as provenance/debug artifacts; do not copy them over `generated/camInfo` unless the standalone generator fails and the user approves that fallback.
 
-## Step 5 — Tear down AMC
+## Validate The Result Before Returning
 
-Leave the host clean before MV3DT comes up. Use the stopping/teardown command from [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) for the AMC deployment path that was used. Do not tear down the final MV3DT profile here.
+```bash
+CALIBRATION_JSON="${CALIBRATION_JSON:?set path to generated calibration.json}"
+test -f "${CALIBRATION_JSON}" || { echo "ERROR: calibration result missing: ${CALIBRATION_JSON}"; exit 1; }
+CALIBRATION_JSON="${CALIBRATION_JSON}" python3 - <<'PY'
+import json, os, re
+with open(os.environ['CALIBRATION_JSON'], encoding='utf-8') as f:
+    d = json.load(f)
+ids = []
+for s in d.get('sensors', []):
+    if isinstance(s, dict) and s.get('type') == 'camera':
+        sid = s.get('id')
+        if not isinstance(sid, str) or not sid:
+            raise SystemExit('ERROR: camera sensors need non-empty ids')
+        if sid in {'.', '..'} or '/' in sid or '\\' in sid or not re.fullmatch(r'[A-Za-z0-9_.-]+', sid):
+            raise SystemExit(f'ERROR: unsafe camera id: {sid!r}')
+        ids.append(sid)
+if len(ids) < 2:
+    raise SystemExit(f'ERROR: MV3DT needs at least 2 calibrated camera sensors; found {len(ids)}')
+if len(ids) != len(set(ids)):
+    raise SystemExit('ERROR: duplicate camera sensor ids')
+print('calibrated camera sensors:', ', '.join(ids))
+PY
+```
 
-Project state under `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/` is bind-mounted, so it survives the down. You can re-run AMC later without losing work.
+Then return to `configure-cameras.md` to validate `generated/camInfo/`, set `docker/.env`, and stage configs.
 
-## Step 6 — Return to SKILL.md
+## BEV Map Assets
 
-Calibration is now on disk at `${CAL_DIR}`. Hand back to the parent flow:
+BEV visualization needs a dataset directory containing:
 
-1. Walk [`configure-cameras.md`](configure-cameras.md) — run Step 0 to normalize AMC/VGGT sensor IDs and video names to `Camera, Camera_01, ...`, then set `NUM_STREAMS` to the `camInfo/*.yaml` count and sync DeepStream batch sizes.
-2. For `rtsp`, create or update `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json` before final deploy. Use the ordered RTSP URLs from AMC capture, and use the normalized sensor IDs from `${CAL_DIR}/calibration.json` as each `camera_name`. Set `SENSOR_INFO_SOURCE=file` and `SENSOR_FILE_PATH` in `.env`; [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) shows the schema and validates it.
-3. Walk [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) — `docker compose up` with `MODE=mv3dt` + `BP_PROFILE=bp_wh_kafka` + `MINIMAL_PROFILE=""` (extended, the Q0 default — overlays enabled). Use `MINIMAL_PROFILE="true"` only if the user explicitly chose minimal in Q0.
-4. Walk [`verify-and-view.md`](verify-and-view.md) — confirm perception FPS, BEV ready, VST video wall.
+- `map.png`
+- `transforms.yml`
 
-## Failure modes specific to this chain
+If a user-supplied `map.png` exists but `transforms.yml` was not available from the AMC MV3DT ZIP, generate transforms with the standalone script after returning to `RTCV3D_APP` and stage both files in one dataset directory:
 
-Generic AMC failures (verify_project not READY, ERROR early, RUNNING > 90 min, etc.) are covered in [`../../vss-generate-video-calibration/SKILL.md#cross-cutting-troubleshooting`](../../vss-generate-video-calibration/SKILL.md) and the per-mode references — defer to those.
+```bash
+cd "${RTCV3D_APP}"
+BEV_DATASET_PATH="${RTCV3D_APP}/generated/bev-dataset"
+mkdir -p "${BEV_DATASET_PATH}"
+ln -sfn /path/to/map.png "${BEV_DATASET_PATH}/map.png"
+./scripts/generate-transforms.sh "${CALIBRATION_JSON}" "${BEV_DATASET_PATH}/map.png" -o "${BEV_DATASET_PATH}/transforms.yml" --force
+```
 
-Issues specific to the MV3DT chain:
-
-| Symptom | Fix |
-|---|---|
-| `POST /v1/create_project` returns HTTP 500 with body `{"detail":"Failed to Create Project ...: [Errno 13] Permission denied: 'projects/project_<timestamp>'"}` | First-time deploy on a fresh checkout — the MS writes project state as UID 1000 but `${VSS_APPS_DIR}/services/auto-calibration/projects/` is either missing or owned `root:root 0755` from the compose bind-mount. Run Step 1e above (scoped `sudo setfacl -m u:1000:rwx ...`), then retry. Use the ACL, not chown. |
-| MV3DT export ZIP missing `camInfo/*.yaml` after `result_type=amc` | AMC project didn't produce the MV3DT export — verify `project_state == COMPLETED` via `/v1/get_project_info/<id>` before fetching. |
-| `result_type=vggt` returns 404 / empty ZIP | VGGT didn't run to completion. Check `vggt_state` — if `INIT` the model wasn't staged (Step 1a); if `ERROR` see VGGT log. Fall back to `result_type=amc`. |
-| `POST /export_calibration` returns non-200 | Project hasn't completed the BA pass — re-check `project_state == COMPLETED`. As a fallback, retry with `calibration_type=image` for a pixel-ROI-only export. |
-| `GET /export_exists` returns `export_file: null` after a successful POST | The export run failed silently — pull `GET /v1/amc/calibrate/${project_id}/log` for the failure reason. |
-| Downloaded `calibration.json` has empty `sensors[]` | Project completed without sensors registered — verify the upload step (`/upload_video_files` succeeded and `/verify_project` returned READY). |
-| Downloaded `calibration.json` has empty `roi` / `tripwire` arrays | Expected — these are user-defined via the AMC UI Parameters dialog. behavior-analytics still starts; just no analytics rules until you define some. |
-| User has only 1 camera | MV3DT requires multi-view (≥2 cameras). Use the 2D / 3D-per-camera paths in `vss-deploy-profile/references/warehouse.md` instead. |
-| User has 1–3 cameras (< sample count) | Set `NUM_STREAMS` in [`configure-cameras.md`](configure-cameras.md) Step 3 to the actual count; confirm any camera-clustering config (`create_camera_clusters.py`) matches. |
-
-For non-MV3DT-chain failures, see [`troubleshooting.md`](troubleshooting.md).
+If no map image exists, do not run the BEV visualizer yet; it requires both `map.png` and `transforms.yml`. Request the map image used during calibration, or report that only perception-grid output can be produced until the BEV assets are available.

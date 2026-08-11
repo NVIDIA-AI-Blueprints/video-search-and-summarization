@@ -23,9 +23,10 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 
 ## Common app keys (examples)
 - `in3dMode`: "false" (supports env var when value starts with `$`)
-- `coordinateSystem`: "image" | "euclidean" | "geo"
 - `imageLocationMode`: "center" | "bottom_center" (for image coordinate system, determines which point from bbox is used to calculate location; default: "bottom_center")
+- `roiEventDetectionMode`: "coordinate" | "bbox" (ROI ENTRY/EXIT test; "coordinate" [default] = object point inside ROI polygon, "bbox" = object bbox overlaps ROI polygon; "bbox" is image-calibration only, else falls back to coordinate)
 - `behaviorMaxPoints`: "200"
+- `behaviorEmitOnce`: "false" | "true" (default "false" = one behavior message per batch per track; "true" writes each behavior once instead, `behaviorStateValidInterval` seconds after the track goes quiet, so that key sets the latency. Tracks still live at shutdown are flushed. Events, anomalies and incidents are built from per-batch behaviors either way, so they are unaffected. Runtime-updatable)
 - `sourceType` / `sinkType`: typically "kafka" (also supports `redisStream`, `mqtt`)
 - `spaceAnalyticsIntervalSec`: "5.0"
 - Playback: `playbackLoop`, `playbackSensors`, `playbackInSimulationMode`, etc.
@@ -34,7 +35,11 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 ## Common sensor keys (examples)
 - `tripwireMinPoints`: "5"
 - `sensorMinFrames`: "5"
-- `anomalySpeedViolation`: JSON string, e.g. `{ "enable": true, "mphThreshold": 90, "timeIntervalSecThreshold": 5 }`
+- `anomalySpeedViolation`: JSON string, e.g. `{ "enable": true, "mphThreshold": 90, "timeIntervalSecThreshold": 5 }`.
+  **Units depend on the calibration.** `mphThreshold` is compared directly against the trajectory speed, which is
+  mph only for **cartesian** coordinates — image coordinates are pixels, so the speed stays in **pixels/second** and
+  the threshold is compared against a px/s number. Tune it per coordinate system; the same value does not mean the
+  same thing in both. Same applies to `anomalyUnexpectedStop`'s `mphThreshold`.
 - `proximityDetectionCenterClasses`: `["Forklift", "Person"]`
 - Proximity detection: `proximityDetectionEnable`, `proximityDetectionThreshold`, `proximityDetectionSurroundingClasses`
 
@@ -54,7 +59,7 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
   "sensors": [{"id": "default", "configs": []}],
   "app": [
     {"name": "behaviorMaxPoints", "value": "200"},
-    {"name": "coordinateSystem", "value": "image"}
+    {"name": "in3dMode", "value": "false"}
   ]
 }
 ```
@@ -63,7 +68,9 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 
 ## Incidents & frame state
 - All incident types (proximity, restricted area, confined area, FOV count) default to disabled (`...IncidentEnable = "false"`). Set the corresponding `...IncidentEnable = "true"` to turn them on.
-- Each type has its own `...Threshold` (duration in sec) and `...ExpirationWindow` (gap tolerance in sec); both default to `"1"`.
+- Each type has its own `...Threshold` (duration in sec, default `"1"`, min `0.0`) and `...ExpirationWindow` (gap
+  tolerance in sec, default `"0.5"`, min `0.1`). Both accept **fractional** seconds — `"0.5"` is valid. The only
+  incident knob that must stay a whole number is `fovCountViolationIncidentObjectThreshold`, which is an object count.
 - FOV count uses two keys: `fovCountViolationIncidentObjectType` — the object **class** to count (e.g. `person`; must match the detector's label casing) — and `fovCountViolationIncidentObjectThreshold` — the **count** above which an incident fires.
 - Details and timing: `video-search-and-summarization/services/analytics/behavior-analytics/docs/incident-detection.md`.
 
@@ -90,7 +97,8 @@ Under `video-search-and-summarization/services/analytics/behavior-analytics/conf
 - Playback: loop, sensors, simulation flags.
 
 ## Tips
-- Keep values as strings; convert types in code.
-- Use JSON strings for nested sensor configs; escape quotes.
-- Prefer adding to `app` or sensor configs; avoid new top-level sections unless necessary.
-- For env var use, set value to `$VARNAME` (supported for `in3dMode`).
+- Every `app[]` / `sensors[].configs[]` value is a **string**, including numbers and booleans (`"200"`, `"false"`).
+- Nested sensor configs are JSON encoded *inside* a string; escape the inner quotes.
+- For env-var indirection, set the value to `$VARNAME` (supported for `in3dMode`).
+- An invalid config is fatal: the app logs `FATAL - Config file ... contains invalid JSON` (or `has invalid
+  structure`) and exits 1, so the container restart-loops rather than running degraded.

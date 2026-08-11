@@ -22,9 +22,9 @@ uv run pytest tests/unit_test/tools/vst/test_video_clip.py -v   # single file
 
 # Lint & type-check (run all three after every change)
 uv run ruff check src/                                      # lint
-uv run ruff check src/agent/tools/vst/video_clip.py        # lint single file
+uv run ruff check src/vss_agents/tools/vst/video_clip.py        # lint single file
 uv run ruff format --check src/                             # format check
-uv run mypy src/agent/                                 # type check
+uv run mypy src/vss_agents/                                 # type check
 
 # Run the agent (dev-profile-base example; see README.md Quick Start)
 nat serve --config_file ../../deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml \
@@ -34,7 +34,7 @@ nat serve --config_file ../../deploy/docker/developer-profiles/dev-profile-base/
 ## Project Structure
 
 ```
-src/agent/
+src/vss_agents/
 ├── agents/            # Orchestration agents (top_agent, report_agent, multi_report_agent)
 │   └── postprocessing/  # Response validation (URL validator, etc.)
 ├── api/               # FastAPI endpoints, custom workers, RTSP/video ingest routes
@@ -63,6 +63,7 @@ async def fetch_video_clip(sensor_id: str, start: float, end: float) -> VideoCli
     if end <= start:
         raise ValueError(f"end ({end}) must be after start ({start})")
     return await self._vst_client.get_clip(sensor_id, start, end)
+
 
 # ❌ Bad — missing types, vague name, no validation
 async def get(id, s, e):
@@ -97,7 +98,7 @@ async def get(id, s, e):
   `../../deploy/docker/developer-profiles/<profile>/vss-agent/configs/config.yml`
   (e.g. `dev-profile-base`, `dev-profile-search`, `dev-profile-lvs`, `dev-profile-alerts`).
 - **Stubs**: `stubs/` has Mypy stubs for NAT. When subclassing a NAT base config,
-  verify `uv run mypy src/agent/` passes — extend the stub if needed.
+  verify `uv run mypy src/vss_agents/` passes — extend the stub if needed.
 
 ## Testing
 

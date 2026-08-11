@@ -14,8 +14,8 @@
 # limitations under the License.
 
 # Inference Properties
-onnx_file: /opt/storage/{{ .Values.standaloneWarehouse.pvcOnnxSubPath }}
-engine_file: /opt/storage/model.engine
+onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx
+engine_file: /opt/storage/sparse4d/model.engine
 labels_file: /opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
 gpu_id: 0 # GPU ID to use for tensor operations
 batch_size: 1 # Sparse4D model batch size
@@ -47,7 +47,7 @@ aug_configs:
 # Instance Bank properties
 num_anchor: 900
 embed_dims: 256 # Embedding dimensions
-anchor: /opt/storage/{{ .Values.standaloneWarehouse.pvcNpySubPath }}
+anchor: /opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy
 anchor_handler: SparseBox3DKeyPointsGenerator
 num_temp_instances: 600
 default_time_interval: 0.05 # Default time interval for temporal anchor projection

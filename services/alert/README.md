@@ -54,7 +54,7 @@ for a detailed layout + data-flow diagram).
 | `src/vlm/` | VLM client (OpenAI-compatible) and warmup |
 | `src/schemas/` | NvSchema request/response entities, VLM response model, and pluggable response parsers |
 | `src/realtime/` | Realtime + always-on alert rules and the RTVI VLM client |
-| `src/web/` | REST + WebSocket API and on-demand verification service |
+| `src/web/` | REST API and on-demand verification service |
 | `src/vst/` | VST video-clip resolution (sensor ID + timestamps) |
 | `src/clients/` | Elasticsearch client + in-process dedup/verdict-protection state handler |
 | `src/persistence/` | Elasticsearch persistence store |
@@ -100,13 +100,27 @@ Or build/run with Docker (see Quick Start).
    - Health: `http://localhost:9080/health`
    - API docs (Swagger): `http://localhost:9080/docs`
    - OpenAPI spec: `http://localhost:9080/openapi.json`
-   - WebSocket: `ws://localhost:9080/ws`
 
 To run the verification pipeline directly (without Docker):
 
 ```bash
 python enhance_alert_with_vlm.py --config config.yaml
 ```
+
+## Observability
+
+Set `PROMETHEUS_METRICS_ENABLED=true` before starting the service to expose
+Prometheus metrics at `http://localhost:9081/metrics`. Kafka pipeline metrics
+use the existing `alert_bridge_*` event and latency series. Requests accepted
+through `POST /api/v1/verification/ondemand` use a separate
+`alert_bridge_ondemand_*` family for request outcomes, completed-event verdicts,
+VLM/background/request-to-publish latency, and verification failures.
+
+The scrape endpoint is not a Prometheus query server: configure Prometheus to
+scrape port 9081, then use the reporting tool documented in
+[`test/latency/README.md`](test/latency/README.md). On-demand metrics are
+aggregate-only; `alert_agent.metrics.per_sensor_labels` applies to Kafka
+pipeline metrics.
 
 ## Configuration
 
@@ -189,7 +203,10 @@ curl -X POST http://localhost:9080/api/v1/alerts \
   -d @test/protobuf/test_data/sample_alert.json
 ```
 
-Enriched results are persisted and broadcast over the WebSocket endpoint.
+Enriched results are persisted to Elasticsearch and published to the Kafka
+sink (`event_bridge.sinkType: kafka`). Consumers receive alerts by subscribing
+to the configured sink topic, and can also query stored alerts/incidents over
+the REST API (e.g. `GET /api/v1/realtime`, `GET /api/v1/realtime/incidents`).
 
 ## Testing
 

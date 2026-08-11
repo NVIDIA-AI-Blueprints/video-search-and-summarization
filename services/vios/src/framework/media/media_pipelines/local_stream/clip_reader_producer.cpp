@@ -1973,8 +1973,10 @@ GstFlowReturn ClipReaderProducer::handleVideoSampleSplitmux(GstSample* sample)
     }
     frame->pts = GST_BUFFER_PTS_IS_VALID(buffer) ? (GST_BUFFER_PTS(buffer)/1000000) : -1;
 
-    // Skip preroll frames until seek completes.
-    if (!mSeekDone.load())
+    // Skip preroll frames until seek completes. A seek is only applied when
+    // seek_start_ms > 0; without one the preroll buffers are the head of the
+    // file (including its first keyframe) and must not be dropped.
+    if (skipUntilSeekDone())
     {
         return GST_FLOW_OK;
     }
@@ -2152,8 +2154,8 @@ GstFlowReturn ClipReaderProducer::handleVideoSampleGiosrc(GstSample* sample)
         // sample, and gst_caps_unref's m_caps.
         return GST_FLOW_OK;
     }
-    // Skip preroll frames until seek completes.
-    if (!mSeekDone.load())
+    // Skip preroll frames until seek completes (see handleVideoSampleSplitmux).
+    if (skipUntilSeekDone())
     {
         return GST_FLOW_OK;
     }

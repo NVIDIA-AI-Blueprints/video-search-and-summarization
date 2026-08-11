@@ -52,7 +52,7 @@ permissions:
 # `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
 # carries `<profile_tag>|<run_id>`, so a marker from this run never matches
 # the next run's desired marker and the next run always tears down + redeploys.
-# Same path handles SIGKILL (the 12h timeout-minutes terminator) and host reboots
+# Same path handles SIGKILL (the 14h timeout-minutes terminator) and host reboots
 # — there's no exit-side cleanup machinery to bypass.
 concurrency:
   group: skills-eval-daily-${{ github.ref }}
@@ -62,7 +62,42 @@ defaults:
   run:
     shell: bash
 
+env:
+  # Match the PR workflow: every coordinator-side Python process, including
+  # Harbor's uvx environment, runs on one declared minor version.
+  SKILL_EVAL_PYTHON_VERSION: "3.12"
+
 jobs:
+  # ---------------------------------------------------------------------
+  # resolve-ref — choose one ref for the rest of the workflow. Scheduled runs
+  # prefer the commit behind nightly-YYYYMMDD (UTC date) and fall back to
+  # develop's SHA.
+  # Manual runs preserve the branch/tag selected in the workflow dispatch UI.
+  # ---------------------------------------------------------------------
+  resolve_ref:
+    name: Resolve eval ref
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 15
+    outputs:
+      ref: ${{ github.event_name == 'schedule' && steps.resolve.outputs.ref || github.ref }}
+    steps:
+      - name: Checkout resolver
+        if: github.event_name == 'schedule'
+        uses: actions/checkout@v4
+        with:
+          # Scheduled workflows run from the default branch. This checkout
+          # loads the resolver script from that same commit. Plan and eval
+          # check out its result.
+          fetch-depth: 1
+
+      - name: Resolve latest daily ref
+        if: github.event_name == 'schedule'
+        id: resolve
+        run: |
+          resolved_ref="$(.github/scripts/resolve-skills-eval-ref.sh)"
+          printf 'ref=%s\n' "$resolved_ref" >> "$GITHUB_OUTPUT"
+          printf 'Resolved skills eval ref: %s\n' "$resolved_ref" >> "$GITHUB_STEP_SUMMARY"
+
   # ---------------------------------------------------------------------
   # plan — enumerate every skill into the dispatch matrix (full sweep:
   # DAILY_RUN=1 -> plan_matrix.py list_skill_file_paths()).
@@ -70,6 +105,7 @@ jobs:
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
+    needs: resolve_ref
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -79,12 +115,15 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          # The scheduled nightly fires from the DEFAULT branch (main) but must
-          # EVALUATE develop, where active skill/harness work lands. Schedule ->
-          # develop; workflow_dispatch -> the ref picked in the dropdown
-          # (github.ref) so on-demand runs can still target any branch.
-          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+          # Scheduled runs receive the commit behind nightly-YYYYMMDD (UTC) or
+          # the develop fallback SHA. Manual runs retain the dispatched ref.
+          ref: ${{ needs.resolve_ref.outputs.ref }}
           fetch-depth: 0   # plan diffs the cumulative head...base range
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
       - name: Compute matrix
         id: plan
@@ -97,34 +136,49 @@ jobs:
   # ---------------------------------------------------------------------
   eval:
     name: ${{ matrix.name }}
-    needs: plan
+    needs: [resolve_ref, plan]
     if: needs.plan.outputs.has_targets == 'true'
     runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Cap concurrent legs near the vss-eval-* box count so legs don't
-      # all grab a runner slot only to block on flock. Excess legs queue.
-      max-parallel: 4
+      # Match the PR workflow's eight-leg limit. Unavailable runner slots
+      # queue in Actions; per-instance flock still serializes each GPU box.
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
-    # (AGENTS.md `--agent-timeout-multiplier 6.0`). 360m covers a ~4-step
-    # cold-box spec plus deploy/dataset/comment overhead without the
-    # whole-sweep 12 h cap the single-job design needed. AGENTS.md's
-    # box-lock wait (flock -w 21000 ≈ 5.8 h) is kept strictly under this
-    # 360 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
+    # (AGENTS.md `--agent-timeout-multiplier 6.0`). A timeout stops the
+    # remaining chain; successful steps normally finish well below their
+    # 200-minute emergency backstop. AGENTS.md's box-lock wait
+    # (flock -w 21000 ≈ 5.8 h) is kept strictly under this 840 m ceiling so a
+    # lock-starved leg emits `BLOCKED: lock timeout`
     # before the job-killer fires (a 43200 s / 12 h wait would be
     # silently killed mid-flock with no verdict — the exit-4 trap).
-    timeout-minutes: 360
+    timeout-minutes: 840
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          # Match the plan job: nightly evaluates develop; dispatch uses the
-          # chosen ref. Both jobs must check out the same tree.
-          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+          # Match the plan job exactly. Every leg consumes the same immutable
+          # ref selected once by resolve_ref.
+          ref: ${{ needs.resolve_ref.outputs.ref }}
           fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Prepare isolated agent runtime
+        env:
+          SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
+        run: |
+          python3 -m venv "$SKILL_EVAL_VENV"
+          "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet "claude-agent-sdk==0.2.128"
+          "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
+          echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
@@ -151,21 +205,26 @@ jobs:
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
-          # Raise the Bash-tool timeout cap above the worst-case single
-          # `uvx harbor run` (~2h: env-build 1800s + agent 3600s + verify
-          # 1800s). Without this the runtime auto-backgrounds the foreground
-          # harbor call at the 10-min default cap and the agent falls into
-          # polling its task output — silently defeating the "block on
-          # harbor" wait contract (the PreToolUse hook can't catch a
-          # runtime-initiated background; it only inspects call input). Both
-          # stay under the job's timeout-minutes so the call can't outlive it.
-          BASH_DEFAULT_TIMEOUT_MS: "7200000"
-          BASH_MAX_TIMEOUT_MS: "10800000"
+          # Keep the whole multi-step run_leg.py call foregrounded. Match the
+          # job window so the Actions watchdog, which started earlier, owns
+          # final cancellation instead of Claude backgrounding the call.
+          BASH_DEFAULT_TIMEOUT_MS: "50400000"
+          BASH_MAX_TIMEOUT_MS: "50400000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
+          skill_eval_venv_dir="$SKILL_EVAL_VENV"
+          skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # Keep the per-leg venv ahead of any operator-provided PATH so the
+          # SDK's Bash children resolve adapters and run_leg.py with 3.12.
+          export SKILL_EVAL_VENV="$skill_eval_venv_dir"
+          export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
+          export VIRTUAL_ENV="$skill_eval_venv_dir"
+          export PATH="$skill_eval_venv_dir/bin:$PATH"
+          hash -r
+          python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
@@ -185,17 +244,17 @@ jobs:
           trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
           # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
           # Orphaned agents older than the longest leg wallclock on any
-          # host sharing this pool (skills-eval.yml timeout-minutes: 360;
-          # 25200s = 7h) cannot belong to any live leg.
+          # host sharing this pool (skills-eval.yml timeout-minutes: 840;
+          # 54000s = 15h) cannot belong to any live leg.
           ps -eo pid=,ppid=,etimes=,args= \
-            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>25200 {print $1}' \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>54000 {print $1}' \
             | xargs -r kill 2>/dev/null || true
           # Pin the box-side repo sync to the SHA the runner actually checked
           # out — NOT github.sha. On a scheduled run github.sha is the default
-          # branch (main) tip, but the checkout above is develop; using it here
-          # would make BrevEnvironment._sync_repo_to_pr_head deploy main's code
-          # while the harness ran develop. git rev-parse HEAD = the checked-out
-          # commit (develop on the nightly, the dispatch ref otherwise), so both
+          # branch (main) tip, but the checkout above is the resolved ref; using
+          # github.sha here would make BrevEnvironment._sync_repo_to_pr_head
+          # deploy main's code while the harness ran another revision.
+          # git rev-parse HEAD = the commit selected by resolve_ref, so both
           # code sources stay on the same tree.
           export PR_HEAD_SHA="$(git rev-parse HEAD)"
           export PR_REPO="${{ github.repository }}"

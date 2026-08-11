@@ -2,17 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 
 global:
+  # Enable vssIngress for HAProxy path-based routing. Use values-nodeport.yaml for
+  # direct node access (VST on NodePort 30888).
+  vssIngress:
+    enabled: false
+  # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
+  vios:
+    useSdrc: true
   imagePullSecrets:
     - name: ngc-docker-reg-secret
   storageClass: ""
   useReleaseNamePrefix: false
+  externalHost: ""
+  externalPort: ""
 
 bp-configurator:
   enabled: true
   name: bp-configurator-2d
   image:
-    repository: nvcr.io/nvidia/vss-core/vss-configurator
-    tag: "3.2.1"
+    repository: nvcr.io/nvstaging/vss-core/vss-configurator
+    tag: "3.3.0-2026.08.2-1"
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -24,6 +33,8 @@ bp-configurator:
   env:
     - name: SENSOR_INFO_SOURCE
       value: nvstreamer
+    - name: SENSOR_FILE_PATH
+      value: /opt/camera-configs/camera_info.json
     - name: ENABLE_PROFILE_CONFIGURATOR
       value: "false"
     - name: ENABLE_SENSOR_CONFIGURATOR
@@ -35,7 +46,7 @@ bp-configurator:
     - name: SEND_CONFIG_TO_SDR
       value: "false"
     - name: CALL_SENSOR_ADD_API
-      value: "false"
+      value: "true"
     - name: NUM_STREAMS
       value: "3"
     - name: MODE
@@ -69,7 +80,7 @@ bp-configurator:
     - name: WDM_REDIS_STREAM_NAME
       value: vst.event
     - name: WDM_REDIS_MSG_KEY
-      value: sensor.id
+      value: value
     - name: WDM_KFK_MSG_KEY
       value: vst.event
     - name: WDM_KFK_BOOTSTRAP_URL
@@ -84,6 +95,16 @@ bp-configurator:
       value: vst_rtsp
     - name: CHECK_SENSOR_IN_CALIBRATION_FILE
       value: "false"
+    - name: RECOMPUTE_BEV_CENTERS_ENABLED
+      value: "false"
+
+  # camera_info.json for SENSOR_FILE_PATH. optional so the pod still starts when
+  # cameraInfo.enabled is false.
+  configMounts:
+    - name: camera-configs
+      mountPath: /opt/camera-configs
+      configMapName: warehouse-camera-info
+      optional: true
 
 calibration-import:
   enabled: true
@@ -139,8 +160,29 @@ vios:
       streamerVideos: { enabled: true, create: false, existingClaim: "" }
   vss-vios-ingress:
     enabled: true
+    # useSdrc is on, so /vst/api/v1/, /vst/storage/ and the replay-picture route
+    # go through SDRC's Envoy listener instead of hitting VST directly. Matches
+    # nginx-vst-sdrc.conf in the compose profiles. Sensor stays on
+    # vss-vios-sensor:30000 either way.
+    streamprocessingUpstream: "sdrc-controller:10000"
+    service:
+      type: ClusterIP
   vss-vios-nvstreamer:
     enabled: true
+    # Keep in step with bp-configurator NUM_STREAMS.
+    syncFileCount: 3
+    persistence:
+      streamerVideos:
+        enabled: true
+        # hostPath: /opt/vss/customer-videos   # node-local customer videos
+    ngcVideoSeed:
+      enabled: true
+      dataset: warehouse-loading-dock-3cams-synthetic
+      # Reuses the bundle the rtvi-cv NGC job already extracted, so it is not
+      # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
+      # Clear this and set resourceVersion to download independently.
+      fromExistingClaim: vss-rtvi-cv-models
+      resourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
 
 infra:
   enabled: true
@@ -177,6 +219,8 @@ infra:
         ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: "768"
   kibana:
     enabled: true
+    # Matches the /kibana/ ingress path.
+    basePath: /kibana
     init:
       enabled: true
       objectsBundle: warehouse-2d
@@ -275,8 +319,8 @@ analytics:
             }
           ],
           "app": [
+            {"name": "behaviorEmitOnce", "value": "false"},
             {"name": "behaviorWatermarkSec", "value": "30"},
-            {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "200"},
             {"name": "playbackLoop", "value": "10000"},
             {"name": "playbackFilterEmptyObjects", "value": "true"},
@@ -305,16 +349,21 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: "3.3.0-26.07.1"
+      tag: "3.3.0-26.07.2"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
     downloadNgcAppData: true
-    downloadModelsFromNgc: false
+    downloadModelsFromNgc: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcAppDataOrg: nvidia
     ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    ngcModelsToDownload:
+      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        org: nvidia
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:
@@ -330,3 +379,71 @@ rtvi:
         nvidia.com/gpu: 1
       requests:
         nvidia.com/gpu: 1
+
+# Alerts stack, off by default. Enable vss-alert-bridge, agent, and
+# rtvi.vss-rtvi-vlm together to run alerts.
+vss-alert-bridge:
+  enabled: false
+  kafkaBootstrapServers: ""
+  elasticHosts: ""
+  vlmBaseUrl: ""
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+  vstBaseUrl: ""
+  alertReviewMediaBaseDir: ""
+  configVariant: ""
+  waitForDependencies:
+    enabled: true
+
+agent:
+  enabled: false
+  # va-mcp is off in the agent chart by default; alerts needs it.
+  vss-va-mcp:
+    enabled: true
+
+# Prometheus + Grafana (K8s port of deploy/docker/services/monitoring).
+# dcgmExporter stays off because the NVIDIA GPU operator already runs
+# nvidia-dcgm-exporter, which Prometheus scrapes via prometheus.gpuOperator.
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    # Matches the /prometheus/ ingress path.
+    routePrefix: /prometheus
+  grafana:
+    enabled: true
+    # Matches the /grafana/ ingress path. Set the full external URL when the
+    # ingress host or port differs.
+    rootUrl: http://localhost:8080/grafana
+  nodeExporter:
+    enabled: true
+  dcgmExporter:
+    enabled: false
+
+# Live RTSP cameras. Enable, list the sensors, then switch the bp-configurator
+# env SENSOR_INFO_SOURCE to "file" so the configurator registers these with VST
+# instead of discovering nvstreamer files.
+cameraInfo:
+  enabled: false
+  configMapName: warehouse-camera-info
+  sensors: []
+    # - camera_name: cam-01
+    #   rtsp_url: rtsp://10.0.0.10:554/stream
+    #   group_id: dock
+    #   region: north
+
+# HAProxy Ingress, mirroring the vss-haproxy-ingress compose service.
+# Optional HAProxy path-based ingress (requires a cluster-wide HAProxy ingress
+# controller). Off by default. Use values-nodeport.yaml to expose VST on NodePort 30888.
+# To enable: --set global.vssIngress.enabled=true --set global.externalHost=<HOST>
+vssIngress:
+  enabled: false
+  resourceName: ""
+  ingressClassName: haproxy
+  host: ""
+  vstPort: 30888
+  videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
+  kibanaPort: 5601
+  nvstreamerPort: 31000
+  grafanaPort: 3000
+  prometheusPort: 9090

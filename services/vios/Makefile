@@ -51,9 +51,9 @@ TEST_TARGET := vst_test
 
 # Version for projects
 # Applicable for Rosie, VST, Tokkio
-VST_VERSION = 2.1.0-26.05.4
-MMS_VERSION = 2.1.0-26.05.4
-STREAMER_VERSION = 2.1.0-26.05.4
+VST_VERSION = 2.1.0-26.07.1
+MMS_VERSION = 2.1.0-26.07.1
+STREAMER_VERSION = 2.1.0-26.07.1
 
 SRCS := \
 	src/app/Main.cpp \
@@ -93,6 +93,8 @@ SRCS := \
 	src/framework/notification/kafka/kafka_consumer.cpp \
 	src/framework/notification/mqtt/mqtt_publisher.cpp \
 	src/framework/notification/mqtt/mqtt_subscriber.cpp \
+	src/framework/notification/webhook/webhook_notifier.cpp \
+	src/framework/notification/composite_notifier.cpp \
 	src/framework/notification/ds_proto_parser.cpp \
 	src/framework/protocols/prometheus_client/prometheus_client.cpp
 
@@ -115,7 +117,7 @@ OVERLAY_SRCS := \
 PREBUILT_DIR=prebuilts/$(arch)/
 PREBUILT_ARCH=prebuilts/$(arch)/
 
-CPPFLAGS := -std=c++17 -fPIC -pthread -DHAVE_JPEG -DWEBRTC_POSIX -DWEBRTC_USE_H264 -DHAVE_LIVE555 -DRTC_DCHECK_IS_ON=0 -Wno-attributes \
+CPPFLAGS := -std=c++20 -fPIC -pthread -DHAVE_JPEG -DWEBRTC_POSIX -DWEBRTC_ENABLE_SYMBOL_EXPORT -DHAVE_LIVE555 -DRTC_DCHECK_IS_ON=0 -Wno-attributes \
 		-DVST_VERSION="\"$(VST_VERSION)\"" -DMMS_VERSION="\"$(MMS_VERSION)\"" -DSTREAMER_VERSION="\"$(STREAMER_VERSION)\"" \
 		-DMODULE_ID="\"$(MODULE)\"" \
 		-DUSE_CUOSD \
@@ -201,10 +203,15 @@ CPPFLAGS += \
 			-I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/jsoncpp/source/include \
 			-I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/jsoncpp/generated \
 			-I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/libyuv/include \
+			-I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp \
 			-I $(TOP)/src/modules/webrtc_live \
 			-I $(TOP)/src/modules/webrtc_replay \
 			-I $(TOP)/src/modules/webrtc_stream_bridge \
-			-O3 -Werror -Wall -Wno-error=varargs
+			-O3 -Werror -Wall -Wno-error=varargs \
+			-Wno-unknown-pragmas \
+			-Wno-changes-meaning \
+			-Wno-error=deprecated \
+			-Wno-error=deprecated-enum-enum-conversion
 
 ifeq ($(arch),aarch64)
 CPPFLAGS += -Wno-error=overloaded-virtual -Wno-error=deprecated-declarations -DARCH="\"$(arch)\""
@@ -217,12 +224,10 @@ ifeq ($(arch),x86_64)
 CPPFLAGS += -I $(HOME)/.local/include \
 			-I /usr/local/cuda/include \
 			-I /usr/local/cuda/ \
-			-I ./src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp \
 			`pkg-config --cflags opencv4`
 CPPFLAGS += -DGPU_ACCELERATE -Wno-error=deprecated-declarations
 LDFLAGS += -lldap -llber
 else # Jetson or sbsa
-	CPPFLAGS +=	-I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp
 	CPPFLAGS += -I $(SYSROOT)/usr/include/opencv4/ \
 				-I $(SYSROOT)/usr/include/
 	LDFLAGS += -L $(SYSROOT)/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/lapack/liblapack.so.3
@@ -428,8 +433,8 @@ LDFLAGS += -L$(PREBUILT_DIR) -ljsoncpp -lcurl -L$(PREBUILT_ARCH) -llivemedia -ln
 		   -lboost_system -lboost_filesystem -lboost_regex -lstream_monitor $(MODULE_LIBS) -lnvstatistics -lboost_thread $(OTEL_LIBS) -Wl,--disable-new-dtags
 
 ifeq ($(arch),x86_64)
-LDFLAGS += -lprotobuf
-LDFLAGS += -lgrpc `pkg-config --libs opencv4`
+# The wrapper itself carries NEEDED entries for the upstream gRPC/protobuf/Abseil stack.
+LDFLAGS += -Wl,-rpath-link,/usr/local/lib -Wl,-rpath-link,/usr/local/lib/x86_64-linux-gnu $(shell pkg-config --libs opencv4 2>/dev/null)
 endif
 
 .EXPORT_ALL_VARIABLES:
@@ -613,7 +618,9 @@ TEST_SRCS := test/gtests/test_main.cpp \
              test/gtests/recorder.cpp \
              test/gtests/rtspserver.cpp \
              test/gtests/replaystream.cpp \
-             test/gtests/livestream.cpp
+             test/gtests/livestream.cpp \
+             test/gtests/async_http_client.cpp \
+             test/gtests/webhook_notifier.cpp
 
 TEST_OBJS := $(TEST_SRCS:.cpp=.o)
 
@@ -661,7 +668,7 @@ TEST_BASE_LIBS := -lldap -llber -L$(PREBUILT_DIR) -ljsoncpp -lcurl -L$(PREBUILT_
 
 # Add arch-specific libs and boost_thread (needed by webrtc_streamer)
 ifeq ($(arch),x86_64)
-TEST_BASE_LIBS += -lprotobuf -lgrpc `pkg-config --libs opencv4` -lboost_thread
+TEST_BASE_LIBS += $(GRPC_LIB) `pkg-config --libs opencv4` -lboost_thread
 endif
 
 # Complete linker flags for test executable

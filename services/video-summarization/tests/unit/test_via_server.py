@@ -1071,3 +1071,71 @@ class TestHealthMetadataAdditional:
     def test_v1_startup_returns_empty_body(self, test_client):
         resp = test_client.get("/v1/startup")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# DELETE /assets/{asset_id}/index — NVBug 6465125
+# ---------------------------------------------------------------------------
+
+
+SAMPLE_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+
+@pytest.mark.unit
+class TestDeleteAssetIndexRoute:
+    def test_delete_index_success(self, test_client, mock_via_server):
+        mock_via_server._stream_handler.drop_collection_for_asset.return_value = {
+            "acknowledged": True
+        }
+        resp = test_client.delete(f"/assets/{SAMPLE_UUID}/index")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["asset_id"] == SAMPLE_UUID
+        assert data["deleted"] is True
+        assert data["detail"] is None
+        mock_via_server._stream_handler.drop_collection_for_asset.assert_called_once_with(
+            SAMPLE_UUID, force_legacy=True
+        )
+
+    def test_delete_index_skipped_ca_rag_disabled(self, test_client, mock_via_server):
+        mock_via_server._stream_handler.drop_collection_for_asset.return_value = {
+            "skipped": True,
+            "reason": "ca-rag disabled",
+        }
+        resp = test_client.delete(f"/assets/{SAMPLE_UUID}/index")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is False
+        assert data["detail"] == "ca-rag disabled"
+
+    def test_delete_index_skipped_kafka_disabled(self, test_client, mock_via_server):
+        mock_via_server._stream_handler.drop_collection_for_asset.return_value = {
+            "skipped": True,
+            "reason": "KAFKA_ENABLED=false",
+        }
+        resp = test_client.delete(f"/assets/{SAMPLE_UUID}/index")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is False
+        assert data["detail"] == "KAFKA_ENABLED=false"
+
+    def test_delete_index_error_from_drop_collection(self, test_client, mock_via_server):
+        mock_via_server._stream_handler.drop_collection_for_asset.return_value = {
+            "error": "connection refused"
+        }
+        resp = test_client.delete(f"/assets/{SAMPLE_UUID}/index")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is False
+        assert data["detail"] == "connection refused"
+
+    def test_delete_index_handler_raises_returns_500(self, test_client, mock_via_server):
+        mock_via_server._stream_handler.drop_collection_for_asset.side_effect = RuntimeError(
+            "unexpected"
+        )
+        resp = test_client.delete(f"/assets/{SAMPLE_UUID}/index")
+        assert resp.status_code == 500
+
+    def test_delete_index_invalid_uuid_returns_422(self, test_client):
+        resp = test_client.delete("/assets/not-a-valid-uuid/index")
+        assert resp.status_code == 422

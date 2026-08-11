@@ -21,9 +21,9 @@ from mdx.analytics.core.constants import ROIDirection
 from mdx.analytics.core.transform.event.roi_event import ROIEvent
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import (
-    ROI, Point2D, Behavior, GeoLocation, Point
+    ROI, Bbox, Point2D, Behavior, GeoLocation, Point
 )
-from mdx.analytics.core.transform.calibration.calibration_base import CalibrationBase
+from mdx.analytics.core.transform.calibration.calibration_base import CalibrationBase, CalibrationType
 
 
 class TestROIEventInitialization:
@@ -65,8 +65,8 @@ class TestROIEventInitialization:
             mock_base_init.assert_called_once_with(config, calibration, ROIDirection, "roi", "ROIEvent")
 
 
-class TestROIEventCheckPointFunctionality:
-    """Test suite for _check_point method functionality."""
+class TestROIEventIsInsideFunctionality:
+    """Test suite for _is_inside method functionality."""
     
     def setup_method(self):
         """Set up test fixtures before each test method."""
@@ -74,8 +74,8 @@ class TestROIEventCheckPointFunctionality:
         self.mock_calibration = Mock(spec=CalibrationBase)
         self.roi_event = ROIEvent(self.mock_config, self.mock_calibration)
     
-    def test_check_point_inside_roi(self):
-        """Test _check_point when point is inside ROI."""
+    def test_is_inside_when_point_in_roi(self):
+        """Test _is_inside when point is inside ROI."""
         point = Point2D(x=10.0, y=20.0)
         sensor_id = "sensor1"
         roi_id = "roi1"
@@ -83,13 +83,13 @@ class TestROIEventCheckPointFunctionality:
         # Mock calibration to return True (point inside)
         self.mock_calibration.point_in_polygon.return_value = True
         
-        result = self.roi_event._check_point(point, sensor_id, roi_id)
+        result = self.roi_event._is_inside(point, sensor_id, roi_id)
         
         assert result is True
         self.mock_calibration.point_in_polygon.assert_called_once_with(point, sensor_id, roi_id)
     
-    def test_check_point_outside_roi(self):
-        """Test _check_point when point is outside ROI."""
+    def test_is_inside_when_point_outside_roi(self):
+        """Test _is_inside when point is outside ROI."""
         point = Point2D(x=100.0, y=200.0)
         sensor_id = "sensor2"
         roi_id = "roi2"
@@ -97,40 +97,40 @@ class TestROIEventCheckPointFunctionality:
         # Mock calibration to return False (point outside)
         self.mock_calibration.point_in_polygon.return_value = False
         
-        result = self.roi_event._check_point(point, sensor_id, roi_id)
+        result = self.roi_event._is_inside(point, sensor_id, roi_id)
         
         assert result is False
         self.mock_calibration.point_in_polygon.assert_called_once_with(point, sensor_id, roi_id)
     
-    def test_check_point_with_zero_coordinates(self):
-        """Test _check_point with zero coordinates."""
+    def test_is_inside_with_zero_coordinates(self):
+        """Test _is_inside with zero coordinates."""
         point = Point2D(x=0.0, y=0.0)
         sensor_id = "sensor1"
         roi_id = "roi1"
         
         self.mock_calibration.point_in_polygon.return_value = True
         
-        result = self.roi_event._check_point(point, sensor_id, roi_id)
+        result = self.roi_event._is_inside(point, sensor_id, roi_id)
         
         assert result is True
         self.mock_calibration.point_in_polygon.assert_called_once_with(point, sensor_id, roi_id)
     
-    def test_check_point_with_negative_coordinates(self):
-        """Test _check_point with negative coordinates."""
+    def test_is_inside_with_negative_coordinates(self):
+        """Test _is_inside with negative coordinates."""
         point = Point2D(x=-50.0, y=-30.0)
         sensor_id = "sensor1"
         roi_id = "roi1"
         
         self.mock_calibration.point_in_polygon.return_value = False
         
-        result = self.roi_event._check_point(point, sensor_id, roi_id)
+        result = self.roi_event._is_inside(point, sensor_id, roi_id)
         
         assert result is False
         self.mock_calibration.point_in_polygon.assert_called_once_with(point, sensor_id, roi_id)
 
 
-class TestROIEventCheckPointErrorHandling:
-    """Test suite for _check_point method error handling."""
+class TestROIEventIsInsideErrorHandling:
+    """Test suite for _is_inside method error handling."""
     
     def setup_method(self):
         """Set up test fixtures before each test method."""
@@ -138,8 +138,8 @@ class TestROIEventCheckPointErrorHandling:
         self.mock_calibration = Mock(spec=CalibrationBase)
         self.roi_event = ROIEvent(self.mock_config, self.mock_calibration)
     
-    def test_check_point_calibration_raises_exception(self):
-        """Test _check_point when calibration raises exception."""
+    def test_is_inside_calibration_raises_exception(self):
+        """Test _is_inside when calibration raises exception."""
         point = Point2D(x=10.0, y=20.0)
         sensor_id = "sensor1"
         roi_id = "roi1"
@@ -148,7 +148,7 @@ class TestROIEventCheckPointErrorHandling:
         self.mock_calibration.point_in_polygon.side_effect = Exception("Calibration error")
         
         with pytest.raises(Exception, match="Calibration error"):
-            self.roi_event._check_point(point, sensor_id, roi_id)
+            self.roi_event._is_inside(point, sensor_id, roi_id)
 
 
 class TestROIEventGetObjectsFunctionality:
@@ -267,8 +267,8 @@ class TestROIEventGetObjectsErrorHandling:
         assert result is None
 
 
-class TestROIEventIntersectFunctionality:
-    """Test suite for _intersect method functionality."""
+class TestROIEventCrossesFunctionality:
+    """Test suite for _crosses method functionality."""
     
     def setup_method(self):
         """Set up test fixtures before each test method."""
@@ -276,48 +276,48 @@ class TestROIEventIntersectFunctionality:
         self.mock_calibration = Mock(spec=CalibrationBase)
         self.roi_event = ROIEvent(self.mock_config, self.mock_calibration)
     
-    def test_intersect_start_inside_end_outside(self):
-        """Test _intersect when start point inside, end point outside."""
+    def test_crosses_start_inside_end_outside(self):
+        """Test _crosses when start point inside, end point outside."""
         trip = [Point2D(x=10, y=10), Point2D(x=20, y=20), Point2D(x=100, y=100)]
         sensor_id = "sensor1"
         roi_id = "roi1"
         
         # Mock check_point to return True for start, False for end
-        def mock_check_point(point, sensor, roi):
+        def mock_is_inside(point, sensor, roi):
             if point == trip[0]:  # Start point
                 return True
             elif point == trip[-1]:  # End point
                 return False
             return False
         
-        self.mock_calibration.point_in_polygon.side_effect = mock_check_point
+        self.mock_calibration.point_in_polygon.side_effect = mock_is_inside
         
-        result = self.roi_event._intersect(trip, sensor_id, roi_id)
+        result = self.roi_event._crosses(trip, sensor_id, roi_id)
         
         assert result is True  # start_position (True) != end_position (False)
     
-    def test_intersect_start_outside_end_inside(self):
-        """Test _intersect when start point outside, end point inside."""
+    def test_crosses_start_outside_end_inside(self):
+        """Test _crosses when start point outside, end point inside."""
         trip = [Point2D(x=100, y=100), Point2D(x=50, y=50), Point2D(x=10, y=10)]
         sensor_id = "sensor1"
         roi_id = "roi1"
         
         # Mock check_point to return False for start, True for end
-        def mock_check_point(point, sensor, roi):
+        def mock_is_inside(point, sensor, roi):
             if point == trip[0]:  # Start point
                 return False
             elif point == trip[-1]:  # End point
                 return True
             return False
         
-        self.mock_calibration.point_in_polygon.side_effect = mock_check_point
+        self.mock_calibration.point_in_polygon.side_effect = mock_is_inside
         
-        result = self.roi_event._intersect(trip, sensor_id, roi_id)
+        result = self.roi_event._crosses(trip, sensor_id, roi_id)
         
         assert result is True  # start_position (False) != end_position (True)
     
-    def test_intersect_both_inside(self):
-        """Test _intersect when both start and end points are inside."""
+    def test_crosses_both_inside(self):
+        """Test _crosses when both start and end points are inside."""
         trip = [Point2D(x=10, y=10), Point2D(x=20, y=20)]
         sensor_id = "sensor1"
         roi_id = "roi1"
@@ -325,12 +325,12 @@ class TestROIEventIntersectFunctionality:
         # Mock check_point to return True for both
         self.mock_calibration.point_in_polygon.return_value = True
         
-        result = self.roi_event._intersect(trip, sensor_id, roi_id)
+        result = self.roi_event._crosses(trip, sensor_id, roi_id)
         
         assert result is False  # start_position (True) == end_position (True)
     
-    def test_intersect_both_outside(self):
-        """Test _intersect when both start and end points are outside."""
+    def test_crosses_both_outside(self):
+        """Test _crosses when both start and end points are outside."""
         trip = [Point2D(x=100, y=100), Point2D(x=200, y=200)]
         sensor_id = "sensor1"
         roi_id = "roi1"
@@ -338,12 +338,12 @@ class TestROIEventIntersectFunctionality:
         # Mock check_point to return False for both
         self.mock_calibration.point_in_polygon.return_value = False
         
-        result = self.roi_event._intersect(trip, sensor_id, roi_id)
+        result = self.roi_event._crosses(trip, sensor_id, roi_id)
         
         assert result is False  # start_position (False) == end_position (False)
     
-    def test_intersect_single_point_trip(self):
-        """Test _intersect with single point trip."""
+    def test_crosses_single_point_trip(self):
+        """Test _crosses with single point trip."""
         trip = [Point2D(x=10, y=10)]
         sensor_id = "sensor1"
         roi_id = "roi1"
@@ -351,35 +351,35 @@ class TestROIEventIntersectFunctionality:
         # Mock check_point to return True
         self.mock_calibration.point_in_polygon.return_value = True
         
-        result = self.roi_event._intersect(trip, sensor_id, roi_id)
+        result = self.roi_event._crosses(trip, sensor_id, roi_id)
         
         assert result is False  # start_position == end_position (same point)
     
-    def test_intersect_long_trip(self):
-        """Test _intersect with long trip (many points)."""
+    def test_crosses_long_trip(self):
+        """Test _crosses with long trip (many points)."""
         trip = [Point2D(x=i, y=i) for i in range(100)]  # 100 points
         sensor_id = "sensor1"
         roi_id = "roi1"
         
         # Mock check_point: first point inside, last point outside
-        def mock_check_point(point, sensor, roi):
+        def mock_is_inside(point, sensor, roi):
             if point == trip[0]:  # Start point
                 return True
             elif point == trip[-1]:  # End point
                 return False
             return True  # Default for other points
         
-        self.mock_calibration.point_in_polygon.side_effect = mock_check_point
+        self.mock_calibration.point_in_polygon.side_effect = mock_is_inside
         
-        result = self.roi_event._intersect(trip, sensor_id, roi_id)
+        result = self.roi_event._crosses(trip, sensor_id, roi_id)
         
         assert result is True  # start != end
         # Should only call check_point for first and last points
         assert self.mock_calibration.point_in_polygon.call_count == 2
 
 
-class TestROIEventIntersectErrorHandling:
-    """Test suite for _intersect method error handling."""
+class TestROIEventCrossesErrorHandling:
+    """Test suite for _crosses method error handling."""
     
     def setup_method(self):
         """Set up test fixtures before each test method."""
@@ -387,17 +387,17 @@ class TestROIEventIntersectErrorHandling:
         self.mock_calibration = Mock(spec=CalibrationBase)
         self.roi_event = ROIEvent(self.mock_config, self.mock_calibration)
     
-    def test_intersect_empty_trip(self):
-        """Test _intersect with empty trip."""
+    def test_crosses_empty_trip(self):
+        """Test _crosses with empty trip."""
         trip = []
         sensor_id = "sensor1"
         roi_id = "roi1"
         
         with pytest.raises(IndexError):
-            self.roi_event._intersect(trip, sensor_id, roi_id)
+            self.roi_event._crosses(trip, sensor_id, roi_id)
     
-    def test_intersect_check_point_raises_exception(self):
-        """Test _intersect when _check_point raises exception."""
+    def test_crosses_when_is_inside_raises_exception(self):
+        """Test _crosses when _is_inside raises exception."""
         trip = [Point2D(x=10, y=10), Point2D(x=20, y=20)]
         sensor_id = "sensor1"
         roi_id = "roi1"
@@ -406,7 +406,7 @@ class TestROIEventIntersectErrorHandling:
         self.mock_calibration.point_in_polygon.side_effect = Exception("Point check error")
         
         with pytest.raises(Exception, match="Point check error"):
-            self.roi_event._intersect(trip, sensor_id, roi_id)
+            self.roi_event._crosses(trip, sensor_id, roi_id)
 
 
 class TestROIEventIntegration:
@@ -419,7 +419,9 @@ class TestROIEventIntegration:
         
         # Setup realistic return values
         self.mock_config.sensor_tripwire_min_points.return_value = 3
-        
+        # Default coordinate-inside detection mode (bbox off)
+        self.mock_config.roi_event_detection_mode = "coordinate"
+
         # Setup sensor map
         mock_sensor = Mock()
         mock_rois = [
@@ -468,7 +470,9 @@ class TestROIEventIntegration:
         geo_location = Mock(spec=GeoLocation)
         geo_location.coordinates = coordinates
         behavior.locations = geo_location
-        
+        # Per-frame bboxes aligned 1:1 with the trajectory (values irrelevant in coordinate mode).
+        behavior.locationsBboxes = [Bbox() for _ in range(length)]
+
         return behavior
     
     def test_integration_uneven_distribution_no_events(self):
@@ -506,7 +510,7 @@ class TestROIEventIntegration:
         # Since we can't easily create valid Behavior objects due to Pydantic validation,
         # we'll test that the logic gets to the point where it would try to create an event
         # but skip the actual event creation to avoid validation errors
-        with patch.object(self.roi_event, '_intersect', return_value=True):
+        with patch.object(self.roi_event, '_crosses', return_value=True):
             try:
                 result = self.roi_event.get_events(behavior)
                 # If we get here without error, the logic worked up to Behavior creation
@@ -568,8 +572,8 @@ class TestROIEventEdgeCases:
         self.mock_calibration = Mock(spec=CalibrationBase)
         self.roi_event = ROIEvent(self.mock_config, self.mock_calibration)
     
-    def test_intersect_with_extreme_coordinates(self):
-        """Test _intersect with extreme coordinate values."""
+    def test_crosses_with_extreme_coordinates(self):
+        """Test _crosses with extreme coordinate values."""
         trip = [
             Point2D(x=float('inf'), y=float('inf')),
             Point2D(x=float('-inf'), y=float('-inf'))
@@ -578,27 +582,27 @@ class TestROIEventEdgeCases:
         roi_id = "roi1"
         
         # Mock different results for extreme points
-        def mock_check_point(point, sensor, roi):
+        def mock_is_inside(point, sensor, roi):
             if point.x == float('inf'):
                 return True
             else:
                 return False
         
-        self.mock_calibration.point_in_polygon.side_effect = mock_check_point
+        self.mock_calibration.point_in_polygon.side_effect = mock_is_inside
         
-        result = self.roi_event._intersect(trip, sensor_id, roi_id)
+        result = self.roi_event._crosses(trip, sensor_id, roi_id)
         
         assert result is True  # Different positions
     
-    def test_check_point_with_very_large_coordinates(self):
-        """Test _check_point with very large coordinates."""
+    def test_is_inside_with_very_large_coordinates(self):
+        """Test _is_inside with very large coordinates."""
         point = Point2D(x=1e10, y=1e10)
         sensor_id = "sensor1"
         roi_id = "roi1"
         
         self.mock_calibration.point_in_polygon.return_value = False
         
-        result = self.roi_event._check_point(point, sensor_id, roi_id)
+        result = self.roi_event._is_inside(point, sensor_id, roi_id)
         
         assert result is False
         self.mock_calibration.point_in_polygon.assert_called_once_with(point, sensor_id, roi_id)
@@ -614,6 +618,115 @@ class TestROIEventEdgeCases:
         
         with pytest.raises(AttributeError):
             self.roi_event._get_objects(sensor_id)
+
+
+class TestROIEventBboxMode:
+    """Test suite for the configurable bbox-overlap detection mode (image calibration only)."""
+
+    def setup_method(self):
+        """Set up test fixtures before each test method."""
+        self.mock_config = Mock(spec=AppConfig)
+        self.mock_calibration = Mock(spec=CalibrationBase)
+        self.mock_calibration.calibration_type = CalibrationType.IMAGE
+        self.roi_event = ROIEvent(self.mock_config, self.mock_calibration)
+        self.bbox = Bbox(leftX=100.0, topY=100.0, rightX=200.0, bottomY=200.0)
+
+    def test_is_inside_bbox_mode_uses_bbox_overlap(self):
+        """When bbox mode is on and a per-frame bbox is supplied, _is_inside uses bbox_overlaps_polygon."""
+        point = Point2D(x=150.0, y=200.0)
+        self.mock_config.roi_event_detection_mode = "bbox"
+        self.mock_calibration.bbox_overlaps_polygon.return_value = True
+
+        result = self.roi_event._is_inside(point, "sensor1", "roi1", self.bbox)
+
+        assert result is True
+        self.mock_calibration.bbox_overlaps_polygon.assert_called_once_with(
+            self.bbox, "sensor1", "roi1", point
+        )
+        self.mock_calibration.point_in_polygon.assert_not_called()
+
+    def test_is_inside_bbox_mode_without_bbox_falls_back_to_coordinate(self):
+        """Bbox mode falls back to the coordinate check when no per-frame bbox is available."""
+        point = Point2D(x=150.0, y=200.0)
+        self.mock_config.roi_event_detection_mode = "bbox"
+        self.mock_calibration.point_in_polygon.return_value = True
+
+        result = self.roi_event._is_inside(point, "sensor1", "roi1", None)
+
+        assert result is True
+        self.mock_calibration.point_in_polygon.assert_called_once_with(point, "sensor1", "roi1")
+        self.mock_calibration.bbox_overlaps_polygon.assert_not_called()
+
+    def test_is_inside_coordinate_mode_ignores_bbox(self):
+        """With coordinate mode, _is_inside uses the coordinate check even when a bbox is supplied."""
+        point = Point2D(x=150.0, y=200.0)
+        self.mock_config.roi_event_detection_mode = "coordinate"
+        self.mock_calibration.point_in_polygon.return_value = False
+
+        result = self.roi_event._is_inside(point, "sensor1", "roi1", self.bbox)
+
+        assert result is False
+        self.mock_calibration.point_in_polygon.assert_called_once_with(point, "sensor1", "roi1")
+        self.mock_calibration.bbox_overlaps_polygon.assert_not_called()
+
+    def test_crosses_bbox_mode_uses_endpoint_bboxes(self):
+        """_crosses uses the start/end per-frame bboxes so it stays consistent with get_events."""
+        trip = [Point2D(x=10.0, y=10.0), Point2D(x=20.0, y=20.0), Point2D(x=300.0, y=300.0)]
+        start_bbox = Bbox(leftX=0.0, topY=0.0, rightX=10.0, bottomY=10.0)
+        end_bbox = Bbox(leftX=290.0, topY=290.0, rightX=310.0, bottomY=310.0)
+        bboxes = [start_bbox, self.bbox, end_bbox]
+        self.mock_config.roi_event_detection_mode = "bbox"
+        # First point overlaps, last point does not -> crossing detected
+        self.mock_calibration.bbox_overlaps_polygon.side_effect = [True, False]
+
+        result = self.roi_event._crosses(trip, "sensor1", "roi1", bboxes)
+
+        assert result is True
+        assert self.mock_calibration.bbox_overlaps_polygon.call_count == 2
+        self.mock_calibration.bbox_overlaps_polygon.assert_any_call(
+            start_bbox, "sensor1", "roi1", trip[0]
+        )
+        self.mock_calibration.bbox_overlaps_polygon.assert_any_call(
+            end_bbox, "sensor1", "roi1", trip[-1]
+        )
+
+    def test_is_inside_bbox_mode_falls_back_for_cartesian(self):
+        """Bbox mode falls back to the coordinate check for cartesian calibration (unit mismatch)."""
+        point = Point2D(x=5.0, y=12.0)
+        self.mock_config.roi_event_detection_mode = "bbox"
+        self.mock_calibration.calibration_type = CalibrationType.CARTESIAN
+        self.mock_calibration.point_in_polygon.return_value = True
+
+        result = self.roi_event._is_inside(point, "sensor1", "roi1", self.bbox)
+
+        assert result is True
+        self.mock_calibration.point_in_polygon.assert_called_once_with(point, "sensor1", "roi1")
+        self.mock_calibration.bbox_overlaps_polygon.assert_not_called()
+
+    def test_is_inside_bbox_mode_falls_back_for_geo(self):
+        """Bbox mode falls back to the coordinate check for geo calibration (unit mismatch)."""
+        point = Point2D(x=-73.9, y=40.7)
+        self.mock_config.roi_event_detection_mode = "bbox"
+        self.mock_calibration.calibration_type = CalibrationType.GEO
+        self.mock_calibration.point_in_polygon.return_value = False
+
+        result = self.roi_event._is_inside(point, "sensor1", "roi1", self.bbox)
+
+        assert result is False
+        self.mock_calibration.point_in_polygon.assert_called_once_with(point, "sensor1", "roi1")
+        self.mock_calibration.bbox_overlaps_polygon.assert_not_called()
+
+    def test_bbox_mode_unsupported_warns_once(self):
+        """The unsupported-calibration fallback warning is emitted only once per ROIEvent instance."""
+        point = Point2D(x=5.0, y=12.0)
+        self.mock_config.roi_event_detection_mode = "bbox"
+        self.mock_calibration.calibration_type = CalibrationType.CARTESIAN
+        self.mock_calibration.point_in_polygon.return_value = False
+
+        with patch("mdx.analytics.core.transform.event.roi_event.logger") as mock_logger:
+            self.roi_event._is_inside(point, "sensor1", "roi1", self.bbox)
+            self.roi_event._is_inside(point, "sensor1", "roi1", self.bbox)
+            assert mock_logger.warning.call_count == 1
 
 
 if __name__ == "__main__":

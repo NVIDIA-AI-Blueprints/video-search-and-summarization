@@ -222,7 +222,7 @@ class SourceRedisStream(Source):
                     time.sleep(wait_between)
 
         raise RuntimeError(
-            f"FATAL - Failed to set up Redis consumer group after {max_attempts} attempts\n"
+            f"Failed to set up Redis consumer group after {max_attempts} attempts\n"
             f"  Host: {self._config.host}:{self._config.port}\n"
             f"  Stream: {stream}\n"
             f"  Group ID: {group_id}\n"

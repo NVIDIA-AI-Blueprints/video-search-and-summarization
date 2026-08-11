@@ -1,0 +1,7 @@
+{
+  "vss-rtvi-cv": {
+    "provisioning_address": "vss-rtvi-cv:9000",
+    "routing_address": "vss-rtvi-cv:9000",
+    "process_type": "docker"
+  }
+}

@@ -12,7 +12,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile with the **`video_understanding` tool** exposed on the VSS agent. VSS agent HTTP API on **8000** (e.g. `http://localhost:8000/docs`), VST reachable at http://localhost:30888/vst/api/v1. Use **remote-all** (remote LLM + VLM) so no local NIMs are required.Set Brev secure-link env vars if checks validate `localhost` media URLs. The skill's canonical pattern is `POST /generate` with `input_message` that instructs the agent to use **`video_understanding`** to answer a **visual** question about a **named sensor** (see `skills/vss-ask-video/SKILL.md`).",
+      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile on the target host: VST reachable at http://localhost:30888/vst/api/v1, VLM endpoint reachable at either ${VLM_BASE_URL}/v1 (NIM Cosmos, picked when VLM_BASE_URL non-empty and VLM_MODE != none) or ${RTVI_VLM_BASE_URL}/v1 (RT-VLM Cosmos, picked otherwise; base default port 30082, alerts default 8018). Read VLM_BASE_URL / VLM_NAME / VLM_MODE / RTVI_VLM_BASE_URL off the vss-agent container env. The skill answers a visual question by calling the resolved VLM endpoint's /v1/chat/completions directly with a video_url block (it does NOT call POST /generate). The chosen VLM endpoint must be able to fetch the VST clip URL; prefer local NIM/RT-VLM unless the clip URL is externally reachable by the remote VLM. Set Brev secure-link vars if checks validate media URLs. (See `skills/vss-ask-video/SKILL.md`).",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
@@ -30,26 +30,29 @@
       ]
     },
     {
-      "query": "Verify the VSS stack is ready for the **vss-ask-video** skill. Confirm the agent serves OpenAPI at `/docs` and that VST lists at least one stream.",
+      "query": "Verify the VSS stack is ready for the **vss-ask-video** skill. Confirm VST is reachable and lists at least one stream, and that a VLM endpoint resolves.",
       "checks": [
-        "curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://localhost:8000/docs returns 200",
-        "curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams returns HTTP 200 and a non-empty JSON body"
+        "curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://localhost:30888/vst/api/v1/sensor/version returns 200",
+        "curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams returns HTTP 200 and a non-empty JSON body",
+        "Either VLM_BASE_URL + VLM_NAME (NIM Cosmos) or RTVI_VLM_BASE_URL + VLM_NAME (RT-VLM Cosmos) are resolvable from the vss-agent container environment (read via `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`; the image is distroless so `docker exec vss-agent env` will not work), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"
       ]
     },
     {
       "query": "Is the worker in warehouse_safety_0001 wearing PPE?",
       "checks": [
-        "The run performed at least one successful `POST` to `http://localhost:8000/generate` (or equivalent agent base) with `Content-Type: application/json` and a body including `input_message` (HTTP 2xx).",
-        "The `input_message` text asks the user question and includes the sensor id warehouse_safety_0001",
-        "The final assistant reply is answers plain text or light markdown that the worker is wearing PPE according to the user question. There should be no errors included in the final response."
+        "The run performed at least one successful GET to a VST clip-URL endpoint of the form http://localhost:30888/vst/api/v1/storage/file/<streamId>/url with startTime and endTime query params and returned a JSON body containing videoUrl (the clip is sourced through /vss-manage-video-io-storage).",
+        "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint (either ${VLM_BASE_URL}/v1 for NIM Cosmos or ${RTVI_VLM_BASE_URL}/v1 for RT-VLM Cosmos), with Content-Type application/json, a JSON body containing the resolved model id and a messages array whose first user content list contains both a text block with the user's question and a video_url block referencing the clip URL from the prior step; HTTP 2xx.",
+        "The run did NOT POST to http://localhost:8000/generate.",
+        "The final assistant reply answers in plain text or light markdown whether the worker is wearing PPE according to the user question, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
       ]
     },
     {
       "query": "At what timestamp did the worker climb up the ladder?",
       "checks": [
-        "The run performed at least one successful `POST` to `http://localhost:8000/generate` (or equivalent agent base) with `Content-Type: application/json` and a body including `input_message` (HTTP 2xx).",
-        "The `input_message` text asks the user question and includes the sensor id warehouse_safety_0001",
-        "The final assistant reply answers the question in plain text or light markdown and includes a timestamp. There should be no errors included in the final response."
+        "The run performed at least one successful GET to a VST clip-URL endpoint of the form http://localhost:30888/vst/api/v1/storage/file/<streamId>/url with startTime and endTime query params and returned a JSON body containing videoUrl.",
+        "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint with a video_url block referencing that clip URL and the user's question as a text block; HTTP 2xx.",
+        "The run did NOT POST to http://localhost:8000/generate.",
+        "The final assistant reply answers the question in plain text or light markdown and includes a timestamp, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
       ]
     }
   ]

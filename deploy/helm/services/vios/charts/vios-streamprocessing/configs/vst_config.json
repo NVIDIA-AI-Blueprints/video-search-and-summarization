@@ -24,7 +24,7 @@
 		"rtcp_rtp_port_multiplex": true,
 		"rtsp_in_base_udp_port_num": -1,
 		"rtsp_out_base_udp_port_num": -1,
-		"rtsp_streaming_over_tcp": false,
+		"rtsp_streaming_over_tcp": true,
 		"rtsp_server_reclamation_client_timeout_sec": 10,
 		"rx_socket_buffer_size":1000000,
 		"tx_socket_buffer_size":1000000,
@@ -148,20 +148,6 @@
 		"download_files_timeout_secs": 120,
 		"picture_api_timeout_secs": 20
 	},
-	"notifications":
-	{
-		"enable_notification": true,
-		"enable_notification_consumer": true,
-		"use_message_broker_consumer" : "redis",
-		"message_broker_topic_consumer": "mdx-raw",
-		"use_message_broker" : "redis",
-		"message_broker_payload_key": "sensor.id",
-		"message_broker_topic": "vst.event",
-		"message_broker_metadata_topic": "mdx-raw",
-		"redis_server_env_var": "__REDIS_ADDRESS__",
-		"kafka_server_address": "__KAFKA_ADDRESS__",
-		"mqtt_broker_address": "__MQTT_BROKER_ADDRESS__"
-	},
 	"debug":
 	{
 		"enable_perf_logging":true,
@@ -186,7 +172,7 @@
 		"video_metadata_query_batch_size_num_frames": 300,
 		"use_video_metadata_protobuf": true,
 		"enable_gem_drawing": true,
-		"analytic_server_address": "",
+		"analytic_server_address": "__ANALYTICS_SERVER_ADDRESS__",
 		"calibration_file_path": "/home/vst/vst_release/configs/calibration.json",
 		"calibration_file_endpoint": "__CALIBRATION_FILE_ENDPOINT__",
 		"3d_overlay_sensor_name": "",

@@ -131,6 +131,27 @@ function get_vlm_slug() {
   esac
 }
 
+# Hardware-specific RTVI local VLM GPU memory utilization (empty = keep compose/env default).
+# Matches deploy/docker/scripts/dev-profile.sh for RTXPRO4500BW.
+function get_rtvi_vllm_gpu_memory_utilization() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTXPRO4500BW) echo "0.8" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Hardware-specific RTVI local VLM max model length (empty = keep compose/env default).
+# Matches deploy/docker/scripts/dev-profile.sh.
+function get_rtvi_vlm_max_model_len() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTXPRO4500BW) echo "18000" ;;
+    *) echo "" ;;
+  esac
+}
+
+
 # Gets model name from remote API endpoint (works for both LLM and VLM)
 function get_remote_model_name() {
   local _base_url="${1}"
@@ -651,23 +672,10 @@ function process_args() {
       fi
     fi
 
-    if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
+    if [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
       if [[ -z "${ngc_cli_api_key}" ]]; then
-        local _llm_mode _vlm_mode
-        if contains_element "use-remote-llm" "${options_provided[@]}"; then
-          _llm_mode="remote"
-        else
-          _llm_mode="$(get_env_value_from_files "LLM_MODE" "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env")"
-        fi
-        if contains_element "use-remote-vlm" "${options_provided[@]}"; then
-          _vlm_mode="remote"
-        else
-          _vlm_mode="$(get_env_value_from_files "VLM_MODE" "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env")"
-        fi
-        if [[ "${_llm_mode}" =~ ^(local|local_shared)$ ]] || [[ "${_vlm_mode}" =~ ^(local|local_shared)$ ]]; then
-          echo "[ERROR] NGC_CLI_API_KEY is required for 'up' when LLM_MODE or VLM_MODE is local or local_shared (warehouse bp_wh)"
-          ((_all_good++))
-        fi
+        echo "[ERROR] NGC_CLI_API_KEY is required for 'up' (warehouse RT-CV model downloads via compose init; also required for local NIM when BP_PROFILE=bp_wh)"
+        ((_all_good++))
       fi
     fi
   fi
@@ -868,6 +876,19 @@ function state_up() {
     if [[ "${_vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
+    # RTVI local VLM sizing for RTXPRO4500BW (same as dev-profile.sh).
+    # Remote VLM does not host the model locally.
+    if [[ "${_vlm_mode}" != "remote" ]]; then
+      local _rtvi_vllm_gpu_memory_utilization _rtvi_vlm_max_model_len
+      _rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
+      if [[ -n "${_rtvi_vllm_gpu_memory_utilization}" ]]; then
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_rtvi_vllm_gpu_memory_utilization}"
+      fi
+      _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+      if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
+        set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_rtvi_vlm_max_model_len}"
+      fi
+    fi
     if [[ -n "${llm_base_url}" ]]; then
       set_env_var "LLM_BASE_URL" "${llm_base_url}"
     fi
@@ -919,8 +940,7 @@ function state_up() {
     set_env_var "NUM_STREAMS" "${_num_streams}"
 
     # Select explicit service-list variable for the active warehouse variant.
-    local _minimal_profile _cp_var
-    _minimal_profile="$(get_env_value_from_files "MINIMAL_PROFILE" "${_source_env}" "${_overrides_env}")"
+    local _cp_var
     case "${bp_profile}_${mode}" in
       bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
       bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
@@ -937,9 +957,6 @@ function state_up() {
         return 1
         ;;
     esac
-    if [[ -n "${_minimal_profile}" ]] && ([[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]); then
-      _cp_var="${_cp_var}_MINIMAL"
-    fi
     set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
   fi
 
@@ -971,13 +988,37 @@ function state_up() {
     fi
     mkdir -p "${data_directory}/videos/${_sample_dataset}"
     mkdir -p "${data_directory}/playback"
-    if [[ "${mode}" == "mv3dt" ]]; then
-      mkdir -p "${data_directory}/models/mv3dt/BodyPose3DNet"
+    mkdir -p "${data_directory}/models"
+    chmod -R 777 "${data_directory}/models" 2>/dev/null || true
+    if [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
+      echo "[INFO] Warehouse RT-CV model download runs in ds-start phase 0 (perception / ds-start-mv3dt)."
     fi
   fi
 
   echo "[INFO] Setting permissions on data_log directory..."
   chmod -R 777 "${data_directory}/data_log" 2>/dev/null || true
+
+  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
+  local _compose_file_args_text=" ${_compose_file_args[*]}"
+  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
+
+  # Resolve and display the managed container channel before deployment.
+  set -a
+  # shellcheck disable=SC1091
+  source "${deployment_directory}/containers.env"
+  set +a
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  echo "[INFO] Resolved compose images:"
+  (
+    cd "${deployment_directory}"
+    docker compose \
+      "${_compose_file_args[@]}" \
+      --env-file containers.env \
+      --env-file "${_deploy_rel}/.env" \
+      --env-file "${_deploy_rel}/generated.env" \
+      config --images | sort -u
+  )
 
   echo "[INFO] Logging into nvcr.io..."
   if [[ "${dry_run}" == "true" ]]; then
@@ -989,22 +1030,24 @@ function state_up() {
       nvcr.io 2>/dev/null || echo "[WARN] Docker login to nvcr.io may have failed (required for pulling images)"
   fi
 
-  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
-  local _compose_file_args_text=" ${_compose_file_args[*]}"
-  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
-
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file containers.env --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
   else
-    cd "${deployment_directory}" && docker compose \
-      "${_compose_file_args[@]}" \
-      --env-file "${_deploy_rel}/.env" \
-      --env-file "${_deploy_rel}/generated.env" \
-      up \
-      --detach \
-      --force-recreate \
-      --build
+    if ! (
+      cd "${deployment_directory}" && docker compose \
+        "${_compose_file_args[@]}" \
+        --env-file containers.env \
+        --env-file "${_deploy_rel}/.env" \
+        --env-file "${_deploy_rel}/generated.env" \
+        up \
+        --detach \
+        --force-recreate \
+        --build
+    ); then
+      echo "[ERROR] docker compose up failed for deployment '${deployment}'"
+      return 1
+    fi
   fi
 
   echo "[INFO] State up completed"
@@ -1119,10 +1162,24 @@ function run_data_log_cleanup() {
 }
 
 function state_down() {
-  local _deploy_dir_names _deploy_dir_name _generated_env
+  local _deploy_dir_names _deploy_dir_name _deploy_dir _source_env _overrides_env _generated_env
+
+  _deploy_dir_names=('industry-profiles/warehouse-operations')
+
+  local _compose_project_name="${COMPOSE_PROJECT_NAME:-}"
+  if [[ -z "${_compose_project_name}" ]]; then
+    for _deploy_dir_name in "${_deploy_dir_names[@]}"; do
+      _deploy_dir="${deployment_directory}/${_deploy_dir_name}"
+      _source_env="${_deploy_dir}/.env"
+      _overrides_env="${_deploy_dir}/overrides.env"
+      _generated_env="${_deploy_dir}/generated.env"
+      _compose_project_name="$(get_env_value_from_files "COMPOSE_PROJECT_NAME" "${_source_env}" "${_overrides_env}" "${_generated_env}")"
+      [[ -n "${_compose_project_name}" ]] && break
+    done
+  fi
+  _compose_project_name="${_compose_project_name:-vss}"
 
   echo "[INFO] Cleaning up generated.env files from warehouse..."
-  _deploy_dir_names=('industry-profiles/warehouse-operations')
   for _deploy_dir_name in "${_deploy_dir_names[@]}"; do
     _generated_env="${deployment_directory}/${_deploy_dir_name}/generated.env"
     if [[ -f "${_generated_env}" ]]; then
@@ -1135,11 +1192,11 @@ function state_down() {
     fi
   done
 
-  echo "[INFO] Bringing down docker compose project 'mdx' (with volumes)..."
+  echo "[INFO] Bringing down docker compose project '${_compose_project_name}' (with volumes)..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] docker compose -p mdx down -v --remove-orphans"
+    echo "[DRY-RUN] docker compose -p ${_compose_project_name} down -v --remove-orphans"
   else
-    docker compose -p mdx down -v --remove-orphans
+    docker compose -p "${_compose_project_name}" down -v --remove-orphans
   fi
 
   echo "[INFO] Removing dangling docker volumes..."
@@ -1187,3 +1244,4 @@ if [[ "${desired_state}" == "up" ]]; then
 elif [[ "${desired_state}" == "down" ]]; then
   state_down
 fi
+

@@ -211,6 +211,7 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
             ,mega_simulation_delay_max_ms (5000)
             ,mega_simulation_base_time("")
             ,default_file_expiry_minutes(DEFAULT_FILE_EXPIRY_MINUTES)
+            ,disable_url_caching(false)
             ,ingress_endpoint(DEFAULT_INGRESS_ENDPOINT)
             ,use_webrtc_hw_dec(true)
             ,recorder_enable_frame_drop (true)
@@ -402,6 +403,7 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
         LOG2(info) << "\tMEGA Simulation Max Delay: "<< mega_simulation_delay_max_ms << endl;
         LOG2(info) << "\tMEGA Simulation Base Time: "<< mega_simulation_base_time << endl;
         LOG2(info) << "\tDefault file expiry minutes: "<< default_file_expiry_minutes << endl;
+        LOG2(info) << "\tDisable URL caching: "<< disable_url_caching << endl;
         LOG2(info) << "\tDefault ingress endpoint: "<< ingress_endpoint << endl;
         LOG2(info) << "\tUse Webrtc HW decoder: "<< use_webrtc_hw_dec << endl;
         LOG2(info) << "\tEnable frame drop in Stream Recorder: "<< recorder_enable_frame_drop << endl;
@@ -1803,7 +1805,7 @@ void Resolution::operator=(const string& value)
     }
 }
 
-bool Resolution::operator==(const Resolution& res)
+bool Resolution::operator==(const Resolution& res) const
 {
     if (res.width.empty() || res.height.empty())
     {

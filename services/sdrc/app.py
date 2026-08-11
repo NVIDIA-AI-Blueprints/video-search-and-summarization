@@ -41,13 +41,39 @@ from lib.xDS.grpc_xds_server import (
     notify_xds_update,
 )
 from lib import tracing
+from lib.bus_outcomes import (
+    EVENT_NOOP,
+    EVENT_OK,
+    EVENT_RETRYABLE,
+    EVENT_TERMINAL,
+    classify_exception,
+    decide_commit,
+    kafka_message_key,
+    kafka_park_offset_on_next_commit,
+    kafka_rewind_to_message,
+    log_terminal_failure,
+    redis_message_key,
+)
 from lib.logging import configure_root_logging
 from lib.wdm_swagger_ui import openapi_public_server_root, register_wdm_swagger_ui
+from lib.lifecycle.http_header import (
+    ACTION_ADD,
+    ACTION_DELETE,
+    ACTION_REPROVISION,
+    MODE_HTTP_HEADER,
+    build_http_lifecycle_event_payload,
+    extract_header_value,
+    is_message_bus_lifecycle_mode,
+    lifecycle_header_name,
+    match_http_lifecycle_action,
+    normalize_lifecycle_ingress_mode,
+)
 import requests
 import os
 import os.path
 import re
 import datetime
+import uuid
 from prometheus_client import Gauge, generate_latest
 import socket
 
@@ -61,6 +87,11 @@ class MaxReplicaException (Exception):
 # deferred because not all StatefulSet replicas are ready. Redis consumer must
 # not ACK so the message stays pending until pods recover.
 PROVISION_DEFERRED_UNREADY_PODS = object()
+
+CONFIGURE_OK = "CONFIGURE_OK"
+CONFIGURE_NOOP = "CONFIGURE_NOOP"
+CONFIGURE_FAILED = "CONFIGURE_FAILED"
+CONFIGURE_DEFERRED = "CONFIGURE_DEFERRED"
 
 
 settings = LazySettings("config")
@@ -747,6 +778,10 @@ change_id_add = app.config["WDM_WL_CHANGE_ID_ADD"]
 change_id_reprovision = app.config["WDM_WL_CHANGE_ID_REPROVISION"]
 change_id_del = app.config["WDM_WL_CHANGE_ID_DEL"]
 change_id_pod_configure = app.config["WDM_WL_CHANGE_ID_POD_CONFIGURE"]
+lifecycle_ingress_mode = normalize_lifecycle_ingress_mode(
+    app.config.get("WDM_LIFECYCLE_INGRESS_MODE")
+)
+app.config["WDM_LIFECYCLE_INGRESS_MODE"] = lifecycle_ingress_mode
 cache_method = app.config["WDM_CACHE_METHOD"]
 if cache_method == 'redis':
     wl_spec_obj = app.config["WDM_REDIS_CACHE_OBJECT"]
@@ -765,6 +800,16 @@ app.logger.info(
     % (app.config["WDM_KAFKA_MSG_KEY"], app.config["WDM_REDIS_MSG_KEY"])
 )
 app.logger.info(app.config["WDM_WL_REDIS_SERVER"])
+
+_VALID_ASSIGNING_METHODS = ("lru_round_robin", "sequential")
+_assigning_method = app.config["WDM_WL_ASSIGNING_METHOD"]
+if _assigning_method not in _VALID_ASSIGNING_METHODS:
+    raise ValueError(
+        f"WDM_WL_ASSIGNING_METHOD='{_assigning_method}' is not valid. "
+        f"Choose one of: {_VALID_ASSIGNING_METHODS}"
+    )
+app.logger.info("WDM_WL_ASSIGNING_METHOD=%s", _assigning_method)
+
 kfk = kafka(app.config)
 lock = Lock()
 envy = envoyxDS(app.config)
@@ -772,6 +817,113 @@ redisMsging = redisMessaging(app.config)
 pc = provisionconfig(app.config, redisMsging, cfg)
 initiatorWLObjname = app.config["WDM_INITIATOR_WLOBJ_NAME"]
 reprovision_recent_removals = {}
+
+
+def _config_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() == "true"
+
+
+def should_handle_config_events():
+    """Return True only when WDM_HANDLE_CONFIG_EVENTS is explicitly enabled.
+
+    Default is false (opt-in): workloads without /config must not process
+    configure events. Set WDM_HANDLE_CONFIG_EVENTS=true to enable.
+    """
+    return _config_bool(app.config.get("WDM_HANDLE_CONFIG_EVENTS"), False)
+
+
+def _event_stream_meta(original_json, wl_d=None):
+    """Best-effort stream id / change extraction for terminal failure logs."""
+    stream_id = None
+    change = None
+    try:
+        ev = None
+        if isinstance(original_json, dict):
+            ev = original_json.get(app.config["WDM_EVENT_OBJECT_FIELD"])
+        if isinstance(ev, dict):
+            stream_id = ev.get(app.config["WDM_WL_ID_FIELD"])
+            change = ev.get(change_field)
+        if isinstance(wl_d, dict):
+            if change is None:
+                change = wl_d.get(change_field)
+            if stream_id is None:
+                stream_id = wl_d.get(app.config["WDM_WL_ID_FIELD"])
+    except Exception:
+        pass
+    return stream_id, change
+
+
+def _apply_bus_commit_decision(
+    *,
+    bus_name,
+    message_key,
+    outcome,
+    error=None,
+    original_json=None,
+    wl_d=None,
+):
+    """Apply safe bus policy: commit terminal/ok; retry retryable until limit."""
+    retry_limit = int(app.config.get("WDM_EVENT_RETRY_LIMIT", 20) or 20)
+    should_commit, final_outcome, attempt = decide_commit(
+        outcome, message_key, retry_limit
+    )
+    if final_outcome == EVENT_TERMINAL:
+        stream_id, change = _event_stream_meta(original_json, wl_d)
+        reason = "terminal"
+        if outcome == EVENT_RETRYABLE and attempt:
+            reason = "retry_limit_exceeded"
+        log_terminal_failure(
+            app.logger,
+            bus=bus_name,
+            message_id=message_key,
+            error=error if error is not None else final_outcome,
+            change=change,
+            stream_id=stream_id,
+            workload=app.config.get("WDM_WL_OBJECT_NAME"),
+            attempt=attempt or None,
+            payload=original_json if original_json is not None else wl_d,
+            reason=reason,
+        )
+    return should_commit, final_outcome, attempt
+
+
+def _end_error_span_for_event(original_json):
+    try:
+        _cid = original_json[app.config["WDM_EVENT_OBJECT_FIELD"]][
+            app.config["WDM_WL_ID_FIELD"]
+        ]
+    except (KeyError, TypeError):
+        return
+    _span = id_ctx_mapping.get(_cid, {}).get("span")
+    if _span is not None:
+        _span.set_status(tracing.StatusCode.ERROR)
+        _span.end()
+
+
+def _configure_failure_result():
+    if _config_bool(app.config.get("WDM_CONFIG_DEFER_ON_FAILURE"), False):
+        return CONFIGURE_DEFERRED
+    return CONFIGURE_FAILED
+
+
+def _config_endpoint_for_pod(pod_info):
+    return "http://{}:{}{}".format(
+        pod_info.get("podIp", "?"),
+        app.config["WDM_CONFIG_PORT"],
+        app.config["WDM_CONFIG_URL"],
+    )
+
+
+def _configure_failure_class(resp):
+    if resp is None:
+        return "no_response"
+    return "http_{}".format(getattr(resp, "status_code", "unknown"))
+
+
 # Track active provision-add threads; delete stream waits until this is empty
 provision_add_threads = {}
 provision_add_threads_lock = Lock()
@@ -785,6 +937,40 @@ if app.config["WDM_DISABLE_WERKZEUG_LOGGING"]:
 
 
 id_ctx_mapping = {}
+
+
+def _pod_ordinal(pod_name):
+    """Return a stable sort key for round-robin tie-breaking.
+
+    Returns a ``(numeric_ordinal, pod_name)`` tuple so that the round-robin
+    selection is deterministic regardless of pod naming convention:
+
+    * **Indexed pods** (e.g. ``my-app-3``): ``(3, "my-app-3")``.
+      The numeric ordinal is the primary discriminator, so the existing
+      0→1→2→3→4→0 cycle is preserved unchanged.
+
+    * **Non-indexed pods** (e.g. ``worker-alpha``): ``(0, "worker-alpha")``.
+      All such pods share ordinal 0, so they are sorted lexicographically by
+      name.  This produces an alphabetic round-robin
+      (alpha→beta→gamma→alpha→…) without requiring any global state.
+
+    Using only the integer (the old behaviour) caused all non-indexed pods to
+    compare equal, making ``min()`` fall through to iteration order — correct
+    only accidentally when the API returns pods in a stable sequence.
+    """
+    m = re.search(r"-(\d+)$", pod_name)
+    return (int(m.group(1)) if m else 0, pod_name)
+
+
+def _select_pod_from_candidates(candidates, assigning_method):
+    """Select one eligible-pod tuple according to the configured policy."""
+    if assigning_method == "sequential":
+        return candidates[0]
+    min_count = min(count for _, count, _ in candidates)
+    return min(
+        (entry for entry in candidates if entry[1] == min_count),
+        key=lambda entry: _pod_ordinal(entry[0]["podName"]),
+    )
 
 
 @app.route("/healthz", methods=["GET"])
@@ -1156,7 +1342,17 @@ def apply_metadata_payload():
             app.logger.info("configure stream")
             response = podConfigureRedis(
                 app.config["WDM_WL_OBJECT_NAME"], wl_d, jValue
-            ) 
+            )
+            if response == CONFIGURE_FAILED:
+                return jsonify({
+                    "error": "configuration failed",
+                    "result": response,
+                }), 502
+            if response == CONFIGURE_DEFERRED:
+                return jsonify({
+                    "error": "configuration deferred",
+                    "result": response,
+                }), 503
             return "Configuration process called"                          
         else:
             app.logger.info("wl_d is None. wl_d: " + str(wl_d))
@@ -1201,6 +1397,194 @@ def remove_stream():
     except Exception as e:
         app.logger.exception("remove_stream failed for stream_id=%s", stream_id)
         return jsonify({"error": str(e), "stream_id": stream_id}), 500
+
+
+def _http_header_lifecycle_json_body():
+    raw_body = request.get_data(cache=True)
+    if raw_body is None or raw_body.strip() == b"":
+        return None, None
+
+    body = request.get_json(silent=True)
+    if body is None:
+        return None, _http_header_lifecycle_error(
+            "JSON lifecycle body is required when a body is present", 400
+        )
+    if not isinstance(body, dict):
+        return None, _http_header_lifecycle_error(
+            "JSON lifecycle body must be an object", 400
+        )
+    return body, None
+
+
+def _http_header_lifecycle_error(message, status_code, **details):
+    response = {"error": message}
+    response.update(details)
+    return jsonify(response), status_code
+
+
+def _cached_stream_lifecycle_payload(stream_id):
+    try:
+        spec_list = cfg.getworkLoadSpecById(stream_id)
+    except Exception:
+        app.logger.exception("failed to load cached lifecycle state for %s", stream_id)
+        return None
+
+    if isinstance(spec_list, dict):
+        return spec_list
+    if spec_list and isinstance(spec_list, (list, tuple)):
+        first_spec = spec_list[0]
+        if isinstance(first_spec, dict):
+            return first_spec
+    return None
+
+
+def _stream_known_for_lifecycle(stream_id, cached_payload):
+    if cached_payload is not None:
+        return True
+    try:
+        return redisMsging.getIdPodMapping(stream_id) is not None
+    except Exception:
+        app.logger.exception("failed to read route mapping for %s", stream_id)
+        return False
+
+
+def _ensure_lifecycle_trace_context(stream_id, span_name):
+    global id_ctx_mapping
+    if stream_id not in id_ctx_mapping:
+        otel_parent_span, parent_context = tracing.create_parent_span(
+            stream_id, span_name, redisMsging
+        )
+        id_ctx_mapping[stream_id] = {
+            "context": parent_context,
+            "span": otel_parent_span,
+        }
+        return parent_context
+    return id_ctx_mapping[stream_id]["context"]
+
+
+def _close_lifecycle_trace_context(stream_id):
+    mapping = id_ctx_mapping.pop(stream_id, None)
+    if mapping is None:
+        return
+    span = mapping.get("span")
+    if span is not None:
+        span.end()
+
+
+@app.route(
+    "/<path:lifecycle_path>",
+    methods=["DELETE", "GET", "PATCH", "POST", "PUT"],
+)
+def http_header_lifecycle_ingress(lifecycle_path):
+    has_body = bool((request.get_data(cache=True) or b"").strip())
+    try:
+        action = match_http_lifecycle_action(
+            request.method, request.path, app.config, has_body=has_body
+        )
+    except ValueError as exc:
+        app.logger.error("invalid HTTP lifecycle binding: %s", exc)
+        return _http_header_lifecycle_error(str(exc), 500)
+    if action is None:
+        return jsonify({"error": "not found"}), 404
+
+    try:
+        mode = normalize_lifecycle_ingress_mode(
+            app.config.get("WDM_LIFECYCLE_INGRESS_MODE")
+        )
+    except ValueError as exc:
+        app.logger.error("invalid lifecycle ingress mode: %s", exc)
+        return _http_header_lifecycle_error(str(exc), 500)
+
+    if mode != MODE_HTTP_HEADER:
+        return _http_header_lifecycle_error(
+            "HTTP-header lifecycle ingress is not active",
+            409,
+            mode=mode,
+            action=action,
+        )
+
+    header_name = lifecycle_header_name(app.config)
+    stream_id = extract_header_value(request.headers, header_name)
+    if stream_id is None:
+        return _http_header_lifecycle_error(
+            "missing stream id header: %s" % header_name,
+            400,
+            header=header_name,
+        )
+
+    body, error_response = _http_header_lifecycle_json_body()
+    if error_response is not None:
+        return error_response
+
+    cached_payload = None
+    if action in (ACTION_DELETE, ACTION_REPROVISION):
+        cached_payload = _cached_stream_lifecycle_payload(stream_id)
+        if action == ACTION_REPROVISION and cached_payload is None:
+            return _http_header_lifecycle_error(
+                "stream not found", 404, stream_id=stream_id
+            )
+        if action == ACTION_DELETE and not _stream_known_for_lifecycle(
+            stream_id, cached_payload
+        ):
+            return _http_header_lifecycle_error(
+                "stream not found", 404, stream_id=stream_id
+            )
+
+    payload_body = cached_payload if cached_payload is not None else body
+    original_json = build_http_lifecycle_event_payload(
+        app.config, action, stream_id, payload_body
+    )
+    wl_d = original_json[app.config["WDM_EVENT_OBJECT_FIELD"]]
+
+    try:
+        parent_context = _ensure_lifecycle_trace_context(
+            stream_id, "http_header_lifecycle_ingress()"
+        )
+        if action == ACTION_ADD:
+            response = provisionStreamRedis(
+                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            )
+        elif action == ACTION_DELETE:
+            response = deprovisionStreamRedis(
+                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            )
+            _close_lifecycle_trace_context(stream_id)
+        elif action == ACTION_REPROVISION:
+            response = reprovisionStreamRedis(
+                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            )
+        else:
+            return _http_header_lifecycle_error(
+                "unsupported lifecycle action", 500, action=action
+            )
+
+        if response is PROVISION_DEFERRED_UNREADY_PODS:
+            return jsonify(
+                {
+                    "status": "deferred",
+                    "reason": "workload replicas are not ready",
+                    "mode": MODE_HTTP_HEADER,
+                    "action": action,
+                    "stream_id": stream_id,
+                }
+            ), 503
+
+        return jsonify(
+            {
+                "status": "ok",
+                "mode": MODE_HTTP_HEADER,
+                "action": action,
+                "stream_id": stream_id,
+            }
+        ), 200
+    except MaxReplicaException as me:
+        app.logger.error("Max replica exception %s", me)
+        return _http_header_lifecycle_error(str(me), 500, stream_id=stream_id)
+    except Exception as exc:
+        app.logger.exception(
+            "HTTP-header lifecycle failed action=%s stream_id=%s", action, stream_id
+        )
+        return _http_header_lifecycle_error(str(exc), 500, stream_id=stream_id)
 
 
 @app.route("/get_wl_replica_data", methods=["GET"])
@@ -1543,10 +1927,148 @@ def reprovisionStreamRedis(k8swlob_name, data, originalJson, parent_context):
     return
 
 
+def _renew_provision_lease_until_stopped(
+    stream_id, lease_owner, lease_ttl, stop_event, lease_lost_event=None
+):
+    """Renew the provision lease until stopped, or signal abort if ownership is lost.
+
+    ``lease_lost_event`` is set when renew is rejected (expired/stolen) or when
+    renew keeps raising past the lease TTL. Without the TTL guard, Redis errors
+    alone leave the worker unaware while another replica acquires the expired
+    lease and places the same stream.
+    """
+    interval = max(1.0, float(lease_ttl) / 3.0)
+    ttl = max(1.0, float(lease_ttl))
+    # Acquired just before this heartbeat started; Redis TTL advances even when
+    # renew calls raise and never reach EXPIRE.
+    lease_deadline = time.monotonic() + ttl
+
+    def _signal_lease_lost(reason):
+        app.logger.error(
+            "Lost provision lease while stream %s is still in flight (%s); "
+            "signaling add-stream worker to abort",
+            stream_id,
+            reason,
+        )
+        if lease_lost_event is not None:
+            lease_lost_event.set()
+
+    while not stop_event.wait(interval):
+        try:
+            if not cfg.renewProvisionLease(stream_id, lease_owner, lease_ttl):
+                _signal_lease_lost("renew rejected")
+                return
+            lease_deadline = time.monotonic() + ttl
+        except Exception:
+            app.logger.exception(
+                "Failed to renew provision lease for stream %s", stream_id
+            )
+            if time.monotonic() >= lease_deadline:
+                _signal_lease_lost("renew errors past lease TTL")
+                return
+
+
+def _finish_provision_lease(
+    stream_id, lease_owner, stop_event, heartbeat_thread
+):
+    stop_event.set()
+    heartbeat_thread.join(timeout=1.0)
+    try:
+        cfg.releaseProvisionLease(stream_id, lease_owner)
+    except Exception:
+        app.logger.exception(
+            "Failed to release provision lease for stream %s", stream_id
+        )
+
+
+def _abort_provision_after_lease_loss(
+    podInfoItm, config_data, wl_id,
+    do_workload_spec_in_thread_first=False, rollback_workload_spec=False,
+    added_on_pod=False,
+):
+    """Abort local commit after lease loss without clobbering a replacement attempt.
+
+    Pod delete and workload-spec rollback are scoped only by pod + stream ID, so
+    they must run only while this worker can re-acquire the provision lease. If a
+    replacement replica already holds the lease, its reservation/add for the same
+    stream must be left alone.
+    """
+    app.logger.error(
+        "Aborting provision for stream %s on pod %s after losing provision lease "
+        "(added_on_pod=%s)",
+        wl_id,
+        podInfoItm.get("podName"),
+        added_on_pod,
+    )
+    cleanup_ttl = max(
+        1, int(app.config.get("WDM_PROVISION_LEASE_SECONDS", 30))
+    )
+    cleanup_owner = str(uuid.uuid4())
+    owns_cleanup = False
+    try:
+        owns_cleanup = cfg.tryAcquireProvisionLease(
+            wl_id, cleanup_owner, cleanup_ttl
+        )
+    except Exception:
+        app.logger.exception(
+            "Failed to acquire cleanup lease for stream %s after lease loss",
+            wl_id,
+        )
+    if not owns_cleanup:
+        app.logger.warning(
+            "Skipping pod/workload-spec rollback for stream %s after lease loss; "
+            "another replica holds the provision lease",
+            wl_id,
+        )
+        return
+    try:
+        if added_on_pod:
+            try:
+                pc.delete(podInfo=podInfoItm, configData=config_data)
+            except Exception:
+                app.logger.exception(
+                    "Failed to undo pod add for stream %s after lease loss",
+                    wl_id,
+                )
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
+            try:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            except Exception:
+                app.logger.exception(
+                    "Failed to rollback workload spec for stream %s after "
+                    "lease loss",
+                    wl_id,
+                )
+        try:
+            redisMsging.message_err(
+                wlobject=wl_object_name,
+                podname=podInfoItm["podName"],
+                id=wl_id,
+                type="critical",
+                status="add_stream_failed",
+            )
+        except Exception:
+            app.logger.exception(
+                "Failed to publish add_stream_failed after lease loss for "
+                "stream %s",
+                wl_id,
+            )
+    finally:
+        try:
+            cfg.releaseProvisionLease(wl_id, cleanup_owner)
+        except Exception:
+            app.logger.exception(
+                "Failed to release cleanup lease for stream %s after lease loss",
+                wl_id,
+            )
+
+
 def _run_provision_add_stream_to_pod_tracked(
     key_holder, podInfoItm, data, originalJson, config_data, wl_id, camera_id,
     otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
+    rollback_workload_spec=False, lease_owner=None, lease_stop=None,
+    lease_heartbeat=None, lease_lost_event=None,
 ):
     """Thread target that runs _run_provision_add_stream_to_pod and removes self from provision_add_threads."""
     try:
@@ -1554,16 +2076,23 @@ def _run_provision_add_stream_to_pod_tracked(
             podInfoItm, data, originalJson, config_data, wl_id, camera_id,
             otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            workload_spec_reserved=workload_spec_reserved,
+            rollback_workload_spec=rollback_workload_spec,
+            lease_lost_event=lease_lost_event,
         )
     finally:
         with provision_add_threads_lock:
             provision_add_threads.pop(key_holder[0], None)
+        _finish_provision_lease(
+            wl_id, lease_owner, lease_stop, lease_heartbeat
+        )
 
 
 def _run_provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
+    rollback_workload_spec=False, lease_lost_event=None,
 ):
     """Run _provision_add_stream_to_pod; used as thread target so exceptions are logged."""
     try:
@@ -1571,9 +2100,12 @@ def _run_provision_add_stream_to_pod(
             podInfoItm, data, originalJson, config_data, wl_id, camera_id,
             otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
             do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            workload_spec_reserved=workload_spec_reserved,
+            rollback_workload_spec=rollback_workload_spec,
+            lease_lost_event=lease_lost_event,
         )
     except Exception:
-        if do_workload_spec_in_thread_first:
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
             try:
                 cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
             except Exception as e:
@@ -1637,51 +2169,105 @@ def _wait_provision_add_threads_empty(timeout=60):
 
 def _run_provision_add_stream(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
-    parent_context, k8swlob_name, event_obj_field, span_data
+    parent_context, k8swlob_name, event_obj_field, span_data,
+    workload_spec_reserved=False, rollback_workload_spec=False,
+    lease_owner=None, lease_ttl=120,
 ):
     """Run add-stream provision synchronously or in a background thread per WDM_PROVISION_ASYNC."""
+    lease_stop = Event()
+    lease_lost = Event()
+    lease_heartbeat = Thread(
+        target=_renew_provision_lease_until_stopped,
+        args=(wl_id, lease_owner, lease_ttl, lease_stop, lease_lost),
+        daemon=True,
+    )
+    try:
+        lease_heartbeat.start()
+    except Exception:
+        cfg.releaseProvisionLease(wl_id, lease_owner)
+        if rollback_workload_spec:
+            cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+        raise
     if app.config.get("WDM_PROVISION_ASYNC"):
-        # Do not call cfg.addWorkLoadSpec in main thread: redis_lock is non-reentrant and
-        # the main thread may already hold the lock from earlier cfg calls in provisionStreamRedis.
-        # The background thread will update workload spec first (before add RPC) so spec_count
-        # is updated as soon as the thread runs.
+        # New placement calls reserve before reaching this function. Keep the
+        # worker-side add for callers that have not already reserved a slot.
         key_holder = [None]
-        t = Thread(
-            target=_run_provision_add_stream_to_pod_tracked,
-            args=(
-                key_holder,
-                podInfoItm, data, originalJson, config_data, wl_id, camera_id,
-                otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-                True,  # do_workload_spec_in_thread_first (avoids main-thread lock)
-            ),
-            daemon=False,
-        )
+        try:
+            t = Thread(
+                target=_run_provision_add_stream_to_pod_tracked,
+                args=(
+                    key_holder,
+                    podInfoItm, data, originalJson, config_data, wl_id, camera_id,
+                    otel_carrier, parent_context, k8swlob_name,
+                    event_obj_field, span_data, not workload_spec_reserved,
+                    workload_spec_reserved, rollback_workload_spec, lease_owner,
+                    lease_stop, lease_heartbeat, lease_lost,
+                ),
+                daemon=False,
+            )
+        except Exception:
+            _finish_provision_lease(
+                wl_id, lease_owner, lease_stop, lease_heartbeat
+            )
+            if rollback_workload_spec:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            raise
         with provision_add_threads_lock:
             key_holder[0] = id(t)
             provision_add_threads[key_holder[0]] = t
-        t.start()
+        try:
+            t.start()
+        except Exception:
+            with provision_add_threads_lock:
+                provision_add_threads.pop(key_holder[0], None)
+            _finish_provision_lease(
+                wl_id, lease_owner, lease_stop, lease_heartbeat
+            )
+            if rollback_workload_spec:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            raise
         app.logger.info(
             "Provision add-stream running in background for wl_id=%s camera_id=%s",
             wl_id, camera_id,
         )
     else:
-        _provision_add_stream_to_pod(
-            podInfoItm, data, originalJson, config_data, wl_id, camera_id,
-            otel_carrier, parent_context, k8swlob_name, event_obj_field, span_data,
-            do_workload_spec_in_thread_first=False,
-        )
+        try:
+            _provision_add_stream_to_pod(
+                podInfoItm, data, originalJson, config_data, wl_id, camera_id,
+                otel_carrier, parent_context, k8swlob_name, event_obj_field,
+                span_data, do_workload_spec_in_thread_first=False,
+                workload_spec_reserved=workload_spec_reserved,
+                rollback_workload_spec=rollback_workload_spec,
+                lease_lost_event=lease_lost,
+            )
+        except Exception:
+            if rollback_workload_spec:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            raise
+        finally:
+            _finish_provision_lease(
+                wl_id, lease_owner, lease_stop, lease_heartbeat
+            )
 
 
 def _provision_add_stream_to_pod(
     podInfoItm, data, originalJson, config_data, wl_id, camera_id, otel_carrier,
     parent_context, k8swlob_name, event_obj_field, span_data,
-    do_workload_spec_in_thread_first=False,
+    do_workload_spec_in_thread_first=False, workload_spec_reserved=False,
+    rollback_workload_spec=False, lease_lost_event=None,
 ):
     """Perform add-stream RPC, update route mapping and workload spec, optionally call webhook."""
-    # When async: update workload spec first in this thread (before add RPC) so spec_count
-    # is correct and we avoid main-thread redis_lock re-acquire.
+    # Legacy callers that did not reserve before dispatch still add from the worker.
     if do_workload_spec_in_thread_first:
         cfg.addWorkLoadSpec(podInfoItm["podName"], data, originalJson)
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=False,
+        )
+        return
     otel_span, current_ctx = tracing.create_child_span(
         "add", wl_id, podInfoItm, span_data, parent_context, app.config
     )
@@ -1699,6 +2285,16 @@ def _provision_add_stream_to_pod(
     finally:
         otel_span.end()
 
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        # Add may have landed on the pod; undo before another replica re-places.
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=True,
+        )
+        return
+
     try:
         data["response"] = resp.json()
         originalJson[event_obj_field]["response"] = resp.json()
@@ -1714,7 +2310,7 @@ def _provision_add_stream_to_pod(
         and ((resp is not None and resp.status_code != 200) or resp is None)
     )
     if not update_mapping:
-        if do_workload_spec_in_thread_first:
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
             try:
                 cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
             except Exception as e:
@@ -1733,12 +2329,22 @@ def _provision_add_stream_to_pod(
         )
         return
 
+    # Final lease check before committing route mapping / capacity accounting.
+    if lease_lost_event is not None and lease_lost_event.is_set():
+        _abort_provision_after_lease_loss(
+            podInfoItm, config_data, wl_id,
+            do_workload_spec_in_thread_first=do_workload_spec_in_thread_first,
+            rollback_workload_spec=rollback_workload_spec,
+            added_on_pod=True,
+        )
+        return
+
     app.logger.info("add operation success updating the Route mapping")
     curr_cluster.updateRouteMapping(
         k8swlob_name, wl_id, podInfoItm, operation="add"
     )
     notify_xds_update()
-    if not do_workload_spec_in_thread_first:
+    if not do_workload_spec_in_thread_first and not workload_spec_reserved:
         cfg.addWorkLoadSpec(podInfoItm["podName"], data, originalJson)
     if app.config["WDM_CALL_WL_WEBHOOK"]:
         try:
@@ -1763,6 +2369,7 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
     is_event = msg_type == "event_message"
     event_obj = originalJson[cfg_ev_obj] if is_event else data
     wl_id = data[cfg_key_id]
+    lease_ttl = max(1, int(app.config["WDM_PROVISION_LEASE_SECONDS"]))
 
     app.logger.info("Provision Stream Redis")
     obj = redisMsging.getIdPodMapping(wl_id)
@@ -1770,6 +2377,31 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
     if obj is not None and wobj is not None and len(wobj) > 0:
         app.logger.info("%s is already provisioned", wl_id)
         return
+    if obj is None and wobj:
+        cleanup_owner = str(uuid.uuid4())
+        if not cfg.tryAcquireProvisionLease(
+            wl_id, cleanup_owner, lease_ttl
+        ):
+            app.logger.info(
+                "%s has a provision lease owned by another SDRC replica; "
+                "deferring retry",
+                wl_id,
+            )
+            return False
+        try:
+            app.logger.warning(
+                "%s has workload-spec reservation(s) without a route mapping "
+                "and no active provision lease; removing orphaned capacity "
+                "before retry",
+                wl_id,
+            )
+            for orphan in wobj:
+                orphan_pod = orphan.get("pod_name")
+                if orphan_pod is not None:
+                    cfg.deleteFromWorkLoadSpec(orphan_pod, wl_id)
+        finally:
+            cfg.releaseProvisionLease(wl_id, cleanup_owner)
+        wobj = None
 
     ignore_regex = app.config["WDM_WL_NAME_IGNORE_REGEX"]
     name_ignore_pattern = None
@@ -1834,6 +2466,10 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
             if podsInfo is not None:
                 provisionNewPod = True
                 any_pod_down = False
+                # Phase 1: collect eligible pods (not down, not full, regex match).
+                # Orphan cleanup happens before this scan while holding the
+                # distributed provision lease.
+                eligible_pods = []  # (podInfoItm, spec_count, wl_spec)
                 for podInfoItm in podsInfo:
                     if curr_cluster.ifPodDown(podInfoItm["podName"]):
                         any_pod_down = True
@@ -1866,45 +2502,105 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                         podInfoItm["podName"],
                         wl_id,
                     )
-                    podMapping = redisMsging.getIdPodMapping(wl_id)
-                    podDnsMapping = redisMsging.getIdPodPodDnsMapping(
-                        podInfoItm["podName"]
-                    )
-                    if podDnsMapping is None or podMapping is None:
-                        cfg.deleteFromWorkLoadSpec(
-                            podInfoItm["podName"], wl_id
-                        )
                     spec_count = cfg.getSpecCount(podInfoItm["podName"])
                     if spec_count >= threshold:
                         continue
-                    otel_carrier = tracing.inject_context(parent_context)
-                    if wl_spec is None:
+                    eligible_pods.append((podInfoItm, spec_count, wl_spec))
+
+                # Phase 2: pod selection — strategy controlled by
+                # WDM_WL_ASSIGNING_METHOD.
+                #
+                # "lru_round_robin" (default)
+                #   Pick the pod with the fewest current streams; break ties
+                #   with _pod_ordinal() → (ordinal, name) for a deterministic
+                #   cycle.  Self-heals after uneven stream removal.
+                #
+                #   Trace — 5 indexed pods, threshold 4:
+                #     s1  min=0 tied=[0,1,2,3,4] → pod-0  [1,0,0,0,0]
+                #     s2  min=0 tied=[1,2,3,4]   → pod-1  [1,1,0,0,0]
+                #     s3  min=0 tied=[2,3,4]     → pod-2  [1,1,1,0,0]
+                #     ...  → 0→1→2→3→4→0→… (perfect round-robin)
+                #
+                # "sequential"
+                #   Original first-fit: pick the first pod in the order
+                #   returned by getPodIps() that is below threshold — no
+                #   sorting, no load comparison.  Mirrors the pre-LRU inline
+                #   loop+break.  Assignment order depends entirely on the API
+                #   iteration order (typically StatefulSet ordinal order for
+                #   K8s, insertion order for Docker).
+                if eligible_pods:
+                    assigning_method = app.config["WDM_WL_ASSIGNING_METHOD"]
+                    candidates = list(eligible_pods)
+                    selected_entry = None
+                    lease_owner = str(uuid.uuid4())
+                    if not cfg.tryAcquireProvisionLease(
+                        wl_id, lease_owner, lease_ttl
+                    ):
                         app.logger.info(
-                            "stream_updates - %s adding_stream: %s",
+                            "%s provision lease is held by another SDRC "
+                            "replica; deferring placement",
+                            wl_id,
+                        )
+                        return False
+                    try:
+                        while candidates:
+                            candidate = _select_pod_from_candidates(
+                                candidates, assigning_method
+                            )
+                            candidate_pod, candidate_count, _ = candidate
+                            reservation = cfg.tryReserveWorkLoadSpec(
+                                candidate_pod["podName"], originalJson, threshold
+                            )
+                            if (
+                                reservation is True
+                                or reservation == "already_held"
+                            ):
+                                selected_entry = candidate
+                                break
+                            app.logger.info(
+                                "Pod %s reached capacity after placement snapshot; "
+                                "trying another candidate",
+                                candidate_pod["podName"],
+                            )
+                            candidates.remove(candidate)
+                    except Exception:
+                        cfg.releaseProvisionLease(wl_id, lease_owner)
+                        raise
+
+                    if selected_entry is not None:
+                        selected_pod, selected_count, selected_wl_spec = (
+                            selected_entry
+                        )
+                        app.logger.info(
+                            "stream_updates - %s adding_stream: %s "
+                            "(%s selected pod=%s snapshot_streams=%d)",
                             wl_object_name, wl_id,
+                            assigning_method, selected_pod["podName"],
+                            selected_count,
+                        )
+                        otel_carrier = tracing.inject_context(parent_context)
+                        if selected_wl_spec is not None:
+                            app.logger.info(
+                                "%s pod is already deployed",
+                                selected_pod["podName"],
+                            )
+                        span_data = (
+                            originalJson
+                            if selected_wl_spec is None
+                            else config_data
                         )
                         _run_provision_add_stream(
-                            podInfoItm, data, originalJson, config_data,
+                            selected_pod, data, originalJson, config_data,
                             wl_id, camera_id, otel_carrier, parent_context,
-                            k8swlob_name, cfg_ev_obj, originalJson,
+                            k8swlob_name, cfg_ev_obj, span_data,
+                            workload_spec_reserved=True,
+                            rollback_workload_spec=True,
+                            lease_owner=lease_owner,
+                            lease_ttl=lease_ttl,
                         )
                         provisionNewPod = False
-                        break
-                    app.logger.info(
-                        "%s pod is already deployed", podInfoItm["podName"]
-                    )
-                    if spec_count < threshold:
-                        app.logger.info(
-                            "stream_updates - %s adding_stream: %s",
-                            wl_object_name, wl_id,
-                        )
-                        _run_provision_add_stream(
-                            podInfoItm, data, originalJson, config_data,
-                            wl_id, camera_id, otel_carrier, parent_context,
-                            k8swlob_name, cfg_ev_obj, config_data,
-                        )
-                        provisionNewPod = False
-                        break
+                    else:
+                        cfg.releaseProvisionLease(wl_id, lease_owner)
                 if provisionNewPod and app.config["WDM_CLUSTER_TYPE"].lower() == "docker":
                     if any_pod_down:
                         app.logger.info(
@@ -2004,35 +2700,76 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
 
 def podConfigureRedis(k8swlob_name, data, originalJson):
     if app.config["WDM_FORWARD_MSG_TYPE"].lower() == \
-                                    "event_message":
+            "event_message":
         config_event_json = originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]]
     else:
         config_event_json = data
-    
-    new_pod_encoded_name = config_event_json[app.config["WDM_POD_ALLOCATION_ENCODED_NAME_KEY"]]
+
+    if not should_handle_config_events():
+        app.logger.info(
+            "Skipping config event for workload %s because config handling is disabled",
+            k8swlob_name,
+        )
+        return CONFIGURE_NOOP
+
+    if not isinstance(config_event_json, dict):
+        app.logger.error(
+            "Config event payload must be a dictionary. Skipping allocation request: %s",
+            config_event_json,
+        )
+        redisMsging.message_err(
+            wlobject="system",
+            podname="unknown",
+            id="SDR",
+            type="critical",
+            status="Malformed config event payload",
+        )
+        return CONFIGURE_FAILED
+
+    encoded_name_key = app.config["WDM_POD_ALLOCATION_ENCODED_NAME_KEY"]
+    new_pod_encoded_name = config_event_json.get(encoded_name_key)
+    if not new_pod_encoded_name:
+        app.logger.error(
+            "Config event missing required field %s. Skipping allocation request",
+            encoded_name_key,
+        )
+        redisMsging.message_err(
+            wlobject="system",
+            podname="unknown",
+            id="SDR",
+            type="critical",
+            status="Missing required config field " + encoded_name_key,
+        )
+        return CONFIGURE_FAILED
+
     new_pod_encoded_name_arr = new_pod_encoded_name.split(app.config["WDM_POD_ALLOCATION_REGEX_DELIMITER"])
-    
+
     current_allocation_configs = curr_cluster.get_current_allocation_configs()
     if isinstance(current_allocation_configs, dict):
         pod_match_found = True if new_pod_encoded_name in current_allocation_configs else False
     else:
         app.logger.info("Did not get back dictionary of current allocations. Will assume none exist.")
         pod_match_found = False
-    
+
+    remove_config = _config_bool(config_event_json.get("remove_config"), False)
+    if remove_config:
+        if pod_match_found:
+            app.logger.error("Removing given pod regex assignment. Assumed that all streams associated with this pod have already been accounted for elsewhere.")
+            curr_cluster.delete_allocation_config({"encoded_matching_name": new_pod_encoded_name})
+            return CONFIGURE_OK
+        app.logger.info("No allocation config found for %s removal request; ignoring", new_pod_encoded_name)
+        return CONFIGURE_NOOP
+
     # Make sure name is not already taken
     # TODO: override if it is?
     if pod_match_found:
-        if "remove_config" in config_event_json and config_event_json["remove_config"]:
-            app.logger.error(f"Removing given pod regex assignment. Assumed that all streams associated with this pod have already been accounted for elsewhere.")
-            curr_cluster.delete_allocation_config(current_allocation_configs["new_pod_encoded_name"])
-        else:
-            app.logger.error(f"Name being used for configuration already configured previously and deallocate not requested - ignoring new request")
-        return None
-    
+        app.logger.error("Name being used for configuration already configured previously and deallocate not requested - ignoring new request")
+        return CONFIGURE_NOOP
+
     # Find new pod with no association - if none found, return with error
     unallocated_pod_info = curr_cluster.find_unallocated_pod()
     if unallocated_pod_info is None:
-        app.logger.error(f"No unallocated pods found to assign new configuration. Skipping allocation request")
+        app.logger.error("No unallocated pods found to assign new configuration. Skipping allocation request")
         redisMsging.message_err(
             wlobject="system",
             podname=new_pod_encoded_name,
@@ -2040,20 +2777,26 @@ def podConfigureRedis(k8swlob_name, data, originalJson):
             type="critical",
             status="No unallocated pods found to assign new configuration"
         )
-        return None
-    
-    # Add hash map entry for new pod - mark as taken internally
+        return CONFIGURE_FAILED
+
     unallocated_pod_info["encoded_matching_name"] = new_pod_encoded_name
     unallocated_pod_info["encoded_matching_name_split"] = new_pod_encoded_name_arr
-    return_val = curr_cluster.update_current_allocation_configs(unallocated_pod_info)
-    app.logger.info("allocated pod configuration: " + str(unallocated_pod_info))
-    
+
     app.logger.info("Sending config provision request")
     originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]] = config_event_json
     resp = pc.applyConfig(unallocated_pod_info, originalJson)
-    
-    if resp.status_code != 200:
-        app.logger.error(f"Error while trying to send configure request to endpoint - {str(resp)}")
+
+    if resp is None or resp.status_code != 200:
+        failure_class = _configure_failure_class(resp)
+        endpoint = _config_endpoint_for_pod(unallocated_pod_info)
+        app.logger.error(
+            "Configure request failed for workload=%s encoded_name=%s url=%s failure=%s response=%s",
+            k8swlob_name,
+            new_pod_encoded_name,
+            endpoint,
+            failure_class,
+            resp,
+        )
         redisMsging.message_err(
             wlobject="system",
             podname=new_pod_encoded_name,
@@ -2061,8 +2804,12 @@ def podConfigureRedis(k8swlob_name, data, originalJson):
             type="critical",
             status="Error while sending configure request to endpoint"
         )
-    
-    return return_val
+        return _configure_failure_result()
+
+    return_val = curr_cluster.update_current_allocation_configs(unallocated_pod_info)
+    app.logger.info("allocated pod configuration: " + str(unallocated_pod_info))
+    app.logger.info("allocated pod configuration write result: " + str(return_val))
+    return CONFIGURE_OK
 
 def deprovisionStreamRedis(k8swlob_name, data, originalJson, parent_context, wait_add_threads_timeout=None):
     if wait_add_threads_timeout is None:
@@ -2294,8 +3041,14 @@ def __initPodState():
 
 
 def redisListener():
+    if not is_message_bus_lifecycle_mode(app.config):
+        app.logger.info(
+            "Redis lifecycle listener disabled by WDM_LIFECYCLE_INGRESS_MODE=%s",
+            app.config.get("WDM_LIFECYCLE_INGRESS_MODE"),
+        )
+        return True
     if __initPodState():
-        app.logger.info ("Redis listener starting")
+        app.logger.info ("Redis lifecycle listener starting")
         tr = Thread(target=redisGetStreamData)
         tr.start()
         return True
@@ -2352,30 +3105,35 @@ def redisGetStreamData():
             while True:
                 messages = consumer.get_items()
                 for i, item in enumerate(messages):
-                    app.logger.info(item)
-                    app.logger.info(item.content)
-                    app.logger.info(item.content[msg_field])
-
-                    sens = item.content[msg_field]
-                    jValue = json.loads(sens)
-                    
-                    # Swap camera_id and camera_name for the MMJ usecase
-                    if app.config["WDM_DS_SWAP_ID_NAME"]:
-                        if app.config["WDM_WL_ID_FIELD"] in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]:
-                            app.logger.info("swapping")
-                            tmp_val = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
-                            jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]] = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]]
-                            jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]] = tmp_val
-                        else:
-                            app.logger.info("camera_id not found in event - not swapping")
-
-                    wl_d = redisMsging.getMessageValue(jValue)
+                    message_key = redis_message_key(item.msgid)
+                    outcome = EVENT_OK
+                    err = None
+                    jValue = None
+                    wl_d = None
+                    parent_context = None
                     try:
+                        app.logger.info(item)
+                        app.logger.info(item.content)
+                        app.logger.info(item.content[msg_field])
+
+                        sens = item.content[msg_field]
+                        jValue = json.loads(sens)
+
+                        # Swap camera_id and camera_name for the MMJ usecase
+                        if app.config["WDM_DS_SWAP_ID_NAME"]:
+                            if app.config["WDM_WL_ID_FIELD"] in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]:
+                                app.logger.info("swapping")
+                                tmp_val = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
+                                jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]] = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]]
+                                jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_SWAP_KEY_SECONDARY_FIELD"]] = tmp_val
+                            else:
+                                app.logger.info("camera_id not found in event - not swapping")
+
+                        wl_d = redisMsging.getMessageValue(jValue)
                         global id_ctx_mapping
-                        redis_skip_commit = False
                         if wl_d is not None:
                             if app.config["WDM_EVENT_OBJECT_FIELD"] in jValue and jValue[app.config["WDM_EVENT_OBJECT_FIELD"]] is not None and app.config["WDM_WL_ID_FIELD"] in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]:
-                                camera_id =jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
+                                camera_id = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
                                 if camera_id not in id_ctx_mapping:
                                     otel_parent_span, parent_context = tracing.create_parent_span(camera_id, "redisGetStreamData()", redisMsging)
                                     id_ctx_mapping[camera_id] = {
@@ -2392,69 +3150,88 @@ def redisGetStreamData():
                             app.logger.info("provision stream")
                             _prv = provisionStreamRedis(
                                 app.config["WDM_WL_OBJECT_NAME"],
-                                wl_d, jValue, parent_context 
+                                wl_d, jValue, parent_context
                             )
                             if _prv is PROVISION_DEFERRED_UNREADY_PODS:
-                                redis_skip_commit = True
+                                outcome = EVENT_RETRYABLE
                         elif (wl_d is not None) and (change_field in wl_d) and (
                             wl_d[change_field].lower() == change_id_reprovision
                         ):
                             app.logger.info("reprovision stream")
                             _rpv = reprovisionStreamRedis(
                                 app.config["WDM_WL_OBJECT_NAME"],
-                                wl_d, jValue, parent_context 
+                                wl_d, jValue, parent_context
                             )
                             if _rpv is PROVISION_DEFERRED_UNREADY_PODS:
-                                redis_skip_commit = True
+                                outcome = EVENT_RETRYABLE
                         elif (wl_d is not None) and (change_field in wl_d) and (
                             wl_d[change_field].lower() == change_id_del
                         ):
                             app.logger.info("deprovision stream")
                             deprovisionStreamRedis(
-                                app.config["WDM_WL_OBJECT_NAME"], wl_d, jValue, parent_context 
+                                app.config["WDM_WL_OBJECT_NAME"], wl_d, jValue, parent_context
                             )
                             id_ctx_mapping[jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]]["span"].end()
-                            id_ctx_mapping.pop(jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]])                               
+                            id_ctx_mapping.pop(jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]])
                         elif (wl_d is not None) and (change_field in wl_d) and (
                             wl_d[change_field].lower() == change_id_pod_configure
                         ):
                             app.logger.info("configure stream")
-                            podConfigureRedis(
+                            configure_result = podConfigureRedis(
                                 app.config["WDM_WL_OBJECT_NAME"], wl_d, jValue
-                            )                        
+                            )
+                            if configure_result == CONFIGURE_DEFERRED:
+                                outcome = EVENT_RETRYABLE
+                            elif configure_result == CONFIGURE_FAILED:
+                                outcome = EVENT_TERMINAL
+                                err = configure_result
+                            elif configure_result == CONFIGURE_NOOP:
+                                outcome = EVENT_NOOP
                         else:
                             app.logger.info("wl_d is None. wl_d: " + str(wl_d))
-                        if redis_skip_commit:
-                            app.logger.info(
-                                "Not committing message id %s — deferred until "
-                                "all workload replicas are ready; message stays pending",
-                                item.msgid,
-                            )
-                            time.sleep(1.0)
-                        else:
-                            app.logger.info(
-                                "Commiting message id %s" % (item.msgid)
-                            )
-                            consumer.commit(item_id=item.msgid)
+                            outcome = EVENT_NOOP
                     except MaxReplicaException as me:
+                        err = me
                         app.logger.error(f"Max replica exception {me}")
-                        err_span = None
-                        if wl_d is not None and (
-                            app.config["WDM_EVENT_OBJECT_FIELD"] in jValue
-                            and jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]
-                            is not None
-                            and app.config["WDM_WL_ID_FIELD"]
-                            in jValue[app.config["WDM_EVENT_OBJECT_FIELD"]]
-                        ):
-                            _cid = jValue[app.config["WDM_EVENT_OBJECT_FIELD"]][
-                                app.config["WDM_WL_ID_FIELD"]
-                            ]
-                            err_span = id_ctx_mapping.get(_cid, {}).get("span")
-                        if err_span is not None:
-                            err_span.set_status(tracing.StatusCode.ERROR)
-                            err_span.end()
-                        if evic_q_on_no_capacity:
+                        if jValue is not None:
+                            _end_error_span_for_event(jValue)
+                        # Preserve legacy eviction behavior: drop from queue when configured.
+                        outcome = EVENT_TERMINAL if evic_q_on_no_capacity else EVENT_RETRYABLE
+                    except Exception as exc:
+                        err = exc
+                        outcome = classify_exception(exc)
+                        app.logger.exception(
+                            "exception occurred while processing Redis stream event"
+                        )
+                        if jValue is not None:
+                            _end_error_span_for_event(jValue)
+
+                    should_commit, final_outcome, attempt = _apply_bus_commit_decision(
+                        bus_name="redis",
+                        message_key=message_key,
+                        outcome=outcome,
+                        error=err,
+                        original_json=jValue,
+                        wl_d=wl_d,
+                    )
+                    if should_commit:
+                        app.logger.info("Commiting message id %s", item.msgid)
+                        try:
                             consumer.commit(item_id=item.msgid)
+                        except Exception as commit_exc:
+                            app.logger.error(
+                                "Failed to commit Redis message id %s: %s",
+                                item.msgid,
+                                commit_exc,
+                            )
+                    else:
+                        app.logger.info(
+                            "Not committing message id %s (retryable attempt %s/%s)",
+                            item.msgid,
+                            attempt,
+                            app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        )
+                        time.sleep(1.0)
 
                 time.sleep(0.05)
 
@@ -2468,94 +3245,144 @@ if bus is not None:
 
     @bus.handle(topic)
     def kafka_topic_handler(msg):
+        message_key = kafka_message_key(msg)
+        outcome = EVENT_OK
+        err = None
+        wl_d = None
+        originalJson = None
+        parent_context = None
         try:
-            error_occured = False
-            wl_d, originalJson = kfk.getMessageValue(bus, msg)
-
-            try:
-                global id_ctx_mapping
-                if wl_d is not None:
-                    camera_id = originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
-                    if camera_id not in id_ctx_mapping:
-                        otel_parent_span, parent_context = tracing.create_parent_span(camera_id, "kafka_topic_handler()", redisMsging)
-                        id_ctx_mapping[camera_id] = {
-                            "context": parent_context,
-                            "span": otel_parent_span
-                        }
-                        
+            message_value = kfk.getMessageValue(bus, msg)
+            if message_value is None:
+                app.logger.info("Kafka message ignored by key/value filter")
+                outcome = EVENT_NOOP
+            else:
+                wl_d, originalJson = message_value
+                try:
+                    global id_ctx_mapping
+                    if wl_d is not None:
+                        camera_id = originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
+                        if camera_id not in id_ctx_mapping:
+                            otel_parent_span, parent_context = tracing.create_parent_span(camera_id, "kafka_topic_handler()", redisMsging)
+                            id_ctx_mapping[camera_id] = {
+                                "context": parent_context,
+                                "span": otel_parent_span
+                            }
+                        else:
+                            parent_context = id_ctx_mapping[camera_id]["context"]
+                            otel_parent_span = id_ctx_mapping[camera_id]["span"]
+                    if wl_d is not None and (
+                        wl_d[change_field].lower() == change_id_add
+                    ):
+                        app.logger.info("provision stream")
+                        _prv = provisionStreamRedis(
+                            app.config["WDM_WL_OBJECT_NAME"],
+                            wl_d, originalJson, parent_context
+                        )
+                        if _prv is PROVISION_DEFERRED_UNREADY_PODS:
+                            outcome = EVENT_RETRYABLE
+                    elif wl_d is not None and change_field in wl_d and (
+                        wl_d[change_field].lower() == change_id_del
+                    ):
+                        app.logger.info("deprovision stream")
+                        deprovisionStreamRedis(
+                            app.config["WDM_WL_OBJECT_NAME"],
+                            wl_d, originalJson, parent_context
+                        )
+                        id_ctx_mapping[originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]]["span"].end()
+                        id_ctx_mapping.pop(originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]])
+                    elif (wl_d is not None) and (change_field in wl_d) and (
+                        wl_d[change_field].lower() == change_id_pod_configure
+                    ):
+                        app.logger.info("configure stream")
+                        configure_result = podConfigureRedis(
+                            app.config["WDM_WL_OBJECT_NAME"], wl_d, originalJson
+                        )
+                        if configure_result == CONFIGURE_DEFERRED:
+                            outcome = EVENT_RETRYABLE
+                        elif configure_result == CONFIGURE_FAILED:
+                            outcome = EVENT_TERMINAL
+                            err = configure_result
+                        elif configure_result == CONFIGURE_NOOP:
+                            outcome = EVENT_NOOP
                     else:
-                        parent_context = id_ctx_mapping[camera_id]["context"]
-                        otel_parent_span = id_ctx_mapping[camera_id]["span"]
-                if wl_d is not None and (
-                    wl_d[change_field].lower() == change_id_add
-                ):
-                    app.logger.info("provision stream")
-                    provisionStreamRedis(
-                        app.config["WDM_WL_OBJECT_NAME"],
-                        wl_d, originalJson, parent_context
-                    )
-                elif wl_d is not None and change_field in wl_d and (
-                    wl_d[change_field].lower() == change_id_del
-                ):
-                    app.logger.info("deprovision stream")
-                    deprovisionStreamRedis(
-                        app.config["WDM_WL_OBJECT_NAME"],
-                        wl_d, originalJson, parent_context
-                    )
-                    id_ctx_mapping[originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]]["span"].end()
-                    id_ctx_mapping.pop(originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]])
-                elif (wl_d is not None) and (change_field in wl_d) and (
-                    wl_d[change_field].lower() == change_id_pod_configure
-                ):
-                    app.logger.info("configure stream")
-                    podConfigureRedis(
-                        app.config["WDM_WL_OBJECT_NAME"], wl_d, originalJson
-                    )  
-
-                           
-                else:
-                    app.logger.info("wl_d is None ")
-            except MaxReplicaException as me:
-                app.logger.error(f"Max replica exception Kafka {me}")
-                error_occured = True
-                if wl_d is not None:
-                    try:
-                        _kcid = originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][
-                            app.config["WDM_WL_ID_FIELD"]
-                        ]
-                    except (KeyError, TypeError):
-                        _kcid = None
-                    if _kcid is not None:
-                        _kspan = id_ctx_mapping.get(_kcid, {}).get("span")
-                        if _kspan is not None:
-                            _kspan.set_status(tracing.StatusCode.ERROR)
-                            _kspan.end()
-                raise MaxReplicaException("Max replica reached")
-            except Exception:
-                app.logger.exception("exception occured")
-                if wl_d is not None:
-                    try:
-                        _kcid = originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][
-                            app.config["WDM_WL_ID_FIELD"]
-                        ]
-                    except (KeyError, TypeError):
-                        _kcid = None
-                    if _kcid is not None:
-                        _kspan = id_ctx_mapping.get(_kcid, {}).get("span")
-                        if _kspan is not None:
-                            _kspan.set_status(tracing.StatusCode.ERROR)
-                            _kspan.end()
+                        app.logger.info("wl_d is None ")
+                        outcome = EVENT_NOOP
+                except MaxReplicaException as me:
+                    err = me
+                    app.logger.error(f"Max replica exception Kafka {me}")
+                    if originalJson is not None:
+                        _end_error_span_for_event(originalJson)
+                    outcome = EVENT_TERMINAL if evic_q_on_no_capacity else EVENT_RETRYABLE
+                except Exception as exc:
+                    err = exc
+                    outcome = classify_exception(exc)
+                    app.logger.exception("exception occured")
+                    if originalJson is not None:
+                        _end_error_span_for_event(originalJson)
         except Exception as e:
+            err = e
+            outcome = classify_exception(e)
             app.logger.error(f"Exception occured: {e}")
             app.logger.error("An exception occured in the main loop")
-            # raise Exception ("upstream exception")
+
+        should_commit, final_outcome, attempt = _apply_bus_commit_decision(
+            bus_name="kafka",
+            message_key=message_key,
+            outcome=outcome,
+            error=err,
+            original_json=originalJson,
+            wl_d=wl_d,
+        )
         try:
-            app.logger.info("commiting consumer message")
-            bus.consumer.commit()
+            if should_commit:
+                app.logger.info("commiting consumer message")
+                bus.consumer.commit()
+            else:
+                # flask-kafka commits after this handler returns. Seek back so
+                # that commit (or a later success) cannot skip this offset.
+                if kafka_rewind_to_message(bus.consumer, msg):
+                    app.logger.info(
+                        "rewound Kafka consumer after retryable failure "
+                        "(attempt %s/%s, outcome=%s); deferring commit skip "
+                        "via seek",
+                        attempt,
+                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        final_outcome,
+                    )
+                elif kafka_park_offset_on_next_commit(bus.consumer, msg):
+                    # seek failed: force flask-kafka's post-handler commit to
+                    # park at this offset instead of acknowledging past it.
+                    app.logger.error(
+                        "Kafka seek failed after retryable failure; installed "
+                        "one-shot park commit for offset "
+                        "(attempt %s/%s, outcome=%s)",
+                        attempt,
+                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        final_outcome,
+                    )
+                else:
+                    # Last resort: abort before flask-kafka can commit past us.
+                    app.logger.error(
+                        "Kafka seek and park-commit install both failed after "
+                        "retryable failure (attempt %s/%s, outcome=%s); "
+                        "raising to prevent offset skip",
+                        attempt,
+                        app.config.get("WDM_EVENT_RETRY_LIMIT", 20),
+                        final_outcome,
+                    )
+                    raise RuntimeError(
+                        "kafka retryable failure: cannot rewind or park offset"
+                    )
+                time.sleep(1.0)
         except Exception as e:
             app.logger.error(f"Exception: {e}")
+            # Do not swallow rewind/park failures: flask-kafka commits after return.
+            if not should_commit:
+                raise
 
         app.logger.info("waiting for next message")
+
 
 
 def preloadData(originalJson):
@@ -2735,26 +3562,47 @@ def preLoad():
     REDIS_LISTENER_PAUSE = False
 
 def removeAllStreams():
+    global id_ctx_mapping
     pod_names = cfg.getpods()
     all_returns = []
     for pod in pod_names:
-        all_returns.append(json.loads(cfg.getworkLoadSpecs(pod)))
+        try:
+            pod_specs = cfg.getworkLoadSpecs(pod)
+            if isinstance(pod_specs, str):
+                pod_specs = json.loads(pod_specs)
+            all_returns.append(pod_specs)
+        except Exception:
+            app.logger.exception("Unable to load cached streams for pod %s", pod)
     app.logger.info("all_cache_streams: " + str(all_returns))
 
-    try:
-        for pipeline in all_returns:
-            curr_pipeline = json.loads(pipeline)
-            for curr_stream in curr_pipeline:
+    for pipeline in all_returns:
+        try:
+            curr_pipeline = json.loads(pipeline) if isinstance(pipeline, str) else pipeline
+        except Exception:
+            app.logger.exception("Unable to parse cached stream pipeline: %s", pipeline)
+            continue
+        if curr_pipeline is None:
+            continue
+        for curr_stream in curr_pipeline:
+            try:
                 app.logger.info("curr_stream being removed: " + str(curr_stream))
-                global id_ctx_mapping
-                camera_id = curr_stream[app.config["WDM_EVENT_OBJECT_FIELD"]][app.config["WDM_WL_ID_FIELD"]]
-                parent_context = id_ctx_mapping[camera_id]
-                curr_stream[app.config["WDM_EVENT_OBJECT_FIELD"]]["change"] = app.config["WDM_WL_CHANGE_ID_DEL"]
-                deprovisionStreamRedis(app.config["WDM_WL_OBJECT_NAME"], curr_stream[app.config["WDM_EVENT_OBJECT_FIELD"]], curr_stream, parent_context)
+                event_obj = curr_stream[app.config["WDM_EVENT_OBJECT_FIELD"]]
+                camera_id = event_obj[app.config["WDM_WL_ID_FIELD"]]
+                parent_context = id_ctx_mapping.get(camera_id, {}).get("context")
+                event_obj["change"] = app.config["WDM_WL_CHANGE_ID_DEL"]
+                deprovisionStreamRedis(
+                    app.config["WDM_WL_OBJECT_NAME"],
+                    event_obj,
+                    curr_stream,
+                    parent_context,
+                )
                 time.sleep(0.1) # TODO: added since DS endpoints stop working/freezes when sending many remove requests at once. find a proper solution to this
-    except Exception as e:
-        app.logger.info("Something went wrong while trying to remove a stream - " + repr(e))
-    
+            except Exception:
+                app.logger.exception(
+                    "Something went wrong while trying to remove stream: %s",
+                    curr_stream,
+                )
+
     return
 
 def podWatch():
@@ -2988,10 +3836,17 @@ if __name__ == "__main__":  # Script executed directly?
         app.logger.exception("Couldn't clear WL spec file")
     
     listners = False
-    if bus is not None:
+    if bus is not None and is_message_bus_lifecycle_mode(app.config):
         listen_kill_server()
         bus.run()
         app.logger.info("Kafka Listerner started")
+    elif bus is not None:
+        listners = True
+        app.logger.info(
+            "Kafka lifecycle listener disabled by WDM_LIFECYCLE_INGRESS_MODE=%s; "
+            "WDM_KFK_ENABLE remains available for internal broker use",
+            app.config.get("WDM_LIFECYCLE_INGRESS_MODE"),
+        )
     else:
         listners = True
         if app.config["WDM_KFK_ENABLE"]:

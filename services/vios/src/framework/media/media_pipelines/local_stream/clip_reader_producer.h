@@ -141,6 +141,10 @@ private:
     bool shouldUseGiosrcForGrowingFile() const;  // Check if giosrc pipeline should be used
     bool linkElements();
     bool applySeek();
+    /* Preroll buffers are only dropped while a pending seek would replace them.
+    ** applySeek() runs solely for seek_start_ms > 0, so a clip starting at the
+    ** head of the file must keep its preroll buffers, first keyframe included. */
+    bool skipUntilSeekDone() const { return mCfg.seek_start_ms > 0 && !mSeekDone.load(); }
     bool play();
     void teardown();
     void attachBusHandlers();

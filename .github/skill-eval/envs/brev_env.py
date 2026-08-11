@@ -22,18 +22,20 @@ Task.toml [metadata] fields consumed:
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from enum import Enum
 import json
 import logging
 import os
+from pathlib import Path
 import shlex
 import signal
 import subprocess
 import tempfile
 import uuid
-from enum import Enum
-from pathlib import Path
 
-from harbor.environments.base import BaseEnvironment, ExecResult
+from harbor.environments.base import BaseEnvironment
+from harbor.environments.base import ExecResult
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,38 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 # retrying a transient stall on a fresh connection recovers it. Tunable.
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
+
+# Keep every file-transfer API bounded below run_leg.py's recovery headroom.
+# Remote work gets 600 seconds. The public 630-second wall-clock bound also
+# accounts for two worst-case 11-second process-group reap paths (a timed-out
+# primary agent-log pull followed by a timed-out raw-log fallback) plus eight
+# seconds of scheduling/exception-unwind margin.
+BREV_TRANSFER_TOTAL_TIMEOUT_SEC = int(
+    os.environ.get("BREV_TRANSFER_TOTAL_TIMEOUT_SEC", "630")
+)
+BREV_TRANSFER_CANCELLATION_GRACE_SEC = 30
+BREV_TRANSFER_ACTIVE_TIMEOUT_SEC = (
+    BREV_TRANSFER_TOTAL_TIMEOUT_SEC - BREV_TRANSFER_CANCELLATION_GRACE_SEC
+)
+BREV_LOG_FALLBACK_TIMEOUT_SEC = 120
+BREV_DOWNLOAD_PRIMARY_TIMEOUT_SEC = (
+    BREV_TRANSFER_ACTIVE_TIMEOUT_SEC - BREV_LOG_FALLBACK_TIMEOUT_SEC
+)
+if BREV_DOWNLOAD_PRIMARY_TIMEOUT_SEC <= 0:
+    raise ValueError(
+        "BREV_TRANSFER_TOTAL_TIMEOUT_SEC must exceed fallback and "
+        "cancellation-reap budgets"
+    )
+
+# If Claude exits before its session JSONL is materialized, Harbor's normal
+# claude-code mapper has nothing to copy.  Keep a bounded tail of the tee'd
+# stream as a forensic fallback without making every successful trial carry
+# the (potentially very large) raw stream.
+CLAUDE_LOG_FALLBACK_BYTES = int(
+    os.environ.get("CLAUDE_LOG_FALLBACK_BYTES", str(1024 * 1024))
+)
+REMOTE_AGENT_RUN_ENV = "HARBOR_SKILL_EVAL_AGENT_RUN"
+REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
 
 # Public relay used by the RT-VLM test suite. Operators can override it for
 # isolated environments, but the eval remains runnable without extra CI
@@ -233,8 +267,10 @@ class BrevEnvironment(BaseEnvironment):
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
             "sudo rm -rf /logs/artifacts /logs/verifier && "
+            "sudo rm -rf /tmp/skill-eval/uploads && "
+            "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
+            "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
         # Fail loud: this is the load-bearing artifacts wipe. A silent failure
@@ -248,8 +284,9 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
-        # Archive any session JSONLs left by prior trials on this warm-pool
-        # box. Without this, harbor's claude-code mapper merges every
+        # Archive session JSONLs and root-level agent outputs left by
+        # prior trials on this warm-pool box. Without this, harbor's claude-code
+        # mapper merges every
         # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
         # into one trajectory.json — producing thousand-step trajectories
         # that conflate this trial with every preceding one (observed:
@@ -270,16 +307,17 @@ class BrevEnvironment(BaseEnvironment):
         # require forking harbor — out of scope. Empty-on-start is
         # sufficient for the harbor mapper's "exactly one session dir"
         # heuristic to produce a clean per-trial trajectory.
-        archive_cmd = (
-            "ts=$(date +%Y%m%d-%H%M%S); "
-            "PROJ=/logs/agent/sessions/projects; "
-            'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '
-            '  ARCHIVE=$HOME/.claude-archive/$ts; '
-            '  mkdir -p "$ARCHIVE" && mv "$PROJ"/* "$ARCHIVE/" 2>/dev/null || true; '
-            '  echo "[trajectory-isolation] archived prior project dirs to $ARCHIVE"; '
-            "fi"
+        archive_result = await _run_brev_exec(
+            self._instance_name,
+            _prior_agent_output_archive_command(),
+            timeout=30,
         )
-        await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
+        if archive_result.return_code != 0:
+            tail = (archive_result.stderr or archive_result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"prior agent-output archive failed on {self._instance_name}: "
+                f"exit {archive_result.return_code}; tail:\n{tail}"
+            )
 
         # Clear Claude Code's background-task scratch before the new
         # `claude --print` starts. Session JSONL archival above handles stale
@@ -758,7 +796,27 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             logger.warning("[mount-probe] %s failed (non-fatal): %r", label, exc)
 
     async def stop(self, delete: bool) -> None:
-        """No-op — the instance stays running for reuse."""
+        """Leave the instance running after bounded transfer-staging cleanup."""
+        if self._instance_name:
+            try:
+                result = await _run_brev_exec(
+                    self._instance_name,
+                    "sudo rm -rf /tmp/skill-eval/uploads && "
+                    "sudo rm -f /tmp/.harbor_dl_*.b64",
+                    timeout=30,
+                )
+                if result.return_code != 0:
+                    logger.warning(
+                        "Remote transfer-staging cleanup failed on %s: %s",
+                        self._instance_name,
+                        result.stderr or result.stdout or "unknown error",
+                    )
+            except Exception as exc:  # noqa: BLE001 — stop remains best effort
+                logger.warning(
+                    "Remote transfer-staging cleanup failed on %s: %r",
+                    self._instance_name,
+                    exc,
+                )
         logger.info(
             "Leaving Brev instance %s running (delete=%s)",
             self._instance_name, delete,
@@ -767,22 +825,45 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         assert self._instance_name
-        # Ensure parent directory exists with correct ownership
-        parent = str(Path(target_path).parent)
-        if parent and parent != ".":
-            await _run_brev_exec(
-                self._instance_name,
-                f"sudo mkdir -p {shlex.quote(parent)} && "
-                f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)}",
-                timeout=30,
-            )
-        result = await _run_brev_copy(
-            str(source_path), f"{self._instance_name}:{target_path}",
-        )
-        if result.return_code != 0:
-            raise RuntimeError(f"Upload failed: {result.stderr}")
+        try:
+            async with asyncio.timeout(BREV_TRANSFER_ACTIVE_TIMEOUT_SEC):
+                # Ensure parent directory exists with correct ownership
+                parent = str(Path(target_path).parent)
+                if parent and parent != ".":
+                    await _run_brev_exec(
+                        self._instance_name,
+                        f"sudo mkdir -p {shlex.quote(parent)} && "
+                        f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)}",
+                        timeout=30,
+                    )
+                result = await _run_brev_copy(
+                    str(source_path), f"{self._instance_name}:{target_path}",
+                )
+                if result.return_code != 0:
+                    raise RuntimeError(f"Upload failed: {result.stderr}")
+        except TimeoutError as exc:
+            raise RuntimeError(
+                "Upload file exceeded the "
+                f"{BREV_TRANSFER_TOTAL_TIMEOUT_SEC}s transfer budget"
+            ) from exc
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
+        assert self._instance_name
+        try:
+            async with asyncio.timeout(BREV_TRANSFER_ACTIVE_TIMEOUT_SEC):
+                await self._upload_dir_once(source_dir, target_dir)
+        except TimeoutError as exc:
+            raise RuntimeError(
+                "Upload dir exceeded the "
+                f"{BREV_TRANSFER_TOTAL_TIMEOUT_SEC}s transfer budget"
+            ) from exc
+
+    async def _upload_dir_once(
+        self,
+        source_dir: Path | str,
+        target_dir: str,
+    ) -> None:
+        """Archive, copy, and extract one directory within the caller budget."""
         assert self._instance_name
         # brev copy has broken directory nesting behaviour. Package the
         # directory locally, copy one archive, then extract remotely. Do
@@ -798,7 +879,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         remote_tar = f"{remote_upload_dir}/archive.tar.gz"
 
         try:
-            subprocess.check_call(
+            await _run_local_transfer_command(
                 ["tar", "-czf", str(tar_path), "-C", src, "."],
                 timeout=60,
             )
@@ -841,23 +922,33 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         assert self._instance_name
-        last_err = ""
-        for attempt in range(BREV_DOWNLOAD_RETRIES):
-            result = await _run_brev_copy(
-                f"{self._instance_name}:{source_path}", str(target_path),
-            )
-            if result.return_code == 0:
-                return
-            last_err = result.stderr or ""
-            if attempt + 1 < BREV_DOWNLOAD_RETRIES:
-                logger.warning(
-                    "download_file attempt %d/%d failed (%s) — retrying",
-                    attempt + 1, BREV_DOWNLOAD_RETRIES, last_err,
+        try:
+            async with asyncio.timeout(BREV_TRANSFER_ACTIVE_TIMEOUT_SEC):
+                last_err = ""
+                for attempt in range(BREV_DOWNLOAD_RETRIES):
+                    result = await _run_brev_copy(
+                        f"{self._instance_name}:{source_path}", str(target_path),
+                    )
+                    if result.return_code == 0:
+                        return
+                    last_err = result.stderr or ""
+                    if attempt + 1 < BREV_DOWNLOAD_RETRIES:
+                        logger.warning(
+                            "download_file attempt %d/%d failed (%s) — retrying",
+                            attempt + 1, BREV_DOWNLOAD_RETRIES, last_err,
+                        )
+                        await asyncio.sleep(
+                            BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1)
+                        )
+                raise RuntimeError(
+                    f"Download failed after {BREV_DOWNLOAD_RETRIES} attempts: "
+                    f"{last_err}"
                 )
-                await asyncio.sleep(BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1))
-        raise RuntimeError(
-            f"Download failed after {BREV_DOWNLOAD_RETRIES} attempts: {last_err}"
-        )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                "Download file exceeded the "
+                f"{BREV_TRANSFER_TOTAL_TIMEOUT_SEC}s transfer budget"
+            ) from exc
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
         # Retry the pull: a transient stall — or a prior attempt whose ssh
@@ -865,20 +956,125 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         # kill, so it can't wedge the box) — usually clears on a fresh
         # connection. Raise loud only after exhausting retries.
         last: Exception | None = None
-        for attempt in range(BREV_DOWNLOAD_RETRIES):
+        try:
+            async with asyncio.timeout(BREV_DOWNLOAD_PRIMARY_TIMEOUT_SEC):
+                for attempt in range(BREV_DOWNLOAD_RETRIES):
+                    try:
+                        await self._download_dir_once(source_dir, target_dir)
+                        last = None
+                        break
+                    except (
+                        RuntimeError,
+                        OSError,
+                        subprocess.SubprocessError,
+                    ) as exc:
+                        last = exc
+                        if attempt + 1 < BREV_DOWNLOAD_RETRIES:
+                            logger.warning(
+                                "download_dir attempt %d/%d failed (%s) — retrying",
+                                attempt + 1, BREV_DOWNLOAD_RETRIES, exc,
+                            )
+                            await asyncio.sleep(
+                                BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1)
+                            )
+        except TimeoutError as exc:
+            last = RuntimeError(
+                "Download dir exceeded the "
+                f"{BREV_DOWNLOAD_PRIMARY_TIMEOUT_SEC}s primary transfer budget"
+            )
+            logger.warning("Primary directory transfer timed out: %r", exc)
+
+        needs_fallback = (
+            _is_agent_log_dir(source_dir)
+            and (last is not None or not _has_mappable_agent_log(Path(target_dir)))
+        )
+        if needs_fallback:
             try:
-                await self._download_dir_once(source_dir, target_dir)
-                return
-            except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-                last = exc
-                if attempt + 1 < BREV_DOWNLOAD_RETRIES:
-                    logger.warning(
-                        "download_dir attempt %d/%d failed (%s) — retrying",
-                        attempt + 1, BREV_DOWNLOAD_RETRIES, exc,
+                async with asyncio.timeout(BREV_LOG_FALLBACK_TIMEOUT_SEC):
+                    recovered = await self._download_claude_log_fallback(
+                        source_dir, target_dir
                     )
-                    await asyncio.sleep(BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1))
-        assert last is not None
+            except (
+                RuntimeError,
+                OSError,
+                subprocess.SubprocessError,
+                TimeoutError,
+            ) as exc:
+                logger.warning(
+                    "Claude raw-log fallback failed (primary result retained): %s",
+                    exc,
+                )
+            else:
+                if recovered:
+                    logger.warning(
+                        "No usable Claude session trajectory was available; "
+                        "recovered a bounded "
+                        "claude-code.txt tail instead"
+                    )
+                    if last is not None:
+                        return
+
+        if last is None:
+            return
         raise last
+
+    async def _download_claude_log_fallback(
+        self,
+        source_dir: str,
+        target_dir: Path | str,
+    ) -> bool:
+        """Recover the tail of Claude's raw stream when no session exists.
+
+        The Brev gateway becomes unreliable for multi-megabyte command output,
+        so this deliberately transfers a bounded, base64-encoded tail.  The
+        standard filename lets Harbor artifacts and the trace viewer expose the
+        only agent evidence that exists for an early exit or timeout.
+        """
+        assert self._instance_name
+        import base64 as _b64
+        import binascii as _binascii
+        import re as _re
+
+        marker = "__HARBOR_CLAUDE_FALLBACK_" + uuid.uuid4().hex[:8] + "__"
+        remote_log = shlex.quote(
+            f"{source_dir.rstrip('/')}/claude-code.txt"
+        )
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"test -f {remote_log} || exit 44; "
+            f"echo '{marker}START'; "
+            f"tail -c {CLAUDE_LOG_FALLBACK_BYTES} {remote_log} | base64 -w 0; "
+            f"echo; echo '{marker}END'",
+            timeout=120,
+        )
+        if result.return_code == 44:
+            logger.warning("Claude raw log does not exist at %s", remote_log)
+            return False
+        if result.return_code != 0:
+            raise RuntimeError(
+                "Claude raw-log fallback failed: "
+                f"{result.stderr or 'unknown error'}"
+            )
+
+        match = _re.search(
+            rf"{marker}START\s*\n(.*?)\n?{marker}END",
+            result.stdout or "",
+            _re.DOTALL,
+        )
+        if not match:
+            raise RuntimeError("Claude raw-log fallback markers were not found")
+        encoded = _re.sub(r"[^A-Za-z0-9+/=]", "", match.group(1))
+        if not encoded:
+            return False
+        try:
+            payload = _b64.b64decode(encoded, validate=True)
+        except (_binascii.Error, ValueError) as exc:
+            raise RuntimeError("Claude raw-log fallback was corrupt") from exc
+
+        target = Path(target_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "claude-code.txt").write_bytes(payload)
+        return True
 
     async def _download_dir_once(self, source_dir: str, target_dir: Path | str) -> None:
         assert self._instance_name
@@ -886,7 +1082,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         # brev exec: tar on remote, base64-encode with markers, capture
         # via exec, decode+untar locally.  Use sentinel markers to isolate
         # base64 from brev CLI spinner/connection noise.
-        import base64 as _b64, re as _re, subprocess as _sp
+        import re as _re
         marker = "__HARBOR_B64_" + uuid.uuid4().hex[:8] + "__"
         # Stage the archive as a base64 FILE on the node, then fetch it in
         # small slices with independent per-slice retries. A single-stream
@@ -967,25 +1163,19 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         await _run_brev_exec(self._instance_name, f"rm -f {remote_b64}",
                              timeout=30)
 
-        # Reassemble the slices behind a regex-Match-shaped shim so the
-        # base64-cleanup + decode + extraction pipeline below stays byte-for-
-        # byte identical to the original single-stream implementation (it
-        # consumes `m.group(1)`); only the transport above changed.
-        class _M:
-            def group(self, _i):
-                return "".join(parts)
-        m = _M()
-        # Strip any remaining non-base64 chars (e.g. CR, stray spinner bytes)
-        raw_b64 = "".join(c for c in m.group(1) if c in
-                          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
-        if not raw_b64:
+        if not parts:
             raise RuntimeError("Download dir failed: no base64 data between markers")
-        tar_bytes = _b64.b64decode(raw_b64)
+        # Joining and decoding a multi-hundred-MB trajectory on the event-loop
+        # thread would prevent asyncio.timeout from firing. Every slice was
+        # already marker-isolated and base64-cleaned above, so offload the only
+        # remaining CPU-heavy assembly step.
+        tar_bytes = await asyncio.to_thread(_decode_base64_parts, parts)
         target = Path(target_dir)
         target.mkdir(parents=True, exist_ok=True)
-        _sp.run(
+        await _run_local_transfer_command(
             ["tar", "-xzf", "-", "-C", str(target)],
-            input=tar_bytes, check=True, timeout=60,
+            input_data=tar_bytes,
+            timeout=60,
         )
 
     async def exec(
@@ -998,15 +1188,43 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
     ) -> ExecResult:
         assert self._instance_name
 
+        is_trial_agent = (
+            "claude --verbose --output-format=stream-json" in command
+            or "codex exec " in command
+        )
+        agent_run_marker = (
+            f"{REMOTE_AGENT_RUN_PREFIX}{uuid.uuid4().hex}"
+            if is_trial_agent
+            else None
+        )
+
         parts = [
             # Make sure user-installed binaries (claude, uv, etc.) are on PATH
             # even though `brev exec` spawns a non-interactive non-login shell.
             'export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH";',
             "source ~/.profile 2>/dev/null;",
         ]
+        # Ensure /logs/verifier is writable before the verifier exec —
+        # Harbor's verifier phase redirects test-stdout.txt there, and the
+        # directory can become root-owned between start() and verifier exec
+        # (observed on warm-pool boxes where artifact collection or a
+        # concurrent process recreates it as root). Only trigger when the
+        # command redirects to /logs/verifier/ (the verifier stdout pattern).
+        if "/logs/verifier/" in command:
+            parts.append(
+                "sudo chown -R $(whoami):$(id -gn) /logs/verifier 2>/dev/null || true;"
+            )
         if env:
             for k, v in env.items():
                 parts.append(f"export {shlex.quote(k)}={shlex.quote(v)};")
+        if agent_run_marker is not None:
+            # Claude/Bun background workers inherit this marker even after
+            # setsid(). It gives cancellation and the next warm-box trial a
+            # scope that process-group ancestry alone cannot provide.
+            parts.append(
+                f"export {REMOTE_AGENT_RUN_ENV}="
+                f"{shlex.quote(agent_run_marker)};"
+            )
         if cwd:
             parts.append(f"cd {shlex.quote(cwd)};")
         parts.append(command)
@@ -1033,55 +1251,203 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         else:
             full_cmd = inner_cmd
 
-        return await _run_brev_exec(
-            self._instance_name, full_cmd,
-            timeout=timeout_sec or BREV_EXEC_TIMEOUT,
-        )
+        try:
+            result = await _run_brev_exec(
+                self._instance_name,
+                full_cmd,
+                timeout=timeout_sec or BREV_EXEC_TIMEOUT,
+            )
+            if agent_run_marker is not None:
+                await self._reap_remote_agent_after_interrupt(
+                    agent_run_marker,
+                    best_effort=result.return_code != 0,
+                )
+            return result
+        except asyncio.CancelledError:
+            if agent_run_marker is not None:
+                await self._reap_remote_agent_after_interrupt(
+                    agent_run_marker,
+                    best_effort=True,
+                )
+            raise
+
+    async def _reap_remote_agent_after_interrupt(
+        self,
+        agent_run_marker: str,
+        *,
+        best_effort: bool,
+    ) -> None:
+        """Kill every process carrying one agent run's inherited marker."""
+        assert self._instance_name
+        try:
+            result = await _run_brev_exec(
+                self._instance_name,
+                _stray_agent_reap_command(agent_run_marker),
+                timeout=30,
+            )
+            if result.return_code != 0:
+                raise RuntimeError(
+                    "remote agent reap failed: "
+                    + (result.stderr or result.stdout or "unknown error")
+                )
+        except Exception as exc:
+            if not best_effort:
+                raise
+            logger.warning("Remote agent reap failed after interruption: %r", exc)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _decode_base64_parts(parts: list[str]) -> bytes:
+    """Assemble pre-cleaned base64 slices off the asyncio event-loop thread."""
+    import base64
+    import binascii
+
+    try:
+        return base64.b64decode("".join(parts), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise RuntimeError("Download dir failed: staged base64 was corrupt") from exc
+
+
+def _is_agent_log_dir(source_dir: str) -> bool:
+    """Return whether Harbor is downloading its canonical agent-log dir."""
+    return source_dir.rstrip("/") == "/logs/agent"
+
+
+def _has_mappable_agent_log(target_dir: Path) -> bool:
+    """Return whether a normal Claude trajectory/session was recovered."""
+    if not target_dir.exists():
+        return False
+    if any(target_dir.rglob("*.jsonl")):
+        return True
+    return any(
+        (target_dir / name).is_file()
+        for name in ("trajectory.json", "trajectory.jsonl", "agent.log")
+    )
+
+
 def _which(cmd: str) -> bool:
     import shutil
     return shutil.which(cmd) is not None
 
 
-def _stray_agent_reap_command() -> str:
-    """SIGKILL leftover trial-agent processes from a prior session.
+def _stray_agent_reap_command(agent_run_marker: str | None = None) -> str:
+    """SIGKILL on-box agent trees, including detached background workers.
 
-    Matches the exact on-box trial invocation (`claude --verbose
-    --output-format=stream-json …`); the `[n]` bracket keeps this probe's
-    own argv — which contains the pattern text — from matching itself.
-    Kills each match's whole process group so detached Bash-tool children
-    (compose waiters, log tails) die with it, falling back to a plain kill
-    when the group lookup fails. Pids in this shell's own process group are
-    skipped — belt-and-suspenders so a caller whose argv somehow contains
-    the unbracketed pattern can never reap itself. Exits 0 whether or not
-    anything matched; a non-zero exit means the reap itself broke and the
-    caller fails loud.
+    New agent commands export a unique marker inherited by every descendant.
+    An exact marker scopes immediate post-agent cleanup; ``None`` matches all
+    skill-eval markers during warm-box startup recovery. That startup mode also
+    retains legacy Claude and Codex argv matches for agents started before the
+    marker existed; exact immediate cleanup never broadens beyond its marker.
+    Every matching PID's process group is snapshotted
+    before any signal is sent, so killing the main agent group cannot hide a
+    child that called ``setsid()``. The reaper's own group is always excluded.
     """
+    if agent_run_marker is not None and not agent_run_marker.startswith(
+        REMOTE_AGENT_RUN_PREFIX
+    ):
+        raise ValueError("invalid remote agent run marker")
+
+    if agent_run_marker is None:
+        marker_probe = (
+            f'MARKER_RE="^{REMOTE_AGENT_RUN_ENV}='
+            f'{REMOTE_AGENT_RUN_PREFIX}[0-9a-f]+$"; '
+            "MATCH_EXACT=0; INCLUDE_LEGACY=1; "
+        )
+    else:
+        marker_probe = (
+            f"MARKER={shlex.quote(f'{REMOTE_AGENT_RUN_ENV}={agent_run_marker}')}; "
+            "MATCH_EXACT=1; INCLUDE_LEGACY=0; "
+        )
+
     return (
-        "PAT='claude --verbose --output-format=stream-jso[n]'; "
+        marker_probe
+        + "CLAUDE_PAT='claude --verbose --output-format=stream-jso[n]'; "
+        "CODEX_PAT='codex exe[c]'; "
         'SELF_PGID=$(ps -o pgid= -p $$ | tr -d " "); '
-        'PIDS=$(pgrep -f "$PAT" || true); '
-        "KILLED=''; "
-        'if [ -n "$PIDS" ]; then '
-        "  for pid in $PIDS; do "
+        "PIDS=''; PGIDS=''; "
+        "for env_file in /proc/[0-9]*/environ; do "
+        '  [ -r "$env_file" ] || continue; '
+        '  pid=${env_file#/proc/}; pid=${pid%/environ}; '
+        '  [ "$pid" = "$$" ] && continue; '
+        '  if [ "$MATCH_EXACT" -eq 1 ]; then '
+        '    tr "\\0" "\\n" < "$env_file" 2>/dev/null '
+        '      | grep -Fqx -- "$MARKER" || continue; '
+        "  else "
+        '    tr "\\0" "\\n" < "$env_file" 2>/dev/null '
+        '      | grep -Eq -- "$MARKER_RE" || continue; '
+        "  fi; "
+        '  PIDS="$PIDS $pid"; '
+        "done; "
+        'if [ "$INCLUDE_LEGACY" -eq 1 ]; then '
+        '  PIDS="$PIDS $(pgrep -f "$CLAUDE_PAT" || true) '
+        '$(pgrep -f "$CODEX_PAT" || true)"; '
+        "fi; "
+        "for pid in $PIDS; do "
         '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d " " || true); '
         '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then continue; fi; '
         '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then '
-        '      kill -9 -- "-$PGID" 2>/dev/null || true; '
+        '      PGIDS="$PGIDS $PGID"; '
         "    fi; "
-        '    kill -9 "$pid" 2>/dev/null || true; '
-        '    KILLED="$KILLED $pid"; '
-        "  done; "
-        "fi; "
-        'if [ -n "$KILLED" ]; then '
-        '  echo "[stray-agent-reap] killed pids:$KILLED"; '
+        "done; "
+        "UNIQUE_PGIDS=''; "
+        "for pgid in $(printf '%s\\n' $PGIDS | sort -un); do "
+        '  [ -n "$pgid" ] || continue; '
+        '  kill -9 -- "-$pgid" 2>/dev/null || true; '
+        '  UNIQUE_PGIDS="$UNIQUE_PGIDS $pgid"; '
+        "done; "
+        "for pid in $PIDS; do kill -9 \"$pid\" 2>/dev/null || true; done; "
+        'if [ -n "$UNIQUE_PGIDS" ]; then '
+        '  echo "[stray-agent-reap] killed pgids:$UNIQUE_PGIDS"; '
         "else "
         '  echo "[stray-agent-reap] none"; '
+        "fi"
+    )
+
+
+def _prior_agent_output_archive_command() -> str:
+    """Archive every prior output that Harbor could mistake for this trial.
+
+    Session projects are consumed by Claude's trajectory mapper. Root-level
+    outputs are uploaded back by Harbor after a completed trial and are also
+    recognized by our fallback/judge paths. Leaving either class in place can
+    make a pre-agent failure inherit the previous trial's evidence. Move both
+    classes aside: after an abrupt cancellation the root raw log may be the
+    only surviving evidence because coordinator download never completed.
+    Old archives are pruned to keep warm-box storage bounded.
+    """
+    return (
+        "ts=$(date +%Y%m%d-%H%M%S)-$$; "
+        "PROJ=/logs/agent/sessions/projects; "
+        "ROOT=/logs/agent; "
+        "OUTPUTS='claude-code.txt trajectory.json trajectory.jsonl agent.log'; "
+        "HAS_SESSIONS=0; "
+        "HAS_OUTPUT=0; "
+        'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '
+        "  HAS_SESSIONS=1; "
+        "fi; "
+        'for name in $OUTPUTS; do [ -e "$ROOT/$name" ] && HAS_OUTPUT=1; done; '
+        'if [ "$HAS_SESSIONS" -eq 1 ] || [ "$HAS_OUTPUT" -eq 1 ]; then '
+        '  ARCHIVE="$HOME/.claude-archive/$ts"; '
+        '  mkdir -p "$ARCHIVE" || exit 1; '
+        "fi; "
+        'if [ "$HAS_SESSIONS" -eq 1 ]; then '
+        '  mkdir -p "$ARCHIVE/sessions" || exit 1; '
+        '  mv "$PROJ"/* "$ARCHIVE/sessions/" || exit 1; '
+        '  echo "[trajectory-isolation] archived prior sessions to $ARCHIVE/sessions"; '
+        "fi; "
+        'if [ "$HAS_OUTPUT" -eq 1 ]; then '
+        '  mkdir -p "$ARCHIVE/root-output" || exit 1; '
+        "  for name in $OUTPUTS; do "
+        '    [ ! -e "$ROOT/$name" ] || mv "$ROOT/$name" "$ARCHIVE/root-output/" || exit 1; '
+        "  done; "
+        '  echo "[trajectory-isolation] archived root agent outputs to $ARCHIVE/root-output"; '
+        "fi; "
+        'if [ -d "$HOME/.claude-archive" ]; then '
+        '  find "$HOME/.claude-archive" -mindepth 1 -maxdepth 1 '
+        '    -type d -mtime +7 -exec rm -rf {} + || exit 1; '
         "fi"
     )
 
@@ -1111,6 +1477,38 @@ def _claude_task_scratch_cleanup_command() -> str:
     )
 
 
+def _process_start_ticks(pid: int) -> str | None:
+    """Return Linux /proc start ticks so run_leg can reject PID reuse."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+        return None
+    closing_paren = stat.rfind(")")
+    if closing_paren < 0:
+        return None
+    fields_from_state = stat[closing_paren + 2 :].split()
+    return fields_from_state[19] if len(fields_from_state) > 19 else None
+
+
+def _register_transport_process(proc: asyncio.subprocess.Process) -> None:
+    """Publish a detached child identity for run_leg's teardown registry."""
+    registry = os.environ.get("BREV_TRANSPORT_PGID_FILE")
+    start_ticks = _process_start_ticks(proc.pid)
+    if not registry or start_ticks is None:
+        return
+    line = f"{proc.pid} {start_ticks}\n".encode()
+    try:
+        fd = os.open(registry, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        # Registration is a second teardown fence. Local cancellation remains
+        # active even if an operator-provided registry path is unusable.
+        logger.warning("Could not register transport PGID %s: %r", proc.pid, exc)
+
+
 def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
     """SIGKILL the child's whole process group.
 
@@ -1121,16 +1519,97 @@ def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
     following trial's ports unreachable). Killing
     the whole group reaps the orphan. Requires the child to have been
     started with `start_new_session=True` so it leads its own group; falls
-    back to a plain kill if the group lookup fails."""
-    if proc.returncode is not None:
-        return
+    back to a plain kill if group signaling fails."""
+    # Every caller starts the child with start_new_session=True, so its PID is
+    # also the stable process-group id. Signal that known PGID even when the
+    # immediate brev/ssh leader has already exited: descendants may still be
+    # alive and holding stdout/stderr pipes open.
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        os.killpg(proc.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError, OSError):
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+
+
+async def _communicate_with_cancellation_cleanup(
+    proc: asyncio.subprocess.Process,
+    *,
+    input_data: bytes,
+    timeout: int,
+) -> tuple[bytes | None, bytes | None]:
+    """Communicate with a subprocess and reap it if the caller is cancelled.
+
+    Harbor enforces phase timeouts by cancelling the environment coroutine.
+    Without this guard, the runner-side ``brev``/``ssh`` process and its SSH
+    child outlive the coroutine, delaying Harbor's timeout handling and
+    poisoning artifact recovery.  Re-raise the original cancellation only
+    after the whole process group is dead and collected.
+    """
+    try:
+        return await asyncio.wait_for(
+            proc.communicate(input=input_data),
+            timeout=timeout,
+        )
+    except asyncio.CancelledError:
+        _kill_proc_group(proc)
         try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
+            await asyncio.wait_for(proc.communicate(), timeout=10)
+        except (
+            asyncio.CancelledError,
+            TimeoutError,
+            BrokenPipeError,
+            ConnectionResetError,
+            ProcessLookupError,
+        ) as exc:
+            # SIGKILL was already sent to the stable PGID. Do not replace the
+            # Harbor cancellation with a secondary pipe/reap error or wait
+            # forever on an uninterruptible local transport.
+            logger.warning("Subprocess reap after cancellation was incomplete: %r", exc)
+            with contextlib.suppress(
+                asyncio.CancelledError,
+                TimeoutError,
+                ProcessLookupError,
+            ):
+                await asyncio.wait_for(proc.wait(), timeout=1)
+        raise
+
+
+async def _run_local_transfer_command(
+    args: list[str],
+    *,
+    input_data: bytes = b"",
+    timeout: int,
+) -> None:
+    """Run local tar work asynchronously so transfer deadlines can cancel it."""
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    _register_transport_process(proc)
+    try:
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc,
+            input_data=input_data,
+            timeout=timeout,
+        )
+    except TimeoutError as exc:
+        _kill_proc_group(proc)
+        with contextlib.suppress(TimeoutError, ProcessLookupError):
+            await asyncio.wait_for(proc.wait(), timeout=1)
+        raise subprocess.TimeoutExpired(args, timeout) from exc
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(
+            proc.returncode,
+            args,
+            output=stdout,
+            stderr=stderr,
+        )
 
 
 # Registered external nodes (BYOH / DGX-Spark / IGX-Thor) can't use
@@ -1204,9 +1683,11 @@ async def _run_ssh_exec(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    _register_transport_process(proc)
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=b""),
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc,
+            input_data=b"",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1247,9 +1728,11 @@ async def _run_scp(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    _register_transport_process(proc)
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=b""),
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc,
+            input_data=b"",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1302,10 +1785,12 @@ async def _run_brev_exec(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    _register_transport_process(proc)
 
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=b"\n"),
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc,
+            input_data=b"\n",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1376,10 +1861,12 @@ async def _run_brev_copy_once(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    _register_transport_process(proc)
 
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=b"\n"),
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc,
+            input_data=b"\n",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1414,9 +1901,11 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    _register_transport_process(proc)
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=(stdin_data or "").encode() + b"\n"),
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc,
+            input_data=(stdin_data or "").encode() + b"\n",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1443,41 +1932,60 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
 def _parse_brev_json(raw: str | None) -> list[dict]:
     """Strip trailing walkthrough text and parse JSON from brev CLI.
 
-    Handles both the legacy bare-array format (``[{...}, ...]``) and the
-    newer wrapped format (``{"workspaces": [{...}, ...]}``) introduced in
-    recent brev CLI versions.
+    Handles legacy flat arrays (`[{...}, ...]`) and object envelopes such as
+    `{"workspaces": [{...}, ...]}`.
     """
     if not raw:
         return []
-    # Try full parse first (handles both formats without bracket heuristics)
-    stripped = raw.strip()
-    try:
-        parsed = json.loads(stripped)
+
+    def _extract_list(parsed: object) -> list[dict]:
         if isinstance(parsed, list):
             return parsed
-        if isinstance(parsed, dict) and "workspaces" in parsed:
-            return parsed["workspaces"]
+        if isinstance(parsed, dict):
+            for key in ("workspaces", "instances", "nodes"):
+                if isinstance(parsed.get(key), list):
+                    return parsed[key]
+            for value in parsed.values():
+                if isinstance(value, list):
+                    return value
         return []
+
+    # Try full parse first (handles both formats without bracket heuristics).
+    stripped = raw.strip()
+    try:
+        return _extract_list(json.loads(stripped))
     except json.JSONDecodeError:
         pass
-    # Fallback: strip trailing walkthrough text after last `]`
+
+    # Fallback: strip trailing walkthrough text after last `]`.
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
+
+    # Try a full object envelope first; this handles `{"workspaces": [...]}` plus
+    # trailing CLI text.
+    brace_end = raw.rfind("}")
+    if brace_end > bracket:
+        try:
+            parsed = json.loads(raw[: brace_end + 1])
+            extracted = _extract_list(parsed)
+            if extracted:
+                return extracted
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback: extract the final flat JSON array prefix.
     try:
-        parsed = json.loads(raw[: bracket + 1])
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict) and "workspaces" in parsed:
-            return parsed["workspaces"]
-        return []
+        return _extract_list(json.loads(raw[: bracket + 1]))
     except json.JSONDecodeError:
         pass
-    # Last resort: extract the inner array from {"workspaces": [...]}
+
+    # Last resort: extract the inner-most array from an otherwise partial
+    # wrapper.
     start = raw.find("[")
     if start >= 0 and bracket > start:
         try:
-            return json.loads(raw[start: bracket + 1])
+            return _extract_list(json.loads(raw[start: bracket + 1]))
         except json.JSONDecodeError:
             pass
     return []

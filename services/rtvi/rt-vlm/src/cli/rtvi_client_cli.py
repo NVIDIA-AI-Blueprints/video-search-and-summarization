@@ -1668,21 +1668,27 @@ def do_list_models(args):
     term_width = shutil.get_terminal_size()[0]
     model_list = result.json()
     if not model_list["data"]:
-        print("No live streams added to the server")
+        print("No models available from the server")
         return
+    rows = []
+    for model in model_list["data"]:
+        created = model.get("created")
+        created_at = (
+            datetime.fromtimestamp(created, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            if created is not None
+            else "N/A"
+        )
+        rows.append(
+            [
+                model.get("id", "N/A"),
+                created_at,
+                model.get("owned_by", "N/A"),
+                model.get("api_type", "N/A"),
+            ]
+        )
     print(
         tabulate(
-            [
-                [
-                    model["id"],
-                    datetime.fromtimestamp(model["created"], tz=timezone.utc).strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    ),
-                    model["owned_by"],
-                    model["api_type"],
-                ]
-                for model in model_list["data"]
-            ],
+            rows,
             headers=["ID", "Created", "Owned By", "API Type"],
             tablefmt="simple_grid",
             maxcolwidths=[term_width - 19 - 15 - 8 - (1 + 3 * 4), 19, 15, 8],

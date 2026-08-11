@@ -60,6 +60,10 @@ testpaths = ["tests/unit"]
 
 [tool.coverage.run]
 branch = true
+# Emit repo-relative paths in coverage.xml so SonarQube can resolve files when the
+# scan job runs on a different runner than unit_tests (otherwise the absolute
+# /builds/... <source> path fails to resolve and coverage is dropped).
+relative_files = true
 source = ["src/mdx/analytics/core"]
 omit = [
     "*/__init__.py",

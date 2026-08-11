@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options.root = "../../../.."
+# Keep in sync with services/agent/pyproject.toml [tool.hatch.version].
+raw-options.git_describe_command = [
+  "git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*",
+]
+raw-options.version_scheme = "no-guess-dev"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+# vss_core: NAT-free libraries (search_core, critic, vlm, vst, _foundation) plus
+# knowledge (BackendAdapter ABC/schema/factory + lazily-loaded adapters). The
+# import stays light: factory.py resolves adapters via importlib, so heavy
+# backend deps only load when a backend is selected -- see the optional extras.
+packages = ["src/vss_core"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Startup hook shipped as a top-level module (loaded by CPython at interpreter start).
+"src/sitecustomize.py" = "sitecustomize.py"
+
+[project]
+name = "nvidia-vss-core"
+dynamic = ["version"]
+requires-python = ">=3.13,<3.15"
+description = "NVIDIA VSS core libraries (NAT-free): search, critic, vlm, vst, knowledge interface"
+license = "Apache-2.0"
+keywords = ["ai", "rag", "search"]
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+# The base install is intentionally light (NAT-free). Keep sorted!!!
+dependencies = [
+  "aiohttp~=3.14",
+  "elasticsearch~=8.17.0",
+  "httpx~=0.28",
+  "opencv-python-headless>=4.13.0.92",
+  "pydantic >=2.11,<3",
+  "PyYAML~=6.0",
+  "tenacity~=9.0",
+]
+
+[project.optional-dependencies]
+# Opt-in knowledge-retrieval backends; lazily imported by the factory.
+frag_lib = ["nvidia-rag>=2.4.0"]
+llama_index = [
+    "chromadb>=0.5",
+    "llama-index-core>=0.11",
+    "llama-index-vector-stores-chroma>=0.3",
+    "llama-index-embeddings-nvidia>=0.3",
+]
+langchain = [
+    "chromadb>=0.5",
+    "langchain-chroma>=0.1",
+    "langchain-nvidia-ai-endpoints>=0.3",
+]

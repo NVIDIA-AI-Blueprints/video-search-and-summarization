@@ -181,9 +181,10 @@ Note: Livestream summarization uses the dedicated two-phase APIs above, not `POS
 
 ### Docker Architecture
 
-**Multi-stage build**:
-1. Base image (`docker/base/Dockerfile`): Dependencies only (apt + Python packages)
-2. VIA image (`docker/Dockerfile`): Application code on top of base
+**Multi-stage build** (`docker/Dockerfile`):
+1. `runtime-base` — distroless Python + apt/uv deps from `docker/base/`
+2. `pkg-installer` / `app-builder` — app packages, configs, and sources
+3. Final image — copies runtime artifacts onto `runtime-base`
 
 **Development vs Release**:
 - Dev: Source mounted from `VIA_SRC_DIR`, runs `src/via_server.py`
@@ -221,6 +222,7 @@ VIA uses extensive environment variable configuration. Key patterns:
 - Database backends selected via `LVS_DATABASE_BACKEND`
 - `KAFKA_ENABLED`: Enables Kafka integration for livestream and file paths
 - `LVS_CAPTION_SOURCE`: Controls caption source for file-path Kafka aggregation (`sse` default, or `db` for Elasticsearch)
+- `LVS_AGGREGATION_EMPTY_RETRIES`: Extra attempts at a CA-RAG aggregation call that returns neither events nor a video summary (default `2`, `0` disables)
 
 ### Logging
 

@@ -62,6 +62,11 @@ import requests
 from flask import Flask, Response, g, request, jsonify, render_template
 
 from config import Config, wdm_config_env_defaults, wdm_config_env_keys
+from lib.lifecycle.http_header import (
+    normalize_lifecycle_ingress_mode,
+    normalize_lifecycle_method,
+    normalize_lifecycle_path,
+)
 from lib.wdm_router_openapi import router_openapi_document
 from lib.wdm_swagger_ui import openapi_public_server_root, register_wdm_swagger_ui
 from lib.logging import configure_root_logging
@@ -769,6 +774,123 @@ def _first_enabled_workload_str(workload_config: Optional[dict], key: str) -> Op
     return None
 
 
+def _dashboard_config_value(defaults: dict, entry: dict, key: str, fallback=None):
+    if isinstance(entry, dict) and entry.get(key) is not None:
+        value = entry.get(key)
+        if not isinstance(value, str) or value.strip() != "":
+            return value
+    env_value = os.environ.get(key)
+    if env_value is not None and str(env_value).strip() != "":
+        return env_value
+    if isinstance(defaults, dict) and defaults.get(key) is not None:
+        value = defaults.get(key)
+        if not isinstance(value, str) or value.strip() != "":
+            return value
+    return getattr(Config, key, fallback)
+
+
+def _dashboard_lifecycle_header(defaults: dict, entry: dict) -> str:
+    header = _dashboard_config_value(
+        defaults, entry, "WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER", None
+    )
+    if header is not None and str(header).strip():
+        return str(header).strip()
+
+    for key in ("ENVOY_ROUTE_HEADER", "ENVOYROUTEHEADER"):
+        header = _dashboard_config_value(defaults, entry, key, None)
+        if header is not None and str(header).strip():
+            return str(header).strip()
+    return "id"
+
+
+def _dashboard_lifecycle_binding_warning(lifecycle_config: dict) -> str:
+    if lifecycle_config.get("mode") != "http-header":
+        return ""
+
+    seen = {}
+    for action, method_key, path_key in (
+        ("add", "add_method", "add_path"),
+        ("delete", "delete_method", "delete_path"),
+        ("reprovision", "reprovision_method", "reprovision_path"),
+    ):
+        method = normalize_lifecycle_method(lifecycle_config.get(method_key))
+        path = normalize_lifecycle_path(lifecycle_config.get(path_key))
+        if not method or not path:
+            continue
+        binding = (method, path)
+        previous = seen.get(binding)
+        if previous is not None:
+            if {previous, action} == {"add", "reprovision"}:
+                continue
+            return (
+                "Duplicate HTTP lifecycle binding %s %s is used by %s and %s; "
+                "only add and reprovision may share a binding."
+            ) % (method, path, previous, action)
+        seen[binding] = action
+    return ""
+
+
+def _dashboard_lifecycle_config(defaults: dict, entry: dict) -> dict:
+    mode = normalize_lifecycle_ingress_mode(
+        _dashboard_config_value(defaults, entry, "WDM_LIFECYCLE_INGRESS_MODE")
+    )
+    lifecycle_config = {
+        "mode": mode,
+        "stream_id_header": _dashboard_lifecycle_header(defaults, entry),
+        "add_path": str(
+            _dashboard_config_value(
+                defaults,
+                entry,
+                "WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH",
+            )
+        ),
+        "add_method": str(
+            _dashboard_config_value(
+                defaults, entry, "WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD", "POST"
+            )
+        ).upper(),
+        "delete_path": str(
+            _dashboard_config_value(
+                defaults,
+                entry,
+                "WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH",
+            )
+        ),
+        "delete_method": str(
+            _dashboard_config_value(
+                defaults, entry, "WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD", "DELETE"
+            )
+        ).upper(),
+        "reprovision_path": str(
+            _dashboard_config_value(
+                defaults,
+                entry,
+                "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH",
+            )
+        ),
+        "reprovision_method": str(
+            _dashboard_config_value(
+                defaults,
+                entry,
+                "WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD",
+                "POST",
+            )
+        ).upper(),
+        "id_field": str(
+            _dashboard_config_value(defaults, entry, "WDM_WL_ID_FIELD", "camera_id")
+        ),
+        "reprovision_change_id": str(
+            _dashboard_config_value(
+                defaults, entry, "WDM_WL_CHANGE_ID_REPROVISION", "reprovision"
+            )
+        ),
+    }
+    lifecycle_config["binding_warning"] = _dashboard_lifecycle_binding_warning(
+        lifecycle_config
+    )
+    return lifecycle_config
+
+
 def build_kafka_global_add_config(
     defaults: dict, workload_config: Optional[dict] = None
 ) -> Optional[dict]:
@@ -814,6 +936,7 @@ def create_router_app(
     workload_config_all: Optional[dict] = None,
     redis_stream_config: Optional[dict] = None,
     kafka_global_add_config: Optional[dict] = None,
+    config_defaults: Optional[dict] = None,
 ) -> Flask:
     """Flask app that routes /sdrc/<wl_obj_name>/... to the app.py instance on the workload's port."""
     from lib.xDS.envoyxDS import envoyxDS
@@ -912,18 +1035,21 @@ def create_router_app(
 
     # Build workload list for dashboard (all workloads, including disabled): name, wl_obj_name, main_url, enabled
     all_config = workload_config_all if workload_config_all is not None else workload_config
-    dashboard_workloads = [
-        {
-            "name": name,
-            "wl_obj_name": entry["wl_obj_name"],
-            "main_url": f"/sdrc/{entry['wl_obj_name']}/",
-            "enabled": entry.get("enable", True),
-            "cluster_type": (
-                str(entry.get("WDM_CLUSTER_TYPE") or "").strip().lower()
-            ),
-        }
-        for name, entry in sorted(all_config.items(), key=lambda x: x[0])
-    ]
+    dashboard_workloads = []
+    for name, entry in sorted(all_config.items(), key=lambda x: x[0]):
+        lifecycle_config = _dashboard_lifecycle_config(config_defaults or {}, entry)
+        dashboard_workloads.append(
+            {
+                "name": name,
+                "wl_obj_name": entry["wl_obj_name"],
+                "main_url": f"/sdrc/{entry['wl_obj_name']}/",
+                "enabled": entry.get("enable", True),
+                "cluster_type": (
+                    str(entry.get("WDM_CLUSTER_TYPE") or "").strip().lower()
+                ),
+                "lifecycle": lifecycle_config,
+            }
+        )
 
     @app.route("/", methods=["GET"])
     def index():
@@ -1510,6 +1636,7 @@ def main() -> int:
             workload_config_all=config,
             redis_stream_config=redis_stream_config,
             kafka_global_add_config=kafka_global_add_config,
+            config_defaults=defaults,
         )
         if multi_grpc_ads_enabled:
             ads_config = dict(xds_app_config)

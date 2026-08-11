@@ -18,7 +18,7 @@ src/mdx/analytics/core/
 ├── inference/     # Triton inference client
 ├── schema/        # Pydantic config, domain models, protobuf, trajectory
 ├── stream/        # I/O: sources, sinks, state management
-├── transform/     # Logic: calibration, detection, ROI/tripwire events
+├── transform/     # Logic: calibration, dynamic config, detection, ROI/tripwire events
 ├── tools/         # Dev-only utilities (CLI scripts)
 ├── utils/         # Pure helpers (schema, distance, CRP/CRS, io, timing)
 ├── typings/       # Custom type stubs (e.g. confluent_kafka)
@@ -34,10 +34,9 @@ hand off to `app_runner.run()`.
 | File | What it does |
 |---|---|
 | `app/app_base.py` | `BaseApp` ABC: source/sink wiring, `Processor` dataclass, hooks, graceful shutdown |
-| `app/app_runner.py` | CLI entrypoint wrapper: parses `--config`/`--calibration`, sets up logging, calls `BaseApp.run()` |
-| `app/app_args.py` | Shared argparse helpers |
+| `app/app_runner.py` | CLI entrypoint (`run(AppClass)`): parses `--config`/`--calibration`/`--log` (argparse lives here), sets up logging, runs the `CalibrationListener`/`ConfigListener`, and submits the app's processors to the scheduler |
 | `app/scheduler/app_scheduler.py` | Worker loop; reads batches from source, dispatches to processors, emits `BatchStats` |
-| `app/scheduler/app_scheduler_mp.py` | Multiprocessing variant of the scheduler |
+| `app/scheduler/app_scheduler_mp.py` | Multiprocessing scheduler (spawn-mode workers via `mp.get_context("spawn")`) — the variant used at runtime |
 
 **Add a new app** → `apps/<name>/main_<name>_app.py` (use the `new-app` skill).
 Do **not** edit `BaseApp` unless the new app needs a lifecycle hook every app
@@ -50,14 +49,12 @@ Purpose: Pydantic v2 data shapes. Configs (runtime), models (domain), protobuf
 
 | File | What it does |
 |---|---|
-| `schema/config.py` | `AppConfig` + subsection configs (KafkaConfig, RedisConfig, MqttConfig, SensorConfig, InferenceConfig, SpaceConfig, TrajectoryConfig, PlaybackConfig, VideoEmbeddingConfig, fall-risk/lack-movement/etc.). **This is where all app-configurable fields live.** |
+| `schema/config.py` | `AppConfig` + subsection configs (`AppKafkaConfig`, `AppRedisStreamConfig`, `AppMQTTConfig`, `AppSensorConfig`, `InferenceConfig`, `SpaceAnalyticsConfig`, `PlaybackConfig`, `VideoEmbeddingConfig`, `FallRiskConfig`, `LackMovementConfig`, etc.). **This is where all app-configurable fields live.** |
 | `schema/models.py` | Domain models: `Behavior`, `Event`, `Incident`, `Place`, `Location`, `Coordinate`, `Point2D`, `ROI`, `Tripwire`, `Line`, `IncidentCategory` (StrEnum), `AnalyticsModule`, `Action`, `AmrState`, `FrameState`, `RoiState` |
 | `schema/proto/schema_pb2.py` | Generated protobuf — **off-limits** to edit |
 | `schema/proto/ext_pb2.py` | Generated protobuf extensions — **off-limits** |
-| `schema/trajectory/trajectory_base.py` | `TrajectoryBase` — shared trajectory interface |
-| `schema/trajectory/trajectory.py` | Default `Trajectory` (haversine-based geodesic helpers) |
-| `schema/trajectory/trajectory_e.py` | Euclidean trajectory variant |
-| `schema/trajectory/trajectory_i.py` | Image-plane trajectory variant |
+| `schema/trajectory/trajectory.py` | `Trajectory` — cartesian and image, gated on calibration type |
+| `schema/trajectory/trajectory_g.py` | `TrajectoryG` — geographic and image; `enable_geo` picks the distance metric, calibration type picks the units. Adds haversine distance and map-matched bearing |
 | `schema/action/action_state.py` | `ActionState` — per-object action tracking |
 | `schema/collision/collision_state.py` | `CollisionState` — collision event state |
 
@@ -74,8 +71,8 @@ across frames.
 
 | File | What it does |
 |---|---|
-| `source/source_base.py` | `Source` ABC (abstract poll/close) |
-| `source/source_factory.py` | Factory: `make_source(type, config)` — dispatches on config |
+| `source/source_base.py` | `Source` ABC (abstract `read`; concrete `poll`/`close`) |
+| `source/source_factory.py` | Factory: `get_source(config)` — dispatches on `config` |
 | `source/source_kafka.py` | Confluent Kafka consumer |
 | `source/source_redis_stream.py` | Redis Streams consumer (XREAD/XREADGROUP) |
 | `source/source_mqtt.py` | Paho MQTT subscriber |
@@ -87,8 +84,8 @@ across frames.
 
 | File | What it does |
 |---|---|
-| `sink/sink_base.py` | `Sink` ABC (abstract send/flush/close) |
-| `sink/sink_factory.py` | Factory: `make_sink(type, config)` |
+| `sink/sink_base.py` | `Sink` ABC (abstract `write`; concrete `write_msg`/`close`) |
+| `sink/sink_factory.py` | Factory: `get_sink(config)` |
 | `sink/sink_kafka.py` | Kafka producer |
 | `sink/sink_redis_stream.py` | Redis Streams producer (XADD) |
 | `sink/sink_mqtt.py` | MQTT publisher |
@@ -99,16 +96,15 @@ across frames.
 
 | File | What it does |
 |---|---|
-| `state/behavior/state_management_base.py` | Base for Euclidean/image-plane variants |
-| `state/behavior/state_management_e.py` | Euclidean behavior state (`StateMgmtE`, `StateMgmtEWithTripwire`) |
-| `state/behavior/state_management_i.py` | Image-plane behavior state |
-| `state/behavior/state_management.py` | Shared helpers / composition |
+| `state/behavior/state_management.py` | `StateMgmt` — `process_batch`, the `BehaviorBatch` result, cartesian and image coordinates |
+| `state/behavior/behavior_holdback.py` | `BehaviorHoldback` — holds behaviors back for `behaviorEmitOnce` |
+| `state/behavior/state_management_g.py` | `StateMgmtG` — geographic behavior state, adds map matching |
 | `state/frame/frame_state_management.py` | `FrameStateMgmt` — **all frame-level incident detection** (proximity, restricted-area, confined-area, FOV-count) |
 | `state/amr/amr_state_management.py` | `AmrStateMgmt` — AMR (autonomous mobile robot) state |
 | `state/video_embedding/video_embedding_state_mgmt.py` | Embedding aggregation for video search |
 | `state/video_embedding/downsampling/downsampler_base.py` | Downsampler ABC |
-| `state/video_embedding/downsampling/downsampler_sdt.py` | SDT (semantic distance threshold) downsampler |
-| `state/video_embedding/downsampling/downsampler_window.py` | Fixed-window downsampler |
+| `state/video_embedding/downsampling/downsampler_sdt.py` | `SDTEmbeddingDownsampler` — Swinging Door Trending (SDT) downsampler |
+| `state/video_embedding/downsampling/downsampler_window.py` | `SlidingWindowEmbeddingDownsampler` — sliding-window downsampler |
 
 **Add a new incident type** → `state/frame/frame_state_management.py` (use the
 `new-incident` skill).
@@ -123,17 +119,39 @@ Purpose: stateless (or per-message) transforms and event emitters.
 
 | File | What it does |
 |---|---|
-| `calibration/calibration_base.py` | `CalibrationBase` ABC + `CalibrationFileMonitor` watchdog; hosts `reload_data` and `update_calibration_info` (upsert-all / upsert / delete merge) |
-| `calibration/calibration.py` | Default 2D/geo calibration |
+| `calibration/calibration_base.py` | `CalibrationBase` ABC + `CalibrationFileMonitor` watchdog; hosts `reload_data` and `update_calibration_info` (upsert-all / upsert / delete merge); defines the `CalibrationType` enum |
+| `calibration/calibration_g.py` | Geographic calibration (`CalibrationG`) — lat/lon |
 | `calibration/calibration_e.py` | Euclidean calibration (`CalibrationE`, `CalibrationES`) |
-| `calibration/calibration_i.py` | Image-plane calibration |
-| `calibration/calibration_dynamic.py` | One-time-switch wrapper used when the app starts with no `--calibration`; defines `CalibrationType` enum |
+| `calibration/calibration_i.py` | Image-plane calibration (`CalibrationI`) |
+| `calibration/calibration_dynamic.py` | One-time-switch wrapper used when the app starts with no `--calibration`; selects the typed calibration via the `CalibrationType` enum (defined in `calibration_base.py`) |
 | `calibration/calibration_listener.py` | Kafka consumer thread that drains `mdx-notification` (key `calibration`), schema-validates each payload, and atomic-writes valid per-action JSON files |
 | `calibration/calibration_validator.py` | Per-action JSON Schema gate (`upsert-all` / `upsert` full schema; `delete` minimal inline) raising `CalibrationValidationError` |
 | `calibration/schemas/calibration.schema.json` | Vendored from `video-analytics-api/src/web-api-core/schemas/ajv/calibration.json` — used by the validator |
 
 **Add a new calibration variant** → subclass `CalibrationBase`, register where
 selected by config.
+
+### transform/config/ — dynamic (runtime) config
+
+Runtime config updates delivered over the `mdx-notification` Kafka topic. Same
+split as calibration: the **main process** runs a `ConfigListener` that writes
+files to `CONFIG_DIR`; **each worker** runs a `ConfigFileMonitor` that watches
+`CONFIG_DIR` and re-applies via its own `ConfigApplier`. See
+`docs/dynamic-config.md` for the full contract.
+
+| File | What it does |
+|---|---|
+| `config/config_listener.py` | Main-process consumer: drains `mdx-notification` (key `behavior-analytics-config`), handles `upsert`/`upsert-all`/`request-config` bootstrap, atomic-writes files to `CONFIG_DIR` |
+| `config/config_monitor.py` | Per-worker `ConfigFileMonitor` watchdog (`on_moved`) that picks up new files in `CONFIG_DIR` |
+| `config/config_applier.py` | `ConfigApplier` — mutates the live `AppConfig` and calls `AppConfig.invalidate_caches()` so read-at-use-time cached properties refresh |
+| `config/config_publisher.py` | Emits `request-config`/`ack` events back onto the notification stream via a `Sink` |
+| `config/config_validator.py` | Allowlist gate (`ALLOWED_APP_KEYS` / `ALLOWED_SENSOR_KEYS`) — rejects keys not safe for runtime update |
+| `config/config_value_validators.py` | Per-key value validators (type/range checks) for accepted keys |
+
+**Add runtime-config support for a new field** → allowlist it in
+`config_validator.py`, add a value validator, and make sure the consumer
+**reads at use-time** so `invalidate_caches()` refreshes it (see the
+`README.md` development guide and `docs/dynamic-config.md`).
 
 ### transform/detection/
 
@@ -167,7 +185,7 @@ Uses `InferenceConfig` from `schema/config.py`.
 
 ## tools/ — Dev-only CLI utilities
 
-**The only subpackage allowed to use `print()`** (see CLAUDE.md).
+**The only subpackage allowed to use `print()`** (see the `README.md` development guide).
 
 | File | What it does |
 |---|---|
@@ -194,7 +212,7 @@ No side effects, no class hierarchies beyond simple data classes. Import-safe.
 | `utils/io_utils.py` | Argparse file validators (`ValidateFile`), JSON loaders |
 | `utils/util.py` | Small helpers: `cosine_similarity`, `dot_product`, `normalize`, `str_to_bool`, timestamp conversions |
 | `utils/anomaly_util.py` | Map-matching anomaly helpers (uses `leuvenmapmatching`). **Uses camelCase for historical reasons — do not match in new files.** |
-| `utils/crp.py` | Clustering result / prediction (CRP) — `Model` class |
+| `utils/crp.py` | Chinese Restaurant Process (CRP) clustering — `CRP` and `Model` classes |
 | `utils/crs.py` | OSMnx coordinate reference / network helpers |
 | `utils/genetic_algorithm.py` | GA for pallet placement |
 | `utils/greedy_search.py` | Greedy search for pallet placement |
@@ -235,4 +253,4 @@ Referenced in `pyrightconfig.json` via `extraPaths`.
 - Configuration details: `docs/configuration.md`
 - Building an app: `docs/building-mdx-analytics-app.md` (and the `new-app` skill)
 - Incident detection: `docs/incident-detection.md` (and the `new-incident` skill)
-- Repo rules for agents: `../CLAUDE.md`
+- Contributor conventions: `../README.md#development-guide`

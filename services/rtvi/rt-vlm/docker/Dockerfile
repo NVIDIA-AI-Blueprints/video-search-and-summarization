@@ -17,7 +17,7 @@
 # ARM64/SBSA base image; otherwise the default (x86_64) tag is used. Override
 # BASE_IMAGE directly to point at a fully custom base.
 ARG IS_SBSA=
-ARG BASE_IMAGE="nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1${IS_SBSA:+-sbsa}"
+ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4${IS_SBSA:+-sbsa}"
 FROM ${BASE_IMAGE}
 
 # Overlay the open-source RTVI VLM Python sources on top of the base image.
@@ -31,6 +31,10 @@ FROM ${BASE_IMAGE}
 # We overlay BOTH paths so either mode picks up the Apache source.
 COPY --chown=1001:1001 src/ /opt/nvidia/rtvi/rtvi/
 COPY --chown=1001:1001 src/ /opt/nvidia/rtvi/src/
+
+# Replace the base image's mutable, hard-coded codec downloader with the
+# signed-metadata HTTPS installer maintained alongside the open-source service.
+COPY --chmod=0755 --chown=1001:1001 src/scripts/install_codecs_nonroot.sh /opt/nvidia/rtvi/install_codecs_nonroot.sh
 
 USER vss:1001
 WORKDIR /opt/nvidia/rtvi/

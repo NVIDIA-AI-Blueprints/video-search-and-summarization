@@ -478,7 +478,7 @@ def scenario_upsert_success_mixed_types(args, producer: Producer) -> str:
 
     | helper                     | key (value)                                          |
     |----------------------------|------------------------------------------------------|
-    | ``_bool``                  | ``inSimulationMode = "true"``                        |
+    | ``_bool``                  | ``behaviorEmitOnce = "true"``                        |
     | ``_int(min=0)``            | ``behaviorWatermarkSec = "45"``                      |
     | ``_float(min=0, max=1)``   | ``clusterThreshold = "0.85"``                        |
     | ``_enum("0","1","2")``     | ``trajDirectionMode = "1"``                          |
@@ -505,7 +505,7 @@ def scenario_upsert_success_mixed_types(args, producer: Producer) -> str:
 
     speed_violation_json = SpeedViolationConfig().model_dump_json()
     expected_app_keys = {
-        "inSimulationMode",
+        "behaviorEmitOnce",
         "behaviorWatermarkSec",
         "clusterThreshold",
         "trajDirectionMode",
@@ -517,7 +517,7 @@ def scenario_upsert_success_mixed_types(args, producer: Producer) -> str:
         args, producer, tag,
         config={
             "app": [
-                {"name": "inSimulationMode", "value": "true"},
+                {"name": "behaviorEmitOnce", "value": "true"},
                 {"name": "behaviorWatermarkSec", "value": "45"},
                 {"name": "clusterThreshold", "value": "0.85"},
                 {"name": "trajDirectionMode", "value": "1"},
@@ -614,13 +614,13 @@ def scenario_upsert_partial_with_forbidden(args, producer: Producer) -> str:
         args, producer, tag,
         config={
             "kafka": {"brokers": "should-be-rejected"},
-            "app": [{"name": "behaviorStateTimeout", "value": "20"}],
+            "app": [{"name": "behaviorMaxPoints", "value": "20"}],
         },
         expected_status="partial-success",
         expected_error_substr="kafka",
         verify_body=lambda body: (
             "kafka" not in body
-            and any(item.get("name") == "behaviorStateTimeout" for item in body.get("app", []))
+            and any(item.get("name") == "behaviorMaxPoints" for item in body.get("app", []))
         ),
     )
 

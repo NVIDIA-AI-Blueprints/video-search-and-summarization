@@ -35,6 +35,7 @@ class CandidateCoordinatesTest(unittest.TestCase):
             "ghcr.io/nvidia-ai-blueprints/vss/vss-agent",
         )
         self.assertEqual(result.tag, "pr-1190-" + "a" * 12)
+        self.assertEqual(result.content_tag, "tree-" + TREE)
 
     def test_develop_coordinates(self):
         result = candidate_coordinates(

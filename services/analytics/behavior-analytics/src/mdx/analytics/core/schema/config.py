@@ -37,6 +37,10 @@ IN_SIMULATION_MODE = "false"
 COMPACT_FRAME = "false"
 USE_OBJECT_LOCATION = "false"
 IMAGE_LOCATION_MODE = "bottom_center"
+# ROI-event detection modes (see AppConfig.roi_event_detection_mode).
+ROI_EVENT_DETECTION_MODE_COORDINATE = "coordinate"
+ROI_EVENT_DETECTION_MODE_BBOX = "bbox"
+ROI_EVENT_DETECTION_MODE = ROI_EVENT_DETECTION_MODE_COORDINATE
 
 # Default values for anomaly action config
 ANOMALY_ACTION_THRESHOLD = "0.5"
@@ -47,12 +51,12 @@ ANOMALY_CLASSES = "[]"
 
 # Default values for behavior config
 STATE_MANAGEMENT_FILTER = "[]"
-BEHAVIOR_STATE_TIMEOUT = "10"
 BEHAVIOR_STATE_VALID_INTERVAL = "6"
 BEHAVIOR_WATERMARK_SEC = "30"
 BEHAVIOR_TIME_THRESHOLD = "1970-01-01T00:00:00.000Z"
 BEHAVIOR_MAX_POINTS = "200"
 BEHAVIOR_STATE_END_TOLERANCE_SEC = "0.1"
+BEHAVIOR_EMIT_ONCE = "false"
 CLUSTER_THRESHOLD = "0.9"
 OBJECT_CONFIDENCE_THRESHOLD = "0.5"
 
@@ -115,26 +119,32 @@ SENSOR_MIN_FRAMES = "5"
 # Default values for incident state management (applies to all violation types)
 INCIDENT_OBJECT_TTL = "3600"  # 1 hour in seconds
 
+# ``...THRESHOLD`` is the minimum violation duration (sec) to report an incident;
+# ``...EXPIRATION_WINDOW`` is the largest detection gap (sec) tolerated before the
+# run is closed. The window is kept below the threshold on purpose: at
+# window >= threshold a single tolerated gap can span the whole threshold, so two
+# isolated observations are enough to raise a full-duration incident.
+
 # Default values for proximity violation detection
 PROXIMITY_VIOLATION_INCIDENT_ENABLE = "false"
 PROXIMITY_VIOLATION_INCIDENT_THRESHOLD = "1"
-PROXIMITY_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+PROXIMITY_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 
 # Default values for restricted area violation detection
 RESTRICTED_AREA_VIOLATION_INCIDENT_ENABLE = "false"
 RESTRICTED_AREA_VIOLATION_INCIDENT_THRESHOLD = "1"
-RESTRICTED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+RESTRICTED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 
 # Default values for confined area violation detection
 CONFINED_AREA_VIOLATION_INCIDENT_ENABLE = "false"
 CONFINED_AREA_VIOLATION_INCIDENT_THRESHOLD = "1"
-CONFINED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+CONFINED_AREA_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 
 # Default values for FOV count violation detection
 FOV_COUNT_VIOLATION_INCIDENT_ENABLE = "false"
 FOV_COUNT_VIOLATION_INCIDENT_OBJECT_THRESHOLD = "1"
 FOV_COUNT_VIOLATION_INCIDENT_THRESHOLD = "1"
-FOV_COUNT_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "1"
+FOV_COUNT_VIOLATION_INCIDENT_EXPIRATION_WINDOW = "0.5"
 FOV_COUNT_VIOLATION_INCIDENT_OBJECT_TYPE = "Person"
 
 # Default values for playback config
@@ -533,7 +543,8 @@ class GraphConfig(BaseModel):
     :ivar float osmQueryPointDistMeters: Distance radius for OSM query
     :ivar list[RoadNetworkPointConfig] osmQueryPolygon: Polygon for OSM query
     :ivar str osmQueryPlace: Place name for OSM query
-    :ivar str osmQueryFile: Path to OSM data file
+    :ivar str osmQueryFile: Path to a road network graph saved by ``osmnx.save_graphml``, used when
+        ``osmLoadMethod`` is ``from_file``. ``.graphml`` or ``.graphml.gz``; not a raw OSM extract.
 
     Examples::
         >>> graph_config = GraphConfig(
@@ -553,7 +564,7 @@ class GraphConfig(BaseModel):
     osmQueryPointDistMeters: float = 500.0
     osmQueryPolygon: list[RoadNetworkPointConfig] = list()
     osmQueryPlace: str = "Dubuque, Iowa, USA"
-    osmQueryFile: str = "sample_data/iowa-latest.osm.pbf"
+    osmQueryFile: str = "sample_data/road_network.graphml.gz"
 
 
 class VisualizationConfig(BaseModel):
@@ -1159,12 +1170,6 @@ class AppConfig(BaseModel):
 
     @computed_field
     @cached_property
-    def in_simulation_mode(self) -> bool:
-        """Get the in simulation mode flag."""
-        return self.get_bool_app_config("inSimulationMode", IN_SIMULATION_MODE)
-
-    @computed_field
-    @cached_property
     def use_object_location(self) -> bool:
         """
         Get the use object location flag.
@@ -1215,6 +1220,37 @@ class AppConfig(BaseModel):
 
     @computed_field
     @cached_property
+    def roi_event_detection_mode(self) -> str:
+        """
+        Get the ROI-event detection mode.
+
+        Controls how :class:`~mdx.analytics.core.transform.event.roi_event.ROIEvent` decides whether an
+        object is inside an ROI when detecting ENTRY/EXIT events:
+
+        - ``"coordinate"`` [default]: check whether the object's representative coordinate (bbox
+          bottom-center or center, per :attr:`image_location_mode`) is inside the ROI polygon.
+        - ``"bbox"``: check whether the object's bounding box overlaps the ROI polygon. Supported only for
+          image calibration, where ``object.bbox`` and the ROI polygon share image-pixel coordinates;
+          cartesian and geo calibration fall back to ``"coordinate"``.
+
+        Any unrecognized value is normalized to ``"coordinate"``.
+
+        :return str: The ROI-event detection mode (``"coordinate"`` or ``"bbox"``).
+
+        Examples::
+            >>> config = AppConfig()
+            >>> config.set_app_config("roiEventDetectionMode", "bbox")
+            >>> print(config.roi_event_detection_mode)  # "bbox"
+        """
+        mode = self.get_app_config("roiEventDetectionMode", ROI_EVENT_DETECTION_MODE)
+        # Normalize unrecognized values to the default so the getter never returns an out-of-vocabulary
+        # string (matches the silent-default convention of image_location_mode).
+        if mode not in (ROI_EVENT_DETECTION_MODE_COORDINATE, ROI_EVENT_DETECTION_MODE_BBOX):
+            return ROI_EVENT_DETECTION_MODE_COORDINATE
+        return mode
+
+    @computed_field
+    @cached_property
     def state_mgmt_filter(self) -> set[str]:
         """
         Get the object types to be filtered out in state management.
@@ -1230,15 +1266,25 @@ class AppConfig(BaseModel):
 
     @computed_field
     @cached_property
-    def behavior_state_timeout(self) -> int:
-        """Get the behavior state timeout."""
-        return int(self.get_app_config("behaviorStateTimeout", BEHAVIOR_STATE_TIMEOUT))
-
-    @computed_field
-    @cached_property
     def behavior_state_valid_interval(self) -> int:
         """Get the behavior state valid interval."""
         return int(self.get_app_config("behaviorStateValidInterval", BEHAVIOR_STATE_VALID_INTERVAL))
+
+    @computed_field
+    @cached_property
+    def behavior_emit_once(self) -> bool:
+        """
+        Whether a behavior is written once per track instead of on every batch.
+
+        When enabled, state management retains the latest behavior of a track and writes it only
+        once the track ends, which is after ``behaviorStateValidInterval`` seconds of inactivity --
+        the same gap that makes a continuation invalid, and the point at which the track's state is
+        reclaimed. Events, anomalies and incidents keep using the per-batch behaviors and are
+        unaffected.
+
+        :return bool: True when emit-once output is enabled.
+        """
+        return str_to_bool(self.get_app_config("behaviorEmitOnce", BEHAVIOR_EMIT_ONCE))
 
     @computed_field
     @cached_property

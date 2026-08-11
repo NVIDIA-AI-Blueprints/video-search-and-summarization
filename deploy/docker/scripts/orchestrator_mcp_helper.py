@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from enum import StrEnum
@@ -26,44 +27,6 @@ class OrchestratorTool(StrEnum):
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
-
-
-def read_etc_environment() -> dict[str, str]:
-    env: dict[str, str] = {}
-    try:
-        with open("/etc/environment", encoding="utf-8") as fp:
-            for raw in fp:
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                env[key.strip()] = value.strip().strip('"').strip("'")
-    except OSError:
-        return env
-    return env
-
-
-def detect_brev_link_domain() -> str:
-    explicit_domain = os.environ.get("BREV_LINK_DOMAIN", "").strip()
-    if explicit_domain:
-        return explicit_domain
-
-    try:
-        result = subprocess.run(
-            ["netbird", "status", "-d"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        status_output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
-        skybridge_markers = ("skybridge", "brev.nvidia.com", "brev.dev")
-        if result.returncode == 0 and any(marker in status_output for marker in skybridge_markers):
-            return "apps.run.brev.nvidia.com"
-    except (OSError, subprocess.SubprocessError):
-        pass
-
-    return "brevlab.com"
-
 
 
 def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
@@ -90,15 +53,6 @@ def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
     )
     names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     return names[0] if names else None
-
-
-def build_vss_ui_url(port: int = 7777) -> str | None:
-    brev_env_id = os.environ.get("BREV_ENV_ID", "").strip() or read_etc_environment().get("BREV_ENV_ID", "").strip()
-    if not brev_env_id:
-        return None
-    link_prefix = os.environ.get("BREV_LINK_PREFIX", "").strip() or str(port)
-    link_domain = detect_brev_link_domain()
-    return f"https://{link_prefix}-{brev_env_id}.{link_domain}/"
 
 
 def tool_call(
@@ -186,6 +140,102 @@ def check_mcp_health(mcp_url: str, agent_dir: str | Path, timeout_s: int = 15) -
     if payload.get("status") == "error":
         return False, f"VSS Orchestrator MCP health check failed: {payload.get('error', payload)}"
     return True, "VSS Orchestrator MCP health check succeeded"
+
+
+def ensure_mcp_tls_certs(
+    certfile: str | Path,
+    keyfile: str | Path,
+    *,
+    san: str,
+    days: int = 365,
+    subject: str = "/CN=vss-orchestrator-mcp",
+) -> tuple[Path, Path]:
+    """Ensure MCP TLS cert/key exist; generate a self-signed pair only if both are missing.
+
+    An existing pair is reused as-is, but if the cert is already expired the call
+    raises so the failure is obvious at preflight rather than as a TLS handshake
+    error during the health check. Delete the pair and re-run to auto-generate, or
+    replace with a valid cert/key.
+
+    Args:
+        certfile: Destination PEM certificate path.
+        keyfile: Destination PEM private-key path.
+        san: OpenSSL ``subjectAltName`` value (e.g. ``DNS:localhost,IP:127.0.0.1``).
+        days: Certificate validity in days.
+        subject: OpenSSL ``-subj`` value.
+
+    Returns:
+        Resolved ``(cert_path, key_path)``.
+
+    Raises:
+        FileNotFoundError: if exactly one of cert/key exists (refuses to overwrite
+            a partial custom pair by auto-generating).
+        RuntimeError: if the existing cert is expired, or if ``openssl`` is not
+            available when generation is required.
+        ValueError: if ``san`` is empty when generation is required.
+        subprocess.CalledProcessError: if ``openssl`` fails.
+    """
+    cert_path = Path(certfile).expanduser().resolve()
+    key_path = Path(keyfile).expanduser().resolve()
+    cert_exists = cert_path.is_file()
+    key_exists = key_path.is_file()
+    if cert_exists and key_exists:
+        # -checkend 0 exits non-zero when the cert is already past its notAfter.
+        if shutil.which("openssl"):
+            expired = subprocess.run(
+                ["openssl", "x509", "-checkend", "0", "-noout", "-in", str(cert_path)],
+                capture_output=True,
+                text=True,
+            )
+            if expired.returncode != 0:
+                raise RuntimeError(
+                    f"MCP TLS cert {cert_path} is expired. "
+                    "Delete the cert/key pair and re-run to auto-generate, "
+                    "or replace them with a valid pair.",
+                )
+        return cert_path, key_path
+    if cert_exists != key_exists:
+        raise FileNotFoundError(
+            "MCP TLS cert/key must both exist or both be absent for auto-generation."
+        )
+
+    san_value = san.strip()
+    if not san_value:
+        raise ValueError("san is required to auto-generate MCP TLS cert/key.")
+    if not shutil.which("openssl"):
+        raise RuntimeError("openssl is required to auto-generate MCP TLS cert/key.")
+
+    cert_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    # openssl -nodes writes an unencrypted key and respects umask; tighten so the
+    # key is never left world-readable even briefly under a default umask 022.
+    previous_umask = os.umask(0o077)
+    try:
+        subprocess.run(
+            [
+                "openssl",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-days",
+                str(days),
+                "-keyout",
+                str(key_path),
+                "-out",
+                str(cert_path),
+                "-subj",
+                subject,
+                "-addext",
+                f"subjectAltName={san_value}",
+            ],
+            check=True,
+        )
+    finally:
+        os.umask(previous_umask)
+    key_path.chmod(0o600)
+    return cert_path, key_path
 
 
 def require_success(result: dict[str, Any], label: str) -> dict[str, Any]:

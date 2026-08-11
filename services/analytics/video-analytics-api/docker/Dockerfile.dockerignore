@@ -1,4 +1,7 @@
 .git*
 Jenkins*
+readmes/
+test/
+configs/sample-configs/
 src/app/files/
 src/app/specification/openapi-governance.json

@@ -819,6 +819,7 @@ namespace nv_vms
         inline static const string end_time_ms = "END_TIME_MS";
         inline static const string file_type = "FILE_TYPE";
         inline static const string container_format = "CONTAINER_FORMAT";
+        inline static const string config_hash = "CONFIG_HASH";
 
         static constexpr const char* FILE_TYPE_VIDEO = "video";
         static constexpr const char* FILE_TYPE_IMAGE = "image";
@@ -833,6 +834,18 @@ namespace nv_vms
         int64_t end_time_ms_value;
         string file_type_value;
         string container_format_value;
+        // Hex SHA-256 of caller-supplied options that affect the produced
+        // bytes (overlay, transcode, audio, container for video URLs;
+        // overlay, resize hints, debug flag for picture URLs). Populated
+        // for both the video URL flow (computeConfigHash) and the picture
+        // URL flow (computePictureConfigHash). Left empty only by callers
+        // that genuinely do not vary output by request configuration -
+        // currently the full-file symlink fast path in StorageManagement,
+        // which is gated to non-transformed pass-through of the raw
+        // recording. Cache lookups must match on this column when
+        // non-empty so the same (stream, time-range, type, container) hits
+        // a distinct cached file per request configuration.
+        string config_hash_value;
 
         TempFilesDBColumns() : file_path_value(""),
                                expiry_timestamp_value(0),
@@ -842,17 +855,19 @@ namespace nv_vms
                                start_time_ms_value(0),
                                end_time_ms_value(0),
                                file_type_value(""),
-                               container_format_value("") {}
+                               container_format_value(""),
+                               config_hash_value("") {}
 
-        TempFilesDBColumns(const string& filePath, 
-                           int64_t expiryTs, 
+        TempFilesDBColumns(const string& filePath,
+                           int64_t expiryTs,
                            int64_t createdTs,
                            const string& streamId,
                            int64_t fileSize,
                            int64_t startTimeMs = 0,
                            int64_t endTimeMs = 0,
                            const string& fileType = "",
-                           const string& containerFormat = "") : 
+                           const string& containerFormat = "",
+                           const string& configHash = "") :
                            file_path_value(filePath),
                            expiry_timestamp_value(expiryTs),
                            created_timestamp_value(createdTs),
@@ -861,7 +876,8 @@ namespace nv_vms
                            start_time_ms_value(startTimeMs),
                            end_time_ms_value(endTimeMs),
                            file_type_value(fileType),
-                           container_format_value(containerFormat) {}
+                           container_format_value(containerFormat),
+                           config_hash_value(configHash) {}
 
         void printInfo()
         {
@@ -875,6 +891,7 @@ namespace nv_vms
             LOG(info) << "\tend_time_ms_value: " << end_time_ms_value << endl;
             LOG(info) << "\tfile_type_value: " << file_type_value << endl;
             LOG(info) << "\tcontainer_format_value: " << container_format_value << endl;
+            LOG(info) << "\tconfig_hash_value: " << config_hash_value << endl;
         }
     };
 

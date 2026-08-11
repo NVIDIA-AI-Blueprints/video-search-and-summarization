@@ -19,8 +19,9 @@ MODEL_SELECTOR = """
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SELECTOR_DOCUMENTS = {
-    "skills/vss-summarize-video/references/end-to-end-example.md": 2,
-    "skills/vss-summarize-video/references/hitl-prompts.md": 1,
+    # K8s + Docker discovery branches each embed the tested jq selector.
+    "skills/vss-summarize-video/references/end-to-end-example.md": 3,
+    "skills/vss-summarize-video/references/hitl-prompts.md": 2,
     "skills/vss-summarize-video/references/video-summarization-api.md": 2,
 }
 LVS_DISCOVERY_DOCUMENTS = [

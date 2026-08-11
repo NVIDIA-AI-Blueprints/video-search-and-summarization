@@ -40,10 +40,7 @@ services:
       dockerfile: Dockerfiles/elastic-init.Dockerfile
     network_mode: "host"
     container_name: mdx-elasticsearch-init
-    command: bash -c "
-      /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh &&
-      /opt/mdx/init-scripts/elasticsearch-template-creation.sh
-      "
+    command: bash -c "bash /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh && bash /opt/mdx/init-scripts/elasticsearch-template-creation.sh"
     depends_on:
       - elasticsearch
 
@@ -117,7 +114,7 @@ services:
     command: "bash /usr/bin/create-kafka-topics.sh"
 
   redis:
-    image: redis:8.6.2-alpine
+    image: redis:8.10.0-alpine
     profiles: ["redis"]
     restart: always
     command: redis-server /config/redis.conf

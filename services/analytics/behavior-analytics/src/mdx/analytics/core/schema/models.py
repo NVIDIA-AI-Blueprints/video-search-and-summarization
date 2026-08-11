@@ -1024,10 +1024,12 @@ class ObjectState(BaseModel):
     :ivar datetime start: Start time of the state
     :ivar datetime end: End time of the state
     :ivar list[Coordinate] points: List of coordinate points
+    :ivar list[Bbox] bboxes: Per-frame object bboxes aligned 1:1 with ``points`` (kept in sync on every edit)
     :ivar int sampling: Sampling stride (1-in-N kept from raw observations)
     :ivar int sample_phase: Phase for the next incoming raw observation, carried across batches for true 1-in-N sampling
     :ivar list[datetime] tail_ts: Timestamps aligned to points[-len(tail_ts):]; used to bisect-insert tolerance-window messages while sampling == 1
     :ivar list[Coordinate] lastXpoints: Last X points for trajectory analysis
+    :ivar list[Bbox] lastXbboxes: Bounding boxes aligned 1:1 with ``lastXpoints``
     :ivar Object | None object: Object associated with this state
     :ivar Model | None model: Model for clustering embeddings
 
@@ -1064,10 +1066,12 @@ class ObjectState(BaseModel):
     start: datetime
     end: datetime
     points: list[Coordinate] = Field(default_factory=list)
+    bboxes: list[Bbox] = Field(default_factory=list)
     sampling: int = 1
     sample_phase: int = 0
     tail_ts: list[datetime] = Field(default_factory=list)
     lastXpoints: list[Coordinate] = Field(default_factory=list)
+    lastXbboxes: list[Bbox] = Field(default_factory=list)
     object: Object | None = None
     model: Model | None = None
 
@@ -1202,6 +1206,7 @@ class Behavior(BaseModel):
     :ivar Sensor sensor: Sensor that observed the behavior
     :ivar Object object: Object exhibiting the behavior
     :ivar GeoLocation | None locations: Raw trajectory points
+    :ivar list[Bbox] locationsBboxes: Internal per-frame bboxes aligned with ``locations`` (not on the protobuf wire)
     :ivar GeoLocation | None smoothLocations: Smoothed trajectory points
     :ivar list[str] edges: Road network edges (for geographic coordinates)
     :ivar float distance: Total distance traveled
@@ -1262,6 +1267,10 @@ class Behavior(BaseModel):
     object: Object
     locations: GeoLocation | None = None
     smoothLocations: GeoLocation | None = None
+    # Internal-only: per-frame object bboxes aligned 1:1 with ``locations.coordinates``. Not part of the
+    # protobuf wire schema -- ``convert_behavior_to_protobuf_behavior`` does not map it -- so it never
+    # leaves the process; supplies the per-frame bbox for ROI bbox-overlap tests.
+    locationsBboxes: list[Bbox] = Field(default_factory=list)
     edges: list[str] = Field(default_factory=list)
     distance: float = 0.0
     speed: float = 0.0
@@ -1746,11 +1755,11 @@ class ConfigMessage(BaseModel):
         structured ``failure`` ack for non-dict shapes (``[]``,
         ``"foo"``, etc.). Tightening the type here would short-circuit
         construction with a :class:`pydantic.ValidationError` and drop
-        the message before the ack is emitted, so web-api would lose
+        the message before the ack is emitted, so video-analytics-api would lose
         its feedback signal for shape violations. The validator is the
         single source of truth for "is this payload applyable".
     :ivar str | None status: ``value.status`` from the body. Typed
-        strictly because web-api emits only ``"success"`` /
+        strictly because video-analytics-api emits only ``"success"`` /
         ``"failure"`` / ``"partial-success"`` strings or ``null``; a
         non-string here would be a producer bug worth catching at
         construction.

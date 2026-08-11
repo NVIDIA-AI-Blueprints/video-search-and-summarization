@@ -16,6 +16,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
+from mdx.analytics.core.app.scheduler.app_scheduler_mp import MultiprocessingScheduler
+from mdx.analytics.core.stream.sink import sink_mqtt
 from mdx.analytics.core.stream.sink.sink_mqtt import SinkMQTT
 from mdx.analytics.core.schema.config import AppConfig, AppMQTTConfig, MQTTProducerConfig
 from paho.mqtt.client import Client, ConnectFlags, DisconnectFlags
@@ -173,8 +175,8 @@ class TestSinkMQTTFunctionality:
         mock_client.loop_start.assert_not_called()
         mock_client.publish.assert_called_once()
 
-    def test_write_raises_value_error_for_invalid_topic(self):
-        """Test write method raises ValueError when topic cannot be found."""
+    def test_write_skips_undefined_topic(self):
+        """An undefined topic disables that output rather than raising."""
         # Arrange
         self.mock_config.get_mqtt_topic.return_value = None
         dest_key = "invalid_key"
@@ -182,8 +184,7 @@ class TestSinkMQTTFunctionality:
         value_serializer = lambda x: str(x).encode('utf-8')
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a topic with key: invalid_key"):
-            self.sink.write(dest_key, messages, value_serializer)
+        self.sink.write(dest_key, messages, value_serializer)  # returns without publishing
 
     @patch('mdx.analytics.core.stream.sink.sink_mqtt.Client')
     def test_write_msg_basic_functionality(self, mock_client_class, mock_client):
@@ -264,8 +265,8 @@ class TestSinkMQTTFunctionality:
         mock_client.loop_start.assert_not_called()
         mock_client.publish.assert_called_once()
 
-    def test_write_msg_raises_value_error_for_invalid_topic(self):
-        """Test write_msg method raises ValueError when topic cannot be found."""
+    def test_write_msg_skips_undefined_topic(self):
+        """An undefined topic disables that output rather than raising."""
         # Arrange
         self.mock_config.get_mqtt_topic.return_value = None
         dest_key = "invalid_key"
@@ -273,8 +274,7 @@ class TestSinkMQTTFunctionality:
         key = b"test_key"
         
         # Act & Assert
-        with pytest.raises(ValueError, match="Could not find a topic with key: invalid_key"):
-            self.sink.write_msg(dest_key, message, key)
+        self.sink.write_msg(dest_key, message, key)  # returns without publishing
 
     @pytest.mark.parametrize("qos,retain", [
         (0, False),
@@ -695,9 +695,109 @@ class TestSinkMQTTDirtyTests:
         """Test close method when no client exists."""
         # Arrange
         self.sink._client = None
-        
+
         # Act
         self.sink.close()
-        
+
         # Assert
         # Should not raise any exception when client is None
+
+    def test_close_waits_for_queued_publishes_before_disconnecting(self, mock_client):
+        """publish() only queues; loop_stop() does not promise the queue drained first.
+
+        Under behaviorEmitOnce the close hook writes every still-live track's only behavior
+        immediately before this runs, so a message dropped here is missing from the output
+        altogether rather than merely stale.
+        """
+        # Arrange
+        self.sink._client = mock_client
+        pending = Mock()
+        pending.is_published.return_value = False
+        self.sink._last_publish = pending
+
+        # Act
+        self.sink.close()
+
+        # Assert
+        pending.wait_for_publish.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+
+    def test_close_does_not_wait_when_the_queue_already_drained(self, mock_client):
+        """Nothing outstanding means no reason to pay the wait."""
+        # Arrange
+        self.sink._client = mock_client
+        published = Mock()
+        published.is_published.return_value = True
+        self.sink._last_publish = published
+
+        # Act
+        self.sink.close()
+
+        # Assert
+        published.wait_for_publish.assert_not_called()
+        mock_client.disconnect.assert_called_once()
+
+    def test_close_disconnects_even_when_the_drain_fails(self, mock_client):
+        """A broker that has already gone makes the wait unsatisfiable. Report it and shut down --
+        blocking here would trade lost messages for a hung process."""
+        # Arrange
+        self.sink._client = mock_client
+        pending = Mock()
+        pending.is_published.return_value = False
+        pending.wait_for_publish.side_effect = RuntimeError("queue purged")
+        self.sink._last_publish = pending
+
+        # Act
+        with patch('mdx.analytics.core.stream.sink.sink_mqtt.logger') as mock_logger:
+            self.sink.close()
+
+        # Assert
+        mock_logger.error.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+        mock_client.loop_stop.assert_called_once()
+
+    def test_close_disconnects_when_the_status_check_itself_raises(self, mock_client):
+        """is_published() raises as well as returns.
+
+        ValueError when the message never made it onto a full outgoing queue, RuntimeError when the
+        publish failed. Those are the cases where the client most needs closing, so the check has to
+        sit inside the try -- outside it, a failed publish would skip the disconnect and strand the
+        network loop thread.
+        """
+        # Arrange
+        self.sink._client = mock_client
+        pending = Mock()
+        pending.is_published.side_effect = ValueError("Message is not queued due to ERR_QUEUE_SIZE")
+        self.sink._last_publish = pending
+
+        # Act
+        with patch('mdx.analytics.core.stream.sink.sink_mqtt.logger') as mock_logger:
+            self.sink.close()
+
+        # Assert
+        mock_logger.error.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+        mock_client.loop_stop.assert_called_once()
+
+    def test_publish_drain_leaves_the_scheduler_room_to_stop_the_worker(self):
+        """The drain must finish before the parent's patience does.
+
+        MultiprocessingScheduler SIGKILLs a worker SHUTDOWN_TIMEOUT_SECONDS after SIGTERM. If the
+        two were equal, a worker that used its whole drain window would be killed exactly as the
+        wait returned, with the disconnect and its own teardown still pending -- the wait meant to
+        save those messages would be what cost the process its life.
+        """
+        assert sink_mqtt.PUBLISH_DRAIN_TIMEOUT_SECONDS < MultiprocessingScheduler.SHUTDOWN_TIMEOUT_SECONDS
+
+    def test_write_retains_the_publish_handle(self, mock_client):
+        """The handle close() waits on is the one write() would otherwise discard."""
+        # Arrange
+        self.sink._client = mock_client
+        info = Mock()
+        mock_client.publish.return_value = info
+
+        # Act
+        self.sink.write("test_key", [{"id": 1}], lambda x: str(x).encode('utf-8'))
+
+        # Assert
+        assert self.sink._last_publish is info

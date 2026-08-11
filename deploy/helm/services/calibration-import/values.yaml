@@ -13,8 +13,8 @@ name: ""
 useReleaseNamePrefix: null
 
 image:
-  repository: alpine
-  tag: "3.23.4"
+  repository: docker.io/library/alpine
+  tag: "3.24.1"
   pullPolicy: IfNotPresent
 
 apiUrl: http://vss-video-analytics-api:8081
@@ -43,13 +43,20 @@ ngcTeam: ""
 ngcApiKeySecretName: ""
 ngcApiKeySecretKey: NGC_CLI_API_KEY
 
+# Set *SecretName to read creds from a Secret instead of the plaintext value.
 awsAccessKeyID: ""
+awsAccessKeyIDSecretName: ""
+awsAccessKeyIDSecretKey: AWS_ACCESS_KEY_ID
 awsSecretAccessKey: ""
+awsSecretAccessKeySecretName: ""
+awsSecretAccessKeySecretKey: AWS_SECRET_ACCESS_KEY
 awsRegion: ""
 awsEndpointUrl: ""
 
 storageRestUrl: ""
 storageAuthorization: ""
+storageAuthorizationSecretName: ""
+storageAuthorizationSecretKey: STORAGE_AUTHORIZATION
 
 extraEnv: []
 

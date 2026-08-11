@@ -34,20 +34,42 @@ source "$SCRIPT_DIR/generate_env.sh"
 . "$SCRIPT_DIR/docker_compose/infra/.env"
 source "$SCRIPT_DIR/cleanup.sh"
 
-# Build Docker image
-cd "$VIDEO_ANALYTICS_API_ROOT"
-BUILD_TIMEOUT="${BUILD_TIMEOUT:-600}"
-echo "Building Docker image (timeout ${BUILD_TIMEOUT}s)..."
-if ! timeout "$BUILD_TIMEOUT" docker build -t video-analytics-api:integration-test -f docker/Dockerfile . ; then
-    EXIT_CODE=$?
-    if [ "${EXIT_CODE}" -eq 124 ]; then
-        echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
-    else
-        echo "✗ Docker build failed"
-    fi
-    exit 1
+TEST_HOST="${TEST_HOST:-}"
+if [ -z "$TEST_HOST" ] && [ "${CI:-}" = "true" ] && [ "${DOCKER_HOST:-}" = "unix:///var/run/docker.sock" ]; then
+    TEST_HOST="$(ip -4 route show default 2>/dev/null | cut -d" " -f3 | head -n 1)"
 fi
-echo "✓ Docker build completed"
+TEST_HOST="${TEST_HOST:-localhost}"
+ES_URL="${ES_URL:-http://${TEST_HOST}:9200}"
+VA_API_URL="${VA_API_URL:-http://${TEST_HOST}:8081}"
+echo "Testing Elasticsearch at $ES_URL"
+echo "Testing video-analytics-api at $VA_API_URL"
+
+# Build the checked-out service only when its build inputs changed. Otherwise,
+# exercise the currently deployed image while still running the full integration
+# suite. Local invocation remains build-by-default.
+BUILD_SERVICE_IMAGE="${BUILD_SERVICE_IMAGE:-true}"
+if [ "$BUILD_SERVICE_IMAGE" = "true" ]; then
+    VIDEO_ANALYTICS_API_IMAGE="${VIDEO_ANALYTICS_API_IMAGE:-video-analytics-api:integration-test}"
+    cd "$VIDEO_ANALYTICS_API_ROOT"
+    BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
+    echo "Building changed video-analytics-api source as $VIDEO_ANALYTICS_API_IMAGE (timeout ${BUILD_TIMEOUT}s)..."
+    if timeout "$BUILD_TIMEOUT" docker build -t "$VIDEO_ANALYTICS_API_IMAGE" -f docker/Dockerfile . ; then
+        echo "✓ Docker build completed"
+    else
+        EXIT_CODE=$?
+        if [ "${EXIT_CODE}" -eq 124 ]; then
+            echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
+        else
+            echo "✗ Docker build failed"
+        fi
+        exit 1
+    fi
+else
+    VIDEO_ANALYTICS_API_IMAGE="${CURRENT_VIDEO_ANALYTICS_API_IMAGE:?CURRENT_VIDEO_ANALYTICS_API_IMAGE is required when BUILD_SERVICE_IMAGE=false}"
+    echo "No video-analytics-api build-input change; pulling current image $VIDEO_ANALYTICS_API_IMAGE"
+    docker pull "$VIDEO_ANALYTICS_API_IMAGE"
+fi
+export VIDEO_ANALYTICS_API_IMAGE
 
 # Start stack
 cd "$INTEGRATION_TEST_DIR/docker_compose"
@@ -69,7 +91,7 @@ elif command -v netstat >/dev/null 2>&1; then
 fi
 
 COMPOSE_BASE="docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml"
-COMPOSE_TIMEOUT="${COMPOSE_TIMEOUT:-300}"
+COMPOSE_TIMEOUT="${COMPOSE_TIMEOUT:-3600}"
 echo "Starting Docker Compose (timeout ${COMPOSE_TIMEOUT}s)..."
 $COMPOSE_BASE up -d --force-recreate & COMPOSE_PID=$!
 COMPOSE_EXIT=0
@@ -103,7 +125,7 @@ echo "✓ Docker Compose started"
 # Wait for Elasticsearch then video-analytics-api
 echo "Waiting for Elasticsearch (up to 60s)..."
 for i in $(seq 1 60); do
-    if curl -sf http://localhost:9200/_cluster/health >/dev/null 2>&1; then
+    if curl -sf "$ES_URL/_cluster/health" >/dev/null 2>&1; then
         echo "✓ Elasticsearch is up"
         break
     fi
@@ -120,7 +142,7 @@ done
 
 # Create ingest pipeline required for config uploads (road-network, usd-assets, etc.)
 echo "Creating Elasticsearch ingest pipeline..."
-if ! bash "$SCRIPT_DIR/scripts/setup_elasticsearch_ingest_pipeline.sh" http://localhost:9200; then
+if ! bash "$SCRIPT_DIR/scripts/setup_elasticsearch_ingest_pipeline.sh" "$ES_URL"; then
     echo "✗ Ingest pipeline setup failed"
     cleanup_docker_environment
     exit 1
@@ -130,7 +152,7 @@ fi
 DUMP_DIR="$INTEGRATION_TEST_DIR/elasticsearch_data_dump"
 if [ -d "$DUMP_DIR" ]; then
     echo "Loading Elasticsearch data dump from $DUMP_DIR..."
-    if ! node "$SCRIPT_DIR/scripts/load_elasticsearch_data_dump.js" http://localhost:9200 "$DUMP_DIR"; then
+    if ! node "$SCRIPT_DIR/scripts/load_elasticsearch_data_dump.js" "$ES_URL" "$DUMP_DIR"; then
         echo "✗ Elasticsearch data dump load failed"
         cleanup_docker_environment
         exit 1
@@ -141,7 +163,7 @@ fi
 
 echo "Waiting for video-analytics-api (up to 90s)..."
 for i in $(seq 1 90); do
-    if curl -sf http://localhost:8081/livez >/dev/null 2>&1; then
+    if curl -sf "$VA_API_URL/livez" >/dev/null 2>&1; then
         echo "✓ video-analytics-api is up"
         break
     fi
@@ -159,7 +181,7 @@ done
 # Run integration tests (includes warehouse app fixture generation)
 echo "Running integration tests..."
 cd "$SCRIPT_DIR"
-if ! bash scripts/run_integration_tests.sh http://localhost:8081; then
+if ! bash scripts/run_integration_tests.sh "$VA_API_URL"; then
     echo "✗ Integration tests failed"
     echo "--- video-analytics-api container logs (video-analytics-api-integration) ---"
     docker logs video-analytics-api-integration 2>&1 || true

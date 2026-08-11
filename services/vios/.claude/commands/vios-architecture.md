@@ -54,7 +54,6 @@ This skill explains the **stream-processor microservice (MS) + sensor-MS** deplo
 | `centralizedb` (postgres) | `5432` | Shared metadata DB. Sensor list, recording manifests, configs. Both sensor-MS and every stream-processor pod open connections. |
 | `redis-server` | `6379` | Message bus + routing table. SDR consumes the `vst_events` topic here; Envoy reads the streamid→pod hash here on every request. |
 | `nvstreamer` | `31000–31004` (HTTP, one per instance), `31554`, `31564`, `31574`, `31584`, `31594` (RTSP, spaced by 10) | **Separately deployed** loopback RTSP source farm for testing / video-file-driven sensors. VIOS treats nvstreamer endpoints as a regular RTSP camera fleet. |
-| `prometheus` / `grafana` | `9090` / `3000` | Optional, gated by `--profile monitoring`. |
 | `minio` | `9000` / `9001` | Optional object storage, gated by `--profile minio`. |
 
 Pod 2 (`streamprocessing-ms-2`) is shipped commented-out — bring it up by uncommenting the matching blocks in the compose / Envoy / SDR-cluster configs (each marked `# [Pod 2 disabled]`).
@@ -243,10 +242,48 @@ Two Redis-backed channels are always in use in this topology.
 
 - **Producer:** sensor-MS (and the storage service, for file-based sensors).
 - **Consumer:** SDR.
-- **Actions:** `camera_add`, `camera_proxy`, `camera_remove`, `camera_status_change` (and a few more lifecycle states).
-- **Payload:** a JSON envelope describing one camera-status change. It carries a timestamp, the source service name, the alert type, and a nested object with the stream's id, name, proxy URL, the action, optional tags, and codec / resolution / framerate metadata. SDR keys placement on the stream id.
+- **Alert types:** `camera_status_change` (the lifecycle stream) and `service_status_change`.
+- **Actions** (the `event.change` field of a `camera_status_change`): `camera_add`, `camera_proxy`, `camera_streaming`, `camera_remove`.
 
-This is the only message bus SDR listens to.
+SDR keys pod placement on `event.camera_id`. This is the only message bus SDR listens to.
+
+Envelope:
+
+```json
+{
+  "created_at": "<ISO8601>",
+  "source": "vst",
+  "alert_type": "camera_status_change",
+  "event": {
+    "camera_id":      "<sensor or stream id>",
+    "camera_name":    "<stream name>",
+    "camera_type":    "rtsp | file",
+    "camera_url":     "<live proxy URL; http URL when camera_type is file>",
+    "camera_vod_url": "<replay URL>",
+    "change":         "camera_add | camera_proxy | camera_streaming | camera_remove",
+    "tags":           "<optional>",
+    "metadata": {
+      "sensor_type":     "<sensor_* type string>",
+      "codec":           "H264",
+      "resolution":      "1920x1080",
+      "framerate":       30,
+      "file_start_time": "<ISO8601>"
+    }
+  }
+}
+```
+
+Field rules:
+
+- `camera_type` is the sensor type with the `sensor_` prefix stripped.
+- `camera_url` is empty on `camera_add`. On every other action it carries the live URL — an RTSP proxy URL for `rtsp` sensors, an HTTP URL for `file` sensors.
+- `camera_vod_url` accompanies `camera_streaming` from the RTSP-server path.
+- `metadata` is omitted entirely when it would be empty; individual subfields are omitted when unset.
+- **`camera_streaming` is the strict one.** `camera_type` and `camera_url` are required on it, and when `camera_type` is `file`, `metadata.file_start_time` is required too. The other actions carry these fields opportunistically.
+
+`camera_streaming` is emitted by three separate payload builders — `rtspserver.cpp` (RTSP proxy registration, the one that adds `camera_vod_url`), `vst_common::notifyEvent` (storage / file-sensor and sensor-management paths, the only one that emits `file_start_time`), and `SensorMonitoring::notifyEvent` (decoder-playing path, which also adds `ipc_url`). Check the builder that owns your path before assuming a field is present.
+
+Consumer note: the live-stream and recorder APIs reject a `camera_streaming` whose `camera_url` is not `rtsp://` or `rtsps://`, so file sensors are skipped by those services by design.
 
 **2. Routing table.** Two Redis hashes — streamid→pod-name and pod-name→host:port — written by SDR and read by Envoy on every request.
 

@@ -36,11 +36,11 @@ VSS Agent provides composable tools and agents for video understanding:
 
 | Path | Description |
 |------|-------------|
-| `src/agent/` | Core package: tools, agents, APIs, embeddings, evaluators |
+| `src/vss_agents/` | Core package: tools, agents, APIs, embeddings, evaluators |
 | `tests/unit_test/` | Unit tests (mirrors source tree) |
 | `stubs/` | Mypy type stubs for third-party libraries |
 | `docker/` | Dockerfile and build scripts |
-| `3rdparty/` | Third-party source (FFmpeg, included for LGPL compliance) |
+| `3rdparty/` | Third-party source retained in the repository; not copied into the container image |
 
 ## Prerequisites
 
@@ -72,14 +72,15 @@ source .venv/bin/activate
 ```
 
 The project ships three install profiles, smallest to largest: `nvidia-vss`
-(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `vss` console
-script name; the script itself ships with the base wheel), and
-`nvidia-vss[agent]` (the full NAT-based agent application). `uv sync` without
-`--extra agent` gives the
-NAT-free base environment used by the host CLI:
+(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `nvidia-vss-cli`
+distribution, which declares the `vss` console script), and
+`nvidia-vss[agent]` (the full NAT-based agent application). The `cli` extra
+gives the NAT-free environment used by the host CLI; it is required, because
+the base distribution depends only on `nvidia-vss-core` and so provides no
+`vss` executable:
 
 ```bash
-uv run --no-dev vss --help
+uv run --no-dev --extra cli vss --help
 ```
 
 ### Docker
@@ -220,13 +221,15 @@ or are only needed for specific features.
 
 ## Proprietary multimedia codecs
 
-The pre-built VSS Agent container image **does not bundle `opencv-python-headless`**.
-That wheel ships FFmpeg libraries that contain **patent-encumbered codecs** (H.264, H.265,
-and variants), which NVIDIA cannot redistribute. Following the VST team's approach, **all
-FFmpeg/codec libraries are removed while building the container** (`libav*`, `libswscale`,
-`libswresample`, `libpostproc`, `libx264/5`, ...), and an installation script reinstalls
-them at runtime only when the operator opts in. A build-time guard in the Dockerfile and a
-CI job (`.github/scripts/check_no_patented_codecs.py`) fail the build if any such library
+The pre-built VSS Agent container image **does not bundle `opencv-python-headless`, any
+FFmpeg binary, or any FFmpeg source archive**. The OpenCV wheel ships FFmpeg libraries
+that contain **patent-encumbered codecs** (H.264, H.265, and variants), which NVIDIA
+cannot redistribute. Following the VST team's approach, **all FFmpeg/codec libraries are
+removed while building the container** (`libav*`, `libswscale`, `libswresample`,
+`libpostproc`, `libx264/5`, ...), and the repository's FFmpeg source archive is not copied
+into any image stage. An installation script reinstalls OpenCV and its bundled libraries
+at runtime only when the operator opts in. A build-time guard in the Dockerfile and a CI
+job (`.github/scripts/check_no_patented_codecs.py`) fail the build if any such library
 leaks into the image. Tools that decode video (video understanding/captioning, frame
 timestamp, S3 picture URL) therefore fail with a clear error in the default image and
 require opting in to the proprietary codecs.
@@ -267,7 +270,7 @@ uv run pytest tests/unit_test/ -v
 With coverage:
 
 ```bash
-uv run pytest tests/unit_test/ --cov=src/agent --cov-report=term-missing -v
+uv run pytest tests/unit_test/ --cov=src/vss_agents --cov-report=term-missing -v
 ```
 
 ## Contributing
@@ -283,7 +286,7 @@ uv run pytest tests/unit_test/ --cov=src/agent --cov-report=term-missing -v
 uv run pytest tests/unit_test/ -v
 uv run ruff check src/
 uv run ruff format --check src/
-uv run mypy src/agent/
+uv run mypy src/vss_agents/
 ```
 
 5. Submit a pull request.

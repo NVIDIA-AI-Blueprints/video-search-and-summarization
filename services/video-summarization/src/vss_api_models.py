@@ -186,6 +186,19 @@ class DeleteFileResponse(ViaBaseModel):
     deleted: bool = Field(description="Indicates if the file was deleted")
 
 
+class DeleteIndexResponse(ViaBaseModel):
+    """Response schema for the delete-asset-index request."""
+
+    asset_id: str = Field(description="The asset identifier whose index was targeted.")
+    deleted: bool = Field(
+        description="True when the index was dropped; False when the operation was skipped."
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Additional context about the outcome (skip reason or error message).",
+    )
+
+
 class ListFilesResponse(ViaBaseModel):
     """Response schema for the list files API."""
 
@@ -341,7 +354,7 @@ class MediaInfoOffset(ViaBaseModel):
     type: Literal["offset"] = Field(
         description="Information about a segment of media with start and end offsets."
     )
-    start_offset: int = Field(
+    start_offset: Optional[int] = Field(
         default=None,
         description="Segment start offset in seconds from the beginning of the media.",
         ge=0,
@@ -349,7 +362,7 @@ class MediaInfoOffset(ViaBaseModel):
         examples=[0],
         json_schema_extra={"format": "int64"},
     )
-    end_offset: int = Field(
+    end_offset: Optional[int] = Field(
         default=None,
         description="Segment end offset in seconds from the beginning of the media.",
         ge=0,
@@ -357,6 +370,46 @@ class MediaInfoOffset(ViaBaseModel):
         examples=[4000000000],
         json_schema_extra={"format": "int64"},
     )
+
+    @model_validator(mode="after")
+    def _validate_offsets(self):
+        if self.start_offset is not None and self.end_offset is not None:
+            if self.start_offset >= self.end_offset:
+                raise ValueError(
+                    f"start_offset ({self.start_offset}) must be less than "
+                    f"end_offset ({self.end_offset})"
+                )
+        return self
+
+    @classmethod
+    def for_response(
+        cls,
+        start_offset: int | float | str | None = None,
+        end_offset: int | float | str | None = None,
+    ) -> "MediaInfoOffset":
+        """Build media info for API responses without failing on placeholders.
+
+        Request validation rejects equal/reversed offsets. Response handlers
+        historically used ``(0, 0)`` or coerced absent timestamps to ``0``,
+        which would raise ``ValidationError`` after successful processing.
+        Omit bounds when either side is unset, non-numeric (e.g. ISO live
+        timestamps), or the range is not strictly increasing so successful
+        responses stay intact.
+        """
+
+        def _as_int(value: int | float | str | None) -> int | None:
+            if value is None or value == "":
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        start = _as_int(start_offset)
+        end = _as_int(end_offset)
+        if start is None or end is None or start >= end:
+            return cls(type="offset")
+        return cls(type="offset", start_offset=start, end_offset=end)
 
 
 class MediaInfoTimeStamp(ViaBaseModel):
@@ -911,6 +964,16 @@ class SummarizationQuery(ViaBaseModel):
         ),
         examples=[True, False],
     )
+
+    @model_validator(mode="after")
+    def _validate_token_constraints(self):
+        if self.min_tokens is not None and self.max_tokens is not None:
+            if self.min_tokens > self.max_tokens:
+                raise ValueError(
+                    f"min_tokens ({self.min_tokens}) must not exceed "
+                    f"max_tokens ({self.max_tokens})"
+                )
+        return self
 
 
 class CompletionFinishReason(str, Enum):

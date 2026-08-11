@@ -18,9 +18,14 @@
 #include "WebrtcCallbacks.h"
 #include "PeerConnection.h"
 #include "network_utils.h"
+#include "api/candidate.h"
+#include "api/stats/attribute.h"
 #include "pc/session_description.h"
+#include "p2p/base/p2p_constants.h"
 #include "p2p/base/transport_info.h"
+#include "rtc_base/net_helper.h"
 #include "rtc_base/ref_counted_object.h"
+#include "api/make_ref_counted.h"
 #include "modules/video_coding/codecs/nvidia/NvVideoFrameBuffer.h"
 #include "nvbufsurface.h"
 #include "Websocket.h"
@@ -82,7 +87,7 @@ PeerConnectionObserver::PeerConnectionObserver(PeerConnection* peerConnection,
                             , m_prevBytesReceived(0)
 {
     LOG(verbose) << __FUNCTION__ << "CreatePeerConnection peerid:" << peerid;
-    m_statsCallback = rtc::make_ref_counted<PeerConnectionStatsCollectorCallback>();
+    m_statsCallback = webrtc::make_ref_counted<PeerConnectionStatsCollectorCallback>();
 }
 
 PeerConnectionObserver::~PeerConnectionObserver()
@@ -142,7 +147,8 @@ void PeerConnectionObserver::OnIceCandidate(const webrtc::IceCandidateInterface 
         do
         {
             string newHost_candidate;
-            if (candidate->candidate().type() == cricket::LOCAL_PORT_TYPE && m_isHostCandidateGenerated == false)
+            if (candidate->candidate().type() == webrtc::IceCandidateType::kHost &&
+                m_isHostCandidateGenerated == false)
             {
                 string node_ip;
                 char *node_ip_env = getenv("NODE_IP");
@@ -189,9 +195,9 @@ void PeerConnectionObserver::OnIceCandidate(const webrtc::IceCandidateInterface 
         /* Get the public IpAddress from stun candidates */
         if (m_myPublicIpAddr.empty())
         {
-            if (candidate->candidate().type().find("stun") != string::npos)
+            if (candidate->candidate().is_stun())
             {
-                const rtc::SocketAddress address = candidate->candidate().address();
+                const webrtc::SocketAddress address = candidate->candidate().address();
                 m_myPublicIpAddr = address.HostAsURIString();
             }
         }
@@ -201,18 +207,23 @@ void PeerConnectionObserver::OnIceCandidate(const webrtc::IceCandidateInterface 
 /* ---------------------------------------------------------------------------
 **  ICE candidate pair selected callback
 ** -------------------------------------------------------------------------*/
-void PeerConnectionObserver::OnIceSelectedCandidatePairChanged(const cricket::CandidatePairChangeEvent &event)
+void PeerConnectionObserver::OnIceSelectedCandidatePairChanged(
+    const webrtc::CandidatePairChangeEvent& event)
 {
     LOG(info) << "Last pair received time:" << event.last_data_received_ms << ", reason: " << event.reason << endl;
     LOG(info) << "Local candidate = { " << event.selected_candidate_pair.local.network_id()
-                                    << ", " << event.selected_candidate_pair.local.type()
+                                    << ", "
+                                    << std::string(webrtc::IceCandidateTypeToString(
+                                           event.selected_candidate_pair.local.type()))
                                     << ", " << event.selected_candidate_pair.local.network_name()
                                     << ", " << event.selected_candidate_pair.local.protocol()
                                     << ", " << event.selected_candidate_pair.local.address().ToString() << " }" << endl;
     m_nwInterface = event.selected_candidate_pair.local.network_name();
 
     LOG(info) << "Remote candidate = { " << event.selected_candidate_pair.remote.network_id()
-                                    << ", " << event.selected_candidate_pair.remote.type()
+                                    << ", "
+                                    << std::string(webrtc::IceCandidateTypeToString(
+                                           event.selected_candidate_pair.remote.type()))
                                     << ", " << event.selected_candidate_pair.remote.network_name()
                                     << ", " << event.selected_candidate_pair.remote.protocol()
                                     << ", " << event.selected_candidate_pair.remote.address().ToString() << " }" << endl;
@@ -221,12 +232,14 @@ void PeerConnectionObserver::OnIceSelectedCandidatePairChanged(const cricket::Ca
 /* ---------------------------------------------------------------------------
 **  ICE Candidate Error callback
 ** -------------------------------------------------------------------------*/
-void PeerConnectionObserver::OnIceCandidateError(const std::string& host_candidate,
-                                                const std::string& url,
-                                                int error_code,
-                                                const std::string& error_text)
+void PeerConnectionObserver::OnIceCandidateError(const std::string& address,
+                                                  int port,
+                                                  const std::string& url,
+                                                  int error_code,
+                                                  const std::string& error_text)
 {
-    LOG(error) << "ICE candidate error host_candidate:" << host_candidate << ", url:" << url << endl;
+    LOG(error) << "ICE candidate error address:" << address << " port:" << port << ", url:" << url
+               << endl;
     if (error_code >= 300 && error_code <= 699)
     {
         // STUN errors are in the range 300-699. See RFC 5389, section 15.6 for a list of codes.
@@ -255,7 +268,7 @@ VideoSink::VideoSink(webrtc::VideoTrackInterface* track,
     m_fpsDisplay.reset(new FPSDisplay(
                     WEBRTC_INPUT_FPS_CAPTURE_INTERVAL_SEC,
                     WEBRTC_INPUT_FPS_PUBLISH_INTERVAL_SEC));
-    m_track->AddOrUpdateSink(this, rtc::VideoSinkWants());
+    m_track->AddOrUpdateSink(this, webrtc::VideoSinkWants());
     if (GET_CONFIG().webrtc_in_passthrough)
     {
         m_passThrough = true;
@@ -270,8 +283,8 @@ VideoSink::~VideoSink()
 
 void VideoSink::OnFrame(const webrtc::VideoFrame& video_frame)
 {
-    rtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer = video_frame.video_frame_buffer();
-    rtc::scoped_refptr<webrtc::I420BufferInterface> buffer(frame_buffer->ToI420());
+    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer = video_frame.video_frame_buffer();
+    webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer(frame_buffer->ToI420());
     int width = frame_buffer->width();
     int height = frame_buffer->height();
     void* dataY = nullptr;
@@ -288,7 +301,7 @@ void VideoSink::OnFrame(const webrtc::VideoFrame& video_frame)
     if (buffer == nullptr)
     {
         size = sizeof(NvBufSurface);
-        dataY = (void *)&frame_buffer; //rtc::scoped_refptr<NvVideoFrameBuffer>*
+        dataY = (void *)&frame_buffer; //webrtc::scoped_refptr<NvVideoFrameBuffer>*
     }
     else
     {
@@ -406,16 +419,16 @@ void CreateSessionDescriptionObserver::OnFailure(webrtc::RTCError error)
     m_promise.set_value(nullptr);
 }
 
-void PeerConnectionStatsCollectorCallback::OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
+void PeerConnectionStatsCollectorCallback::OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report)
 {
     for (const webrtc::RTCStats& stats : *(report.get()))
     {
         Json::Value statsMembers;
-        for (const webrtc::RTCStatsMemberInterface* member : stats.Members())
+        for (const webrtc::Attribute& member : stats.Attributes())
         {
-            if (member->is_defined())
+            if (member.has_value())
             {
-                statsMembers[member->name()] = member->ValueToJson();
+                statsMembers[member.name()] = member.ToString();
             }
         }
         // Store the transport ID as it is required for further parsing of stats
@@ -427,7 +440,7 @@ void PeerConnectionStatsCollectorCallback::OnStatsDelivered(const rtc::scoped_re
     }
 }
 
-void PeerConnectionObserver::OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
+void PeerConnectionObserver::OnAddStream(webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
 {
     LOG(info) << __PRETTY_FUNCTION__;
     if (m_peerConnection->m_isClient == false)
@@ -467,7 +480,7 @@ void PeerConnectionObserver::OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamI
     m_bitrateThresold *= STANDARD_BITRATE_720P_KBPS;
     m_webrtcInputDataWatchDog = make_unique<Bosma::Scheduler>(1);
     m_webrtcInputDataWatchDog->every(
-                WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [=]() {
+                WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [=, this]() {
                 checkInputDataFlowStatus();
                 Json::Value inboundVideoStats = getInboundVideoStats();
                 uint64_t currentBitrate = calculateCurrentBitrate(inboundVideoStats);
@@ -481,7 +494,7 @@ void PeerConnectionObserver::OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamI
                 }
     });
 }
-void PeerConnectionObserver::OnRemoveStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
+void PeerConnectionObserver::OnRemoveStream(webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
 {
     LOG(info) << __PRETTY_FUNCTION__ << endl;
     if (m_peerConnection->m_isClient == false)
@@ -491,7 +504,7 @@ void PeerConnectionObserver::OnRemoveStream(rtc::scoped_refptr<webrtc::MediaStre
     }
 }
 
-void PeerConnectionObserver::OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> channel)
+void PeerConnectionObserver::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> channel)
 {
     LOG(verbose) << __PRETTY_FUNCTION__;
     GET_DATA_CHANNEL()->addChannelObserver(m_peerid, channel);
@@ -512,17 +525,17 @@ void PeerConnectionObserver::OnSignalingChange(webrtc::PeerConnectionInterface::
         const uint64_t frequency = GET_CONFIG().webrtc_peer_conn_timeout_sec;
         std::chrono::seconds seconds (frequency);
         m_peerConnectionTimeout = make_unique<Bosma::Scheduler>(PEER_CONNECTION_TIMEOUT_THREAD_COUNT);
-        m_peerConnectionTimeout->in(seconds, [=]() {
+        m_peerConnectionTimeout->in(seconds, [=, this]() {
             m_peerConnection->isIceCandidateAdded();
         });
 
-        rtc::scoped_refptr<webrtc::PeerConnectionInterface> pc = m_peerConnection->getRtcPeerConnection();
+        webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc = m_peerConnection->getRtcPeerConnection();
         if (pc.get() && m_peerConnection->m_isClient == true)
         {
-            std::vector<rtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = pc->GetSenders();
+            std::vector<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> senders = pc->GetSenders();
             for (auto stream : senders)
             {
-                if (stream->media_type() == cricket::MediaType::MEDIA_TYPE_VIDEO)
+                if (stream->media_type() == webrtc::MediaType::VIDEO)
                 {
                     std::vector<std::string> streamVector = stream->stream_ids();
                     if (streamVector.size() > 0)
@@ -760,11 +773,11 @@ const string PeerConnectionObserver::getSdpWithIceLite(
             const IceCandidateCollection* cc1 = descInterface->candidates(i);
             for (size_t j = 0; j < cc1->count(); ++j)
             {
-                cricket::Candidate candidate_for_rp = cc1->at(j)->candidate();
-                if (candidate_for_rp.type() == cricket::LOCAL_PORT_TYPE)
+                webrtc::Candidate candidate_for_rp = cc1->at(j)->candidate();
+                if (candidate_for_rp.type() == webrtc::IceCandidateType::kHost)
                 {
                     string candidate_string = candidate_for_rp.ToString();
-                    const rtc::SocketAddress address = candidate_for_rp.address();
+                    const webrtc::SocketAddress address = candidate_for_rp.address();
                     private_port = address.PortAsString();
                 }
             }
@@ -800,22 +813,22 @@ const string PeerConnectionObserver::getSdpWithIceLite(
     LOG(info) << "Creating candidate for publicIp:" << seat.first << ", publicPort:" << seat.second << endl;
 
     /* Get the endpoint from RP & add it as a candidate into sdp */
-    const rtc::SocketAddress host_address(seat.first, seat.second);
+    const webrtc::SocketAddress host_address(seat.first, seat.second);
 
     /* Higher the priority value, more the preference while selecting candidate for ice connection */
     static const uint32_t kCandidatePriority = 2130706431U;  // pref = 1.0
     /* Foundation property is a string which uniquely identifies the candidate across multiple transports.*/
     static const char kCandidateFoundation1[] = "a0+B/1";
 
-    cricket::Candidate candidate;
-    candidate.set_component(cricket::ICE_CANDIDATE_COMPONENT_DEFAULT);
-    candidate.set_protocol(cricket::UDP_PROTOCOL_NAME);
+    webrtc::Candidate candidate;
+    candidate.set_component(webrtc::ICE_CANDIDATE_COMPONENT_DEFAULT);
+    candidate.set_protocol(webrtc::UDP_PROTOCOL_NAME);
     candidate.set_address(host_address);
-    candidate.set_type(cricket::LOCAL_PORT_TYPE);
+    candidate.set_type(webrtc::IceCandidateType::kHost);
     candidate.set_foundation(kCandidateFoundation1);
     candidate.set_priority(kCandidatePriority);
     candidate.set_network_id(1);
-    cricket::SessionDescription *desc = descInterface->description();
+    webrtc::SessionDescription* desc = descInterface->description();
     if (desc == nullptr)
     {
         LOG(error) << "SessionDescription is null" << endl;
@@ -823,21 +836,21 @@ const string PeerConnectionObserver::getSdpWithIceLite(
     }
     for (auto& content : desc->contents())
     {
+        const std::string& mid = content.mid();
         if (is_first_transport == false)
         {
-            candidate.set_transport_name(content.name);
             std::unique_ptr<webrtc::IceCandidateInterface> sdp_candidate =
-                webrtc::CreateIceCandidate(content.name, 0, candidate);
+                webrtc::CreateIceCandidate(mid, 0, candidate);
             descInterface->AddCandidate(sdp_candidate.get());
-            is_first_transport= true;
+            is_first_transport = true;
         }
-        cricket::TransportInfo *transport_info = desc->GetTransportInfoByName(content.name);
+        webrtc::TransportInfo* transport_info = desc->GetTransportInfoByName(mid);
         if (transport_info == nullptr)
         {
             LOG(error) << "webrtc::transport_info is null" << endl;
             return sdp;
         }
-        transport_info->description.ice_mode = cricket::IceMode::ICEMODE_LITE;
+        transport_info->description.ice_mode = webrtc::ICEMODE_LITE;
     }
     descInterface->ToString(&sdp);
     return sdp;
