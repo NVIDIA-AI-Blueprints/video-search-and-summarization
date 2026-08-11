@@ -258,6 +258,23 @@ class SingleScenarioTests(unittest.TestCase):
         )
         self.assertEqual(command[command.index("-a") + 1], "claude-code")
 
+    def test_uvx_resolves_user_install_outside_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            uvx = Path(temporary) / "bin" / "uvx"
+            uvx.parent.mkdir()
+            uvx.write_text("", encoding="utf-8")
+            with (
+                mock.patch.object(
+                    self.scenario.shutil, "which", return_value=None
+                ),
+                mock.patch.object(
+                    self.scenario.site,
+                    "getuserbase",
+                    return_value=temporary,
+                ),
+            ):
+                self.assertEqual(self.scenario._uvx(), str(uvx))
+
 
 class WorkflowScopeTests(unittest.TestCase):
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
