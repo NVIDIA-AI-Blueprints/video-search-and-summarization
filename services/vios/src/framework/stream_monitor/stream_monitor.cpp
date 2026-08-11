@@ -2042,11 +2042,17 @@ void StreamMonitor::qosMeasurementTask()
                 if (found == false)
                 {
                     LOG(info) << "Proxy url not present in streamList, removing " << it_record->second->getDevName() << endl;
-                    removeRecord(it_record->first);
+                    // Capture the key BEFORE erasing. erase() returns the
+                    // NEXT iterator -- or end() when the erased entry was last
+                    // -- so using it_record->first afterwards either
+                    // dereferences end() or removes the following camera's
+                    // blacklist entry instead of this one's.
+                    const std::string removedUri = it_record->first;
+                    removeRecord(removedUri);
                     it_record = g_rtspSources.erase(it_record);
                     if (g_blackList.size() > 0)
                     {
-                        std::map<string, struct timeval, std::less<>>::iterator it = g_blackList.find(it_record->first);
+                        std::map<string, struct timeval, std::less<>>::iterator it = g_blackList.find(removedUri);
                         if (it != g_blackList.end())
                         {
                             it = g_blackList.erase(it);
