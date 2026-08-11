@@ -263,12 +263,12 @@ data:
     }
 
     ensure_tools
+    wait_for_api
     if [ "${APP_DATA_MARKER_FILE}" != "" ]; then
       echo "[calibration-import] waiting for app-data marker ${APP_DATA_MARKER_FILE}"
       wait_for_file "${APP_DATA_MARKER_FILE}" "NGC app-data extraction"
     fi
     download_resources
-    wait_for_api
     upload_calibration
     upload_images
     echo "[calibration-import] done"

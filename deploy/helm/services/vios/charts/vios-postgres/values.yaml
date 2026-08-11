@@ -63,8 +63,8 @@ tolerations: []
 livenessProbe:
   exec:
     command: ["/bin/sh", "-c", "pg_isready -h localhost -U \"$POSTGRES_USER\""]
-  failureThreshold: 3
-  initialDelaySeconds: 30
+  failureThreshold: 10
+  initialDelaySeconds: 120
   periodSeconds: 20
   successThreshold: 1
   timeoutSeconds: 2
