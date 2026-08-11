@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-  tag: 3.3.0-2026.08.2-2
+  tag: 3.4.0-2026.08.3-1
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 

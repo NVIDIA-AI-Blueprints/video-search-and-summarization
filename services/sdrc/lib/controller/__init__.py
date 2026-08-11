@@ -38,8 +38,6 @@ from datetime import datetime, timezone
 now = datetime.now(timezone.utc)
 from flask_swagger_ui import get_swaggerui_blueprint
 
-# import kopf
-
 # WDM repo root (parent of lib/); static/swagger and logs resolve here.
 _CTL_PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_CTL_PKG_DIR, "..", ".."))
@@ -92,13 +90,6 @@ app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
 #     kubernetes_url=app.config["KUBERNETES_URL"],
 #     ssl_ca_cert=app.config["SSL_CERTS"],
 # )
-
-#@kopf.on.create('kopfexamples')
-def create_fn(**_):
-    pass
-
-def kopf_thread():
-    asyncio.run(kopf.operator())
 
 @app.route("/healthz", methods=["GET"])
 def healthz():
