@@ -1,0 +1,35 @@
+{
+  "notebooks": [
+    {
+      "notebook": "deploy/docker/scripts/deploy_nemoclaw.ipynb",
+      "insert_parameters_before": "e67f6da4",
+      "cells": [
+        "994c77c2",
+        "47d20bb1",
+        "e67f6da4",
+        "86f7662c",
+        "cb782286-f0bd-401e-9056-39a81821e3c4",
+        "s31-env",
+        "s31-code",
+        "s33-code",
+        "s34-code",
+        "s35-code",
+        "s36-code"
+      ]
+    },
+    {
+      "notebook": "deploy/docker/scripts/deploy_vss_orchestrator.ipynb",
+      "insert_parameters_before": "7db3d86b",
+      "cells": [
+        "7db6e569",
+        "20b35654",
+        "7db3d86b",
+        "6a72f8d2",
+        "4c91fd59",
+        "c13aaf5e",
+        "532backendcode",
+        "042eabd1"
+      ]
+    }
+  ]
+}
