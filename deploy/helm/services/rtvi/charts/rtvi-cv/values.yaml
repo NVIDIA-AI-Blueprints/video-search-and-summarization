@@ -177,8 +177,8 @@ standaloneWarehouse:
       waitTimeoutSeconds: 3600
       configInit:
         image:
-          repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-config-init
-          tag: "3.2.0"
+          repository: nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-config-init
+          tag: "3.3.0-26.08.1"
           pullPolicy: IfNotPresent
 
 modelsPvc:
