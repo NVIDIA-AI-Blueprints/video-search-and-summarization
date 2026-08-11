@@ -50,6 +50,10 @@ class NotebookAdapterTests(unittest.TestCase):
         composed = self.adapter.build_notebooks(notebooks, manifest)
         cells = {cell.get("id"): cell for cell in composed["cells"]}
         self.assertEqual(len(composed["cells"]), 22)
+        self.assertIn(
+            "AGENT_HOOKS_ENABLED = False",
+            cells["e67f6da4"]["source"],
+        )
         self.assertIn("mcporter", cells["s36-code"]["source"])
         self.assertIn("--no-install-package", cells["c13aaf5e"]["source"])
         self.assertIn("ensure_agent_venv", cells["c13aaf5e"]["source"])
