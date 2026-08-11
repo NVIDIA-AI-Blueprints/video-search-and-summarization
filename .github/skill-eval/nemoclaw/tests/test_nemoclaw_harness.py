@@ -373,6 +373,46 @@ class SingleScenarioTests(unittest.TestCase):
             )
         )
 
+    def test_native_metrics_do_not_fall_back_to_harbor_trajectory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            trial = Path(temporary)
+            trajectory = trial / "agent/trajectory.json"
+            trajectory.parent.mkdir(parents=True)
+            trajectory.write_text(
+                json.dumps(
+                    {
+                        "steps": [{"source": "agent"}],
+                        "final_metrics": {
+                            "total_prompt_tokens": 1200,
+                            "total_cached_tokens": 200,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(self.scenario._inner_metrics(trial), {})
+
+            metrics = trial / "artifacts/nemoclaw/metrics.json"
+            metrics.parent.mkdir(parents=True)
+            expected = {
+                "turns": 3,
+                "prompt_tokens": 1000,
+                "cached_tokens": 200,
+            }
+            metrics.write_text(json.dumps(expected), encoding="utf-8")
+            self.assertEqual(self.scenario._inner_metrics(trial), expected)
+
+    def test_trial_success_requires_explicitly_empty_exception(self) -> None:
+        self.assertTrue(
+            self.scenario._trial_succeeded({"exception_info": None})
+        )
+        self.assertFalse(self.scenario._trial_succeeded({}))
+        self.assertFalse(
+            self.scenario._trial_succeeded(
+                {"exception_info": {"exception_type": "AgentError"}}
+            )
+        )
+
     def test_latest_trial_ignores_run_level_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
