@@ -107,5 +107,172 @@ services:
       rtvi-embed:
         condition: service_healthy
         required: false
+
+  nvidia-nemotron-nano-9b-v2-vllm-toolcall-init:
+    # Fetch toolcall parser from Hugging Face (public repo, no HF_TOKEN required).
+    image: docker.io/alpine/curl:8.21.0
+    container_name: nvidia-nemotron-nano-9b-v2-vllm-toolcall-init
+    profiles:
+    - llm_local_nvidia-nemotron-nano-9b-v2-vllm
+    - llm_local_shared_nvidia-nemotron-nano-9b-v2-vllm
+    volumes:
+      - nvidia_nemotron_nano_9b_v2_vllm_toolcall_parser_script:/out
+    command:
+      - sh
+      - -c
+      - "curl -fSL -o /out/nemotron_toolcall_parser_no_streaming.py https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-9B-v2/resolve/main/nemotron_toolcall_parser_no_streaming.py"
+    restart: "no"
+
+  nvidia-nemotron-nano-9b-v2-vllm:
+    # Experimental BF16 DLFW path; the original NIM service above remains available.
+    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      - --served-model-name
+      - nvidia/nvidia-nemotron-nano-9b-v2
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "${LLM_VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
+      - --port
+      - "8000"
+      - --mamba_ssm_cache_dtype
+      - float32
+      - --enable-auto-tool-choice
+      - --tool-parser-plugin
+      - /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
+      - --tool-call-parser
+      - nemotron_json
+    container_name: nvidia-nemotron-nano-9b-v2
+    profiles:
+    - llm_local_nvidia-nemotron-nano-9b-v2-vllm
+    runtime: nvidia
+    shm_size: 16GB
+    ports:
+     - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
+    environment:
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN:-}"
+      HF_HOME: /opt/nim/.cache
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2/hw-${HARDWARE_PROFILE}.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
+    volumes:
+      - nvidia_nemotron_nano_9b_v2_vllm_cache:/opt/nim/.cache
+      - nvidia_nemotron_nano_9b_v2_vllm_toolcall_parser_script:/opt/toolcall_parser:ro
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${LLM_DEVICE_ID:-0}"
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/health; else elapsed=0; while ! curl -fs http://localhost:8000/health > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/health; fi']
+      interval: 60s
+      timeout: 650s
+      retries: 2
+    depends_on:
+      nvidia-nemotron-nano-9b-v2-vllm-toolcall-init:
+        condition: service_completed_successfully
+        required: true
+
+  nvidia-nemotron-nano-9b-v2-vllm-shared-gpu:
+    # Experimental BF16 DLFW path for a shared GPU.
+    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      - --served-model-name
+      - nvidia/nvidia-nemotron-nano-9b-v2
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "${LLM_VLLM_GPU_MEMORY_UTILIZATION:-0.30}"
+      - --port
+      - "8000"
+      - --mamba_ssm_cache_dtype
+      - float32
+      - --enable-auto-tool-choice
+      - --tool-parser-plugin
+      - /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
+      - --tool-call-parser
+      - nemotron_json
+    container_name: nvidia-nemotron-nano-9b-v2
+    profiles:
+    - llm_local_shared_nvidia-nemotron-nano-9b-v2-vllm
+    runtime: nvidia
+    shm_size: 16GB
+    ports:
+     - ${LLM_PORT:-30081}:8000
+    networks:
+      default:
+        aliases:
+          - vss-llm-nim
+    environment:
+      HUGGING_FACE_HUB_TOKEN: "${HF_TOKEN:-}"
+      HF_HOME: /opt/nim/.cache
+    env_file:
+      - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2/hw-${HARDWARE_PROFILE}-shared.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
+    volumes:
+      - nvidia_nemotron_nano_9b_v2_vllm_cache:/opt/nim/.cache
+      - nvidia_nemotron_nano_9b_v2_vllm_toolcall_parser_script:/opt/toolcall_parser:ro
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/health; else elapsed=0; while ! curl -fs http://localhost:8000/health > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/health; fi']
+      interval: 60s
+      timeout: 650s
+      retries: 2
+    depends_on:
+      nvidia-nemotron-nano-9b-v2-vllm-toolcall-init:
+        condition: service_completed_successfully
+        required: true
+      cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b-shared-gpu:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct-shared-gpu:
+        condition: service_healthy
+        required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
+      rtvi-embed:
+        condition: service_healthy
+        required: false
 volumes:
   nvidia_nemotron_nano_9b_v2_cache:
+  nvidia_nemotron_nano_9b_v2_vllm_cache:
+  nvidia_nemotron_nano_9b_v2_vllm_toolcall_parser_script:
