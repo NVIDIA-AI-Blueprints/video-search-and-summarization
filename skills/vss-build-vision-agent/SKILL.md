@@ -1,16 +1,7 @@
 ---
 name: vss-build-vision-agent
-description: >
-  Add agent-ready vision capabilities — dense captioning, detection, search,
-  alerting, summarization — to an agent or application through a customizable,
-  self-contained vision stack built on the NVIDIA VSS Blueprint. Use this skill
-  when a developer or agent wants to give their app vision: pick capabilities
-  via guided intake ("build a vision agent", "add vision capabilities") or
-  describe them in natural language ("create a profile for streaming dense
-  captioning", "add agentic search to my base deployment"). Route, compose,
-  configure, and deploy stock base, alerts, LVS, or search developer profiles
-  and lean custom combinations expressed as delta overlays using one current
-  developer profile as the Foundation.
+description: >-
+  Add agent-ready vision capabilities — dense captioning, detection, search, alerting, summarization — to an agent or application through a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint. Use this skill when a developer or agent wants to give their app vision: pick capabilities via guided intake ("build a vision agent", "add vision capabilities") or describe them in natural language ("create a profile for streaming dense captioning", "add agentic search to my base deployment"). Route, compose, configure, and deploy stock base, alerts, LVS, or search developer profiles and lean custom combinations expressed as delta overlays using one current developer profile as the Foundation.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
