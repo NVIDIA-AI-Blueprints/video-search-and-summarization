@@ -66,8 +66,6 @@ env:
     value: "kafka"
   - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
     value: "true"
-  - name: VIA_EVS_DECISION_LAG
-    value: ""
   - name: VIA_EVS_SESSION
     value: ""
   - name: VLLM_EVS_SIMILARITY_THRESHOLD
@@ -77,26 +75,6 @@ env:
   - name: VIA_EVS_TOKEN_BUDGET
     value: ""
   - name: VIA_EVS_MAX_SESSIONS
-    value: ""
-  - name: VIA_EVS_MIN_CLIPS
-    value: ""
-  - name: VIA_EVS_EVENT_ONLY
-    value: ""
-  - name: VIA_EVS_EMA_MEMORY_S
-    value: ""
-  - name: VIA_EVS_SPIKE_STD_K
-    value: ""
-  - name: VIA_EVS_SETTLING_STD_K
-    value: ""
-  - name: VIA_EVS_STD_FLOOR_RATIO
-    value: ""
-  - name: VIA_EVS_DOWNWARD_BASELINE_MIN
-    value: ""
-  - name: VIA_EVS_STREAMING_PREFILL
-    value: ""
-  - name: VIA_PD_SERVER_URL
-    value: ""
-  - name: VIA_PD_SERVER_TIMEOUT_S
     value: ""
   - name: VLLM_USE_AOT_COMPILE
     value: "0"
