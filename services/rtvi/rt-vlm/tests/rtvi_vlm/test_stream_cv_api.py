@@ -296,6 +296,56 @@ class TestStreamAddRequest:
 class TestViosStreamRequests:
     """Test VIOS common schema parsing and normalization."""
 
+    def test_unknown_envelope_and_event_fields_are_ignored(self):
+        req = ViosStreamAddRequest(
+            alert_type="camera_status_change",
+            created_at="2026-08-03T12:23:45Z",
+            event={
+                "camera_id": "Camera",
+                "camera_name": "Camera",
+                "camera_type": "rtsp",
+                "camera_url": "rtsp://10.24.216.43:30554/live/Camera",
+                "camera_vod_url": "rtsp://10.24.216.43:30562/vod/Camera",
+                "change": "camera_streaming",
+                "metadata": {
+                    "codec": "H264",
+                    "framerate": 30,
+                    "resolution": "1920x1080",
+                },
+                "future_event_field": {"enabled": True},
+            },
+            source="vst",
+            webhook_id="dummy-camera-streaming",
+        )
+
+        value, _headers = normalize_stream_add_request(req)
+
+        assert value.camera_id == "Camera"
+        assert value.camera_url == "rtsp://10.24.216.43:30554/live/Camera"
+        assert value.metadata.codec == "H264"
+        assert req.model_extra is None
+        assert req.event.model_extra is None
+
+    def test_remove_ignores_unknown_envelope_and_event_fields(self):
+        req = ViosStreamRemoveRequest(
+            alert_type="camera_status_change",
+            created_at="2026-08-03T12:23:45Z",
+            event={
+                "camera_id": "Camera",
+                "camera_name": "Camera",
+                "change": "camera_remove",
+                "future_event_field": "ignored",
+            },
+            source="vst",
+            webhook_id="dummy-camera-streaming",
+        )
+
+        value, _headers = normalize_stream_remove_request(req)
+
+        assert value.camera_id == "Camera"
+        assert req.model_extra is None
+        assert req.event.model_extra is None
+
     def test_camera_add_registration_allows_empty_url(self):
         req = ViosStreamAddRequest(
             alert_type="camera_status_change",
