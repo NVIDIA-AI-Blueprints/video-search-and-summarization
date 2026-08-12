@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,13 +45,13 @@ using namespace std;
 extern "C" void* createSensorManagementObject()
 {
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
-    return static_cast<void*>(static_cast<IVstModule*>(new SensorManagement(deviceManager)));
+    auto sensorManagement = std::make_unique<SensorManagement>(deviceManager);
+    return static_cast<void*>(static_cast<IVstModule*>(sensorManagement.release()));
 }
 
 extern "C" void deleteSensorManagementObject(IVstModule* object)
 {
-    SensorManagement* sensorManagement = static_cast<SensorManagement*>(object);
-    delete sensorManagement;
+    std::unique_ptr<SensorManagement> sensorManagement(static_cast<SensorManagement*>(object));
 }
 
 void SensorManagement::onDecoderPlayingStatus(const string &url)

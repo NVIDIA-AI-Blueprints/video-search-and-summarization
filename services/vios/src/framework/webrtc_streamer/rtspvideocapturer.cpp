@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -95,7 +95,7 @@ void RTSPVideoCapturer::setEOS()
 }
 
 void RTSPVideoCapturer::onError(RTSPConnection& connection, const char* error) {
-	LOG(error) << "RTSPVideoCapturer:onError url:" << secureUrlForLogging(m_liveclient.getUrl()) <<  " error:" << error;
+	LOG(error) << "RTSPVideoCapturer:onError url:" << secureUrlForLogging(getLiveClient().getUrl()) <<  " error:" << error;
 	connection.start(1);
 }
 

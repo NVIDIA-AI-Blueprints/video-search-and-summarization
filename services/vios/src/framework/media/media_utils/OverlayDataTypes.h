@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -104,38 +104,6 @@ struct OverlayBBoxParams
                         , m_enableHalos(false)
                         , m_overlayClassTypeList()
     { }
-
-    OverlayBBoxParams(const OverlayBBoxParams& params)
-    {
-        this->m_bboxColor = params.m_bboxColor;
-        this->m_bboxDebug = params.m_bboxDebug;
-        this->m_bboxDebugFontSize = params.m_bboxDebugFontSize;
-        this->m_bboxOpacity = params.m_bboxOpacity;
-        this->m_bboxThickness = params.m_bboxThickness;
-        this->m_enableTripwire = params.m_enableTripwire;
-        this->m_enableROI = params.m_enableROI;
-        this->m_enableBbox = params.m_enableBbox;
-        this->m_enableSensorNameText = params.m_enableSensorNameText;
-        this->m_sensorNameTextPosX = params.m_sensorNameTextPosX;
-        this->m_sensorNameTextPosY = params.m_sensorNameTextPosY;
-        this->m_proximityClass = params.m_proximityClass;
-        this->m_entrantClass = params.m_entrantClass;
-        this->m_proximityAreaFactor = params.m_proximityAreaFactor;
-        this->m_proximityAnimation = params.m_proximityAnimation;
-        this->m_colorCode = params.m_colorCode;
-        this->m_enableGodsEyeView = params.m_enableGodsEyeView;
-        this->m_enablePose = params.m_enablePose;
-        this->m_enableBboxId = params.m_enableBboxId;
-        this->m_bboxIdPosition = params.m_bboxIdPosition;
-        this->m_bboxIdColor = params.m_bboxIdColor;
-        this->m_bboxIdBgColor = params.m_bboxIdBgColor;
-        this->m_enableHalos = params.m_enableHalos;
-        this->m_overlayClassTypeList = params.m_overlayClassTypeList;
-        for (uint32_t i = 0; i < OVERLAYCOUNT; ++i)
-        {
-            this->m_overlayIdList[i] = params.m_overlayIdList[i];
-        }
-    }
 };
 
 typedef struct _searchParams
@@ -145,7 +113,7 @@ typedef struct _searchParams
                                             , m_end_time(endTime)
                                             , m_sensor_id(sensor_id)
                 {}
-    _searchParams() {}
+    _searchParams() = default;
     std::string     m_start_time;
     std::string     m_end_time;
     std::string     m_sensor_id;

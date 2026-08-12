@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -184,9 +184,7 @@ export const PictureAutomation: React.FC = () => {
         let successCount = 0;
         let failedCount = 0;
 
-        const totalCalls = selectedSensors.length * (timestamps.length || 1);
-        let completedCalls = 0;
-
+        const calls: Array<{ sensor: Sensor; streamId: string; time?: string }> = [];
         for (const sensor of selectedSensors) {
             if (!sensor.streamId) {
                 LOG.warn('Skipping sensor without streamId:', sensor);
@@ -194,40 +192,31 @@ export const PictureAutomation: React.FC = () => {
             }
 
             if (timestamps.length > 0) {
-                for (const time of timestamps) {
-                    const startTime = performance.now();
-                    const result = await fetchPicture(sensor.streamId, time);
-                    const responseTime = performance.now() - startTime;
-
-                    newResults.push({
-                        ...result,
-                        responseTime,
-                        sensorId: sensor.sensorId,
-                        sensorName: sensor.name,
-                    });
-                    if (result.success) successCount++;
-                    else failedCount++;
-
-                    completedCalls++;
-                    setProgress((completedCalls / totalCalls) * 100);
-                }
+                calls.push(...timestamps.map(time => ({ sensor, streamId: sensor.streamId as string, time })));
             } else {
-                const startTime = performance.now();
-                const result = await fetchPicture(sensor.streamId);
-                const responseTime = performance.now() - startTime;
-
-                newResults.push({
-                    ...result,
-                    responseTime,
-                    sensorId: sensor.sensorId,
-                    sensorName: sensor.name,
-                });
-                if (result.success) successCount++;
-                else failedCount++;
-
-                completedCalls++;
-                setProgress((completedCalls / totalCalls) * 100);
+                calls.push({ sensor, streamId: sensor.streamId });
             }
+        }
+
+        const totalCalls = calls.length;
+        let completedCalls = 0;
+
+        for (const { sensor, streamId, time } of calls) {
+            const startTime = performance.now();
+            const result = await fetchPicture(streamId, time);
+            const responseTime = performance.now() - startTime;
+
+            newResults.push({
+                ...result,
+                responseTime,
+                sensorId: sensor.sensorId,
+                sensorName: sensor.name,
+            });
+            if (result.success) successCount++;
+            else failedCount++;
+
+            completedCalls++;
+            setProgress((completedCalls / totalCalls) * 100);
         }
 
         setResults(newResults);

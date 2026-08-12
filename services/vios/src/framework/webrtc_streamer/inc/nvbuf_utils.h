@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2016-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,24 +45,36 @@ extern "C"
 /**
  * Defines the maximum number of planes for a video frame.
  */
-#define MAX_NUM_PLANES 4
+enum
+{
+  MAX_NUM_PLANES = 4
+};
 
 /**
  * Defines the maximum number of input video frames that can be used for composition.
  */
-#define MAX_COMPOSITE_FRAME 16
+enum
+{
+  MAX_COMPOSITE_FRAME = 16
+};
 
 /**
  * Defines the default values for chroma subsampling.
  * The default value matches JPEG/MPEG use cases.
  */
-#define NVBUF_CHROMA_SUBSAMPLING_HORIZ_DEFAULT 0
-#define NVBUF_CHROMA_SUBSAMPLING_VERT_DEFAULT 1
+enum
+{
+  NVBUF_CHROMA_SUBSAMPLING_HORIZ_DEFAULT = 0,
+  NVBUF_CHROMA_SUBSAMPLING_VERT_DEFAULT = 1
+};
 
 /**
  * Defines the maximum number of sync object parameters.
  */
-#define NVBUF_MAX_SYNCOBJ_PARAMS 5
+enum
+{
+  NVBUF_MAX_SYNCOBJ_PARAMS = 5
+};
 
 /**
  * Use this value to represent an infinite wait interval.
@@ -70,7 +82,10 @@ extern "C"
  * it should be interpreted as "time out immediately" and
  * simply check whether the event has already happened.
  */
-#define NVBUFFER_SYNCPOINT_WAIT_INFINITE 0xFFFFFFFF
+enum
+{
+  NVBUFFER_SYNCPOINT_WAIT_INFINITE = 0xFFFFFFFF
+};
 
 /**
  * Defines Payload types for NvBuffer.

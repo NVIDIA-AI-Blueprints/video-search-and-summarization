@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -44,7 +44,6 @@ class HLSManager
     public:
         HLSManager();
         ~HLSManager();
-        void start();
         VmsErrorCode startStream(std::map<std::string, std::string, std::less<>> opts, Json::Value &response);
         VmsErrorCode stopStream(const string& peerid, Json::Value &response);
         VmsErrorCode start(std::map<std::string, std::string, std::less<>> opts, Json::Value &response);
@@ -53,6 +52,8 @@ class HLSManager
                                     Json::Value& response, bool is_async = true, uint32_t timeout = 10);
         bool checkIfPeerPresent(const string& peerid);
     private:
+        void process_hls_message(std::shared_ptr<EventLoopData> data);
+
         std::map<std::string, RTSPVideoCapturer*>     m_streamMap;
         EventLoop m_eventLoop;
         std::mutex m_streamLock;

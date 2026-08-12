@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,23 +16,22 @@
  */
 
 #include <stdio.h>
+#include <memory>
 
 #include "native_sensors_control.h"
 #include "sensor_info.h"
 
 extern "C" ISensorControlInterface* createObject()
 {
-    return new NativeSensorControlInterface;
+    return std::make_unique<NativeSensorControlInterface>().release();
 }
 
 extern "C" void destroyObject( NativeSensorControlInterface* object )
 {
-    delete object;
+    std::unique_ptr<NativeSensorControlInterface> owner(object);
 }
 
-NativeSensorControlInterface::NativeSensorControlInterface()
-{
-}
+NativeSensorControlInterface::NativeSensorControlInterface() = default;
 
 int NativeSensorControlInterface::connect()
 {

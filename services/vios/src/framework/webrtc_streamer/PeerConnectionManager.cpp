@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,7 @@
 #include <chrono>
 #include <iostream>
 #include <fstream>
+#include <memory>
 #include <utility>
 #include <functional>
 #include <math.h>
@@ -132,14 +133,14 @@ extern "C" void* createPeerConnectionManagerObject()
 {
     std::string publishFilter(".*");
     webrtc::AudioDeviceModule::AudioLayer audioLayer = webrtc::AudioDeviceModule::kPlatformDefaultAudio;
-    return static_cast<void*>(static_cast<IVstModule*>(
-        new PeerConnectionManager("", audioLayer, publishFilter, ModuleLoader::getInstance()->getDeviceManagerObject())));
+    auto pcm = std::make_unique<PeerConnectionManager>(
+        "", audioLayer, publishFilter, ModuleLoader::getInstance()->getDeviceManagerObject());
+    return static_cast<void*>(static_cast<IVstModule*>(pcm.release()));
 }
 
 extern "C" void deletePeerConnectionManagerObject(IVstModule* object)
 {
-    PeerConnectionManager* pcm = static_cast<PeerConnectionManager*>(object);
-    delete pcm;
+    std::unique_ptr<PeerConnectionManager>(static_cast<PeerConnectionManager*>(object));
 }
 
 // character to remove from url to make webrtc label
@@ -299,11 +300,10 @@ static std::string createUniqueStreamId(std::shared_ptr<SensorInfo> sensor)
 }
 
 #ifdef ASYNC_API
-void process_peer_message(std::shared_ptr<EventLoopData> data, void* parent)
+void process_peer_message(std::shared_ptr<EventLoopData> data, PeerConnectionManager* peer)
 {
     shared_ptr<PeerData> in_data = std::static_pointer_cast<PeerData>(data);
     shared_ptr<PeerOutData> out_data = std::static_pointer_cast<PeerOutData>(data->m_outResult);
-    PeerConnectionManager* peer = static_cast <PeerConnectionManager*>(parent);
     Json::Value in = in_data->m_dataParams;
     Json::Value out;
     VmsErrorCode error_code = VmsErrorCode::NoError;
@@ -664,11 +664,13 @@ PeerConnectionManager::PeerConnectionManager(std::string pcType,
 #ifdef HAVE_SOUND
       m_audioDeviceModule(webrtc::AudioDeviceModule::Create(audioLayer, m_taskQueueFactory.get())),
 #else
-      m_audioDeviceModule(new webrtc::FakeAudioDeviceModule()),
+      m_fakeAudioDeviceModule(std::make_unique<webrtc::FakeAudioDeviceModule>()),
+      m_audioDeviceModule(m_fakeAudioDeviceModule.get()),
 #endif
       m_publishFilter(publishFilter), m_deviceManager(deviceManager)
 #ifdef ASYNC_API
-      , m_eventLoop("peer_event_loop", process_peer_message)
+      , m_eventLoop("peer_event_loop",
+                    [this](std::shared_ptr<EventLoopData> data) { process_peer_message(data, this); })
 #endif
 {
     InitializePeerConnection();
@@ -708,9 +710,8 @@ PeerConnectionManager::~PeerConnectionManager()
 #ifdef HAVE_SOUND
     m_audioDeviceModule = nullptr;
 #else
-    auto* fakeAdm = static_cast<webrtc::FakeAudioDeviceModule*>(m_audioDeviceModule.get());
     m_audioDeviceModule = nullptr;
-    delete fakeAdm;
+    m_fakeAudioDeviceModule.reset();
 #endif
     webrtc::CleanupSSL();
 }
@@ -929,7 +930,7 @@ VmsErrorCode PeerConnectionManager::createOffer(unordered_map<string, string> ur
         rtcoptions.offer_to_receive_audio = 0;
         std::promise<const webrtc::SessionDescriptionInterface *> promise;
         std::string sdp;
-        rtcPeerConnection->CreateOffer(vst_webrtc::CreateSessionDescriptionObserver::Create(rtcPeerConnection.get(), promise, sdp), rtcoptions);
+        rtcPeerConnection->CreateOffer(vst_webrtc::CreateSessionDescriptionObserver::Create(rtcPeerConnection.get(), promise, sdp).get(), rtcoptions);
 
         // waiting for offer
         std::future<const webrtc::SessionDescriptionInterface *> future = promise.get_future();
@@ -2028,9 +2029,6 @@ void PeerConnectionManager::InitializePeerConnection()
     }
     configureWebrtcLogging(logLevel);
     LOG(info) << "Logger level:" <<  webrtc::LogMessage::GetLogToDebug() << std::endl;
-#ifdef ASYNC_API
-    m_eventLoop.setParent(this);
-#endif
     webrtc::InitializeSSL();
     if (GET_CONFIG().use_reverse_proxy == true)
     {
@@ -3058,7 +3056,7 @@ const pair<string, int> PeerConnectionManager::getAvailableSeatFromRP(const stri
         }
         else
         {
-            node_ip = g_hostIp;
+            node_ip = getHostIpAddress();
         }
     }
 
@@ -3477,11 +3475,16 @@ Json::Value PeerConnectionManager::getLocalIceCandidates(shared_ptr<PeerConnecti
     int waitCountForRelayCandidate = 3;
     string peer_id = in.get("peerid", EMPTY_STRING).asString();
 
-retryForRelayCandidate:
     Json::Value local_iceCandidates;
-    peerConnection->post("getIceCandidate", peer_id, in, req_info, local_iceCandidates);
-    if (expectRelayCandidates == true)
+    while (true)
     {
+        local_iceCandidates = Json::Value();
+        peerConnection->post("getIceCandidate", peer_id, in, req_info, local_iceCandidates);
+        if (expectRelayCandidates == false)
+        {
+            break;
+        }
+
         bool isRelayCandidateFound = false;
         for (Json::Value::ArrayIndex i = 0; i != local_iceCandidates.size(); ++i)
         {
@@ -3497,12 +3500,12 @@ retryForRelayCandidate:
                 break;
             }
         }
-        if (isRelayCandidateFound == false && waitCountForRelayCandidate > 0)
+        if (isRelayCandidateFound == true || waitCountForRelayCandidate <= 0)
         {
-            waitCountForRelayCandidate--;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            goto retryForRelayCandidate;
+            break;
         }
+        waitCountForRelayCandidate--;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     return local_iceCandidates;
 }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,23 +19,10 @@
 #include <dlfcn.h>
 #include "logger.h"
 
-CudaLoader* CudaLoader::m_instance = nullptr;
-
 CudaLoader* CudaLoader::getInstance()
 {
-    if (m_instance == nullptr)
-    {
-        m_instance = new CudaLoader();
-    }
-    return m_instance;
-}
-
-void CudaLoader::deleteInstance()
-{
-    if (m_instance)
-    {
-        delete m_instance;
-    }
+    static CudaLoader instance;
+    return &instance;
 }
 
 CudaLoader::CudaLoader()
@@ -81,7 +68,7 @@ CudaLoader::CudaLoader()
 #endif
     for (const char* cand : cudaCandidates)
     {
-        m_handleCuda = dlopen(cand, RTLD_LAZY);
+        m_handleCuda = static_cast<SharedLibraryHandle*>(dlopen(cand, RTLD_LAZY));
         if (m_handleCuda)
         {
             break;
@@ -90,7 +77,7 @@ CudaLoader::CudaLoader()
     }
     for (const char* cand : cudartCandidates)
     {
-        m_handleCudart = dlopen(cand, RTLD_LAZY);
+        m_handleCudart = static_cast<SharedLibraryHandle*>(dlopen(cand, RTLD_LAZY));
         if (m_handleCudart)
         {
             break;
@@ -99,7 +86,7 @@ CudaLoader::CudaLoader()
     }
     if (!m_handleCuda || !m_handleCudart)
     {
-        if (g_isGpuPresent)
+        if (isGpuPresent())
         {
             LOG(error) << "Error loading the CUDA libraries (libcuda: "
                        << (m_handleCuda ? "ok" : "missing") << ", libcudart: "

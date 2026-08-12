@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -257,7 +257,7 @@ const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
         // Walk up the DOM tree from the event target.
         let element: Element | null = target;
         while (element) {
-            if (element.getAttribute('data-event-marker') === 'true') {
+            if (element instanceof HTMLElement && element.dataset.eventMarker === 'true') {
                 return true;
             }
             element = element.parentElement;

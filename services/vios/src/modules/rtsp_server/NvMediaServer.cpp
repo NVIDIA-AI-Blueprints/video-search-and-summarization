@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -87,10 +87,7 @@ NvFileServerMediaSubsession::~NvFileServerMediaSubsession()
         }
         m_stream_state = DestroyState;
         setDoneFlag();
-        if (fAuxSDPLine != nullptr)
-        {
-            delete[] fAuxSDPLine;
-        }
+        fAuxSDPLine.reset();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~NvFileServerMediaSubsession: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
     } catch (...) {
@@ -154,9 +151,8 @@ void NvFileServerMediaSubsession::checkIfSourceInPlayMode(void* clientData)
     }
 }
 
-static void frameSourceEvent(eFrameSourceEvent sourceEvent, void *data)
+static void frameSourceEvent(eFrameSourceEvent sourceEvent, NvFileServerMediaSubsession *fileServer)
 {
-    NvFileServerMediaSubsession *fileServer = (NvFileServerMediaSubsession *) data;
     if (fileServer)
     {
         fileServer->frameSourceEventChange(sourceEvent);
@@ -269,7 +265,7 @@ void NvFileServerMediaSubsession::setRtcpBaseTime()
         ntpTime.tv_usec = (startTime % 1000) * 1000;
         LOG(info) << "Setting RTCP base time for:" << m_streamName << ", ActualStartTime:" << startTime
                 << ", ntpTime:" << ntpTime.tv_sec << "." << ntpTime.tv_usec << endl;
-        StreamState* streamState = (StreamState*)m_streamToken;
+        StreamState* streamState = m_streamToken;
         if (streamState != nullptr)
         {
             streamState->setRtcpBaseTime(ntpTime);
@@ -277,8 +273,9 @@ void NvFileServerMediaSubsession::setRtcpBaseTime()
     }
 }
 
+/* Parameter types are fixed by the live555 OnDemandServerMediaSubsession virtual. */
 void NvFileServerMediaSubsession
-::startStream(unsigned clientSessionId, void* streamToken, TaskFunc* rtcpRRHandler,
+::startStream(unsigned clientSessionId, void* streamToken, TaskFunc* rtcpRRHandler, // NOSONAR
 	      void* rtcpRRHandlerClientData, unsigned short& rtpSeqNum,
 	      unsigned& rtpTimestamp,
 	      ServerRequestAlternativeByteHandler* serverRequestAlternativeByteHandler,
@@ -286,7 +283,7 @@ void NvFileServerMediaSubsession
 {
     LOG(info) << "startStream, clientSessionId:" << clientSessionId << ", streamName:" << m_streamName
             << ", mediaType:" << mediaTypeAsString(m_mediaType) << ", m_sessionId:" << m_sessionId << endl;
-    m_streamToken = streamToken;
+    m_streamToken = static_cast<StreamState*>(streamToken);
     if (m_mediaSource)
     {
         if (m_stream_state == PauseState)
@@ -475,7 +472,7 @@ void NvFileServerMediaSubsession::checkForAuxSDPLine1()
         dasl = fDummyRTPSink ? fDummyRTPSink->auxSDPLine() : nullptr;
         if (fDummyRTPSink != nullptr && dasl != nullptr)
         {
-            fAuxSDPLine = strDup(dasl);
+            fAuxSDPLine.reset(strDup(dasl));
             fDummyRTPSink = nullptr;
 
             // Signal the event loop that we're done:
@@ -500,7 +497,7 @@ char const* NvFileServerMediaSubsession::getAuxSDPLine(RTPSink* rtpSink, FramedS
 {
     if (fAuxSDPLine != nullptr)
     {
-        return fAuxSDPLine; // it's already been set up (for a previous client)
+        return fAuxSDPLine.get(); // it's already been set up (for a previous client)
     }
 
     if (m_mediaSource && m_mediaSource->isError())
@@ -534,7 +531,7 @@ char const* NvFileServerMediaSubsession::getAuxSDPLine(RTPSink* rtpSink, FramedS
         m_PlayModeCheckTask = envir().taskScheduler().scheduleDelayedTask(_delay,
                 (TaskFunc*)checkIfSourceInPlayMode, this);
     }
-    return fAuxSDPLine;
+    return fAuxSDPLine.get();
 }
 
 std::pair<uint64_t, uint64_t> NvFileServerMediaSubsession::getRangeFromUrlParams(const string& url_params)
@@ -596,7 +593,9 @@ std::pair<uint64_t, uint64_t> NvFileServerMediaSubsession::getRangeFromUrlParams
 
 void NvFileServerMediaSubsession::testScaleFactor(float& scale)
 {
-
+    /* Intentionally blank: unlike the base class, which clamps "scale" back
+     * to 1.0, the file source honours any client-requested scale factor via
+     * setStreamSourceScale(), so the requested value is left untouched. */
 }
 void NvFileServerMediaSubsession::setStreamSourceScale(FramedSource* inputSource, float scale)
 {
@@ -626,6 +625,11 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
 void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
         char*& absStart, char*& absEnd)
 {
+    std::unique_ptr<char[]> absStartOwner(absStart);
+    std::unique_ptr<char[]> absEndOwner(absEnd);
+    absStart = nullptr;
+    absEnd = nullptr;
+
     if (inputSource == nullptr)
     {
         LOG(error) << "input source is null" << endl;
@@ -637,22 +641,20 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
      * sync_playback branch is suppressed so both engines never drive the same source. */
     if ((GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0) || m_vodEnableOverlay)
     {
-        delete[] absStart; absStart = nullptr;
-        delete[] absEnd; absEnd = nullptr;
         return;
     }
 
     FramedFilter* fSource = static_cast<FramedFilter*>(inputSource);
     H264ByteStreamSource* source = static_cast<H264ByteStreamSource *> (fSource->inputSource());
     uint64_t start = 0;
-    if (absStart != nullptr)
+    if (absStartOwner != nullptr)
     {
-        start = getEpocTimeInMS(absStart, false);
+        start = getEpocTimeInMS(absStartOwner.get(), false);
     }
     uint64_t end = 0;
-    if (absEnd != nullptr)
+    if (absEndOwner != nullptr)
     {
-        end = getEpocTimeInMS(absEnd, false);
+        end = getEpocTimeInMS(absEndOwner.get(), false);
     }
 
     start = m_startTime;
@@ -676,8 +678,6 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
             m_isSeekStreamDone = true;
         }
     }
-    delete[] absStart; absStart = nullptr;
-    delete[] absEnd; absEnd = nullptr;
 }
 
 static void checkAndSeekToGlobalFrameId(void* clientData)
