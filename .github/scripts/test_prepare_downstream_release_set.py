@@ -242,6 +242,16 @@ class WorkflowSeparationTest(unittest.TestCase):
         self.assertIn('suffix = f".dev0+g{commit[:12]}"', sdu)
         self.assertIn("DOWNSTREAM_REF: main", sdu)
         self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
+        sonar = (workflows / "sonarqube.yml").read_text()
+        self.assertIn("name: spatialai-data-utils", sonar)
+        self.assertIn(
+            "TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization",
+            sonar,
+        )
+        self.assertIn(
+            "sources: libs/analytics/spatialai-data-utils/release/spatialai_data_utils",
+            sonar,
+        )
 
     def test_release_set_preparation_has_no_sdu_transport(self):
         script = Path(module.__file__).read_text()
