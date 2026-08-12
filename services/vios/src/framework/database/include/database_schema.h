@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -305,7 +305,7 @@ namespace nv_vms
 
         LocalDeviceDetailsDBColumns() : id_value(""), name_value(""), location_value("") {}
 
-        LocalDeviceDetailsDBColumns(string &id) : id_value(id), name_value(name), location_value(location) {}
+        explicit LocalDeviceDetailsDBColumns(string &id) : id_value(id), name_value(name), location_value(location) {}
 
         void printInfo()
         {
@@ -763,7 +763,7 @@ namespace nv_vms
         {
         }
 
-        _VideoFileInfo(const VideoRecordDBColumns &row)
+        explicit _VideoFileInfo(const VideoRecordDBColumns &row)
         {
             this->m_filePath = row.filepath_value;
             this->m_startTime = row.start_time_value;

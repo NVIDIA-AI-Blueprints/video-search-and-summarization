@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -48,7 +48,7 @@ ModuleId getCurrentModuleId(const std::string& module_name)
 
 int main(int argc, char *argv[])
 {
-    g_init_avaiable_memory = getAvailableMemory();
+    setInitAvailableMemory(getAvailableMemory());
     CmdLineParser* cmdline_parser = CmdLineParser::getInstance();
     cmdline_parser->parseCommandLine (argc, argv);
     GET_CONFIG();

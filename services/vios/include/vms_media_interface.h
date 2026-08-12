@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,7 +34,10 @@ public:
     virtual int fetchSnapshot(const SnapshotRequest& req, SnapshotResponse& out) = 0;
     virtual int fetchClip(const ClipRequest& req, ClipResponse& out) = 0;
 
-    virtual void close() {}
+    virtual void close()
+    {
+        // Optional hook: adaptors holding no persistent connection need no teardown.
+    }
 };
 
 extern "C" IMediaInterface* createMediaObject();

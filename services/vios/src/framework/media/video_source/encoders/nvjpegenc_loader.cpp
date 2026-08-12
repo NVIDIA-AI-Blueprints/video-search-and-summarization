@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,23 +30,20 @@ constexpr int JPEG_DEFAULT_QUALITY = 75;
 #endif
 #define ROUND_UP_4(num)  (((num) + 3) & ~3)
 
-NvJpegEncLoader* NvJpegEncLoader::m_instance = nullptr;
+std::unique_ptr<NvJpegEncLoader> NvJpegEncLoader::m_instance = nullptr;
 
 NvJpegEncLoader* NvJpegEncLoader::getInstance()
 {
     if (m_instance == nullptr)
     {
-        m_instance = new NvJpegEncLoader();
+        m_instance.reset(new NvJpegEncLoader());
     }
-    return m_instance;
+    return m_instance.get();
 }
 
 void NvJpegEncLoader::deleteInstance()
 {
-    if (m_instance)
-    {
-        delete m_instance;
-    }
+    m_instance.reset();
 }
 
 NvJpegEncLoader::NvJpegEncLoader()
@@ -67,11 +64,11 @@ NvJpegEncLoader::NvJpegEncLoader()
         , m_handleNvJpeg(nullptr)
 {
 #if defined(AARCH64_PLATFORM)
-    m_handleNvJpeg = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvmm_jpeg.so", RTLD_LAZY);
+    m_handleNvJpeg = static_cast<nv_vms::SharedLibrary*>(dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvmm_jpeg.so", RTLD_LAZY));
 #else
 
     const char* lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "deepstream/libnvds_lljpeg.so");
-    m_handleNvJpeg = dlopen(lib_path, RTLD_LAZY);
+    m_handleNvJpeg = static_cast<nv_vms::SharedLibrary*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!m_handleNvJpeg)
     {
@@ -149,7 +146,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
         jpeg_destroy_compress(&cinfo);
         return -1;
     }
-    NvBufWrapper::getInstance()->NvBufSurfaceFromFd(fd, (void **)&buf_surf);
+    NvBufWrapper::getInstance()->NvBufSurfaceFromFd(fd, &buf_surf);
     cinfo.pVendor_buf = (unsigned char *)buf_surf;
 #endif
     cinfo.IsVendorbuf = TRUE;

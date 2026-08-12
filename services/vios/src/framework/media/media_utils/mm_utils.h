@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +25,6 @@
 #include "video_resolution.h"
 
 using namespace std;
-using namespace nv_vms;
 
 inline constexpr const char* DECODER_NODE           = "/dev/nvidia0";
 inline constexpr const char* NV_V4L2_DECODER        = "nvv4l2decoder";
@@ -168,11 +167,6 @@ struct FrameSize
     {}
     FrameSize (uint32_t w, uint32_t h) : m_width(w), m_height(h)
     {}
-    void operator=(const FrameSize& size)
-    {
-        this->m_width = size.m_width;
-        this->m_height = size.m_height;
-    }
     int getPixels() { return m_width * m_height; }
     FrameSize minimum(FrameSize size)
     {

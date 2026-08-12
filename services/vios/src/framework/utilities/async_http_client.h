@@ -101,6 +101,10 @@ private:
         std::string m_responseBody;
         char m_errorBuffer[CURL_ERROR_SIZE]{};
 
+        RequestContext() = default;
+        RequestContext(const RequestContext&) = delete;
+        RequestContext& operator=(const RequestContext&) = delete;
+
         ~RequestContext()
         {
             if (m_headerList != nullptr)
@@ -121,7 +125,6 @@ private:
     void wakeupLoop();
     [[nodiscard]] long pollTimeoutMs();
     static void deliver(const RequestContext& ctx, const AsyncHttpResponse& response);
-    static size_t writeCallback(char* data, size_t size, size_t nmemb, void* userp);
 
     CURLM* m_multiHandle{nullptr};
     std::thread m_loopThread;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,10 +15,37 @@
  * limitations under the License.
  */
 import { create } from 'zustand';
-import { VSTUIState, StorageSizes, SensorStatus, RecordStatus, Sensor, ApiErrors, ApiError } from '../interfaces/interfaces';
+import {
+    VSTUIState,
+    StorageSizes,
+    SensorStatus,
+    RecordStatus,
+    Sensor,
+    SensorStreamData,
+    ApiErrors,
+    ApiError,
+} from '../interfaces/interfaces';
 import config from '../config';
 import LOG from '../utils/misc/Logger';
 import { checkServiceAvailability } from '../utils/misc/utils';
+
+const mergeSensorStreams = (existingStreams: SensorStreamData[], newSensorStreams: SensorStreamData[]): SensorStreamData[] => {
+    const updatedStreams = [...existingStreams];
+
+    newSensorStreams.forEach(newSensorStream => {
+        const existingIndex = updatedStreams.findIndex(s => s.id === newSensorStream.id);
+        if (existingIndex === -1) {
+            updatedStreams.push(newSensorStream);
+        } else {
+            updatedStreams[existingIndex] = {
+                ...updatedStreams[existingIndex],
+                ...newSensorStream,
+            };
+        }
+    });
+
+    return updatedStreams;
+};
 
 const useVSTUIStore = create<VSTUIState>(set => ({
     emdxEndpoint: undefined,
@@ -101,24 +128,9 @@ const useVSTUIStore = create<VSTUIState>(set => ({
     setSensorServiceSensors: (sensors: Sensor[]) => set({ sensorServiceSensors: sensors }),
 
     addStreams: sensorStreams =>
-        set(state => {
-            const newSensorStreams = Array.isArray(sensorStreams) ? sensorStreams : [sensorStreams];
-            const updatedStreams = [...state.streams];
-
-            newSensorStreams.forEach(newSensorStream => {
-                const existingIndex = updatedStreams.findIndex(s => s.id === newSensorStream.id);
-                if (existingIndex === -1) {
-                    updatedStreams.push(newSensorStream);
-                } else {
-                    updatedStreams[existingIndex] = {
-                        ...updatedStreams[existingIndex],
-                        ...newSensorStream,
-                    };
-                }
-            });
-
-            return { streams: updatedStreams };
-        }),
+        set(state => ({
+            streams: mergeSensorStreams(state.streams, Array.isArray(sensorStreams) ? sensorStreams : [sensorStreams]),
+        })),
 
     setEmdxEndpoint: (endpoint: string) => set({ emdxEndpoint: endpoint }),
 

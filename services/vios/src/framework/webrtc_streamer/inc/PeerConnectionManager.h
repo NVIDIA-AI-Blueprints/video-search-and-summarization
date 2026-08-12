@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,6 +26,9 @@
 #include "api/peer_connection_interface.h"
 
 #include "modules/audio_device/include/audio_device.h"
+#ifndef HAVE_SOUND
+#include "modules/audio_device/include/fake_audio_device.h"
+#endif
 
 #include "rtc_base/logging.h"
 #include "rtc_base/strings/json.h"
@@ -44,9 +47,9 @@
 #define PEER_CONNECTION_TIMEOUT_THREAD_COUNT 1
 #define WEBRTC_PREFIX "webrtc_"
 #define WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL  12s
-#define WEBRTC_INPUT_FPS_CAPTURE_INTERVAL_SEC 2
-#define WEBRTC_INPUT_FPS_PUBLISH_INTERVAL_SEC 20
-#define STANDARD_BITRATE_720P_KBPS 3000
+constexpr int WEBRTC_INPUT_FPS_CAPTURE_INTERVAL_SEC = 2;
+constexpr int WEBRTC_INPUT_FPS_PUBLISH_INTERVAL_SEC = 20;
+constexpr int STANDARD_BITRATE_720P_KBPS = 3000;
 #define PASS_THROUGH_QUALITY "pass_through"
 
 typedef std::pair< webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>, webrtc::scoped_refptr<webrtc::AudioSourceInterface>> AudioVideoPair;
@@ -129,7 +132,7 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         std::vector<std::pair<std::string, ClientInfo>> GetAllClients();
 
 #ifdef ASYNC_API
-        friend void process_peer_message(std::shared_ptr<EventLoopData> data, void* parent);
+        friend void process_peer_message(std::shared_ptr<EventLoopData> data, PeerConnectionManager* peer);
         VmsErrorCode postToEventLoop(const string& task_name, const string& peerid,
                                     Json::Value in, Json::Value req_info,
                                     Json::Value& response, bool is_async = true, uint32_t timeout = 0);
@@ -170,8 +173,11 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         void generateRpCandidate(const string& streamId, Json::Value iceCandidate);
     public:
         std::string                                                     m_pcType {""};
-    protected:
+    private:
         std::unique_ptr<webrtc::TaskQueueFactory>                       m_taskQueueFactory;
+#ifndef HAVE_SOUND
+        std::unique_ptr<webrtc::FakeAudioDeviceModule>                  m_fakeAudioDeviceModule;
+#endif
         webrtc::scoped_refptr<webrtc::AudioDeviceModule>                   m_audioDeviceModule;
 #ifndef ASYNC_API
         std::mutex                                                      m_peerMapMutex;
@@ -189,7 +195,6 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         static std::string                                              m_rpStunServer;
         static std::mutex                                               m_rpStunServerLock;
         Json::Value                                                     m_externalPeerInfo;
-    private:
         std::shared_ptr<nv_vms::DeviceManager>                          m_deviceManager;
         std::thread                                                     m_peerConnMonitoringThread;
         std::atomic<bool>                                               m_exitPeerConnThread;

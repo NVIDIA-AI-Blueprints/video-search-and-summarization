@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,6 +30,24 @@ interface ReverseTransformationResultsProps {
     lastTransformedTripwireId?: string | null;
 }
 
+const DEFAULT_FRAME_WIDTH = 1920;
+const DEFAULT_FRAME_HEIGHT = 1080;
+
+// Extract frame dimensions from sensor data
+const getFrameDimensions = (calibrationData: CalibrationData | null, selectedSensor: Sensor | null) => {
+    const attributes =
+        calibrationData && selectedSensor
+            ? calibrationData.sensors.find(s => s.id === selectedSensor.sensorId)?.attributes
+            : undefined;
+    const widthAttr = attributes?.find(attr => attr.name === 'frameWidth');
+    const heightAttr = attributes?.find(attr => attr.name === 'frameHeight');
+
+    return {
+        frameWidth: widthAttr?.value ? parseInt(widthAttr.value, 10) : DEFAULT_FRAME_WIDTH,
+        frameHeight: heightAttr?.value ? parseInt(heightAttr.value, 10) : DEFAULT_FRAME_HEIGHT,
+    };
+};
+
 const ReverseTransformationResults: React.FC<ReverseTransformationResultsProps> = ({
     reversedROIResults,
     reversedTripwireResults,
@@ -44,20 +62,7 @@ const ReverseTransformationResults: React.FC<ReverseTransformationResultsProps> 
         return null;
     }
 
-    // Extract frame dimensions from sensor data
-    let frameWidth = 1920; // Default values
-    let frameHeight = 1080;
-
-    if (calibrationData && selectedSensor) {
-        const sensorData = calibrationData.sensors.find(s => s.id === selectedSensor.sensorId);
-        if (sensorData?.attributes) {
-            const widthAttr = sensorData.attributes.find(attr => attr.name === 'frameWidth');
-            const heightAttr = sensorData.attributes.find(attr => attr.name === 'frameHeight');
-
-            if (widthAttr?.value) frameWidth = parseInt(widthAttr.value, 10);
-            if (heightAttr?.value) frameHeight = parseInt(heightAttr.value, 10);
-        }
-    }
+    const { frameWidth, frameHeight } = getFrameDimensions(calibrationData, selectedSensor);
 
     return (
         <Card>

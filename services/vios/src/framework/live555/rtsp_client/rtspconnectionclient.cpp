@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,8 +42,8 @@ using namespace std;
 constexpr int ADDON_FRAMES = 30;
 constexpr int MAX_END_ADDON_TIME_SEC = 5;
 
-unsigned fileSinkBufferSize = 400000;
-unsigned int fileOutputInterval = 20;
+constexpr unsigned fileSinkBufferSize = 400000;
+constexpr unsigned int fileOutputInterval = 20;
 
 RTSPConnection::RTSPConnection(Environment& env, Callback* callback, const char* rtspURL, int timeout, int rtptransport, int verbosityLevel) 
 				: m_startCallbackTask(nullptr)
@@ -120,20 +120,14 @@ void RTSPConnection::start(unsigned int delay)
 
 void RTSPConnection::TaskstartCallback() 
 {
-	if (m_rtspClient)
-	{
-		
-		Medium::close(m_rtspClient);
-		m_rtspClient = nullptr;
-	}
-	m_rtspClient = new RTSPClientConnection(*this, m_env, m_callback, m_url.c_str(), m_timeout, m_rtptransport, m_framerate, m_isQoSMode, m_verbosity);
+	m_rtspClient.reset(new RTSPClientConnection(*this, m_env, m_callback, m_url.c_str(), m_timeout, m_rtptransport, m_framerate, m_isQoSMode, m_verbosity));
 }
 
 RTSPConnection::~RTSPConnection()
 {
 	LOG(info) << __func__ << endl;
 	m_env.taskScheduler().unscheduleDelayedTask(m_startCallbackTask);
-	Medium::close(m_rtspClient);
+	m_rtspClient.reset();
 	LOG(info) << "RTSPConnection destroyed: " << m_url << endl;
 }
 
@@ -180,7 +174,7 @@ RTSPConnection::RTSPClientConnection::RTSPClientConnection(RTSPConnection& conne
 	if(GET_CONFIG().use_rtsp_authentication)
 	{
 		std::string passwordHash = getPasswordHash(DEFAULT_USERNAME);
-		m_authenticator = new Authenticator(DEFAULT_USERNAME, passwordHash.c_str(), true);
+		m_authenticator = std::make_unique<Authenticator>(DEFAULT_USERNAME, passwordHash.c_str(), true);
 	}
 	MultiFramedRTPSource::maxReceiveBufferSize = 2 * 1024 * 1024; // 2MB of buffer in MultiFramedRTPSource Class
 	// start tasks
@@ -236,11 +230,6 @@ RTSPConnection::RTSPClientConnection::~RTSPClientConnection()
 		envir().taskScheduler().unscheduleDelayedTask(m_periodicFileOutputTask);
 	}
 #endif
-	delete m_subSessionIter;
-	if(m_authenticator) 
-	{
-		delete m_authenticator;
-	}
 	// free subsession
 	if (m_session != nullptr) 
 	{
@@ -303,7 +292,7 @@ void RTSPConnection::RTSPClientConnection::sendNextCommand()
 	{
 		// no SDP, send DESCRIBE
 		LOG(info) << "[CLIENT] Sending Describe command" << endl;
-		this->sendDescribeCommand(continueAfterDESCRIBE, m_authenticator); 
+		this->sendDescribeCommand(continueAfterDESCRIBE, m_authenticator.get()); 
 	}
 	else
 	{
@@ -330,17 +319,17 @@ void RTSPConnection::RTSPClientConnection::sendNextCommand()
 					envir() << "Initiated " << m_subSession->mediumName() << "/" << m_subSession->codecName() << " subsession" << "\n";
 				}
 				LOG(info) << "[CLIENT] Sending Setup command" << endl;
-				this->sendSetupCommand(*m_subSession, continueAfterSETUP, false, (m_rtptransport == RTPOVERTCP), (m_rtptransport == RTPUDPMULTICAST), m_authenticator);
+				this->sendSetupCommand(*m_subSession, continueAfterSETUP, false, (m_rtptransport == RTPOVERTCP), (m_rtptransport == RTPUDPMULTICAST), m_authenticator.get());
 			}
 		}
 		else
 		{
 			std::string updated_endTime;
-			char *absEndTime = nullptr;
+			const char *absEndTime = nullptr;
 			if (!m_endTime.empty())
 			{
 				m_endTime = getUpdatedTime (m_endTime, m_framerate);
-				absEndTime = (char*)m_endTime.c_str();
+				absEndTime = m_endTime.c_str();
 				LOG(info) << "Updated End Time:" << updated_endTime << endl;
 			}
 			// no more subsession to SETUP, send PLAY
@@ -350,7 +339,7 @@ void RTSPConnection::RTSPClientConnection::sendNextCommand()
 				if (!m_startTime.empty())
 				{
 					LOG(info) << "sendPlayCommand: m_startTime: " << m_startTime << ", m_endTime: " << m_endTime << endl;
-					this->sendPlayCommand(*m_session, continueAfterPLAY, m_startTime.c_str(), absEndTime, 1.0, m_authenticator);
+					this->sendPlayCommand(*m_session, continueAfterPLAY, m_startTime.c_str(), absEndTime, 1.0, m_authenticator.get());
 				}
 				else
 				{
@@ -378,13 +367,13 @@ void RTSPConnection::RTSPClientConnection::doPauseResume(uint64_t* resume_time_i
 	{
 		if (m_playback_speed != 1)
 		{
-			this->sendPauseCommand(*m_session, continueAfterPAUSE, m_authenticator);
+			this->sendPauseCommand(*m_session, continueAfterPAUSE, m_authenticator.get());
 			m_resumeTimeEpoch = resume_time_in_epoch;
 			m_playback_speed = 1;
 		}
 		else
 		{
-			this->sendPlayCommand(*m_session, continueAfterPLAY, -1, -1, 1.0, m_authenticator);
+			this->sendPlayCommand(*m_session, continueAfterPLAY, -1, -1, 1.0, m_authenticator.get());
 		}
 	}
 	else if (action == "seek_forward")
@@ -393,7 +382,7 @@ void RTSPConnection::RTSPClientConnection::doPauseResume(uint64_t* resume_time_i
 		m_resumeTimeEpoch = resume_time_in_epoch;
 		m_resumeTime = convertEpocToISO8601(*m_resumeTimeEpoch + 10000000);
 		LOG(info) << "Seek 10 secs forward to time: " << m_resumeTime << endl;
-		this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator);
+		this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator.get());
 	}
 	else if (action == "seek_backward")
 	{
@@ -401,13 +390,13 @@ void RTSPConnection::RTSPClientConnection::doPauseResume(uint64_t* resume_time_i
 		m_resumeTimeEpoch = resume_time_in_epoch;
 		m_resumeTime = convertEpocToISO8601(*m_resumeTimeEpoch - 10000000);
 		LOG(info) << "Seek 10 secs backward to time: " << m_resumeTime << endl;
-		this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator);
+		this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator.get());
 	}
 	else if (action == "rewind" || action == "fast_forward")
 	{
 		m_playback_speed = stringToInt(seek_value, 1);
 		m_playback_speed = (action=="rewind") ? (-m_playback_speed) : m_playback_speed;
-		this->sendPauseCommand(*m_session, continueAfterPAUSE, m_authenticator);
+		this->sendPauseCommand(*m_session, continueAfterPAUSE, m_authenticator.get());
 		m_resumeTimeEpoch = resume_time_in_epoch;
 	}
 	else
@@ -433,7 +422,7 @@ void RTSPConnection::RTSPClientConnection::continueAfterDESCRIBE(int resultCode,
 		m_session = MediaSession::createNew(envir(), resultString);
 		if (m_session)
 		{
-			m_subSessionIter = new MediaSubsessionIterator(*m_session);
+			m_subSessionIter = std::make_unique<MediaSubsessionIterator>(*m_session);
 			this->sendNextCommand();
 		}
 		else
@@ -458,7 +447,7 @@ void RTSPConnection::RTSPClientConnection::sessionByeHandler(char const* reason)
   LOG(info) << ":Received RTCP \"BYE\"" << endl;
   if (reason != nullptr) {
     LOG(info) << " (reason:\"" << reason << "\")";
-    delete[] (char*)reason;
+    delete[] reason;
   }
 
   envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalTimeoutTask);
@@ -573,11 +562,11 @@ void RTSPConnection::RTSPClientConnection::continueAfterPAUSE(int resultCode, ch
 		if (m_action == "rewind" || m_action == "fast_forward")
 		{
 			LOG(info) << m_action << " at speed " << m_playback_speed << endl;
-			this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator);
+			this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator.get());
 		}
 		else if (m_action == "resume")
 		{
-			this->sendPlayCommand(*m_session, continueAfterPLAY, -1, -1, 1.0, m_authenticator);
+			this->sendPlayCommand(*m_session, continueAfterPLAY, -1, -1, 1.0, m_authenticator.get());
 		}
 		else
 		{

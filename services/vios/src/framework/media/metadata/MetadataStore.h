@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -53,6 +53,10 @@ public:
     }
 
 protected:
+    std::queue<Json::Value>& metadataQueue() { return m_metadataQueue; }
+    std::mutex& metadataQueueMutex() { return m_metadataQueueMutex; }
+
+private:
     std::queue<Json::Value> m_metadataQueue;
     std::mutex              m_metadataQueueMutex;
 };
