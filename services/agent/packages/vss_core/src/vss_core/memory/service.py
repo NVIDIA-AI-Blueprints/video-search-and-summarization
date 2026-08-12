@@ -43,7 +43,7 @@ class MemoryNotFoundError(LookupError):
 #: ``sensor_id`` is — so this cap bounds a full-asset fetch that is then
 #: filtered in Python. Do **not** map those args onto ``MemoryQuery.since`` /
 #: ``until``: those range on ``job.created_at`` (when the job ran), whereas
-#: event windows describe footage time. A summary run at 14:00 over 10:00–11:00
+#: event windows describe footage time. A summary run at 14:00 over 10:00-11:00
 #: must match ``events(start_time=10:00, end_time=11:00)``; a ``created_at``
 #: pushdown would drop it.
 #:
@@ -165,15 +165,19 @@ class MemoryService:
             collected = [item for item in collected if _event_in_window(item, start_time, end_time)]
 
         collected = _sort_events_by_time(collected)
+        if limit <= 0:
+            return []
         if anchor_event_id:
             return _adjacent_events(
                 collected,
                 anchor_event_id,
                 direction=direction or "around",
-                limit=max(limit, 0),
+                limit=limit,
             )
-        # Newest-first for unanchored recalls (matches prior store ordering intent).
-        return collected[-max(limit, 0) :] if limit else collected
+        # Newest N, newest-first (untimed rows sort first via datetime.min and are
+        # excluded from this slice when enough timed rows exist).
+        newest = collected[-limit:]
+        return list(reversed(newest))
 
     def _maybe_reconcile(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord | None:
         if self._reconciler is None:
@@ -224,13 +228,18 @@ def _event_stamp_value(event: dict[str, Any]) -> datetime | None:
 
 
 def _sort_events_by_time(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Oldest→newest by event timestamp; unparseable stamps sort last."""
+    """Oldest→newest by event timestamp; untimed/unparseable stamps sort first.
+
+    Untimed rows must not occupy the newest-N tail used by unanchored ``limit``.
+    Adapters should reject untimed rows; this ordering is a safety net for
+    records that bypassed ``build_output``.
+    """
 
     def sort_key(event: dict[str, Any]) -> tuple[int, datetime]:
         value = _event_stamp_value(event)
         if value is None:
-            return (1, datetime.max.replace(tzinfo=UTC))
-        return (0, value)
+            return (0, datetime.min.replace(tzinfo=UTC))
+        return (1, value)
 
     return sorted(events, key=sort_key)
 

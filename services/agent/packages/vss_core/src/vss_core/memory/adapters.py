@@ -213,12 +213,19 @@ class SummaryAdapter(_BaseGroupAdapter):
         media_ref: dict[str, Any] | None,
         params: dict[str, Any] | None,
         window: TimeWindow | None = None,
+        intent: str | None = None,
     ) -> MemoryInput:
         sensors: list[SensorInfo] = []
         if video_id:
             info = dict(media_ref or {})
             sensors.append(SensorInfo(id=str(video_id), type=str(info.get("source") or "video"), info=info))
-        return MemoryInput(query=prompt, sensors=sensors, window=window, params=dict(params or {}))
+        return MemoryInput(
+            query=prompt,
+            intent=intent,
+            sensors=sensors,
+            window=window,
+            params=dict(params or {}),
+        )
 
     @staticmethod
     def build_output(
@@ -230,9 +237,16 @@ class SummaryAdapter(_BaseGroupAdapter):
         media_urls: list[str] | None = None,
         related_job_ids: list[str] | None = None,
     ) -> MemoryOutput:
-        normalized_events = [_require_event_timestamp(dict(event)) for event in (events or [])]
+        normalized_events = [_require_row_timestamp(dict(event), kind="summary event") for event in (events or [])]
         resolved_event_ids = list(event_ids or _event_ids_from(normalized_events))
         payload_ext = dict(ext or {})
+        if "incidents" in payload_ext:
+            incidents = payload_ext["incidents"]
+            if not isinstance(incidents, list):
+                raise ValueError("output.ext.incidents must be a list of timestamped incident dicts")
+            payload_ext["incidents"] = [
+                _require_row_timestamp(dict(item), kind="incident") for item in incidents
+            ]
         if normalized_events:
             payload_ext.setdefault("events", normalized_events)
         if resolved_event_ids:
@@ -257,6 +271,7 @@ class SearchAdapter(_BaseGroupAdapter):
         sensors: list[dict[str, Any]] | list[SensorInfo] | None,
         window: TimeWindow | dict[str, Any] | None,
         params: dict[str, Any] | None,
+        intent: str | None = None,
     ) -> MemoryInput:
         sensor_models: list[SensorInfo] = []
         for item in sensors or []:
@@ -290,7 +305,13 @@ class SearchAdapter(_BaseGroupAdapter):
                     start=TimestampPoint(timestamp=start_ts),
                     end=TimestampPoint(timestamp=end_ts),
                 )
-        return MemoryInput(query=query, sensors=sensor_models, window=window_model, params=dict(params or {}))
+        return MemoryInput(
+            query=query,
+            intent=intent,
+            sensors=sensor_models,
+            window=window_model,
+            params=dict(params or {}),
+        )
 
     @staticmethod
     def build_output(
@@ -304,7 +325,7 @@ class SearchAdapter(_BaseGroupAdapter):
         event_ids: list[str] | None = None,
         related_job_ids: list[str] | None = None,
     ) -> MemoryOutput:
-        rows = list(results or [])
+        rows = [_require_row_timestamp(dict(row), kind="search result") for row in (results or [])]
         resolved_event_ids = list(event_ids or [])
         resolved_object_ids = list(object_ids or _collect_ids(rows, ("object_ids", "object_id")))
         resolved_frame_ids = list(frame_ids or _collect_ids(rows, ("frame_ids", "frame_id")))
@@ -333,12 +354,12 @@ def _event_stamp(event: dict[str, Any]) -> str | None:
     return None
 
 
-def _require_event_timestamp(event: dict[str, Any]) -> dict[str, Any]:
-    """Normalize/require a parseable event instant at the summary adapter boundary."""
+def _require_row_timestamp(event: dict[str, Any], *, kind: str) -> dict[str, Any]:
+    """Normalize/require a parseable instant on events, incidents, and search results."""
     stamp = _event_stamp(event)
     if stamp is None:
         raise ValueError(
-            "summary events require a timestamp field "
+            f"{kind} rows require a timestamp field "
             "(timestamp|start_time|start|ts) for time-windowed recall"
         )
     coerce_utc_instant(stamp)

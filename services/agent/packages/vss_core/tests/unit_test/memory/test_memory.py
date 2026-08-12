@@ -11,6 +11,8 @@ import sys
 from pydantic import ValidationError
 import pytest
 
+from vss_core._foundation.time import datetime_to_iso8601
+from vss_core._foundation.time import iso8601_to_datetime
 from vss_core.memory.adapters import SearchAdapter
 from vss_core.memory.adapters import SummaryAdapter
 from vss_core.memory.adapters import clear_adapter_registry
@@ -29,8 +31,6 @@ from vss_core.memory.service import MemoryNotFoundError
 from vss_core.memory.service import MemoryService
 from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
-from vss_core._foundation.time import datetime_to_iso8601
-from vss_core._foundation.time import iso8601_to_datetime
 
 
 def _sample_record(**overrides: object) -> UnifiedMemoryRecord:
@@ -357,7 +357,14 @@ def test_search_and_summary_adapters_map_results() -> None:
 
     search_out = SearchAdapter.build_output(
         answer="hit",
-        results=[{"object_ids": ["o1"], "screenshot_url": "http://x", "similarity": 0.9}],
+        results=[
+            {
+                "object_ids": ["o1"],
+                "screenshot_url": "http://x",
+                "similarity": 0.9,
+                "timestamp": "2026-07-22T12:01:00Z",
+            }
+        ],
     )
     assert search_out.ext["object_ids"] == ["o1"]
     assert search_out.handles.media_urls == ["http://x"]
@@ -370,6 +377,29 @@ def test_search_and_summary_adapters_map_results() -> None:
 def test_summary_events_require_timestamp() -> None:
     with pytest.raises(ValueError, match="require a timestamp"):
         SummaryAdapter.build_output(answer="text", events=[{"id": "e1", "description": "x"}])
+
+
+def test_search_results_require_timestamp() -> None:
+    with pytest.raises(ValueError, match="require a timestamp"):
+        SearchAdapter.build_output(answer="hit", results=[{"object_ids": ["o1"]}])
+
+
+def test_summary_incidents_require_timestamp() -> None:
+    with pytest.raises(ValueError, match="require a timestamp"):
+        SummaryAdapter.build_output(answer="text", ext={"incidents": [{"id": "inc-1"}]})
+
+
+def test_adapters_accept_intent() -> None:
+    summary = SummaryAdapter.build_input(
+        prompt="p",
+        video_id=None,
+        media_ref=None,
+        params=None,
+        intent="video-qa",
+    )
+    search = SearchAdapter.build_input(query="q", sensors=None, window=None, params=None, intent="critic")
+    assert summary.intent == "video-qa"
+    assert search.intent == "critic"
 
 
 def test_search_build_input_rejects_half_open_window() -> None:
@@ -594,3 +624,83 @@ def test_events_window_rejected_until_implemented() -> None:
     service.upsert(_sample_record())
     with pytest.raises(ValueError, match="window"):
         service.events(asset_id="cam-1", anchor_event_id="evt-1", direction="around", window="30s")
+
+
+def test_events_unanchored_limit_zero_is_empty() -> None:
+    store = InMemoryStore()
+    service = MemoryService(store)
+    service.upsert(_sample_record())
+    assert service.events(asset_id="cam-1", limit=0) == []
+    assert service.events(asset_id="cam-1", anchor_event_id="evt-1", direction="before", limit=0) == []
+
+
+def test_events_unanchored_limit_prefers_timed_newest_first() -> None:
+    store = InMemoryStore()
+    service = MemoryService(store)
+    for hour in range(10):
+        stamp = f"2026-07-22T{10 + hour:02d}:00:00Z"
+        service.upsert(
+            _event_job(
+                f"summary-{hour:02d}",
+                f"e-{hour:02d}",
+                stamp,
+                updated_at=stamp,
+            )
+        )
+    # Bypass adapter: inject an untimed result row that would otherwise steal limit=1.
+    service.upsert(
+        _sample_record(
+            job={
+                "job_id": "search-untimed",
+                "group": "search",
+                "operation": "run",
+                "status": "completed",
+                "created_at": "2026-07-22T20:00:00Z",
+                "updated_at": "2026-07-22T20:00:00Z",
+                "backend_ref": None,
+            },
+            input={
+                "query": "q",
+                "sensors": [{"id": "cam-1", "type": "video", "info": {}}],
+                "window": None,
+                "params": {},
+            },
+            output={
+                "answer": "a",
+                "Embedding": [],
+                "handles": {"media_urls": [], "related_job_ids": []},
+                "ext": {"results": [{"id": "res-UNTIMED", "description": "no time"}]},
+            },
+        )
+    )
+    assert [event["id"] for event in service.events(asset_id="cam-1", limit=1)] == ["e-09"]
+    assert [event["id"] for event in service.events(asset_id="cam-1", limit=3)] == ["e-09", "e-08", "e-07"]
+
+
+def test_events_time_bound_keeps_timed_incidents_and_results() -> None:
+    store = InMemoryStore()
+    service = MemoryService(store)
+    service.upsert(
+        _sample_record(
+            output={
+                "answer": "a",
+                "Embedding": [],
+                "handles": {"media_urls": [], "related_job_ids": []},
+                "ext": {
+                    "events": [{"id": "evt-1", "timestamp": "2026-07-22T10:30:00Z"}],
+                    "incidents": [{"id": "inc-1", "timestamp": "2026-07-22T10:40:00Z"}],
+                    "results": [{"id": "res-1", "timestamp": "2026-07-22T10:50:00Z"}],
+                },
+            }
+        )
+    )
+    ids = [
+        event["id"]
+        for event in service.events(
+            asset_id="cam-1",
+            start_time="2026-07-22T10:00:00Z",
+            end_time="2026-07-22T11:00:00Z",
+            limit=10,
+        )
+    ]
+    assert ids == ["res-1", "inc-1", "evt-1"]
