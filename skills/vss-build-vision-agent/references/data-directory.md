@@ -7,6 +7,13 @@ it: Docker otherwise creates missing bind sources as `root:root`, and stale
 dangling symlinks break permission or mount setup. It only prepares the external
 `VSS_DATA_DIR`, never the repository tree.
 
+This gate does **not** prepare build-local generated config. If a selected
+service needs rendered or scratch files that are specific to this build, stage
+them under `_builds/<name>/generated/` during composition, then reference that
+path from `override.env` or a minimal patch. Keep `deploy/docker/` read-only:
+do not create missing bind sources, rendered configs, scratch directories, or
+placeholder files there.
+
 ## Check and create
 
 From the repository root:

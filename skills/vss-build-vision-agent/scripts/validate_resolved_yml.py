@@ -37,6 +37,13 @@ FILE_TARGET_SUFFIXES = {
     ".yml",
 }
 GENERATED_BIND_NAMES = {".wdm-env"}
+GENERATED_BIND_TARGETS = {
+    "/env",
+    "/logs",
+    "/mnt/log",
+    "/mnt/wdm-env",
+    "/wdm-env",
+}
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
 
@@ -72,6 +79,14 @@ def is_within(path: Path, parent: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def is_generated_bind_source(source: Path, target: Path, template_source: Path) -> bool:
+    return (
+        source.name in GENERATED_BIND_NAMES
+        or template_source.is_file()
+        or (source.name == "log" and str(target) in GENERATED_BIND_TARGETS)
+    )
 
 
 def iter_env(service: dict[str, Any]) -> Iterator[tuple[str, Any]]:
@@ -144,22 +159,33 @@ def validate_document(
         if UNRESOLVED_INTERPOLATION.search(value):
             errors.append(f"{location} contains unresolved Compose interpolation")
 
+    deploy_docker = repo_root / "deploy" / "docker"
     for service_name, source_text, target_text, read_only in bind_mounts(document):
         source = Path(source_text)
         if not source.is_absolute() or not is_within(source, repo_root):
+            continue
+        target = Path(target_text)
+        template_source = source.with_name(f"{source.name}.tmpl")
+        if is_within(source, deploy_docker) and is_generated_bind_source(
+            source, target, template_source
+        ):
+            errors.append(
+                f"service {service_name!r} bind source {source} is generated "
+                "runtime state under deploy/docker; redirect it to "
+                "_builds/<name>/generated/ or VSS_DATA_DIR"
+            )
             continue
         checked_in_source = read_only or "developer-profiles" in source.parts
         if not checked_in_source:
             continue
         if not source.exists():
-            template_source = source.with_name(f"{source.name}.tmpl")
             if source.name in GENERATED_BIND_NAMES or template_source.is_file():
                 continue
             errors.append(
                 f"service {service_name!r} bind source does not exist: {source}"
             )
             continue
-        if source.is_dir() and Path(target_text).suffix in FILE_TARGET_SUFFIXES:
+        if source.is_dir() and target.suffix in FILE_TARGET_SUFFIXES:
             errors.append(
                 f"service {service_name!r} mounts directory {source} "
                 f"onto file target {target_text}"
@@ -213,7 +239,7 @@ def main() -> None:
 
     print(
         f"Validated {args.resolved_yml}: no stale placeholders, invalid "
-        "checked-in bind sources, or empty mode-required credentials"
+        "checked-in/generated bind sources, or empty mode-required credentials"
     )
 
 

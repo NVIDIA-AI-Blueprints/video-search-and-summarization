@@ -141,6 +141,75 @@ class ValidateResolvedYmlTest(unittest.TestCase):
 
             self.assertEqual(errors, [])
 
+    def test_rejects_generated_template_output_under_deploy_docker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            generated = (
+                repo_root
+                / "deploy"
+                / "docker"
+                / "developer-profiles"
+                / "dev-profile-lvs"
+                / "sdrc"
+                / "2d"
+                / "configs"
+                / "config.yml"
+            )
+            generated.parent.mkdir(parents=True)
+            generated.with_name("config.yml.tmpl").write_text("key: ${VALUE}\n")
+            errors = validate_document(
+                {
+                    "services": {
+                        "wdm-env-from-config": {
+                            "volumes": [
+                                {
+                                    "type": "bind",
+                                    "source": str(generated),
+                                    "target": "/config.yml",
+                                    "read_only": True,
+                                }
+                            ]
+                        }
+                    }
+                },
+                repo_root,
+            )
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("generated runtime state under deploy/docker", errors[0])
+
+    def test_rejects_generated_scratch_under_deploy_docker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            scratch = (
+                repo_root
+                / "deploy"
+                / "docker"
+                / "services"
+                / "infra"
+                / "sdrc"
+                / ".wdm-env"
+            )
+            errors = validate_document(
+                {
+                    "services": {
+                        "init-dirs": {
+                            "volumes": [
+                                {
+                                    "type": "bind",
+                                    "source": str(scratch),
+                                    "target": "/mnt/wdm-env",
+                                }
+                            ]
+                        }
+                    }
+                },
+                repo_root,
+            )
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("generated runtime state under deploy/docker", errors[0])
+
     def test_rejects_missing_checked_in_bind_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo_root = Path(directory)

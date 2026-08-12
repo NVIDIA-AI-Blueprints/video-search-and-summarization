@@ -147,6 +147,33 @@ The only writable location is `_builds/<name>/`. Never create or edit files unde
 `resolved.yml` outside `_builds/<name>/`. The env artifact is always named
 `override.env`.
 
+## Mount policy
+
+Treat `deploy/docker/` as read-only source material. Bind mounts in a resolved
+profile fall into three categories:
+
+1. **Checked-in source mounts** — static scripts, templates, dashboards, and
+   service config committed under `deploy/docker/`. Keep these under
+   `deploy/docker/`, prefer read-only mounts, and never create placeholders for
+   missing files.
+2. **Persistent runtime data** — video storage, Elasticsearch/Kafka data,
+   model caches, uploaded media, and other data that should survive container
+   recreation. Put these under `VSS_DATA_DIR`.
+3. **Generated scratch/config** — files or directories rendered or created by
+   init containers or service startup. Put these under `_builds/<name>/generated/`
+   when they are build-specific config/scratch, or under `VSS_DATA_DIR` when
+   they are persistent runtime data. Never leave them under `deploy/docker/`.
+
+If a selected upstream service uses relative bind mounts that would create or
+mutate generated state below `deploy/docker/`, redirect them in the generated
+build before writing `resolved.yml`. For SDRC-style profiles this includes
+relative scratch directories such as `./log` and `./.wdm-env`, plus rendered
+files derived from adjacent `*.tmpl` inputs. Set the relevant config-path env
+knob to a staged copy under `_builds/<name>/generated/` when env interpolation
+can move the output. If interpolation cannot move the writable bind source,
+create a minimal `patches/<canonical-service-key>.yml` containing only the
+changed service mount(s). Do not copy entire upstream services.
+
 `override.env` contains:
 
 1. `FOUNDATION=<base|alerts|lvs|search>`.
@@ -320,6 +347,11 @@ Then verify:
 - Every checked-in bind source exists and a file target is not backed by a
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.
+- No generated scratch/config bind source resolves under `deploy/docker/`.
+  `validate_resolved_yml.py` rejects known generated sources such as SDRC
+  `.wdm-env`, SDRC `log`, and rendered files with adjacent `*.tmpl` inputs when
+  they remain in the checked-in deployment tree. Redirect them to
+  `_builds/<name>/generated/` or `VSS_DATA_DIR` and regenerate `resolved.yml`.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 
