@@ -99,12 +99,19 @@ def classify_exception(exc: BaseException) -> str:
     if isinstance(exc, _TERMINAL_EXC_TYPES):
         return EVENT_TERMINAL
 
+    # Pre-add health wait timed out — keep the event pending and retry later.
+    try:
+        from lib.podprovisioner.healthwatcher import WorkloadUnhealthyError
+    except ImportError:
+        WorkloadUnhealthyError = ()  # type: ignore
+    if WorkloadUnhealthyError and isinstance(exc, WorkloadUnhealthyError):
+        return EVENT_RETRYABLE
+
     if _is_retryable_infra_exception(exc):
         return EVENT_RETRYABLE
 
     # Unknown errors: prefer progress (commit) over stalling a partition forever.
     return EVENT_TERMINAL
-
 
 def bump_retry_attempt(message_key: str) -> int:
     """Increment and return the 1-based attempt count for a bus message."""

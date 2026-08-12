@@ -554,10 +554,11 @@ k8s-workerset1:                # Kubernetes mode, StatefulSet workers
 | `WDM_STANDBY_POD_COUNT` | `2` | Number of standby pods expected by status reporting. |
 | `WDM_TIMEOUT` | `300` | Default operation timeout in seconds. |
 | `WDM_POD_WATCH_DOCKER_DELAY` | `0.05` | Legacy Docker socket watch poll delay (used only when no health watcher is attached). |
-| `WDM_WL_HEALTH_CHECK_WAIT_ENABLED` | `true` | Master switch for HTTP workload health checks. `true`: background polling, prefer healthy pods for placement, forever wait in `add()` before `/add`, and PodErrorWatcher uses HTTP health. `false`: legacy mode — no HTTP health wait; Docker PodErrorWatcher uses container state. |
+| `WDM_WL_HEALTH_CHECK_WAIT_ENABLED` | `true` | Master switch for HTTP workload health checks. `true`: background polling, prefer healthy pods for placement, wait in `add()` before `/add` (see `WDM_ADD_HEALTH_CHECK_TIMEOUT`), and PodErrorWatcher uses HTTP health. `false`: legacy mode — no HTTP health wait; Docker PodErrorWatcher uses container state. |
 | `WDM_WL_HEALTH_CHECK_URL` | `/healthz` | HTTP path polled with GET for per-pod readiness. HTTP 200 means healthy. |
 | `WDM_HEALTH_CHECK_INTERVAL` | `2.0` | Background health poll interval in seconds. |
 | `WDM_HEALTH_CHECK_TIMEOUT` | `2.0` | Per-probe HTTP timeout in seconds. |
+| `WDM_ADD_HEALTH_CHECK_TIMEOUT` | `60` | Max seconds `add()` waits for the selected pod's health before `/add`. `-1` waits forever. On timeout, SDRC defers the event (bus RETRYABLE / HTTP 503) so the consumer is not blocked. |
 | `WDM_ENABLE_REGEX_MAPPING` | `False` | Enable regex-based stream allocation. |
 
 #### Event input and stream lifecycle
@@ -670,7 +671,7 @@ When an add event arrives, SDRC runs:
 2. **Build candidate pool**: load workers from `docker_cluster_config.json` (Docker) or K8s API (k8s).
 3. **Filter by health** (when `WDM_WL_HEALTH_CHECK_WAIT_ENABLED=true`): prefer pods whose latest `WDM_WL_HEALTH_CHECK_URL` probe passed. If none are healthy but capacity remains, still select a pod — `add()` waits for health. When disabled, placement uses legacy pod-down detection (e.g. Docker container Running state).
 4. **Select worker**: pick an eligible worker under `WDM_WL_THRESHOLD` (`WDM_WL_ASSIGNING_METHOD`).
-5. **Wait for health in `add()`** (when `WDM_WL_HEALTH_CHECK_WAIT_ENABLED=true`): block forever until the selected pod passes health before the `/add` retry loop. Shared by bus and HTTP. When disabled, `/add` starts immediately.
+5. **Wait for health in `add()`** (when `WDM_WL_HEALTH_CHECK_WAIT_ENABLED=true`): block up to `WDM_ADD_HEALTH_CHECK_TIMEOUT` (`-1` = forever) until the selected pod passes health before the `/add` retry loop. Shared by bus and HTTP. On timeout, defer (bus keeps the message pending / HTTP 503). When disabled, `/add` starts immediately.
 6. **POST to worker**: call `http://<provisioning_address><WDM_WL_ADD_URL>` with the full event envelope.
 7. **On HTTP 200**: update Redis mappings and workload spec cache.
 8. **Publish** an agent event on the configured bus.
@@ -683,7 +684,7 @@ Delete events reverse the flow: locate the assigned worker, POST `WDM_WL_DELETE_
 - Current stream count must be `< WDM_WL_THRESHOLD`.
 - Selection uses `WDM_WL_ASSIGNING_METHOD` (`lru_round_robin` or `sequential`).
 
-If only unhealthy workers have capacity (health mode), SDRC still assigns and waits inside `add()` for health. If every worker is at capacity, it logs capacity exhaustion — increase `WDM_WL_THRESHOLD`, add workers, or scale the StatefulSet.
+If only unhealthy workers have capacity (health mode), SDRC still assigns and waits inside `add()` up to `WDM_ADD_HEALTH_CHECK_TIMEOUT` for health. If every worker is at capacity, it logs capacity exhaustion — increase `WDM_WL_THRESHOLD`, add workers, or scale the StatefulSet.
 
 ---
 

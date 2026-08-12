@@ -204,19 +204,27 @@ class WorkloadHealthWatcher:
     ) -> bool:
         """Block until ``pod_info`` is healthy or ``timeout_sec`` elapses.
 
-        ``timeout_sec <= 0`` waits forever. ``None`` uses
-        ``WDM_API_WAIT_MAX_RETRIES_IN_SEC`` (default 30).
+        ``timeout_sec == -1`` waits forever. ``None`` uses
+        ``WDM_ADD_HEALTH_CHECK_TIMEOUT`` when set, otherwise
+        ``WDM_API_WAIT_MAX_RETRIES_IN_SEC`` (default 30). ``0`` means a
+        single probe with no additional wait.
         """
         if timeout_sec is None:
-            timeout_sec = float(
-                self.app_config.get("WDM_API_WAIT_MAX_RETRIES_IN_SEC", 30)
-            )
+            if "WDM_ADD_HEALTH_CHECK_TIMEOUT" in self.app_config:
+                timeout_sec = float(
+                    self.app_config.get("WDM_ADD_HEALTH_CHECK_TIMEOUT")
+                )
+            else:
+                timeout_sec = float(
+                    self.app_config.get("WDM_API_WAIT_MAX_RETRIES_IN_SEC", 30)
+                )
         if poll_interval is None:
             poll_interval = min(self.interval, 1.0)
 
         pod_name = pod_info.get("podName")
-        forever = float(timeout_sec) <= 0
-        deadline = None if forever else time.time() + float(timeout_sec)
+        timeout_val = float(timeout_sec)
+        forever = timeout_val == -1
+        deadline = None if forever else time.time() + max(0.0, timeout_val)
         while forever or time.time() <= deadline:
             if self.check_pod(pod_info):
                 self.log.info(

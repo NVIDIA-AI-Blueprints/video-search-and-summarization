@@ -2299,6 +2299,40 @@ def _run_provision_add_stream(
         if rollback_workload_spec:
             cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
         raise
+
+    # Run the configurable health wait on this caller thread (bus/HTTP handler)
+    # before spawning async work. Otherwise an unhealthy pod with
+    # WDM_ADD_HEALTH_CHECK_TIMEOUT=-1 can park forever inside a worker thread
+    # while the handler has already committed, or block a sync consumer.
+    if (
+        health_watcher is not None
+        and _config_bool(app.config.get("WDM_WL_HEALTH_CHECK_WAIT_ENABLED"), True)
+    ):
+        try:
+            wait_sec = float(app.config.get("WDM_ADD_HEALTH_CHECK_TIMEOUT", 60.0))
+        except (TypeError, ValueError):
+            wait_sec = 60.0
+        wait_label = "forever" if wait_sec == -1 else f"{wait_sec}s"
+        app.logger.info(
+            "Pre-add health wait for pod %s (%s, timeout=%s)",
+            podInfoItm.get("podName"),
+            app.config.get("WDM_WL_HEALTH_CHECK_URL"),
+            wait_label,
+        )
+        if not health_watcher.wait_until_healthy(podInfoItm, timeout_sec=wait_sec):
+            _finish_provision_lease(
+                wl_id, lease_owner, lease_stop, lease_heartbeat
+            )
+            if rollback_workload_spec:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            raise WorkloadUnhealthyError(
+                "pod {} did not pass health check {} within {}s".format(
+                    podInfoItm.get("podName"),
+                    app.config.get("WDM_WL_HEALTH_CHECK_URL"),
+                    wait_sec,
+                )
+            )
+
     if app.config.get("WDM_PROVISION_ASYNC"):
         # New placement calls reserve before reaching this function. Keep the
         # worker-side add for callers that have not already reserved a slot.
@@ -2735,15 +2769,25 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                             if selected_wl_spec is None
                             else config_data
                         )
-                        _run_provision_add_stream(
-                            selected_pod, data, originalJson, config_data,
-                            wl_id, camera_id, otel_carrier, parent_context,
-                            k8swlob_name, cfg_ev_obj, span_data,
-                            workload_spec_reserved=True,
-                            rollback_workload_spec=True,
-                            lease_owner=lease_owner,
-                            lease_ttl=lease_ttl,
-                        )
+                        try:
+                            _run_provision_add_stream(
+                                selected_pod, data, originalJson, config_data,
+                                wl_id, camera_id, otel_carrier, parent_context,
+                                k8swlob_name, cfg_ev_obj, span_data,
+                                workload_spec_reserved=True,
+                                rollback_workload_spec=True,
+                                lease_owner=lease_owner,
+                                lease_ttl=lease_ttl,
+                            )
+                        except WorkloadUnhealthyError:
+                            app.logger.info(
+                                "Deferring add for wl_id=%s: selected pod %s "
+                                "did not become healthy before /add within "
+                                "WDM_ADD_HEALTH_CHECK_TIMEOUT",
+                                wl_id,
+                                selected_pod.get("podName"),
+                            )
+                            return PROVISION_DEFERRED_UNREADY_PODS
                         provisionNewPod = False
                     else:
                         cfg.releaseProvisionLease(wl_id, lease_owner)

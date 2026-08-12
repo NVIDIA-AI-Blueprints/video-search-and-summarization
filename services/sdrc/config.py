@@ -198,9 +198,10 @@ class Config(object):
         else "/healthz"
     )
     # Master switch for HTTP workload health checks. When true: background
-    # polling, placement health filtering, forever wait in add() before /add,
-    # and PodErrorWatcher transitions from HTTP health. When false: legacy
-    # behavior (Docker PodErrorWatcher uses container state; no add() health wait).
+    # polling, placement health filtering, wait in add() before /add (see
+    # WDM_ADD_HEALTH_CHECK_TIMEOUT), and PodErrorWatcher transitions from HTTP
+    # health. When false: legacy behavior (Docker PodErrorWatcher uses
+    # container state; no add() health wait).
     WDM_WL_HEALTH_CHECK_WAIT_ENABLED = _bool_env(
         "WDM_WL_HEALTH_CHECK_WAIT_ENABLED", True
     )
@@ -216,6 +217,15 @@ class Config(object):
         if "WDM_HEALTH_CHECK_TIMEOUT" in os.environ
         and os.environ["WDM_HEALTH_CHECK_TIMEOUT"].strip() != ""
         else 2.0
+    )
+    # Max seconds add() waits for the selected pod's HTTP health before /add.
+    # -1 waits forever. On timeout, add() raises WorkloadUnhealthyError so bus
+    # handlers can defer (RETRYABLE) instead of blocking the consumer forever.
+    WDM_ADD_HEALTH_CHECK_TIMEOUT = (
+        float(os.environ["WDM_ADD_HEALTH_CHECK_TIMEOUT"].strip())
+        if "WDM_ADD_HEALTH_CHECK_TIMEOUT" in os.environ
+        and os.environ["WDM_ADD_HEALTH_CHECK_TIMEOUT"].strip() != ""
+        else 60.0
     )
     WDM_WL_DELETE_URL = (
         os.environ["WDM_WL_DELETE_URL"].strip()
