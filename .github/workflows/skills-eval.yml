@@ -35,12 +35,12 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-deploy-profile`)."
+        description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-query-analytics`)."
         required: false
         default: "*"
         type: string
       runner:
-        description: "Execution runtime. NemoClaw runs the bounded compatible-skill Harbor matrix."
+        description: "Execution runtime. NemoClaw runs the selected skill-eval plan serially through Harbor."
         required: false
         default: "claude-code"
         type: choice
@@ -346,17 +346,16 @@ jobs:
           retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
 
   # ---------------------------------------------------------------------
-  # nemoclaw-eval — opt-in, one explicit worker and a serial compatible matrix.
+  # nemoclaw-eval — opt-in, one explicit worker and the shared eval plan.
   # ---------------------------------------------------------------------
   nemoclaw-eval:
-    name: NemoClaw Harbor eval (compatible skills)
+    name: NemoClaw Harbor eval
     if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
     runs-on: [self-hosted, vss-skill-eval-runner]
-    # Eight compatible skill rows / nineteen ordered Harbor tasks took about
-    # four hours in the last full sweep. Keep the run step at GitHub's
-    # 360-minute maximum and reserve 20 minutes for setup and artifacts. One
-    # serial job keeps the explicitly reserved host isolated without a
-    # same-instance matrix dropping pending jobs through concurrency semantics.
+    # Keep the run step at GitHub's 360-minute maximum and reserve 20 minutes
+    # for setup and artifacts. One serial job keeps the explicitly reserved
+    # host isolated without a same-instance matrix dropping pending jobs
+    # through concurrency semantics.
     timeout-minutes: 380
     concurrency:
       group: skills-eval-nemoclaw-${{ inputs.nemoclaw_instance }}
@@ -372,7 +371,7 @@ jobs:
         with:
           python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
-      - name: Run NemoClaw-compatible skills through Harbor
+      - name: Run selected skills through NemoClaw and Harbor
         timeout-minutes: 360
         env:
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

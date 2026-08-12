@@ -81,11 +81,6 @@ NEMOCLAW_GATEWAY_NAME = (
     if int(NEMOCLAW_GATEWAY_PORT) == 8080
     else f"nemoclaw-{int(NEMOCLAW_GATEWAY_PORT)}"
 )
-NEMOCLAW_REQUIRED_MCP_TOOLS = [
-    name.strip()
-    for name in os.environ.get("NEMOCLAW_REQUIRED_MCP_TOOLS", "").split(",")
-    if name.strip()
-]
 AGENT_RUNTIME = "openclaw"
 ORCHESTRATOR_ENABLE_HTTPS = False
 HOST_INTERNAL_ALIAS = os.environ.get(
@@ -346,14 +341,8 @@ _discovered = {
     for tool in _tools
     if isinstance(tool, dict) and isinstance(tool.get("name"), str)
 }
-_prefix = "vss_orchestrator__"
-_missing = [
-    tool
-    for tool in NEMOCLAW_REQUIRED_MCP_TOOLS
-    if tool not in _discovered and tool.removeprefix(_prefix) not in _discovered
-]
-if _missing:
-    raise RuntimeError(f"Required MCP tools are unavailable: {_missing}")
+if not _discovered:
+    raise RuntimeError("VSS Orchestrator MCP exposed no tools")
 print(
     "MCP server 'vss_orchestrator' is reachable from OpenClaw "
     f"with {len(_discovered)} tools."

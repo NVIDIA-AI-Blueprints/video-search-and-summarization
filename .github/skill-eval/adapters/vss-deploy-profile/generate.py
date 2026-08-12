@@ -50,7 +50,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -669,22 +668,37 @@ def main() -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", required=True, help="Dataset output root")
     parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-profile")
-    parser.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
+    selector = parser.add_mutually_exclusive_group()
+    selector.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
+    selector.add_argument(
+        "--spec",
+        default=None,
+        help="Eval spec path; its filename stem selects the profile",
+    )
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()))
     args = parser.parse_args()
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir) if args.skill_dir else None
+    profile = args.profile
+    if args.spec:
+        spec_path = Path(args.spec)
+        profile = spec_path.stem
+        if profile not in PROFILES:
+            parser.error(
+                f"spec stem {profile!r} does not name a supported profile: "
+                + ", ".join(PROFILES)
+            )
 
     print("=== Inputs ===")
     print(f"  output_dir       : {output_root}")
     print(f"  skill_dir        : {skill_dir or '(none)'}")
-    print(f"  filter profile   : {args.profile or '(all)'}")
+    print(f"  filter profile   : {profile or '(all)'}")
     print(f"  filter platform  : {args.platform or '(all)'}")
     print()
 
     included, skipped = expand_matrix(
-        args.profile, args.platform, skill_dir=skill_dir,
+        profile, args.platform, skill_dir=skill_dir,
     )
 
     if skipped:
