@@ -53,7 +53,6 @@ from utils.request_profiler import GPUMonitor, RequestMetrics
 
 from vlm_pipeline import VlmPipeline, PipelineChunkResult  # isort:skip
 
-
 REASONING_INFO_KEY = "reasoning"
 REASONING_DESCRIPTION_INFO_KEY = "reasoningDescription"
 
@@ -168,6 +167,7 @@ class RequestInfo:
     assets: list[Asset] | None = None
     status: "RequestInfo.Status" = field(default_factory=lambda: RequestInfo.Status.QUEUED)
     status_event: Event = field(default_factory=Event)
+    _live_stop_finalized: bool = False
 
     # Metrics and monitoring
     _request_metrics: object | None = None
@@ -684,6 +684,8 @@ class RTVIStreamHandler:
         self._lock = RLock()
         self._stopping = False
         self._request_info_map: dict[str, RequestInfo] = {}
+        self._live_streams_stopping: set[str] = set()
+        self._live_streams_cleanup_required: set[str] = set()
 
         self._start_time = time.time()
         self._metrics = RTVIStreamHandler.Metrics(self._start_time, service_name)
@@ -1346,6 +1348,31 @@ class RTVIStreamHandler:
             )
         ]
 
+    def _get_registered_live_stream_requests(self, asset_id: str) -> list[RequestInfo]:
+        """Get all live requests retained for an asset, including terminal ones.
+
+        A failed decoder drain keeps request bookkeeping intact so a later
+        delete can retry safely. The EOS callback may mark one of those
+        requests terminal while the failed stream still needs cleanup.
+        """
+        with self._lock:
+            return [
+                req_info
+                for req_info in self._request_info_map.values()
+                if (
+                    req_info.is_live and req_info.assets and req_info.assets[0].asset_id == asset_id
+                )
+            ]
+
+    def has_active_live_caption_request(self, asset_id: str) -> bool:
+        """Whether any live caption request is registered for ``asset_id``.
+
+        Delete paths use this to tell a stream that is mid-setup (asset locked,
+        request not yet in the map) from one that is running normally. The
+        asset's ``use_count`` cannot make that distinction on its own.
+        """
+        return bool(self._get_live_stream_requests(asset_id))
+
     def _get_live_stream_request(self, asset_id: str) -> RequestInfo | None:
         """Get the oldest active live stream request for an asset_id."""
         live_requests = self._get_live_stream_requests(asset_id)
@@ -1436,14 +1463,11 @@ class RTVIStreamHandler:
 
         if req_info.is_live:
             if is_live_stream_ended:
-                req_info.end_time = time.time()
-                self._metrics._active_live_streams_counter.add(-1)
-                self.stop_request_profiling(req_info, chunk_responses)
-                self._cleanup_request_files(req_info)
-                # Unlock the asset and update metrics
-                if req_info.assets:
-                    for asset in req_info.assets:
-                        asset.unlock()
+                was_processing = req_info.status == RequestInfo.Status.PROCESSING
+                self._finish_stopped_live_caption_request(
+                    req_info,
+                    was_processing=was_processing,
+                )
                 # End OTEL end-to-end pipeline span
                 if req_info._e2e_span:
                     try:
@@ -1459,8 +1483,6 @@ class RTVIStreamHandler:
                     except Exception as e:
                         logger.warning("Failed to end e2e OTEL span: %s", e)
 
-                req_info.status_event.set()
-                req_info.status = RequestInfo.Status.SUCCESSFUL
         else:
             request_files_cleaned_up = False
             if req_info.status == RequestInfo.Status.FAILED:
@@ -2784,6 +2806,17 @@ class RTVIStreamHandler:
                 req_info.error_status_code = chunk_result.error_status_code
                 self._vlm_pipeline.abort_chunks(req_info.assets[0].asset_id)
                 req_info.status_event.set()
+                # The all-chunks-processed close below is unreachable now: the
+                # aborted chunks never arrive, so processed_chunk_list can never
+                # reach chunk_count. Without this the request's EVS sessions
+                # leak for the life of the process, until session creation
+                # fails with "max sessions reached". Threaded because
+                # send_command blocks on the worker's response queue.
+                Thread(
+                    target=self._vlm_pipeline.close_evs_sessions,
+                    args=(req_info.stream_id,),
+                    daemon=True,
+                ).start()
 
             self._send_error_message_to_kafka(chunk_result.error, req_info.stream_id)
             logger.error(
@@ -3175,6 +3208,15 @@ class RTVIStreamHandler:
         active_counted = False
         try:
             with self._lock:
+                if (
+                    asset.asset_id in self._live_streams_stopping
+                    or asset.asset_id in self._live_streams_cleanup_required
+                ):
+                    raise ServiceException(
+                        f"Live stream {asset.asset_id} is being stopped",
+                        "ResourceInUse",
+                        409,
+                    )
                 existing_requests = self._get_live_stream_requests(asset.asset_id)
                 if (
                     not existing_requests
@@ -3451,58 +3493,76 @@ class RTVIStreamHandler:
     def remove_rtsp_stream(self, asset: Asset, drain_timeout_sec: Optional[float] = None):
         """Remove an RTSP stream from the server."""
         _start = time.monotonic()
+        stream_id = asset.asset_id
+        owns_stop = False
         try:
-            # Phase A (under lock): pop request_info_map entry, read what we need.
+            # Phase A (under lock): claim teardown and snapshot request state.
+            # Keep the request map and asset locks intact until the pipeline
+            # drain succeeds so a failed delete remains retryable.
             with self._lock:
-                existing_requests = self._get_live_stream_requests(asset.asset_id)
-                if not existing_requests:
-                    logger.debug("RTSP stream for video %s not active", asset.asset_id)
-                    has_active_request = False
-                else:
-                    if len(existing_requests) > 1:
-                        raise ServiceException(
-                            f"Cannot stop live stream {asset.asset_id} because "
-                            f"{len(existing_requests)} caption requests are active.",
-                            "ResourceInUse",
-                            409,
-                        )
-                    has_active_request = True
-                    existing_request = existing_requests[0]
-                    self._request_info_map = {
-                        req_id: req_info
-                        for req_id, req_info in self._request_info_map.items()
-                        if req_info.assets is None or asset not in req_info.assets
-                    }
+                if stream_id in self._live_streams_stopping:
+                    raise ServiceException(
+                        f"Live stream {stream_id} is already being stopped",
+                        "ResourceInUse",
+                        409,
+                    )
+                self._live_streams_stopping.add(stream_id)
+                owns_stop = True
+                existing_requests = self._get_registered_live_stream_requests(stream_id)
+                cleanup_required = stream_id in self._live_streams_cleanup_required
+                requests_to_finish = [
+                    (
+                        req_info,
+                        req_info.status == RequestInfo.Status.PROCESSING,
+                    )
+                    for req_info in existing_requests
+                ]
 
-            # Phase B (lock released): drain the pipeline and remove cached frames.
-            if has_active_request:
-                logger.info("Removing live stream %s from pipeline", asset.asset_id)
-                # Take drain latency from the return value to avoid racing on a
-                # shared attribute under parallel batch delete.
-                drain_latency = self._vlm_pipeline.remove_live_stream(
-                    asset.asset_id, timeout_sec=drain_timeout_sec
-                )
-                logger.info("Removed live stream %s from pipeline", asset.asset_id)
+            # Phase B (lock released): drain the pipeline. A retry after a
+            # partial failure must call remove_live_stream again even when EOS
+            # has already marked the retained requests terminal.
+            if requests_to_finish or cleanup_required:
+                drain_latency = None
+                try:
+                    logger.info("Removing live stream %s from pipeline", stream_id)
+                    # Take drain latency from the return value to avoid racing on a
+                    # shared attribute under parallel batch delete.
+                    drain_latency = self._vlm_pipeline.remove_live_stream(
+                        stream_id, timeout_sec=drain_timeout_sec
+                    )
+                    logger.info("Removed live stream %s from pipeline", stream_id)
+                except Exception:
+                    with self._lock:
+                        self._live_streams_cleanup_required.add(stream_id)
+                    raise
+
+                request_ids_to_remove = {req_info.request_id for req_info, _ in requests_to_finish}
+                with self._lock:
+                    for request_id in request_ids_to_remove:
+                        self._request_info_map.pop(request_id, None)
+                    self._live_streams_cleanup_required.discard(stream_id)
+
+                for req_info, was_processing in requests_to_finish:
+                    self._finish_stopped_live_caption_request(
+                        req_info,
+                        was_processing=was_processing,
+                    )
 
                 if drain_latency is not None:
                     self._metrics._delete_drain_latency.record(drain_latency)
 
-                # A forced/timed-out pipeline drain may bypass the live EOS
-                # callback that normally unlocks the request asset. Release the
-                # request-held lock here so AssetManager cleanup does not return
-                # ResourceInUse after this delete path has already stopped the
-                # stream and removed its request from the active map.
-                for request_asset in existing_request.assets or []:
-                    if request_asset.use_count > 0:
-                        request_asset.unlock()
-
-                self._safe_rmtree(f"/tmp/rtvi/cached_frames/{asset.asset_id}")
+                self._safe_rmtree(f"/tmp/rtvi/cached_frames/{stream_id}")
+            else:
+                logger.debug("RTSP stream for video %s not active", stream_id)
         finally:
+            if owns_stop:
+                with self._lock:
+                    self._live_streams_stopping.discard(stream_id)
             _elapsed = time.monotonic() - _start
             self._metrics._delete_latency.record(_elapsed)
             logger.info(
                 "Delete live-stream %s total=%.3fs",
-                asset.asset_id,
+                stream_id,
                 _elapsed,
             )
 
@@ -3513,20 +3573,64 @@ class RTVIStreamHandler:
         was_processing: bool,
         release_assets: bool = True,
     ) -> None:
-        req_info.end_time = time.time()
-        if was_processing:
-            self._metrics._active_live_streams_counter.add(-1)
+        # EOS and DELETE can race while remove_live_stream() is draining. Claim
+        # finalization under the handler lock so request metrics and asset locks
+        # are released exactly once regardless of which path wins.
+        with self._lock:
+            if req_info._live_stop_finalized:
+                return
+            req_info._live_stop_finalized = True
+            req_info.end_time = time.time()
+            if req_info.status not in (RequestInfo.Status.SUCCESSFUL, RequestInfo.Status.FAILED):
+                req_info.status = RequestInfo.Status.SUCCESSFUL
 
-        if req_info._monitor or req_info._request_metrics:
-            self.stop_request_profiling(req_info, req_info.processed_chunk_list)
-        self._cleanup_request_files(req_info)
+        try:
+            if was_processing:
+                try:
+                    self._metrics._active_live_streams_counter.add(-1)
+                except Exception:
+                    logger.warning(
+                        "Failed to decrement active live-stream metric for request %s",
+                        req_info.request_id,
+                        exc_info=True,
+                    )
 
-        if release_assets and req_info.assets:
-            for request_asset in req_info.assets:
-                if request_asset.use_count > 0:
-                    request_asset.unlock()
+            if req_info._monitor or req_info._request_metrics:
+                try:
+                    self.stop_request_profiling(req_info, req_info.processed_chunk_list)
+                except Exception:
+                    logger.warning(
+                        "Failed to stop profiling for live request %s",
+                        req_info.request_id,
+                        exc_info=True,
+                    )
 
-        req_info.status_event.set()
+            try:
+                self._cleanup_request_files(req_info)
+            except Exception:
+                logger.warning(
+                    "Failed to clean request files for live request %s",
+                    req_info.request_id,
+                    exc_info=True,
+                )
+
+            if release_assets and req_info.assets:
+                for request_asset in req_info.assets:
+                    if request_asset.use_count <= 0:
+                        continue
+                    try:
+                        request_asset.unlock()
+                    except Exception:
+                        logger.warning(
+                            "Failed to unlock asset %s for live request %s",
+                            request_asset.asset_id,
+                            req_info.request_id,
+                            exc_info=True,
+                        )
+        finally:
+            # Status is terminal before the event is signalled, so a waiter
+            # cannot wake and re-enter its loop with PROCESSING still visible.
+            req_info.status_event.set()
 
     def remove_rtsp_stream_request(
         self,
@@ -3542,9 +3646,19 @@ class RTVIStreamHandler:
         """
         _start = time.monotonic()
         request_id = str(request_id)
+        stream_id = asset.asset_id
+        owns_stop = False
         try:
             with self._lock:
-                existing_requests = self._get_live_stream_requests(asset.asset_id)
+                if stream_id in self._live_streams_stopping:
+                    raise ServiceException(
+                        f"Live stream {stream_id} is being stopped",
+                        "ResourceInUse",
+                        409,
+                    )
+
+                cleanup_required = stream_id in self._live_streams_cleanup_required
+                existing_requests = self._get_registered_live_stream_requests(stream_id)
                 matching_request = next(
                     (
                         req_info
@@ -3553,72 +3667,90 @@ class RTVIStreamHandler:
                     ),
                     None,
                 )
-                if matching_request is None:
+                if matching_request is None or (
+                    matching_request.status != RequestInfo.Status.PROCESSING
+                    and not cleanup_required
+                ):
                     raise ServiceException(
-                        f"No active caption request {request_id} for live stream {asset.asset_id}",
+                        f"No active caption request {request_id} for live stream {stream_id}",
                         "InvalidParameterValue",
                         400,
                     )
 
                 was_processing = matching_request.status == RequestInfo.Status.PROCESSING
-                is_last_request = len(existing_requests) == 1
-                matching_request.status = RequestInfo.Status.SUCCESSFUL
-                self._request_info_map.pop(request_id, None)
+                active_requests = [
+                    req_info
+                    for req_info in existing_requests
+                    if req_info.status == RequestInfo.Status.PROCESSING
+                ]
+                is_last_request = cleanup_required or len(active_requests) == 1
+                self._live_streams_stopping.add(stream_id)
+                owns_stop = True
 
             if is_last_request:
                 try:
                     logger.info(
                         "Removing final live caption request %s for stream %s from pipeline",
                         request_id,
-                        asset.asset_id,
+                        stream_id,
                     )
                     drain_latency = self._vlm_pipeline.remove_live_stream(
-                        asset.asset_id, timeout_sec=drain_timeout_sec
+                        stream_id, timeout_sec=drain_timeout_sec
                     )
                     logger.info(
                         "Removed final live caption request %s for stream %s from pipeline",
                         request_id,
-                        asset.asset_id,
+                        stream_id,
+                    )
+                except Exception:
+                    with self._lock:
+                        self._live_streams_cleanup_required.add(stream_id)
+                    raise
+            else:
+                logger.info(
+                    "Removing live caption request %s for stream %s from pipeline subscribers",
+                    request_id,
+                    stream_id,
+                )
+                removed = self._vlm_pipeline.remove_live_stream_subscriber(
+                    stream_id,
+                    request_id,
+                )
+                if removed is False:
+                    logger.info(
+                        "Live caption request %s for stream %s was already absent "
+                        "from pipeline subscribers",
+                        request_id,
+                        stream_id,
                     )
 
-                    if drain_latency is not None:
-                        self._metrics._delete_drain_latency.record(drain_latency)
-                finally:
-                    self._finish_stopped_live_caption_request(
-                        matching_request,
-                        was_processing=was_processing,
-                    )
-                self._safe_rmtree(f"/tmp/rtvi/cached_frames/{asset.asset_id}")
-            else:
-                try:
-                    logger.info(
-                        "Removing live caption request %s for stream %s from pipeline subscribers",
-                        request_id,
-                        asset.asset_id,
-                    )
-                    removed = self._vlm_pipeline.remove_live_stream_subscriber(
-                        asset.asset_id,
-                        request_id,
-                    )
-                    if removed is False:
-                        logger.info(
-                            "Live caption request %s for stream %s was already absent "
-                            "from pipeline subscribers",
-                            request_id,
-                            asset.asset_id,
-                        )
-                finally:
-                    self._finish_stopped_live_caption_request(
-                        matching_request,
-                        was_processing=was_processing,
-                    )
+            # Commit request bookkeeping only after the pipeline mutation
+            # succeeds. A failed drain/subscriber removal therefore remains
+            # visible and retryable instead of leaking invisible pipeline state.
+            with self._lock:
+                self._request_info_map.pop(request_id, None)
+                if is_last_request:
+                    self._live_streams_cleanup_required.discard(stream_id)
+
+            self._finish_stopped_live_caption_request(
+                matching_request,
+                was_processing=was_processing,
+            )
+
+            if is_last_request:
+                if drain_latency is not None:
+                    self._metrics._delete_drain_latency.record(drain_latency)
+                self._safe_rmtree(f"/tmp/rtvi/cached_frames/{stream_id}")
         finally:
+            if owns_stop:
+                with self._lock:
+                    self._live_streams_stopping.discard(stream_id)
             _elapsed = time.monotonic() - _start
             self._metrics._delete_latency.record(_elapsed)
             logger.info(
                 "Delete live caption request %s for stream %s total=%.3fs",
                 request_id,
-                asset.asset_id,
+                stream_id,
                 _elapsed,
             )
 

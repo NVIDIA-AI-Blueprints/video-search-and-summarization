@@ -85,9 +85,7 @@ def test_qwen3vl_chat_template_disables_thinking_by_default():
     assert model._get_apply_chat_template_kwargs(VlmGenerationConfig()) == {
         "enable_thinking": False
     }
-    assert model._get_apply_chat_template_kwargs(
-        VlmGenerationConfig(enable_reasoning=True)
-    ) == {
+    assert model._get_apply_chat_template_kwargs(VlmGenerationConfig(enable_reasoning=True)) == {
         "enable_thinking": True
     }
 
@@ -187,6 +185,81 @@ def test_rtvi_vllm_env_sanitizer_preserves_internal_override(monkeypatch):
 
     assert "VLLM_ENFORCE_EAGER" not in vllm_compatible_model.os.environ
     assert vllm_compatible_model._parse_bool_env("VLLM_ENFORCE_EAGER", default=True) is False
+
+
+def test_evs_similarity_threshold_is_moved_off_the_vllm_namespace(monkeypatch):
+    """vLLM warns on any VLLM_-prefixed name it does not define.
+
+    ``envs.validate_environ()`` walks os.environ at engine-config time and logs
+    "Unknown vLLM environment variable detected: VLLM_EVS_SIMILARITY_THRESHOLD"
+    for this RTVI-owned name. The alias map is how every other RTVI VLLM_ var
+    already avoids that, so this one belongs there too rather than being
+    registered into vLLM's own table.
+    """
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+
+    monkeypatch.setenv("VLLM_EVS_SIMILARITY_THRESHOLD", "0.35")
+
+    vllm_compatible_model._sanitize_rtvi_vllm_env()
+
+    assert "VLLM_EVS_SIMILARITY_THRESHOLD" not in vllm_compatible_model.os.environ
+    assert vllm_compatible_model.os.environ["RTVI_VLLM_EVS_SIMILARITY_THRESHOLD"] == "0.35"
+
+
+def test_evs_similarity_threshold_survives_the_rename(monkeypatch):
+    """Both consumers must read through the alias, not raw os.environ.
+
+    The rename happens in _load_model before the engine is built; a consumer
+    still reading the original name would silently fall back to the default.
+    """
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+
+    monkeypatch.setenv("VLLM_EVS_SIMILARITY_THRESHOLD", "0.35")
+    vllm_compatible_model._sanitize_rtvi_vllm_env()
+
+    assert vllm_compatible_model._get_evs_similarity_threshold() == 0.35
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_evs_similarity_threshold_defaults_to_0_4(monkeypatch, value):
+    """Unset or blank falls back to 0.4 -- the tuned EVS++ operating point.
+
+    Was 0.2. 0.4 is what the perf guide and the perf-testing skill already
+    prescribe as the standard EVS++ configuration, so the shipped default now
+    matches the configuration people actually run.
+    """
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+    if value is not None:
+        monkeypatch.setenv("VLLM_EVS_SIMILARITY_THRESHOLD", value)
+
+    assert vllm_compatible_model._get_evs_similarity_threshold() == 0.4
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_evs_token_budget_defaults_to_1(monkeypatch, value):
+    """Unset or blank falls back to 1 -- generate per clip, do not accumulate.
+
+    Was 20000. A budget of 1 forces generation on every clip instead of packing
+    visual tokens across clips, which is what the perf guide and the
+    perf-testing skill already prescribe as the standard EVS++ configuration.
+    """
+    monkeypatch.delenv("VIA_EVS_TOKEN_BUDGET", raising=False)
+    if value is not None:
+        monkeypatch.setenv("VIA_EVS_TOKEN_BUDGET", value)
+
+    assert vllm_compatible_model._get_evs_token_budget() == 1
+
+
+def test_evs_token_budget_honors_an_explicit_value(monkeypatch):
+    monkeypatch.setenv("VIA_EVS_TOKEN_BUDGET", "20000")
+
+    assert vllm_compatible_model._get_evs_token_budget() == 20000
 
 
 def test_rtvi_vllm_env_sanitizer_unsets_blank_import_env(monkeypatch):
@@ -474,6 +547,24 @@ def test_cosmos3_vllm_plugin_entry_point_is_discoverable():
 
 
 # --- EVS session sampling kwargs (VLLM_IGNORE_EOS propagation) -----------------
+
+
+def test_vllm_sampling_kwargs_preserves_zero_temperature(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(VlmGenerationConfig(temperature=0.0))
+
+    assert kwargs["temperature"] == 0.0
+
+
+def test_vllm_sampling_kwargs_preserves_nonzero_temperature(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(VlmGenerationConfig(temperature=0.7))
+
+    assert kwargs["temperature"] == 0.7
 
 
 def test_evs_sampling_kwargs_passes_max_tokens_and_defaults(monkeypatch):
