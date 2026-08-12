@@ -17,7 +17,7 @@
 # build.sh always passes this in for you: it builds a base locally, reuses an
 # existing one, or uses a registry image you point it at (base-tag= /
 # image-registry=). One tag works for both x86_64 and arm64 (if it is a multi-arch image).
-ARG BASE_IMAGE=vios/vst-base:2.1.0-runtime-26.07.2
+ARG BASE_IMAGE=vios/vst-base:1.4.0-runtime-26.08.1
 FROM ${BASE_IMAGE}
 
 ARG PKG_LOCATION
