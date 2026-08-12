@@ -61,7 +61,9 @@ curl -sf "http://${HOST_IP}:3000/"
 ```
 
 For `2d_cv`, also require `vss-rtvi-cv` and `vss-behavior-analytics` to
-resolve and probe `http://${HOST_IP}:${RTVI_CV_HOST_PORT:-9010}/v1/health`.
+resolve and probe
+`http://${HOST_IP}:${RTVI_CV_HOST_PORT:-9010}/api/v1/ready`, requiring
+HTTP 200 and `ready-info.ds-ready=YES`.
 For `2d_vlm`, require those two services to be absent and probe
 `http://${HOST_IP}:8018/v1/health/ready`.
 
