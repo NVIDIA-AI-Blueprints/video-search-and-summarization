@@ -1172,18 +1172,44 @@ bool isValidCalibrationJson(const string& payload)
         return false;
     }
 
-    // A non-empty sensors array is not enough to be useful.  The overlay loader
-    // skips any sensor without an id or without both matrices (see the per-sensor
-    // checks in overlay_internal.cpp), so a document whose entries all lack them
-    // parses cleanly, replaces a good local file, and then yields no calibration
-    // at all -- overlays silently stop working.  Require what the loader
-    // requires, for at least one sensor: it tolerates individual bad entries, so
-    // demanding all of them would reject a file it would happily use.
+    // A non-empty sensors array is not enough to be useful, and neither is a
+    // matrix that is merely an array.  The camera-groups loader requires a
+    // nested 3x3 intrinsic and 3x4 extrinsic and throws otherwise; the
+    // non-grouped loader is worse -- it flattens without checking and hands the
+    // buffer to cv::Mat(3, 3, CV_32F, data()), which reads past the end of the
+    // vector when fewer values were supplied.  A wrongly shaped document that
+    // only passed an isArray() check would parse cleanly, replace a good local
+    // calibration, and be cached as usable, so validate the shape here.
+    //
+    // Checked for at least one sensor: the loader skips individual bad entries
+    // and uses the rest, so demanding every sensor be well formed would reject
+    // a file it would happily consume.
+    const auto isMatrix = [](const Json::Value& m, unsigned rows, unsigned cols) {
+        if (!m.isArray() || m.size() != rows)
+        {
+            return false;
+        }
+        for (const auto& row : m)
+        {
+            if (!row.isArray() || row.size() != cols)
+            {
+                return false;
+            }
+            for (const auto& val : row)
+            {
+                if (!val.isConvertibleTo(Json::ValueType::realValue))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
     for (const auto& sensor : root["sensors"])
     {
         if (sensor.isMember("id") && sensor["id"].isString() && !sensor["id"].asString().empty() &&
-            sensor.isMember("intrinsicMatrix") && sensor["intrinsicMatrix"].isArray() &&
-            sensor.isMember("extrinsicMatrix") && sensor["extrinsicMatrix"].isArray())
+            isMatrix(sensor["intrinsicMatrix"], 3, 3) && isMatrix(sensor["extrinsicMatrix"], 3, 4))
         {
             return true;
         }
