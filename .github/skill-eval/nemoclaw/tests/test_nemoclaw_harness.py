@@ -104,6 +104,20 @@ class NotebookAdapterTests(unittest.TestCase):
         self.assertIn("config_sets = []", rtsp_source)
         self.assertIn("env.vars.RTSP_SAMPLE_URL", rtsp_source)
         self.assertIn("requires the fixed public relay", rtsp_source)
+        self.assertIn('reason "skill-eval agent config"', rtsp_source)
+        self.assertIn("shields down failed before agent config", rtsp_source)
+        self.assertLess(
+            rtsp_source.index("shields down"),
+            rtsp_source.index("env.vars.RTSP_SAMPLE_URL"),
+        )
+        self.assertLess(
+            rtsp_source.index("env.vars.RTSP_SAMPLE_URL"),
+            rtsp_source.index("finally:\n"),
+        )
+        self.assertLess(
+            rtsp_source.index("finally:\n"),
+            rtsp_source.index("shields up"),
+        )
         self.assertNotIn("print(_rtsp_sample_url", rtsp_source)
         self.assertIn("--no-install-package", cells["c13aaf5e"]["source"])
         self.assertIn("ensure_agent_venv", cells["c13aaf5e"]["source"])
@@ -532,6 +546,28 @@ class SingleScenarioTests(unittest.TestCase):
             self.assertEqual(selected, trial)
             self.assertEqual(result["scope"], "trial")
 
+    def test_latest_trial_keeps_setup_error_without_reward(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            date = root / "2026-08-12"
+            trial = date / "trial-1"
+            trial.mkdir(parents=True)
+            (trial / "trial.log").write_text("setup failed", encoding="utf-8")
+            (trial / "exception.txt").write_text("RuntimeError", encoding="utf-8")
+            (trial / "result.json").write_text(
+                '{"exception_info": {"exception_type": "RuntimeError"}}',
+                encoding="utf-8",
+            )
+            (date / "result.json").write_text('{"scope": "run"}', encoding="utf-8")
+
+            selected, result = self.scenario._latest_trial(root)
+
+            self.assertEqual(selected, trial)
+            self.assertEqual(
+                result["exception_info"]["exception_type"],
+                "RuntimeError",
+            )
+
     def test_reward_rejects_non_finite_and_out_of_range_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             trial = Path(temporary)
@@ -693,8 +729,8 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn('default: "claude-code"', workflow)
         self.assertIn("inputs.runner != 'nemoclaw'", workflow)
         self.assertIn("nemoclaw_instance must name", workflow)
-        self.assertIn("timeout-minutes: 2880", workflow)
-        self.assertIn("timeout-minutes: 2860", workflow)
+        self.assertIn("timeout-minutes: 380", workflow)
+        self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
         self.assertIn('--skills "$INPUT_SKILLS"', workflow)
         self.assertIn("NEMOCLAW_SANDBOX_NAME=demo", workflow)

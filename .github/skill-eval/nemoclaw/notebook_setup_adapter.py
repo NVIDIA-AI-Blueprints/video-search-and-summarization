@@ -585,7 +585,11 @@ def ensure_agent_venv() -> None:
     elif cell_id == "s36-code":
         patched["source"] = OPENCLAW_MCP_SOURCE
     elif cell_id == "s37-code":
-        patched["source"] = source.rstrip() + "\n\n" + OPENCLAW_RTSP_SOURCE
+        patched["source"] = _with_shields_window(
+            source.rstrip() + "\n\n" + OPENCLAW_RTSP_SOURCE,
+            reason="skill-eval agent config",
+            activity="agent config",
+        )
     elif cell_id == "042eabd1":
         anchor = 'existing_pid = globals().get("VSS_ORCHESTRATOR_MCP_PID")\n'
         if anchor not in source:
