@@ -25,8 +25,9 @@ the one container.
   mount-source vars at the checked-in alerts verifier configs (not inherited on a
   non-`alerts` Foundation); do **not** author an `alert-bridge.yml` patch.
 - CV-verification alerts derive from detections: RT-CV feeds Behavior Analytics,
-  which generates incidents that a VLM then verifies. This path requires RT-CV
-  and Behavior Analytics with its incident processor enabled.
+  which generates candidate incidents that Alert Bridge verifies via RT-VLM on
+  retrieved clips. This path requires RT-CV, Behavior Analytics with its incident
+  processor enabled, and `rtvi-vlm` (stock in `2d_cv`).
 - Real-time alerts derive from continuous VLM inspection of the media: the signal
   flows `rtvi-vlm` → `alert-bridge` and requires RT-VLM. This path does not use
   Behavior Analytics or incident generation.
@@ -45,13 +46,14 @@ principal data flows and topics); both are authoritatively defined in
 `skills/vss-manage-alerts/references/integrate-alerts.md`.
 
 - **CV verification** (`perception-alerts` + `vss-behavior-analytics-alerts` +
-  `alert-bridge`): `perception-alerts -> mdx-raw -> vss-behavior-analytics-alerts ->
-  mdx-incidents` (candidate incidents) `-> alert-bridge` (retrieves the clip and runs
-  the VLM verifier) `-> mdx-vlm-incidents` (verified). Alert Bridge writes the verified
-  record with its `verdict` **directly to Elasticsearch** `mdx-vlm-incidents-*` and
+  `alert-bridge` + `rtvi-vlm`): `perception-alerts -> mdx-raw ->
+  vss-behavior-analytics-alerts -> mdx-incidents` (candidate incidents) `->
+  alert-bridge` (retrieves the clip and runs VLM inference on `rtvi-vlm`) `->
+  mdx-vlm-incidents` (verified). Alert Bridge writes the verified record with its
+  `verdict` **directly to Elasticsearch** `mdx-vlm-incidents-*` and
   `mdx-vlm-alerts-*` (its `vlm_enhanced_sink`; optionally also to Kafka
-  `mdx-vlm-incidents`). Requires RT-CV and Behavior Analytics with incident generation
-  enabled.
+  `mdx-vlm-incidents`). Requires RT-CV, Behavior Analytics with incident generation
+  enabled, and `rtvi-vlm`.
 - **VLM real-time** (`alert-bridge` realtime rules + `rtvi-vlm`, no Behavior
   Analytics): an `alert-bridge` realtime rule drives `rtvi-vlm` over the live stream;
   `rtvi-vlm -> mdx-vlm-incidents` (`RTVI_VLM_KAFKA_INCIDENT_TOPIC`) `-> Logstash ->
