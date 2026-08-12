@@ -539,7 +539,7 @@ Run each check in order. **If a check fails, automatically install and re-verify
 `HARDWARE_PROFILE` is a **blueprint setting**, not a string that `nvidia-smi` always prints verbatim. For **discrete GPUs**, match the GPU model from `nvidia-smi` / `lspci` to a row below. **IGX-THOR** and **DGX-SPARK** are **whole-system platforms** (kits/boards): set the profile from product/SKU or vendor docs if you already know the machine type; `nvidia-smi` shows the **on-board NVIDIA GPU name** (e.g. a Thor-class or Spark system GPU), not the text `IGX-THOR` or `DGX-SPARK`. On **DGX Spark**, unified memory can make some `nvidia-smi` memory fields show **Not Supported**; driver and device listing should still be checked per [DGX Spark user guide](https://docs.nvidia.com/dgx/dgx-spark/).
 
 The profiles that actually carry perception tuning are the top-level sections of
-`services/configurators/vss-configurator/configs/blueprint_config.yml`:
+`industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml`:
 `H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO4500BW, IGX-THOR, DGX-SPARK`.
 All of these define `max_streams_supported` for `2d`, `3d` and `mv3dt` **except `RTXPRO4500BW`,
 which is tuned for `2d` only**. The `overrides.env` comment does not match that set exactly — it

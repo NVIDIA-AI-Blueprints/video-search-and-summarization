@@ -14,8 +14,9 @@
 # limitations under the License.
 
 # Centralized blueprint configurator (SDRC-style).
-# Blueprint target paths (DS_CONFIG_DIR, NVSTREAMER_CONFIG_DIR, calibration) are
-# injected via MODE-driven env vars from the active industry profile overrides.env.
+# Blueprint target paths (PROFILE_CONFIG_FILE, DS_CONFIG_DIR, NVSTREAMER_CONFIG_DIR,
+# calibration) are injected via MODE-driven env vars from the active industry
+# profile overrides.env; the tuning spec itself stays with the profile.
 # Activate with COMPOSE_PROFILES including: bp-configurator-init,bp-configurator
 
 services:
