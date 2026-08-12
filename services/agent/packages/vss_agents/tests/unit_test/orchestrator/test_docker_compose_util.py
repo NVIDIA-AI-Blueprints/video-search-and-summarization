@@ -56,9 +56,14 @@ def _make_recipe(
     hardware_profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] | None = None,
     overrides_env_text: str | None = None,
     source_env_filename: str = "profile.env",
+    containers_env_text: str | None = "",
 ) -> dcu.DryRunRecipe:
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
+    containers_env_file = deployments_dir / dcu.CONTAINERS_ENV_FILENAME
+    containers_env_file.write_text(
+        (containers_env_text.strip() + "\n") if containers_env_text else ""
+    )
     mdx_data_dir = tmp_path / "mdx-data"
     mdx_data_dir.mkdir()
     source_env_file = tmp_path / source_env_filename
@@ -98,6 +103,7 @@ def _make_recipe(
         compose_file=tmp_path / "compose.yml",
         source_env_file=source_env_file,
         profile_env_override_file=profile_env_override_file,
+        containers_env_file=containers_env_file,
         supported_hardware_profiles=supported_hardware_profiles,
         edge_hardware_profiles=edge_hardware_profiles,
         edge_allowed_profiles=edge_allowed_profiles,
@@ -895,6 +901,113 @@ def _patch_network(monkeypatch: pytest.MonkeyPatch, ip: str = "10.0.0.1") -> Non
     monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
 
+class TestContainersEnvImageChannel:
+    """Orchestrator loads deploy/docker/containers.env before profile .env (like dev-profile.sh)."""
+
+    _MINI_CONTAINERS_ENV = _env_text(
+        'VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}"',
+        'VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"',
+        'VSS_CONTAINER_STAGING_REGISTRY="${VSS_CONTAINER_STAGING_REGISTRY:-nvcr.io/nvstaging/vss-core}"',
+        'VSS_AGENT_IMAGE="${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-${VSS_CONTAINER_STAGING_REGISTRY}}/vss-agent}"',
+        'CONTAINER_IMAGE="${CONTAINER_IMAGE:-${VSS_CONTAINER_REGISTRY}/vss-video-summarization:${VSS_CONTAINER_TAG}}"',
+    )
+
+    def test_load_shell_env_file_expands_defaults(self, tmp_path: Path):
+        path = tmp_path / dcu.CONTAINERS_ENV_FILENAME
+        path.write_text(self._MINI_CONTAINERS_ENV + "\n")
+
+        resolved = dcu.load_shell_env_file(path, {})
+
+        assert resolved["CONTAINER_IMAGE"] == (
+            "ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest"
+        )
+        assert resolved["VSS_AGENT_IMAGE"] == "ghcr.io/nvidia-ai-blueprints/vss/vss-agent"
+
+    def test_containers_env_wins_over_profile_lvs_tag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("VSS_CONTAINER_REGISTRY", raising=False)
+        monkeypatch.delenv("VSS_CONTAINER_TAG", raising=False)
+        monkeypatch.delenv("CONTAINER_IMAGE", raising=False)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor", "LVS_TAG=3.3.0-rc2")),
+            profile=dcu.PROFILE_LVS,
+            hardware_profile="thor",
+            containers_env_text=self._MINI_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert recipe.containers_env_file == recipe.deployments_dir / dcu.CONTAINERS_ENV_FILENAME
+        assert resolved["CONTAINER_IMAGE"] == (
+            "ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest"
+        )
+        assert resolved["VSS_AGENT_IMAGE"] == "ghcr.io/nvidia-ai-blueprints/vss/vss-agent"
+
+    def test_exported_container_pair_overrides_image(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("VSS_CONTAINER_REGISTRY", "nvcr.io/nvstaging/vss-core")
+        monkeypatch.setenv("VSS_CONTAINER_TAG", "nightly-20260806")
+        monkeypatch.delenv("CONTAINER_IMAGE", raising=False)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor", "LVS_TAG=3.3.0-rc2")),
+            profile=dcu.PROFILE_LVS,
+            hardware_profile="thor",
+            containers_env_text=self._MINI_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["CONTAINER_IMAGE"] == (
+            "nvcr.io/nvstaging/vss-core/vss-video-summarization:nightly-20260806"
+        )
+        assert resolved["VSS_AGENT_IMAGE"] == "nvcr.io/nvstaging/vss-core/vss-agent"
+
+
+class TestCreateDryRunRecipeContainersEnv:
+    """create_dry_run_recipe resolves containers.env in deployments_dir like overrides.env."""
+
+    @staticmethod
+    def _make(tmp_path: Path, *, create_containers_env: bool):
+        profile_dir = tmp_path / "dev-profile-lvs"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / ".env").write_text("MODE=2d\n")
+        (profile_dir / "overrides.env").write_text("LLM_NAME_SLUG=slug\n")
+        (tmp_path / "compose.yml").write_text("services: {}\n")
+        if create_containers_env:
+            (tmp_path / dcu.CONTAINERS_ENV_FILENAME).write_text(
+                'VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"\n'
+            )
+        return dcu.create_dry_run_recipe(
+            profile="lvs",
+            env_overrides={},
+            model_resolution={
+                "hardware": {
+                    "edge_profiles": [],
+                    "edge_allowed_profiles": [],
+                    "edge_device_ids": {"llm": "0", "vlm": "0", "rt_vlm": "0", "rt_cv": "0"},
+                    "hardware_profiles": {"H100": {}},
+                }
+            },
+            output_env_file=str(tmp_path / "generated.env"),
+            output_compose_file=str(tmp_path / "compose.generated.yml"),
+            deployments_dir=str(tmp_path),
+            mdx_data_dir=str(tmp_path / "mdx"),
+            profile_mode_to_env_modes=None,
+            source_compose_yaml=str(tmp_path / "compose.yml"),
+            source_env=str(profile_dir / ".env"),
+        )
+
+    def test_containers_env_resolves_from_deployments_dir(self, tmp_path: Path):
+        recipe = self._make(tmp_path, create_containers_env=True)
+        assert recipe.containers_env_file == (tmp_path / dcu.CONTAINERS_ENV_FILENAME).resolve()
+
+    def test_missing_containers_env_fails_fast(self, tmp_path: Path):
+        with pytest.raises(dcu.ValidationError, match=r"containers\.env"):
+            self._make(tmp_path, create_containers_env=False)
+
+
 class TestOverridesEnvLayering:
     """overrides.env (dev-profile.sh runtime values) layers on top of .env.
 
@@ -986,6 +1099,7 @@ class TestCreateDryRunRecipeOverridesEnv:
         profile_dir.mkdir(parents=True)
         (profile_dir / ".env").write_text("MODE=2d\n")
         (tmp_path / "compose.yml").write_text("services: {}\n")
+        (tmp_path / dcu.CONTAINERS_ENV_FILENAME).write_text("")
         if create_overrides:
             (profile_dir / "overrides.env").write_text("LLM_NAME_SLUG=slug\n")
         kwargs = {
@@ -1718,6 +1832,7 @@ def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_pa
     deploy_dir.mkdir(parents=True)
     profile_dir.mkdir(parents=True)
     (deploy_dir / "compose.yml").write_text("services: {}\n")
+    (deploy_dir / dcu.CONTAINERS_ENV_FILENAME).write_text("")
     (profile_dir / ".env").write_text("HOST_IP=\n")
     (profile_dir / "overrides.env").write_text("")
     monkeypatch.setenv("HOME", str(fake_home))
@@ -1748,3 +1863,4 @@ def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_pa
     assert recipe.compose_file == (deploy_dir / "compose.yml").resolve()
     assert recipe.source_env_file == (profile_dir / ".env").resolve()
     assert recipe.profile_env_override_file == (profile_dir / "overrides.env").resolve()
+    assert recipe.containers_env_file == (deploy_dir / dcu.CONTAINERS_ENV_FILENAME).resolve()

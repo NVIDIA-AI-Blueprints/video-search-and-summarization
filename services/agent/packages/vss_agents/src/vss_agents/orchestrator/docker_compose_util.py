@@ -63,6 +63,11 @@ UNRESOLVED_SHELL_VAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$[A-Za-z_][
 ENV_VAR_INTERPOLATION_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
 )
+# First-party image SSOT next to compose files; same file `dev-profile.sh` passes as
+# `--env-file containers.env` ahead of the profile env files.
+CONTAINERS_ENV_FILENAME: Final[str] = "containers.env"
+SHELL_VAR_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+SHELL_DEFAULT_SEPARATOR: Final[str] = ":-"
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
@@ -160,6 +165,7 @@ class DryRunRecipe:
     edge_device_ids: Mapping[str, str]
     profile_mode_to_env_modes: Mapping[str, Mapping[str, str]]
     profile_env_override_file: Path
+    containers_env_file: Path
     hardware_profile_env_overrides: Mapping[str, Mapping[str, str | Mapping[str, str]]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -227,6 +233,15 @@ def create_dry_run_recipe(
         error_type=ValidationError,
     )
 
+    # containers.env is mandatory and must live in the deployments (compose) root —
+    # same file `dev-profile.sh` passes as `--env-file containers.env`.
+    containers_env_file = resolve_required_absolute_file(
+        str(deployments_path / CONTAINERS_ENV_FILENAME),
+        field_name=CONTAINERS_ENV_FILENAME,
+        missing_label="Containers env",
+        error_type=ValidationError,
+    )
+
     try:
         model_resolution = ModelResolutionInput.model_validate(model_resolution, from_attributes=True)
     except Exception as exc:
@@ -257,6 +272,7 @@ def create_dry_run_recipe(
         compose_file=compose_file,
         source_env_file=source_env_file,
         profile_env_override_file=profile_env_override_file,
+        containers_env_file=containers_env_file,
         supported_hardware_profiles=frozenset(model_resolution.hardware.hardware_profiles.keys()),
         edge_hardware_profiles=frozenset(model_resolution.hardware.edge_profiles),
         edge_allowed_profiles=frozenset(model_resolution.hardware.edge_allowed_profiles),
@@ -313,6 +329,94 @@ def parse_env_file(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         env[key.strip()] = value.strip().strip("'").strip('"')
     return env
+
+
+def _find_closing_brace(value: str, open_index: int) -> int:
+    depth = 0
+    for index in range(open_index, len(value)):
+        if value[index] == "{":
+            depth += 1
+        elif value[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _split_shell_default(inner: str) -> tuple[str, bool, str]:
+    depth = 0
+    for index, char in enumerate(inner):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        elif depth == 0 and inner.startswith(SHELL_DEFAULT_SEPARATOR, index):
+            return inner[:index], True, inner[index + len(SHELL_DEFAULT_SEPARATOR) :]
+    return inner, False, ""
+
+
+def _expand_braced_reference(inner: str, scope: Mapping[str, str]) -> str:
+    name, has_default, default = _split_shell_default(inner)
+    current = scope.get(name.strip(), "")
+    if current or not has_default:
+        return current
+    return expand_shell_value(default, scope)
+
+
+def expand_shell_value(value: str, scope: Mapping[str, str]) -> str:
+    """Expand ``$VAR``, ``${VAR}`` and ``${VAR:-default}`` against ``scope``.
+
+    Mirrors bash parameter expansion used by ``containers.env`` so an already-exported
+    value wins over the file default
+    (``VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"``).
+    """
+
+    out: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char != "$":
+            out.append(char)
+            index += 1
+            continue
+        if value.startswith("${", index):
+            end = _find_closing_brace(value, index + 1)
+            if end == -1:
+                out.append(char)
+                index += 1
+                continue
+            out.append(_expand_braced_reference(value[index + 2 : end], scope))
+            index = end + 1
+            continue
+        match = SHELL_VAR_NAME_PATTERN.match(value, index + 1)
+        if match is None:
+            out.append(char)
+            index += 1
+            continue
+        out.append(scope.get(match.group(0), ""))
+        index = match.end()
+    return "".join(out)
+
+
+def load_shell_env_file(path: Path, base_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Load an env file whose values use shell-style ``${VAR:-default}`` self-defaults.
+
+    Mirrors ``set -a; source <file>`` as done by ``dev-profile.sh``: each value is
+    expanded against the process environment plus earlier assignments in the same file.
+    """
+
+    scope: dict[str, str] = dict(os.environ if base_env is None else base_env)
+    resolved: dict[str, str] = {}
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        value = expand_shell_value(raw_value.strip().strip("'").strip('"'), scope)
+        resolved[key] = value
+        scope[key] = value
+    return resolved
 
 
 def load_profile_env(path: Path) -> dict[str, str]:
@@ -495,6 +599,8 @@ def infer_runtime_mode(
 
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
+    #   0. containers.env first-party image coordinates (same position as
+    #      `docker compose --env-file containers.env` before the profile env files)
     #   1. profile .env defaults
     #   1b. profile overrides.env (mandatory, next to .env)
     #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
@@ -505,7 +611,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #      ... then yml edge_device_ids (for edge HW)
     #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
     #   5. per-call env_overrides
-    merged = parse_env_file(config.source_env_file)
+    merged = load_shell_env_file(config.containers_env_file)
+    merged.update(parse_env_file(config.source_env_file))
     merged.update(parse_env_file(config.profile_env_override_file))
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
