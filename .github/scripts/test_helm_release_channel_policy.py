@@ -29,6 +29,9 @@ HELM_VALUES = {
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/values.yaml",
     ],
+    "vss-rt-cv": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -45,6 +48,12 @@ HELM_HELPERS = {
     ],
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/templates/_helpers.tpl",
+    ],
+    # The chart is named rtvi-cv and its helpers are "vss-rtvi-cv.*", but the
+    # managed image is vss-rt-cv -- so the printf target below is the image
+    # name, not the helper prefix.
+    "vss-rt-cv": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
     ],
 }
 COMPOSE_FILES = {
