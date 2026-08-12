@@ -44,6 +44,8 @@ docker-workload-streamprocessing:
   WDM_WL_REDIS_MSG_FIELD: value
   WDM_MSG_KEY: vst_events
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json
+  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false
+  
 
 docker-workload-rtvi-cv:
   wl_obj_name: vss-rtvi-cv
@@ -78,6 +80,8 @@ docker-workload-rtvi-cv:
   WDM_WL_THRESHOLD: 100
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 15000
   WDM_HANDLE_CONFIG_EVENTS: false
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
+  WDM_WL_HEALTH_CHECK_URL: '/api/v1/live'
 
 docker-workload-alerts-2d:
   wl_obj_name: vss-alert-bridge
@@ -88,7 +92,6 @@ docker-workload-alerts-2d:
   WDM_WL_REDIS_MSG_FIELD: value
   WDM_INITIALIZE_FROM_VST: false
   WDM_KFK_ENABLE: false
-  WDM_PRELOAD_DELAY_FOR_DS_API: true
   WDM_WL_THRESHOLD: ${NUM_STREAMS}
   WDM_POD_WATCH_DOCKER_DELAY: 0.5
   WDM_WL_OBJECT_NAME: vss-alert-bridge
@@ -106,4 +109,5 @@ docker-workload-alerts-2d:
   WDM_WL_REDIS_SERVER: redis
   WDM_MS_LISTENER_PORT: 10002
   NOHEADERTARGETROUTE: false
-  HEADERLESS_SERVICE_ENDPOINTS: "[]"
+  HEADERLESS_SERVICE_ENDPOINTS: "[]i"
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
