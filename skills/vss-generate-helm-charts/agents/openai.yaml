@@ -1,0 +1,4 @@
+interface:
+  display_name: "VSS Generate Helm Charts"
+  short_description: "Sync VSS Helm charts from Docker Compose"
+  default_prompt: "Use $vss-generate-helm-charts to sync deploy/helm from the current deploy/docker changes without deploying anything."

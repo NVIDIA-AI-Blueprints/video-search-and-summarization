@@ -83,6 +83,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | I want to… | Use this skill |
 |---|---|
 | Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
+| Generate or synchronize Helm charts after Docker Compose changes | [`vss-generate-helm-charts`](vss-generate-helm-charts/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](vss-summarize-video/SKILL.md) |
 | Ask a one-off visual question about a clip | [`vss-ask-video`](vss-ask-video/SKILL.md) |
@@ -115,6 +116,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Skill | Description |
 |---|---|
 | [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-generate-helm-charts](vss-generate-helm-charts/SKILL.md) | Synchronize `deploy/helm` service and profile charts from authoritative Docker Compose sources and deployment-comment directives using an offline, non-deploying authoring workflow. |
 | [vss-generate-video-calibration](vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
 ### Layer 1 — Real-time video intelligence

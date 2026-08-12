@@ -1,0 +1,26 @@
+{
+  "skills": [
+    "vss-generate-helm-charts"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "I changed VSS Docker Compose files and need the corresponding Helm service and profile charts synchronized. Describe the exact authoring workflow you would follow, including how future Compose comments can specify Compose-only behavior or Kubernetes replacements. This machine is authoring-only: do not edit deploy files, start containers, install a Helm release, or contact a Kubernetes cluster.",
+      "checks": [
+        "The agent loads vss-generate-helm-charts and treats deploy/docker plus env/config/script/comment inputs as the behavioral source of truth while preserving the existing deploy/helm hierarchy.",
+        "The workflow runs the bundled read-only compose_helm_context.py inventory with an explicit path, current worktree changes, or a caller-supplied base ref before selecting chart targets.",
+        "The workflow creates a parity ledger for every changed source fact, deletion, directive, affected service/profile, and intentional divergence before editing.",
+        "The answer explains the exact '# helm-sync: ACTION | requirement' convention and distinguishes compose-only, helm-only, and replace.",
+        "The workflow updates leaf charts before service umbrellas and every transitive developer or industry profile consumer, including replacing YAML lists, Service-DNS endpoint rewrites, dependency versions, and Chart.lock regeneration.",
+        "The workflow includes offline structural validation, helm lint/template and schema checks only when locally available, a values/profile render matrix, final diff review, and truthful reporting of skipped gates.",
+        "No docker compose up/down, helm install/upgrade/uninstall/rollback, kubectl mutation, container start, Helm release change, or cluster contact occurs."
+      ]
+    }
+  ]
+}
