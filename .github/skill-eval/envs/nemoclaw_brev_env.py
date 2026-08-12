@@ -68,10 +68,10 @@ def _forwarded_nemoclaw_env() -> str:
 
 
 def _setup_command(timeout: int, required_tools: list[str]) -> str:
-    # Reserve 10 minutes for the venv and 10 for readiness, plus five
-    # minutes of command/transport headroom inside the total setup budget.
+    # Reserve time for the venv and command/transport headroom inside the
+    # total setup budget. Readiness is part of the notebook execution.
     adapter_timeout = max(300, timeout - 1500)
-    required_tools_csv = ",".join(required_tools)
+    required_tools_csv = shlex.quote(",".join(required_tools))
     return f"""
 set -e
 set +u
@@ -233,17 +233,13 @@ timeout --signal=TERM --kill-after=30 600s \
   --name nemoclaw-skill-eval --display-name "NemoClaw skill eval"
 export NEMOCLAW_CI_KERNEL=nemoclaw-skill-eval
 export NEMOCLAW_SETUP_CELL_TIMEOUT_SEC={adapter_timeout}
+export NEMOCLAW_REQUIRED_MCP_TOOLS={required_tools_csv}
 timeout --signal=TERM --kill-after=120 {adapter_timeout}s \
   "$venv/bin/python" \
   .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --execute \
   --env-out "$scratch/nemoclaw.env" \
   --timeout "$NEMOCLAW_SETUP_CELL_TIMEOUT_SEC"
-timeout --signal=TERM --kill-after=30 600s \
-  "$venv/bin/python" \
-  .github/skill-eval/nemoclaw/readiness.py \
-  --env-file "$scratch/nemoclaw.env" \
-  --required-tools {shlex.quote(required_tools_csv)}
 """.strip()
 
 
@@ -424,8 +420,7 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
         if result.return_code != 0:
             detail = (result.stderr or result.stdout or "")[-2000:]
             raise RuntimeError(
-                "NemoClaw notebook setup/readiness failed "
-                f"(exit {result.return_code}):\n{detail}"
+                f"NemoClaw notebook setup failed (exit {result.return_code}):\n{detail}"
             )
         self._nemoclaw_ready = True
         logger.info("NemoClaw is ready on %s", self._instance_name)
