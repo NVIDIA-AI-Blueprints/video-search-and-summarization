@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import Annotated, Any, Optional, Union
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
 
 from .captions import (
     ABSOLUTE_PROMPT_MAX_LENGTH,
@@ -755,6 +755,10 @@ def _vios_creation_time_from_metadata(
 class ViosStreamEventBase(CommonBaseModel):
     """Common VIOS camera event fields."""
 
+    # VIOS may add fields independently of RTVI. Keep its compatibility
+    # envelope extensible without relaxing the strict CV request schemas.
+    model_config = ConfigDict(extra="ignore", json_schema_extra={"additionalProperties": True})
+
     camera_id: str = Field(
         description="User-provided unique camera identifier.",
         max_length=256,
@@ -841,6 +845,8 @@ class ViosStreamRemoveEvent(ViosStreamEventBase):
 
 class ViosStreamRequestBase(CommonBaseModel):
     """Common VIOS message-bus stream request envelope."""
+
+    model_config = ConfigDict(extra="ignore", json_schema_extra={"additionalProperties": True})
 
     alert_type: str = Field(
         description="VIOS alert type.",

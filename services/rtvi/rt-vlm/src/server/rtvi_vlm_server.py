@@ -200,30 +200,6 @@ def add_common_error_responses(errors=None):
     return {err: COMMON_ERROR_RESPONSES[err] for err in (errors + [401, 429, 422])}
 
 
-async def _await_stream_setup_complete(asset, stream_id: str) -> None:
-    """Wait for a live-stream's setup to finish before allowing a delete to
-    proceed, bounded by ``RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC`` (default 30 s).
-
-    During add_live_stream setup ``use_count`` is bumped to 2 and returns to 1
-    once setup completes. Without a bound, a stuck setup could hang any delete
-    request that arrives during the window. On timeout we log a warning and
-    let the caller proceed — the downstream drain + cleanup paths remain
-    responsible for correctness if setup never finishes.
-    """
-    loop = asyncio.get_running_loop()
-    timeout_sec = float(os.environ.get("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "30"))
-    deadline = loop.time() + timeout_sec
-    while asset.use_count > 1:
-        if loop.time() >= deadline:
-            logger.warning(
-                f"Timeout waiting for live-stream {stream_id} setup to complete "
-                f"(use_count={asset.use_count}, waited {timeout_sec}s); "
-                f"proceeding with delete"
-            )
-            return
-        await asyncio.sleep(0.1)
-
-
 async def _await_file_release(asset, file_id: str) -> None:
     """Wait for any in-flight inference holding this file to finish, bounded
     by ``RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC`` (default 30 s).
@@ -250,9 +226,38 @@ async def _await_file_release(asset, file_id: str) -> None:
 
 
 def _raise_if_asset_in_use(asset, asset_id: str) -> None:
+    """Reject deleting a *file* asset that still has an in-flight reference.
+
+    Files only. Do not use this on a live stream: there ``use_count`` equals the
+    number of active caption requests, so every live stream worth deleting has
+    ``use_count >= 1`` and this would reject every delete. Use
+    ``_raise_if_live_setup_in_flight`` instead.
+    """
     if asset.use_count > 0:
         raise ServiceException(
             f"Resource {asset_id} is currently being used",
+            "ResourceInUse",
+            409,
+        )
+
+
+def _raise_if_live_setup_in_flight(stream_handler, asset, stream_id: str) -> None:
+    """Reject a live-stream delete that lands in the middle of stream setup.
+
+    ``generate_vlm_captions`` takes the asset lock and registers its
+    ``RequestInfo`` under the handler lock, so a live asset that is locked but
+    has no registered caption request is mid-setup. Deleting in that window
+    races the setup and can strand the stream, so reject it.
+
+    Once the request *is* registered the delete is legitimate no matter how
+    high ``use_count`` is: ``remove_rtsp_stream`` drains the shared decoder,
+    finalizes all caption requests for the asset, and releases their locks
+    before ``cleanup_asset`` runs. Gating on ``use_count`` here instead would
+    reject every delete of an active stream.
+    """
+    if asset.use_count > 0 and not stream_handler.has_active_live_caption_request(stream_id):
+        raise ServiceException(
+            f"Resource {stream_id} is currently being used",
             "ResourceInUse",
             409,
         )
@@ -296,8 +301,7 @@ async def _delete_live_streams_batch_impl(
             if not asset.is_live:
                 raise ServiceException(f"No such live-stream {stream_id}", "InvalidParameter", 400)
 
-            _raise_if_asset_in_use(asset, stream_id)
-            await _await_stream_setup_complete(asset, stream_id)
+            _raise_if_live_setup_in_flight(stream_handler, asset, stream_id)
 
             await loop.run_in_executor(
                 executor,
@@ -2090,8 +2094,7 @@ class RTVIServer:
                 raise ServiceException(f"No such live-stream {stream_id}", "InvalidParameter", 400)
             loop = asyncio.get_running_loop()
 
-            _raise_if_asset_in_use(asset, stream_id)
-            await _await_stream_setup_complete(asset, stream_id)
+            _raise_if_live_setup_in_flight(self._stream_handler, asset, stream_id)
 
             # Remove RTSP stream from the pipeline if it is being summarized
             await loop.run_in_executor(
@@ -2391,8 +2394,7 @@ class RTVIServer:
             loop = asyncio.get_running_loop()
 
             if asset.is_live:
-                _raise_if_asset_in_use(asset, asset_id)
-                await _await_stream_setup_complete(asset, asset_id)
+                _raise_if_live_setup_in_flight(self._stream_handler, asset, asset_id)
             else:
                 _raise_if_asset_in_use(asset, asset_id)
                 await _await_file_release(asset, asset_id)
