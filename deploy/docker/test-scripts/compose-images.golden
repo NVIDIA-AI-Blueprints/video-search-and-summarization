@@ -51,8 +51,8 @@ deploy/docker/services/nim/nemotron-3-nano/compose.yml alpine:3.24.1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml docker.io/alpine/curl:8.21.0
-deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
-deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
+deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
+deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
