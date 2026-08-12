@@ -68,7 +68,7 @@ jobs:
           - name: spatialai-data-utils
             project_key: TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization
             project_name: METROPOLIS-spatialai-data-utils
-            sources: libs/analytics/spatialai-data-utils/release/spatialai_data_utils
+            sources: libs/analytics/spatialai-data-utils/spatialai_data_utils
             tests: libs/analytics/spatialai-data-utils/tests
             python_version: "3.13"
 
