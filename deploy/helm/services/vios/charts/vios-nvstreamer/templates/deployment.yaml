@@ -136,6 +136,8 @@ spec:
               value: {{ .Values.env.NVSTREAMER_UI_BASE_PATH | quote }}
             - name: NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES
               value: {{ .Values.env.NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES | quote }}
+            - name: VST_APT_MIRROR
+              value: {{ .Values.env.VST_APT_MIRROR | default "" | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
