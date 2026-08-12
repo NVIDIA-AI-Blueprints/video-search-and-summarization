@@ -40,7 +40,7 @@ on:
         default: "*"
         type: string
       runner:
-        description: "Execution runtime. NemoClaw runs one representative Harbor scenario."
+        description: "Execution runtime. NemoClaw runs the bounded compatible-skill Harbor matrix."
         required: false
         default: "claude-code"
         type: choice
@@ -346,13 +346,17 @@ jobs:
           retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
 
   # ---------------------------------------------------------------------
-  # nemoclaw-eval — opt-in, one explicit worker and one Harbor scenario.
+  # nemoclaw-eval — opt-in, one explicit worker and a serial compatible matrix.
   # ---------------------------------------------------------------------
   nemoclaw-eval:
-    name: NemoClaw Harbor eval
+    name: NemoClaw Harbor eval (compatible skills)
     if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
     runs-on: [self-hosted, vss-skill-eval-runner]
-    timeout-minutes: 240
+    # Eight compatible skill rows / nineteen ordered Harbor tasks took about
+    # four hours in the last full sweep. One serial job keeps the explicitly
+    # reserved host isolated without a same-instance matrix dropping pending
+    # jobs through GitHub concurrency semantics.
+    timeout-minutes: 2880
     concurrency:
       group: skills-eval-nemoclaw-${{ inputs.nemoclaw_instance }}
       cancel-in-progress: false
@@ -367,8 +371,8 @@ jobs:
         with:
           python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
 
-      - name: Run representative NemoClaw scenario through Harbor
-        timeout-minutes: 220
+      - name: Run NemoClaw-compatible skills through Harbor
+        timeout-minutes: 2860
         env:
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NEMOCLAW_INSTANCE: ${{ inputs.nemoclaw_instance }}
@@ -378,10 +382,7 @@ jobs:
             echo "::error::nemoclaw_instance must name an operator-reserved worker"
             exit 1
           fi
-          if [ "$INPUT_SKILLS" != "*" ] && [ "$INPUT_SKILLS" != "vss-deploy-profile" ]; then
-            echo "::error::the scoped NemoClaw path currently evaluates vss-deploy-profile/base"
-            exit 1
-          fi
+          INPUT_SKILLS="${INPUT_SKILLS:-*}"
 
           set -a
           source /home/ubuntu/eval-coordinator/.env
@@ -408,23 +409,25 @@ jobs:
           export NEMOCLAW_SETUP_TIMEOUT_SEC=5400
           export NEMOCLAW_AGENT_TIMEOUT_SEC=3300
           export NEMOCLAW_HARBOR_TIMEOUT_SEC=12600
+          export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           mkdir -p /tmp/skill-eval/results/nemoclaw
 
           python3 .github/skill-eval/nemoclaw/single_scenario.py \
-            --instance "$NEMOCLAW_INSTANCE"
+            --instance "$NEMOCLAW_INSTANCE" \
+            --skills "$INPUT_SKILLS"
 
       - name: Collect Harbor result artifact
         if: always()
         run: |
           rm -f /tmp/nemoclaw-skill-eval-${GITHUB_RUN_ID}.tar.gz
           RUN_RESULTS="/tmp/skill-eval/results/nemoclaw/${GITHUB_RUN_ID}"
-          if find "$RUN_RESULTS" -name result.json -print -quit 2>/dev/null | grep -q .; then
+          if [ -d "$RUN_RESULTS" ]; then
             tar czf /tmp/nemoclaw-skill-eval-${GITHUB_RUN_ID}.tar.gz \
               -C /tmp/skill-eval/results/nemoclaw \
               --exclude='agent' \
               "$GITHUB_RUN_ID"
           else
-            echo "No Harbor result.json was produced"
+            echo "No Harbor result directory was produced"
           fi
 
       - name: Upload Harbor result artifact
@@ -441,6 +444,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: skills-eval-nemoclaw-report-${{ github.run_id }}
-          path: /tmp/skill-eval/${{ github.run_id }}/benchmark.md
+          path: |
+            /tmp/skill-eval/${{ github.run_id }}/benchmark.md
+            /tmp/skill-eval/${{ github.run_id }}/verdict.json
           if-no-files-found: ignore
           retention-days: 28
