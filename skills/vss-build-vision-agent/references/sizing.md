@@ -84,7 +84,7 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 | Foundation | Starting layout | Important constraints |
 |---|---|---|
 | Base | One GPU: LLM + integrated RT-VLM shared. Two GPUs: dedicate GPU 0 to LLM and GPU 1 to RT-VLM. | Use `0.40 + 0.40` as the H100/RTX PRO 6000 shared starting point. A 48 GB L40S cannot fit the default FP16/BF16 pair inside its 40.8 GB budget. |
-| Alerts `2d_cv` | GPU 0: RT-CV. GPU 1: LLM. The stock service set does not enable local RT-VLM. | Set `RESERVED_DEVICE_IDS=0`. If a delta adds local VLM verification, include `rtvi-vlm` explicitly and size it as a new co-resident or dedicated service. |
+| Alerts `2d_cv` | GPU 0: RT-CV. GPU 1: LLM + RT-VLM shared. Stock `2d_cv` includes `rtvi-vlm` for Alert Bridge clip verification. | Set `RESERVED_DEVICE_IDS=0`. Size LLM + RT-VLM with the shared starting fractions on GPU 1. |
 | Alerts `2d_vlm` | No RT-CV; default device values co-locate LLM + RT-VLM on GPU 1. Move RT-VLM to the free GPU 0 when possible. | Continuous VLM inference needs more headroom; prefer separate GPUs or a user-approved remote model endpoint. |
 | LVS | One GPU: LLM + RT-VLM shared. Two GPUs: LLM on GPU 0 and RT-VLM on GPU 1. | When shared on H100/RTX PRO 6000, set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` and cap the LLM at about `0.40`. |
 | Search | GPU 0: RT-CV. GPU 1: RT-Embed + LLM. GPU 2: RT-VLM. | Default local Search needs three GPUs. On a two-GPU host, use a user-approved remote VLM through RT-VLM's proxy path. |
@@ -98,7 +98,7 @@ Alerts-specific RT-VLM starting values:
 | Dedicated | L40S or RTX PRO 4500 | 0.80 |
 
 These values apply when `rtvi-vlm` is in the effective service set, including
-stock `2d_vlm` and any `2d_cv` delta that explicitly adds it. Do not share the
+stock `2d_cv` (verification) and stock `2d_vlm` (real-time). Do not share the
 Alerts LLM and RT-VLM on L40S or RTX PRO 4500. On RTX PRO 4500, use a remote
 LLM and start RT-VLM with
 `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
