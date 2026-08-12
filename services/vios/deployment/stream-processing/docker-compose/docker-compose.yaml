@@ -76,6 +76,7 @@ services:
     container_name: streamprocessing-ms-1
     entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB:-}
       - CONTAINER_NAME=streamprocessing-ms-1
