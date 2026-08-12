@@ -23,7 +23,7 @@ See the License for the specific language governing permissions and limitations 
 | Phase 2 | Semantic retrieval over real tag/caption embeddings |
 | Search boundary | Retrieval and fusion live in `vss_core.search_core` |
 | Ingestion boundary | Existing Agent uploaded-video and RTSP lifecycle routes orchestrate the existing RT-VLM |
-| Source baseline | `origin/develop@bdd84dd4b`, 2026-08-11 |
+| Source baseline | `origin/develop@2b0a793f9`, 2026-08-12 |
 
 ## Summary
 
