@@ -73,9 +73,7 @@ COMPOSE_FILES = {
     ],
     "sdr-mw-l": ["deploy/docker/services/infra/sdrc/docker-compose.yaml"],
     "vss-configurator": [
-        "deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml",
-        "deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml",
-        "deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml",
+        "deploy/docker/services/configurators/vss-configurator/docker-compose.yaml",
     ],
     "vss-rt-config-adaptor": [
         "deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml",
