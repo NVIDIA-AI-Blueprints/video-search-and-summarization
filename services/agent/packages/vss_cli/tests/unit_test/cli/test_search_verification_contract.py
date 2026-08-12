@@ -167,6 +167,11 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert 'VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)' in ingestion_preamble
     assert "project-local `vss configure show`" in ingestion_preamble
     assert any("one bounded source-setup deadline" in check for check in ingestion_checks)
+    assert len(ingestion_checks) == 7
+    assert len([check for check in ingestion_checks if check.startswith("The trajectory shows")]) == 2
+    assert any("waited until those matching sources were absent" in check for check in ingestion_checks)
+    assert any("derived both upload paths from that extraction" in check for check in ingestion_checks)
+    assert any("validated each separate `/complete` response" in check for check in ingestion_checks)
 
     # Current search indices use the VST sensor ID for embed/fusion source
     # scoping and the source name for attribute/object; source_type selects the
@@ -259,6 +264,12 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert 'delete_index_count "${RAW_INDEX}" sensorId.keyword' in lifecycle
     assert "SAMPLE_RTVI_LOG == 1" not in lifecycle
     assert "Never keep an otherwise-ready setup waiting for an exact log message" in prose
+
+    cli_usage = (SEARCH_SKILL / "references/cli_usage.md").read_text(encoding="utf-8")
+    assert 'VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)' in cli_usage
+    assert '"${VSS[@]}" configure --base-url "${VSS_ORIGIN}"' in cli_usage
+    assert '"${VSS[@]}" configure show' in cli_usage
+    assert not re.search(r"(?m)^vss configure(?:\s|$)", cli_usage)
 
     # The host CLI stamps the `vss configure` origin into screenshot_url, so the
     # lifecycle must point at that lever and must not send the agent off editing
