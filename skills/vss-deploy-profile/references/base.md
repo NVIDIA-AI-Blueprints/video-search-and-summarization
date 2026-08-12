@@ -52,7 +52,7 @@ The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use
 |---|---|---|---|---|---|
 | `nvidia/nvidia-nemotron-nano-9b-v2` (default) | NIM (`nvcr.io/nim/...:1`) | `nim/nvidia-nemotron-nano-9b-v2/compose.yml` | 9 B | FP16 | **23.4 GB** |
 | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` | NIM (`nvcr.io/nim/...:1.0.0-variant`, DGX Spark only) | not in tree - see `edge.md` | 9 B | NVFP4 | ~5.9 GB |
-| `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | DLFW vLLM (`nvcr.io/nvidia/vllm:25.12.post1-py3`) | `nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml` | 9 B | FP8 | **11.7 GB** |
+| `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | DLFW vLLM (`nvcr.io/nvidia/vllm:26.07-py3`) | `nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml` | 9 B | FP8 | **11.7 GB** |
 | `nvidia/nemotron-3-nano` | NIM | `nim/nemotron-3-nano/compose.yml` | ~3 B | FP16 | ~7.8 GB |
 | `nvidia/llama-3.3-nemotron-super-49b-v1.5` | NIM | `nim/llama-3.3-nemotron-super-49b-v1.5/compose.yml` | 49 B | FP16 | **127 GB** (needs tp≥2 to fit on H100/L40S) |
 | `openai/gpt-oss-20b` | NIM | `nim/gpt-oss-20b/compose.yml` | 20 B | FP16 | **52 GB** |
@@ -247,7 +247,7 @@ For models that aren't packaged as NIMs but have weights on Hugging Face or NGC,
 ```yaml
 services:
   <slug>:                                    # dedicated-GPU variant
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m
