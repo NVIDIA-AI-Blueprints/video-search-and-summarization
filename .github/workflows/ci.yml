@@ -428,9 +428,12 @@ jobs:
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
+            .github/skill-eval/tests/test_remote_worker_lock.py \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
             .github/skill-eval/tests/test_run_leg.py::HarborEnvironment \
+            .github/skill-eval/tests/test_run_leg.py::HoldPoolLock \
+            .github/skill-eval/tests/test_run_leg.py::RemoteWorkerLeaseIntegration \
             .github/skill-eval/tests/test_run_leg.py::RunCommand \
             .github/skill-eval/tests/test_run_leg.py::ProcessGroupShutdown \
             .github/skill-eval/tests/test_run_leg.py::RunInvocations \

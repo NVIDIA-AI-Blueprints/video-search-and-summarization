@@ -7,7 +7,7 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Selects an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
-4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
+4. Calls [`run_leg.py`](run_leg.py), which acquires both the runner-local per-instance `flock` and an atomic lease on the worker itself, holds both while every Harbor subprocess for this `(spec, platform)` runs, and invokes Harbor 0.20.0 through Python 3.12 with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 
@@ -47,7 +47,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` | Remote-LLM endpoint used by `remote-*` deploy modes |
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
 | `HF_TOKEN` | Required by the Edge 4B vLLM on SPARK / Thor `shared` mode |
-| `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
+| `GITHUB_TOKEN` / `GH_TOKEN` | Issued to PR reporting and authenticated Actions job/run liveness checks for abandoned worker leases; the eval workflows require `actions: read` |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
 
@@ -58,7 +58,8 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 ├── README.md              ← you are here
 ├── AGENTS.md              ← skills-eval agent's system prompt
 ├── skills_eval_agent.py   ← the CI entrypoint (spawns the agent)
-├── run_leg.py             ← structural per-box lock + Harbor launcher
+├── run_leg.py             ← two-layer per-box allocator + Harbor launcher
+├── remote_worker_lock.py  ← cross-runner worker lease + heartbeat/liveness
 ├── adapters/              ← per-skill dataset generators
 │   ├── vss-deploy-profile/            ← profile × platform × mode matrix
 │   │   └── generate.py
@@ -183,7 +184,8 @@ python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
 INSTANCE_NAME=vss-eval-l40s
 
 # 3. Run one trial. run_leg.py discovers single-step vs multi-step task
-#    layouts, holds /tmp/brev/$INSTANCE_NAME.lock, and invokes Harbor.
+#    layouts, holds the local /tmp/brev/$INSTANCE_NAME.lock plus the matching
+#    worker-side lease, and invokes Harbor.
 export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
 
 python3 .github/skill-eval/run_leg.py \

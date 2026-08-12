@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Run one skills-eval leg under a process-held Brev box lock.
+"""Run one skills-eval leg under local and worker-side Brev box locks.
 
-This wrapper owns BOTH fleet selection and the per-instance flock: it
+This wrapper owns fleet selection, the runner-local flock, and a shared
+worker-side lease. It
 reads the task's hardware requirements from the dataset's task.toml,
 snapshots `brev ls --json`, and walks the eligible `vss-eval-*`
-candidates with NON-BLOCKING lock attempts — claiming the first box it
-can actually lock. The lock file descriptor stays open while Harbor
-runs, so the mutex is a real kernel lock instead of a shell-FD
-convention spread across multiple agent tool calls.
+candidates with NON-BLOCKING local lock attempts, then atomically claims
+the same lease on the candidate itself. Both reservations stay held while
+Harbor runs, coordinating jobs across different self-hosted runners.
 
 Why selection lives here and not in the agent: two legs that snapshot
 the fleet at the same moment both see the same "best" lock-free box
@@ -37,8 +37,14 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
+
+SKILL_EVAL_MODULE_ROOT = str(Path(__file__).resolve().parent)
+if SKILL_EVAL_MODULE_ROOT not in sys.path:
+    sys.path.insert(0, SKILL_EVAL_MODULE_ROOT)
+import remote_worker_lock  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -51,6 +57,9 @@ RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
 # its spec metadata declares gpu_type that matches GEFORCE RTX 4090.
 RTX4090_ALL_TESTS: frozenset[str] = frozenset()
 RTX4090_TESTS: dict[str, frozenset[str]] = {}
+# Transport choices discovered while snapshotting the pool. Managed Brev
+# workspaces use ``brev exec``; registered external nodes use their SSH alias.
+_WORKER_TRANSPORTS: dict[str, str] = {}
 # Shared root served by the coordinator's persistent `harbor-view.service`
 # (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
 # the host, not per leg, so every leg publishes its trials in here.
@@ -118,6 +127,10 @@ HARBOR_SIGINT_GRACE_SEC = (
 )
 HARBOR_SIGTERM_GRACE_SEC = 30
 HARBOR_SIGKILL_GRACE_SEC = 10
+# Once the worker lease is lost, another coordinator may already own the box.
+# Skip Harbor's artifact-recovery SIGINT window and bound old-tree overlap.
+LEASE_LOSS_SIGTERM_GRACE_SEC = 5
+LEASE_LOSS_SIGKILL_GRACE_SEC = 5
 PROCESS_GROUP_POLL_INTERVAL_SEC = 0.1
 HARBOR_SHUTDOWN_GRACE_SEC = (
     HARBOR_SIGINT_GRACE_SEC
@@ -141,6 +154,14 @@ class HarborInvocation:
     chain_key: str
     step_index: int | None = None
     step_count: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class LockedWorker:
+    """A worker held by both the runner-local mutex and remote lease."""
+
+    instance: str
+    lost_event: threading.Event
 
 
 class LockTimeoutError(RuntimeError):
@@ -281,6 +302,7 @@ def invocation_reserve_sec(harbor_timeout_sec: int) -> int:
         harbor_timeout_sec
         + HARBOR_SHUTDOWN_GRACE_SEC
         + HARBOR_POSTPROCESS_HEADROOM_SEC
+        + remote_worker_lock.REMOTE_LEASE_RELEASE_BUDGET_SEC
     )
 
 
@@ -430,18 +452,42 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
     return []
 
 
-def _list_brev_instances() -> list[dict]:
+def _bounded_call_timeout(default: float, deadline: float | None) -> float:
+    if deadline is None:
+        return default
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired("skill-eval lock deadline", 0)
+    return min(default, remaining)
+
+
+def _bounded_retry_sleep(seconds: float, deadline: float | None) -> bool:
+    """Sleep within *deadline*; return false once no retry time remains."""
+    if deadline is None:
+        time.sleep(seconds)
+        return True
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return False
+    time.sleep(min(seconds, remaining))
+    return time.monotonic() < deadline
+
+
+def _list_brev_instances(deadline: float | None = None) -> list[dict]:
     """Snapshot `brev ls --json` with retries for transient RPC flakes.
     An org with zero managed instances prints `null` — authoritative-empty."""
     for attempt in range(4):
         try:
             proc = subprocess.run(
                 ["brev", "ls", "--json"],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True,
+                text=True,
+                timeout=_bounded_call_timeout(60, deadline),
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             print(f"[run-leg] brev ls failed (attempt {attempt + 1}): {exc}", flush=True)
-            time.sleep(5)
+            if not _bounded_retry_sleep(5, deadline):
+                break
             continue
         raw = (proc.stdout or "").strip()
         if raw.startswith("null"):
@@ -449,11 +495,12 @@ def _list_brev_instances() -> list[dict]:
         if raw and raw.rfind("]") >= 0:
             return _parse_brev_json(raw)
         print(f"[run-leg] brev ls returned empty stdout (attempt {attempt + 1})", flush=True)
-        time.sleep(5)
+        if not _bounded_retry_sleep(5, deadline):
+            break
     return []
 
 
-def _list_registered_nodes() -> list[dict]:
+def _list_registered_nodes(deadline: float | None = None) -> list[dict]:
     """Snapshot registered external nodes from ``brev ls nodes --json``.
 
     The CLI intentionally keeps registered nodes out of ``brev ls --json``.
@@ -465,14 +512,17 @@ def _list_registered_nodes() -> list[dict]:
         try:
             proc = subprocess.run(
                 ["brev", "ls", "nodes", "--json"],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True,
+                text=True,
+                timeout=_bounded_call_timeout(60, deadline),
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             print(
                 f"[run-leg] brev ls nodes failed (attempt {attempt + 1}): {exc}",
                 flush=True,
             )
-            time.sleep(5)
+            if not _bounded_retry_sleep(5, deadline):
+                break
             continue
         raw = (proc.stdout or "").strip()
         if raw.startswith("null"):
@@ -484,7 +534,8 @@ def _list_registered_nodes() -> list[dict]:
             f"(attempt {attempt + 1})",
             flush=True,
         )
-        time.sleep(5)
+        if not _bounded_retry_sleep(5, deadline):
+            break
     return []
 
 
@@ -546,9 +597,17 @@ def _registered_pool_allowlist(
 def _list_pool_instances(
     skill: str | None = None,
     spec_stem: str | None = None,
+    deadline: float | None = None,
 ) -> list[dict]:
     """Return managed instances plus connected registered pool nodes."""
-    instances = list(_list_brev_instances())
+    if deadline is None:
+        instances = list(_list_brev_instances())
+    else:
+        instances = list(_list_brev_instances(deadline=deadline))
+    for instance in instances:
+        name = (instance.get("name") or "").strip().lower()
+        if name:
+            _WORKER_TRANSPORTS[name] = "brev"
     seen = {(inst.get("name") or "").lower() for inst in instances}
     registered_allowlist = _registered_pool_allowlist(skill, spec_stem)
     rtx4090_allowlist = _parse_pool_names(
@@ -556,7 +615,12 @@ def _list_pool_instances(
     )
     if not registered_allowlist:
         return instances
-    for node in _list_registered_nodes():
+    nodes = (
+        _list_registered_nodes()
+        if deadline is None
+        else _list_registered_nodes(deadline=deadline)
+    )
+    for node in nodes:
         name = (node.get("name") or "").strip()
         if (
             not name
@@ -578,6 +642,7 @@ def _list_pool_instances(
                 and name.lower().startswith(RTX4090_PREFIX)
             ),
         })
+        _WORKER_TRANSPORTS[name.lower()] = "ssh"
         seen.add(name.lower())
     return instances
 
@@ -603,6 +668,7 @@ def _name_gpu_count_hint(name: str) -> int | None:
 def pool_candidates(
     metadata: dict,
     spec_stem: str | None = None,
+    deadline: float | None = None,
 ) -> list[str]:
     """Eligible `vss-eval-*` boxes for this leg, best-first.
 
@@ -624,7 +690,12 @@ def pool_candidates(
     )
 
     candidates: list[tuple[str, bool]] = []
-    for inst in _list_pool_instances(skill, spec_stem):
+    instances = (
+        _list_pool_instances(skill, spec_stem)
+        if deadline is None
+        else _list_pool_instances(skill, spec_stem, deadline=deadline)
+    )
+    for inst in instances:
         name = inst.get("name") or ""
         if not name.startswith("vss-eval-"):
             continue
@@ -661,26 +732,138 @@ def pool_candidates(
     return [name for name, _ in sorted(candidates, key=sort_key)]
 
 
+def _worker_uses_ssh(
+    instance: str,
+    deadline: float | None = None,
+) -> bool:
+    """Resolve the lease transport for managed vs registered workers."""
+    key = instance.lower()
+    cached = _WORKER_TRANSPORTS.get(key)
+    if cached is not None:
+        return cached == "ssh"
+
+    # Registered nodes are operator allowlisted before pool admission. Check
+    # both registered pools here so a pinned registered node gets the same
+    # direct-SSH transport even when pool discovery was skipped.
+    registered = _parse_pool_names(os.environ.get("BREV_REGISTERED_POOL", ""))
+    registered.update(_parse_pool_names(os.environ.get("BREV_RTX4090_POOL", "")))
+    if key in registered:
+        _WORKER_TRANSPORTS[key] = "ssh"
+        return True
+
+    # Pool-selected workers were cached by _list_pool_instances. Reaching this
+    # branch means an operator pinned an otherwise unknown worker. Resolve it
+    # explicitly instead of silently sending a registered node to unsupported
+    # ``brev exec``.
+    for managed in _list_brev_instances(deadline=deadline):
+        name = (managed.get("name") or "").strip().lower()
+        if name:
+            _WORKER_TRANSPORTS[name] = "brev"
+    if key in _WORKER_TRANSPORTS:
+        return False
+    for node in _list_registered_nodes(deadline=deadline):
+        name = (node.get("name") or "").strip().lower()
+        if name:
+            _WORKER_TRANSPORTS[name] = "ssh"
+    if key in _WORKER_TRANSPORTS:
+        return True
+    if deadline is not None and time.monotonic() >= deadline:
+        raise LockTimeoutError(
+            f"lock deadline expired while resolving {instance!r} transport"
+        )
+    raise RuntimeError(
+        f"could not resolve pinned worker transport for {instance!r}; "
+        "verify Brev discovery or add the registered node to "
+        "BREV_REGISTERED_POOL"
+    )
+
+
+def _remote_lock_executor(
+    instance: str,
+    deadline: float | None = None,
+) -> remote_worker_lock.RemoteExecutor:
+    """Bind the shared lease protocol to this worker's transport."""
+    use_ssh = _worker_uses_ssh(instance, deadline=deadline)
+
+    def execute(
+        command: str,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        if use_ssh:
+            cmd = [
+                "ssh",
+                "-T",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=15",
+                "-o",
+                "ServerAliveInterval=30",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "PermitLocalCommand=no",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
+                instance.lower(),
+                command,
+            ]
+            stdin = ""
+        else:
+            cmd = ["brev", "exec", instance, command]
+            # Brev may ask for an interactive confirmation before executing.
+            stdin = "\n"
+        return subprocess.run(
+            cmd,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+
+    return execute
+
+
+def _try_acquire_remote_worker_lease(
+    instance: str,
+    deadline: float | None = None,
+) -> remote_worker_lock.RemoteWorkerLease | None:
+    return remote_worker_lock.try_acquire_remote_worker_lock(
+        _remote_lock_executor(instance, deadline=deadline),
+        instance,
+        deadline=deadline,
+    )
+
+
 @contextlib.contextmanager
 def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
-    """Claim the first candidate whose flock succeeds NON-BLOCKINGLY.
+    """Claim the first candidate whose local and remote locks both succeed.
 
-    Selection and reservation are one atomic step: a busy box fails the
-    try-lock and we move to the next candidate, so concurrent legs fan
-    out across the pool instead of herding onto one "best" box. When
-    every candidate is held (or none is eligible), re-snapshot the fleet
-    and retry every 60s until `timeout_sec` — the pool is operator-managed
-    and a box may come online mid-run.
+    The non-blocking flock coordinates jobs on one runner host. The atomic
+    worker-side lease coordinates different runner hosts. A candidate is
+    selected only after both layers succeed; a remotely busy candidate gives
+    up its local flock immediately so another local job may use it later.
 
-    Yields the claimed instance name; the lock FD stays open until exit.
+    Yields the claimed instance and lease-loss event. Both locks stay held
+    until exit.
     """
     lock_dir.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout_sec
     chosen: str | None = None
     fp = None
+    remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
     while True:
-        names = candidates_fn()
+        names = candidates_fn(deadline)
         for name in names:
+            if time.monotonic() >= deadline:
+                break
             if "/" in name or name in {"", ".", ".."}:
                 raise ValueError(f"invalid Brev instance name for lock file: {name!r}")
             lock_path = lock_dir / f"{name}.lock"
@@ -692,9 +875,25 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
                 if exc.errno not in (errno.EACCES, errno.EAGAIN):
                     raise
                 continue
-            chosen, fp = name, candidate_fp
-            print(f"[run-leg] selected instance: {name} (lock acquired: {lock_path})",
-                  flush=True)
+            try:
+                candidate_remote_lease = _try_acquire_remote_worker_lease(
+                    name,
+                    deadline=deadline,
+                )
+            except Exception:
+                fcntl.flock(candidate_fp.fileno(), fcntl.LOCK_UN)
+                candidate_fp.close()
+                raise
+            if candidate_remote_lease is None:
+                fcntl.flock(candidate_fp.fileno(), fcntl.LOCK_UN)
+                candidate_fp.close()
+                continue
+            chosen, fp, remote_lease = name, candidate_fp, candidate_remote_lease
+            print(
+                f"[run-leg] selected instance: {name} "
+                f"(local + remote locks acquired: {lock_path})",
+                flush=True,
+            )
             break
         if chosen:
             break
@@ -712,11 +911,29 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
         )
         time.sleep(min(60, remaining))
     try:
-        yield chosen
+        assert remote_lease is not None
+        yield LockedWorker(chosen, remote_lease.lost_event)
     finally:
-        fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
-        fp.close()
-        print(f"[run-leg] lock released: {chosen}", flush=True)
+        assert remote_lease is not None
+        remote_released = False
+        try:
+            remote_released = remote_lease.release()
+        finally:
+            fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+            fp.close()
+            if remote_released:
+                message = f"[run-leg] local + remote locks released: {chosen}"
+            else:
+                # A failed exact-owner release can be transport uncertainty or
+                # a last-moment owner change. Invalidate the leg result either
+                # way; preserving a possibly useful result is less important
+                # than never reporting a run that may have overlapped.
+                remote_lease.lost_event.set()
+                message = (
+                    "[run-leg] local lock released; exact remote lease retained "
+                    f"for safe reconciliation: {chosen}"
+                )
+            print(message, flush=True)
 
 
 def _process_group_exists(pgid: int) -> bool:
@@ -923,7 +1140,41 @@ def _cancel_process_tree(
     return exited
 
 
-def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
+def _cancel_process_tree_after_lease_loss(
+    proc: subprocess.Popen,
+    pgid: int,
+    registry_path: Path,
+) -> bool:
+    """Terminate promptly when this coordinator no longer owns the worker."""
+    exited = _signal_process_group_and_wait(
+        proc,
+        pgid,
+        signal.SIGTERM,
+        LEASE_LOSS_SIGTERM_GRACE_SEC,
+        registry_path,
+    )
+    if not exited:
+        print(
+            "[run-leg] Harbor tree survived lease-loss SIGTERM; "
+            "escalating to SIGKILL",
+            flush=True,
+        )
+        exited = _signal_process_group_and_wait(
+            proc,
+            pgid,
+            signal.SIGKILL,
+            LEASE_LOSS_SIGKILL_GRACE_SEC,
+            registry_path,
+        )
+    return exited
+
+
+def run_command(
+    cmd: list[str],
+    env: dict[str, str],
+    timeout_sec: int,
+    abort_event: threading.Event | None = None,
+) -> int:
     print(f"[run-leg] exec: {' '.join(cmd)}", flush=True)
     registry_fd, registry_name = tempfile.mkstemp(
         prefix="skill-eval-transport-pgids-",
@@ -979,13 +1230,40 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                 cleanup_started = True
                 raise _RunCommandInterrupted(pending_signal)
 
-            try:
-                rc = proc.wait(timeout=timeout_sec)
-            except subprocess.TimeoutExpired:
-                cleanup_started = True
-                outcome = 124
-                reason = f"outer timeout after {timeout_sec}s"
-            else:
+            deadline = time.monotonic() + timeout_sec
+            while True:
+                if abort_event is not None and abort_event.is_set():
+                    cleanup_started = True
+                    outcome = 125
+                    reason = "remote worker lease lost"
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    cleanup_started = True
+                    outcome = 124
+                    reason = f"outer timeout after {timeout_sec}s"
+                    break
+                try:
+                    wait_timeout = (
+                        timeout_sec
+                        if abort_event is None
+                        else min(1.0, remaining)
+                    )
+                    rc = proc.wait(timeout=wait_timeout)
+                except subprocess.TimeoutExpired:
+                    if abort_event is None:
+                        cleanup_started = True
+                        outcome = 124
+                        reason = f"outer timeout after {timeout_sec}s"
+                        break
+                    continue
+                # If ownership was lost while the child exited, fail closed:
+                # the result may have been produced during unsafe overlap.
+                if abort_event is not None and abort_event.is_set():
+                    cleanup_started = True
+                    outcome = 125
+                    reason = "remote worker lease lost"
+                    break
                 if rc < 0:
                     cleanup_started = True
                     outcome = 128 + abs(rc)
@@ -1005,6 +1283,7 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                         "Harbor exited while detached transport groups remained: "
                         + ", ".join(map(str, detached))
                     )
+                break
         except _RunCommandInterrupted as exc:
             cleanup_started = True
             outcome = 128 + exc.signum
@@ -1014,16 +1293,27 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
             return outcome
 
         cleanup_started = True
-        print(
-            f"[run-leg] {reason}; "
-            "requesting graceful Harbor cancellation with SIGINT",
-            flush=True,
-        )
         # Ignore repeated workflow signals while bounded cleanup owns the
         # process tree. A later SIGKILL remains the unavoidable hard ceiling.
         for sig in previous_handlers:
             signal.signal(sig, signal.SIG_IGN)
-        exited = _cancel_process_tree(proc, pgid, registry_path)
+        if outcome == 125:
+            print(
+                f"[run-leg] {reason}; terminating the old Harbor tree now",
+                flush=True,
+            )
+            exited = _cancel_process_tree_after_lease_loss(
+                proc,
+                pgid,
+                registry_path,
+            )
+        else:
+            print(
+                f"[run-leg] {reason}; "
+                "requesting graceful Harbor cancellation with SIGINT",
+                flush=True,
+            )
+            exited = _cancel_process_tree(proc, pgid, registry_path)
         if not exited:
             print(
                 "[run-leg] Harbor tree could not be reaped after SIGKILL; "
@@ -1244,6 +1534,7 @@ def run_invocations(
     platform: str,
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
+    abort_event: threading.Event | None = None,
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -1289,6 +1580,8 @@ def run_invocations(
     overall_rc = 0
 
     for invocation in invocations:
+        if abort_event is not None and abort_event.is_set():
+            return 125
         if (
             invocation.step_index is not None
             and invocation.chain_key in skipped_after
@@ -1323,7 +1616,12 @@ def run_invocations(
 
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
-        rc = run_command(cmd, env, harbor_timeout_sec)
+        rc = run_command(
+            cmd,
+            env,
+            harbor_timeout_sec,
+            abort_event=abort_event,
+        )
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1332,6 +1630,8 @@ def run_invocations(
             # A trace link is reporting convenience; the verdict comes from
             # reward.txt. Never let a viewer-publish error fail the leg.
             print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
+        if abort_event is not None and abort_event.is_set():
+            return 125
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
@@ -1434,25 +1734,36 @@ def main(argv: list[str] | None = None) -> int:
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)
-            candidates_fn = lambda: [pinned]  # noqa: E731
+            candidates_fn = lambda _deadline: [pinned]  # noqa: E731
         else:
             candidates_fn = (  # noqa: E731
-                lambda: pool_candidates(metadata, args.spec_stem)
+                lambda deadline: pool_candidates(
+                    metadata,
+                    args.spec_stem,
+                    deadline=deadline,
+                )
             )
         try:
             with hold_pool_lock(
                 candidates_fn, args.lock_dir, effective_lock_timeout
-            ) as instance:
-                return run_invocations(
+            ) as worker:
+                result = run_invocations(
                     invocations,
-                    instance,
+                    worker.instance,
                     args.results_root,
                     args.scratch,
                     args.spec_stem,
                     args.platform,
                     args.harbor_timeout_sec,
-                    work_deadline,
+                    work_deadline=work_deadline,
+                    abort_event=worker.lost_event,
                 )
+            # The context exit stops the heartbeat before this final check,
+            # closing the race where ownership could be lost after Harbor's
+            # last process exits but before the lease is released.
+            if worker.lost_event.is_set():
+                return 125
+            return result
         except LockTimeoutError:
             if effective_lock_timeout < args.lock_timeout_sec:
                 raise LegDeadlineError(

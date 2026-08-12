@@ -39,16 +39,18 @@ on:
 # helm-sync.yml does it — no PAT, no rotation, no personal-account
 # binding. The skill-eval bot PRs hit the source PR's headRefName branch
 # in this same repo, so contents:write is enough; pull-requests:write
-# covers gh pr comment + gh pr create.
+# covers gh pr comment + gh pr create; actions:read lets the shared-worker
+# lease prove an abandoned owner job is terminal.
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
 # Only one sweep runs at a time per ref. A fresh run cancels the in-flight
-# one; the per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock)
-# release automatically when the agent process dies (POSIX flock(2) semantics —
-# no userspace trap needed). Any stale containers / volumes / marker that the
-# cancelled run left on a box are reconciled by the NEXT run's
+# one. The kernel releases each runner-local flock when its wrapper dies; the
+# next allocator removes the matching worker-side lease only after Actions
+# proves its owner job terminal. Any stale containers / volumes / marker that
+# the cancelled run left on a box are reconciled by the NEXT run's
 # `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
 # carries `<profile_tag>|<run_id>`, so a marker from this run never matches
 # the next run's desired marker and the next run always tears down + redeploys.
