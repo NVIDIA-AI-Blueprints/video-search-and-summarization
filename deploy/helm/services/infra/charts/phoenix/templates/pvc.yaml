@@ -23,8 +23,10 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- if .Values.persistence.storageClass }}
-  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- $global := .Values.global | default dict }}
+  {{- $sc := .Values.persistence.storageClass | default (index $global "storageClass") }}
+  {{- with $sc }}
+  storageClassName: {{ . | quote }}
   {{- end }}
   resources:
     requests:

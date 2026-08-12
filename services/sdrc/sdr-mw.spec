@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# PyInstaller spec for run_workloads.py (sdr-mw). Dependencies aligned with requirements.txt + lib/*.
+# PyInstaller spec for run_workloads.py (sdr-mw). Dependencies aligned with pyproject.toml + lib/*.
 import os
 import pathlib
 from PyInstaller.utils.hooks import collect_all, collect_submodules
@@ -88,7 +88,7 @@ def merge_collect(package: str) -> None:
     hiddenimports += ret[2]
 
 
-# Third-party: import/top-level names matching requirements.txt (and common transitive roots).
+# Third-party: import/top-level names matching pyproject.toml (and common transitive roots).
 for _pkg in (
     'backports',
     'certifi',
@@ -106,7 +106,6 @@ for _pkg in (
     'idna',
     'jinja2',
     'kafka',
-    'kopf',
     'kubernetes',
     'prometheus_client',
     'redis',
@@ -115,7 +114,6 @@ for _pkg in (
     'simple_settings',
     'stringcase',
     'urllib3',
-    'websockets',
     'werkzeug',
     'yaml',
 ):

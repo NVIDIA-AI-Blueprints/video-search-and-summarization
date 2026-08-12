@@ -836,8 +836,8 @@ on_new_sample_from_sink_audio (GstElement * appsink, GstDeMux *gstDemux)
 void GstDeMux::setGstClock(GstClock* global_clock, GstClockTime base_time)
 {
     LOG(info) << "Setting gstclock for demux pipeline filename:" << m_filename << " m_baseGstTime:" << base_time << endl;
-    m_globalGstClock = global_clock;
-    m_baseGstTime = base_time;
+    m_globalGstClock.store(global_clock);
+    m_baseGstTime.store(base_time);
 }
 
 int GstDeMux::create_playbin ()
@@ -1873,6 +1873,20 @@ void GstDeMux::seek (int64_t seek_pos , uint64_t end_time, float rate /*1*/)
             m_callbackData.m_index = 0;
             m_isEOS = false;
 
+            /* Keep a late joiner / reconnecting stream locked to the group's
+             * shared clock across the seek. seek() otherwise leaves the
+             * pipeline on whatever clock it had, so a source that is seeked
+             * to the group's current position would free-run and drift.
+             * No-op when this demux is not part of a synchronized group
+             * (m_globalGstClock is null). */
+            GstClock* syncClock = m_globalGstClock.load();
+            if (syncClock)
+            {
+                gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), syncClock);
+                gst_element_set_base_time(m_pipeline, m_baseGstTime.load());
+                gst_element_set_start_time(m_pipeline, GST_CLOCK_TIME_NONE);
+            }
+
             if (rate > 0)
             {
                 if (!gst_element_seek_simple (m_pipeline, GST_FORMAT_TIME,
@@ -1914,17 +1928,18 @@ void GstDeMux::seekToStart ()
         return;
     }
 
-    if (m_globalGstClock)
+    GstClock* syncClock = m_globalGstClock.load();
+    if (syncClock)
     {
-        gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), m_globalGstClock);
-        gst_element_set_base_time(m_pipeline, m_baseGstTime);
+        gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), syncClock);
+        gst_element_set_base_time(m_pipeline, m_baseGstTime.load());
         gst_element_set_start_time(m_pipeline, GST_CLOCK_TIME_NONE);
     }
 
     /* Seek on the appropriate capsfilter for the configured media type.
      * For an audio-only demux instance m_filterVideo is null, and vice versa. */
     GstElement* seekTarget = (m_mediaType == MediaTypeAudio) ? m_filterAudio : m_filterVideo;
-    LOG(info) << "Seeking to start for demux pipeline filename:" << m_filename << " m_baseGstTime:" << m_baseGstTime << endl;
+    LOG(info) << "Seeking to start for demux pipeline filename:" << m_filename << " m_baseGstTime:" << m_baseGstTime.load() << endl;
     if (seekTarget == nullptr)
     {
         LOG(error) << "seekToStart: seek target is null for mediaType:"
@@ -1972,10 +1987,11 @@ void GstDeMux::play_internal ()
         }
         LOG(info) << "File Name = " <<  m_filename << endl;
 
-        if (m_globalGstClock)
+        GstClock* syncClock = m_globalGstClock.load();
+        if (syncClock)
         {
-            gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), m_globalGstClock);
-            gst_element_set_base_time(m_pipeline, m_baseGstTime);
+            gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), syncClock);
+            gst_element_set_base_time(m_pipeline, m_baseGstTime.load());
             gst_element_set_start_time(m_pipeline, GST_CLOCK_TIME_NONE);
         }
         gst_element_set_state (m_pipeline, GST_STATE_PLAYING);

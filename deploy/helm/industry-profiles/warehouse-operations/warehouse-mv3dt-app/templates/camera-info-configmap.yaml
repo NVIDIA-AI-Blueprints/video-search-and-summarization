@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Live RTSP cameras for the sensor configurator. Used when the bp-configurator
+# env sets SENSOR_INFO_SOURCE=file and points SENSOR_FILE_PATH here.
+{{- $cams := .Values.cameraInfo | default dict }}
+{{- if $cams.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cams.configMapName | default "warehouse-camera-info" }}
+  labels:
+    app.kubernetes.io/name: warehouse-camera-info
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  camera_info.json: |
+{{ toPrettyJson (dict "sensors" ($cams.sensors | default list)) | indent 4 }}
+{{- end }}

@@ -54,7 +54,6 @@ Infer the target from user context or the invoking agent's workflow. Do not prom
 | VIOS / stream-processor (default) | — | `deploy --force` (VIOS only; NVStreamer is opt-in — see Step 2) |
 | NVStreamer only | `nvstreamer` | `deploy --target nvstreamer --force` |
 | Full stack (stream-processor + NVStreamer) | `all` | `deploy --target all --force` |
-| With monitoring | — | add `--with-monitoring` |
 
 ---
 
@@ -200,7 +199,6 @@ python3 oneclick_dc_deployment.py deploy --target nvstreamer --force
 
 Additional flags for the **VIOS deploy command only** (do not append to the nvstreamer step):
 ```bash
---with-monitoring   # Grafana/Prometheus
 --skip-sysctl       # Skip host network-buffer (sysctl) tuning. Pass this for
                     # agent/CI runs without passwordless sudo. The script also
                     # auto-skips with a warning if stdin is non-TTY and sudo
