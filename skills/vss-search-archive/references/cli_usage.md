@@ -13,16 +13,15 @@ test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
   exit 1
 }
 cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
-  vss search run <path> [options]
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+"${VSS[@]}" search run <path> [options]
 ```
 
 The executable is provided by that project and need not exist globally. Do not
 use `which vss`; verify the supported entry point directly:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
-  vss search run --help
+"${VSS[@]}" search run --help
 ```
 
 Keep `--extra cli` on every project-local invocation; the base meta package
@@ -36,9 +35,9 @@ Do not invoke it through `docker exec`, `kubectl exec`, or a pod shell.
 ## Configure once
 
 ```bash
-vss configure --base-url "${VSS_ORIGIN}"   # probe + record ~/.vss/config.json
-vss configure show                          # recorded deployment (indices, models)
-vss configure check                         # re-probe; exit 3 if a route went away
+"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" # probe + record ~/.vss/config.json
+"${VSS[@]}" configure show                        # recorded deployment (indices, models)
+"${VSS[@]}" configure check                       # re-probe; exit 3 if a route went away
 ```
 
 `~/.vss/config.json` is written 0600 and holds no credentials. Re-run
