@@ -336,9 +336,18 @@ jobs:
         if: matrix.name == 'vss-configurator'
         working-directory: services/configurators/vss-configurator
         run: |
-          uv sync --python 3.13 --frozen --group dev
+          # The unit tests mock spatialai-data-utils, so avoid installing the
+          # full runtime dependency graph on the Sonar self-hosted runner.
+          # That graph currently pulls numpy 1.26.4, which has no Python 3.13
+          # wheel and falls back to a source build requiring Python headers.
           mkdir -p test/coverage
-          uv run --python 3.13 pytest tests/ -v --tb=short \
+          uv run --python 3.13 \
+            --with pytest \
+            --with pytest-cov \
+            --with Flask==3.1.0 \
+            --with requests==2.32.3 \
+            --with ruamel.yaml==0.18.15 \
+            pytest tests/ -v --tb=short \
             --junitxml=test/coverage/test-results.xml \
             --cov=app \
             --cov-report=xml:coverage.xml \
