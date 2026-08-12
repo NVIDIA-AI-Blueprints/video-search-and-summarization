@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -52,26 +52,25 @@
 inline constexpr int SCHEDULER_THREAD_COUNT = 1;
 
 using namespace nv_vms;
-using namespace std;
 
 namespace nv_vms
 {
     class NvGstVideoRecorder
     {
     public:
-        NvGstVideoRecorder(shared_ptr<StreamInfo> stream, GAsyncQueue *qErrorDeviceID, RecordState record_state) : m_isRunning(false), m_isInError(false), m_qErrorDeviceID(qErrorDeviceID)
+        NvGstVideoRecorder(std::shared_ptr<StreamInfo> stream, GAsyncQueue *qErrorDeviceID, RecordState record_state) : m_isRunning(false), m_isInError(false), m_qErrorDeviceID(qErrorDeviceID)
         {
             updateRecordingStatus(stream->id, record_state, stream->sensorId);
             m_mux.reset(new GstMux(record_state));
-            LOG(verbose) << __METHOD_NAME__ << endl;
-            m_updatePipelineScheduler = make_unique<Bosma::Scheduler>(SCHEDULER_THREAD_COUNT);
+            LOG(verbose) << __METHOD_NAME__ << std::endl;
+            m_updatePipelineScheduler = std::make_unique<Bosma::Scheduler>(SCHEDULER_THREAD_COUNT);
             m_uri = stream->live_proxy_url;
             m_deviceId = stream->sensorId;
             m_streamId = stream->id;
             this->Start(stream, m_qErrorDeviceID);
         }
 
-        static std::shared_ptr<NvGstVideoRecorder> Create(shared_ptr<StreamInfo> stream, GAsyncQueue *qErrorDeviceID, RecordState record_state)
+        static std::shared_ptr<NvGstVideoRecorder> Create(std::shared_ptr<StreamInfo> stream, GAsyncQueue *qErrorDeviceID, RecordState record_state)
         {
             std::shared_ptr<NvGstVideoRecorder> capturer(new NvGstVideoRecorder(stream, qErrorDeviceID, record_state));
             return capturer;
@@ -80,23 +79,23 @@ namespace nv_vms
         virtual ~NvGstVideoRecorder()
         {
             try {
-                LOG(verbose) << __METHOD_NAME__ << endl;
+                LOG(verbose) << __METHOD_NAME__ << std::endl;
                 m_updatePipelineScheduler.reset();
                 this->Stop();
             } catch (const std::exception& e) {
-                try { LOG(error) << "Exception in ~NvGstVideoRecorder: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+                try { LOG(error) << "Exception in ~NvGstVideoRecorder: " << e.what() << std::endl; } catch (...) { (void)std::current_exception(); }
             } catch (...) {
-                try { LOG(error) << "Unknown exception in ~NvGstVideoRecorder" << endl; } catch (...) { (void)std::current_exception(); }
+                try { LOG(error) << "Unknown exception in ~NvGstVideoRecorder" << std::endl; } catch (...) { (void)std::current_exception(); }
             }
         }
 
-        void Start(shared_ptr<StreamInfo> stream, GAsyncQueue *qErrorDeviceID)
+        void Start(std::shared_ptr<StreamInfo> stream, GAsyncQueue *qErrorDeviceID)
         {
-            LOG(verbose) << __METHOD_NAME__ << endl;
+            LOG(verbose) << __METHOD_NAME__ << std::endl;
             if (m_mux->create(stream, qErrorDeviceID) == -1)
             {
                 m_isInError = true;
-                LOG(error) << "Mux pipeline creation failed." << endl;
+                LOG(error) << "Mux pipeline creation failed." << std::endl;
                 g_async_queue_push(m_qErrorDeviceID, &(stream->sensorId));
                 return;
             }
@@ -134,7 +133,7 @@ namespace nv_vms
             {
                 if (m_mux->changeRecordStateTo(new_state) == -1)
                 {
-                    LOG(error) << "Failed to change state to" << new_state << endl;
+                    LOG(error) << "Failed to change state to" << new_state << std::endl;
                     ret = -1;
                 }
             }
@@ -154,21 +153,21 @@ namespace nv_vms
             return ret;
         }
 
-        void updateRecordingStatus(const string &streamId, RecordState new_status, const std::optional<string> &sensorId = std::nullopt)
+        void updateRecordingStatus(const std::string &streamId, RecordState new_status, const std::optional<std::string> &sensorId = std::nullopt)
         {
             if (streamId.empty())
             {
-                LOG(error) << "Failed to update Recording status: streamId is Empty" << endl;
+                LOG(error) << "Failed to update Recording status: streamId is Empty" << std::endl;
                 return;
             }
             int ret = GET_DB_INSTANCE()->setRecordingStatus(streamId, new_status, sensorId);
             if (ret == -1)
             {
-                LOG(error) << "Failed to update Recording status to database" << endl;
+                LOG(error) << "Failed to update Recording status to database" << std::endl;
             }
         }
 
-        RecordState getRecordStatus(const string &streamId)
+        RecordState getRecordStatus(const std::string &streamId)
         {
             std::map<std::string, RecordingStatusDBColumns, std::less<>> currStatus;
             VmsErrorCode ret = GET_DB_INSTANCE()->getRecordingStatus(currStatus, streamId);
@@ -205,7 +204,7 @@ namespace nv_vms
 
         void Stop()
         {
-            LOG(info) << "Enter Stop" << endl;
+            LOG(info) << "Enter Stop" << std::endl;
             m_isRunning = false;
 
             if (m_mux->isCreated())
@@ -229,7 +228,7 @@ namespace nv_vms
                 }
                 m_mux->destroy();
             }
-            LOG(info) << "Exit Stop" << endl;
+            LOG(info) << "Exit Stop" << std::endl;
         }
 
 #ifdef UNIT_TEST
@@ -280,7 +279,7 @@ namespace nv_vms
         }
 
     private:
-        shared_ptr<GstMux> m_mux = nullptr;
+        std::shared_ptr<GstMux> m_mux = nullptr;
         bool m_isRunning;
         bool m_isInError;
         std::string m_outputFileName;

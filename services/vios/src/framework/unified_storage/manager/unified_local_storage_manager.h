@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +32,7 @@ class UnifiedLocalStorageManager : public UnifiedStorageManager
 {
 public:
     UnifiedLocalStorageManager();
-    virtual ~UnifiedLocalStorageManager();
+    virtual ~UnifiedLocalStorageManager() = default;
 
     // Core interface
     bool isAvailable() const override;
@@ -80,6 +80,7 @@ protected:
     uint64_t calculateDirectorySize(const std::string& path) const;
     size_t countFilesInDirectory(const std::string& path, bool recursive = false) const;
 
+private:
     // Member variables
     std::string m_base_path;
     bool m_create_directories;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -560,51 +560,45 @@ export const calculateHomographyMatrix = (srcPoints: { x: number; y: number }[],
     return homography;
 };
 
-export const solveLinearSystemLeastSquares = (A: number[][], b: number[]): number[] => {
-    // Least squares solution using normal equations: (A^T * A) * x = A^T * b
-    // For production, use a proper linear algebra library like ml-matrix
-
-    const m = A.length; // number of equations
-    const n = A[0].length; // number of unknowns
-
-    // Calculate A^T (transpose of A)
-    const AT: number[][] = [];
-    for (let j = 0; j < n; j++) {
+const transposeMatrix = (M: number[][]): number[][] => {
+    const rows = M.length;
+    const cols = M[0].length;
+    const T: number[][] = [];
+    for (let j = 0; j < cols; j++) {
         const row: number[] = [];
-        for (let i = 0; i < m; i++) {
-            row.push(A[i][j]);
+        for (let i = 0; i < rows; i++) {
+            row.push(M[i][j]);
         }
-        AT.push(row);
+        T.push(row);
     }
+    return T;
+};
 
-    // Calculate A^T * A
-    const ATA: number[][] = [];
-    for (let i = 0; i < n; i++) {
+const multiplyMatrices = (X: number[][], Y: number[][]): number[][] => {
+    const inner = Y.length;
+    const cols = Y[0].length;
+    const result: number[][] = [];
+    for (const xRow of X) {
         const row: number[] = [];
-        for (let j = 0; j < n; j++) {
+        for (let j = 0; j < cols; j++) {
             let sum = 0;
-            for (let k = 0; k < m; k++) {
-                sum += AT[i][k] * A[k][j];
+            for (let k = 0; k < inner; k++) {
+                sum += xRow[k] * Y[k][j];
             }
             row.push(sum);
         }
-        ATA.push(row);
+        result.push(row);
     }
+    return result;
+};
 
-    // Calculate A^T * b
-    const ATb: number[] = [];
-    for (let i = 0; i < n; i++) {
-        let sum = 0;
-        for (let j = 0; j < m; j++) {
-            sum += AT[i][j] * b[j];
-        }
-        ATb.push(sum);
-    }
+const multiplyMatrixVector = (X: number[][], v: number[]): number[] =>
+    X.map(row => row.reduce((sum, value, j) => sum + value * v[j], 0));
 
-    // Solve the system (A^T * A) * x = A^T * b using Gaussian elimination
-    const augmented = ATA.map((row, i) => [...row, ATb[i]]);
-
-    // Forward elimination
+/**
+ * In-place forward elimination with partial pivoting on an augmented n x (n+1) matrix
+ */
+const forwardEliminate = (augmented: number[][], n: number): void => {
     for (let i = 0; i < n; i++) {
         // Find pivot
         let maxRow = i;
@@ -628,8 +622,9 @@ export const solveLinearSystemLeastSquares = (A: number[][], b: number[]): numbe
             }
         }
     }
+};
 
-    // Back substitution
+const backSubstitute = (augmented: number[][], n: number): number[] => {
     const x = new Array(n);
     for (let i = n - 1; i >= 0; i--) {
         x[i] = augmented[i][n];
@@ -638,8 +633,24 @@ export const solveLinearSystemLeastSquares = (A: number[][], b: number[]): numbe
         }
         x[i] /= augmented[i][i];
     }
-
     return x;
+};
+
+export const solveLinearSystemLeastSquares = (A: number[][], b: number[]): number[] => {
+    // Least squares solution using normal equations: (A^T * A) * x = A^T * b
+    // For production, use a proper linear algebra library like ml-matrix
+
+    const n = A[0].length; // number of unknowns
+
+    const AT = transposeMatrix(A);
+    const ATA = multiplyMatrices(AT, A);
+    const ATb = multiplyMatrixVector(AT, b);
+
+    // Solve the system (A^T * A) * x = A^T * b using Gaussian elimination
+    const augmented = ATA.map((row, i) => [...row, ATb[i]]);
+
+    forwardEliminate(augmented, n);
+    return backSubstitute(augmented, n);
 };
 
 /**
@@ -778,6 +789,41 @@ export const transform2DWorldToImage = (
 };
 
 /**
+ * Check whether three points form a triangle that is negligible relative to their mutual distances
+ */
+const isNearlyCollinear = (p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }): boolean => {
+    // Calculate area of triangle formed by 3 points
+    const area = Math.abs((p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y)) / 2);
+    const maxDist = Math.max(
+        Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2),
+        Math.sqrt((p2.x - p3.x) ** 2 + (p2.y - p3.y) ** 2),
+        Math.sqrt((p1.x - p3.x) ** 2 + (p1.y - p3.y) ** 2)
+    );
+
+    // Very small triangle relative to distances
+    return maxDist > 0 && area / maxDist ** 2 < 0.01;
+};
+
+/**
+ * Count the point triples that are nearly collinear (simplified collinearity test)
+ */
+const countNearlyCollinearTriples = (points: { x: number; y: number }[]): number => {
+    let count = 0;
+
+    for (let i = 0; i < points.length - 2; i++) {
+        for (let j = i + 1; j < points.length - 1; j++) {
+            for (let k = j + 1; k < points.length; k++) {
+                if (isNearlyCollinear(points[i], points[j], points[k])) {
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    return count;
+};
+
+/**
  * Diagnose calibration data quality and identify potential issues
  */
 export const diagnoseCalibrationData = (
@@ -846,43 +892,12 @@ export const diagnoseCalibrationData = (
         recommendations.push('Check if calibration points maintain consistent geometric relationships');
     }
 
-    // Check for collinearity (simplified check)
-    let collinearityScore = 0;
-    if (referenceImageCoords.length >= 4) {
-        // Check if points are roughly aligned (simplified collinearity test)
-        const imagePoints = referenceImageCoords.slice(0, 4);
+    // Check for collinearity (simplified check) in image space, using the first 4 points
+    const collinearityScore = referenceImageCoords.length >= 4 ? countNearlyCollinearTriples(referenceImageCoords.slice(0, 4)) : 0;
 
-        // Calculate if 3+ points are nearly collinear in image space
-        for (let i = 0; i < imagePoints.length - 2; i++) {
-            for (let j = i + 1; j < imagePoints.length - 1; j++) {
-                for (let k = j + 1; k < imagePoints.length; k++) {
-                    const p1 = imagePoints[i];
-                    const p2 = imagePoints[j];
-                    const p3 = imagePoints[k];
-
-                    // Calculate area of triangle formed by 3 points
-                    const area = Math.abs((p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y)) / 2);
-                    const maxDist = Math.max(
-                        Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2),
-                        Math.sqrt((p2.x - p3.x) ** 2 + (p2.y - p3.y) ** 2),
-                        Math.sqrt((p1.x - p3.x) ** 2 + (p1.y - p3.y) ** 2)
-                    );
-
-                    if (maxDist > 0) {
-                        const normalizedArea = area / maxDist ** 2;
-                        if (normalizedArea < 0.01) {
-                            // Very small triangle relative to distances
-                            collinearityScore += 1;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (collinearityScore > 0) {
-            warnings.push('Some calibration points appear to be nearly collinear');
-            recommendations.push('Ensure calibration points form a well-distributed pattern, not aligned in straight lines');
-        }
+    if (collinearityScore > 0) {
+        warnings.push('Some calibration points appear to be nearly collinear');
+        recommendations.push('Ensure calibration points form a well-distributed pattern, not aligned in straight lines');
     }
 
     // Check for extreme coordinate values

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,8 +23,6 @@
 #include <jsoncpp/json/json.h>
 #include "logger.h"
 
-using namespace std;
-
 struct LatencyStats
 {
      LatencyStats() : m_totalFrames(0)
@@ -33,10 +31,7 @@ struct LatencyStats
                     , m_maxLatency(0)
     {
     }
-    ~LatencyStats()
-    {
-
-    }
+    ~LatencyStats() = default;
     void clear()
     {
         m_totalFrames = 0;
@@ -53,8 +48,8 @@ struct LatencyStats
 class CodecStats : public LatencyStats
 {
     public:
-        CodecStats() {}
-        ~CodecStats() {}
+        CodecStats() = default;
+        ~CodecStats() = default;
         void startProcessing();
         void finishProcessing();
         void clearQueue();

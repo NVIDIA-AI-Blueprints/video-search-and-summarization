@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +36,6 @@
 #include "media_producer.h"
 
 using namespace std;
-using namespace nv_vms;
 
 namespace nv_vms
 {
@@ -50,6 +49,9 @@ struct StreamEncParam
                     , height(0)
     {}
 } StreamEncParam;
+/* Opaque stand-in for a libcurl easy handle (libcurl types it as void). */
+struct CurlEasyHandle;
+
 class IStreamStatusEvent
 {
 public:
@@ -90,6 +92,9 @@ public:
     std::string getSourceIdentifier() const override;
     size_t getConsumerCount() const override;
     bool hasConsumers() const override;
+    // Keep the base class registerConsumer overloads visible (e.g. the
+    // media-type variant) so they are not hidden by the ones declared here.
+    using IMediaDataProducer::registerConsumer;
     void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& identifier = "") override;
     // Overloaded registerConsumer for time-range playback
     void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& identifier, const std::string& startTime, const std::string& endTime) override;
@@ -138,7 +143,7 @@ private:
     std::thread m_streamMonitorThread;
     std::thread m_qosMeasurementThread;
     std::map<std::string, StreamStatus, std::less<>> m_livenessMonitorList;
-    std::vector<std::tuple<CURL*, std::string, bool>> m_curlList;
+    std::vector<std::tuple<CurlEasyHandle*, std::string, bool>> m_curlList;
     std::mutex m_livenessMonitorListMutex;
 
     bool m_exit;
@@ -155,10 +160,10 @@ private:
     void livenessMonitorTask();
     void updateUriStatus(const std::string& uri, StreamStatus status, CURLcode errorCode);
     void addCurlRequest(const std::string& url);
-    void removeCurlRequest(CURL *curl);
+    void removeCurlRequest(CurlEasyHandle *curl);
     bool isCurlResponsePendingForUri(const std::string& url);
-    void setCurlResponsePendingStatus(CURL *curl, bool isResponsePending);
-    std::string getUriByUsingCurlHandle(const CURL *curl);
+    void setCurlResponsePendingStatus(const std::string& url, bool isResponsePending);
+    std::string getUriByUsingCurlHandle(const CurlEasyHandle *curl);
     void notifyStreamStatus(const StreamStatus& status, const std::string& camera_id);
     std::vector<UrlInfo> getQosMonitorStreamList();
     void qosMeasurementTask();

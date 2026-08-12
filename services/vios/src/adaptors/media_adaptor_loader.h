@@ -21,6 +21,9 @@
 
 namespace nv_vms {
 
+// Opaque handle to a dynamically loaded shared library.
+struct SharedLibrary;
+
 class MediaAdaptorLoader
 {
 public:
@@ -28,10 +31,12 @@ public:
     {
         IMediaInterface* instance{nullptr};
         destroyMediaObject_t destroy{nullptr};
-        void* libraryHandle{nullptr};
+        SharedLibrary* libraryHandle{nullptr};
     };
 
     static int load(const std::string& path, MediaAdaptorHandle& handle);
+
+    static void closeLibrary(SharedLibrary* library);
 };
 
 } // namespace nv_vms

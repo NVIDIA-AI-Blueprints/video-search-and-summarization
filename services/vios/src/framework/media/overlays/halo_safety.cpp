@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
+#include <memory>
 
 constexpr int MAX_HALO_SAFETY_DATA_SIZE = 16;
 constexpr int DEFAULT_HALO_SAFETY_PORT = 12345;
@@ -370,13 +371,9 @@ void HaloSafetyCommandListener::listenerThread()
 // HaloSafetyManager Implementation
 // =============================================================================
 
-HaloSafetyManager::HaloSafetyManager()
-{
-}
+HaloSafetyManager::HaloSafetyManager() = default;
 
-HaloSafetyManager::~HaloSafetyManager()
-{
-}
+HaloSafetyManager::~HaloSafetyManager() = default;
 
 bool HaloSafetyManager::checkHalosData(const std::string& obj_type, const std::string& proximity_class,
                                        bool& draw_halo_text, const std::string& metadata_object_id)
@@ -555,21 +552,16 @@ static OSD_ColorParams getHaloTextColor(const std::string& color)
 void HaloSafetyManager::drawHaloText(const Point& left_top, const Point& right_bottom,
                                      const std::string& text, OsdContext_t context, GstBuffer* buffer)
 {
-    OSD_TextParams* text_params = (OSD_TextParams*)malloc(sizeof(OSD_TextParams));
+    auto text_params_owner = std::make_unique<OSD_TextParams>();
+    OSD_TextParams* text_params = text_params_owner.get();
     if (text_params != nullptr)
     {
-        char* cstr = (char*)calloc(text.size() + 1, sizeof(char));
-        if (cstr != nullptr)
-        {
-            strncpy(cstr, text.c_str(), text.size());
-            cstr[text.size()] = '\0';
-            text_params->text = cstr;
-        }
-        else
+        char* cstr = strdup(text.c_str());
+        if (cstr == nullptr)
         {
             LOG(error) << "Failed to allocate memory for halo text" << endl;
-            text_params->text = nullptr;
         }
+        text_params->text = cstr;
 
         if (GET_CONFIG().halo_safety_text_size > 0)
         {
@@ -622,13 +614,13 @@ void HaloSafetyManager::drawHaloText(const Point& left_top, const Point& right_b
 
         if (buffer)
         {
-            GET_OSD_INSTANCE()->gst_buffer_add_cu_osd_meta(buffer, OSD_TEXT, text_params);
+            GET_OSD_INSTANCE()->gst_buffer_add_cu_osd_meta(buffer, OSD_TEXT, text_params_owner.release());
         }
         else
         {
             OsdMeta meta;
             meta.meta_type = OSD_TEXT;
-            meta.params = (void *)text_params;
+            meta.params = (void *)text_params_owner.release();
             GET_OSD_INSTANCE()->osd_add_metadata(context, &meta);
         }
     }

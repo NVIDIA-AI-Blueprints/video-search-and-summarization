@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -91,10 +91,6 @@ NvLLOverlay::NvLLOverlay (const std::string& consumer_name, const std::string& u
                 m_height = stringToInt(resolution.height, HEIGHT_480p);
             }
         }
-    }
-    for (int i = 0; i < OUTPUT_PLANE_NUM_BUFFERS; i++)
-    {
-        m_cpuPtr[i] = nullptr;
     }
 
     NvLLOverlayInternal::OverlayParams params;
@@ -526,7 +522,7 @@ NvLLOverlay::~NvLLOverlay ()
 {
     LOG(info) << "Entry " << __METHOD_NAME__ <<  endl;
     FD_Index_Pair fd_index_pair = {-1, -1};
-    bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+    bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
     // Stop the overlay properly
     m_stop = true;
@@ -561,14 +557,6 @@ NvLLOverlay::~NvLLOverlay ()
         m_surfacePool->freeSurfacesAndDataStructure(false);
     }
     m_surfacePool.reset();
-    for (int i = 0; i < OUTPUT_PLANE_NUM_BUFFERS; i++)
-    {
-        if (m_cpuPtr[i])
-        {
-            free (m_cpuPtr[i]);
-            m_cpuPtr[i] = nullptr;
-        }
-    }
     LOG(info) << "Exit " << __METHOD_NAME__ <<  endl;
 }
 
@@ -663,8 +651,8 @@ void NvLLOverlay::doDrawTask()
         GstMetaUnion meta_union;
         int64_t pts = 0;
         bool is_drc = false;
-        void *data_ptr = nullptr;
-        bool is_sw_mode = GET_CONFIG().use_software_path || g_isGpuPresent == false;
+        unsigned char *data_ptr = nullptr;
+        bool is_sw_mode = GET_CONFIG().use_software_path || isGpuPresent() == false;
 
         {
             std::unique_lock<std::mutex> lk(m_queueLock);
@@ -719,14 +707,14 @@ void NvLLOverlay::doDrawTask()
                 }
                 else
                 {
-                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, (void **)&ip_surf);
+                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (sink_frame->m_fd, &ip_surf);
                     if (isJetsonPlatform() && m_isIPCMeta)
                     {
-                        meta_union.ipcMeta = (GstNvIpcMeta*)sink_frame->meta;
+                        meta_union.setIpcMeta((GstNvIpcMeta*)sink_frame->meta);
                     }
                     else
                     {
-                        meta_union.vstMeta = (GstNvVstMeta*)sink_frame->meta;
+                        meta_union.setVstMeta((GstNvVstMeta*)sink_frame->meta);
                     }
                     pts = sink_frame->pts;
                 }
@@ -762,11 +750,8 @@ void NvLLOverlay::doDrawTask()
                     m_surfacePool->m_surfacesAllocated = false;
                     for (int i = 0; i < OUTPUT_PLANE_NUM_BUFFERS; i++)
                     {
-                        if (m_cpuPtr[i])
-                        {
-                            free (m_cpuPtr[i]);
-                            m_cpuPtr[i] = nullptr;
-                        }
+                        m_cpuPtr[i].clear();
+                        m_cpuPtr[i].shrink_to_fit();
                     }
                 }
                 LOG(info) << "Allocating surfaces of resolution = " << m_width << " x " << m_height << endl;
@@ -796,15 +781,15 @@ void NvLLOverlay::doDrawTask()
                         LOG(error) << "No free FD available, continue" << endl;
                         continue;
                     }
-                    if (!m_cpuPtr[index])
+                    if (m_cpuPtr[index].empty())
                     {
-                        m_cpuPtr[index] = (uint8_t *) malloc (m_width * m_height * 3 / 2);
+                        m_cpuPtr[index].resize (m_width * m_height * 3 / 2);
                     }
-                    memcpy((void *)m_cpuPtr[index], sink_frame->m_map.data, sink_frame->m_map.size);
+                    memcpy(m_cpuPtr[index].data(), sink_frame->m_map.data, sink_frame->m_map.size);
                 }
                 else
                 {
-                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, (void **)&dst_surf);
+                    NvBufWrapper::getInstance()->NvBufSurfaceFromFd (fd_index_pair.first, &dst_surf);
                     NvBufWrapper::getInstance()->NvBufSurfaceCopy (ip_surf, dst_surf);
                 }
                 if (sink_frame->m_gstBuffer)
@@ -815,13 +800,13 @@ void NvLLOverlay::doDrawTask()
 #ifdef AARCH64_PLATFORM
                     if (isJetsonPlatform() && GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
-                        meta_union.ipcMeta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
+                        meta_union.setIpcMeta(GST_NV_IPC_META_GET(sink_frame->m_gstBuffer));
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
                     }
                     else
 #endif
                     {
-                        meta_union.vstMeta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
+                        meta_union.setVstMeta(GST_NV_VST_META_GET (sink_frame->m_gstBuffer));
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
                     }
                 }
@@ -829,12 +814,12 @@ void NvLLOverlay::doDrawTask()
                 // Perform overlay using GPU/CPU based on config
                 if (!isJetsonPlatform() && is_sw_mode)
                 {
-                    data_ptr = (void *)m_cpuPtr[index];
+                    data_ptr = m_cpuPtr[index].data();
                     ret = m_overlay->doDraw(data_ptr, &meta_union, pts);
                 }
                 else
                 {
-                    ret = m_overlay->doDraw((void *)dst_surf, &meta_union, pts);
+                    ret = m_overlay->doDraw(reinterpret_cast<unsigned char *>(dst_surf), &meta_union, pts);
                 }
 
                 if (ret == false)
@@ -859,10 +844,10 @@ void NvLLOverlay::doDrawTask()
                         {
                             frame_data->m_fd        = (fd_index_pair.first * -1) + 1;
                         }
-                        frame_data->m_map.data  = m_cpuPtr[index];
+                        frame_data->m_map.data  = m_cpuPtr[index].data();
                         frame_data->m_map.size  = m_width * m_height * 3 / 2;
                     }
-                    frame_data->m_fdWrapperObj  = new std::shared_ptr<fdWrapper>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, index));
+                    frame_data->m_fdWrapperObj = std::make_unique<std::shared_ptr<fdWrapper>>(std::make_shared<fdWrapper>(m_surfacePool, frame_data->m_fd, index));
                     frame_data->m_sourceWidth   = m_overlay->m_width;
                     frame_data->m_sourceHeight  = m_overlay->m_height;
                     frame_data->m_targetWidth   = m_overlay->m_width;
@@ -1141,10 +1126,10 @@ bool NvLLOverlay::streamSettings(const std::unordered_map<std::string, std::stri
     it = opts.find("overlayOpacity");
     if (it != opts.end() && !it->second.empty())
     {
-        uint8_t opacity = stoi(it->second);
+        int opacity = stoi(it->second);
         if (opacity >= 0 && opacity <= 255)
         {
-            m_overlayParams.m_bboxOpacity = stoi(it->second);
+            m_overlayParams.m_bboxOpacity = static_cast<uint8_t>(opacity);
             m_overlay->setBboxOpacity(m_overlayParams.m_bboxOpacity);
         }
         else

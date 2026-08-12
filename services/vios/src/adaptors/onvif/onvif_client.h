@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,7 +33,6 @@
 #include "logger.h"
 
 using namespace std;
-using namespace nv_vms;
 
 namespace nv_vms
 {
@@ -44,13 +43,18 @@ public:
     OnvifClient();
     virtual  ~OnvifClient();
 
+    OnvifClient(const OnvifClient&) = delete;
+    OnvifClient& operator=(const OnvifClient&) = delete;
+    OnvifClient(OnvifClient&&) = delete;
+    OnvifClient& operator=(OnvifClient&&) = delete;
+
     int connect();
     int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
     int getSensorStreamInfo(shared_ptr<SensorInfo>& sensor);
     int synchronizeSensorTime(shared_ptr<SensorInfo>& sensor);
     bool isServerOnline(const string & url);
     int setPTZ(shared_ptr<SensorInfo>& sensor, PTZAction, string x, string y);
-    map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo> sensor);
+    map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo>& sensor) override;
     bool validateCredentials(shared_ptr<SensorInfo>& sensor, const string username, const string password);
     int getNetworkInfo(shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo);
     int setNetworkInfo(shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);

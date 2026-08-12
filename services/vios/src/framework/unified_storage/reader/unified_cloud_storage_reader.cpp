@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,13 +38,13 @@ UnifiedCloudStorageReader::~UnifiedCloudStorageReader()
         LOG(info) << "UnifiedCloudStorageReader destructor called - cleaning up cloud reader" << std::endl;
 
         // Cancel all async downloads in the cloud reader
-        if (m_cloudReader)
+        if (getCloudReaderInternal())
         {
-            m_cloudReader->cancelAllAsyncDownloads();
+            getCloudReaderInternal()->cancelAllAsyncDownloads();
         }
 
         // Reset the cloud reader (this will trigger its destructor)
-        m_cloudReader.reset();
+        setCloudReaderInternal(nullptr);
 
         LOG(info) << "UnifiedCloudStorageReader destructor completed" << std::endl;
     }
@@ -60,7 +60,7 @@ UnifiedCloudStorageReader::~UnifiedCloudStorageReader()
 
 bool UnifiedCloudStorageReader::isAvailable() const
 {
-    return m_cloudReader != nullptr && m_cloudReader->isAvailable();
+    return getCloudReaderInternal() != nullptr && getCloudReaderInternal()->isAvailable();
 }
 
 std::string UnifiedCloudStorageReader::getStorageMode() const
@@ -85,7 +85,7 @@ bool UnifiedCloudStorageReader::configureStorage(const StorageConfig& config)
     LOG(info) << "configureStorage succeeded, cloud reader should already be initialized" << std::endl;
 
     // Verify that cloud reader was actually created
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         LOG(error) << "Cloud reader was not created during initialization" << std::endl;
         return false;
@@ -123,7 +123,7 @@ FileResult UnifiedCloudStorageReader::downloadFile(const std::string& remote_pat
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -136,7 +136,7 @@ FileResult UnifiedCloudStorageReader::downloadFile(const std::string& remote_pat
             LOG(info) << "Downloading file from cloud: " << remote_path << " to " << local_path
                       << " from bucket: " << bucket << std::endl;
 
-            CloudResult cloudResult = m_cloudReader->downloadObject(bucket, objectKey, local_path);
+            CloudResult cloudResult = getCloudReaderInternal()->downloadObject(bucket, objectKey, local_path);
             result = convertCloudResultToFileResult(cloudResult);
 
             if (result.success)
@@ -173,7 +173,7 @@ FileResult UnifiedCloudStorageReader::getFileInfo(const std::string& path, FileI
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -185,7 +185,7 @@ FileResult UnifiedCloudStorageReader::getFileInfo(const std::string& path, FileI
             std::string objectKey = extractObjectKeyFromPath(path);
 
             CloudObject cloudObject;
-            CloudResult cloudResult = m_cloudReader->getObjectInfo(bucket, objectKey, cloudObject);
+            CloudResult cloudResult = getCloudReaderInternal()->getObjectInfo(bucket, objectKey, cloudObject);
 
             if (cloudResult.success)
             {
@@ -223,7 +223,7 @@ FileResult UnifiedCloudStorageReader::checkFileExists(const std::string& path)
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -236,7 +236,7 @@ FileResult UnifiedCloudStorageReader::checkFileExists(const std::string& path)
 
             LOG(info) << "Extracted bucket: '" << bucket << "' and objectKey: '" << objectKey << "'" << std::endl;
 
-            CloudResult cloudResult = m_cloudReader->checkObjectExists(bucket, objectKey);
+            CloudResult cloudResult = getCloudReaderInternal()->checkObjectExists(bucket, objectKey);
             result = convertCloudResultToFileResult(cloudResult);
         }
     }
@@ -262,7 +262,7 @@ FileListResult UnifiedCloudStorageReader::listFiles(const std::string& path, con
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -283,7 +283,7 @@ FileListResult UnifiedCloudStorageReader::listFiles(const std::string& path, con
                 objectPrefix = prefix;
             }
 
-            CloudListResult cloudResult = m_cloudReader->listObjects(bucket, objectPrefix);
+            CloudListResult cloudResult = getCloudReaderInternal()->listObjects(bucket, objectPrefix);
             result = convertCloudListResultToFileListResult(cloudResult);
             result.path = path;
         }
@@ -311,7 +311,7 @@ FileListResult UnifiedCloudStorageReader::listFilesPaginated(const std::string& 
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -332,7 +332,7 @@ FileListResult UnifiedCloudStorageReader::listFilesPaginated(const std::string& 
                 objectPrefix = prefix;
             }
 
-            CloudListResult cloudResult = m_cloudReader->listObjectsPaginated(bucket, objectPrefix, marker, maxKeys);
+            CloudListResult cloudResult = getCloudReaderInternal()->listObjectsPaginated(bucket, objectPrefix, marker, maxKeys);
             result = convertCloudListResultToFileListResult(cloudResult);
             result.path = path;
         }
@@ -360,7 +360,7 @@ FileResult UnifiedCloudStorageReader::generatePresignedUrl(const std::string& pa
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -371,7 +371,7 @@ FileResult UnifiedCloudStorageReader::generatePresignedUrl(const std::string& pa
             std::string bucket = extractBucketFromPath(path);
             std::string objectKey = extractObjectKeyFromPath(path);
 
-            CloudResult cloudResult = m_cloudReader->generatePresignedUrl(bucket, objectKey, expirationSeconds, url);
+            CloudResult cloudResult = getCloudReaderInternal()->generatePresignedUrl(bucket, objectKey, expirationSeconds, url);
             result = convertCloudResultToFileResult(cloudResult);
         }
     }
@@ -466,7 +466,7 @@ FileResult UnifiedCloudStorageReader::getPresignedUrl(const std::string& path, s
         // Generate new presigned URL (NO LOCK - S3 API call can take time)
         const uint32_t REQUESTED_EXPIRATION_SECONDS = 12 * 60 * 60;  // Request 12 hours
 
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -477,7 +477,7 @@ FileResult UnifiedCloudStorageReader::getPresignedUrl(const std::string& path, s
             std::string bucket = extractBucketFromPath(path);
             std::string objectKey = extractObjectKeyFromPath(path);
 
-            CloudResult cloudResult = m_cloudReader->generatePresignedUrl(bucket, objectKey, REQUESTED_EXPIRATION_SECONDS, url);
+            CloudResult cloudResult = getCloudReaderInternal()->generatePresignedUrl(bucket, objectKey, REQUESTED_EXPIRATION_SECONDS, url);
             result = convertCloudResultToFileResult(cloudResult);
 
             if (result.success)
@@ -519,7 +519,7 @@ FileResult UnifiedCloudStorageReader::listBuckets(std::vector<std::string>& buck
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -527,7 +527,7 @@ FileResult UnifiedCloudStorageReader::listBuckets(std::vector<std::string>& buck
         }
         else
         {
-            CloudResult cloudResult = m_cloudReader->listBuckets(buckets);
+            CloudResult cloudResult = getCloudReaderInternal()->listBuckets(buckets);
             result = convertCloudResultToFileResult(cloudResult);
         }
     }
@@ -553,7 +553,7 @@ FileResult UnifiedCloudStorageReader::checkBucketExists(const std::string& bucke
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -561,7 +561,7 @@ FileResult UnifiedCloudStorageReader::checkBucketExists(const std::string& bucke
         }
         else
         {
-            CloudResult cloudResult = m_cloudReader->checkBucketExists(bucket);
+            CloudResult cloudResult = getCloudReaderInternal()->checkBucketExists(bucket);
             result = convertCloudResultToFileResult(cloudResult);
         }
     }
@@ -591,14 +591,14 @@ CloudListResult UnifiedCloudStorageReader::listCloudObjects(const std::string& b
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
             result.errorCode = "NOT_INITIALIZED";
             LOG(error) << "Cloud reader not initialized for listCloudObjects" << std::endl;
         }
-        else if (!m_cloudReader->isAvailable())
+        else if (!getCloudReaderInternal()->isAvailable())
         {
             result.success = false;
             result.message = "Cloud reader is not available";
@@ -608,7 +608,7 @@ CloudListResult UnifiedCloudStorageReader::listCloudObjects(const std::string& b
         else
         {
             // Use the cloud reader to list objects
-            result = m_cloudReader->listObjects(bucketName, prefix, maxKeys);
+            result = getCloudReaderInternal()->listObjects(bucketName, prefix, maxKeys);
 
             if (result.success)
             {
@@ -648,14 +648,14 @@ CloudListResult UnifiedCloudStorageReader::listAllCloudObjects(const std::string
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
             result.errorCode = "NOT_INITIALIZED";
             LOG(error) << "Cloud reader not initialized for listAllCloudObjects" << std::endl;
         }
-        else if (!m_cloudReader->isAvailable())
+        else if (!getCloudReaderInternal()->isAvailable())
         {
             result.success = false;
             result.message = "Cloud reader is not available";
@@ -666,7 +666,7 @@ CloudListResult UnifiedCloudStorageReader::listAllCloudObjects(const std::string
         {
             // Use the cloud reader's listAllObjects method (works for S3, MinIO, and other compatible storages)
             LOG(info) << "Using CloudReader::listAllObjects for complete listing" << std::endl;
-            result = m_cloudReader->listAllObjects(bucketName, prefix);
+            result = getCloudReaderInternal()->listAllObjects(bucketName, prefix);
 
             if (result.success)
             {
@@ -718,7 +718,7 @@ FileResult UnifiedCloudStorageReader::performHealthCheck()
 
     try
     {
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             result.success = false;
             result.message = "Cloud reader not initialized";
@@ -726,7 +726,7 @@ FileResult UnifiedCloudStorageReader::performHealthCheck()
         }
         else
         {
-            CloudResult cloudResult = m_cloudReader->performHealthCheck();
+            CloudResult cloudResult = getCloudReaderInternal()->performHealthCheck();
             result = convertCloudResultToFileResult(cloudResult);
         }
     }
@@ -746,7 +746,7 @@ FileResult UnifiedCloudStorageReader::performHealthCheck()
 
 std::shared_ptr<CloudReader> UnifiedCloudStorageReader::getCloudReader() const
 {
-    return m_cloudReader;
+    return getCloudReaderInternal();
 }
 
 // Async download operations implementation
@@ -754,7 +754,7 @@ std::string UnifiedCloudStorageReader::downloadFilesWithPathsAsync(const std::ve
                                                                   DownloadCompletionCallback completionCallback,
                                                                   DownloadProgressCallback progressCallback)
 {
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         setLastError("Cloud reader not initialized");
         return "";
@@ -775,7 +775,7 @@ std::string UnifiedCloudStorageReader::downloadFilesWithPathsAsync(const std::ve
         objectKeyPathPairs.emplace_back(objectKey, pair.second);
     }
 
-    return m_cloudReader->downloadObjectsWithPathsAsync(bucket, objectKeyPathPairs, completionCallback, progressCallback);
+    return getCloudReaderInternal()->downloadObjectsWithPathsAsync(bucket, objectKeyPathPairs, completionCallback, progressCallback);
 }
 
 std::string UnifiedCloudStorageReader::downloadMultipleFilesAsync(const std::string& remote_directory,
@@ -784,7 +784,7 @@ std::string UnifiedCloudStorageReader::downloadMultipleFilesAsync(const std::str
                                                                  DownloadCompletionCallback completionCallback,
                                                                  DownloadProgressCallback progressCallback)
 {
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         setLastError("Cloud reader not initialized");
         return "";
@@ -798,52 +798,52 @@ std::string UnifiedCloudStorageReader::downloadMultipleFilesAsync(const std::str
         objectKeys.push_back(objectKey);
     }
 
-    return m_cloudReader->downloadMultipleObjectsAsync(getBucketName(), objectKeys, local_directory, completionCallback, progressCallback);
+    return getCloudReaderInternal()->downloadMultipleObjectsAsync(getBucketName(), objectKeys, local_directory, completionCallback, progressCallback);
 }
 
 bool UnifiedCloudStorageReader::cancelAsyncDownload(const std::string& sessionId)
 {
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         setLastError("Cloud reader not initialized");
         return false;
     }
-    return m_cloudReader->cancelAsyncDownload(sessionId);
+    return getCloudReaderInternal()->cancelAsyncDownload(sessionId);
 }
 
 bool UnifiedCloudStorageReader::cancelAllAsyncDownloads()
 {
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         setLastError("Cloud reader not initialized");
         return false;
     }
-    return m_cloudReader->cancelAllAsyncDownloads();
+    return getCloudReaderInternal()->cancelAllAsyncDownloads();
 }
 
 std::vector<std::string> UnifiedCloudStorageReader::getActiveAsyncDownloads() const
 {
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         return {};
     }
-    return m_cloudReader->getActiveAsyncDownloads();
+    return getCloudReaderInternal()->getActiveAsyncDownloads();
 }
 
 bool UnifiedCloudStorageReader::isAsyncDownloadCompleted(const std::string& sessionId) const
 {
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         return false;
     }
-    return m_cloudReader->isAsyncDownloadCompleted(sessionId);
+    return getCloudReaderInternal()->isAsyncDownloadCompleted(sessionId);
 }
 
 DownloadResult UnifiedCloudStorageReader::getAsyncDownloadResult(const std::string& sessionId) const
 {
     DownloadResult result;
 
-    if (!m_cloudReader)
+    if (!getCloudReaderInternal())
     {
         result.overall_success = false;
         result.error_message = "Cloud reader not initialized";
@@ -851,7 +851,7 @@ DownloadResult UnifiedCloudStorageReader::getAsyncDownloadResult(const std::stri
     }
 
     // Get result from cloud reader and convert
-    MultiDownloadResult cloudResult = m_cloudReader->getAsyncDownloadResult(sessionId);
+    MultiDownloadResult cloudResult = getCloudReaderInternal()->getAsyncDownloadResult(sessionId);
 
     result.overall_success = cloudResult.overall_success;
     result.error_message = cloudResult.error_message;
@@ -923,16 +923,16 @@ bool UnifiedCloudStorageReader::initializeCloudReader()
                   << "' (enum: " << static_cast<int>(m_cloudConfig.storageType) << ")" << std::endl;
 
         // Use the factory's createReader function directly with the CloudStorageType enum
-        m_cloudReader = CloudReaderFactory::createReader(m_cloudConfig.storageType, m_cloudConfig);
+        setCloudReaderInternal(CloudReaderFactory::createReader(m_cloudConfig.storageType, m_cloudConfig));
 
-        if (!m_cloudReader)
+        if (!getCloudReaderInternal())
         {
             LOG(error) << "Failed to create cloud reader for type: " + cloudTypeStr << std::endl;
             setLastError("Failed to create cloud reader for type: " + cloudTypeStr);
             return false;
         }
 
-        if (!m_cloudReader->isAvailable())
+        if (!getCloudReaderInternal()->isAvailable())
         {
             setLastError("Cloud reader is not available for type: " + cloudTypeStr);
             return false;
@@ -1041,7 +1041,7 @@ FileResult UnifiedCloudStorageReader::convertCloudResultToFileResult(const Cloud
 std::string UnifiedCloudStorageReader::extractBucketFromPath(const std::string& path) const
 {
     // Always use the configured bucket from storage config
-    std::string bucket = m_config.getParameter(StorageConstants::BUCKET_NAME_KEY);
+    std::string bucket = getBucketName();
     if (bucket.empty())
     {
         LOG(error) << "No bucket configured in storage config" << std::endl;
