@@ -564,7 +564,9 @@ def _latest_trial(run_root: Path) -> tuple[Path | None, dict[str, Any]]:
         (
             path
             for path in run_root.rglob("result.json")
-            if (path.parent / "verifier/reward.txt").is_file()
+            if (path.parent / "trial.log").is_file()
+            or (path.parent / "exception.txt").is_file()
+            or (path.parent / "verifier/reward.txt").is_file()
         ),
         key=lambda path: path.stat().st_mtime,
     )
