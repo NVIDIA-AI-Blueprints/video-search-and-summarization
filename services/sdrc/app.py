@@ -31,6 +31,10 @@ from lib.parameters import configserver
 from lib.parameters.redisconfig import clear_stale_redis_workload_spec_lock_keys, redisconfig
 from lib.messaging import kafka
 from lib.podprovisioner.provisionconfig import provisionconfig
+from lib.podprovisioner.healthwatcher import (
+    WorkloadHealthWatcher,
+    WorkloadUnhealthyError,
+)
 from lib.messaging.redisMessaging import redisMessaging
 from lib.messaging.redisMessaging import Consumer
 from lib.xDS.envoyxDS import envoyxDS
@@ -819,12 +823,48 @@ initiatorWLObjname = app.config["WDM_INITIATOR_WLOBJ_NAME"]
 reprovision_recent_removals = {}
 
 
+def _resolve_workload_pods_for_health():
+    """Return pod inventory for HTTP health polling.
+
+    Docker mode reads host:port from each entry's ``provisioning_address`` in
+    ``docker_cluster_config.json``. Only ``WDM_WL_HEALTH_CHECK_URL`` (path) is
+    configurable when building probe URLs. K8s falls back to live pod IPs.
+    """
+    try:
+        docker_targets = curr_cluster.get_health_check_targets()
+        if docker_targets is not None:
+            return docker_targets
+        wl_objs = curr_cluster.getWorkloadObjects()
+        if not wl_objs:
+            return []
+        return curr_cluster.getPodIps(wl_objs) or []
+    except Exception:
+        app.logger.exception("Failed resolving workload pods for health watcher")
+        return []
+
+
 def _config_bool(value, default=False):
     if value is None:
         return default
     if isinstance(value, bool):
         return value
-    return str(value).strip().lower() == "true"
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+health_watcher = None
+if _config_bool(app.config.get("WDM_WL_HEALTH_CHECK_WAIT_ENABLED"), True):
+    health_watcher = WorkloadHealthWatcher(
+        app.config,
+        resolve_pods=_resolve_workload_pods_for_health,
+        logger_override=app.logger,
+    )
+    curr_cluster.set_health_watcher(health_watcher)
+    pc.set_health_watcher(health_watcher)
+else:
+    app.logger.info(
+        "WDM_WL_HEALTH_CHECK_WAIT_ENABLED=false; using legacy pod readiness "
+        "(Docker container state for PodErrorWatcher; no HTTP health wait in add())"
+    )
 
 
 def should_handle_config_events():
@@ -1280,6 +1320,33 @@ def metrics():
                 stream_count.labels(podName).set(spec_count)
     return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
+
+def _try_http_provision(operation_name, runner):
+    """Map health-check deferrals to the HTTP provisioning sentinel."""
+    try:
+        return runner()
+    except WorkloadUnhealthyError as exc:
+        app.logger.info(
+            "HTTP %s deferred by health check: %s",
+            operation_name,
+            exc,
+        )
+        return PROVISION_DEFERRED_UNREADY_PODS
+
+
+def _http_deferred_response(action, stream_id=None, source="apply_metadata_payload", **extra):
+    body = {
+        "status": "deferred",
+        "reason": "waiting for healthy workload pod; retry later",
+        "action": action,
+        "source": source,
+    }
+    if stream_id is not None:
+        body["stream_id"] = stream_id
+    body.update(extra)
+    return jsonify(body), 503
+
+
 @app.route("/apply_metadata_payload", methods=["POST"])
 def apply_metadata_payload():
     content_type = request.headers.get('Content-Type')
@@ -1309,21 +1376,36 @@ def apply_metadata_payload():
             wl_d[change_field].lower() == change_id_add
         ):
             app.logger.info("provision stream")
-            response = provisionStreamRedis(
-                app.config["WDM_WL_OBJECT_NAME"],
-                wl_d, jValue, parent_context 
+            response = _try_http_provision(
+                "add",
+                lambda: provisionStreamRedis(
+                    app.config["WDM_WL_OBJECT_NAME"],
+                    wl_d, jValue, parent_context,
+                ),
             )
-            
+            if response is PROVISION_DEFERRED_UNREADY_PODS:
+                return _http_deferred_response(
+                    "add",
+                    stream_id=wl_d.get(app.config["WDM_WL_ID_FIELD"]),
+                )
             return "Provisioning process called"
 
         elif (wl_d is not None) and (change_field in wl_d) and (
             wl_d[change_field].lower() == change_id_reprovision
         ):
             app.logger.info("reprovision stream")
-            response = reprovisionStreamRedis(
-                app.config["WDM_WL_OBJECT_NAME"],
-                wl_d, jValue, parent_context 
+            response = _try_http_provision(
+                "reprovision",
+                lambda: reprovisionStreamRedis(
+                    app.config["WDM_WL_OBJECT_NAME"],
+                    wl_d, jValue, parent_context,
+                ),
             )
+            if response is PROVISION_DEFERRED_UNREADY_PODS:
+                return _http_deferred_response(
+                    "reprovision",
+                    stream_id=wl_d.get(app.config["WDM_WL_ID_FIELD"]),
+                )
             return "Reprovisioning process called"
 
         elif (wl_d is not None) and (change_field in wl_d) and (
@@ -1541,33 +1623,48 @@ def http_header_lifecycle_ingress(lifecycle_path):
             stream_id, "http_header_lifecycle_ingress()"
         )
         if action == ACTION_ADD:
-            response = provisionStreamRedis(
-                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            response = _try_http_provision(
+                "add",
+                lambda: provisionStreamRedis(
+                    app.config["WDM_WL_OBJECT_NAME"],
+                    wl_d,
+                    original_json,
+                    parent_context,
+                ),
             )
+            if response is PROVISION_DEFERRED_UNREADY_PODS:
+                return _http_deferred_response(
+                    "add",
+                    stream_id=stream_id,
+                    source="http_header_lifecycle",
+                    mode=MODE_HTTP_HEADER,
+                )
         elif action == ACTION_DELETE:
             response = deprovisionStreamRedis(
                 app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
             )
             _close_lifecycle_trace_context(stream_id)
         elif action == ACTION_REPROVISION:
-            response = reprovisionStreamRedis(
-                app.config["WDM_WL_OBJECT_NAME"], wl_d, original_json, parent_context
+            response = _try_http_provision(
+                "reprovision",
+                lambda: reprovisionStreamRedis(
+                    app.config["WDM_WL_OBJECT_NAME"],
+                    wl_d,
+                    original_json,
+                    parent_context,
+                ),
             )
+            if response is PROVISION_DEFERRED_UNREADY_PODS:
+                return _http_deferred_response(
+                    "reprovision",
+                    stream_id=stream_id,
+                    source="http_header_lifecycle",
+                    mode=MODE_HTTP_HEADER,
+                )
         else:
             return _http_header_lifecycle_error(
                 "unsupported lifecycle action", 500, action=action
             )
-
-        if response is PROVISION_DEFERRED_UNREADY_PODS:
-            return jsonify(
-                {
-                    "status": "deferred",
-                    "reason": "workload replicas are not ready",
-                    "mode": MODE_HTTP_HEADER,
-                    "action": action,
-                    "stream_id": stream_id,
-                }
-            ), 503
 
         return jsonify(
             {
@@ -1854,6 +1951,20 @@ def reprovisionStreamRedis(k8swlob_name, data, originalJson, parent_context):
         return
 
     _wlobj_pre = curr_cluster.getStatefulSets()
+    if (
+        health_watcher is not None
+        and _wlobj_pre is not None
+        and _wlobj_pre.status.replicas != 0
+        and health_watcher.healthy_count() == 0
+    ):
+        app.logger.info(
+            "Reprovision deferred: no HTTP-healthy workload pod; will not "
+            "deprovision until at least one pod is healthy (stream_id=%s)",
+            originalJson[app.config["WDM_EVENT_OBJECT_FIELD"]][
+                app.config["WDM_WL_ID_FIELD"]
+            ],
+        )
+        return PROVISION_DEFERRED_UNREADY_PODS
     if _wlobj_pre is not None and _wlobj_pre.status.replicas != 0:
         _ready_pre = curr_cluster.getReadyReplicas()
         _desired_pre = int(_wlobj_pre.status.replicas)
@@ -2278,6 +2389,22 @@ def _provision_add_stream_to_pod(
         tracing.propagate_context(
             camera_id, redisMsging, current_ctx, app.config["OTEL_SERVICE_NAME"]
         )
+    except WorkloadUnhealthyError:
+        app.logger.info(
+            "Add deferred because pod %s failed health check before POST",
+            podInfoItm.get("podName"),
+        )
+        otel_span.set_status(
+            tracing.StatusCode.ERROR, description="Workload unhealthy"
+        )
+        if do_workload_spec_in_thread_first or rollback_workload_spec:
+            try:
+                cfg.deleteFromWorkLoadSpec(podInfoItm["podName"], wl_id)
+            except Exception as e:
+                app.logger.exception(
+                    "Failed to rollback workload spec after unhealthy add: %s", e
+                )
+        raise
     except Exception:
         app.logger.exception("Unexpected exception encountered while provisioning")
         otel_span.set_status(tracing.StatusCode.ERROR, description="Provisioning failed")
@@ -2470,13 +2597,15 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                 # Orphan cleanup happens before this scan while holding the
                 # distributed provision lease.
                 eligible_pods = []  # (podInfoItm, spec_count, wl_spec)
+                unhealthy_capacity_pods = []
                 for podInfoItm in podsInfo:
-                    if curr_cluster.ifPodDown(podInfoItm["podName"]):
+                    pod_is_down = curr_cluster.ifPodDown(podInfoItm["podName"])
+                    if pod_is_down:
                         any_pod_down = True
                         app.logger.info(
-                            "Pod %s is down continue", podInfoItm["podName"]
+                            "Pod %s is down/unhealthy — preferring healthy peers",
+                            podInfoItm["podName"],
                         )
-                        continue
                     if curr_allocations is not None:
                         if podInfoItm["podName"] not in curr_allocations:
                             continue
@@ -2505,7 +2634,24 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                     spec_count = cfg.getSpecCount(podInfoItm["podName"])
                     if spec_count >= threshold:
                         continue
-                    eligible_pods.append((podInfoItm, spec_count, wl_spec))
+                    entry = (podInfoItm, spec_count, wl_spec)
+                    if pod_is_down:
+                        unhealthy_capacity_pods.append(entry)
+                    else:
+                        eligible_pods.append(entry)
+
+                # Prefer healthy pods. If none have capacity, use an unhealthy
+                # pod with capacity; pc.add() waits for its health check before
+                # sending the add request.
+                if not eligible_pods and unhealthy_capacity_pods:
+                    app.logger.info(
+                        "No healthy workload pod for assignment; selecting "
+                        "among %d capacity-eligible unhealthy pod(s); "
+                        "add will wait for health (wl_id=%s)",
+                        len(unhealthy_capacity_pods),
+                        wl_id,
+                    )
+                    eligible_pods = unhealthy_capacity_pods
 
                 # Phase 2: pod selection — strategy controlled by
                 # WDM_WL_ASSIGNING_METHOD.
@@ -2657,12 +2803,21 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                         % (ready_replicas)
                     )
                     desired_replicas = int(Wlobj.status.replicas)
-                    if ready_replicas < desired_replicas:
+                    healthy_via_http = (
+                        health_watcher.healthy_count()
+                        if health_watcher is not None
+                        else ready_replicas
+                    )
+                    if ready_replicas < desired_replicas or (
+                        any_pod_down and healthy_via_http == 0
+                    ):
                         app.logger.info(
-                            "Replica count %d but only %d ready; deferring "
-                            "placement until unhealthy pods recover (wl_id=%s)",
+                            "Replica count %d but only %d ready "
+                            "(http-healthy=%d); deferring placement until "
+                            "unhealthy pods recover (wl_id=%s)",
                             desired_replicas,
                             ready_replicas,
+                            healthy_via_http,
                             wl_id,
                         )
                         return PROVISION_DEFERRED_UNREADY_PODS
@@ -3791,6 +3946,23 @@ def PodErrorWatcher():
     tr.start()
     return True
 
+
+def WorkloadHealthCheckWatcher():
+    """Start background HTTP health polling when health-check mode is enabled."""
+    if health_watcher is None:
+        app.logger.info(
+            "WDM_WL_HEALTH_CHECK_WAIT_ENABLED=false; not starting HTTP health "
+            "watcher (PodErrorWatcher uses legacy cluster/container state)"
+        )
+        return False
+    app.logger.info(
+        "Starting workload health check watcher (url=%s interval=%ss)",
+        app.config.get("WDM_WL_HEALTH_CHECK_URL"),
+        app.config.get("WDM_HEALTH_CHECK_INTERVAL"),
+    )
+    return health_watcher.start()
+
+
 def send_alive_status():
     external_service_url =  app.config['CONTROLLER_SERVICE_URL']
     hostname = socket.gethostname()
@@ -3869,6 +4041,9 @@ if __name__ == "__main__":  # Script executed directly?
     preLoad()
 
     statefulSetWatcher()
+    # Health watcher must start before PodErrorWatcher so Docker mode can
+    # consume HTTP health transitions instead of Docker socket status.
+    WorkloadHealthCheckWatcher()
     PodErrorWatcher()
     SendAliveStatus()
 

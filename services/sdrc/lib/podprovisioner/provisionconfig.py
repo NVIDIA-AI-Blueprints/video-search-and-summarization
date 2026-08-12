@@ -27,6 +27,16 @@ class provisionconfig:
         self.app_config = app_config
         self.redisMsging = redisMsging
         self.cfg = cfg
+        self.health_watcher = None
+
+    def set_health_watcher(self, health_watcher):
+        self.health_watcher = health_watcher
+
+    def _health_check_wait_enabled(self):
+        value = self.app_config.get("WDM_WL_HEALTH_CHECK_WAIT_ENABLED", True)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
 
     def add(self, podInfo=None, configData=None, ctx_header=None):
         logger.info("Starting add call")
@@ -73,7 +83,25 @@ class provisionconfig:
         failed_to_add = True
         logger.info (f"Max retry attempt {self.app_config['WDM_ADD_REMOVE_RETRY_ATTEMPTS']}")
         failed_to_add_amnt = self.app_config["WDM_ADD_REMOVE_RETRY_ATTEMPTS"]
-        
+
+        # When WDM_WL_HEALTH_CHECK_WAIT_ENABLED is true, wait forever for HTTP
+        # health before /add. When false, skip (legacy: no HTTP health gate).
+        if self._health_check_wait_enabled():
+            if self.health_watcher is None:
+                raise RuntimeError("Workload health watcher is not configured")
+            logger.info(
+                "Waiting for pod %s health check %s before /add (forever)",
+                podInfo.get("podName"),
+                self.app_config.get("WDM_WL_HEALTH_CHECK_URL"),
+            )
+            self.health_watcher.wait_until_healthy(podInfo, timeout_sec=0)
+        else:
+            logger.info(
+                "WDM_WL_HEALTH_CHECK_WAIT_ENABLED=false; skipping HTTP health "
+                "wait before /add (pod=%s)",
+                podInfo.get("podName"),
+            )
+
         if self.app_config["WDM_WL_ADD_URL"] is not None and self.app_config["WDM_WL_ADD_URL"] != "":
             while failed_to_add:
                 try:

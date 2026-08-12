@@ -195,7 +195,27 @@ class Config(object):
     WDM_WL_HEALTH_CHECK_URL = (
         os.environ["WDM_WL_HEALTH_CHECK_URL"]
         if "WDM_WL_HEALTH_CHECK_URL" in os.environ and os.environ["WDM_WL_HEALTH_CHECK_URL"].strip() != ""
-        else "/api/v1/stream/add"
+        else "/healthz"
+    )
+    # Master switch for HTTP workload health checks. When true: background
+    # polling, placement health filtering, forever wait in add() before /add,
+    # and PodErrorWatcher transitions from HTTP health. When false: legacy
+    # behavior (Docker PodErrorWatcher uses container state; no add() health wait).
+    WDM_WL_HEALTH_CHECK_WAIT_ENABLED = _bool_env(
+        "WDM_WL_HEALTH_CHECK_WAIT_ENABLED", True
+    )
+    # Background HTTP health polling for workload pods (assignment + PodErrorWatcher).
+    WDM_HEALTH_CHECK_INTERVAL = (
+        float(os.environ["WDM_HEALTH_CHECK_INTERVAL"].strip())
+        if "WDM_HEALTH_CHECK_INTERVAL" in os.environ
+        and os.environ["WDM_HEALTH_CHECK_INTERVAL"].strip() != ""
+        else 2.0
+    )
+    WDM_HEALTH_CHECK_TIMEOUT = (
+        float(os.environ["WDM_HEALTH_CHECK_TIMEOUT"].strip())
+        if "WDM_HEALTH_CHECK_TIMEOUT" in os.environ
+        and os.environ["WDM_HEALTH_CHECK_TIMEOUT"].strip() != ""
+        else 2.0
     )
     WDM_WL_DELETE_URL = (
         os.environ["WDM_WL_DELETE_URL"].strip()
