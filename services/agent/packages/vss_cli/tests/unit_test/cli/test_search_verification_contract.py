@@ -164,6 +164,8 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "preceding step already deployed" in ingestion_preamble
     assert "do not invoke `/vss-deploy-profile`" in ingestion_preamble
     assert "`docker compose up`" in ingestion_preamble
+    assert 'VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)' in ingestion_preamble
+    assert "project-local `vss configure show`" in ingestion_preamble
     assert any("one bounded source-setup deadline" in check for check in ingestion_checks)
 
     # Current search indices use the VST sensor ID for embed/fusion source
@@ -397,10 +399,21 @@ def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> No
     )
     deployment_instruction = (tmp_path / "search/rtxpro6000bw/step-1/instruction.md").read_text(encoding="utf-8")
     ingestion_instruction = (tmp_path / "search/rtxpro6000bw/step-2/instruction.md").read_text(encoding="utf-8")
+    instructions = sorted((tmp_path / "search/rtxpro6000bw").glob("step-*/instruction.md"))
+    assert len(instructions) == 9
+    for path in instructions:
+        instruction_text = path.read_text(encoding="utf-8")
+        assert 'VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)' in instruction_text
+        assert "never invoke a bare or globally installed `vss`" in instruction_text
+
     assert "deploys and validates the search profile only" in deployment_instruction
     assert "do not download or ingest sample media" in deployment_instruction
     assert "preceding step already deployed" in ingestion_instruction
     assert "do not invoke `/vss-deploy-profile`" in ingestion_instruction
+    assert '"${VSS[@]}" configure show' in ingestion_instruction
+
+    kubernetes_instruction = (tmp_path / "search/rtxpro6000bw/step-9/instruction.md").read_text(encoding="utf-8")
+    assert '"${VSS[@]}" configure --base-url https://vss-search.example.com' in kubernetes_instruction
 
     verification_step = tmp_path / "search/rtxpro6000bw/step-7"
     assert (verification_step / "skills/vss-ask-video/SKILL.md").is_file()
