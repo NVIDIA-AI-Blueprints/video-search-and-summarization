@@ -106,13 +106,6 @@ services:
     env_file:
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
-    command:
-      - python
-      - -c
-      - |
-        import os
-        import sys
-        os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
