@@ -249,7 +249,7 @@ class WorkflowSeparationTest(unittest.TestCase):
             sonar,
         )
         self.assertIn(
-            "sources: libs/analytics/spatialai-data-utils/release/spatialai_data_utils",
+            "sources: libs/analytics/spatialai-data-utils/spatialai_data_utils",
             sonar,
         )
 
