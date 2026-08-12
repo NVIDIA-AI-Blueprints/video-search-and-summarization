@@ -19,6 +19,13 @@ Mutations confirmed to fail this suite:
   * omit `declared_gpu_count` from the sidecar
   * add a field to QUERY_FIELDS
   * skip the `rm -f` of the remote CSV
+  * drop `-ww` from either `ps` identity guard
+
+That last one is the reason `Stub` pins COLUMNS. `ps` truncates `args` to the
+display width, so a guard can be present, correctly spelled, and inert -- and
+which of those it is depends on the window of whoever runs the suite, not on
+the code. Assert behaviour (the sampler is dead) at a hostile width; a string
+assertion cannot see this class of defect at all.
 """
 
 from __future__ import annotations
@@ -245,13 +252,23 @@ class Stub:
 
     KEYS = ("PATH", "GPUTRACE_STUB_REC", "GPUTRACE_STUB_FAIL",
             "GPUTRACE_STUB_HOME", "GPUTRACE_STUB_BIN", "GPUTRACE_STUB_HOSTILE_PID",
-            "GPUTRACE_STUB_HOSTILE_DIR")
+            "GPUTRACE_STUB_HOSTILE_DIR", "COLUMNS")
 
     def __init__(self, fail: bool = False, hostile_pid: bool = False,
-                 payload: str | None = None, hostile_dir: bool = False):
+                 payload: str | None = None, hostile_dir: bool = False,
+                 columns: str | None = "80"):
         self.fail = fail
         self.hostile_pid = hostile_pid
         self.hostile_dir = hostile_dir
+        # `ps` is the REAL one -- the stub bin holds only nvidia-smi and timeout
+        # -- and `ps` truncates `args` to the display width, so every assertion
+        # about the cleanup guard is silently a function of the developer's
+        # terminal. Pinning it here makes the suite deterministic AND hostile:
+        # 80 is what a pty gets when nobody sets a window size, which is exactly
+        # what `brev exec`/`ssh` hand the remote command in production. Left
+        # unpinned, `test_the_sampler_is_actually_stopped` passed in a wide
+        # window and failed at 80 or 100 for the same code.
+        self.columns = columns
         # Override what the fake nvidia-smi emits, so a test can assert on how
         # many samples survive the round trip rather than on a fixed fixture.
         self.payload = payload
@@ -299,6 +316,10 @@ class Stub:
         os.environ["GPUTRACE_STUB_BIN"] = str(self.bin)
         os.environ["GPUTRACE_STUB_HOSTILE_PID"] = "1" if self.hostile_pid else "0"
         os.environ["GPUTRACE_STUB_HOSTILE_DIR"] = "1" if self.hostile_dir else "0"
+        if self.columns is None:
+            os.environ.pop("COLUMNS", None)
+        else:
+            os.environ["COLUMNS"] = self.columns
         return self
 
     def commands(self) -> list[str]:
@@ -442,10 +463,21 @@ class TheOtherRegexGuardsAnInterpolation(unittest.TestCase):
             kills = [c for c in stub.commands() if "kill " in c]
         self.assertTrue(kills, "the degraded path never tried to stop the sampler")
         for c in kills:
-            self.assertIn("ps -o args= -p", c,
-                          f"pid signalled with no identity check at all: {c!r}")
+            # The property, not the spelling. This assertion previously pinned
+            # the literal `ps -o args= -p` and so broke when the guard was fixed
+            # to `ps -ww -o args= -p` -- the second time an over-specified string
+            # here rejected a strictly stronger version of the very thing it was
+            # asserting (the first was pinning `grep -q ` against `grep -qF`).
+            self.assertRegex(c, r"\bps\b[^|]*\bargs=[^|]*-p ",
+                             f"pid signalled with no identity check at all: {c!r}")
             self.assertRegex(c, r"grep[^;|]*&&\s*kill\b",
                              f"identity check does not gate the kill: {c!r}")
+            # A width-limited `ps` returns a prefix that cannot contain the
+            # match target, so the guard silently never fires. See
+            # test_the_guard_still_fires_at_every_plausible_terminal_width for
+            # the behavioural version of this.
+            self.assertIn("-ww", c.split("|")[0],
+                          f"identity check is width-truncatable: {c!r}")
 
     def test_a_row_with_a_valid_prefix_and_a_garbage_suffix_is_dropped(self):
         """Every existing negative fails on the PREFIX. Deleting ROW_RE's
@@ -746,8 +778,13 @@ class TheHardStopIsPresent(unittest.TestCase):
         # nvidia-smi": these boxes run nvidia-smi constantly, so a recycled pid
         # that happens to be any of them would be killed, possibly another leg's.
         guard = finish.split("kill")[0]
-        self.assertIn("ps -o args= -p", guard,
-                      f"pid is signalled without an identity check: {finish!r}")
+        # The property, not the spelling -- see the note in the degraded-path
+        # test. Pinning `ps -o args= -p` here rejected the `-ww` repair that
+        # made the guard actually work.
+        self.assertRegex(guard, r"\bps\b[^|]*\bargs=[^|]*-p ",
+                         f"pid is signalled without an identity check: {finish!r}")
+        self.assertIn("-ww", guard.split("|")[0],
+                      f"identity check is width-truncatable: {finish!r}")
         # Assert the nonce is matched, without pinning the exact grep flags --
         # an earlier revision of this assertion hardcoded `grep -q ` and so
         # failed when the match was tightened to the fixed-string `grep -qF`,
@@ -759,6 +796,36 @@ class TheHardStopIsPresent(unittest.TestCase):
         # killing unconditionally, which is the defect this test exists for.
         self.assertRegex(finish, r"grep[^;|]*&&\s*kill\b",
                          f"identity check does not gate the kill: {finish!r}")
+
+    def test_the_guard_still_fires_at_every_plausible_terminal_width(self):
+        """A guard can be present, correctly spelled, and inert.
+
+        `ps` truncates `args` to the display width. The sampler's command line
+        is ~204 chars with the nonce at column ~169, so below that `ps` returns
+        a prefix that CANNOT contain the match target: `grep` reports no match,
+        `&&` skips the kill, and the sampler survives to its 2h20m hard stop on
+        a box already handed to the next leg. Every text-shaped assertion in
+        this file still passes while that happens.
+
+        The widths are the ones that actually occur. 80 is what a pty gets when
+        nobody sets a window size, which is what `brev exec`/`ssh` hand the
+        remote command; None (COLUMNS unset, no tty) is procps' unlimited
+        fallback and is the configuration in which this bug looks fixed.
+        """
+        for columns in ("80", "100", "160", "400", None):
+            with self.subTest(columns=columns):
+                with tempfile.TemporaryDirectory() as out, \
+                        Stub(columns=columns) as stub:
+                    with mod.trace("box", Path(out)):
+                        time.sleep(BODY_SETTLE_SEC)
+                    alive = len(subprocess.run(
+                        ["pgrep", "-f", str(stub.bin)],
+                        capture_output=True, text=True).stdout.split())
+                    finish = stub.commands()[-1]
+                self.assertEqual(
+                    alive, 0,
+                    f"sampler survived cleanup at COLUMNS={columns}; the guard "
+                    f"is inert because ps truncated its own output: {finish!r}")
 
     def test_only_one_command_is_backgrounded_and_it_closes_its_pipe(self):
         """`mkdir && nohup ... &` backgrounds the whole AND-list, so `$!` is a
@@ -956,8 +1023,14 @@ class Output(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             _, js = self._run(out)
             blob = js.read_text()
-        for forbidden in ("10.", "ubuntu@", "ssh-rsa", "API_KEY", "TOKEN"):
+        for forbidden in ("ubuntu@", "ssh-rsa", "API_KEY", "TOKEN"):
             self.assertNotIn(forbidden, blob)
+        # An IP address, matched as a dotted quad rather than as the substring
+        # "10.". That substring also matches the sidecar's own unix timestamps
+        # -- `"finished_at": 1786557910.4098206` contains it -- so the assertion
+        # failed roughly one run in fifty for reasons having nothing to do with
+        # host identifiers. A flaky guard gets muted, and then it guards nothing.
+        self.assertNotRegex(blob, r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 
     def test_steps_do_not_overwrite_each_other(self):
         """A multi-step spec makes several harbor invocations under one lock."""

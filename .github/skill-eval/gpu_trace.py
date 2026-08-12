@@ -401,8 +401,12 @@ def _finish(
         # but it is the difference between "some gputrace sampler" and "any
         # process on the box". Both samplers are bounded by their own timeout,
         # so the weaker match costs at most a slightly early stop.
+        # `-ww` for the reason spelled out at the fetch-path guard below, and
+        # this site is worse off: `vss-gputrace` occurs in the sampler's argv
+        # only inside `-f "$d/trace.csv"`, which is the LAST thing on a 204-char
+        # command line, so any width limit at all discards it.
         _remote(instance,
-                f"ps -o args= -p {pid} 2>/dev/null | grep -qF vss-gputrace "
+                f"ps -ww -o args= -p {pid} 2>/dev/null | grep -qF vss-gputrace "
                 f"&& kill {pid} 2>/dev/null; true", attempts=1)
         print(f"[gpu-trace] tried to stop sampler {pid} on {instance} "
               f"but have no trace path", flush=True)
@@ -423,7 +427,25 @@ def _finish(
     # -F, not a bare pattern: DIR_RE permits `.`, which is a BRE wildcard, so
     # `grep -q /tmp/vss-gputrace.ABCD1234` also matches `/tmp/vss-gputraceXABCD1234`.
     # A fixed-string match makes the nonce mean what it looks like it means.
-    kill = (f"ps -o args= -p {pid} 2>/dev/null | grep -qF -- {remote_dir} "
+    #
+    # `-ww`, and it is load-bearing rather than tidy. `ps` truncates `args` to
+    # the display width, and the sampler's command line is 204 characters with
+    # the nonce starting at column 169. Any width under that returns a prefix
+    # that CANNOT contain the nonce, so `grep` reports no match, `&&` skips the
+    # kill, and the sampler runs to its 2h20m hard stop on a box that has already
+    # been handed to the next leg -- a guard that is present, correct-looking and
+    # inert. Two real ways to land under 169 columns, both measured on
+    # procps-ng 3.3.17:
+    #   * COLUMNS is set in the environment (COLUMNS=80 and =100 both discard it);
+    #   * stdout is a pty whose window size was never set, which defaults to
+    #     exactly 80x24 -- and `brev exec`/`ssh` allocate precisely that.
+    # Note it is NOT simply "no tty": with no tty anywhere and COLUMNS unset,
+    # procps prints unlimited width, which is why this can look green locally.
+    # `-ww` removes the limit unconditionally and is immune to all of them.
+    # A single `-w` is NOT enough and is the tempting half-fix: it widens to 132
+    # columns, still short of 169, so the guard stays inert while looking
+    # repaired. Measured at COLUMNS=80: bare=80 chars, -w=132, -ww=207.
+    kill = (f"ps -ww -o args= -p {pid} 2>/dev/null | grep -qF -- {remote_dir} "
             f"&& kill {pid} 2>/dev/null; ") if pid else ""
     # `head -c` bounds the remote side; _read_capped bounds ours. Both are
     # needed: the remote cap cannot bound brev's own stdout.
