@@ -14,7 +14,7 @@ Failures propagate downstream. Always triage in this order — a broken upstream
 
 ```
 broker (kafka / redis)
-  └── vss-configurator-<mode>-init   (one-shot broker gate; despite the name it renders no config)
+  └── vss-configurator-init   (one-shot broker gate; despite the name it renders no config)
         └── vss-configurator         (blueprint / stream / hardware config — must report HEALTHY)
               └── vss-vios-nvstreamer          (waits on the configurator: service_healthy)
                     └── vss-rtvi-cv            (perception — 2D RT-DETR or 3D Sparse4D, same
@@ -24,7 +24,7 @@ broker (kafka / redis)
                               └── (extended only: logstash, kibana, vss-video-analytics-api)
 
 The configurator is UPSTREAM of nvstreamer, not below it: nvstreamer declares
-`depends_on: bp-configurator-<mode>: condition: service_healthy`. If the configurator
+`depends_on: bp-configurator: condition: service_healthy`. If the configurator
 never goes healthy, nvstreamer never starts and perception has no input — so triage the
 configurator BEFORE concluding the stream source is broken.
 
@@ -38,12 +38,13 @@ up does not mean STREAM_TYPE=redis. `vss-turnserver` (+ vss-turnserver-init) is 
 in every list, for VST WebRTC playback.
 
 MV3DT variant (MODE=mv3dt) — same dependency shape. The -mv3dt suffix applies ONLY to the
-containers defined in warehouse-mv3dt-app.yml (nvstreamer, rtvi-cv, configurator + -init,
-behavior-analytics, video-analytics-api, kibana-init, import-calibration-output). The
+containers defined in warehouse-mv3dt-app.yml (nvstreamer, rtvi-cv,
+behavior-analytics, video-analytics-api, kibana-init, import-calibration-output).
+`vss-configurator` / `vss-configurator-init` are centralized and unsuffixed. The
 MV3DT-only mosquitto and vss-rtvi-cv-bev-fusion are UNsuffixed, as are the VST stack,
 vss-turnserver, kafka/redis and vss-broker-health-check. mosquitto is defined in
 services/infra/compose.yml, not in warehouse-mv3dt-app.yml:
-  broker → vss-configurator-mv3dt-init → vss-configurator-mv3dt → vss-vios-nvstreamer-mv3dt
+  broker → vss-configurator-init → vss-configurator → vss-vios-nvstreamer-mv3dt
     → vss-rtvi-cv-mv3dt (per-camera perception; uses mosquitto/MQTT to exchange tracks
       │                  with the other per-camera trackers)
       └→ mdx-raw on kafka/redis → vss-rtvi-cv-bev-fusion (CPU-only) → mdx-bev
@@ -51,7 +52,7 @@ services/infra/compose.yml, not in warehouse-mv3dt-app.yml:
   NOTE: bev-fusion does NOT speak MQTT. It reads mdx-raw from the broker.
 
 Warehouse Auto-Calibration (BP_PROFILE=bp_wh_auto_calib) — minimal footprint:
-  vss-vios-nvstreamer / vss-vios-nvstreamer-mv3dt → vss-configurator / vss-configurator-mv3dt
+  vss-vios-nvstreamer / vss-vios-nvstreamer-mv3dt → vss-configurator
                       → vss-auto-calibration + vss-auto-calibration-ui
   (no broker, no perception, no analytics)
 
@@ -90,7 +91,7 @@ vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/
 
 `MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) determine which explicit `COMPOSE_PROFILES_WH_*` service list from `generated.env` is active. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
 
-The **`-mv3dt` suffix is not universal** — it comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-video-analytics-api-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, only referenced by the MV3DT app file via `depends_on`) are unsuffixed, as are the VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check`. Both are MV3DT-only in practice — their profiles appear solely in the MV3DT Kafka/Redis lists.
+The **`-mv3dt` suffix is not universal** — it comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-video-analytics-api-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. `vss-configurator` / `vss-configurator-init` (centralized under `services/configurators/vss-configurator/`), `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, only referenced by the MV3DT app file via `depends_on`) are unsuffixed, as are the VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check`. Both are MV3DT-only in practice — their profiles appear solely in the MV3DT Kafka/Redis lists.
 
 ### Warehouse CV core (2D and 3D variants)
 
@@ -105,7 +106,7 @@ The **`-mv3dt` suffix is not universal** — it comes from each service's own `c
 | `vss-behavior-analytics` | ROI / tripwire / proximity analytics |
 | `vss-vios-postgres` / `-sensor` / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
 | `vss-turnserver` | TURN / WebRTC relay for VST playback |
-| one-shot: `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads`, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-configurator-2d-init` / `-3d-init`, `vss-elasticsearch-init`, `vss-kibana-init`, `vss-import-calibration-output` | Init jobs — `Exited (0)` is success, not a failure. Only a **non-zero** exit is a finding |
+| one-shot: `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads`, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-configurator-init`, `vss-elasticsearch-init`, `vss-kibana-init`, `vss-import-calibration-output` | Init jobs — `Exited (0)` is success, not a failure. Only a **non-zero** exit is a finding |
 
 ### MV3DT CV core (`MODE=mv3dt` with `BP_PROFILE=bp_wh_kafka` or `bp_wh_redis`)
 
@@ -117,7 +118,7 @@ The **`-mv3dt` suffix is not universal** — it comes from each service's own `c
 | `vss-rtvi-cv-mv3dt` | DeepStream perception (per-camera) |
 | `vss-rtvi-cv-bev-fusion` | BEV Fusion — fuses per-camera detections into unified 3D BEV frame. **CPU-only**: no `runtime: nvidia`, no device reservation. Reads `mdx-raw`, writes `mdx-bev` |
 | `mosquitto` | MQTT broker for cross-camera messaging |
-| `vss-configurator-mv3dt` | Stream and hardware config |
+| `vss-configurator` | Stream and hardware config |
 | `vss-behavior-analytics-mv3dt` | 3D spatial analytics |
 | `vss-vios-postgres` / `sensor-ms-mv3dt` (container `vss-vios-sensor`) / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
 
@@ -126,7 +127,7 @@ The **`-mv3dt` suffix is not universal** — it comes from each service's own `c
 | Container | Role |
 |---|---|
 | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt` | RTSP stream server |
-| `vss-configurator` / `vss-configurator-mv3dt` | Blueprint configurator |
+| `vss-configurator` | Blueprint configurator |
 | `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
 | VST stack (subset) | Stream management for calibration |
 
@@ -165,7 +166,7 @@ Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list 
 
 | Container | Start period | Interval | Retries | Impact if failing |
 |---|---|---|---|---|
-| `vss-configurator` / `-mv3dt` | **60 s** | 10 s | 30 | Streams not configured — perception gets no input, since nvstreamer waits on this being healthy |
+| `vss-configurator` | **60 s** | 10 s | 30 | Streams not configured — perception gets no input, since nvstreamer waits on this being healthy |
 | `elasticsearch` | **60 s** | 10 s | 60 | BEV index unavailable (3D); no overlays (2D extended); agent storage broken |
 | `vss-rtvi-cv-bev-fusion` (MV3DT) | 10 s | 2 s | 30 | Probes for `/tmp/fusion_ready`. Unhealthy means fusion never came up — no `mdx-bev`, so the Phase 5 sync check has nothing to read |
 
@@ -419,7 +420,6 @@ To confirm against what is actually running, inspect the **configurator** — `M
 ```bash
 docker inspect vss-configurator --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
   | grep -i "^MODE="
-# MV3DT: use vss-configurator-mv3dt
 ```
 
 `vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`.
@@ -445,8 +445,8 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 |---|---|
 | 2D / 3D Kafka/Redis variants | broker (`kafka` and/or `redis`), `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
-| MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
-| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
+| MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
+| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
 | `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt`; monitoring too, but **2D/3D only** |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |
@@ -460,7 +460,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads` | SDR-controller setup / wait jobs |
 | `sensor-bp-wait-bp-configurator` | Waits for the configurator before the sensor microservice starts |
 | `vss-kafka-topics` | Creates the `mdx-*` topics |
-| `vss-configurator-2d-init` / `-3d-init` / `-mv3dt-init` | Per-mode **broker readiness gate**, despite the name — polls Kafka/Redis with `MAX_RETRIES=60`, `RETRY_INTERVAL=2` s, then exits. Under `BP_PROFILE=bp_wh_auto_calib` the check no-ops and it exits `0` immediately. `vss-configurator` waits on it via `service_completed_successfully`. It renders no config |
+| `vss-configurator-init` | Shared **broker readiness gate**, despite the name — polls Kafka/Redis with `MAX_RETRIES=60`, `RETRY_INTERVAL=2` s, then exits. Under `BP_PROFILE=bp_wh_auto_calib` the check no-ops and it exits `0` immediately. `vss-configurator` waits on it via `service_completed_successfully`. It renders no config |
 | `vss-elasticsearch-init`, `vss-kibana-init` | Index templates / dashboard import |
 | `vss-import-calibration-output` | Imports `calibration.json` |
 
@@ -618,13 +618,10 @@ docker logs --tail 50 vss-rtvi-cv-config-adaptor 2>&1 | grep -E "ERROR|error|fai
 ### 3.5 Configurator
 
 ```bash
-# 2D / 3D:
 docker logs --tail 50 vss-configurator 2>&1 | grep -E "ERROR|error|fail" | tail -20
-# MV3DT:
-docker logs --tail 50 vss-configurator-mv3dt 2>&1 | grep -E "ERROR|error|fail" | tail -20
 ```
 
-Note: `vss-configurator` / `vss-configurator-mv3dt` has a **60 s start period** — a health-check failure in the first minute is expected.
+Note: `vss-configurator` has a **60 s start period** — a health-check failure in the first minute is expected.
 
 ### 3.6 Behavior Analytics
 
