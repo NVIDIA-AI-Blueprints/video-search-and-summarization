@@ -270,6 +270,10 @@ analytics:
   vss-behavior-analytics:
     enabled: true
     fullnameOverride: vss-behavior-analytics
+    waitForKafka:
+      enabled: true
+      host: kafka-kafka
+      topic: mdx-bev
     replicas: 1
     command:
       - python3
@@ -405,8 +409,8 @@ rtvi:
           calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
           configInit:
             image:
-              repository: nvcr.io/nv-metropolis-dev/vss-warehouse/vss-rt-cv-mv3dt-config-init
-              tag: "3.2.0-3"
+              repository: nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-config-init
+              tag: "3.3.0-26.08.1"
               pullPolicy: IfNotPresent
         fusion:
           enabled: true

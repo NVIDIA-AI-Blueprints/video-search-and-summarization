@@ -940,9 +940,19 @@ public:
             {
                 if (m_streamingStarted == false)
                 {
-                    StreamEncParam details;
-                    details.codec = codec;
-                    StreamMonitor::getInstance()->sendStatusEvent(m_uri, STREAM_STATUS_STREAMING, details);
+                    /* With RTSP proxy, registerStreamAsync already posts STREAMING
+                     * before addStream(); emitting again only duplicates recorder /
+                     * RtspStreamStatusCallback work. Keep this path for WebRTC-only
+                     * (needRtspServer == false), where StreamMonitor is the source. */
+                    std::shared_ptr<DeviceManager> deviceManager =
+                        ModuleLoader::getInstance()->getDeviceManagerObject();
+                    if (deviceManager && deviceManager->needRtspServer == false)
+                    {
+                        StreamEncParam details;
+                        details.codec = codec;
+                        StreamMonitor::getInstance()->sendStatusEvent(
+                            m_uri, STREAM_STATUS_STREAMING, details);
+                    }
                     m_streamingStarted = true;
                 }
                 if ((m_ptsFromServer >= 0 && GET_CONFIG().enable_mega_simulation) || m_currentFrameId != -1)
@@ -958,53 +968,100 @@ public:
             }
             if (isIDRFrame(fCurPacketNALUnitType, codec) && m_isVideoMetadataUpdated == false)
             {
+                /* One probe at a time: consecutive IDRs must not each spawn
+                 * getRTSPStreamDetails before the first task finishes. */
+                bool expected = false;
+                if (m_videoMetadataFetchInProgress.compare_exchange_strong(expected, true))
+                {
                 m_videoMetadataFetchTask = async::spawn([=]
                 {
-                    string frame_rate, width, height;
-                    std::vector<std::vector<uint8_t>> sps_pps_idr_frames;
-                    string uri =  m_uri;
+                    struct InProgressGuard
+                    {
+                        std::atomic<bool>& flag;
+                        ~InProgressGuard() { flag.store(false); }
+                    } inProgressGuard{m_videoMetadataFetchInProgress};
+
+                    string uri = m_uri;
                     string local_codec = codec;
-                    std::vector<std::vector<uint8_t>> initFrames = m_initFrames;
-                    for (auto frame : initFrames)
+                    std::shared_ptr<DeviceManager> deviceManager =
+                        ModuleLoader::getInstance()->getDeviceManagerObject();
+                    if (!deviceManager)
+                    {
+                        return;
+                    }
+
+                    shared_ptr<StreamInfo> matchedStream;
+                    for (auto const& stream : deviceManager->getStreamList())
+                    {
+                        if (stream->live_proxy_url == uri)
+                        {
+                            matchedStream = stream;
+                            break;
+                        }
+                    }
+                    if (!matchedStream)
+                    {
+                        return;
+                    }
+
+                    SensorVideoEncoderSettingsValues enc = matchedStream->getvideoEncoderValues();
+                    const bool needResolution = enc.resolution.empty()
+                        || enc.resolution.width == "0"
+                        || enc.resolution.height == "0";
+                    const bool needFps = enc.frameRate.empty()
+                        || stringToDouble(enc.frameRate, 0.0) <= 0.0;
+
+                    if (!needResolution && !needFps)
+                    {
+                        /* registerStreamAsync / earlier probe already filled both. */
+                        m_isVideoMetadataUpdated = true;
+                        LOG(info) << "Skipping getRTSPStreamDetails; resolution and fps "
+                                  << "already present for " << secureUrlForLogging(uri) << endl;
+                        return;
+                    }
+
+                    std::vector<std::vector<uint8_t>> sps_pps_idr_frames;
+                    for (auto frame : m_initFrames)
                     {
                         sps_pps_idr_frames.push_back(frame);
                     }
                     sps_pps_idr_frames.push_back(frameInfoMsg->m_content);
-                    Json::Value response = getRTSPStreamDetails (uri, local_codec, sps_pps_idr_frames);
-                    if (response.isMember("width"))
+
+                    Json::Value response = getRTSPStreamDetails(uri, local_codec, sps_pps_idr_frames);
+                    string width = response.get("width", "").asString();
+                    string height = response.get("height", "").asString();
+                    string frame_rate = response.get("frame_rate", "").asString();
+
+                    if (needResolution && !width.empty() && !height.empty()
+                        && width != "0" && height != "0")
                     {
-                        width = response.get("width", "").asString();
+                        enc.resolution.width = width;
+                        enc.resolution.height = height;
                     }
-                    if (response.isMember("height"))
+                    if (needFps && stringToDouble(frame_rate, 0.0) > 0.0)
                     {
-                        height = response.get("height", "").asString();
+                        enc.frameRate = frame_rate;
                     }
-                    if (response.isMember("frame_rate"))
+                    if (!local_codec.empty())
                     {
-                        frame_rate = response.get("frame_rate", "").asString();
+                        enc.encoding = local_codec;
                     }
-                    m_isVideoMetadataUpdated = !( width.empty () || height.empty() );
-                    if (m_isVideoMetadataUpdated)
+
+                    const bool stillNeedResolution = enc.resolution.empty()
+                        || enc.resolution.width == "0"
+                        || enc.resolution.height == "0";
+                    const bool haveFps = stringToDouble(enc.frameRate, 0.0) > 0.0;
+                    /* Stop retrying once resolution is known; fps often stays unset.
+                     * InProgressGuard clears the in-progress bit so a later IDR can
+                     * retry only when m_isVideoMetadataUpdated stays false. */
+                    m_isVideoMetadataUpdated = !stillNeedResolution;
+                    if (!stillNeedResolution || (needFps && haveFps))
                     {
-                        std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
-                        std::vector<shared_ptr<StreamInfo>> streamList = deviceManager->getStreamList();
-                        for (auto const& stream : streamList)
-                        {
-                            
-                            if (stream->live_proxy_url == uri)
-                            {
-                                SensorVideoEncoderSettingsValues values;
-                                values.encoding = codec;
-                                values.frameRate = frame_rate;
-                                values.resolution.width = width;
-                                values.resolution.height = height;
-                                stream->updateVideoEncoderValues(values);
-                                stream->printInfo();
-                                break;
-                            }
-                        }
+                        matchedStream->updateVideoEncoderValues(enc);
+                        matchedStream->printInfo();
                     }
                 });
+                }
             }
         }
 
@@ -1154,6 +1211,7 @@ private:
     std::vector<std::vector<uint8_t>> m_initFrames;
     async::task<void>           m_videoMetadataFetchTask;
     std::atomic<bool>           m_isVideoMetadataUpdated {true};
+    std::atomic<bool>           m_videoMetadataFetchInProgress {false};
     std::vector<uint8_t>        m_sps;
     std::vector<uint8_t>        m_pps;
     std::atomic<bool>           m_useOnvifExtnTimestamp {false};

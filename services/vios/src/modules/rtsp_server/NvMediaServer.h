@@ -44,6 +44,7 @@ public:
   void afterPlayingDummy1();
   void frameSourceEventChange(eFrameSourceEvent sourceEvent);
   void seekStreamByGlobalFrameId(H264ByteStreamSource* source);
+  void joinRunningSyncGroup();
   H264ByteStreamSource* getVideoStreamSource() { return m_videoStreamSource; }
 
   /* Inject the AV-loop-sync coordinator. Called from

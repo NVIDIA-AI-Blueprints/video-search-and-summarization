@@ -118,7 +118,8 @@ spec:
             httpGet:
               path: /api/health
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 120
+            failureThreshold: 10
             periodSeconds: 20
           resources:
             {{- toYaml $g.resources | nindent 12 }}

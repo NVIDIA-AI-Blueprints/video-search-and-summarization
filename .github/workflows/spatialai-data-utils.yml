@@ -96,13 +96,10 @@ jobs:
           if not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
               raise RuntimeError(f"invalid Spatial AI source tree SHA: {tree_sha!r}")
 
-          # GITHUB_RUN_ID is repository-global. A separate workflow must not use
-          # GITHUB_RUN_NUMBER because that counter has a different namespace
-          # from the legacy monolithic CI workflow.
-          suffix = (
-              f".dev{os.environ['GITHUB_RUN_ID']}+t{tree_sha}."
-              f"g{commit[:12]}.gh.r{os.environ['GITHUB_RUN_ATTEMPT']}"
-          )
+          # Match the established GHCR convention: package identity is the
+          # first 12 characters of the VSS source commit, with no CI counter
+          # embedded in the public package version.
+          suffix = f".dev0+g{commit[:12]}"
           publish = changed and ref_name == "develop" and not recovery
           reconcile = recovery or publish
 
@@ -243,7 +240,7 @@ jobs:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
       DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
-      DOWNSTREAM_REF: spatialai-publisher
+      DOWNSTREAM_REF: main
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
       DOWNSTREAM_TARGET_BRANCH: develop
       DOWNSTREAM_COMPARE_BRANCH: develop

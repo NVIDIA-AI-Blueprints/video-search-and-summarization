@@ -983,8 +983,6 @@ docker run \
 | `opentelemetry-*` | 1.27.0 | Distributed tracing |
 | `prometheus_client` | 0.20.0 | Prometheus metrics |
 | `Jinja2` | 3.1.4 | Envoy config template rendering |
-| `kopf` | 1.37.1 | Kubernetes operator framework |
-| `websockets` | ≥12,<13 | WebSocket protocol support |
 
 ---
 
@@ -1026,7 +1024,6 @@ services/sdrc/
 ├── run_workloads.py                # Multi-workload runner for SDRC deployments
 ├── pyproject.toml                  # Python dependencies (uv-managed)
 ├── uv.lock                         # Locked dependency tree
-├── requirements.txt                # Pip-compatible requirements
 ├── LICENSE                         # Apache-2.0
 ├── 3rdParty_Licenses.md            # Third-party license summaries
 ├── ThirdPartyLicences-notices.txt  # Third-party license notices

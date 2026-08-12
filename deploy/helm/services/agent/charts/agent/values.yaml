@@ -126,6 +126,9 @@ waitForDependencies:
   redisPort: "6379"
   elasticsearchHost: ""
   elasticsearchPort: "9200"
+  mcpHost: ""
+  mcpPort: "9901"
+  waitForMcp: false
   maxRetries: "90"
   retryInterval: "2"
 

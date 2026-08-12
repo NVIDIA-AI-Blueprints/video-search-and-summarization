@@ -2,7 +2,7 @@
 # Regenerate with:  python3 .github/scripts/compose_image_golden.py --update
 # A diff in this file means a registry, image name, or default tag changed.
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
-deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
+deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvstaging/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml nvcr.io/nvstaging/vss-core/vss-configurator:3.3.0-2026.08.2-1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvstaging/vss-core/vss-configurator:3.3.0-2026.08.2-1
@@ -31,7 +31,7 @@ deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
-deploy/docker/services/infra/sdrc/docker-compose.yaml nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2
+deploy/docker/services/infra/sdrc/docker-compose.yaml nvcr.io/nvstaging/vss-core/sdr-mw-l:3.4.0-2026.08.3-1
 deploy/docker/services/infra/sdrc/docker-compose.yaml redis:8.10.0-alpine
 deploy/docker/services/monitoring/compose.yml docker.io/grafana/grafana:13.1.1-ubuntu
 deploy/docker/services/monitoring/compose.yml docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04

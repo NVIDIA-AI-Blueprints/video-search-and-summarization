@@ -190,7 +190,7 @@ RtspServer::~RtspServer()
     m_env.stop();
     m_thread->join();
 
-    if (GET_CONFIG().nv_streamer_sync_playback == true)
+    if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
     {
         RtspSyncPlayback::getInstance()->stop();
     }
@@ -860,7 +860,7 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
             }
             LOG(info) << "registerStreamAsync: Enriched existing sensor "
                       << sensorId << " stream " << id
-                      << " (in-memory only; DB persist deferred to STREAMING)" << endl;
+                      << " (in-memory; full DB persist follows before consumers)" << endl;
         }
         else
         {
@@ -951,6 +951,31 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
                     event["metadata"] = metadata;
                 }
 
+                /* Persist the complete stream state before starting recorder or
+                 * QoS-monitor consumers. sendEvent() is asynchronous and the
+                 * recorder callback can start StreamMonitor before the RTSP
+                 * status callback runs, so deferring this write leaves a window
+                 * where an encoder update can overwrite the proxy URL with the
+                 * stale database value. This runs on RtspAsyncWrk, not live555. */
+                if (deviceMngr->needStreamMonitoring)
+                {
+                    if (stream_info->live_proxy_url.empty())
+                    {
+                        stream_info->live_proxy_url = proxyUrl;
+                        stream_info->replay_url = vod_url;
+                    }
+                    stream_info->updateErrorStatus(
+                        std::make_pair(
+                            STREAM_STATUS_STREAMING,
+                            translateStreamStatusToString(STREAM_STATUS_STREAMING)),
+                        /*updateDB=*/false);
+                    vst_common::updateSensorDetailsToDB(
+                        deviceMngr->getDeviceId(), sensor, /*force=*/false);
+                    LOG(info) << "registerStreamAsync: Persisted full sensor+stream "
+                              << stream_info->sensorId << "/" << stream_info->id
+                              << " before starting stream consumers" << endl;
+                }
+
                 /* Add stream event into stream_event_manager */
                 StreamEncParam details;
                 details.codec = encoder_values.encoding;
@@ -959,11 +984,6 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
 
                 if(deviceMngr && deviceMngr->needStreamMonitoring && deviceMngr->needRtspServer == true)
                 {
-                    if (stream_info->live_proxy_url.empty())
-                    {
-                        stream_info->live_proxy_url = proxyUrl;
-                        stream_info->replay_url = vod_url;
-                    }
                     StreamMonitor* streamMonitor = StreamMonitor::getInstance();
                     if (streamMonitor)
                     {
