@@ -1171,7 +1171,24 @@ bool isValidCalibrationJson(const string& payload)
     {
         return false;
     }
-    return true;
+
+    // A non-empty sensors array is not enough to be useful.  The overlay loader
+    // skips any sensor without an id or without both matrices (see the per-sensor
+    // checks in overlay_internal.cpp), so a document whose entries all lack them
+    // parses cleanly, replaces a good local file, and then yields no calibration
+    // at all -- overlays silently stop working.  Require what the loader
+    // requires, for at least one sensor: it tolerates individual bad entries, so
+    // demanding all of them would reject a file it would happily use.
+    for (const auto& sensor : root["sensors"])
+    {
+        if (sensor.isMember("id") && sensor["id"].isString() && !sensor["id"].asString().empty() &&
+            sensor.isMember("intrinsicMatrix") && sensor["intrinsicMatrix"].isArray() &&
+            sensor.isMember("extrinsicMatrix") && sensor["extrinsicMatrix"].isArray())
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Read the file exactly as stored.
