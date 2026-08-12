@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Brev environment that adds the opt-in NemoClaw notebook setup."""
+
 from __future__ import annotations
 
 import base64
@@ -37,6 +38,7 @@ _SETUP_KEYS = (
     "VSS_ORCHESTRATOR_MCP_PORT",
     "VSS_ORCHESTRATOR_MCP_URL",
     "NEMOCLAW_AGENT_TIMEOUT_SEC",
+    "RTSP_SAMPLE_URL",
 )
 
 
@@ -62,15 +64,14 @@ def _forwarded_nemoclaw_env() -> str:
             ("VLM_DEVICE_ID", ""),
         ]
     )
-    return "\n".join(
-        f"export {key}={shlex.quote(value)}" for key, value in values
-    )
+    return "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values)
 
 
-def _setup_command(timeout: int) -> str:
+def _setup_command(timeout: int, required_tools: list[str]) -> str:
     # Reserve 10 minutes for the venv and 10 for readiness, plus five
     # minutes of command/transport headroom inside the total setup budget.
     adapter_timeout = max(300, timeout - 1500)
+    required_tools_csv = ",".join(required_tools)
     return f"""
 set -e
 set +u
@@ -241,7 +242,8 @@ timeout --signal=TERM --kill-after=120 {adapter_timeout}s \
 timeout --signal=TERM --kill-after=30 600s \
   "$venv/bin/python" \
   .github/skill-eval/nemoclaw/readiness.py \
-  --env-file "$scratch/nemoclaw.env"
+  --env-file "$scratch/nemoclaw.env" \
+  --required-tools {shlex.quote(required_tools_csv)}
 """.strip()
 
 
@@ -397,13 +399,18 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
             f"{env_block}\n"
             "__NEMOCLAW_ENV__"
         )
-        written = await _run_brev_exec(
-            self._instance_name, append, timeout=30
-        )
+        written = await _run_brev_exec(self._instance_name, append, timeout=30)
         if written.return_code != 0:
             raise RuntimeError("Could not forward NemoClaw setup environment")
 
         timeout = _bounded_setup_timeout()
+        required_tools = metadata.get("required_mcp_tools") or []
+        if not isinstance(required_tools, list) or not all(
+            isinstance(tool, str) and tool for tool in required_tools
+        ):
+            raise RuntimeError(
+                "NemoClaw required_mcp_tools metadata must be a list of names"
+            )
         logger.info(
             "Running notebook-derived NemoClaw setup on %s (timeout=%ss)",
             self._instance_name,
@@ -411,7 +418,7 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
         )
         result = await _run_brev_exec(
             self._instance_name,
-            _setup_command(timeout),
+            _setup_command(timeout, required_tools),
             timeout=timeout + 60,
         )
         if result.return_code != 0:
@@ -433,9 +440,7 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
     ):
         metadata = self._read_task_metadata()
         is_nemoclaw = metadata.get("runner") == "nemoclaw"
-        is_claude_agent = (
-            "claude --verbose --output-format=stream-json" in command
-        )
+        is_claude_agent = "claude --verbose --output-format=stream-json" in command
         if not is_nemoclaw or not is_claude_agent:
             return await super().exec(
                 command,
@@ -450,26 +455,19 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
             for key, value in (env or {}).items()
             if key.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")
         ]
-        if (
-            "headless_runner.py" not in command
-            and not any("headless_runner.py" in value for value in instructions)
+        if "headless_runner.py" not in command and not any(
+            "headless_runner.py" in value for value in instructions
         ):
             raise RuntimeError(
                 "NemoClaw task is missing the expected Harbor launcher instruction"
             )
-        prompt_path = (
-            Path(self.environment_dir).parent
-            / "tests"
-            / "nemoclaw_prompt.md"
-        )
+        prompt_path = Path(self.environment_dir).parent / "tests" / "nemoclaw_prompt.md"
         if not prompt_path.is_file():
             raise RuntimeError(
                 "NemoClaw prompt is unavailable; refusing to run outer Claude"
             )
         prompt_b64 = base64.b64encode(prompt_path.read_bytes()).decode("ascii")
-        agent_timeout = int(
-            os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "3300")
-        )
+        agent_timeout = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "3300"))
         launcher = f"""set -euo pipefail
 cd "$HOME/video-search-and-summarization"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent /logs/artifacts/nemoclaw
