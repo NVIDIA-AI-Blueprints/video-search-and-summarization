@@ -79,8 +79,21 @@ PREAMBLE = (
     "for confirmation on `/vss-deploy-profile` or any other setup action the trial requires."
 )
 
+# Harbor restores the deployment and ~/.vss/config.json between persisted
+# steps, but it does not install the optional CLI extra globally. Every step
+# must therefore re-establish the project-local command rather than assuming a
+# previous shell's PATH or variables survived.
+PROJECT_CLI_PREAMBLE = (
+    " Set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, "
+    "require `${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, and define "
+    "`VSS=(uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss)`. "
+    "Use `\"${VSS[@]}\"` for every CLI invocation in this step, including "
+    "`configure`, `configure show`, and `search run`; never invoke a bare or globally installed `vss`."
+)
+
 DEPLOYMENT_PREAMBLE = (
     PREAMBLE
+    + PROJECT_CLI_PREAMBLE
     + " This step deploys and validates the search profile only; do not download or ingest sample "
     "media. Work from the validated project checkout and use `/vss-deploy-profile -p search -m "
     "remote-all`. Compose commands executed by that deployment workflow are expected. Once it "
@@ -90,15 +103,16 @@ DEPLOYMENT_PREAMBLE = (
     "the bundled `scripts/select_brev_origin.sh` to make the single public-origin decision and do not issue "
     "a public-origin curl yourself. Let that request, with redirects disabled, select the documented "
     "host-reachable fallback only when semantic validation fails, and record the final origin with "
-    "`vss configure --base-url`. Do not edit `VST_EXTERNAL_URL` or loop on routing. Initial profile "
+    "the project-local `vss configure --base-url`. Do not edit `VST_EXTERNAL_URL` or loop on routing. Initial profile "
     "deployment activity is not a routing violation. Stop after deployment validation; fixture "
     "ingestion belongs to the next persisted step."
 )
 
 INGESTION_PREAMBLE = (
     PREAMBLE
+    + PROJECT_CLI_PREAMBLE
     + " The preceding step already deployed, validated, and configured the search profile. Reuse "
-    "that state. Read the origin from `vss configure show`; do not invoke `/vss-deploy-profile`, "
+    "that state. Read the origin with the project-local `vss configure show`; do not invoke `/vss-deploy-profile`, "
     "`docker compose up`, restart or recreate containers, edit routing, or repeat public-origin "
     "selection. If the prepared deployment is unavailable, report the prerequisite failure and stop "
     "instead of repairing it. Initialize the source-lifecycle deadline once at the start of this "
@@ -113,13 +127,14 @@ INGESTION_PREAMBLE = (
 
 OPERATION_PREAMBLE = (
     PREAMBLE
+    + PROJECT_CLI_PREAMBLE
     + " The search profile "
     "and evaluation fixtures were prepared by the preceding deployment and ingestion steps. Do not redeploy "
     "the profile and do not ingest or re-ingest any source during this step. Set "
     "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
     "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, and work from that checkout. "
     "List registered sources through the prepared deployment's discovered VST/VIOS "
-    "connectivity: read the origin from `vss configure show` and "
+    "connectivity: read the origin from the project-local `vss configure show` and "
     "GET its `/vst/api/v1/sensor/list`; do not assume a fixed port. If "
     "the requested source is not registered, follow the skill's missing-source rule: list "
     "registered sources, report the missing source, and stop without silently substituting "
@@ -132,7 +147,7 @@ OPERATION_PREAMBLE = (
     "`run attribute` for attributes only, `run fusion` for both, `run object` for tracked ids -- "
     "then run the host checkout's project-local `cd \"${VSS_REPO_ROOT}\" && uv run --project "
     "\"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run <path>` with no endpoint, index "
-    "or model flags (they come from `vss configure`). Preserve both the resolved source name and sensor ID: "
+    "or model flags (they come from the project-local `vss configure`). Preserve both the resolved source name and sensor ID: "
     "pass the sensor ID as `--video-source` for `embed` and `fusion`, the name for `attribute` and `object`, "
     "and pass `--source-type video_file` for these uploaded fixtures. Also pass `--raw` and any result "
     "limit stated in the query. Put that fully constructed invocation in a `SEARCH_COMMAND` "
@@ -155,7 +170,7 @@ OPERATION_PREAMBLE = (
     "fields, and explicitly say that "
     "similarity scores are retrieval evidence rather than visual confirmation. Preserve the exact returned "
     "media URL from each CLI hit and verify that URL's "
-    "scheme, hostname, and effective port match the origin recorded by `vss configure show`, which "
+    "scheme, hostname, and effective port match the origin recorded by the project-local `vss configure show`, which "
     "is the origin the CLI stamps into every hit. Prefer the Brev public HTTPS origin and reject "
     "localhost, single-label/internal hostnames, and private, loopback, link-local, reserved, or "
     "otherwise non-global IP addresses when that public origin was recorded. If setup used the "
@@ -168,7 +183,7 @@ OPERATION_PREAMBLE = (
     "and the user later confirms delegated verification, hand those bounded hits to vss-ask-video and use screenshot inspection "
     "only after that workflow reports a technical failure. For a deletion request, do "
     "not run search; use the skill's agent-backed cleanup workflow. Resolve the agent endpoint and "
-    "the distinct embedding, behavior, and raw indexes from `vss configure show` as during setup, "
+    "the distinct embedding, behavior, and raw indexes from the project-local `vss configure show` as during setup, "
     "save the source UUID and canonical name before DELETE, require status `success`, "
     "and poll the exact three index/field/value tuples to zero. Never use the embedding index for "
     "behavior or raw cleanup validation. Do not look for a global executable. If the host command "
@@ -177,10 +192,11 @@ OPERATION_PREAMBLE = (
 
 VERIFICATION_PREAMBLE = (
     PREAMBLE
+    + PROJECT_CLI_PREAMBLE
     + " The search profile and fixtures remain prepared from earlier steps. This is an explicit "
     "post-results confirmation for one already-displayed, unverified bounded hit. Do not rerun "
     "search, deploy, ingest, delete, or inspect screenshot pixels. Resolve the exact current "
-    "warehouse-ladder sensor ID from the origin recorded by `vss configure show`, map the supplied "
+    "warehouse-ladder sensor ID from the origin recorded by the project-local `vss configure show`, map the supplied "
     "synthetic file-search timestamps onto that sensor's current VST timeline as required by the "
     "search-result verification reference, and resolve exactly that bounded clip. Invoke the bundled "
     "vss-ask-video skill through its ordinary pre-resolved `VIDEO_URL` path. Ask it to evaluate only "
@@ -195,11 +211,12 @@ VERIFICATION_PREAMBLE = (
 
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
     PREAMBLE
+    + PROJECT_CLI_PREAMBLE
     + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
     "redeploy, execute the example commands, inspect a cluster, or reuse the Docker "
     "deployment from earlier steps. Kubernetes and Compose use the same commands and "
     "differ only in the origin: source listing uses that origin's public /vst route, and "
-    "search runs `vss configure --base-url <origin>` once followed by `vss search run "
+    "search runs the project-local `vss configure --base-url <origin>` once followed by the project-local `vss search run "
     "<path>`. Do not use kubectl, port-forward, Service DNS, NodePorts, localhost ports, "
     "or direct Elasticsearch/RTVI access."
 )
