@@ -65,6 +65,12 @@ jobs:
             sources: services/analytics/video-analytics-api/src,services/analytics/video-analytics-api/docker
             tests: services/analytics/video-analytics-api/test
             node_version: "22.22.3"
+          - name: spatialai-data-utils
+            project_key: TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization
+            project_name: METROPOLIS-spatialai-data-utils
+            sources: libs/analytics/spatialai-data-utils/release/spatialai_data_utils
+            tests: libs/analytics/spatialai-data-utils/tests
+            python_version: "3.13"
 
     steps:
       - name: Checkout source
