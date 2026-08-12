@@ -130,8 +130,14 @@ class MemoryService:
         Temporal args are applied in-process after the asset-scoped scan (see
         ``_EVENTS_RECORD_SCAN_CAP``). Store-side pruning must use
         ``input.window`` overlap, not ``MemoryQuery.since`` / ``until``.
+
+        Anchor adjacency (§2.1) sorts by event timestamp, not job-write order.
+        ``window`` duration bounds are not implemented yet and are rejected.
         """
-        del window  # reserved for duration windows per design FR-5
+        if window is not None:
+            raise ValueError(
+                "events(window=...) is not implemented yet (SDD §2.1); omit the duration bound"
+            )
         records = self._store.query(MemoryQuery(sensor_id=asset_id, limit=_EVENTS_RECORD_SCAN_CAP))
         if not records:
             raise MemoryNotFoundError(f"no persisted memory for asset_id={asset_id!r}")
@@ -158,10 +164,16 @@ class MemoryService:
         if start_time or end_time:
             collected = [item for item in collected if _event_in_window(item, start_time, end_time)]
 
+        collected = _sort_events_by_time(collected)
         if anchor_event_id:
-            collected = _adjacent_events(collected, anchor_event_id, direction=direction or "around")
-
-        return collected[: max(limit, 0)]
+            return _adjacent_events(
+                collected,
+                anchor_event_id,
+                direction=direction or "around",
+                limit=max(limit, 0),
+            )
+        # Newest-first for unanchored recalls (matches prior store ordering intent).
+        return collected[-max(limit, 0) :] if limit else collected
 
     def _maybe_reconcile(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord | None:
         if self._reconciler is None:
@@ -201,6 +213,28 @@ def build_memory_service(
     raise ConfigurationError("memory service requires --es-endpoint (or an injected store); process env is not read")
 
 
+def _event_stamp_value(event: dict[str, Any]) -> datetime | None:
+    stamp = event.get("timestamp") or event.get("start_time") or event.get("start") or event.get("ts")
+    if stamp is None:
+        return None
+    try:
+        return coerce_utc_instant(str(stamp))
+    except ValueError:
+        return None
+
+
+def _sort_events_by_time(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Oldest→newest by event timestamp; unparseable stamps sort last."""
+
+    def sort_key(event: dict[str, Any]) -> tuple[int, datetime]:
+        value = _event_stamp_value(event)
+        if value is None:
+            return (1, datetime.max.replace(tzinfo=UTC))
+        return (0, value)
+
+    return sorted(events, key=sort_key)
+
+
 def _event_in_window(event: dict[str, Any], start: str | None, end: str | None) -> bool:
     stamp = event.get("timestamp") or event.get("start_time") or event.get("start") or event.get("ts")
     if stamp is None:
@@ -223,7 +257,9 @@ def _adjacent_events(
     anchor_event_id: str,
     *,
     direction: str,
+    limit: int,
 ) -> list[dict[str, Any]]:
+    """Return temporal neighbours. ``events`` must already be oldest→newest."""
     index = None
     for i, event in enumerate(events):
         for key in ("event_id", "id", "uuid"):
@@ -233,15 +269,37 @@ def _adjacent_events(
         if index is not None:
             break
     if index is None:
-        return []
+        raise MemoryNotFoundError(f"anchor_event_id not found: {anchor_event_id!r}")
+
     if direction == "before":
-        return events[:index]
+        # Chronologically earlier than the anchor; prefer those closest to it.
+        neighbors = events[:index]
+        if limit <= 0:
+            return []
+        return neighbors[-limit:]
     if direction == "after":
-        return events[index + 1 :]
-    # around
+        neighbors = events[index + 1 :]
+        if limit <= 0:
+            return []
+        return neighbors[:limit]
+
+    # around: ±5 events by count until §2.1 --window is implemented
     start = max(0, index - 5)
     end = min(len(events), index + 6)
-    return events[start:end]
+    windowed = events[start:end]
+    if limit <= 0:
+        return []
+    if len(windowed) <= limit:
+        return windowed
+    # Center the limit window on the anchor within the ±5 slice.
+    anchor_in_window = index - start
+    half = limit // 2
+    left = max(0, anchor_in_window - half)
+    right = left + limit
+    if right > len(windowed):
+        right = len(windowed)
+        left = max(0, right - limit)
+    return windowed[left:right]
 
 
 __all__ = [

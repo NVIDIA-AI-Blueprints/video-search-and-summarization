@@ -126,8 +126,30 @@ def test_build_search_body_filters() -> None:
         sensor_id="cam-1",
         text="forklift",
         since="2026-01-01T00:00:00Z",
+        until="2026-12-31T23:59:59Z",
         limit=5,
     )
     assert body["size"] == 5
-    assert "bool" in body["query"]
-    assert body["query"]["bool"]["filter"][3]["range"]["job.created_at"]["gte"] == "2026-01-01T00:00:00Z"
+    assert body["sort"] == [{"job.updated_at": {"order": "desc"}}]
+    bool_query = body["query"]["bool"]
+    assert bool_query["must"] == [
+        {
+            "multi_match": {
+                "query": "forklift",
+                "fields": ["input.query", "output.answer"],
+            }
+        }
+    ]
+    assert bool_query["filter"] == [
+        {"term": {"job.group.keyword": "search"}},
+        {"term": {"job.status.keyword": "completed"}},
+        {"term": {"input.sensors.id.keyword": "cam-1"}},
+        {
+            "range": {
+                "job.created_at": {
+                    "gte": "2026-01-01T00:00:00Z",
+                    "lte": "2026-12-31T23:59:59Z",
+                }
+            }
+        },
+    ]

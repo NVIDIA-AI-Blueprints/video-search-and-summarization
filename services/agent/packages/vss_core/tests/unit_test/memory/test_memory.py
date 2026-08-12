@@ -519,3 +519,78 @@ def test_inmemory_since_filter_uses_instant_not_lexicographic_iso() -> None:
     assert len(store.query(MemoryQuery(since="2026-07-22T12:00:00Z"))) == 1
     assert len(store.query(MemoryQuery(until="2026-07-22T12:00:00Z"))) == 0
     assert datetime_to_iso8601(store.get("summary-frac").job.created_at) == "2026-07-22T12:00:00.500000Z"
+
+
+def _event_job(job_id: str, event_id: str, event_ts: str, *, updated_at: str) -> UnifiedMemoryRecord:
+    return _sample_record(
+        job={
+            "job_id": job_id,
+            "group": "summary",
+            "operation": "run",
+            "status": "completed",
+            "created_at": event_ts,
+            "updated_at": updated_at,
+            "backend_ref": None,
+        },
+        input={
+            "query": "q",
+            "sensors": [{"id": "cam-1", "type": "video", "info": {}}],
+            "window": None,
+            "params": {},
+        },
+        output={
+            "answer": "a",
+            "Embedding": [],
+            "handles": {"media_urls": [], "related_job_ids": []},
+            "ext": {"events": [{"id": event_id, "description": event_id, "timestamp": event_ts}]},
+        },
+    )
+
+
+def test_events_adjacent_directions_are_chronological() -> None:
+    """before/after follow event time, not newest-first job write order."""
+    store = InMemoryStore()
+    service = MemoryService(store)
+    # Upsert newest job first so write order disagrees with event chronology.
+    service.upsert(_event_job("summary-late", "evt-LATE", "2026-07-22T12:00:00Z", updated_at="2026-07-22T15:00:00Z"))
+    service.upsert(_event_job("summary-anchor", "evt-ANCHOR", "2026-07-22T11:00:00Z", updated_at="2026-07-22T14:00:00Z"))
+    service.upsert(_event_job("summary-early", "evt-EARLY", "2026-07-22T10:00:00Z", updated_at="2026-07-22T13:00:00Z"))
+
+    before = service.events(asset_id="cam-1", anchor_event_id="evt-ANCHOR", direction="before")
+    after = service.events(asset_id="cam-1", anchor_event_id="evt-ANCHOR", direction="after")
+    assert [event["id"] for event in before] == ["evt-EARLY"]
+    assert [event["id"] for event in after] == ["evt-LATE"]
+
+
+def test_events_before_limit_keeps_closest_neighbours() -> None:
+    store = InMemoryStore()
+    service = MemoryService(store)
+    for hour in range(10):
+        stamp = f"2026-07-22T{10 + hour:02d}:00:00Z"
+        service.upsert(
+            _event_job(
+                f"summary-{hour:02d}",
+                f"e-{hour:02d}",
+                stamp,
+                updated_at=f"2026-07-22T{20 - hour:02d}:00:00Z",
+            )
+        )
+    # Anchor on oldest; before is empty. Anchor on newest; before+limit=3 → e-07,e-08,e-09.
+    before = service.events(asset_id="cam-1", anchor_event_id="e-09", direction="before", limit=3)
+    assert [event["id"] for event in before] == ["e-06", "e-07", "e-08"]
+
+
+def test_events_unknown_anchor_raises() -> None:
+    store = InMemoryStore()
+    service = MemoryService(store)
+    service.upsert(_sample_record())
+    with pytest.raises(MemoryNotFoundError, match="anchor_event_id not found"):
+        service.events(asset_id="cam-1", anchor_event_id="missing-evt", direction="before")
+
+
+def test_events_window_rejected_until_implemented() -> None:
+    store = InMemoryStore()
+    service = MemoryService(store)
+    service.upsert(_sample_record())
+    with pytest.raises(ValueError, match="window"):
+        service.events(asset_id="cam-1", anchor_event_id="evt-1", direction="around", window="30s")

@@ -160,9 +160,6 @@ class ElasticsearchMemoryStore:
                         "fields": [
                             "input.query",
                             "output.answer",
-                            "output.ext.events",
-                            "output.ext.results",
-                            "output.ext.incidents",
                         ],
                     }
                 }

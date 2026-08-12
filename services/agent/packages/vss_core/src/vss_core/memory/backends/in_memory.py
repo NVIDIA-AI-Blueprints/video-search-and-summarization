@@ -44,11 +44,6 @@ def _matches_query(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
             haystacks.append(record.input.query)
         if record.output.answer:
             haystacks.append(record.output.answer)
-        ext = record.output.ext
-        for key in ("events", "results", "incidents"):
-            value = ext.get(key)
-            if value is not None:
-                haystacks.append(str(value))
         needle = query.text.casefold()
         if not any(needle in item.casefold() for item in haystacks):
             return False
