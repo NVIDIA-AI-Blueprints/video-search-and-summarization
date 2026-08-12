@@ -37,6 +37,24 @@ def require_env(name: str) -> str:
     return value
 
 
+def configured_extra_variables() -> dict[str, str]:
+    """Parse optional generic GitLab variables without logging their values."""
+    raw = os.environ.get("DOWNSTREAM_EXTRA_VARIABLES_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        emit_error("DOWNSTREAM_EXTRA_VARIABLES_JSON is not valid JSON")
+        raise SystemExit(1) from exc
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in parsed.items()
+    ):
+        emit_error("DOWNSTREAM_EXTRA_VARIABLES_JSON must be a string-to-string object")
+        raise SystemExit(1)
+    return parsed
+
+
 def api_base_url(raw_url: str) -> str:
     base = raw_url.rstrip("/")
     if not base.endswith("/api/v4"):
@@ -365,7 +383,7 @@ def main() -> int:
             add_mask(segment)
 
         target_branch, compare_branch = resolve_branches()
-        extra_variables: dict[str, str] = {}
+        extra_variables = configured_extra_variables()
         if launchable_notebook_changed():
             extra_variables[LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE] = "true"
 
@@ -402,8 +420,8 @@ def main() -> int:
         print(f"  {variable_name}={commit_sha}")
         print(f"  VSS_TARGET_BRANCH={target_branch}")
         print(f"  VSS_COMPARE_BRANCH={compare_branch}")
-        for key, value in extra_variables.items():
-            print(f"  {key}={value}")
+        for key in extra_variables:
+            print(f"  passed variable: {key}")
 
         sha_short = pipeline_sha[:8] if pipeline_sha else ""
         commit_sha_short = commit_sha[:8] if commit_sha else ""
@@ -420,8 +438,8 @@ def main() -> int:
             summary_lines.append(f"- **VSS_TARGET_BRANCH:** `{target_branch}`")
         if compare_branch:
             summary_lines.append(f"- **VSS_COMPARE_BRANCH:** `{compare_branch}`")
-        for key, value in extra_variables.items():
-            summary_lines.append(f"- **{key}:** `{value}`")
+        for key in extra_variables:
+            summary_lines.append(f"- Passed variable: **{key}**")
         if pipeline_created_at:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))
