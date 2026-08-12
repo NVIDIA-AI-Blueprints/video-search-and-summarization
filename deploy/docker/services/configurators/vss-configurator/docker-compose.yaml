@@ -87,7 +87,7 @@ services:
       LOG_LEVEL: INFO
       NVSTREAMER_STREAMS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/streams
       NVSTREAMER_SENSOR_STATUS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/status
-      VST_CAMERA_ADD_ENDPOINT: http://${VST_IP}:${VST_PORT:-30888}/vst/api/v1/sensor/add
+      VST_CAMERA_ADD_ENDPOINT: http://${VST_IP}:${VST_PORT}/vst/api/v1/sensor/add
       CALIBRATION_MODE: mount
       CALIBRATION_DIR_MOUNT_PATH: /opt/data
       CALIBRATION_FILE_NAME: calibration.json
