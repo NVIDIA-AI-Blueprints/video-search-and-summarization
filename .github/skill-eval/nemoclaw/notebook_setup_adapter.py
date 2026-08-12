@@ -7,6 +7,7 @@ The source notebooks stay unchanged. Stable cell ids select the setup path,
 and an injected parameter cell reads credentials and CI overrides only from
 the process environment. Executed notebooks are intentionally not persisted.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +21,8 @@ from typing import Any
 
 DEFAULT_ENV_OUT = Path("/tmp/skill-eval/nemoclaw/nemoclaw.env")
 
-PARAMETER_SOURCE = r'''
+PARAMETER_SOURCE = (
+    r"""
 # Injected by the NemoClaw Harbor harness. Values remain in process env.
 import os
 
@@ -138,11 +140,15 @@ for _key, _value in {
     "VSS_ORCHESTRATOR_MCP_TYPE": VSS_ORCHESTRATOR_MCP_TYPE,
     "LLM_DEVICE_ID": LLM_DEVICE_ID,
     "VLM_DEVICE_ID": VLM_DEVICE_ID,
+    "RTSP_SAMPLE_URL": os.environ.get("RTSP_SAMPLE_URL", "").strip(),
 }.items():
     os.environ[_key] = _value
-'''.strip() + "\n"
+""".strip()
+    + "\n"
+)
 
-PERSIST_SOURCE = r'''
+PERSIST_SOURCE = (
+    r"""
 # Persist non-secret runtime coordinates for the Harbor launcher.
 import os
 import shlex
@@ -167,9 +173,109 @@ with _env_out.open("w", encoding="utf-8") as _handle:
         if _value is not None:
             _handle.write(f"export {_key}={shlex.quote(str(_value))}\n")
 print(f"Wrote NemoClaw runtime coordinates: {_env_out}")
-'''.strip() + "\n"
+""".strip()
+    + "\n"
+)
 
-OPENCLAW_MCP_SOURCE = r'''
+MCP_RESTART_SOURCE = (
+    r"""
+import os
+import signal
+import socket
+import time
+from pathlib import Path
+
+
+_mcp_pid_file = Path("/tmp/skill-eval/nemoclaw/orchestrator-mcp.pid")
+
+
+def _mcp_process(pid):
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+        uid_line = next(line for line in status.splitlines() if line.startswith("Uid:"))
+        real_uid = int(uid_line.split()[1])
+        raw_argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        argv = [part.decode("utf-8") for part in raw_argv if part]
+    except (OSError, StopIteration, UnicodeDecodeError, ValueError):
+        return None
+    if real_uid != os.getuid():
+        return None
+    is_nat_mcp = any(
+        Path(arg).name == "nat" and argv[index + 1:index + 3] == ["mcp", "serve"]
+        for index, arg in enumerate(argv[:-2])
+    )
+    try:
+        config_arg = argv[argv.index("--config_file") + 1]
+        port_arg = argv[argv.index("--port") + 1]
+    except (ValueError, IndexError):
+        return None
+    same_config = Path(config_arg).resolve() == Path(MCP_CONFIG_PATH).resolve()
+    return argv if is_nat_mcp and same_config and port_arg == str(MCP_PORT) else None
+
+
+_candidate_pids = set()
+if _mcp_pid_file.is_file():
+    try:
+        _candidate_pids.add(int(_mcp_pid_file.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        pass
+# Migration for workers prepared before the PID record existed. Scan only
+# same-UID processes with the exact `nat mcp serve` argument contract.
+for _proc in Path("/proc").iterdir():
+    if _proc.name.isdecimal() and _mcp_process(int(_proc.name)):
+        _candidate_pids.add(int(_proc.name))
+
+_owned_pids = sorted(pid for pid in _candidate_pids if _mcp_process(pid))
+_mcp_pid_file.unlink(missing_ok=True)
+for _pid in _owned_pids:
+    try:
+        os.kill(_pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+_deadline = time.monotonic() + 10
+while time.monotonic() < _deadline:
+    if not any(_mcp_process(pid) for pid in _owned_pids):
+        break
+    time.sleep(0.2)
+for _pid in _owned_pids:
+    if _mcp_process(_pid):
+        try:
+            os.kill(_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+with socket.socket() as _probe:
+    _probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        _probe.bind((MCP_HOST, int(MCP_PORT)))
+    except OSError as exc:
+        raise RuntimeError(
+            f"MCP port {MCP_HOST}:{MCP_PORT} remains occupied after scoped restart"
+        ) from exc
+print(
+    f"Prepared MCP port for the current checkout; stopped {len(_owned_pids)} "
+    "owned prior process(es).",
+    flush=True,
+)
+""".strip()
+    + "\n"
+)
+
+MCP_PERSIST_PID_SOURCE = (
+    r"""
+from pathlib import Path
+
+
+_mcp_pid_file = Path("/tmp/skill-eval/nemoclaw/orchestrator-mcp.pid")
+_mcp_pid_file.parent.mkdir(parents=True, exist_ok=True)
+_mcp_pid_file.write_text(f"{VSS_ORCHESTRATOR_MCP_PID}\n", encoding="utf-8")
+print(f"Recorded VSS Orchestrator MCP PID {VSS_ORCHESTRATOR_MCP_PID}")
+""".strip()
+    + "\n"
+)
+
+OPENCLAW_MCP_SOURCE = (
+    r"""
 import json
 import shlex
 import subprocess
@@ -218,7 +324,38 @@ if (
 ):
     raise RuntimeError(f"Unexpected mcporter registration: {_registered!r}")
 print("MCP server 'vss_orchestrator' is registered in OpenClaw.")
-'''.strip() + "\n"
+""".strip()
+    + "\n"
+)
+
+OPENCLAW_RTSP_SOURCE = (
+    r"""
+# The dense-captioning eval needs the fixed public relay inside OpenClaw.
+_rtsp_sample_url = os.environ.get("RTSP_SAMPLE_URL", "").strip()
+_expected_rtsp_sample_url = (
+    "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+)
+if _rtsp_sample_url != _expected_rtsp_sample_url:
+    raise ValueError("NemoClaw CI RTSP setup requires the fixed public relay")
+_rtsp_config_cmd = AGENT_CONFIG_SET_CMD.format(
+    sandbox=NEMOCLAW_SANDBOX_NAME,
+    key="env.vars.RTSP_SAMPLE_URL",
+    value=shlex.quote(_rtsp_sample_url),
+)
+!{_rtsp_config_cmd}
+assert _exit_code == 0, "config set failed: env.vars.RTSP_SAMPLE_URL"
+_gateway_restart_cmd = AGENT_GATEWAY_RESTART_CMD.format(
+    sandbox=NEMOCLAW_SANDBOX_NAME
+)
+!{_gateway_restart_cmd}
+if _exit_code != 0:
+    _recover_cmd = AGENT_RECOVER_CMD.format(sandbox=NEMOCLAW_SANDBOX_NAME)
+    !{_recover_cmd}
+    assert _exit_code == 0, "sandbox recover failed after RTSP config"
+print("Applied the fixed CI RTSP sample to the OpenClaw sandbox.", flush=True)
+""".strip()
+    + "\n"
+)
 
 
 def _repo_root() -> Path:
@@ -257,19 +394,19 @@ def _with_shields_window(source: str, *, reason: str, activity: str) -> str:
         "# bounded maintenance window for this notebook mutation.\n"
         "try:\n"
         "    _shields_down_cmd = (\n"
-        "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields down \"\n"
+        '        f"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields down "\n'
         f"        '--timeout 15m --reason \"{reason}\"'\n"
         "    )\n"
         "    !{_shields_down_cmd}\n"
-        f"    assert _exit_code == 0, \"shields down failed before {activity}\"\n"
+        f'    assert _exit_code == 0, "shields down failed before {activity}"\n'
         + guarded_source
         + "finally:\n"
         "    _shields_up_cmd = (\n"
-        "        f\"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields up\"\n"
+        '        f"{AGENT_CLI} {NEMOCLAW_SANDBOX_NAME} shields up"\n'
         "    )\n"
         "    !{_shields_up_cmd}\n"
         "    if _exit_code != 0:\n"
-        f"        raise RuntimeError(\"shields up failed after {activity}\")\n"
+        f'        raise RuntimeError("shields up failed after {activity}")\n'
     )
 
 
@@ -292,12 +429,12 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             1,
         )
     elif cell_id == "c13aaf5e":
-        env_helper = '''def uv_env_for_agent() -> dict[str, str]:
+        env_helper = """def uv_env_for_agent() -> dict[str, str]:
     env = os.environ.copy()
     # Do not inherit the notebook kernel venv; uv should use services/agent/.venv.
     env.pop("VIRTUAL_ENV", None)
     return env
-'''
+"""
         if env_helper not in source:
             raise ValueError(
                 "Orchestrator setup cell changed: uv environment anchor missing"
@@ -305,7 +442,7 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
         source = source.replace(
             env_helper,
             env_helper.replace(
-                '    return env\n',
+                "    return env\n",
                 '    env.pop("UV_PROJECT_ENVIRONMENT", None)\n    return env\n',
             ),
             1,
@@ -315,7 +452,7 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 "Orchestrator setup cell changed: sync function anchor missing"
             )
-        ensure_venv = '''
+        ensure_venv = """
 def ensure_agent_venv() -> None:
     venv_python = ORCHESTRATOR_MCP_VENV_DIR / "bin" / "python"
     if ORCHESTRATOR_MCP_VENV_DIR.is_symlink():
@@ -363,16 +500,16 @@ def ensure_agent_venv() -> None:
             f"{venv_python}"
         )
 
-'''
+"""
         source = source.replace(sync_anchor, ensure_venv + sync_anchor, 1)
-        create_venv = '''if not ORCHESTRATOR_MCP_VENV_DIR.is_dir():
+        create_venv = """if not ORCHESTRATOR_MCP_VENV_DIR.is_dir():
     print(f"Creating Python {ORCHESTRATOR_MCP_PYTHON_VERSION} venv in {ORCHESTRATOR_MCP_VENV_DIR} ...")
     subprocess.run(
         ["uv", "venv", "--python", ORCHESTRATOR_MCP_PYTHON_VERSION],
         cwd=str(AGENT_DIR),
         check=True,
     )
-'''
+"""
         if create_venv not in source:
             raise ValueError(
                 "Orchestrator setup cell changed: venv creation anchor missing"
@@ -389,7 +526,9 @@ def ensure_agent_venv() -> None:
         )
         anchor = "agent_env = uv_env_for_agent()\n"
         if anchor not in source:
-            raise ValueError("Orchestrator setup cell changed: agent env anchor missing")
+            raise ValueError(
+                "Orchestrator setup cell changed: agent env anchor missing"
+            )
         patched["source"] = source.replace(
             anchor,
             'UV_NO_SYNC = "1"\nos.environ["UV_NO_SYNC"] = UV_NO_SYNC\n' + anchor,
@@ -412,10 +551,7 @@ def ensure_agent_venv() -> None:
             activity="skill install",
         )
     elif cell_id == "s35-code":
-        anchor = (
-            "!openshell sandbox exec -n {NEMOCLAW_SANDBOX_NAME} -- "
-            "sh -c"
-        )
+        anchor = "!openshell sandbox exec -n {NEMOCLAW_SANDBOX_NAME} -- sh -c"
         if anchor in source:
             source = source.replace(
                 anchor,
@@ -448,15 +584,34 @@ def ensure_agent_venv() -> None:
         )
     elif cell_id == "s36-code":
         patched["source"] = OPENCLAW_MCP_SOURCE
+    elif cell_id == "s37-code":
+        patched["source"] = source.rstrip() + "\n\n" + OPENCLAW_RTSP_SOURCE
+    elif cell_id == "042eabd1":
+        anchor = 'existing_pid = globals().get("VSS_ORCHESTRATOR_MCP_PID")\n'
+        if anchor not in source:
+            raise ValueError(
+                "Orchestrator MCP start cell changed: process anchor missing"
+            )
+        patched["source"] = (
+            MCP_RESTART_SOURCE
+            + "\n\n"
+            + source.rstrip()
+            + "\n"
+            + MCP_PERSIST_PID_SOURCE
+        )
     return patched
 
 
-def build_notebook(source_nb: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+def build_notebook(
+    source_nb: dict[str, Any], manifest: dict[str, Any]
+) -> dict[str, Any]:
     """Build one selected notebook section from stable cell ids."""
     cells_by_id = {cell.get("id"): cell for cell in source_nb.get("cells", [])}
     missing = [cell_id for cell_id in manifest["cells"] if cell_id not in cells_by_id]
     if missing:
-        raise ValueError("Notebook is missing configured cell ids: " + ", ".join(missing))
+        raise ValueError(
+            "Notebook is missing configured cell ids: " + ", ".join(missing)
+        )
 
     output = deepcopy(source_nb)
     output["cells"] = []
@@ -533,7 +688,9 @@ def main(argv: list[str] | None = None) -> int:
         default=str(root / ".github/skill-eval/nemoclaw/notebook_cells.json"),
     )
     parser.add_argument("--env-out", default=str(DEFAULT_ENV_OUT))
-    parser.add_argument("--output", default="", help="Write a composed dry-run notebook")
+    parser.add_argument(
+        "--output", default="", help="Write a composed dry-run notebook"
+    )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
         "--timeout",
@@ -553,7 +710,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.execute:
         execute_notebook(composed, cwd=root, timeout=args.timeout)
-        print("Executed NemoClaw setup notebook cells; executed notebook was not persisted.")
+        print(
+            "Executed NemoClaw setup notebook cells; executed notebook was not persisted."
+        )
     elif not args.output:
         parser.error("--output is required unless --execute is used")
 
