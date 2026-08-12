@@ -28,9 +28,6 @@ include:
   - path: ./auto-calibration/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/vios/vst.env
-  - path: ./configurators/compose.yml
-    env_file:
-      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./infra/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/infra/infra.env

@@ -13,20 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Centralized blueprint configurator (SDRC-style).
-# Blueprint target paths (PROFILE_CONFIG_FILE, DS_CONFIG_DIR, NVSTREAMER_CONFIG_DIR,
-# calibration) are injected via MODE-driven env vars from the active industry
-# profile overrides.env; the tuning spec itself stays with the profile.
-# Activate with COMPOSE_PROFILES including: bp-configurator-init,bp-configurator
+# Shared base for blueprint-specific vss-configurator services.
+#
+# Keep profile-specific names, networking aliases, warehouse paths, env_file,
+# mode commands, calibration mounts, and depends_on in the extending service.
+# Do not include this file directly; reference the *-base services with
+# Compose `extends` (same pattern as services/vios/nvstreamer/compose.yml).
 
 services:
-  bp-configurator-init:
+
+  bp-configurator-init-base:
     build:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
       network: host
-    profiles: ["bp-configurator-init"]
-    container_name: vss-configurator-init
     environment:
       BP_PROFILE: $BP_PROFILE
       STREAM_TYPE: $STREAM_TYPE
@@ -65,23 +65,15 @@ services:
           exec /scripts/check-$${STREAM_TYPE}-health.sh
         fi
 
-  bp-configurator:
+  bp-configurator-base:
     image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvstaging/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.3.0-2026.08.2-1}
-    profiles: ["bp-configurator"]
-    container_name: vss-configurator
-    networks:
-      default:
-        aliases:
-          - vss-configurator
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
       ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
-      ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
       CALL_SENSOR_ADD_API: true
-      PROFILE_CONFIG_FILE: ${PROFILE_CONFIG_FILE}
       HARDWARE_PROFILE: $HARDWARE_PROFILE
       NUM_STREAMS: ${NUM_STREAMS:-4}
       MODE: $MODE
@@ -95,8 +87,6 @@ services:
       PORT: 5001
       VSS_DATA_DIR: $VSS_DATA_DIR
       VSS_APPS_DIR: $VSS_APPS_DIR
-      DS_CONFIG_DIR: ${DS_CONFIG_DIR}
-      NVSTREAMER_CONFIG_DIR: ${NVSTREAMER_CONFIG_DIR}
       MESSAGE_BROKER_TYPE: $STREAM_TYPE
       WDM_REDIS_HOST: redis
       WDM_REDIS_PORT: 6379
@@ -111,46 +101,10 @@ services:
       ADAPTOR_IP: ${ADAPTOR_IP}
       ADAPTOR_USER: ${ADAPTOR_USER}
       ADAPTOR_PASSWORD: ${ADAPTOR_PASSWORD}
-      RECOMPUTE_BEV_CENTERS_ENABLED: ${RECOMPUTE_BEV_CENTERS_ENABLED:-false}
       AI_BRIDGE_ENDPOINT: ${AI_BRIDGE_ENDPOINT}
-      SENSOR_FILE_PATH: ${SENSOR_FILE_PATH}
-      CHECK_SENSOR_IN_CALIBRATION_FILE: ${CHECK_SENSOR_IN_CALIBRATION_FILE:-false}
-    env_file:
-      - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
-      - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
-    command:
-      - python
-      - -c
-      - |
-        import os
-        import sys
-
-        bp_profile = os.environ.get("BP_PROFILE", "")
-        mode = os.environ.get("MODE", "2d")
-        if bp_profile == "bp_wh_auto_calib" or mode == "2d":
-            os.environ["SEND_CONFIG_TO_SDR"] = "false"
-            os.environ["ENABLE_CALIBRATION_PROCESS"] = "false"
-        else:
-            os.environ["SEND_CONFIG_TO_SDR"] = "true"
-            os.environ["ENABLE_CALIBRATION_PROCESS"] = "true"
-        # Align mode-specific defaults (2d vs 3d/mv3dt).
-        if mode == "2d":
-            os.environ["RECOMPUTE_BEV_CENTERS_ENABLED"] = "false"
-            os.environ["CHECK_SENSOR_IN_CALIBRATION_FILE"] = "false"
-        else:
-            os.environ["RECOMPUTE_BEV_CENTERS_ENABLED"] = "true"
-            os.environ["CHECK_SENSOR_IN_CALIBRATION_FILE"] = "true"
-        os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
       - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
-      # Default keeps non-warehouse compose resolution valid (same idea as
-      # SDR_CONTROLLER_CONFIG_PATH:-"./configs"). Warehouse overrides.env always
-      # sets BP_CALIBRATION_DATA_PATH before activating bp-configurator.
-      - ${BP_CALIBRATION_DATA_PATH:-.}:/opt/data
-    depends_on:
-      bp-configurator-init:
-        condition: service_completed_successfully
     healthcheck:
       test:
         [

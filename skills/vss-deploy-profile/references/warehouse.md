@@ -45,7 +45,7 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
 The selected warehouse variant boots the service set identified by `BP_PROFILE`, `MODE`, and deployment size. Only `BP_PROFILE=bp_wh` adds the agent, UI, and RTVI VLM to the warehouse CV pipeline. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
 
-**MV3DT naming — the `-mv3dt` suffix is not universal.** It comes from each service's own `container_name:`, not from which file defines the service. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-video-analytics-api-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. Everything else in an MV3DT deployment keeps its unsuffixed name — including `vss-configurator` / `vss-configurator-init` (centralized under `services/configurators/vss-configurator/`), `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`, which extends `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, and referenced by `warehouse-mv3dt-app.yml` only via `depends_on`) — both are MV3DT-only in practice, since their profiles appear solely in the MV3DT Kafka/Redis lists. The VST stack, `vss-turnserver`, `kafka`/`redis`, and `vss-broker-health-check` are unsuffixed too.
+**MV3DT naming — the `-mv3dt` suffix is not universal.** It comes from each service's own `container_name:`, not from which file defines the service. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-video-analytics-api-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`, `vss-configurator-mv3dt` / `vss-configurator-mv3dt-init` (warehouse wrappers that `extends` agnostic bases under `services/configurators/vss-configurator/`, with network alias `vss-configurator`). Everything else in an MV3DT deployment keeps its unsuffixed name — including `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`, which extends `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, and referenced by `warehouse-mv3dt-app.yml` only via `depends_on`) — both are MV3DT-only in practice, since their profiles appear solely in the MV3DT Kafka/Redis lists. The VST stack, `vss-turnserver`, `kafka`/`redis`, and `vss-broker-health-check` are also unsuffixed.
 
 ### Warehouse CV core (2D and 3D variants)
 
@@ -56,14 +56,14 @@ The selected warehouse variant boots the service set identified by `BP_PROFILE`,
 | `vss-turnserver` (+ `vss-turnserver-init`) | TURN / WebRTC relay for VST playback — in **every** warehouse service list |
 | `vss-rtvi-cv` | DeepStream perception (RT-DETR for 2D, Sparse4D for 3D) |
 | `vss-rtvi-cv-config-adaptor` | DeepStream config adaptor (3D only) |
-| `vss-configurator` | Blueprint configurator — stream and hardware configs (from `services/configurators/vss-configurator/`) |
-| `vss-configurator-init` | One-shot **broker readiness gate**, despite the name — it polls Kafka/Redis and exits `0`; it renders no config |
+| `vss-configurator` | Blueprint configurator — stream and hardware configs (`bp-configurator-<MODE>` in warehouse app YAML extends agnostic bases under `services/configurators/vss-configurator/`) |
+| `vss-configurator-*-init` | One-shot **broker readiness gate**, despite the name — it polls Kafka/Redis and exits `0`; it renders no config |
 | `vss-behavior-analytics` | Behavior analytics — ROI, tripwire, proximity events |
 | `kafka` (`bp_wh`, `bp_wh_kafka`) | Message broker for CV metadata |
 | `redis` | Deployed in **every** warehouse list — it backs `sdr-controller`, and is additionally the CV message broker when `STREAM_TYPE=redis` (`bp_wh_redis`) |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
 
-One-shot init containers also appear in these lists and exit `0` when done: `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads`, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-elasticsearch-init`, `vss-kibana-init`, `vss-import-calibration-output`, and `vss-configurator-init` (broker gate). In MV3DT the kibana/import helpers carry the suffix: `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. An `Exited (0)` here is success, not a failure.
+One-shot init containers also appear in these lists and exit `0` when done: `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads`, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-elasticsearch-init`, `vss-kibana-init`, `vss-import-calibration-output`, and `vss-configurator-*-init` (broker gate). In MV3DT the kibana/import helpers carry the suffix: `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. An `Exited (0)` here is success, not a failure.
 
 > **There is no `vss-rtvi-cv-sdr` container.** Its service definition is commented out in `warehouse-3d-app.yml` and it appears in no `COMPOSE_PROFILES_WH_*` list. HAProxy still defines a `/perception-sdr` route pointing at that hostname, so that route answers 503 on warehouse deployments.
 
@@ -79,7 +79,7 @@ MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera
 | `vss-rtvi-cv-mv3dt` | DeepStream perception (per-camera) |
 | `vss-rtvi-cv-bev-fusion` | BEV Fusion — fuses per-camera detections into a unified 3D BEV frame. **CPU-only** (no GPU reservation); reads `mdx-raw` and writes `mdx-bev` |
 | `mosquitto` | MQTT broker for cross-camera messaging between perception and BEV fusion |
-| `vss-configurator` (+ `vss-configurator-init`) | Blueprint configurator — stream and hardware configs (centralized; same name in all modes) |
+| `vss-configurator-mv3dt` (+ `vss-configurator-mv3dt-init`) | Blueprint configurator — warehouse wrapper that `extends` agnostic bases under `services/configurators/vss-configurator/` (network alias `vss-configurator`) |
 | `vss-behavior-analytics-mv3dt` | Behavior analytics — 3D spatial analytics |
 | `kafka` (kafka variant) / `redis` (always; also the broker for `bp_wh_redis`) | Message broker for CV metadata and `sdr-controller` state |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
@@ -406,7 +406,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 - 2D / 3D Kafka/Redis variants: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `kafka` and/or `redis`, `vss-turnserver`, plus the VST stack (`vss-vios-postgres`, `vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-controller`)
 - 3D extra: `vss-rtvi-cv-config-adaptor`
-- MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator`, `vss-behavior-analytics-mv3dt`, broker, `vss-turnserver`, plus the same VST stack
+- MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker, `vss-turnserver`, plus the same VST stack
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
 - Extended extra (kafka/redis): `vss-haproxy-ingress`; monitoring in 2D/3D only
 - `elasticsearch`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`): `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode)
