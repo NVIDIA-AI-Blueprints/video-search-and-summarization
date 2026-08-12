@@ -244,9 +244,7 @@ class SummaryAdapter(_BaseGroupAdapter):
             incidents = payload_ext["incidents"]
             if not isinstance(incidents, list):
                 raise ValueError("output.ext.incidents must be a list of timestamped incident dicts")
-            payload_ext["incidents"] = [
-                _require_row_timestamp(dict(item), kind="incident") for item in incidents
-            ]
+            payload_ext["incidents"] = [_require_row_timestamp(dict(item), kind="incident") for item in incidents]
         if normalized_events:
             payload_ext.setdefault("events", normalized_events)
         if resolved_event_ids:
@@ -359,8 +357,7 @@ def _require_row_timestamp(event: dict[str, Any], *, kind: str) -> dict[str, Any
     stamp = _event_stamp(event)
     if stamp is None:
         raise ValueError(
-            f"{kind} rows require a timestamp field "
-            "(timestamp|start_time|start|ts) for time-windowed recall"
+            f"{kind} rows require a timestamp field (timestamp|start_time|start|ts) for time-windowed recall"
         )
     coerce_utc_instant(stamp)
     if "timestamp" not in event:

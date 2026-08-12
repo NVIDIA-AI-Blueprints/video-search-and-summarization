@@ -135,9 +135,7 @@ class MemoryService:
         ``window`` duration bounds are not implemented yet and are rejected.
         """
         if window is not None:
-            raise ValueError(
-                "events(window=...) is not implemented yet (SDD §2.1); omit the duration bound"
-            )
+            raise ValueError("events(window=...) is not implemented yet (SDD §2.1); omit the duration bound")
         records = self._store.query(MemoryQuery(sensor_id=asset_id, limit=_EVENTS_RECORD_SCAN_CAP))
         if not records:
             raise MemoryNotFoundError(f"no persisted memory for asset_id={asset_id!r}")

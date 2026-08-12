@@ -583,7 +583,9 @@ def test_events_adjacent_directions_are_chronological() -> None:
     service = MemoryService(store)
     # Upsert newest job first so write order disagrees with event chronology.
     service.upsert(_event_job("summary-late", "evt-LATE", "2026-07-22T12:00:00Z", updated_at="2026-07-22T15:00:00Z"))
-    service.upsert(_event_job("summary-anchor", "evt-ANCHOR", "2026-07-22T11:00:00Z", updated_at="2026-07-22T14:00:00Z"))
+    service.upsert(
+        _event_job("summary-anchor", "evt-ANCHOR", "2026-07-22T11:00:00Z", updated_at="2026-07-22T14:00:00Z")
+    )
     service.upsert(_event_job("summary-early", "evt-EARLY", "2026-07-22T10:00:00Z", updated_at="2026-07-22T13:00:00Z"))
 
     before = service.events(asset_id="cam-1", anchor_event_id="evt-ANCHOR", direction="before")
