@@ -32,6 +32,11 @@ class ContextInventoryTests(unittest.TestCase):
             root / "deploy/docker/services/compose.yml",
             "include:\n  - path: ./demo/compose.yml\n",
         )
+        write(root / "deploy/docker/containers.env", "VSS_CONTAINER_TAG=fixture\n")
+        write(
+            root / "deploy/docker/scripts/dev-profile.sh",
+            "#!/bin/bash\n# Derive COMPOSE_PROFILES for developer deployments.\n",
+        )
         write(
             root / "deploy/docker/services/demo/compose.yml",
             """services:
@@ -119,6 +124,14 @@ dependencies:
             self.assertEqual(report["service_inventory"][0]["image"], "example.invalid/demo:${DEMO_TAG:-1.0.0}")
             self.assertEqual(report["service_inventory"][0]["ports"], ["8080:8000"])
             self.assertEqual(len(report["deployment_comments"]), 1)
+            self.assertIn(
+                "deploy/docker/scripts/dev-profile.sh",
+                report["source_context_files"],
+            )
+            self.assertIn(
+                "deploy/docker/containers.env",
+                report["source_context_files"],
+            )
 
     def test_malformed_directive_is_a_hard_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

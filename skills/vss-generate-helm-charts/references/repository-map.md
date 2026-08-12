@@ -21,6 +21,8 @@ Use this reference to select the full source context, leaf chart, and downstream
 
 Includes and `env_file` entries form the source graph. Profile `.env` and override files select Compose profiles and replace defaults. The same service key may have local/shared-GPU or mode variants that are mutually exclusive rather than separate Kubernetes workloads.
 
+`deploy/docker/scripts/dev-profile.sh` is part of that graph even though Compose does not include it. It validates the supported developer profiles and hardware/mode combinations, derives local/local-shared/remote LLM and VLM placement, rewrites `COMPOSE_PROFILES`, creates `generated.env`, supplies `containers.env` plus profile env layers to Compose, and establishes public/internal endpoint and data-directory behavior. Inspect the launcher for every developer-profile synchronization; do not assume the checked-in `.env` files alone enumerate every runnable variant.
+
 `deploy/helm` uses the inverse hierarchy:
 
 1. `deploy/helm/services/*` — reusable leaf or service umbrella charts
@@ -79,6 +81,7 @@ Apply these rules to every selected Docker change:
 | Compose profile membership | Child `enabled`, parent dependency condition, profile values and mutually exclusive variants |
 | Service addition/removal | Leaf chart/resource, parent dependency and values, all profiles, locks, endpoints, ingress, docs/config assets |
 | Profile `.env` or overrides | Corresponding Helm profile values plus all named mode/hardware/endpoint values files |
+| `scripts/dev-profile.sh` launcher behavior | Supported profile/mode/hardware matrix, generated env values, effective `COMPOSE_PROFILES`, model placement, public/internal endpoints, storage preparation, and matching Helm profile overrides |
 | Shared env/inventory/release metadata | Every chart consuming the variable/image/version; potentially all profiles |
 
 Do not stop at the first parent. Resolve local dependency edges transitively until no new chart consumes a changed child.
@@ -107,8 +110,11 @@ Inspect more than files named `compose`:
 - `container-inventory.json`, release-set metadata, and image/tag declarations
 - Bind-mounted JSON/YAML/conf/text configurations
 - Entrypoint, init, download, migration, and readiness scripts
+- `deploy/docker/scripts/dev-profile.sh` for developer-profile selection, validation, derived env, generated `COMPOSE_PROFILES`, endpoint rewrites, hardware/model variants, and required host-side preparation
 - Dockerfiles when they determine runtime command, user, ports, files, or dependencies
 - Model/download manifests and profile-specific assets
 - Comments adjacent to services or fields, especially `helm-sync` or Helm/Kubernetes/Compose-only language
 
 Do not copy host-specific deployment mechanics blindly. First extract the behavior they provide, then implement that behavior with a Kubernetes-native resource.
+
+Deployment skills under `skills/` are supporting evidence rather than Docker source files. Use [deployment-sources.md](deployment-sources.md) to locate the matching profile or standalone-service deployment guidance and to distinguish portable deployment intent from Compose-only operator procedure.

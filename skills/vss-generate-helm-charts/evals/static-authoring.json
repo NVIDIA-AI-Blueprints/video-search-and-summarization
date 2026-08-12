@@ -14,6 +14,8 @@
       "query": "I changed VSS Docker Compose files and need the corresponding Helm service and profile charts synchronized. Describe the exact authoring workflow you would follow, including how future Compose comments can specify Compose-only behavior or Kubernetes replacements. This machine is authoring-only: do not edit deploy files, start containers, install a Helm release, or contact a Kubernetes cluster.",
       "checks": [
         "The agent loads vss-generate-helm-charts and treats deploy/docker plus env/config/script/comment inputs as the behavioral source of truth while preserving the existing deploy/helm hierarchy.",
+        "The workflow reads deploy/docker/scripts/dev-profile.sh for launcher-derived profile, mode, hardware, model-placement, endpoint, COMPOSE_PROFILES, and generated-env behavior without executing it.",
+        "The workflow inspects vss-deploy-profile and any matching Compose-oriented deployment skills as supporting intent evidence, records their portable constraints in the ledger, and keeps checked-in Docker behavior authoritative when guidance conflicts or is operator-only.",
         "The workflow runs the bundled read-only compose_helm_context.py inventory with an explicit path, current worktree changes, or a caller-supplied base ref before selecting chart targets.",
         "The workflow creates a parity ledger for every changed source fact, deletion, directive, affected service/profile, and intentional divergence before editing.",
         "The answer explains the exact '# helm-sync: ACTION | requirement' convention and distinguishes compose-only, helm-only, and replace.",

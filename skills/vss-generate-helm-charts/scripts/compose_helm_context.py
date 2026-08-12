@@ -50,6 +50,10 @@ COMPOSE_NAMES = {
     "docker-compose.yaml",
 }
 EXCLUDED_CONTEXT_NAMES = {"generated.env", "resolved.yml", ".DS_Store"}
+GLOBAL_DOCKER_CONTEXT = {
+    "deploy/docker/containers.env",
+    "deploy/docker/scripts/dev-profile.sh",
+}
 DIRECTIVE_RE = re.compile(
     r"#\s*helm-sync\s*:\s*(compose-only|helm-only|replace)\s*\|\s*(\S.*)\s*$",
     re.IGNORECASE,
@@ -302,6 +306,14 @@ def build_source_context(repo_root: Path, changes: list[dict[str, str]]) -> tupl
             aggregate = repo_root / "deploy" / "docker" / parts[2] / "compose.yml"
             if aggregate.exists():
                 context.add(repo_relative(repo_root, aggregate))
+
+    # The developer-profile launcher and image channel participate in effective
+    # Compose resolution without being reachable through Compose include/env_file.
+    # Include them for every scope so service changes are reviewed against all
+    # launcher-derived profile variants that can consume them.
+    for relative in GLOBAL_DOCKER_CONTEXT:
+        if (repo_root / relative).is_file():
+            context.add(relative)
 
     for item in changes:
         if (repo_root / item["path"]).exists():

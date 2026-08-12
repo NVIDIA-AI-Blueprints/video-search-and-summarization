@@ -1,6 +1,6 @@
 ---
 name: vss-generate-helm-charts
-description: Synchronizes runnable VSS Helm service and profile charts from the authoritative Docker Compose files, environment layers, configs, scripts, and deployment comments. Use this skill when the user asks to "generate Helm charts from Compose", "sync deploy/helm after Docker changes", "port a Compose service to Kubernetes", or "update Helm for a VSS profile". Do not use it to install, upgrade, operate, or troubleshoot a live Kubernetes deployment.
+description: Synchronizes runnable VSS Helm service and profile charts from the authoritative Docker Compose files, environment layers, launcher behavior (including dev-profile.sh), configs, scripts, deployment comments, and relevant Compose deployment-skill guidance. Use this skill when the user asks to "generate Helm charts from Compose", "sync deploy/helm after Docker changes", "port a Compose service to Kubernetes", or "update Helm for a VSS profile". Do not use it to install, upgrade, operate, or troubleshoot a live Kubernetes deployment.
 ---
 
 # Generate VSS Helm Charts
@@ -9,7 +9,7 @@ Synchronize `deploy/helm` with `deploy/docker` while preserving Kubernetes seman
 
 ## Non-negotiable rules
 
-1. Treat `deploy/docker` as the behavioral source of truth. Inspect Compose files, every active env layer, referenced configs/scripts/assets, and relevant comments.
+1. Treat `deploy/docker` as the behavioral source of truth. Inspect Compose files, every active env layer, `deploy/docker/scripts/dev-profile.sh`, referenced configs/scripts/assets, and relevant comments.
 2. Treat an explicit `helm-sync` directive as higher priority than literal Compose translation. Treat an unstructured comment mentioning Helm, Kubernetes, K8s, or Compose-only behavior as a requirement that must be resolved, not discarded.
 3. Preserve sound existing Helm architecture and public values. Update it for parity; do not replace a mature chart with a generic converter's output.
 4. Never edit `deploy/docker` during synchronization. Never discard unrelated or pre-existing changes under `deploy/helm`.
@@ -52,7 +52,9 @@ If no Docker source change or explicit path is found, stop and request a base re
 
 Read [references/repository-map.md](references/repository-map.md) before selecting chart targets. Use the inventory's candidate chart roots, Docker profile consumers, corresponding or missing Helm profiles, and transitive consumer charts as a starting point, then verify them against `Chart.yaml` local dependencies and profile values. A Docker profile reported without a Helm target is a generation requirement or an explicit blocker, never an ignorable warning.
 
-Inspect each selected source file in full. For a Compose change, also inspect its include parents, `env_file` inputs, profile `.env`/override layers, bind-mounted configs/scripts, and any referenced inventory/version files. Do not translate a fragment without its effective context.
+Inspect each selected source file in full. For a Compose change, also inspect its include parents, `env_file` inputs, profile `.env`/override layers, bind-mounted configs/scripts, and any referenced inventory/version files. For any developer-profile consumer, read `deploy/docker/scripts/dev-profile.sh` in full and trace the branches that derive its effective profile, mode, hardware, model placement, endpoint, `COMPOSE_PROFILES`, and generated environment. Do not translate a fragment without its effective context.
+
+Read [references/deployment-sources.md](references/deployment-sources.md) before finalizing the source graph. Inspect `skills/vss-deploy-profile/SKILL.md` for developer-profile behavior and search the current `skills/*/SKILL.md` tree for Compose-oriented deployment skills that name the selected service, profile, or source path. Follow each matching skill's directly linked deployment/configuration references only as needed. Treat those skills as intent and operational-constraint evidence, never as higher priority than the checked-in Docker source. Record a conflict or behavior found only in a deployment skill in the ledger and resolve it explicitly; do not silently invent Helm behavior from stale operational documentation.
 
 ### 2. Resolve every deployment comment
 
@@ -77,7 +79,7 @@ Create a temporary ledger in the working response or `/tmp`, not a tracked repos
 | S001 | `path:line` | Image/command/env/port/storage/probe/etc. | chart + values/template | pending |
 | D001 | `path:line` | Directive or deployment comment | chart + resource/value | pending |
 
-Add rows for every changed source fact and every affected service, profile, config, script, named volume, network-facing port, dependency, credential, health check, GPU/resource setting, and lifecycle rule. A source deletion needs explicit remove-or-retain reasoning. Mark a row complete only after locating the rendered Helm representation or recording an intentional, directive-backed divergence.
+Add rows for every changed source fact and every affected service, profile, config, script, launcher-derived variant, deployment-skill constraint, named volume, network-facing port, dependency, credential, health check, GPU/resource setting, and lifecycle rule. A source deletion needs explicit remove-or-retain reasoning. Mark a row complete only after locating the rendered Helm representation or recording an intentional, directive-backed divergence.
 
 ### 4. Update leaf charts first
 
