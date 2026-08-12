@@ -115,9 +115,30 @@ spec:
               Option B: container env is the explicit list `env` (each value may use Helm `tpl` with .Values / .Release).
               `extraEnv` is appended last (duplicate names: last wins). No envOverrides layer.
             */}}
+            {{- $g := .Values.global | default dict }}
+            {{- $nvidiaSecret := index $g "nvidiaApiKeySecret" | default dict }}
+            {{- $nvidiaSecretName := trim ($nvidiaSecret.name | default "") }}
+            {{- $openaiSecret := index $g "openaiApiKeySecret" | default dict }}
+            {{- $openaiSecretName := trim ($openaiSecret.name | default "") }}
             {{- range .Values.env }}
+            {{- if and (or (eq $nvidiaSecretName "") (ne .name "NVIDIA_API_KEY")) (or (eq $openaiSecretName "") (ne .name "OPENAI_API_KEY")) }}
             - name: {{ .name }}
               value: {{ tpl (.value | default "" | toString) $ | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if ne $nvidiaSecretName "" }}
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $nvidiaSecretName }}
+                  key: {{ $nvidiaSecret.key | default "NVIDIA_API_KEY" }}
+            {{- end }}
+            {{- if ne $openaiSecretName "" }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $openaiSecretName }}
+                  key: {{ $openaiSecret.key | default "OPENAI_API_KEY" }}
             {{- end }}
             {{- $videoIngestTimeouts := .Values.videoIngestTimeouts | default dict }}
             {{- with get $videoIngestTimeouts "vstUploadTimeoutSeconds" }}

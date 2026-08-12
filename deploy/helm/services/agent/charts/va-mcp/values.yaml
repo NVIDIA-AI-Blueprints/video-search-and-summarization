@@ -26,8 +26,12 @@ replicas: 1
 # Parameterized for K8s (used in config template and/or env)
 vstIngressUrl: ""   # default: http://<release>-vss-vios-ingress:30888
 elasticsearchUrl: ""   # default: http://<release>-elasticsearch:9200
-# Optional: HuggingFace token for authenticated downloads (compose: HF_TOKEN)
+# Optional plaintext fallback for standalone use (compose: HF_TOKEN).
+# Prefer hfTokenSecret, or global.hfTokenSecret from an umbrella chart.
 hfToken: ""
+hfTokenSecret:
+  name: ""
+  key: HF_TOKEN
 # VST MCP gateway URL (compose: VST_MCP_URL). Default uses release-based vst-ingress.
 vstMcpUrl: ""
 # Optional host IP (compose: HOST_IP). In K8s often left empty; set if app needs it.
