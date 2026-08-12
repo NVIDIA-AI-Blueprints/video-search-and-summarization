@@ -51,7 +51,7 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vs
 
 ## Stock readiness checks
 
-Both modes:
+Both modes (`rtvi-vlm` is stock in `2d_cv` and `2d_vlm`):
 
 ```bash
 curl -sf "http://${HOST_IP}:8000/health"
