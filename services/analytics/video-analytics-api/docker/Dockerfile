@@ -22,6 +22,6 @@ FROM nvcr.io/nvidia/distroless/node:22-v4.0.11 AS node-deploy
 COPY --from=builder --chown=1000:1000 /web-api-core /web-api-core
 COPY --from=builder --chown=1000:1000 /web-api-app /web-api-app
 COPY --chown=1000:1000 ./configs /configs
-COPY --chown=1000:1000 ./3rdParty_Licenses.md /web-api-app/3rdParty_Licenses.md
+COPY ./3rdParty_Licenses.md /web-api-app/3rdParty_Licenses.md
 WORKDIR /web-api-app
 USER 1000:1000
