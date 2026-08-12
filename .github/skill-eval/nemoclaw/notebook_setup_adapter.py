@@ -81,6 +81,11 @@ NEMOCLAW_GATEWAY_NAME = (
     if int(NEMOCLAW_GATEWAY_PORT) == 8080
     else f"nemoclaw-{int(NEMOCLAW_GATEWAY_PORT)}"
 )
+NEMOCLAW_REQUIRED_MCP_TOOLS = [
+    name.strip()
+    for name in os.environ.get("NEMOCLAW_REQUIRED_MCP_TOOLS", "").split(",")
+    if name.strip()
+]
 AGENT_RUNTIME = "openclaw"
 ORCHESTRATOR_ENABLE_HTTPS = False
 HOST_INTERNAL_ALIAS = os.environ.get(
@@ -323,7 +328,36 @@ if (
     or _registered.get("baseUrl") != VSS_ORCHESTRATOR_MCP_URL
 ):
     raise RuntimeError(f"Unexpected mcporter registration: {_registered!r}")
-print("MCP server 'vss_orchestrator' is registered in OpenClaw.")
+
+_listing = _run_in_sandbox(
+    "mcporter", "list", "vss_orchestrator", "--json"
+)
+if _listing.returncode != 0:
+    _detail = (_listing.stderr or _listing.stdout or "")[-500:]
+    raise RuntimeError(
+        f"mcporter list failed with exit {_listing.returncode}: {_detail}"
+    )
+try:
+    _tools = json.loads(_listing.stdout).get("tools", [])
+except (json.JSONDecodeError, AttributeError) as exc:
+    raise RuntimeError("mcporter returned invalid tool-list JSON") from exc
+_discovered = {
+    tool["name"]
+    for tool in _tools
+    if isinstance(tool, dict) and isinstance(tool.get("name"), str)
+}
+_prefix = "vss_orchestrator__"
+_missing = [
+    tool
+    for tool in NEMOCLAW_REQUIRED_MCP_TOOLS
+    if tool not in _discovered and tool.removeprefix(_prefix) not in _discovered
+]
+if _missing:
+    raise RuntimeError(f"Required MCP tools are unavailable: {_missing}")
+print(
+    "MCP server 'vss_orchestrator' is reachable from OpenClaw "
+    f"with {len(_discovered)} tools."
+)
 """.strip()
     + "\n"
 )

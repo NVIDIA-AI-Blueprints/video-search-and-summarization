@@ -99,7 +99,11 @@ class NotebookAdapterTests(unittest.TestCase):
             workspace_source.index("finally:\n"),
             workspace_source.index("shields up"),
         )
-        self.assertIn("mcporter", cells["s36-code"]["source"])
+        mcp_registration_source = cells["s36-code"]["source"]
+        self.assertIn("mcporter", mcp_registration_source)
+        self.assertIn('"mcporter", "list"', mcp_registration_source)
+        self.assertIn("NEMOCLAW_REQUIRED_MCP_TOOLS", mcp_registration_source)
+        self.assertIn("Required MCP tools are unavailable", mcp_registration_source)
         rtsp_source = cells["s37-code"]["source"]
         self.assertIn("config_sets = []", rtsp_source)
         self.assertIn("env.vars.RTSP_SAMPLE_URL", rtsp_source)
@@ -693,8 +697,9 @@ class WorkflowScopeTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('"RTSP_SAMPLE_URL",', source)
-        self.assertIn("--required-tools", source)
+        self.assertIn("NEMOCLAW_REQUIRED_MCP_TOOLS", source)
         self.assertIn("required_mcp_tools", source)
+        self.assertNotIn("readiness.py", source)
 
     def test_docker_reset_preserves_only_validated_openshell_bridge(self) -> None:
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
