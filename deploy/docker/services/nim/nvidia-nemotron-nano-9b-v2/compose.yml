@@ -125,13 +125,15 @@ services:
 
   nvidia-nemotron-nano-9b-v2-vllm:
     # Experimental BF16 DLFW path; the original NIM service above remains available.
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m
       - vllm.entrypoints.openai.api_server
       - --model
       - nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      - --dtype
+      - bfloat16
       - --served-model-name
       - nvidia/nvidia-nemotron-nano-9b-v2
       - --trust-remote-code
@@ -191,13 +193,15 @@ services:
 
   nvidia-nemotron-nano-9b-v2-vllm-shared-gpu:
     # Experimental BF16 DLFW path for a shared GPU.
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m
       - vllm.entrypoints.openai.api_server
       - --model
       - nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      - --dtype
+      - bfloat16
       - --served-model-name
       - nvidia/nvidia-nemotron-nano-9b-v2
       - --trust-remote-code
