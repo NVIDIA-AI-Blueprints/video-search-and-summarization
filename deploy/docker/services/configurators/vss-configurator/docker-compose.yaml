@@ -144,7 +144,10 @@ services:
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
       - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
-      - ${BP_CALIBRATION_DATA_PATH}:/opt/data
+      # Default keeps non-warehouse compose resolution valid (same idea as
+      # SDR_CONTROLLER_CONFIG_PATH:-"./configs"). Warehouse overrides.env always
+      # sets BP_CALIBRATION_DATA_PATH before activating bp-configurator.
+      - ${BP_CALIBRATION_DATA_PATH:-.}:/opt/data
     depends_on:
       bp-configurator-init:
         condition: service_completed_successfully
