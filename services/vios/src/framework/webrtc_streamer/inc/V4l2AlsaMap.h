@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -55,8 +55,8 @@ std::map<std::string,std::string>  getV4l2AlsaMap() {
 	std::map<std::string,std::string> videodevices;
 	std::string video4linuxPath("/sys/class/video4linux");
 	DIR *dp = opendir(video4linuxPath.c_str());
-	if (dp != NULL) {
-		struct dirent *entry = NULL;
+	if (dp != nullptr) {
+		struct dirent *entry = nullptr;
 		while((entry = readdir(dp))) {
 			std::string devicename;
 			std::string deviceid;
@@ -84,7 +84,7 @@ std::map<std::string,std::string>  getV4l2AlsaMap() {
 	std::map<std::string,std::string> audiodevices;
 	int rcard = -1;
 	while ( (snd_card_next(&rcard) == 0) && (rcard>=0) ) {
-		void **hints = NULL;
+		void **hints = nullptr;
 		if (snd_device_name_hint(rcard, "pcm", &hints) >= 0) {
 			void **str = hints;
 			while (*str) {

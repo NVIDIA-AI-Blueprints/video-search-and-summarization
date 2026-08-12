@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,12 +22,16 @@
 #include <string>
 #include <mutex>
 #include <fstream>
+#include <memory>
 
 using namespace nv_vms;
 
 typedef NvDsMsgApiHandle (*nvds_msgapi_connect_t) (char*, nvds_msgapi_connect_cb_t, char*);
 typedef NvDsMsgApiErrorType (*nvds_msgapi_send_t) (NvDsMsgApiHandle, char*, const uint8_t*, size_t);
 typedef NvDsMsgApiErrorType (*nvds_msgapi_disconnect_t) (NvDsMsgApiHandle);
+
+/* Opaque handle to a dynamically loaded shared library (as returned by dlopen). */
+struct SharedLibraryHandle;
 
 class NvRedis : public INotificationInterface
 {
@@ -46,10 +50,10 @@ public:
     void reconnectToRedisServer();
 
 private:
-    static NvRedis* _instance;
+    static std::unique_ptr<NvRedis> _instance;
     bool m_error;
-    void* m_redisHandle;
-    void* m_handle_redis_proto;
+    SharedLibraryHandle* m_redisHandle;
+    SharedLibraryHandle* m_handle_redis_proto;
     NvDsMsgApiHandle m_conn_handle;
     std::string m_topic_vms_event;
     std::string m_message;

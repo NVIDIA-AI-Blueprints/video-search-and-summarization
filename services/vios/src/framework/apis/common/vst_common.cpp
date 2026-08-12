@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -788,9 +788,9 @@ namespace vst_common
 
         /* Set the country code and common name. */
         string common_name = getRandomCommonName();
-        X509_NAME_add_entry_by_txt(name, "C",  MBSTRING_ASC, (unsigned char *)"US",        -1, -1, 0);
-        X509_NAME_add_entry_by_txt(name, "O",  MBSTRING_ASC, (unsigned char *)"NVIDIA", -1, -1, 0);
-        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (unsigned char *)(common_name.c_str()), -1, -1, 0);
+        X509_NAME_add_entry_by_txt(name, "C",  MBSTRING_ASC, reinterpret_cast<const unsigned char *>("US"),        -1, -1, 0);
+        X509_NAME_add_entry_by_txt(name, "O",  MBSTRING_ASC, reinterpret_cast<const unsigned char *>("NVIDIA"), -1, -1, 0);
+        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char *>(common_name.c_str()), -1, -1, 0);
 
         /* Now set the issuer name. */
         X509_set_issuer_name(x509, name);
@@ -942,7 +942,7 @@ namespace vst_common
         if (0 == dir_)
         {
             if (0 == EVP_EncryptFinal_ex(ctx_,
-                                        (unsigned char *)out.data(),
+                                        reinterpret_cast<unsigned char *>(out.data()),
                                         &resultLength))
             {
                 return false;
@@ -951,7 +951,7 @@ namespace vst_common
         else
         {
             if (0 == EVP_DecryptFinal_ex(ctx_,
-                                        (unsigned char *)out.data(),
+                                        reinterpret_cast<unsigned char *>(out.data()),
                                         &resultLength))
             {
                 return false;
@@ -971,9 +971,9 @@ namespace vst_common
         if (0 == dir_)
         {
             if (0 == EVP_EncryptUpdate(ctx_,
-                                    (unsigned char *)out.data(),
+                                    reinterpret_cast<unsigned char *>(out.data()),
                                     &resultLength,
-                                    (unsigned char *)in.data(),
+                                    reinterpret_cast<const unsigned char *>(in.data()),
                                     in.size()))
             {
                 return false;
@@ -982,9 +982,9 @@ namespace vst_common
         else
         {
             if (0 == EVP_DecryptUpdate(ctx_,
-                                    (unsigned char *)out.data(),
+                                    reinterpret_cast<unsigned char *>(out.data()),
                                     &resultLength,
-                                    (unsigned char *)in.data(),
+                                    reinterpret_cast<const unsigned char *>(in.data()),
                                     in.size()))
             {
                 return false;

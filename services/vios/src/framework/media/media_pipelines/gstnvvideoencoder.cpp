@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -453,13 +453,13 @@ static void gst_buffer_object_free_cb(gpointer data, GstMiniObject *obj)
     if (!encoder)
     {
         LOG(error) << "gst_buffer_object_free_cb: consumer is null" << endl;
-        free(buffer_data);
+        delete buffer_data;
         return;
     }
 
     encoder->freeVideoFrameData(buffer_data->m_decoderFd);
 
-    free (buffer_data);
+    delete buffer_data;
 }
 
 void GstNvVideoEncoder::freeVideoFrameData(int fd)
@@ -486,7 +486,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     std::string caps_string;
     int width, height, max_framerate;
     webrtc::scoped_refptr<NvVideoFrameBuffer> frame_buffer = nullptr;
-    webrtc::scoped_refptr<webrtc::I420BufferInterface> i420_buffer = nullptr;
+    webrtc::scoped_refptr<const webrtc::I420BufferInterface> i420_buffer = nullptr;
 
     if (buffer == nullptr || size == 0)
     {
@@ -514,7 +514,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     max_framerate = GET_CONFIG().webrtc_in_max_framerate;
     if (size == sizeof(NvBufSurface))
     {
-        frame_buffer = webrtc::scoped_refptr<NvVideoFrameBuffer>(*((webrtc::scoped_refptr<NvVideoFrameBuffer>*)buffer));
+        frame_buffer = *reinterpret_cast<const webrtc::scoped_refptr<NvVideoFrameBuffer>*>(buffer);
         buf_surf = (NvBufSurface *)frame_buffer->m_decodedData;
         width = buf_surf->surfaceList[0].width;
         height = buf_surf->surfaceList[0].height;
@@ -533,7 +533,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     }
     else
     {
-        i420_buffer = (webrtc::I420BufferInterface*)buffer;
+        i420_buffer = reinterpret_cast<const webrtc::I420BufferInterface*>(buffer);
         width  = i420_buffer->width ();
         height = i420_buffer->height();
     }
@@ -601,7 +601,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     if (is_zero_copy)
     {
         mem = gst_buffer_peek_memory (gstbuffer, 0);
-        struct WebrtcVideoDecoderBufferData* buffer_data = (WebrtcVideoDecoderBufferData*) malloc(sizeof (WebrtcVideoDecoderBufferData));
+        WebrtcVideoDecoderBufferData* buffer_data = new WebrtcVideoDecoderBufferData();
         buffer_data->m_videoEncInstance = this;
         buffer_data->m_decoderFd = buf_surf->surfaceList[0].bufferDesc;
         gst_mini_object_weak_ref(GST_MINI_OBJECT(mem), (GstMiniObjectNotify)gst_buffer_object_free_cb, (void*)buffer_data);
@@ -701,7 +701,7 @@ gboolean busWatchEncoder (GstBus *bus, GstMessage *message, gpointer decoder_dat
                         if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
                         {
                             detectGPU();
-                            if (g_isGpuPresent == false)
+                            if (isGpuPresent() == false)
                             {
                                 LOG(error) << "---#--- /dev/nvidia node not present, Non-recoverable error ---#---" << endl;
                                 std::exit(EXIT_GPU_NOT_FOUND);
@@ -829,8 +829,8 @@ int GstNvVideoEncoder::create ()
 
     if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
     {
-        g_object_set (G_OBJECT (m_encoder), "gpu-id"   , g_gpuIndex, nullptr);
-        g_object_set (G_OBJECT (m_conv), "gpu-id"   , g_gpuIndex, nullptr);
+        g_object_set (G_OBJECT (m_encoder), "gpu-id"   , getGpuIndex(), nullptr);
+        g_object_set (G_OBJECT (m_conv), "gpu-id"   , getGpuIndex(), nullptr);
         g_object_set (G_OBJECT (m_conv), "compute-hw"  , 1      , nullptr);
     #ifdef AARCH64_PLATFORM
         g_object_set (G_OBJECT (m_encoder), "insert-sps-pps", true, nullptr);

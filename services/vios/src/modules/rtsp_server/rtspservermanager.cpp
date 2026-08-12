@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,7 @@
 #include <mutex>
 #include <set>
 #include <limits>
+#include <memory>
 
 using namespace nv_vms;
 
@@ -676,7 +677,7 @@ VmsErrorCode RtspServerManager::handleProxyConfiguration(const Json::Value &req_
         response["webserviceAccessControlList"] = config.webservice_access_control_list;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
     }
     else
@@ -948,10 +949,10 @@ VmsErrorCode RtspServerManager::handleStreamAPIrequest(const Json::Value &req_in
 
 extern "C" void* createRtspServerManagerObject()
 {
-    return new RtspServerManager;
+    return std::make_unique<RtspServerManager>().release();
 }
 
 extern "C" void deleteRtspServerManagerObject(RtspServerManager* object)
 {
-    delete object;
+    std::unique_ptr<RtspServerManager> owner(object);
 }

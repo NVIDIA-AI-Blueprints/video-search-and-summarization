@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,6 +61,10 @@ function initColorMaps(labels: string[], colorCode: Array<{ [key: string]: RGBAC
     return { colors, enabled };
 }
 
+function applySavedMap<T>(value: unknown, setter: (map: T) => void): void {
+    if (typeof value === 'object' && value !== null && Object.keys(value).length > 0) setter(value as T);
+}
+
 const OverlaySettingsPanel = forwardRef<OverlaySettingsPanelHandle, OverlaySettingsPanelProps>(
     ({ onSettingsChange, sensors, streamType, autoApply = false, menuContainer }, ref) => {
         const [overlayBbox, setOverlayBbox] = useState(true);
@@ -113,13 +117,10 @@ const OverlaySettingsPanel = forwardRef<OverlaySettingsPanelHandle, OverlaySetti
             }
 
             if (saved) {
-                if (saved.bboxColors && Object.keys(saved.bboxColors as object).length > 0) setBboxColors(saved.bboxColors as ColorMap);
-                if (saved.proximityColors && Object.keys(saved.proximityColors as object).length > 0)
-                    setProximityColors(saved.proximityColors as ColorMap);
-                if (saved.enabledBboxColors && Object.keys(saved.enabledBboxColors as object).length > 0)
-                    setEnabledBboxColors(saved.enabledBboxColors as EnabledMap);
-                if (saved.enabledProximityColors && Object.keys(saved.enabledProximityColors as object).length > 0)
-                    setEnabledProximityColors(saved.enabledProximityColors as EnabledMap);
+                applySavedMap<ColorMap>(saved.bboxColors, setBboxColors);
+                applySavedMap<ColorMap>(saved.proximityColors, setProximityColors);
+                applySavedMap<EnabledMap>(saved.enabledBboxColors, setEnabledBboxColors);
+                applySavedMap<EnabledMap>(saved.enabledProximityColors, setEnabledProximityColors);
 
                 setOverlayBbox((saved.bboxShowAll ?? saved.needBbox ?? false) as boolean);
                 setIncludeFloorPlan((saved.includeFloorPlan ?? false) as boolean);

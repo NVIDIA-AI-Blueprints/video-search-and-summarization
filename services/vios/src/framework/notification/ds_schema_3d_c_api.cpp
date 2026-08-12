@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <memory>
 #include <google/protobuf/timestamp.pb.h>
 
 extern "C" {
@@ -34,18 +35,11 @@ bool nv_frame_parse(void* frame, const void* data, size_t len) {
 
 char* nv_frame_get_sensorid(void* frame) {
     std::string id = static_cast<nv::Frame*>(frame)->sensorid();
-    // Use safe strncpy with explicit bounds checking
-    char* cstr = (char*)calloc(id.size() + 1, sizeof(char));
-    if (cstr)
-    {
-        strncpy(cstr, id.c_str(), id.size());
-        cstr[id.size()] = '\0';  // Guarantee null termination
-    }
-    return cstr;  // Will be nullptr if allocation failed
+    return strdup(id.c_str());  // Will be nullptr if allocation failed
 }
 
 void nv_frame_destroy(void* frame) {
-    delete static_cast<nv::Frame*>(frame);
+    std::unique_ptr<nv::Frame>(static_cast<nv::Frame*>(frame));
 }
 
 // Get timestamp in epoch ms, returns 0 if not present
@@ -71,25 +65,13 @@ void* nv_frame_get_object(void* frame, int idx) {
 // Object-level getters
 const char* nv_object_get_id(void* obj) {
     std::string id = static_cast<nv::Object*>(obj)->id();
-    // Use safe strncpy with explicit bounds checking
-    char* cstr = (char*)calloc(id.size() + 1, sizeof(char));
-    if (cstr)
-    {
-        strncpy(cstr, id.c_str(), id.size());
-        cstr[id.size()] = '\0';  // Guarantee null termination
-    }
-    return cstr;  // Will be nullptr if allocation failed
+    // Caller frees with free(); strdup keeps that contract without C-style calloc
+    return strdup(id.c_str());  // Will be nullptr if allocation failed
 }
 const char* nv_object_get_type(void* obj) {
     std::string type = static_cast<nv::Object*>(obj)->type();
-    // Use safe strncpy with explicit bounds checking
-    char* cstr = (char*)calloc(type.size() + 1, sizeof(char));
-    if (cstr)
-    {
-        strncpy(cstr, type.c_str(), type.size());
-        cstr[type.size()] = '\0';  // Guarantee null termination
-    }
-    return cstr;  // Will be nullptr if allocation failed
+    // Caller frees with free(); strdup keeps that contract without C-style calloc
+    return strdup(type.c_str());  // Will be nullptr if allocation failed
 }
 float nv_object_get_confidence(void* obj) {
     return static_cast<nv::Object*>(obj)->confidence();
@@ -115,14 +97,7 @@ bool nv_object_has_pose(void* obj) {
 }
 char* nv_object_get_pose_type(void* obj) {
     std::string type = static_cast<nv::Object*>(obj)->pose().type();
-    // Use safe strncpy with explicit bounds checking
-    char* cstr = (char*)calloc(type.size() + 1, sizeof(char));
-    if (cstr)
-    {
-        strncpy(cstr, type.c_str(), type.size());
-        cstr[type.size()] = '\0';  // Guarantee null termination
-    }
-    return cstr;  // Will be nullptr if allocation failed
+    return strdup(type.c_str());  // Caller frees with free(); nullptr on allocation failure
 }
 int nv_object_get_pose_keypoints_count(void* obj) {
     return static_cast<nv::Object*>(obj)->pose().keypoints_size();
@@ -144,14 +119,7 @@ int nv_object_get_pose_actions_count(void* obj) {
 }
 char* nv_object_get_pose_action_type(void* obj, int idx) {
     std::string type = static_cast<nv::Object*>(obj)->pose().actions(idx).type();
-    // Use safe strncpy with explicit bounds checking
-    char* cstr = (char*)calloc(type.size() + 1, sizeof(char));
-    if (cstr)
-    {
-        strncpy(cstr, type.c_str(), type.size());
-        cstr[type.size()] = '\0';  // Guarantee null termination
-    }
-    return cstr;  // Will be nullptr if allocation failed
+    return strdup(type.c_str());  // Caller frees with free(); nullptr on allocation failure
 }
 float nv_object_get_pose_action_confidence(void* obj, int idx) {
     return static_cast<nv::Object*>(obj)->pose().actions(idx).confidence();

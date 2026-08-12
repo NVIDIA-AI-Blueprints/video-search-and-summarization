@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,7 +45,7 @@ protected:
   SourceState state() const override { 
 	  return kLive; 
   }
-  bool GetStats(Stats* stats) override {
+  bool GetStats(webrtc::VideoTrackSourceInterface::Stats* stats) override {
       bool result = false;
       T* source =  m_source.get();
       if (source) {

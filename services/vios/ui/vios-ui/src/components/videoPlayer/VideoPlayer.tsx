@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -78,6 +78,86 @@ const FALLBACK_START_TIME = '1970-01-01T00:00:00.000Z';
 const DEFAULT_QUALITY = 'auto';
 // Delay before auto-hiding the overlay controls while in fullscreen (YouTube/VLC style).
 const CONTROLS_HIDE_DELAY_MS = 3000;
+
+interface SensorTimelineEntry {
+    sensorId?: string;
+    timelines?: Timeline[];
+}
+
+type TimelineResponseData = SensorTimelineEntry[] | Record<string, unknown>;
+
+// MMS returns the timelines endpoint; VST returns storage/size with the requested time range as query params.
+const buildTimelineEndpoint = (isMms: boolean, startTime?: string, endTime?: string): string => {
+    if (isMms) {
+        return `${config.storageManagementEndpoint}/api/v1/storage/timelines`;
+    }
+
+    const queryParams = new URLSearchParams();
+    queryParams.append('timelines', 'true');
+    if (startTime) {
+        queryParams.append('startTime', startTime);
+    }
+    if (endTime) {
+        queryParams.append('endTime', endTime);
+    }
+
+    return `${config.storageManagementEndpoint}/api/v1/storage/size?${queryParams.toString()}`;
+};
+
+// MMS response shape: { streamId: [{ startTime, endTime }] }
+const extractMmsTimelines = (data: TimelineResponseData, sensorId: string): Timeline[] => {
+    const entry = (data as Record<string, unknown>)[sensorId];
+    return Array.isArray(entry) ? (entry as Timeline[]) : [];
+};
+
+// VST responses come in three shapes: an array of sensors, an object keyed by sensorId, or a timelines map.
+const extractVstTimelines = (data: TimelineResponseData, sensorId: string): Timeline[] => {
+    if (Array.isArray(data)) {
+        const sensorData = data.find((item: SensorTimelineEntry) => item.sensorId === sensorId);
+        return sensorData?.timelines ?? [];
+    }
+
+    const sensorEntry = data[sensorId] as SensorTimelineEntry | undefined;
+    if (sensorEntry?.timelines) {
+        return sensorEntry.timelines;
+    }
+
+    const timelinesById = data.timelines as Record<string, Timeline[]> | undefined;
+    return timelinesById?.[sensorId] ?? [];
+};
+
+const fetchSensorTimelines = async (
+    sensorId: string,
+    streamId: string,
+    isMms: boolean,
+    startTime?: string,
+    endTime?: string
+): Promise<Timeline[] | null> => {
+    const response = await nvAxios.get(buildTimelineEndpoint(isMms, startTime, endTime), {
+        headers: { streamId },
+    });
+    if (!response.data) {
+        return null;
+    }
+
+    return isMms ? extractMmsTimelines(response.data, sensorId) : extractVstTimelines(response.data, sensorId);
+};
+
+const formatTimelineRange = (startTime?: string, endTime?: string): string =>
+    startTime && endTime ? `${startTime} to ${endTime}` : 'full range';
+
+const getNextPlaybackSpeed = (type: string, currentSpeed: number): number => {
+    if (type === 'fastForward') {
+        if (currentSpeed >= 1) {
+            return currentSpeed * 2;
+        }
+        return currentSpeed === -1 ? 1 : currentSpeed / 2;
+    }
+    if (currentSpeed <= -1) {
+        return currentSpeed * 2;
+    }
+    return currentSpeed === 1 ? -1 : currentSpeed / 2;
+};
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElementId, onWebRTCStatsUpdate, sensors, onClose }) => {
     // WebRTC and stream management
@@ -427,90 +507,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // Effect for fetching timelines for replay mode
     useEffect(() => {
         const fetchTimelines = async () => {
-            if (streamType === StreamType.Replay && sensor?.sensorId) {
-                try {
-                    const vstAdaptorType = useVSTUIStore.getState().vstAdaptorType;
-                    let timelineEndpoint: string;
+            if (streamType !== StreamType.Replay || !sensor?.sensorId) {
+                return;
+            }
 
-                    // Set loading state for MMS
-                    if (vstAdaptorType === 'mms') {
-                        setIsLoadingTimelines(true);
-                    }
+            const isMms = useVSTUIStore.getState().vstAdaptorType === 'mms';
+            if (isMms) {
+                setIsLoadingTimelines(true);
+            }
 
-                    // Build query parameters for time range if available
-                    if (vstAdaptorType === 'mms') {
-                        // For MMS, use the timelines endpoint
-                        timelineEndpoint = `${config.storageManagementEndpoint}/api/v1/storage/timelines`;
-                    } else {
-                        // For VST, use the storage/size endpoint with query params
-                        const queryParams = new URLSearchParams();
-                        queryParams.append('timelines', 'true');
-
-                        // Add time range parameters if calendar range is set
-                        if (calenderStartTime) {
-                            queryParams.append('startTime', calenderStartTime);
-                        }
-                        if (calenderEndTime) {
-                            queryParams.append('endTime', calenderEndTime);
-                        }
-
-                        timelineEndpoint = `${config.storageManagementEndpoint}/api/v1/storage/size?${queryParams.toString()}`;
-                    }
-
-                    const response = await nvAxios.get(timelineEndpoint, {
-                        headers: { streamId: sensor.streamId || sensor.sensorId },
+            try {
+                const sensorTimelines = await fetchSensorTimelines(
+                    sensor.sensorId,
+                    sensor.streamId || sensor.sensorId,
+                    isMms,
+                    calenderStartTime,
+                    calenderEndTime
+                );
+                if (sensorTimelines) {
+                    setTimelines(sensorTimelines);
+                    timelinesRef.current = sensorTimelines;
+                    setDisabledIntervals(getTimelineGaps(sensorTimelines));
+                    LOG.info(`Fetched ${sensorTimelines.length} timeline segments for sensor ${sensor.sensorId}`, {
+                        timeRange: formatTimelineRange(calenderStartTime, calenderEndTime),
                     });
-                    if (response.data) {
-                        // Iterate through the response to find timelines for the specific sensorId
-                        let sensorTimelines: Timeline[] = [];
-
-                        if (vstAdaptorType === 'mms') {
-                            // For MMS, response is { streamId: [{ startTime, endTime }] }
-                            if (Array.isArray(response.data[sensor.sensorId])) {
-                                sensorTimelines = response.data[sensor.sensorId];
-                            }
-                        } else {
-                            // For VST, handle the existing response formats
-                            if (Array.isArray(response.data)) {
-                                // If response is an array of sensors
-                                const sensorData = response.data.find(
-                                    (item: { sensorId: string; timelines?: Timeline[] }) => item.sensorId === sensor.sensorId
-                                );
-                                if (sensorData && sensorData.timelines) {
-                                    sensorTimelines = sensorData.timelines;
-                                }
-                            } else if (response.data[sensor.sensorId] && response.data[sensor.sensorId].timelines) {
-                                // If response is an object with sensorId as keys
-                                sensorTimelines = response.data[sensor.sensorId].timelines;
-                            } else if (response.data.timelines && response.data.timelines[sensor.sensorId]) {
-                                // If response has a timelines object with sensorId as keys
-                                sensorTimelines = response.data.timelines[sensor.sensorId];
-                            }
-                        }
-
-                        setTimelines(sensorTimelines);
-                        timelinesRef.current = sensorTimelines;
-                        setDisabledIntervals(getTimelineGaps(sensorTimelines));
-                        LOG.info(`Fetched ${sensorTimelines.length} timeline segments for sensor ${sensor.sensorId}`, {
-                            timeRange: calenderStartTime && calenderEndTime ? `${calenderStartTime} to ${calenderEndTime}` : 'full range',
-                        });
-
-                        // Clear loading state for MMS
-                        if (vstAdaptorType === 'mms') {
-                            setIsLoadingTimelines(false);
-                        }
-                    }
-                } catch (error) {
-                    LOG.error(`Failed to get sensor timelines for ${sensor?.name}`, error);
-                    enqueueSnackbar(`Failed to get sensor timelines for ${sensor?.name}`, {
-                        variant: 'error',
-                    });
-
-                    // Clear loading state even on error for MMS
-                    const vstAdaptorTypeCatch = useVSTUIStore.getState().vstAdaptorType;
-                    if (vstAdaptorTypeCatch === 'mms') {
-                        setIsLoadingTimelines(false);
-                    }
+                }
+            } catch (error) {
+                LOG.error(`Failed to get sensor timelines for ${sensor?.name}`, error);
+                enqueueSnackbar(`Failed to get sensor timelines for ${sensor?.name}`, {
+                    variant: 'error',
+                });
+            } finally {
+                if (isMms) {
+                    setIsLoadingTimelines(false);
                 }
             }
         };
@@ -611,6 +640,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
     };
 
+    // For video wall, use HTML video element's play/pause
+    const handleVideoWallPlayPause = async () => {
+        if (!videoRef.current) {
+            return;
+        }
+        if (videoRef.current.paused) {
+            await videoRef.current.play();
+            setPlaybackStatus(StreamState.PLAYING);
+            logInfo('Video wall stream, playing');
+        } else {
+            videoRef.current.pause();
+            setPlaybackStatus(StreamState.PAUSED);
+            logInfo('Video wall stream, pausing');
+        }
+    };
+
     const handlePlayPause = async () => {
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current) {
             LOG.error('Stream not ready, cant play-pause');
@@ -618,18 +663,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
 
         if (streamType === StreamType.VideoWall) {
-            // For video wall, use HTML video element's play/pause
-            if (videoRef.current) {
-                if (videoRef.current.paused) {
-                    await videoRef.current.play();
-                    setPlaybackStatus(StreamState.PLAYING);
-                    logInfo('Video wall stream, playing');
-                } else {
-                    videoRef.current.pause();
-                    setPlaybackStatus(StreamState.PAUSED);
-                    logInfo('Video wall stream, pausing');
-                }
-            }
+            await handleVideoWallPlayPause();
             return;
         }
 
@@ -665,39 +699,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     };
 
     const handleFastForwardAndRewind = async (type: string) => {
-        if (playbackStatus !== StreamState.NOT_PLAYING) {
-            let newSpeed = 1;
-            if (type === 'fastForward') {
-                newSpeed = playbackSpeed >= 1 ? playbackSpeed * 2 : playbackSpeed === -1 ? 1 : playbackSpeed / 2;
-            } else {
-                newSpeed = playbackSpeed <= -1 ? playbackSpeed * 2 : playbackSpeed === 1 ? -1 : playbackSpeed / 2;
-            }
+        if (playbackStatus === StreamState.NOT_PLAYING) {
+            return;
+        }
+        const newSpeed = getNextPlaybackSpeed(type, playbackSpeed);
 
-            if (newSpeed > 8) {
-                LOG.error('Already at 8x, cant ff');
-                return;
-            }
-            if (newSpeed < -8) {
-                LOG.error('Already at -8x, cant rewind');
-                return;
-            }
-            if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current || !sensor?.streamId) {
-                LOG.error('Stream not ready, cant ff');
-                return;
-            }
+        if (newSpeed > 8) {
+            LOG.error('Already at 8x, cant ff');
+            return;
+        }
+        if (newSpeed < -8) {
+            LOG.error('Already at -8x, cant rewind');
+            return;
+        }
+        if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current || !sensor?.streamId) {
+            LOG.error('Stream not ready, cant ff');
+            return;
+        }
 
-            const isSuccess = await rewindOrFastforward(
-                inboundPeerIDRef.current,
-                inboundMediaSessionIDRef.current,
-                newSpeed,
-                sensor.streamId,
-                enqueueSnackbar
-            );
-            if (isSuccess) {
-                setPlaybackSpeed(newSpeed);
-            } else {
-                LOG.error('FF or rewind failed');
-            }
+        const isSuccess = await rewindOrFastforward(
+            inboundPeerIDRef.current,
+            inboundMediaSessionIDRef.current,
+            newSpeed,
+            sensor.streamId,
+            enqueueSnackbar
+        );
+        if (isSuccess) {
+            setPlaybackSpeed(newSpeed);
+        } else {
+            LOG.error('FF or rewind failed');
         }
     };
 

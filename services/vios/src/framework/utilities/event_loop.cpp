@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,11 +43,10 @@ struct EventLoopMsg
     std::shared_ptr<void> msg;
 };
 
-EventLoop::EventLoop(std::string threadName, process_message func) 
+EventLoop::EventLoop(std::string threadName, process_message_handler handler)
                     : m_thread(nullptr)
                     , m_threadName(threadName)
-                    , m_processMsg(func)
-                    , m_parent(nullptr)
+                    , m_processMsgHandler(std::move(handler))
 {
     CreateThread();
 }
@@ -95,14 +94,14 @@ std::thread::id EventLoop::GetCurrentThreadId()
 	return this_thread::get_id();
 }
 
-void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData, void *parent)
+void EventLoop::processFunctionWrapper(std::shared_ptr<EventLoopData> userData)
 {
     m_isProcessFuncDone = false;
-    std::thread t([&]()
+    std::thread t([this, userData]()
     {
-        if (m_processMsg)
+        if (m_processMsgHandler)
         {
-            m_processMsg(userData, m_parent);
+            m_processMsgHandler(userData);
         }
         {
             std::unique_lock<std::mutex> l(m_mutexProceeFunc);
@@ -171,11 +170,11 @@ void EventLoop::Process()
 
                 EVENT_LOOP_LOG
 
-                if (m_processMsg && m_parent)
+                if (m_processMsgHandler)
                 {
                     if (msg->id == MSG_POST_USER_DATA)
                     {
-                        processFunctionWrapper(userData, m_parent);
+                        processFunctionWrapper(userData);
                     }
                     if (userData->m_expectResult)
                     {
@@ -245,7 +244,7 @@ void EventLoop::ExitThread()
         return;
 
     // Create a new EventLoopMsg
-    std::shared_ptr<EventLoopMsg> eventLoopMsg(new EventLoopMsg(MSG_EXIT_EVENT_LOOP, 0));
+    std::shared_ptr<EventLoopMsg> eventLoopMsg(new EventLoopMsg(MSG_EXIT_EVENT_LOOP, nullptr));
 
     // Put exit thread message into the queue
     {
@@ -253,7 +252,7 @@ void EventLoop::ExitThread()
         m_queue.push(eventLoopMsg);
         m_cv.notify_all();
     }
-    m_processMsg = nullptr;
+    m_processMsgHandler = nullptr;
     LOG(info) << "Waiting for process thread to finish" << endl;
     if (m_thread->joinable())
     {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,6 +24,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <functional>
 #include <json/json.h>
 
 struct EventLoopOutData
@@ -47,13 +48,15 @@ struct EventLoopData
 
 struct EventLoopMsg;
 
-typedef void (*process_message)(std::shared_ptr<EventLoopData>, void*);
+/// Message handler: it carries its own context (e.g. a capturing lambda), so no
+/// untyped parent pointer has to be threaded through.
+using process_message_handler = std::function<void(std::shared_ptr<EventLoopData>)>;
 
 class EventLoop
 {
 public:
     /// Constructor
-    EventLoop(std::string threadName, process_message);
+    EventLoop(std::string threadName, process_message_handler handler);
 
     /// Destructor
     ~EventLoop();
@@ -77,8 +80,6 @@ public:
     /// @param[in] data - thread specific message information
     bool postMsg(std::shared_ptr<EventLoopData> msg);
 
-    void setParent(void* parent) { m_parent = parent; }
-
     int getPendingMessages();
 
     bool testEventLoopRunning();
@@ -92,7 +93,7 @@ private:
 
     /// Entry point for timer thread
     void TimerThread();
-    void processFunctionWrapper(std::shared_ptr<EventLoopData> userdata, void *parent);
+    void processFunctionWrapper(std::shared_ptr<EventLoopData> userdata);
 
     std::unique_ptr<std::thread> m_thread;
     std::queue<std::shared_ptr<EventLoopMsg>> m_queue;
@@ -101,8 +102,7 @@ private:
     std::condition_variable m_cv;
     std::queue<std::shared_ptr<EventLoopOutData>> m_outDataQueue;
     std::string m_threadName;
-    process_message m_processMsg;
-    void* m_parent;
+    process_message_handler m_processMsgHandler;
     std::mutex m_mutexProceeFunc;
     std::condition_variable m_cvProcessFunc;
     std::atomic<bool> m_isProcessFuncDone {false};

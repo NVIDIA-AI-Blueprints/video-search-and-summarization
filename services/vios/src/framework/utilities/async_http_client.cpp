@@ -47,11 +47,39 @@ std::string loggableUrl(const std::string& url)
     }
     return result;
 }
+
+// libcurl invokes this from C frames with the CURLOPT_WRITEDATA pointer, so it
+// carries C language linkage and recovers the response body at that boundary.
+extern "C" size_t appendResponseBody(char* data, size_t size, size_t nmemb, void* writeData)
+{
+    auto* body = static_cast<std::string*>(writeData);
+    const size_t total = size * nmemb;
+    try
+    {
+        body->append(data, total);
+    }
+    catch (...)
+    {
+        return 0;  // signals CURLE_WRITE_ERROR to libcurl without propagating through C frames
+    }
+    return total;
+}
 }  // unnamed namespace
 
 AsyncHttpClient::~AsyncHttpClient()
 {
-    stop();
+    try
+    {
+        stop();
+    }
+    catch (const std::exception& e)
+    {
+        LOG(error) << "AsyncHttpClient shutdown failed: " << e.what() << endl;
+    }
+    catch (...)
+    {
+        LOG(error) << "AsyncHttpClient shutdown failed" << endl;
+    }
 }
 
 bool AsyncHttpClient::start()
@@ -214,8 +242,8 @@ void AsyncHttpClient::startRequest(std::unique_ptr<RequestContext> ctx)
     setopt(CURLOPT_CONNECTTIMEOUT_MS, req.m_connectTimeoutMs);
     setopt(CURLOPT_SSL_VERIFYPEER, req.m_verifyTls ? 1L : 0L);
     setopt(CURLOPT_SSL_VERIFYHOST, req.m_verifyTls ? 2L : 0L);
-    setopt(CURLOPT_WRITEFUNCTION, &AsyncHttpClient::writeCallback);
-    setopt(CURLOPT_WRITEDATA, ctx.get());
+    setopt(CURLOPT_WRITEFUNCTION, appendResponseBody);
+    setopt(CURLOPT_WRITEDATA, &ctx->m_responseBody);
     setopt(CURLOPT_ERRORBUFFER, ctx->m_errorBuffer);
 
     if (!req.m_body.empty())
@@ -402,19 +430,4 @@ void AsyncHttpClient::deliver(const RequestContext& ctx, const AsyncHttpResponse
     {
         LOG(error) << "AsyncHttpClient completion callback threw" << endl;
     }
-}
-
-size_t AsyncHttpClient::writeCallback(char* data, size_t size, size_t nmemb, void* userp)
-{
-    auto* ctx = static_cast<RequestContext*>(userp);
-    const size_t total = size * nmemb;
-    try
-    {
-        ctx->m_responseBody.append(data, total);
-    }
-    catch (...)
-    {
-        return 0;  // signals CURLE_WRITE_ERROR to libcurl without propagating through C frames
-    }
-    return total;
 }

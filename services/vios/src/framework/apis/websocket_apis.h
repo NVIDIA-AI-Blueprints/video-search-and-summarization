@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,7 +28,7 @@ using namespace nv_vms;
 class WebsocketApis
 {
     public:
-        WebsocketApis(std::shared_ptr<DeviceManager> deviceMngr);
+        explicit WebsocketApis(std::shared_ptr<DeviceManager> deviceMngr);
         typedef std::function<VmsErrorCode(const Json::Value &, const Json::Value &, Json::Value &, struct mg_connection *conn)> httpFunction;
         const std::map<std::string,WebsocketServerRequestHandler::httpFunction, std::less<>> getWebsocketApis() { return m_func; };
         void addRequestHandler(std::map<std::string, httpFunction, std::less<>>& func);

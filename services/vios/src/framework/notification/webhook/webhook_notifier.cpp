@@ -149,7 +149,7 @@ bool anyEnabledWebhook(const Json::Value& config)
 }
 }  // unnamed namespace
 
-WebhookNotifier* WebhookNotifier::_instance = nullptr;
+std::unique_ptr<WebhookNotifier> WebhookNotifier::_instance;
 std::mutex WebhookNotifier::_instanceMutex;
 
 WebhookNotifier* WebhookNotifier::getInstance()
@@ -160,17 +160,16 @@ WebhookNotifier* WebhookNotifier::getInstance()
         const Json::Value config = loadNotificationConfig(NOTIFICATION_CONFIG_FILE);
         if (anyEnabledWebhook(config))
         {
-            _instance = new WebhookNotifier(config);
+            _instance = std::unique_ptr<WebhookNotifier>(new WebhookNotifier(config));
         }
     }
-    return _instance;
+    return _instance.get();
 }
 
 void WebhookNotifier::deleteInstance()
 {
     std::lock_guard<std::mutex> lock(_instanceMutex);
-    delete _instance;
-    _instance = nullptr;
+    _instance.reset();
 }
 
 WebhookNotifier::WebhookNotifier(const Json::Value& config)
