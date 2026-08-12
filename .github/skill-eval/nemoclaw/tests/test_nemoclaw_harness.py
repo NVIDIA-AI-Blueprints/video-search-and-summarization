@@ -102,8 +102,7 @@ class NotebookAdapterTests(unittest.TestCase):
         mcp_registration_source = cells["s36-code"]["source"]
         self.assertIn("mcporter", mcp_registration_source)
         self.assertIn('"mcporter", "list"', mcp_registration_source)
-        self.assertIn("NEMOCLAW_REQUIRED_MCP_TOOLS", mcp_registration_source)
-        self.assertIn("Required MCP tools are unavailable", mcp_registration_source)
+        self.assertIn("VSS Orchestrator MCP exposed no tools", mcp_registration_source)
         rtsp_source = cells["s37-code"]["source"]
         self.assertIn("config_sets = []", rtsp_source)
         self.assertIn("env.vars.RTSP_SAMPLE_URL", rtsp_source)
@@ -380,22 +379,24 @@ class SingleScenarioTests(unittest.TestCase):
             )
             (task / "task.toml").write_text(
                 '[task]\nname = "test"\n\n'
-                '[metadata]\nplatform = "RTXPRO6000BW"\n\n'
+                '[metadata]\nplatform = "ANY"\n\n'
                 '[verifier.env]\nANTHROPIC_API_KEY = "x"\n',
                 encoding="utf-8",
             )
             row = self.scenario.MatrixRow(
-                "vss-deploy-profile",
-                "base",
-                "RTXPRO6000BW",
-                1,
-                "base",
+                "vss-setup-behavior-analytics",
+                "standalone_deploy",
+                "skills/vss-setup-behavior-analytics/evals/standalone_deploy.json",
+                "ANY",
+                "eval",
+                "vss-setup-behavior-analytics__standalone_deploy__ANY",
             )
             self.scenario._wrap_task(task, row, 3300)
             parsed = tomllib.loads((task / "task.toml").read_text(encoding="utf-8"))
             self.assertEqual(parsed["metadata"]["runner"], "nemoclaw")
-            self.assertTrue(parsed["metadata"]["requires_mcp"])
-            self.assertEqual(parsed["metadata"]["expected_skill"], "vss-deploy-profile")
+            self.assertNotIn("expected_skill", parsed["metadata"])
+            self.assertNotIn("deployment_profile", parsed["metadata"])
+            self.assertNotIn("required_mcp_tools", parsed["metadata"])
             self.assertIn(
                 "headless_runner.py",
                 (task / "instruction.md").read_text(encoding="utf-8"),
@@ -404,61 +405,70 @@ class SingleScenarioTests(unittest.TestCase):
             self.assertIn("Original eval request", prompt)
             self.assertIn("Deploy the base profile.", prompt)
 
-    def test_compatible_matrix_has_eight_rows_and_nineteen_tasks(self) -> None:
-        rows = self.scenario._selected_rows("*")
-        self.assertEqual(len(rows), 8)
-        self.assertEqual(sum(row.task_limit for row in rows), 19)
+    def test_matrix_comes_from_the_shared_skill_eval_planner(self) -> None:
+        rows = self.scenario._selected_rows("vss-query-analytics")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].skill, "vss-query-analytics")
+        self.assertEqual(rows[0].spec, "query_analytics")
         self.assertEqual(
-            [row.skill for row in rows],
-            [
-                "vss-ask-video",
-                "vss-deploy-dense-captioning",
-                "vss-deploy-profile",
-                "vss-generate-video-report",
-                "vss-manage-alerts",
-                "vss-query-analytics",
-                "vss-setup-behavior-analytics",
-                "vss-summarize-video",
-            ],
+            rows[0].spec_file,
+            "skills/vss-query-analytics/evals/query_analytics.json",
         )
-        self.assertEqual(
-            self.scenario._selected_rows("vss-deploy-profile"),
-            [rows[2]],
-        )
-        with self.assertRaisesRegex(ValueError, "not NemoClaw-compatible"):
-            self.scenario._selected_rows("vss-search-archive")
+        self.assertEqual(rows[0].kind, "eval")
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            self.scenario._selected_rows("not-a-skill")
 
-    def test_current_adapters_generate_validated_ordered_prefixes(self) -> None:
+    def test_common_adapter_contract_generates_complete_ordered_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for row in self.scenario.COMPATIBLE_ROWS:
+            rows = self.scenario._selected_rows("vss-query-analytics")
+            rows += [
+                row
+                for row in self.scenario._selected_rows("vss-deploy-profile")
+                if row.spec == "base" and row.platform == "RTXPRO6000BW"
+            ]
+            self.assertEqual(len(rows), 2)
+            for row in rows:
                 task_dirs = self.scenario._generate_dataset(
                     row,
                     root / row.slug,
                 )
-                self.assertEqual(len(task_dirs), row.task_limit)
+                self.assertTrue(task_dirs)
                 self.assertEqual(
                     task_dirs,
                     sorted(task_dirs, key=self.scenario._task_dir_sort_key),
                 )
                 for task_dir in task_dirs:
+                    original = (task_dir / "instruction.md").read_text(encoding="utf-8")
                     scenario = self.scenario._wrap_task(task_dir, row, 3300)
                     metadata = tomllib.loads(
                         (task_dir / "task.toml").read_text(encoding="utf-8")
                     )["metadata"]
                     self.assertEqual(metadata["platform"], row.platform)
                     self.assertEqual(metadata["runner"], "nemoclaw")
-                    self.assertEqual(metadata["expected_skill"], row.skill)
                     self.assertEqual(scenario.gpu_count, metadata.get("gpu_count", 1))
                     prompt = (task_dir / "tests/nemoclaw_prompt.md").read_text(
                         encoding="utf-8"
                     )
-                    self.assertIn(f"Use the `/{row.skill}` skill", prompt)
+                    self.assertIn(original.strip(), prompt)
                     self.assertIn("GPU resource boundary", prompt)
-                    if row.deployment_profile:
-                        self.assertEqual(
-                            metadata["deployment_profile"], row.deployment_profile
-                        )
+
+    def test_every_planned_adapter_exposes_the_common_cli(self) -> None:
+        rows = self.scenario._selected_rows("*")
+        skills = sorted({row.skill for row in rows if row.kind == "eval"})
+        self.assertTrue(skills)
+        for skill in skills:
+            adapter = self.scenario.ADAPTERS_ROOT / skill / "generate.py"
+            help_text = self.scenario._adapter_help(adapter)
+            for option in ("--output-dir", "--skill-dir", "--spec", "--platform"):
+                with self.subTest(skill=skill, option=option):
+                    self.assertIn(option, help_text)
+
+    def test_nemoclaw_orchestration_has_no_deployment_specific_behavior(self) -> None:
+        source = (NEMOCLAW_DIR / "single_scenario.py").read_text(encoding="utf-8")
+        self.assertNotIn("COMPATIBLE_ROWS", source)
+        self.assertNotIn("deployment_profile", source)
+        self.assertNotIn("vss-" + "deploy-profile", source)
 
     def test_timeout_budgets_are_nested(self) -> None:
         self.scenario._validate_timeouts(
@@ -585,11 +595,12 @@ class SingleScenarioTests(unittest.TestCase):
 
     def test_harbor_uses_isolated_nemoclaw_environment(self) -> None:
         row = self.scenario.MatrixRow(
-            "vss-deploy-profile",
-            "base",
-            "RTXPRO6000BW",
-            1,
-            "base",
+            "vss-setup-behavior-analytics",
+            "standalone_deploy",
+            "skills/vss-setup-behavior-analytics/evals/standalone_deploy.json",
+            "ANY",
+            "eval",
+            "vss-setup-behavior-analytics__standalone_deploy__ANY",
         )
         scenario = self.scenario.Scenario(
             row=row,
@@ -606,7 +617,7 @@ class SingleScenarioTests(unittest.TestCase):
         ):
             command = self.scenario._harbor_command(
                 scenario,
-                Path("/tmp/results/123/vss-deploy-profile"),
+                Path("/tmp/results/123/standalone"),
             )
         self.assertIn(
             "envs.nemoclaw_brev_env:NemoClawBrevEnvironment",
@@ -627,17 +638,19 @@ class SingleScenarioTests(unittest.TestCase):
         )
 
     def test_aggregate_treats_semantic_failure_as_reported(self) -> None:
-        rows = list(self.scenario.COMPATIBLE_ROWS[:2])
+        rows = self.scenario._selected_rows("vss-setup-behavior-analytics")[:2]
         records = [
             {
                 "skill": rows[0].skill,
                 "spec": rows[0].spec,
+                "platform": rows[0].platform,
                 "task": "step-1",
                 "status": "PASS",
             },
             {
                 "skill": rows[1].skill,
                 "spec": rows[1].spec,
+                "platform": rows[1].platform,
                 "task": "step-1",
                 "status": "FAIL",
             },
@@ -697,8 +710,8 @@ class WorkflowScopeTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('"RTSP_SAMPLE_URL",', source)
-        self.assertIn("NEMOCLAW_REQUIRED_MCP_TOOLS", source)
-        self.assertIn("required_mcp_tools", source)
+        self.assertNotIn("NEMOCLAW_REQUIRED_MCP_TOOLS", source)
+        self.assertNotIn("required_mcp_tools", source)
         self.assertNotIn("readiness.py", source)
 
     def test_docker_reset_preserves_only_validated_openshell_bridge(self) -> None:

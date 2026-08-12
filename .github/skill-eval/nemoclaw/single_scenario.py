@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Run the bounded NemoClaw-compatible VSS skill matrix through Harbor."""
+"""Run the selected VSS skill-eval plan serially through NemoClaw and Harbor."""
 
 from __future__ import annotations
 
@@ -27,12 +27,14 @@ SKILLS_ROOT = REPO_ROOT / "skills"
 if str(SKILL_EVAL_ROOT) not in sys.path:
     sys.path.insert(0, str(SKILL_EVAL_ROOT))
 
+from plan_matrix import build_matrix, list_changed_files
 from run_leg import HARBOR_REQUIREMENT, run_command
 
 DEFAULT_DATASET_ROOT = Path("/tmp/skill-eval/datasets/nemoclaw")
 DEFAULT_RESULTS_ROOT = Path("/tmp/skill-eval/results/nemoclaw")
 DEFAULT_SCRATCH_ROOT = Path("/tmp/skill-eval")
 INSTANCE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+SLUG_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 ENV_BUILD_BASE_SECONDS = 600
 ENV_BUILD_MULTIPLIER = 10
 VERIFIER_BUDGET_SECONDS = 1800
@@ -43,17 +45,20 @@ DEFAULT_HARBOR_TIMEOUT_SECONDS = 12600
 class MatrixRow(NamedTuple):
     skill: str
     spec: str
+    spec_file: str
     platform: str
-    task_limit: int
-    deployment_profile: str | None
-
-    @property
-    def slug(self) -> str:
-        return _safe_slug(f"{self.skill}-{self.spec}-{self.platform}")
+    kind: str
+    slug: str
 
     @property
     def spec_path(self) -> Path:
-        return SKILLS_ROOT / self.skill / "evals" / f"{self.spec}.json"
+        return (
+            REPO_ROOT / self.spec_file if self.spec_file else SKILLS_ROOT / self.skill
+        )
+
+    @property
+    def report_path(self) -> str:
+        return self.spec_file or f"skills/{self.skill}"
 
 
 class Scenario(NamedTuple):
@@ -64,63 +69,6 @@ class Scenario(NamedTuple):
     @property
     def slug(self) -> str:
         return _safe_slug(f"{self.row.slug}-{self.task_dir.name}")
-
-
-# These are the bounded representative prefixes exercised by the previous
-# all-compatible NemoClaw run. Each prefix reaches a substantive target-skill
-# action while retaining the prerequisite order emitted by the adapters.
-COMPATIBLE_ROWS = (
-    MatrixRow(
-        "vss-ask-video",
-        "base_profile_video_understanding",
-        "RTXPRO6000BW",
-        4,
-        "base",
-    ),
-    MatrixRow(
-        "vss-deploy-dense-captioning",
-        "alerts_profile_api",
-        "RTXPRO6000BW",
-        2,
-        "alerts",
-    ),
-    MatrixRow("vss-deploy-profile", "base", "RTXPRO6000BW", 1, "base"),
-    MatrixRow(
-        "vss-generate-video-report",
-        "base_profile_report",
-        "RTXPRO6000BW",
-        4,
-        "base",
-    ),
-    MatrixRow(
-        "vss-manage-alerts",
-        "alerts_vlm_real_time",
-        "RTXPRO6000BW",
-        2,
-        "alerts",
-    ),
-    MatrixRow(
-        "vss-query-analytics",
-        "query_analytics",
-        "RTXPRO6000BW",
-        3,
-        "alerts",
-    ),
-    MatrixRow(
-        "vss-setup-behavior-analytics",
-        "deploy_search_and_alerts",
-        "ANY",
-        1,
-        None,
-    ),
-    MatrixRow(
-        "vss-summarize-video",
-        "lvs_api_ops",
-        "RTXPRO6000BW",
-        2,
-        "lvs",
-    ),
-)
 
 
 def _safe_slug(value: str) -> str:
@@ -196,20 +144,33 @@ def _validate_instance(instance: str) -> None:
 
 
 def _selected_rows(skills: str) -> list[MatrixRow]:
-    requested = skills.strip()
-    if not requested or requested == "*":
-        return list(COMPATIBLE_ROWS)
-    names = {item for chunk in requested.split(",") for item in chunk.split() if item}
-    supported = {row.skill for row in COMPATIBLE_ROWS}
-    unknown = sorted(names - supported)
-    if unknown:
-        raise ValueError(
-            "not NemoClaw-compatible: "
-            + ", ".join(unknown)
-            + "; supported skills: "
-            + ", ".join(sorted(supported))
-        )
-    return [row for row in COMPATIBLE_ROWS if row.skill in names]
+    requested = skills.strip() or "*"
+    previous = os.environ.get("MANUAL_SKILLS_FILTER")
+    os.environ["MANUAL_SKILLS_FILTER"] = requested
+    try:
+        planned = build_matrix(list_changed_files())
+    finally:
+        if previous is None:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+        else:
+            os.environ["MANUAL_SKILLS_FILTER"] = previous
+
+    rows: list[MatrixRow] = []
+    for item in planned:
+        kind = str(item.get("kind") or "")
+        skill = str(item.get("skill") or "")
+        spec = str(item.get("spec_stem") or "")
+        spec_file = str(item.get("spec_path") or "")
+        platform = str(item.get("platform") or "")
+        slug = str(item.get("slug") or "")
+        if kind not in {"eval", "missing_adapter"}:
+            raise ValueError(f"unsupported skill-eval plan kind: {kind!r}")
+        if not skill or not spec or not slug or SLUG_PATTERN.fullmatch(slug) is None:
+            raise ValueError(f"invalid skill-eval plan row: {item!r}")
+        if kind == "eval" and not spec_file:
+            raise ValueError(f"incomplete skill-eval plan row: {item!r}")
+        rows.append(MatrixRow(skill, spec, spec_file, platform, kind, slug))
+    return rows
 
 
 def _matrix_json(rows: list[MatrixRow]) -> str:
@@ -218,8 +179,9 @@ def _matrix_json(rows: list[MatrixRow]) -> str:
             {
                 "skill": row.skill,
                 "spec": row.spec,
+                "spec_path": row.spec_file,
                 "platform": row.platform,
-                "task_limit": row.task_limit,
+                "kind": row.kind,
                 "slug": row.slug,
             }
             for row in rows
@@ -251,6 +213,10 @@ def _adapter_help(adapter: Path) -> str:
 
 def _generate_dataset(row: MatrixRow, dataset_root: Path) -> list[Path]:
     adapter = ADAPTERS_ROOT / row.skill / "generate.py"
+    if row.kind != "eval":
+        raise RuntimeError(f"missing Harbor adapter for {row.skill}")
+    if not row.platform:
+        raise RuntimeError(f"{row.report_path}: spec declares no platforms")
     if not adapter.is_file():
         raise RuntimeError(f"missing Harbor adapter for {row.skill}")
     if not row.spec_path.is_file():
@@ -267,26 +233,24 @@ def _generate_dataset(row: MatrixRow, dataset_root: Path) -> list[Path]:
         "--skill-dir",
         str((SKILLS_ROOT / row.skill).relative_to(REPO_ROOT)),
     ]
-    if row.skill == "vss-deploy-profile":
-        command.extend(["--profile", row.spec])
-    elif "--spec" in help_text:
-        command.extend(["--spec", str(row.spec_path.relative_to(REPO_ROOT))])
-    else:
-        raise RuntimeError(f"{row.skill}: adapter does not expose --spec")
-    if "--platform" not in help_text:
-        raise RuntimeError(f"{row.skill}: adapter does not expose --platform")
-    command.extend(["--platform", row.platform])
-
-    dependencies = {
-        "--deploy-skill-dir": "vss-deploy-profile",
-        "--video-io-skill-dir": "vss-manage-video-io-storage",
-        "--query-analytics-skill-dir": "vss-query-analytics",
-    }
-    for option, dependency in dependencies.items():
-        if option in help_text:
-            command.extend(
-                [option, str((SKILLS_ROOT / dependency).relative_to(REPO_ROOT))]
-            )
+    missing_options = [
+        option
+        for option in ("--skill-dir", "--spec", "--platform")
+        if option not in help_text
+    ]
+    if missing_options:
+        raise RuntimeError(
+            f"{row.skill}: adapter is missing common option(s): "
+            + ", ".join(missing_options)
+        )
+    command.extend(
+        [
+            "--spec",
+            str(row.spec_path.relative_to(REPO_ROOT)),
+            "--platform",
+            row.platform,
+        ]
+    )
 
     env = os.environ.copy()
     env["SKILLS_EVAL_RUNNER"] = "nemoclaw"
@@ -304,12 +268,9 @@ def _generate_dataset(row: MatrixRow, dataset_root: Path) -> list[Path]:
         (path.parent for path in dataset_root.rglob("task.toml")),
         key=_task_dir_sort_key,
     )
-    if len(task_dirs) < row.task_limit:
-        raise RuntimeError(
-            f"{row.skill}/{row.spec}: adapter generated {len(task_dirs)} task(s); "
-            f"the validated prefix requires {row.task_limit}"
-        )
-    return task_dirs[: row.task_limit]
+    if not task_dirs:
+        raise RuntimeError(f"{row.skill}/{row.spec}: adapter generated no tasks")
+    return task_dirs
 
 
 def _toml_value(value: Any) -> str:
@@ -374,40 +335,16 @@ def _gpu_resource_guidance(gpu_count: int) -> str:
 
 
 def _nemoclaw_prompt(
-    row: MatrixRow,
     original_instruction: str,
     gpu_count: int,
 ) -> str:
-    rtsp_guidance = (
-        "Before any other OpenClaw exec call, run exactly "
-        '`test -n "${RTSP_SAMPLE_URL:-}" && printf '
-        "'RTSP_SAMPLE_URL is set\\n'` and require the sole output "
-        "`RTSP_SAMPLE_URL is set`. Then follow the skill's checked-in RTSP "
-        "sample-stream guard with `ffprobe`, `gst-discoverer-1.0`, or an "
-        "equivalent probe and require a video stream before registration. "
-        "Never print the URL.\n\n"
-        if row.skill == "vss-deploy-dense-captioning"
-        else ""
-    )
-    profile_guidance = (
-        f"The task requires the `{row.deployment_profile}` VSS profile. Use the "
-        "VSS Orchestrator MCP tools for prerequisites, compose generation, "
-        "deployment, and status polling. Do not deploy with raw `docker compose` "
-        "or `dev-profile.sh` commands. Poll `docker_status` until the operation "
-        "is terminal; `running=true` is not deployment success. Continue only "
-        "after the profile's required endpoints are healthy.\n\n"
-        if row.deployment_profile
-        else ""
-    )
     return (
         "You are running inside automated GitHub VSS skill evaluation with "
         "NemoClaw/OpenClaw.\n\n"
-        f"{rtsp_guidance}"
-        f"Use the `/{row.skill}` skill as the primary workflow. Use the VSS "
-        "Orchestrator MCP server for deployment or live profile checks.\n\n"
-        f"{profile_guidance}"
-        "Run autonomously without asking for confirmation. Follow the checked-in "
-        "skill instructions and available tools.\n\n"
+        "Run autonomously without asking for confirmation. Follow the original "
+        "eval request, its checked-in skill instructions, and the available "
+        "tools. The VSS Orchestrator MCP server is available when the eval "
+        "request requires host-side operations.\n\n"
         "## GPU resource boundary\n\n"
         f"{_gpu_resource_guidance(gpu_count)}\n\n"
         "## Original eval request\n\n"
@@ -426,7 +363,7 @@ def _wrap_task(task_dir: Path, row: MatrixRow, agent_timeout: int) -> Scenario:
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
     (tests_dir / "nemoclaw_prompt.md").write_text(
-        _nemoclaw_prompt(row, original_instruction, gpu_count),
+        _nemoclaw_prompt(original_instruction, gpu_count),
         encoding="utf-8",
     )
     instruction_path.write_text(
@@ -437,27 +374,7 @@ def _wrap_task(task_dir: Path, row: MatrixRow, agent_timeout: int) -> Scenario:
         f"--timeout {agent_timeout}.\n",
         encoding="utf-8",
     )
-    required_tools: list[str] = []
-    if row.deployment_profile:
-        required_tools.extend(
-            [
-                "vss_orchestrator__prereqs",
-                "vss_orchestrator__docker_generate",
-                "vss_orchestrator__docker_up",
-                "vss_orchestrator__docker_status",
-            ]
-        )
-    updates: dict[str, Any] = {
-        "runner": "nemoclaw",
-        "requires_nemoclaw": True,
-        "requires_mcp": True,
-        "expected_skill": row.skill,
-    }
-    if row.deployment_profile:
-        updates["deployment_profile"] = row.deployment_profile
-    if required_tools:
-        updates["required_mcp_tools"] = required_tools
-    _upsert_metadata(task_dir / "task.toml", updates)
+    _upsert_metadata(task_dir / "task.toml", {"runner": "nemoclaw"})
     return Scenario(row=row, task_dir=task_dir, gpu_count=gpu_count)
 
 
@@ -672,10 +589,9 @@ def _scenario_report(
     status = "PASS" if complete and reward >= 1.0 else "FAIL" if complete else "ERROR"
     reward_text = f"{reward:.3g}" if reward is not None else "missing"
     duration = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
-    spec_path = scenario.row.spec_path.relative_to(REPO_ROOT)
     report = "\n".join(
         [
-            f"## Harbor Eval - `{spec_path}`",
+            f"## Harbor Eval - `{scenario.row.report_path}`",
             "",
             (
                 f"Skill `{scenario.row.skill}` - task `{scenario.task_dir.name}` - "
@@ -728,7 +644,7 @@ def _error_report(
 ) -> dict[str, Any]:
     report = "\n".join(
         [
-            f"## Harbor Eval - `{row.spec_path.relative_to(REPO_ROOT)}`",
+            f"## Harbor Eval - `{row.report_path}`",
             "",
             f"Skill `{row.skill}` - task `{task}` - instance `{instance}` - runtime `NemoClaw/OpenClaw`",
             "",
@@ -786,32 +702,39 @@ def _write_aggregate(
 ) -> None:
     row_results: list[dict[str, Any]] = []
     table = [
-        "## NemoClaw compatible-skill aggregate",
+        "## NemoClaw skill-eval aggregate",
         "",
-        "| Skill / spec | Planned tasks | Executed | Result |",
+        "| Skill / spec / platform | Planned tasks | Executed | Result |",
         "|---|---:|---:|---|",
     ]
     for row in rows:
         row_records = [
             record
             for record in records
-            if record["skill"] == row.skill and record["spec"] == row.spec
+            if record["skill"] == row.skill
+            and record["spec"] == row.spec
+            and record["platform"] == row.platform
         ]
         status = _row_status(row_records)
+        planned = sum(
+            record["task"] not in {"dataset-generation", "worker-validation"}
+            for record in row_records
+        )
         executed = sum(
             record["status"] not in {"SKIPPED"}
             and record["task"] not in {"dataset-generation", "worker-validation"}
             for record in row_records
         )
         table.append(
-            f"| `{row.skill}/{row.spec}` | {row.task_limit} | {executed} | {status} |"
+            f"| `{row.skill}/{row.spec}/{row.platform or 'n/a'}` | "
+            f"{planned} | {executed} | {status} |"
         )
         row_results.append(
             {
                 "skill": row.skill,
                 "spec": row.spec,
                 "platform": row.platform,
-                "planned_tasks": row.task_limit,
+                "planned_tasks": planned,
                 "executed_tasks": executed,
                 "status": status,
             }
@@ -824,8 +747,8 @@ def _write_aggregate(
     table.extend(
         [
             "",
-            f"- Compatible skills: `{len(rows)}`",
-            f"- Planned Harbor tasks: `{sum(row.task_limit for row in rows)}`",
+            f"- Planned spec/platform rows: `{len(rows)}`",
+            f"- Planned Harbor tasks: `{sum(row['planned_tasks'] for row in row_results)}`",
             f"- Harbor results with native metrics: `{complete_results}`",
             f"- Semantic PASS / FAIL: `{counts['PASS']} / {counts['FAIL']}`",
             f"- Execution errors / dependent skips: `{counts['ERROR']} / {counts['SKIPPED']}`",
@@ -898,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
         path.mkdir(parents=True, exist_ok=True)
     benchmark = scratch_run_root / "benchmark.md"
     benchmark.write_text(
-        "# Skills Eval Benchmark - NemoClaw compatible-skill sweep\n\n",
+        "# Skills Eval Benchmark - NemoClaw sweep\n\n",
         encoding="utf-8",
     )
     verdict = scratch_run_root / "verdict.json"
@@ -944,7 +867,7 @@ def main(argv: list[str] | None = None) -> int:
     for row_index, row in enumerate(rows, start=1):
         print(
             f"[nemoclaw-ci] row {row_index}/{len(rows)}: "
-            f"{row.skill}/{row.spec}/{row.platform} ({row.task_limit} task(s))",
+            f"{row.skill}/{row.spec}/{row.platform or 'n/a'}",
             flush=True,
         )
         try:
