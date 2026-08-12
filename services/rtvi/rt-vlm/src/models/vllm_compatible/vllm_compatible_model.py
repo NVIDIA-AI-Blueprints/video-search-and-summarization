@@ -35,6 +35,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
+from common.service_exception import ServiceException
 from models.base_vlm_model import (
     BaseVlmModel,
     InputConfig,
@@ -61,6 +62,7 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_MAX_NUM_SEQS": "RTVI_VLLM_MAX_NUM_SEQS",
     "VLLM_NUM_SCHEDULER_STEPS": "RTVI_VLLM_NUM_SCHEDULER_STEPS",
     "VLLM_NUM_PREPROCESS_WORKERS": "RTVI_VLLM_NUM_PREPROCESS_WORKERS",
+    "VLLM_EVS_SIMILARITY_THRESHOLD": "RTVI_VLLM_EVS_SIMILARITY_THRESHOLD",
     "VLLM_ROOT": "RTVI_VLLM_ROOT",
 }
 
@@ -202,6 +204,27 @@ def _parse_float_env(name: str, default: float) -> float:
     return parsed
 
 
+def _get_evs_token_budget() -> int:
+    """Visual-token budget an EVS session accumulates before forcing generation.
+
+    Defaults to 1: generate on every clip rather than packing tokens across
+    clips, which keeps caption counts aligned with the non-EVS path.
+    """
+    value = (os.environ.get("VIA_EVS_TOKEN_BUDGET") or "").strip()
+    return int(value or "1")
+
+
+def _get_evs_similarity_threshold() -> float:
+    """Server default for EVS session-mode cosine-dissimilarity pruning.
+
+    Read through the alias: _sanitize_rtvi_vllm_env() renames the variable out
+    of the VLLM_ namespace before vLLM is imported, so a raw os.environ lookup
+    here would silently fall back to the default.
+    """
+    value = (_get_rtvi_vllm_env("VLLM_EVS_SIMILARITY_THRESHOLD", "") or "").strip()
+    return float(value or "0.4")
+
+
 def _get_mm_processor_cache_gb() -> float:
     if (_get_rtvi_vllm_env("VLLM_MM_PROCESSOR_CACHE_GB", "") or "").strip():
         return _parse_float_env("VLLM_MM_PROCESSOR_CACHE_GB", 1.0)
@@ -230,6 +253,11 @@ _NIM_DEFAULT_SHORTEST_EDGE = 3136
 _EVS_MM_PROCESSOR_DEFAULTS = {
     "do_sample_frames": False,
 }
+
+# Qwen3-VL's video processor rejects a clip shorter than its temporal factor
+# ("t:1 must be larger than temporal_factor:2" from smart_resize), so an EVS
+# clip is padded up to this many frames before it is handed to the session.
+_EVS_MIN_CLIP_FRAMES = 2
 
 
 _DEFAULT_MAX_VIDEO_FRAMES = "256"
@@ -376,6 +404,23 @@ def _build_evs_sampling_kwargs(max_tokens, generation_config):
     if min_tokens is not None:
         kwargs["min_tokens"] = int(min_tokens)
 
+    return kwargs
+
+
+def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
+    """Build regular vLLM sampling kwargs without dropping greedy decoding."""
+    kwargs = {
+        "temperature": config.temperature,
+        "top_p": config.top_p,
+        "top_k": int(config.top_k),
+        "max_tokens": config.max_new_tokens,
+        "repetition_penalty": config.repetition_penalty,
+    }
+    if config.min_tokens is not None:
+        kwargs["min_tokens"] = config.min_tokens
+    env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
+    if env_ignore_eos or config.ignore_eos is not None:
+        kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
     return kwargs
 
 
@@ -951,7 +996,7 @@ class VllmCompatible(BaseVlmModel):
                 # Similarity-based (content-dependent) pruning only applies on
                 # the EVS session/encode path, so gate it on VIA_EVS_SESSION.
                 # When session mode is on: use VLLM_EVS_SIMILARITY_THRESHOLD if
-                # provided, else default 0.2. When session mode is off: leave
+                # provided, else default 0.4. When session mode is off: leave
                 # evs_similarity_threshold=None so the engine uses deterministic
                 # fixed-rate pruning (video_pruning_rate) instead.
                 _evs_session_on = os.environ.get("VIA_EVS_SESSION", "").lower() in (
@@ -966,9 +1011,7 @@ class VllmCompatible(BaseVlmModel):
                         "EVS session mode is not supported for NemotronH_Nano_Omni_Reasoning_V3"
                     )
                 if "evs_similarity_threshold" in _engine_supported_params and _evs_session_on:
-                    engine_args_kwargs["evs_similarity_threshold"] = float(
-                        os.environ.get("VLLM_EVS_SIMILARITY_THRESHOLD") or "0.2"
-                    )
+                    engine_args_kwargs["evs_similarity_threshold"] = _get_evs_similarity_threshold()
                 if "enable_mm_embeds" in _engine_supported_params:
                     engine_args_kwargs["enable_mm_embeds"] = True
                 if "num_preprocess_workers" in _engine_supported_params:
@@ -1234,8 +1277,6 @@ class VllmCompatible(BaseVlmModel):
                         "cover the prompt length.",
                         err_msg,
                     )
-                    from common.service_exception import ServiceException
-
                     raise ServiceException(
                         f"Input exceeds model limits: {err_msg} Reduce frames "
                         f"per chunk or raise VLM_MAX_MODEL_LEN.",
@@ -1338,11 +1379,9 @@ class VllmCompatible(BaseVlmModel):
 
             self._evs_handler = OpenAIServingVideoSessions(
                 engine_client=self._llm,
-                max_sessions=int(os.environ.get("VIA_EVS_MAX_SESSIONS") or "100"),
+                max_sessions=int(os.environ.get("VIA_EVS_MAX_SESSIONS") or "256"),
                 pruning_rate=float(os.environ.get("VLM_VIDEO_PRUNING_RATE") or "0.5"),
-                similarity_threshold=float(
-                    os.environ.get("VLLM_EVS_SIMILARITY_THRESHOLD") or "0.2"
-                ),
+                similarity_threshold=_get_evs_similarity_threshold(),
                 pd_server_url=os.environ.get("VIA_PD_SERVER_URL") or None,
                 pd_server_timeout_s=float(os.environ.get("VIA_PD_SERVER_TIMEOUT_S") or "120.0"),
             )
@@ -1363,7 +1402,7 @@ class VllmCompatible(BaseVlmModel):
         """Return (or create) the EVS session for *stream_id*."""
         handler = self._ensure_evs_handler()
 
-        token_budget = int(os.environ.get("VIA_EVS_TOKEN_BUDGET") or "20000")
+        token_budget = _get_evs_token_budget()
         model_name = self._vlm_model_type or self.model_dir_name
 
         event_only = os.environ.get("VIA_EVS_EVENT_ONLY", "false").lower() in (
@@ -1407,23 +1446,33 @@ class VllmCompatible(BaseVlmModel):
         #   - ignore_eos / min_tokens are forwarded (see _build_evs_sampling_kwargs)
         #     so VLLM_IGNORE_EOS reaches event-gated generations for OSL/perf runs.
         session_sampling_kwargs = _build_evs_sampling_kwargs(max_tokens, generation_config)
+        # The key holds only what can actually differ between two requests on the
+        # same stream. A session bakes these in at creation and keeps them for
+        # its life, so reusing a session across a change here would answer with
+        # the wrong prompt or sampling policy.
+        #
+        # Everything else in the create request below is deliberately excluded:
+        #   - The event_* tunables, token_budget and event_only are read from
+        #     os.environ on every call, so they are process constants.
+        #   - timestamp_prompt_template derives from those env vars plus whether
+        #     the source is RTSP, which is a property of the stream.
+        #   - event_chunk_duration_s is measured per chunk as
+        #     (end_pts - start_pts) / 1e9, and live chunks are finalized with
+        #     end_pts rewritten to the real last-frame PTS (see
+        #     video_file_frame_getter.py), so it lands on a different float every
+        #     chunk. Keying on it minted a new session per chunk until the engine
+        #     hit its max-sessions cap. It cannot discriminate anyway: a live
+        #     stream rejects a subscriber whose decode signature (chunk_duration
+        #     included) differs, and each file request gets its own stream id.
+        #
+        # Adding a request-overridable knob to the create request means adding it
+        # here too; adding a process- or stream-scoped one does not.
         session_config_key = _freeze_evs_session_config(
             {
                 "model": model_name,
-                "token_budget": token_budget,
-                "event_only": event_only,
                 "prompt": prompt,
                 "system_prompt": system_prompt or None,
-                "timestamp_prompt_template": timestamp_prompt_template,
                 "sampling_params": session_sampling_kwargs,
-                "event_chunk_duration_s": event_chunk_duration_s_config,
-                "event_ema_memory_s": event_ema_memory_s_config,
-                "event_spike_std_k": event_spike_std_k,
-                "event_settling_std_k": event_settling_std_k,
-                "event_std_floor_ratio": event_std_floor_ratio,
-                "event_min_clips": event_min_clips,
-                "event_downward_baseline_min": event_downward_baseline_min,
-                "event_decision_lag": event_decision_lag,
             }
         )
         session_cache_key = (stream_id, session_config_key)
@@ -1462,7 +1511,37 @@ class VllmCompatible(BaseVlmModel):
         async def _create():
             return await handler.create_session(request)
 
-        resp = asyncio.run_coroutine_threadsafe(_create(), self._event_loop).result()
+        try:
+            resp = asyncio.run_coroutine_threadsafe(_create(), self._event_loop).result()
+        except ServiceException:
+            # Already classified (code + status_code) by the layer that raised
+            # it; re-wrapping would flatten a 400 into a 500.
+            logger.error(
+                "EVS session creation failed for stream %s:\n%s",
+                stream_id,
+                traceback.format_exc(),
+            )
+            raise
+        except Exception as e:
+            # The session manager raises bare RuntimeErrors, so without this the
+            # caller only sees "An unknown error occurred" -- ProcessBase's
+            # _handle_result forwards a message and status code only for a
+            # ServiceException. The most common one is operator-fixable:
+            # "Cannot create session: max sessions (N) reached", which is a
+            # capacity condition (503) rather than an internal fault (500).
+            is_at_capacity = "max sessions" in str(e).lower()
+            logger.error(
+                "EVS session creation failed for stream %s: %r\n%s",
+                stream_id,
+                e,
+                traceback.format_exc(),
+            )
+            hint = " Raise VIA_EVS_MAX_SESSIONS, Default value is 256." if is_at_capacity else ""
+            raise ServiceException(
+                f"EVS session creation failed for stream {stream_id}: {e}.{hint}",
+                "EVSSessionCreateError",
+                503 if is_at_capacity else 500,
+            ) from e
         duplicate_session_id = None
         with self._evs_sessions_lock:
             existing_session_id = self._evs_sessions.get(session_cache_key)
@@ -1486,13 +1565,15 @@ class VllmCompatible(BaseVlmModel):
             return session_id
         logger.info(
             "EVS session created: %s for stream %s (budget=%d, "
-            "event_only=%s, chunk_dur=%.2fs, ema_memory=%.2fs, "
-            "spike_k=%.2f, settling_k=%.2f, std_floor_ratio=%.4f, "
-            "min_clips=%d, downward_baseline_min=%.4f, decision_lag=%d)",
+            "event_only=%s, similarity_threshold=%.2f, chunk_dur=%.2fs, "
+            "ema_memory=%.2fs, spike_k=%.2f, settling_k=%.2f, "
+            "std_floor_ratio=%.4f, min_clips=%d, "
+            "downward_baseline_min=%.4f, decision_lag=%d)",
             session_id,
             stream_id,
             token_budget,
             event_only,
+            _get_evs_similarity_threshold(),
             event_chunk_duration_s,
             event_ema_memory_s,
             event_spike_std_k,
@@ -1664,29 +1745,71 @@ class VllmCompatible(BaseVlmModel):
                 max_frames,
             )
 
+        # Pad a clip that falls below the video processor's temporal factor.
+        # Qwen3-VL's smart_resize rejects a lone frame outright ("t:1 must be
+        # larger than temporal_factor:2"). The regular path never gets there --
+        # a one-frame chunk goes down the image branch (is_single_image), which
+        # has no temporal dimension -- but EVS has no image branch, so every
+        # clip travels as a video. This is reachable from ordinary input: fps
+        # chunking computes int(fps * chunk_seconds), so 4 fps over a 0.167s
+        # clip asks for 0 frames and video_file_frame_getter clamps that to 1.
+        # Repeat the last frame (with its timestamp) so the request still gets
+        # an answer; the duplicate is exactly what EVS similarity pruning
+        # collapses.
+        if 0 < len(images) < _EVS_MIN_CLIP_FRAMES:
+            has_aligned_times = bool(video_frames_times) and len(video_frames_times) == len(images)
+            repeat_index = list(range(len(images)))
+            repeat_index += [len(images) - 1] * (_EVS_MIN_CLIP_FRAMES - len(images))
+            logger.debug(
+                "EVS clip: padded %d frame(s) to %d to satisfy the video "
+                "processor's temporal factor",
+                len(images),
+                _EVS_MIN_CLIP_FRAMES,
+            )
+            images = images[repeat_index]
+            if has_aligned_times:
+                video_frames_times = [video_frames_times[i] for i in repeat_index]
+
         # Build video metadata. Qwen3-VL's HF processor expects
         # frames_indices/fps for video inputs; keep absolute timestamps
         # operator-controlled, but still provide relative metadata by default.
-        video_metadata = {}
-        if len(images) > 1 and video_frames_times and len(video_frames_times) > 1:
+        # It is never optional here: EVS has no single-image branch, so a
+        # degenerate clip (one frame, or timestamps the decoder could not
+        # supply) still goes over as a video. Handing the session an empty dict
+        # leaves frames_indices unset, and Qwen3-VL only recomputes it when
+        # do_sample_frames is on -- which EVS pins off -- so the clip dies in
+        # the processor with "'NoneType' object has no attribute 'tolist'".
+        has_frame_times = bool(video_frames_times) and len(video_frames_times) == len(images)
+        duration = 0.0
+        if has_frame_times and len(video_frames_times) > 1:
             duration = video_frames_times[-1] - video_frames_times[0]
-            if self._uses_absolute_timestamp_metadata():
-                video_metadata = self._build_absolute_timestamp_video_metadata(
-                    images, video_frames_times, duration
-                )
-            else:
-                fps = 1
-                if duration > 0:
-                    fps = (len(video_frames_times) - 1) / duration
-                video_metadata = {
-                    "total_num_frames": len(images),
-                    "frames_indices": list(range(len(images))),
-                    "fps": fps,
-                    "duration": duration,
-                }
+
+        if has_frame_times and self._uses_absolute_timestamp_metadata():
+            video_metadata = self._build_absolute_timestamp_video_metadata(
+                images, video_frames_times, duration
+            )
+        else:
+            # Without usable frame times the clip loses its real timestamps,
+            # not its caption: fall back to relative indices at a nominal fps.
+            fps = 1
+            if duration > 0:
+                fps = (len(video_frames_times) - 1) / duration
+            video_metadata = {
+                "total_num_frames": len(images),
+                "frames_indices": list(range(len(images))),
+                "fps": fps,
+                "duration": duration,
+            }
 
         is_last = getattr(chunk, "is_last", False) if chunk else False
-        client_timestamps = [float(t) for t in video_frames_times] if video_frames_times else []
+        # Same decision as the metadata above: a list that does not describe the
+        # frames being sent must not reach the session, which uses it for the
+        # kept-frame timestamps and the {timestamps} prompt placeholder. The
+        # fallback mirrors the relative metadata (indices at fps=1).
+        if has_frame_times:
+            client_timestamps = [float(t) for t in video_frames_times]
+        else:
+            client_timestamps = [float(i) for i in range(len(images))]
 
         ooo_chunk_id = getattr(chunk, "chunkIdx", None) if chunk is not None else None
 
@@ -1746,9 +1869,38 @@ class VllmCompatible(BaseVlmModel):
 
             try:
                 clip_resp = asyncio.run_coroutine_threadsafe(_add(), self._event_loop).result()
+            except ServiceException:
+                # Already classified (code + status_code) by the layer that
+                # raised it; re-wrapping would flatten a 400 into a 500.
+                logger.error(
+                    "EVS add_clip_tensors failed for stream %s chunk %s:\n%s",
+                    stream_id,
+                    ooo_chunk_id,
+                    traceback.format_exc(),
+                )
+                raise
             except Exception as e:
-                logger.error("EVS add_clip_tensors failed: %r\n%s", e, traceback.format_exc())
-                return placeholder
+                # Surface as a chunk error rather than an empty caption. A
+                # placeholder here made a failed clip indistinguishable from a
+                # successful one with nothing to say, so neither the ERROR_BUS
+                # nor the request's FAILED status ever saw the failure. As a
+                # ServiceException the message survives ProcessBase's
+                # _handle_result verbatim instead of becoming "An unknown error
+                # occurred"; keeping the original text inline also preserves the
+                # CUDA-OOM match that maps the chunk to 503.
+                logger.error(
+                    "EVS add_clip_tensors failed for stream %s chunk %s: %r\n%s",
+                    stream_id,
+                    ooo_chunk_id,
+                    e,
+                    traceback.format_exc(),
+                )
+                raise ServiceException(
+                    f"EVS clip processing failed for stream {stream_id} "
+                    f"(chunk {ooo_chunk_id}): {e}",
+                    "EVSClipProcessingError",
+                    500,
+                ) from e
             finally:
                 _release_inflight()
 
@@ -2080,11 +2232,8 @@ class VllmCompatible(BaseVlmModel):
             "top_p": config.top_p,
             "top_k": int(config.top_k),
             "repetition_penalty": config.repetition_penalty,
+            "temperature": config.temperature,
         }
-
-        # Only include temperature if it's not 0
-        if config.temperature != 0:
-            generation_params["temperature"] = config.temperature
 
         # Set the seed
         seed = config.seed
@@ -2346,20 +2495,8 @@ class VllmCompatible(BaseVlmModel):
         # Generate response using generation parameters
         from vllm import SamplingParams
 
-        sp_kwargs = {
-            "top_p": generation_params["top_p"],
-            "top_k": generation_params["top_k"],
-            "max_tokens": generation_params["max_new_tokens"],
-            "repetition_penalty": generation_params["repetition_penalty"],
-        }
-        if config.min_tokens is not None:
-            sp_kwargs["min_tokens"] = config.min_tokens
-        env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-        if env_ignore_eos or config.ignore_eos is not None:
-            sp_kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+        sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if "temperature" in generation_params:
-            vllm_sampling_params.temperature = generation_params["temperature"]
         if self._vlm_model_type in ("cosmos-reason2", "cosmos-reason3"):
             vllm_sampling_params.no_repeat_ngram_size = 3
 
@@ -2393,15 +2530,6 @@ class VllmCompatible(BaseVlmModel):
         """Text-only generation using the vLLM engine (no multimodal data)."""
         config = generation_config or VlmGenerationConfig()
 
-        generation_params = {
-            "max_new_tokens": config.max_new_tokens,
-            "top_p": config.top_p,
-            "top_k": int(config.top_k),
-            "repetition_penalty": config.repetition_penalty,
-        }
-        if config.temperature != 0:
-            generation_params["temperature"] = config.temperature
-
         prompt = self._processor.apply_chat_template(
             messages,
             tokenize=False,
@@ -2414,20 +2542,8 @@ class VllmCompatible(BaseVlmModel):
 
         from vllm import SamplingParams
 
-        sp_kwargs = {
-            "top_p": generation_params["top_p"],
-            "top_k": generation_params["top_k"],
-            "max_tokens": generation_params["max_new_tokens"],
-            "repetition_penalty": generation_params["repetition_penalty"],
-        }
-        if config.min_tokens is not None:
-            sp_kwargs["min_tokens"] = config.min_tokens
-        env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-        if env_ignore_eos or config.ignore_eos is not None:
-            sp_kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+        sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if "temperature" in generation_params:
-            vllm_sampling_params.temperature = generation_params["temperature"]
 
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
@@ -2522,15 +2638,6 @@ class VllmCompatible(BaseVlmModel):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
 
-        generation_params = {
-            "max_new_tokens": config.max_new_tokens,
-            "top_p": config.top_p,
-            "top_k": int(config.top_k),
-            "repetition_penalty": config.repetition_penalty,
-        }
-        if config.temperature != 0:
-            generation_params["temperature"] = config.temperature
-
         prompt = self._processor.apply_chat_template(
             messages,
             tokenize=False,
@@ -2543,20 +2650,8 @@ class VllmCompatible(BaseVlmModel):
 
         from vllm import SamplingParams
 
-        sp_kwargs = {
-            "top_p": generation_params["top_p"],
-            "top_k": generation_params["top_k"],
-            "max_tokens": generation_params["max_new_tokens"],
-            "repetition_penalty": generation_params["repetition_penalty"],
-        }
-        if config.min_tokens is not None:
-            sp_kwargs["min_tokens"] = config.min_tokens
-        env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-        if env_ignore_eos or config.ignore_eos is not None:
-            sp_kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+        sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if "temperature" in generation_params:
-            vllm_sampling_params.temperature = generation_params["temperature"]
 
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
