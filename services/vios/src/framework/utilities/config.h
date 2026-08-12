@@ -26,6 +26,9 @@
 #include <array>
 #include <chrono>
 #include <jsoncpp/json/json.h>
+#include <mutex>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unordered_map>
 
 inline constexpr const char* ADAPTOR_CONFIG_FILE = "configs/adaptor_config.json";
@@ -105,14 +108,48 @@ class VmsConfigManager
         void parseOverlayConfigs(const Json::Value& overlay);
         // Download calibration.json / floor-map image from absolute HTTP endpoints at startup.
         // Retries a few times; on failure keeps local paths (overlay may not work).
-        void downloadOverlayAssetsFromEndpoints();
+        void downloadOverlayAssets();
+        // For a WebRTC live overlay request, make one short retry only for a
+        // configured asset that is not already usable locally.
+        bool ensureOverlayAssetsForLiveRequest(bool requireCalibration, bool requireFloorMap);
     private:
         VmsConfigManager();
-        bool downloadOverlayAsset(const string& endpoint, const string& localPath, bool validateCalibrationJson);
+        // Cached "is this local asset valid" answer, keyed on identity rather
+        // than content so the check costs one stat().  st_ino is what makes it
+        // correct: the download publishes with rename(), so a replacement always
+        // lands on a new inode even if the size is unchanged and the write falls
+        // inside the same second.
+        struct AssetVerdict
+        {
+            dev_t    dev  = 0;
+            ino_t    ino  = 0;
+            off_t    size = -1;
+            timespec mtim = {0, 0};
+            bool     ok   = false;
+        };
+
+        bool downloadOverlayAsset(const string& endpoint, const string& localPath,
+                                  bool validateCalibrationJson, int maxRetries,
+                                  long timeoutMs);
+        bool isOverlayAssetUsable(const string& localPath, bool validateCalibrationJson,
+                                  AssetVerdict& cached);
+        bool ensureOverlayAssetForLiveRequest(const string& endpoint, const string& localPath,
+                                              bool validateCalibrationJson,
+                                              std::chrono::steady_clock::time_point& lastAttempt,
+                                              AssetVerdict& cached, bool isFloorMap);
     private:
         DeviceConfig m_vmsConfig;
         vector<shared_ptr<SensorInfo>> m_backlist;
-        bool m_overlayAssetsDownloadAttempted = false;
+        // Two locks, always taken download -> cache when both are needed.
+        // The download lock covers network fetch, publish and retry bookkeeping;
+        // the cache lock covers the verdicts only, so the common "asset is fine"
+        // path never blocks behind a download.
+        std::mutex m_overlayAssetDownloadMutex;
+        std::mutex m_overlayAssetCacheMutex;
+        std::chrono::steady_clock::time_point m_lastCalibrationFallbackAttempt{};
+        std::chrono::steady_clock::time_point m_lastFloorMapFallbackAttempt{};
+        AssetVerdict m_calibrationVerdict;
+        AssetVerdict m_floorMapVerdict;
 };
 
 } //nv_vms

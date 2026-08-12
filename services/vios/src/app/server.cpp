@@ -375,7 +375,7 @@ void VmsServer::checkLibsSanity ()
         CudaLoader::getInstance();
     }
     // Overlay assets download at startup for all non-sensor modules (Jetson + x86).
-    nv_vms::VmsConfigManager::getInstance()->downloadOverlayAssetsFromEndpoints();
+    nv_vms::VmsConfigManager::getInstance()->downloadOverlayAssets();
 #endif
 }
 

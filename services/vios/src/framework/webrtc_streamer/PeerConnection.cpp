@@ -2136,6 +2136,20 @@ VmsErrorCode PeerConnection::AddCompositorStreams(
             opts["overlaySensorPosY"] = urlParameters["overlaySensorPosY"];
         }
     }
+    // Live video wall with overlay needs the same fallback as a normal live
+    // stream.  Guarded on start/end time like AddStreams(): a replay compositor
+    // request must not block setup on a network fetch.
+    if (startTime.empty() && endTime.empty())
+    {
+        const bool requireCalibration = opts.find("overlay") != opts.end() && opts.at("overlay") == "true";
+        const bool requireFloorMap = opts.find("gods_eye_view") != opts.end() && opts.at("gods_eye_view") == "true";
+        if ((requireCalibration || requireFloorMap) &&
+            !VmsConfigManager::getInstance()->ensureOverlayAssetsForLiveRequest(requireCalibration, requireFloorMap))
+        {
+            LOG(warning) << "WebRTC live overlay assets are still unavailable after fallback download attempt" << endl;
+        }
+    }
+
     if (CreateAndAddTrack(video, opts, is_audio_required, streamLabel, nullptr, response) == -1)
     {
         return VmsErrorCode::VMSInternalError;
@@ -2460,6 +2474,22 @@ PeerConnection::AddStreams(unordered_map<string, string> urlParameters,
     {
         opts["peerid"] = peerid;
     }
+
+    // A live overlay request may arrive after the analytics service becomes
+    // available, even if the startup asset download failed.  Retry only the
+    // assets this request needs and keep stream setup bounded by the
+    // config-manager fallback timeout.
+    if (startTime.empty() && endTime.empty())
+    {
+        const bool requireCalibration = opts.find("overlay") != opts.end() && opts.at("overlay") == "true";
+        const bool requireFloorMap = opts.find("gods_eye_view") != opts.end() && opts.at("gods_eye_view") == "true";
+        if ((requireCalibration || requireFloorMap) &&
+            !VmsConfigManager::getInstance()->ensureOverlayAssetsForLiveRequest(requireCalibration, requireFloorMap))
+        {
+            LOG(warning) << "WebRTC live overlay assets are still unavailable after fallback download attempt" << endl;
+        }
+    }
+
     if (CreateAndAddTrack(video, opts, is_audio_required, streamLabel, stream_info, response) == -1)
     {
         return VmsErrorCode::VMSInternalError;
