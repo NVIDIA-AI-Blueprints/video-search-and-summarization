@@ -43,7 +43,7 @@
         "Deployment uses the validated `_builds/search-standalone/resolved.yml` as the only Compose file and starts it with `docker compose ... up -d`; harmless deployment options such as `-p <project>` or `--build` are allowed, but it must not re-read Foundation env files, supply `--profile`, use an invented Compose profile, or deploy a copied Compose project.",
         "All selected long-running containers are present and not exited, restarting, or dead; all selected one-shot containers exit 0; and excluded services (including `rtvi-vlm` and the agent tier) are not running. A Docker `unhealthy` label alone is not a failure when the explicit service readiness probes in this step pass.",
         "`curl -sf http://localhost:${RTVI_CV_HOST_PORT:-9000}/ready` returns HTTP 200 and RT-Embed readiness responds successfully.",
-        "`vss configure --base-url http://localhost:${HAPROXY_HOST_PORT:-7777}` records the operate route-set (`vst`, `elasticsearch`, `rt_embed`, `rtvi_cv`), proving the single ingress fronts them."
+        "Curling the operate routes through the ingress origin (`http://localhost:${HAPROXY_HOST_PORT:-7777}`) proves the single HAProxy fronts each deployed backend: `/vst`, `/rtvi-embed`, and `/rtvi-cv` route through (any non-404 backend response, not the `404` host-allowlist reject or the catch-all `/kibana/` redirect), and `/elasticsearch` is reachable read-only (a GET routes through while a mutating method returns the verbatim `405`/`403` edge guard); RT-VLM is not fronted."
       ]
     },
     {

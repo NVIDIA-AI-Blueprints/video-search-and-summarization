@@ -36,9 +36,11 @@ placement. Keep `VLM_NAME` aligned with the model id advertised by
 Consumer wiring is not part of that set.
 `RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_KAFKA_TOPIC`, and verifier config mounts
 follow the consuming capability and operating mode, never the profile that
-supplied the variant. Realtime VLM alerting must set Kafka enablement to `true`
-even when the variant profile defaults it to `false`, or no incidents are
-published. For the integrated path, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` and
+supplied the variant. Realtime VLM alerting (`2d_vlm`) must set Kafka enablement
+to `true` even when the variant profile defaults it to `false`, or no incidents
+are published; CV verification (`2d_cv`) keeps it `false` — verified incidents
+reach Elasticsearch through the alert bridge, not RT-VLM's Kafka path. For the
+integrated path, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` and
 the `http://rtvi-vlm:8000` endpoint (a consumer's `VLM_BASE_URL`) are invariant
 across BF16 and FP8; a consumer owns that URL but never inherits it from the
 variant profile.
