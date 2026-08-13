@@ -53,6 +53,7 @@ class NotebookRunnerTests(unittest.TestCase):
             "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com",
             "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-sonnet-4-6",
             "ANTHROPIC_API_KEY": "provider-test-key",
+            "HOME": os.environ.get("HOME", str(Path.home())),
             "PATH": os.environ.get("PATH", ""),
         }
         self.adapter.prepare_environment(environment, root=REPO_ROOT)
@@ -89,9 +90,9 @@ class NotebookRunnerTests(unittest.TestCase):
             namespace["NEMOCLAW_MODEL"],
             "aws/anthropic/bedrock-claude-sonnet-4-6",
         )
-        self.assertTrue(namespace["NEMOCLAW_CLEAN_SETUP"])
+        self.assertNotIn("NEMOCLAW_CLEAN_SETUP", namespace)
 
-    def test_webhook_config_uses_a_bounded_shields_window(self) -> None:
+    def test_webhook_config_does_not_toggle_shields(self) -> None:
         notebook = json.loads(
             (REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb").read_text(
                 encoding="utf-8"
@@ -100,13 +101,9 @@ class NotebookRunnerTests(unittest.TestCase):
         cell = next(cell for cell in notebook["cells"] if cell.get("id") == "s37-code")
         source = "".join(cell["source"])
 
-        self.assertIn('shields down "', source)
-        self.assertIn('--timeout 15m --reason "notebook webhook config"', source)
-        self.assertIn("finally:\n", source)
-        self.assertIn("shields up", source)
-        self.assertLess(source.index("shields down"), source.index("_config_set_cmd"))
-        self.assertLess(source.index("_config_set_cmd"), source.index("finally:\n"))
-        self.assertLess(source.index("finally:\n"), source.index("shields up"))
+        self.assertNotIn("shields down", source)
+        self.assertNotIn("shields up", source)
+        self.assertIn("_config_set_cmd", source)
 
     def test_remote_vss_models_are_mapped_to_notebook_variables(self) -> None:
         environment = {
@@ -804,6 +801,12 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("timeout --signal=TERM --kill-after=10 60s", source)
         self.assertIn("tail -n 120", source)
         self.assertNotIn("logs --follow", source)
+
+    def test_eval_harness_destroys_existing_run_scoped_sandbox(self) -> None:
+        command = self.env_module._setup_command(5400)
+        destroy = 'nemoclaw "$NEMOCLAW_SANDBOX_NAME" destroy --yes'
+        self.assertIn(destroy, command)
+        self.assertLess(command.index(destroy), command.index("LEGACY_ROW_CLEANUP"))
 
     def test_legacy_registry_cleanup_is_limited_to_old_ci_names(self) -> None:
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
