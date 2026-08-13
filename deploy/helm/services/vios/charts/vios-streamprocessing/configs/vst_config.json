@@ -118,7 +118,7 @@
 		"event_recording": false,
 		"event_record_length_secs": 10,
 		"record_buffer_length_secs": 2,
-		"use_software_path": false,
+		"use_software_path": __USE_SOFTWARE_PATH__,
 		"use_webrtc_inbuilt_encoder": "",
 		"webrtc_in_fixed_resolution": "1280x720",
 		"webrtc_in_max_framerate": 30,
