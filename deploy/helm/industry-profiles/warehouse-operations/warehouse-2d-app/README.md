@@ -119,7 +119,135 @@ address, incident links). **`vssIngress.host`** controls only the Ingress
 `spec.rules[].host` for Kubernetes routing. Set both if they differ; omit
 **`vssIngress.host`** to match any hostname.
 
-### Prerequisite: HAProxy ingress controller
+### 1. Prepare the values file
+
+Create a values override file (e.g. `my-values.yaml`) and set at least:
+
+| Key | Description |
+|-----|-------------|
+| **`global.storageClass`** | StorageClass for VST, Elasticsearch, and related PVCs (e.g. **`local-path`**, **`oci-bv-high`**). Must exist on the cluster before install. |
+| **`global.externalHost`** | Node IP or hostname browsers use to reach the UIs (e.g. `192.168.1.10`). Drives all browser-reachable URLs. |
+| **`global.vssIngress.enabled`** | Set **`true`** to create the HAProxy `Ingress`. Requires the controller installed in [step 2](#2-install-the-ingress-controller). Leave **`false`** and use `values-nodeport.yaml` instead for NodePort access. |
+| **`monitoring.grafana.rootUrl`** | Full external URL for Grafana including path prefix, e.g. `http://<NODE_IP>/grafana`. Grafana embeds this in redirect links; without it Grafana points at `localhost`. |
+| **`infra.kibana.kibanaPublicUrl`** | Full external URL for Kibana including path prefix, e.g. `http://<NODE_IP>/kibana`. Kibana uses this for absolute links in the UI. |
+| **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | NGC resource version for the warehouse app-data bundle (models, configs, video seed). Default is `nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`; override when using a different release. |
+
+#### `values.yaml` vs your override file
+
+| File | Role |
+|------|------|
+| **`values.yaml`** | Chart defaults shipped with the profile. Do not edit it directly; override only the keys you need. |
+| **`my-values.yaml`** (your file) | Your site-specific overrides. Pass with `-f my-values.yaml` at install time. |
+
+#### Optional overrides — `values.yaml` keys (reference)
+
+Order follows `values.yaml`. Set only the keys you need in your override file; Helm merges it on top of the chart defaults.
+
+##### `global`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
+| **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
+| **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. |
+| **`global.ngcApiSecret.name`** | **`ngc-api`** | Name of the Opaque secret holding the NGC API key (see [Required secrets](#required-secrets)). |
+| **`global.ngcApiSecret.key`** | **`NGC_CLI_API_KEY`** | Key inside the secret that holds the NGC API key value. |
+| **`global.imagePullSecrets`** | **`[{name: ngc-docker-reg-secret}]`** | Image pull credentials for nvcr.io. Must reference the docker-registry secret created in [Required secrets](#required-secrets). |
+
+##### `vios`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`vios.vstStorage.createSharedPvcs`** | **`true`** | Creates shared PVCs so sensor and streamprocessing pods mount the same VST data and video directories. Set `false` only if managing PVCs externally. |
+| **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs. |
+| **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
+| **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
+| **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
+| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
+| **`vios.vss-vios-nvstreamer.syncFileCount`** | **`3`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
+| **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
+| **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
+
+##### `infra`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`infra.redis.persistence.size`** | **`5Gi`** | PVC size for Redis. |
+| **`infra.elasticsearch.persistence.data.size`** | **`10Gi`** | PVC size for Elasticsearch data. |
+| **`infra.elasticsearch.persistence.logs.size`** | **`5Gi`** | PVC size for Elasticsearch logs. |
+| **`infra.elasticsearch.persistence.storageClass`** | **`""`** | StorageClass for Elasticsearch PVCs; inherits **`global.storageClass`** when empty. |
+| **`infra.elasticsearch.init.env.ELASTICSEARCH_ILM_MIN_AGE`** | **`4h`** | ILM policy minimum age before Elasticsearch rolls over an index. |
+| **`infra.kibana.basePath`** | **`/kibana`** | Kibana base path matching the `/kibana` ingress route. Change only if the ingress path changes. |
+| **`infra.kafka.persistence.size`** | **`50Gi`** | PVC size for Kafka. |
+| **`infra.phoenix.enabled`** | **`true`** | Enable Phoenix observability (pipeline traces and spans). Set **`false`** to skip. |
+
+##### `analytics`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`analytics.vss-video-analytics-api.storage.size`** | **`5Gi`** | PVC size for the video analytics API service. |
+
+##### `rtvi`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource version for the warehouse app-data bundle (models, configs). Override when pinning to a specific release. |
+| **`rtvi.vss-rtvi-cv.persistence.models.size`** | **`80Gi`** | PVC size for the NGC model download job. |
+| **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1` | GPU request/limit for the CV inference pod. Always required for the 2D pipeline. |
+
+##### `monitoring`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`monitoring.enabled`** | **`true`** | Master switch for Prometheus and Grafana. Set **`false`** to skip the stack. |
+| **`monitoring.prometheus.routePrefix`** | **`/prometheus`** | Prometheus route prefix matching the `/prometheus` ingress path. Change only if the ingress path changes. |
+| **`monitoring.grafana.rootUrl`** | **`http://localhost:8080/grafana`** | Full external URL for Grafana including the path prefix. Set to `http://<NODE_IP>/grafana` so redirect links resolve correctly. |
+| **`monitoring.nodeExporter.enabled`** | **`true`** | Enable the node exporter DaemonSet for host-level metrics. |
+| **`monitoring.dcgmExporter.enabled`** | **`false`** | Stays off because the GPU Operator already runs `nvidia-dcgm-exporter`. Enable only on clusters without the GPU Operator. |
+
+##### `cameraInfo`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`cameraInfo.enabled`** | **`false`** | Enable live RTSP camera registration. When `true`, also set `bp-configurator` env `SENSOR_INFO_SOURCE=file` so the configurator reads the sensor list from this ConfigMap rather than discovering NVStreamer files. |
+| **`cameraInfo.sensors`** | **`[]`** | List of RTSP camera entries. Each entry takes `camera_name`, `rtsp_url`, `group_id`, and `region`. |
+
+##### `vssIngress`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`vssIngress.ingressClassName`** | **`haproxy`** | IngressClass name. Must match the controller installed on the cluster. |
+| **`vssIngress.host`** | **`""`** | Hostname for Ingress routing rules. If empty, **`global.externalHost`** is used. |
+| **`vssIngress.vstPort`** | **`30888`** | Backend Service port for the VST ingress. |
+| **`vssIngress.kibanaPort`** | **`5601`** | Backend Service port for Kibana. |
+| **`vssIngress.grafanaPort`** | **`3000`** | Backend Service port for Grafana. |
+| **`vssIngress.prometheusPort`** | **`9090`** | Backend Service port for Prometheus. |
+| **`vssIngress.nvstreamerPort`** | **`31000`** | Backend Service port for NVStreamer. |
+| **`vssIngress.videoAnalyticsApiPort`** | **`8081`** | Backend Service port for the video analytics API. |
+| **`vssIngress.behaviorAnalyticsPort`** | **`8080`** | Backend Service port for the behavior analytics service. |
+
+##### `calibration-import`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`calibration-import.enabled`** | **`true`** | Runs a one-shot Job that uploads the sample calibration file and floor-plan images to the video analytics API at startup. Set **`false`** to skip and provide calibration data manually. |
+| **`calibration-import.calibrationFileSource`** | (bundle URL) | Source URL for the sample calibration JSON. Override to point at custom calibration data. |
+
+##### `vss-alert-bridge` (alerts stack, off by default)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| **`vss-alert-bridge.enabled`** | **`false`** | Enable the alert bridge. Must be paired with **`agent.enabled`**, **`vss-agent-ui.enabled`**, and **`rtvi.vss-rtvi-vlm.enabled`** — see [Alerts](#alerts). |
+| **`vss-alert-bridge.kafkaBootstrapServers`** | **`""`** | Kafka broker address (e.g. `kafka-kafka:9092`). Required when alerts are enabled. |
+| **`vss-alert-bridge.elasticHosts`** | **`""`** | Elasticsearch host(s) for incident storage (e.g. `elasticsearch:9200`). Required when alerts are enabled. |
+| **`vss-alert-bridge.vstBaseUrl`** | **`""`** | Base URL of the VST service for alert media retrieval. Required when alerts are enabled. |
+| **`vss-alert-bridge.vlmName`** | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | VLM model name used by the alert bridge. Override when pointing at a different model endpoint. |
+| **`vss-alert-bridge.vlmBaseUrl`** | **`""`** | External VLM base URL. Set this and omit **`rtvi.vss-rtvi-vlm.enabled`** when using an external VLM instead of the in-cluster RT-VLM pod. |
+| **`agent.enabled`** | **`false`** | Enables `vss-agent` and `vss-va-mcp`. Required for the alerts stack. |
+| **`vss-agent-ui.enabled`** | **`false`** | Enables the agent UI. Required for alerts; not controlled by **`agent.enabled`**. |
+
+### 2. Install the ingress controller
 
 The controller is not in this repo and the chart does not install it. Install it
 once per cluster:
@@ -145,7 +273,7 @@ install creates a LoadBalancer Service, which stays `Pending` on bare metal. Che
 kubectl get ingressclass          # expect: haproxy
 ```
 
-### Install
+### 3. Install
 
 ```bash
 helm dependency update deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app
@@ -164,7 +292,7 @@ are host-specific. Grafana and Kibana build absolute links, so without them Graf
 points at `localhost` and Kibana at its in-cluster Service name. The rest works off
 the defaults.
 
-### Post-install validation
+### 4. Post-install validation
 
 Wait for all pods to be ready:
 
