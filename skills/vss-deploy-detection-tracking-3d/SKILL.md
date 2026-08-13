@@ -20,13 +20,16 @@ metadata:
 
 # VSS Deploy Detection And Tracking 3D
 
+## When to Use This Skill
+
 Deploy the standalone RT-CV-3D MV3DT stack from `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
 This is the default path for MV3DT / RTVI-CV-3D / multi-camera tracking requests.
 
 Do not derive MV3DT services from the warehouse blueprint for this skill. Use
 `vss-deploy-profile` only when the user explicitly asks for warehouse MV3DT,
 the warehouse blueprint, a `bp_wh*` profile, warehouse compose files, or the
-combined warehouse application stack.
+combined warehouse application stack. For single-camera 2D detection or
+tracking, use the 2D tracking or DeepStream skills instead.
 
 Public docs: https://docs.nvidia.com/vss/latest/object-detection-tracking.html.
 
@@ -42,7 +45,6 @@ Example operation prompts:
 - "Use an external MQTT broker and external Kafka for this RT-CV-3D deployment."
 - "Verify the standalone RT-CV-3D deployment and show output paths."
 - "Tear down everything for standalone MV3DT."
-
 
 ## Output Permissions
 
@@ -79,6 +81,12 @@ warehouse configurator, agents, LLM, or VLM services.
 - Do not use VST for visualization. Use the standalone OSD/save-video path and BEV visualizer scripts.
 - Always run the real display probe in `references/configure-cameras.md` before choosing `OSD=0` as the headless fallback; do not infer headless mode only from GPU presence, `xdpyinfo` installation, or a stale/missing `DISPLAY`. Treat display mode as two live windows by default: the DeepStream camera-grid OSD and the separate fused BEV visualizer. Treat `save video`, `save output`, and confirmed headless fallback as saved perception grid plus saved fused BEV by default. Before launch, preflight host tools needed for selected output: `ffprobe` for saved artifact verification, and the BEV visualizer Python/OpenCV/Kafka dependencies when BEV visualization/recording is enabled. Before promising BEV, resolve `BEV_DATASET_PATH` to a directory containing both `map.png` and `transforms.yml`; if either is missing, request the missing BEV asset or report perception-grid-only output explicitly.
 - BEV video is not emitted by the perception container. It is produced by the separate host-side `scripts/bev-visualizer.sh` Kafka consumer. For finite file input, keep the BEV process under the same long-lived shell/session that starts perception, waits for EOS, verifies offsets/artifacts, finalizes BEV, and performs cleanup; do not start BEV in a separate short tool call and assume `nohup ... &` will survive runner process-group cleanup. Wait for Kafka assignment and verify the PID is still alive immediately before file-mode perception or RTSP stream registration. For finite file-input live display runs, start live fused BEV before perception and, after EOS, tell the user to press `q` in the BEV window or stop only the tracked current-run BEV PID through the safe teardown flow.
+
+## Workflow
+
+Use the workflow selection table and run stages below. Load only the references
+needed for the user's selected input, broker, visualization, calibration, and
+verification path.
 
 ## Workflow Selection
 
