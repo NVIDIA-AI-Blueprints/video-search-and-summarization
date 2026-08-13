@@ -52,7 +52,14 @@ def source_topics(config: Optional[Dict[str, Any]]) -> List[str]:
 
 
 def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10.0) -> Optional[int]:
-    """Smallest partition count across the source topics, or None if unknown.
+    """Total partitions across the source topics, or None if unknown.
+
+    Summed, not minimised: one group member can hold partitions from several
+    subscribed topics, so the number of members that can receive work is the
+    total. Taking the minimum let a low-traffic companion topic decide the
+    answer - a one-partition ``mdx-alerts`` alongside an eight-partition
+    ``mdx-incidents`` reported 1, which warned wrongly and, worse, clamped
+    ``processes: "auto"`` to a single process.
 
     Read through an admin client, which fetches metadata without joining the
     consumer group — a member that joined and then stopped polling would stall
@@ -75,14 +82,13 @@ def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10
         logger.debug("Could not read Kafka topic metadata for partition sizing", exc_info=True)
         return None
 
-    counts = []
+    total = 0
     for topic in topics:
         topic_metadata = getattr(metadata, "topics", {}).get(topic)
         if topic_metadata is None or getattr(topic_metadata, "error", None) is not None:
             continue
-        if topic_metadata.partitions:
-            counts.append(len(topic_metadata.partitions))
-    return min(counts) if counts else None
+        total += len(topic_metadata.partitions or ())
+    return total or None
 
 
 def resolve_process_count(

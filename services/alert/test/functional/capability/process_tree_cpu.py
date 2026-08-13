@@ -39,17 +39,28 @@ import time
 CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
 
 
+SELF = os.path.basename(__file__)
+
+
 def matching_pids(pattern):
+    """Pids whose command line contains ``pattern``, excluding this sampler.
+
+    The sampler is invoked with the pattern as an argument, so its own command
+    line matches it. Left in, it charged its own CPU to whatever it was
+    measuring — small (about 0.8% of a core) but attributed to the wrong
+    process.
+    """
     pids = []
+    own_pid = os.getpid()
     for entry in os.listdir("/proc"):
-        if not entry.isdigit():
+        if not entry.isdigit() or int(entry) == own_pid:
             continue
         try:
             with open(os.path.join("/proc", entry, "cmdline"), "rb") as handle:
                 cmdline = handle.read().decode("utf-8", "replace").replace("\0", " ")
         except OSError:
             continue
-        if pattern in cmdline:
+        if pattern in cmdline and SELF not in cmdline:
             pids.append(int(entry))
     return pids
 

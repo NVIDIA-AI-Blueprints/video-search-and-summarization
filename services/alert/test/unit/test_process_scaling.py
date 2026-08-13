@@ -89,6 +89,47 @@ class TestSourceTopics:
         assert process_scaling.source_topics(None) == []
 
 
+class TestPartitionCountIsSummed:
+    """A low-traffic companion topic must not decide the answer."""
+
+    @staticmethod
+    def _metadata(sizes):
+        from types import SimpleNamespace
+        return SimpleNamespace(topics={
+            name: SimpleNamespace(error=None, partitions={i: None for i in range(n)})
+            for name, n in sizes.items()
+        })
+
+    def _count(self, monkeypatch, sizes):
+        import types
+        admin = types.ModuleType("confluent_kafka.admin")
+        admin.AdminClient = lambda cfg: types.SimpleNamespace(
+            list_topics=lambda timeout: self._metadata(sizes)
+        )
+        monkeypatch.setitem(__import__("sys").modules, "confluent_kafka.admin", admin)
+        cfg = {
+            "event_bridge": {"sourceType": "kafka", "kafka_source": {"topics": {
+                "incident": "mdx-incidents", "alert": "mdx-alerts"}}},
+            "kafka": {"bootstrap_servers": "broker:9092"},
+        }
+        return process_scaling.source_partition_count(cfg)
+
+    def test_totals_the_topics(self, monkeypatch):
+        assert self._count(monkeypatch, {"mdx-incidents": 8, "mdx-alerts": 1}) == 9
+
+    def test_a_single_partition_topic_does_not_clamp_auto(self, monkeypatch):
+        # The bug: min() returned 1 here, so "auto" resolved to one process on
+        # any deployment carrying a one-partition companion topic.
+        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 16)
+        partitions = self._count(monkeypatch, {"mdx-incidents": 8, "mdx-alerts": 1})
+        assert resolve_process_count({"alert_agent": {"processes": "auto"}}, partitions) == 9
+
+    def test_still_clamps_when_partitions_are_genuinely_few(self, monkeypatch):
+        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 256)
+        partitions = self._count(monkeypatch, {"mdx-incidents": 2, "mdx-alerts": 1})
+        assert resolve_process_count({"alert_agent": {"processes": "auto"}}, partitions) == 3
+
+
 class TestSourcePartitionCount:
     def test_returns_none_for_non_kafka_source(self):
         assert process_scaling.source_partition_count({"event_bridge": {"sourceType": "redis_stream"}}) is None
