@@ -14,6 +14,9 @@
 # limitations under the License.
 
 include:
+  - path: nvstreamer/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: foundational/docker-compose.yaml
     env_file:
       - ${VSS_APPS_DIR}/services/vios/vst.env
