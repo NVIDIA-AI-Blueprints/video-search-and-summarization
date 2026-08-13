@@ -779,7 +779,10 @@ class WorkflowScopeTests(unittest.TestCase):
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('re.fullmatch(r"skill-eval-[0-9]+", name)', source)
+        self.assertIn("skill-eval-[0-9]+", source)
+        self.assertIn("se-[0-9]+", source)
+        self.assertIn("vss-eval-u[0-9]+-p[0-9]+", source)
+        self.assertIn('state_root / "gateways"', source)
         self.assertIn("del sandboxes[name]", source)
         self.assertNotIn("sandboxes.clear", source)
         command = self.env_module._setup_command(5400)
@@ -787,6 +790,52 @@ class WorkflowScopeTests(unittest.TestCase):
             1
         ].split("\n__NEMOCLAW_LEGACY_ROW_CLEANUP__", 1)[0]
         compile(cleanup, "<nemoclaw-legacy-row-cleanup>", "exec")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir)
+            default_registry = home / ".nemoclaw/sandboxes.json"
+            gateway_registry = home / ".nemoclaw/gateways/19080/sandboxes.json"
+            gateway_registry.parent.mkdir(parents=True)
+            default_registry.write_text(
+                json.dumps(
+                    {
+                        "defaultSandbox": "skill-eval-123",
+                        "sandboxes": {
+                            "skill-eval-123": {"name": "skill-eval-123"},
+                            "interactive": {"name": "interactive"},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            gateway_registry.write_text(
+                json.dumps(
+                    {
+                        "defaultSandbox": "vss-eval-u1000-p19080-nc097-c5",
+                        "sandboxes": {
+                            "vss-eval-u1000-p19080-nc097-c5": {"legacy": True},
+                            "se-123": {"name": "se-123"},
+                            "keep": {"name": "keep"},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [sys.executable, "-c", cleanup],
+                env={**os.environ, "HOME": str(home)},
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            default_document = json.loads(default_registry.read_text(encoding="utf-8"))
+            gateway_document = json.loads(gateway_registry.read_text(encoding="utf-8"))
+
+        self.assertEqual(default_document["defaultSandbox"], None)
+        self.assertEqual(
+            default_document["sandboxes"], {"interactive": {"name": "interactive"}}
+        )
+        self.assertEqual(gateway_document["defaultSandbox"], None)
+        self.assertEqual(gateway_document["sandboxes"], {"keep": {"name": "keep"}})
 
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/skills-eval.yml").read_text(
