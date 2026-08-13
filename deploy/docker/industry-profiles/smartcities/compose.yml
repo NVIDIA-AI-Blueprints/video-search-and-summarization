@@ -26,29 +26,22 @@ services:
     container_name: vss-behavior-analytics
     command: python3 apps/smart_city/main_smart_city_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
 
+  # The Smart Cities launchable overlays this file onto dev-profile-alerts,
+  # replacing that profile's Compose file. Keep this blueprint adapter here so
+  # the resulting project still defines the nvstreamer-alerts service.
   nvstreamer-alerts:
     extends:
-      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
       service: nvstreamer-base
     profiles: ["nvstreamer-alerts"]
-    ports:
-      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
-    container_name: vss-vios-nvstreamer
-    networks:
-      default:
-        aliases:
-          - vss-vios-nvstreamer
     volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $NVSTREAMER_VIDEO_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
+      - ${NVSTREAMER_VIDEO_DIR}/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
-  
+
   # No longer needed! we are moving to sdrc
   # perception-sdr-alerts:
   #   extends:

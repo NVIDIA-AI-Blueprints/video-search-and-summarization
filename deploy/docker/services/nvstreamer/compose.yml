@@ -13,24 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Shared base for blueprint-specific NVStreamer services.
-#
-# Keep profile-specific names, networking, GPU reservations, mounts, and
-# dependencies in the extending service. Do not include this file directly;
-# reference nvstreamer-base with Compose `extends`.
-
+# Reusable NVStreamer microservice definition. Concrete services extend this
+# definition from their blueprint and provide only variant-specific behavior.
 services:
-
   nvstreamer-base:
     image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    container_name: vss-vios-nvstreamer
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     environment:
       - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
+    volumes:
+      - ${NVSTREAMER_CONFIG_DIR:-/path/to/nvstreamer/configs}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${NVSTREAMER_CONFIG_DIR:-/path/to/nvstreamer/configs}/notification-config.json:/home/vst/vst_release/configs/notification_config.json
+      - ${NVSTREAMER_CONFIG_DIR:-/path/to/nvstreamer/configs}/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
     deploy:
       restart_policy:
         condition: on-failure
