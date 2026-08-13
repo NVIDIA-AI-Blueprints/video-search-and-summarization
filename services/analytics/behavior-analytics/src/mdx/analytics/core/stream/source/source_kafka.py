@@ -224,7 +224,7 @@ class SourceKafka(Source):
                 # leaks more threads. Bail out and let the container restart handle it.
                 if not self._close_consumer_with_timeout(consumer):
                     raise RuntimeError(
-                        f"FATAL - Consumer close hung on attempt {attempt}; aborting retry. "
+                        f"Consumer close hung on attempt {attempt}; aborting retry. "
                         f"Broker likely unreachable.\n"
                         f"  Brokers: {self._config.brokers}\n"
                         f"  Topic: {topic}\n"

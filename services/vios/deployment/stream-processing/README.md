@@ -117,9 +117,6 @@ python3 oneclick_dc_deployment.py deploy --target all --force
 # NVStreamer only
 python3 oneclick_dc_deployment.py deploy --target nvstreamer --force
 
-# With monitoring (Grafana + Prometheus)
-python3 oneclick_dc_deployment.py deploy --with-monitoring --force
-
 # Always pull the latest images before bringing services up
 python3 oneclick_dc_deployment.py deploy --pull-always --force
 
@@ -292,8 +289,6 @@ After deploy, services are at:
 | VIOS UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
 | NVStreamer 1 | `http://<HOST_IP>:31000/#/dashboard` |
 | NVStreamer 2–5 | `http://<HOST_IP>:31001/#/dashboard` … `:31004/#/dashboard` (if enabled) |
-| Grafana | `http://<HOST_IP>:3000` (only with `--with-monitoring`) |
-| Prometheus | `http://<HOST_IP>:9090` (only with `--with-monitoring`) |
 
 NVStreamer RTSP ports: `31554`, `31564`, `31574`, `31584`, `31594` (one per instance).
 
@@ -375,17 +370,14 @@ cd docker-compose/
 # Edit configs/vst_config.json (max_devices_supported, total_video_storage_size_MB)
 # Edit configs/rtsp_streams.json to register NVStreamer endpoints
 
-# Start (without monitoring)
+# Start
 docker compose -f docker-compose.yaml --env-file ./compose.env up --force-recreate -d
-
-# Start with Grafana + Prometheus
-docker compose -f docker-compose.yaml --env-file ./compose.env --profile monitoring up --force-recreate -d
 
 # Start in SDRC mode (after flipping the toggle in compose.env)
 docker compose -f docker-compose.yaml --env-file ./compose.env --profile sdrc up --force-recreate -d
 
 # Stop
-docker compose -f docker-compose.yaml --env-file ./compose.env --profile monitoring --profile sdrc down --remove-orphans -v
+docker compose -f docker-compose.yaml --env-file ./compose.env --profile sdrc down --remove-orphans -v
 ```
 
 ---

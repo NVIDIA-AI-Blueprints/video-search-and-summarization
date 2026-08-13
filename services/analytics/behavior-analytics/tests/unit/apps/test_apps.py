@@ -53,11 +53,22 @@ def _load(app_path: str):
     return module
 
 
-def _config(name: str, **overrides: str) -> AppConfig:
-    """Load a shipped config, applying app-key overrides."""
+# Every capability knob on CompositeApp, so a test can clear them and assert the code default
+# rather than whatever the shipped starter config happens to set.
+COMPOSITE_WORKER_KEYS = (
+    "numWorkersForBehaviorCreation",
+    "numWorkersForFrameEnhancement",
+    "numWorkersForSpaceEstimation",
+    "numWorkersForEmbedFiltering",
+    "numWorkersForBehaviorClustering",
+)
+
+
+def _config(name: str, **overrides: str | None) -> AppConfig:
+    """Load a shipped config, applying app-key overrides. A ``None`` value removes the key."""
     raw = json.loads((CONFIGS / name).read_text())
     raw["app"] = [kv for kv in raw.get("app", []) if kv["name"] not in overrides]
-    raw["app"] += [{"name": k, "value": v} for k, v in overrides.items()]
+    raw["app"] += [{"name": k, "value": v} for k, v in overrides.items() if v is not None]
     return AppConfig(**raw)
 
 
@@ -93,7 +104,7 @@ PROFILE_APPS = [
     ("search_and_alerts/main_search_and_alerts_app.py", "SearchAndAlertsApp", "search_and_alerts_config.json"),
     ("smart_city/main_smart_city_app.py", "SmartCityApp", "smart_city_config.json"),
     ("rpm/main_rpm_app.py", "RPMApp", "rpm_config.json"),
-    ("uber/main_uber_app.py", "UberApp", "uber_config.json"),
+    ("composite/main_composite_app.py", "CompositeApp", "composite_config.json"),
 ]
 
 
@@ -112,8 +123,8 @@ class TestAppsBuild:
         app = app_factory(app_cls, _config(config_name))
 
         assert app.config is not None
-        # uber ships every processor disabled, so it is the one app that legitimately registers none
-        assert app.get_processors() or class_name == "UberApp"
+        # composite ships every processor disabled, so it is the one app that legitimately registers none
+        assert app.get_processors() or class_name == "CompositeApp"
 
     @pytest.mark.parametrize("module_path,class_name", [(m, c) for m, c, _ in PROFILE_APPS])
     def test_app_closes_cleanly(self, app_factory, module_path, class_name):
@@ -153,7 +164,7 @@ class TestBehaviorProducers:
         assert isinstance(geo.state_mgmt, StateMgmtG)
 
     @pytest.mark.parametrize("module_path,class_name,config_name", [
-        p for p in PROFILE_APPS if p[1] != "UberApp"
+        p for p in PROFILE_APPS if p[1] != "CompositeApp"
     ])
     def test_flush_is_empty_when_emit_once_is_off(self, app_factory, module_path, class_name, config_name):
         """Per-batch mode holds nothing back, so the shutdown flush costs nothing."""
@@ -163,19 +174,33 @@ class TestBehaviorProducers:
         assert app.state_mgmt.flush_behaviors() == []
 
 
-class TestUberAppProfiles:
-    """The uber app exists to be configured into a profile, so that is what is asserted."""
+class TestCompositeAppComposition:
+    """The composite app exists to be configured into a capability set, so that is what is asserted."""
 
     @pytest.fixture
-    def uber_cls(self):
-        return getattr(_load("uber/main_uber_app.py"), "UberApp")
+    def composite_cls(self):
+        return getattr(_load("composite/main_composite_app.py"), "CompositeApp")
 
-    def test_nothing_is_registered_by_default(self, app_factory, uber_cls):
-        """An unconfigured deployment must do nothing rather than guess."""
-        app = app_factory(uber_cls, _config("uber_config.json"))
+    def test_nothing_is_registered_by_default(self, app_factory, composite_cls):
+        """An unconfigured app must register nothing rather than guess a default set.
+
+        The keys are removed rather than zeroed, so this asserts the fallback in the app itself and
+        stays true no matter what the shipped starter config enables. Registering nothing is not the
+        same as running idle -- app_runner refuses to start with no processors -- but that is the
+        runner's contract, covered by
+        test_app_runner.py::TestAppRunnerStart::test_start_handles_when_no_processors_and_calls_close.
+        """
+        app = app_factory(composite_cls, _config(
+            "composite_config.json", **{k: None for k in COMPOSITE_WORKER_KEYS}))
 
         assert app.get_processors() == []
         assert app.crs is None  # no road-network graph loaded either
+
+        # Separately, pin the shipped file as-shipped. Removing the keys above asserts the app's own
+        # fallback, which stays true however the starter config is edited -- so on its own it would let
+        # a non-zero count ship unnoticed, and shipping numWorkersForBehaviorCreation > 0 makes the
+        # starter config a second behavior producer (see the app's `.. important::` note).
+        assert app_factory(composite_cls, _config("composite_config.json")).get_processors() == []
 
     @pytest.mark.parametrize("workers,expected", [
         ({"numWorkersForBehaviorCreation": "1"}, {"create_behaviors"}),
@@ -188,32 +213,38 @@ class TestUberAppProfiles:
          {"create_behaviors", "process_chunk_embeddings"}),
         ({"numWorkersForBehaviorClustering": "1"}, {"process_behavior_clustering"}),
     ])
-    def test_worker_counts_select_the_profile(self, app_factory, uber_cls, workers, expected):
+    def test_worker_counts_select_the_capabilities(self, app_factory, composite_cls, workers, expected):
         """Each processor is enabled solely by its own worker count."""
-        app = app_factory(uber_cls, _config("uber_config.json", **workers))
+        # Zero every knob first: the assertion is that *only* the requested ones register, which
+        # would otherwise be satisfied by whatever the starter config already enables.
+        app = app_factory(composite_cls, _config(
+            "composite_config.json", **({k: "0" for k in COMPOSITE_WORKER_KEYS} | workers)))
 
         assert {p.handler.__name__ for p in app.get_processors()} == expected
 
-    def test_detection_stages_are_off_unless_enabled(self, app_factory, uber_cls):
+    def test_detection_stages_are_off_unless_enabled(self, app_factory, composite_cls):
         """Optional stages cost nothing when unused -- including the CRS they would need."""
-        app = app_factory(uber_cls, _config("uber_config.json", numWorkersForBehaviorCreation="1"))
+        app = app_factory(composite_cls, _config("composite_config.json", **(
+            {k: "0" for k in COMPOSITE_WORKER_KEYS} | {"numWorkersForBehaviorCreation": "1"})))
 
         assert app.anomaly_detector is None
         assert app.action_detector is None
         assert app.crs is None
 
-    def test_anomaly_detection_builds_its_reference_system(self, app_factory, uber_cls):
+    def test_anomaly_detection_builds_its_reference_system(self, app_factory, composite_cls):
         """Anomaly detection needs a CRS, so enabling it is what pays for the road-network load."""
-        app = app_factory(uber_cls, _config("uber_config.json",
-                                            numWorkersForBehaviorCreation="1", anomalyDetectionEnable="true"))
+        app = app_factory(composite_cls, _config("composite_config.json", **(
+            {k: "0" for k in COMPOSITE_WORKER_KEYS}
+            | {"numWorkersForBehaviorCreation": "1", "anomalyDetectionEnable": "true"})))
 
         assert app.anomaly_detector is not None
         assert app.crs is not None
 
-    def test_action_detection_does_not_build_a_reference_system(self, app_factory, uber_cls):
+    def test_action_detection_does_not_build_a_reference_system(self, app_factory, composite_cls):
         """Pose-action detection needs no CRS, so it must not trigger the graph load."""
-        app = app_factory(uber_cls, _config("uber_config.json",
-                                            numWorkersForBehaviorCreation="1", actionDetectionEnable="true"))
+        app = app_factory(composite_cls, _config("composite_config.json", **(
+            {k: "0" for k in COMPOSITE_WORKER_KEYS}
+            | {"numWorkersForBehaviorCreation": "1", "actionDetectionEnable": "true"})))
 
         assert app.action_detector is not None
         assert app.crs is None
@@ -224,7 +255,7 @@ class TestUberAppProfiles:
         Sinks resolve a topic before looking at the message list, so a processor writing to a topic
         the config omits raises on its first batch even with nothing to write.
         """
-        config = json.loads((CONFIGS / "uber_config.json").read_text())
+        config = json.loads((CONFIGS / "composite_config.json").read_text())
         defined = {t["name"] for t in config["kafka"]["topics"]}
 
         required = {"raw", "frames", "behavior", "events", "incidents",

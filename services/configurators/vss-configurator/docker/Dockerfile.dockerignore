@@ -1,0 +1,22 @@
+# Dockerfile-specific ignore for monorepo-root builds:
+# docker build -f services/configurators/vss-configurator/docker/Dockerfile .
+
+.venv
+venv
+env
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.pytest_cache
+.coverage
+htmlcov
+
+# Tests and local build artifacts are not needed in the distroless image
+tests/
+app/**/test_*.py
+docker/vss_configurator.egg-info/
+docker/build/
+docker/.venv
+
+**/*.log
+.DS_Store

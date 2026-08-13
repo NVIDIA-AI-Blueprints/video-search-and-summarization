@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -146,7 +146,7 @@ struct AsyncDownloadSession
     {
     }
     
-    AsyncDownloadSession(const std::string& id) : sessionId(id), startTime(std::chrono::system_clock::now()),
+    explicit AsyncDownloadSession(const std::string& id) : sessionId(id), startTime(std::chrono::system_clock::now()),
                                                  completedTasks(0), successfulDownloads(0), failedDownloads(0),
                                                  totalBytesDownloaded(0), isCompleted(false) {}
 };
@@ -329,11 +329,14 @@ public:
                                   const std::string& errorMessage = "") const;
     
 protected:
-    mutable std::mutex m_stats_mutex;
-    CloudReaderStats m_stats;
-    std::string m_lastError;
-    CloudReaderConfig m_config;
-    
+    // Internal state access for derived implementations
+    std::mutex& getStatsMutexInternal() const { return m_stats_mutex; }
+    CloudReaderStats& getStatsInternal() { return m_stats; }
+    const CloudReaderStats& getStatsInternal() const { return m_stats; }
+    const std::string& getLastErrorInternal() const { return m_lastError; }
+    CloudReaderConfig& getConfigInternal() { return m_config; }
+    const CloudReaderConfig& getConfigInternal() const { return m_config; }
+
     // Helper methods for implementations
     void updateStats(bool success, std::chrono::milliseconds latency, 
                     const std::string& errorCode = "");
@@ -349,7 +352,19 @@ protected:
     void shutdownDownloadWorkers();
     void downloadWorkerThread();
     bool processDownloadTask(const DownloadTask& task, FileDownloadResult& result);
-    
+
+    // Helper methods for async downloads
+    std::string generateSessionId();
+    void processAsyncDownloadSession(const std::string& sessionId);
+    void completeAsyncDownloadSession(const std::string& sessionId);
+    void cleanupCompletedSessions();
+
+private:
+    mutable std::mutex m_stats_mutex;
+    CloudReaderStats m_stats;
+    std::string m_lastError;
+    CloudReaderConfig m_config;
+
     // Download worker thread members
     mutable std::mutex m_download_mutex;
     std::vector<std::thread> m_worker_threads;
@@ -364,12 +379,6 @@ protected:
     std::map<std::string, std::shared_ptr<AsyncDownloadSession>, std::less<>> m_async_sessions;
     std::atomic<uint64_t> m_session_counter{0};
     std::condition_variable m_session_completion_cv;
-    
-    // Helper methods for async downloads
-    std::string generateSessionId();
-    void processAsyncDownloadSession(const std::string& sessionId);
-    void completeAsyncDownloadSession(const std::string& sessionId);
-    void cleanupCompletedSessions();
 };
 
 } // namespace nv_vms 

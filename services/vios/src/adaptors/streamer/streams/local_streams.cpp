@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,10 +31,6 @@ extern "C" ISensorControlInterface* createObject()
 extern "C" void destroyObject( LocalStreams* object )
 {
     delete object;
-}
-
-LocalStreams::LocalStreams()
-{
 }
 
 bool LocalStreams::isSensorExist(vector<shared_ptr<SensorInfo>>& sensors, const string &filepath)

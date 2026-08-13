@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -20,7 +21,6 @@ from prepare_downstream_release_set import (  # noqa: E402
     downstream_relevant,
     downstream_variables,
     pr_merge_base_sha,
-    spatialai_publish_variables,
 )
 
 
@@ -178,9 +178,7 @@ class DownstreamVariablesTest(unittest.TestCase):
             self.assertEqual(
                 output_path.read_text(),
                 "has_ghcr_build_entries=false\n"
-                "run_downstream=false\n"
-                "publish_spatialai_data_utils=false\n"
-                "spatialai_package_version_suffix=\n",
+                "run_downstream=false\n",
             )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
 
@@ -191,7 +189,7 @@ INVENTORY = {
         {"name": "vss-agent", "source_path": "services/agent", "ghcr_build": True},
         {"name": "vss-rt-cv", "source_path": "services/rt-cv",
          "trigger_downstream_from_source": True},
-        {"name": "vss-configurator", "source_path": "services/configurator"},
+        {"name": "vss-configurator", "source_path": "services/configurators"},
     ]
 }
 
@@ -210,7 +208,7 @@ class DownstreamGateTest(unittest.TestCase):
         self.assertIn("vss-rt-cv", why)
 
     def test_unflagged_source_change_does_not_run(self):
-        run, _ = downstream_relevant(["services/configurator/a.py"], INVENTORY)
+        run, _ = downstream_relevant(["services/configurators/a.py"], INVENTORY)
         self.assertFalse(run)
 
     def test_deploy_change_runs_without_any_source_change(self):
@@ -232,83 +230,45 @@ class DownstreamGateTest(unittest.TestCase):
         self.assertFalse(run)
 
 
-class SpatialAiPublishGateTest(unittest.TestCase):
-    SUFFIX = ".dev123+g0123456789ab.r1"
+class WorkflowSeparationTest(unittest.TestCase):
+    def test_sdu_has_an_independent_workflow_and_handoff(self):
+        workflows = Path(__file__).resolve().parents[1] / "workflows"
+        main = (workflows / "ci.yml").read_text()
+        sdu = (workflows / "spatialai-data-utils.yml").read_text()
 
-    def test_develop_change_requests_internal_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"],
-                "develop",
-                self.SUFFIX,
-            ),
-            {
-                "SPATIALAI_DATA_UTILS_PUBLISH": "true",
-                "SPATIALAI_PACKAGE_VERSION_SUFFIX": self.SUFFIX,
-            },
+        self.assertNotIn("spatialai-data-utils-test", main)
+        self.assertNotIn("SPATIALAI_PACKAGE_VERSION_SUFFIX", main)
+        self.assertIn("name: Spatial AI Data Utils", sdu)
+        self.assertIn("name: Gate", sdu)
+        self.assertIn('suffix = f".dev0+g{commit[:12]}"', sdu)
+        self.assertIn("DOWNSTREAM_REF: main", sdu)
+        self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
+        sonar = (workflows / "sonarqube.yml").read_text()
+        match = re.search(
+            r"^          - name: spatialai-data-utils\n(?P<entry>(?:            .*\n)+)",
+            sonar,
+            flags=re.MULTILINE,
         )
-
-    def test_pr_change_never_requests_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["libs/analytics/spatialai-data-utils/release/setup.py"],
-                "pull-request/1562",
-                self.SUFFIX,
-            ),
-            {},
+        self.assertIsNotNone(match, "SDU SonarQube matrix entry is missing")
+        assert match is not None
+        entry = match.group("entry")
+        self.assertIn(
+            "TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization",
+            entry,
         )
-
-    def test_unrelated_develop_change_does_not_request_publish(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["docs/readme.md"],
-                "develop",
-                "",
-            ),
-            {},
+        self.assertIn(
+            "sources: libs/analytics/spatialai-data-utils/spatialai_data_utils",
+            entry,
         )
-
-    def test_unavailable_develop_diff_fails_open(self):
-        self.assertEqual(
-            spatialai_publish_variables(None, "develop", self.SUFFIX)[
-                "SPATIALAI_DATA_UTILS_PUBLISH"
-            ],
-            "true",
+        self.assertIn(
+            "tests: libs/analytics/spatialai-data-utils/tests",
+            entry,
         )
+        self.assertIn('python_version: "3.13"', entry)
 
-    def test_publish_rejects_missing_or_malformed_suffix(self):
-        changed = ["libs/analytics/spatialai-data-utils/README.md"]
-        for suffix in ("", "dev123", ".dev0+g0123456789ab.r1"):
-            with self.subTest(suffix=suffix), self.assertRaisesRegex(
-                ValueError, "version suffix"
-            ):
-                spatialai_publish_variables(changed, "develop", suffix)
-
-    def test_explicit_false_survives_missing_git_diff_in_handoff_job(self):
-        self.assertEqual(
-            spatialai_publish_variables(None, "develop", "", "false"),
-            {},
-        )
-
-    def test_explicit_true_preserves_first_job_decision(self):
-        self.assertEqual(
-            spatialai_publish_variables(
-                ["docs/readme.md"],
-                "develop",
-                self.SUFFIX,
-                "true",
-            )["SPATIALAI_DATA_UTILS_PUBLISH"],
-            "true",
-        )
-
-    def test_explicit_true_is_rejected_outside_develop(self):
-        with self.assertRaisesRegex(ValueError, "only for develop"):
-            spatialai_publish_variables(
-                None,
-                "pull-request/1562",
-                self.SUFFIX,
-                "true",
-            )
+    def test_release_set_preparation_has_no_sdu_transport(self):
+        script = Path(module.__file__).read_text()
+        self.assertNotIn("SPATIALAI_", script)
 
 
 if __name__ == "__main__":

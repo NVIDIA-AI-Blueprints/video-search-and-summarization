@@ -65,6 +65,31 @@ describe('UploadSuccessPopup', () => {
     });
   });
 
+  // Chat wants the full window; Video Management needs the overlay confined to its pane so
+  // the popup is not painted underneath the chat sidebar next to it.
+  it('overlays the full viewport by default', () => {
+    render(
+      <UploadSuccessPopup results={[{ filename: 'a.mp4', result: { id: 'a' } }]} onClose={jest.fn()} />,
+    );
+
+    const overlay = screen.getByText('Upload Complete!').closest('div')?.parentElement;
+    expect(overlay).toHaveClass('fixed', 'z-50');
+  });
+
+  it('overlays only the positioned ancestor when overlay is contained', () => {
+    render(
+      <UploadSuccessPopup
+        overlay="contained"
+        results={[{ filename: 'a.mp4', result: { id: 'a' } }]}
+        onClose={jest.fn()}
+      />,
+    );
+
+    const overlay = screen.getByText('Upload Complete!').closest('div')?.parentElement;
+    expect(overlay).toHaveClass('absolute', 'z-40');
+    expect(overlay).not.toHaveClass('fixed');
+  });
+
   it('calls onClose when close button is clicked', () => {
     const onClose = jest.fn();
     render(

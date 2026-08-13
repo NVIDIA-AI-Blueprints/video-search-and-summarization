@@ -9,7 +9,9 @@ export interface UploadResultItem {
   cancelled?: boolean;
 }
 
-const POPUP_OVERLAY_CLASS = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+const POPUP_OVERLAY_VIEWPORT = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+/** Covers only the parent `relative` region (e.g. Video Management main pane), not the whole browser window */
+const POPUP_OVERLAY_CONTAINED = 'absolute inset-0 z-40 flex items-center justify-center bg-black/50';
 const POPUP_CONTAINER_CLASS =
   'mx-4 w-full max-w-xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-2xl';
 
@@ -54,11 +56,14 @@ function getResultItemStyle(item: UploadResultItem) {
 export interface UploadSuccessPopupProps {
   results: UploadResultItem[];
   onClose: () => void;
+  /** `contained` = overlay only the nearest positioned ancestor (e.g. Video Management pane). Default `viewport` = full window. */
+  overlay?: 'viewport' | 'contained';
 }
 
 export function UploadSuccessPopup({
   results,
   onClose,
+  overlay = 'viewport',
 }: Readonly<UploadSuccessPopupProps>) {
   const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
   const [copiedResultIndex, setCopiedResultIndex] = useState<number | null>(null);
@@ -94,8 +99,11 @@ export function UploadSuccessPopup({
     cancelledCount === totalCount,
   );
 
+  const overlayClass =
+    overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
+
   return (
-    <div className={POPUP_OVERLAY_CLASS}>
+    <div className={overlayClass}>
       <div className={POPUP_CONTAINER_CLASS}>
         <div className="mb-4 flex justify-center">
           <div className={`flex h-12 w-12 items-center justify-center rounded-full ${statusConfig.bg}`}>

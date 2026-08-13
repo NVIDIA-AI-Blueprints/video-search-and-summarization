@@ -49,8 +49,50 @@ spec:
       imagePullSecrets:
         {{- toYaml (index $g "imagePullSecrets") | nindent 8 }}
       {{- end }}
-      {{- if .Values.downloadResourcesFromNgc }}
+      {{- if or .Values.waitForKafka.enabled .Values.downloadResourcesFromNgc }}
       initContainers:
+        {{- if .Values.waitForKafka.enabled }}
+        - name: wait-for-kafka
+          image: {{ .Values.waitForKafka.image | default "confluentinc/cp-kafka:8.3.0" }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              BOOTSTRAP="{{ required "waitForKafka.host must be set" .Values.waitForKafka.host }}:{{ .Values.waitForKafka.port | default 9092 }}"
+              TOPIC="{{ .Values.waitForKafka.topic }}"
+              MAX_ATTEMPTS={{ .Values.waitForKafka.maxAttempts | default 120 }}
+              SLEEP={{ .Values.waitForKafka.sleepSeconds | default 5 }}
+              n=0
+              echo "[wait-for-kafka] waiting for broker ${BOOTSTRAP}..."
+              until kafka-topics --bootstrap-server "${BOOTSTRAP}" --list >/dev/null 2>&1; do
+                n=$((n+1))
+                if [ "$n" -ge "$MAX_ATTEMPTS" ]; then
+                  echo "[wait-for-kafka] broker not ready after ${MAX_ATTEMPTS} attempts, giving up"
+                  exit 1
+                fi
+                echo "[wait-for-kafka] broker not ready, retrying (${n}/${MAX_ATTEMPTS})..."
+                sleep "$SLEEP"
+              done
+              {{- if .Values.waitForKafka.topic }}
+              n=0
+              echo "[wait-for-kafka] broker ready, waiting for topic ${TOPIC}..."
+              until kafka-topics --bootstrap-server "${BOOTSTRAP}" --list 2>/dev/null | grep -qx "${TOPIC}"; do
+                n=$((n+1))
+                if [ "$n" -ge "$MAX_ATTEMPTS" ]; then
+                  echo "[wait-for-kafka] topic ${TOPIC} not ready after ${MAX_ATTEMPTS} attempts, giving up"
+                  exit 1
+                fi
+                echo "[wait-for-kafka] topic ${TOPIC} not yet created, retrying (${n}/${MAX_ATTEMPTS})..."
+                sleep "$SLEEP"
+              done
+              echo "[wait-for-kafka] topic ${TOPIC} exists, waiting 5s for broker to stabilize..."
+              sleep 5
+              {{- else }}
+              echo "[wait-for-kafka] broker ready, proceeding."
+              {{- end }}
+        {{- end }}
+        {{- if .Values.downloadResourcesFromNgc }}
         - name: wait-for-resources
           image: "{{ .Values.ngcDownload.image.repository }}:{{ .Values.ngcDownload.image.tag }}"
           imagePullPolicy: {{ .Values.ngcDownload.image.pullPolicy | default "IfNotPresent" }}
@@ -84,6 +126,7 @@ spec:
           volumeMounts:
             - name: vss-behavior-analytics-resources
               mountPath: /resources-data
+        {{- end }}
       {{- end }}
       containers:
         - name: vss-behavior-analytics

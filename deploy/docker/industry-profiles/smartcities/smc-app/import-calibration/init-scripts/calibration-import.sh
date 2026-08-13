@@ -17,6 +17,8 @@
 
 set -e
 
+video_analytics_api_url="${VIDEO_ANALYTICS_API_URL:-http://vss-video-analytics-api:8081}"
+
 ############################
 ## function: exit_with_msg
 ############################
@@ -30,7 +32,7 @@ exit_with_msg(){
 ##############################
 import_calibration(){
     echo -e "Importing Calibration JSON File"
-    until curl -X POST --fail localhost:8081/config/upload-file/calibration \
+    until curl -X POST --fail "${video_analytics_api_url}/config/upload-file/calibration" \
 	--form configFiles=@"/opt/mdx/calibration/sample-data/calibration.json"; do
         echo "Curl command to import calibration file failed with error code $?. Retrying in 5 seconds..."
         sleep 5
@@ -39,7 +41,7 @@ import_calibration(){
 
 import_road_network(){
     echo -e "Importing Road Network JSON File"
-    until curl -X POST --fail localhost:8081/config/upload-file/road-network \
+    until curl -X POST --fail "${video_analytics_api_url}/config/upload-file/road-network" \
 	--form configFiles=@"/opt/mdx/calibration/sample-data/road-network.json"; do
         echo "Curl command to import road-network file failed with error code $?. Retrying in 5 seconds..."
         sleep 5
@@ -52,7 +54,7 @@ fetchstatus() {
     --silent \
     --head \
     --write-out '%{http_code}' \
-    "http://localhost:8081/livez"
+    "${video_analytics_api_url}/livez"
 
     echo ""
 }

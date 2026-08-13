@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -411,7 +411,7 @@ void GstNvVideoDecoder::pushBufferToDecoder(const unsigned char *buffer, ssize_t
     /* Map the Gst Buffer to write the data */
     gst_buffer_map (gstbuffer, &map, GST_MAP_WRITE);
 
-    memcpy (map.data, (uint8_t*)buffer, size);
+    memcpy (map.data, buffer, size);
     map.size = size;
 
     /* Unmap the Gst Buffer */
@@ -530,7 +530,7 @@ gboolean busWatch (GstBus *bus, GstMessage *message, gpointer decoder_data)
                     if (NvHwDetection::getInstance()->m_useNvV4l2Dec)
                     {
                         detectGPU();
-                        if (!g_isGpuPresent)
+                        if (!isGpuPresent())
                         {
                             LOG(error) << "---#--- /dev/nvidia node not present, Non-recoverable error ---#---" << endl;
                             std::exit(EXIT_GPU_NOT_FOUND);
@@ -612,10 +612,9 @@ exit:
     return TRUE;
 }
 
-void process_dec_message(std::shared_ptr<EventLoopData> data, void* parent)
+void process_dec_message(std::shared_ptr<EventLoopData> data, GstNvVideoDecoder* dec)
 {
     shared_ptr<DecoderData> dec_data = std::static_pointer_cast<DecoderData>(data);
-    GstNvVideoDecoder* dec = static_cast <GstNvVideoDecoder*>(parent);
     if (dec_data == nullptr || dec == nullptr)
     {
         LOG(error) << "Received null data" << endl;
@@ -776,7 +775,6 @@ static bool link_decoder(GstElement* decoder, GstElement* element)
 int GstNvVideoDecoder::create(bool blocking)
 {
     int ret = -1;
-    m_eventLoop.setParent(this);
     m_decOutFrames = 0;
     std::shared_ptr<DecoderData> in_data(new DecoderData);
     std::shared_ptr<DecoderOutData> out_data (new DecoderOutData);
@@ -1809,7 +1807,8 @@ GstNvVideoDecoder::GstNvVideoDecoder (const std::string& consumer_name, const st
                   , m_sourceWidth (WIDTH_1080p)
                   , m_sourceHeight (HEIGHT_1080p)
                   , m_gpuExist(false)
-                  , m_eventLoop("dec_event_loop", process_dec_message)
+                  , m_eventLoop("dec_event_loop",
+                                [this](std::shared_ptr<EventLoopData> data) { process_dec_message(data, this); })
                   , m_nvBufferMode (NvBufferModeInvalid)
                   , m_appsrc_out_probe_count(0)
                   , m_decoder_in_probe_count(0)
@@ -1822,7 +1821,7 @@ GstNvVideoDecoder::GstNvVideoDecoder (const std::string& consumer_name, const st
     }
 
     m_state = GST_STATE_NULL;
-    m_gpuExist = g_isGpuPresent;
+    m_gpuExist = isGpuPresent();
     setOptions(opts);
     if (m_recordedPlayback && m_debug_logging_vod && !m_peerid.empty())
     {
@@ -1830,12 +1829,12 @@ GstNvVideoDecoder::GstNvVideoDecoder (const std::string& consumer_name, const st
         m_vodDebugFile.open(file_name, ios::out | ios::app);
     }
     m_playbackWD = make_unique<Bosma::Scheduler>(1);
-    m_playbackWD->interval(SCHEDULER_WD_INTERVAL, [=]()
+    m_playbackWD->interval(SCHEDULER_WD_INTERVAL, [this]()
     {
         /* Reset playstate to not playing, it will be set again in appsink callback*/
         m_playbackState.store(STATE_NOT_PLAYING);
     });
-    setConsumerMediaType(MediaTypeAudioVideo);
+    IMediaDataConsumer::setConsumerMediaType(MediaTypeAudioVideo);
 
     if (m_perfLogging)
     {

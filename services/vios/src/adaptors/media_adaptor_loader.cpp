@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +31,7 @@ namespace nv_vms {
 
 namespace {
 
-void* loadLibrary(const std::string& path)
+SharedLibrary* loadLibrary(const std::string& path)
 {
     std::string lib_path(path);
     replaceString(lib_path, "arch", ARCH);
@@ -51,7 +51,7 @@ void* loadLibrary(const std::string& path)
     }
 
     dlerror();
-    return lib_handle;
+    return static_cast<SharedLibrary*>(lib_handle);
 }
 
 } // namespace
@@ -60,11 +60,12 @@ int MediaAdaptorLoader::load(const std::string& path, MediaAdaptorHandle& handle
 {
     handle = {};
 
-    void* lib_handle = loadLibrary(path);
-    if (lib_handle == nullptr)
+    SharedLibrary* library = loadLibrary(path);
+    if (library == nullptr)
     {
         return -1;
     }
+    void* lib_handle = library;
 
     createMediaObject_t createObject = reinterpret_cast<createMediaObject_t>(dlsym(lib_handle, "createMediaObject"));
     const char* dlsym_error = dlerror();
@@ -99,9 +100,17 @@ int MediaAdaptorLoader::load(const std::string& path, MediaAdaptorHandle& handle
 
     handle.instance = instance;
     handle.destroy = destroyObject;
-    handle.libraryHandle = lib_handle;
+    handle.libraryHandle = library;
 
     return 0;
+}
+
+void MediaAdaptorLoader::closeLibrary(SharedLibrary* library)
+{
+    if (library != nullptr)
+    {
+        dlclose(library);
+    }
 }
 
 } // namespace nv_vms

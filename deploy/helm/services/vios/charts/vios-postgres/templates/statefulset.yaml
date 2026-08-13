@@ -51,6 +51,11 @@ spec:
             - sh
             - -c
             - |
+              pid_file=/data/postgresql/db/postmaster.pid
+              if [ -f "$pid_file" ]; then
+                echo "removing stale $pid_file (postgres not running at init time)"
+                rm -f "$pid_file"
+              fi
               mkdir -p /data/postgresql/db /data/postgresql/log
               chown -R {{ .Values.securityContext.runAsUser }}:{{ .Values.securityContext.runAsGroup }} /data/postgresql
               chmod 700 /data/postgresql/db

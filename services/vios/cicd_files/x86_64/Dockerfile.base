@@ -20,31 +20,31 @@ RUN apt-get update && \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         libcurl4 \
         libxml2 \
-        libssl-dev \
-        libjsoncpp-dev \
-        sqlite3 \
-        uuid \
+        libssl3t64 \
+        libjsoncpp25 \
+        libsqlite3-0 \
+        libuuid1 \
         gstreamer1.0-plugins-base \
         gstreamer1.0-plugins-good \
-        gstreamer1.0-plugins-ugly \
-        gstreamer1.0-plugins-bad \
-        gstreamer1.0-libav \
         libgstreamer1.0-0 \
-        libgstreamer-plugins-base1.0 \
-        libboost-filesystem-dev \
-        libboost-regex-dev \
-        libboost-thread-dev \
-        libyaml-cpp-dev \
+        libgstreamer-plugins-base1.0-0 \
+        libboost-filesystem1.83.0 \
+        libboost-thread1.83.0 \
         gstreamer1.0-tools \
-        libjansson-dev \
-        librdkafka-dev \
-        libcogl-pango-dev \
-        libopencv-dev \
-        libpq-dev \
-        libpqxx-dev \
+        libjansson4 \
+        librdkafka1 \
+        libcairo2 \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libpqxx-7.8t64 \
         libhiredis1.1.0 \
-	libpaho-mqttpp-dev \
+	libpaho-mqttpp3-1 \
         && apt-get clean
+
+# Kafka producer/consumer load the unversioned name with dlopen(). The runtime
+# package only ships the SONAME; provide the linker-name symlink without
+# installing librdkafka-dev in the release image.
+RUN ln -s /usr/lib/x86_64-linux-gnu/librdkafka.so.1 /usr/lib/x86_64-linux-gnu/librdkafka.so
 
 # To get video driver libraries at runtime (libnvidia-encode.so/libnvcuvid.so)
 ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video,compute,graphics,utility
@@ -90,6 +90,86 @@ RUN rm -f /usr/lib/x86_64-linux-gnu/mfx/libmfx_*_hw64.so* \
 RUN rm -f /usr/lib/x86_64-linux-gnu/libswscale.* \
         /usr/lib/x86_64-linux-gnu/libswresample.* \
         /usr/lib/x86_64-linux-gnu/libpostproc.*
+
+# Prune codec libraries and GStreamer codec plugins not selected by VIOS. XML
+# remains in the base image; JPEG/PNG are restored by the optional installer.
+RUN rm -f /usr/lib/x86_64-linux-gnu/libaom.so* \
+        /usr/lib/x86_64-linux-gnu/libldacBT_enc.so* \
+        /usr/lib/x86_64-linux-gnu/liblc3.so* \
+        /usr/lib/x86_64-linux-gnu/libdv.so* \
+        /usr/lib/x86_64-linux-gnu/libflite.so* \
+        /usr/lib/x86_64-linux-gnu/libfluidsynth.so* \
+        /usr/lib/x86_64-linux-gnu/libfreeaptx.so* \
+        /usr/lib/x86_64-linux-gnu/libgme.so* \
+        /usr/lib/x86_64-linux-gnu/libgsm.so* \
+        /usr/lib/x86_64-linux-gnu/libgssdp-1.6.so* \
+        /usr/lib/x86_64-linux-gnu/libinstpatch-1.0.so* \
+        /usr/lib/x86_64-linux-gnu/libjbig.so* \
+        /usr/lib/x86_64-linux-gnu/liblcms2.so* \
+        /usr/lib/x86_64-linux-gnu/libogg.so* \
+        /usr/lib/x86_64-linux-gnu/libOpenEXR*.so* \
+        /usr/lib/x86_64-linux-gnu/libopenmpt.so* \
+        /usr/lib/x86_64-linux-gnu/libmodplug.so* \
+        /usr/lib/x86_64-linux-gnu/libmpcdec.so* \
+        /usr/lib/x86_64-linux-gnu/libWildMidi.so* \
+        /usr/lib/x86_64-linux-gnu/libopenjp2.so* \
+        /usr/lib/x86_64-linux-gnu/libopus.so* \
+        /usr/lib/x86_64-linux-gnu/libspandsp.so* \
+        /usr/lib/x86_64-linux-gnu/libspeex.so* \
+        /usr/lib/x86_64-linux-gnu/libSvtAv1Enc.so* \
+        /usr/lib/x86_64-linux-gnu/libtheora*.so* \
+        /usr/lib/x86_64-linux-gnu/libtiff.so* \
+        /usr/lib/x86_64-linux-gnu/libtwolame.so* \
+        /usr/lib/x86_64-linux-gnu/libvo-amrwbenc.so* \
+        /usr/lib/x86_64-linux-gnu/libvorbis*.so* \
+        /usr/lib/x86_64-linux-gnu/libwavpack.so* \
+        /usr/lib/x86_64-linux-gnu/libwebp.so* \
+        /usr/lib/x86_64-linux-gnu/libwebpmux.so* \
+        /usr/lib/x86_64-linux-gnu/libsharpyuv.so* \
+        /usr/lib/x86_64-linux-gnu/libavc1394.so* \
+        /usr/lib/x86_64-linux-gnu/librom1394.so* \
+        /usr/lib/x86_64-linux-gnu/libiec61883.so* \
+        /usr/lib/x86_64-linux-gnu/libdc1394.so* \
+        /usr/lib/x86_64-linux-gnu/libcdda_interface.so* \
+        /usr/lib/x86_64-linux-gnu/libcdda_paranoia.so* \
+        /usr/lib/x86_64-linux-gnu/libchromaprint.so* \
+        /usr/lib/x86_64-linux-gnu/libv4lconvert.so* \
+        /usr/lib/x86_64-linux-gnu/libjpeg.so* \
+        /usr/lib/x86_64-linux-gnu/libpng16.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaom.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgst1394.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcdparanoia.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstchromaprint.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcolormanagement.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstdv.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstdc1394.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstflite.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstfluidsynthmidi.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstgme.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstgsm.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstlc3.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstldac.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmidi.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmodplug.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstogg.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenaptx.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenexr.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenjpeg.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenmpt.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopus.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopusparse.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstspandsp.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstspeex.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstsvtav1.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgsttheora.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstteletext.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgsttwolame.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvoamrwbenc.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvorbis.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstwavpack.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstwebp.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstwildmidi.so* \
+        /usr/share/sounds/sf2/TimGM6mb.sf2
 
 RUN rm -f /usr/lib/x86_64-linux-gnu/liba52* /usr/lib/x86_64-linux-gnu/libcdio.so* /usr/lib/x86_64-linux-gnu/libsidplay.so* \
         /usr/lib/x86_64-linux-gnu/liblrdf.so*  /usr/lib/x86_64-linux-gnu/libneon.so* \

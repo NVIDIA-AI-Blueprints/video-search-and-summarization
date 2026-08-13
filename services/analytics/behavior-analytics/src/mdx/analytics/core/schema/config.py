@@ -1170,12 +1170,6 @@ class AppConfig(BaseModel):
 
     @computed_field
     @cached_property
-    def in_simulation_mode(self) -> bool:
-        """Get the in simulation mode flag."""
-        return self.get_bool_app_config("inSimulationMode", IN_SIMULATION_MODE)
-
-    @computed_field
-    @cached_property
     def use_object_location(self) -> bool:
         """
         Get the use object location flag.

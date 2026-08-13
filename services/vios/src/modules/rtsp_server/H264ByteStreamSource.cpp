@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -192,21 +192,32 @@ H264ByteStreamSource
 
 H264ByteStreamSource::~H264ByteStreamSource()
 {
-    LOG(info) << __METHOD_NAME__ << ", sourceState:" << m_sourceState <<  endl;
+    try
+    {
+        LOG(info) << __METHOD_NAME__ << ", sourceState:" << m_sourceState <<  endl;
 
-    if (m_DataArrivalCheckTask)
-    {
-        envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        if (m_DataArrivalCheckTask)
+        {
+            envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        }
+        /* Unregister from the AV-loop-sync coordinator. If we were parked
+         * at EOS waiting on the audio side, this also releases the audio
+         * side so it doesn't deadlock waiting for a now-gone video. */
+        if (m_avLoopSync)
+        {
+            m_avLoopSync->unregisterParticipant(this);
+            m_avLoopSync.reset();
+        }
+        LOG(info) << "Exiting ~H264ByteStreamSource(), m_sessionId:" << m_sessionId << endl;
     }
-    /* Unregister from the AV-loop-sync coordinator. If we were parked
-     * at EOS waiting on the audio side, this also releases the audio
-     * side so it doesn't deadlock waiting for a now-gone video. */
-    if (m_avLoopSync)
+    catch (const std::exception& e)
     {
-        m_avLoopSync->unregisterParticipant(this);
-        m_avLoopSync.reset();
+        try { LOG(error) << "Exception in ~H264ByteStreamSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
     }
-    LOG(info) << "Exiting ~H264ByteStreamSource(), m_sessionId:" << m_sessionId << endl;
+    catch (...)
+    {
+        try { LOG(error) << "Unknown exception in ~H264ByteStreamSource" << endl; } catch (...) { (void)std::current_exception(); }
+    }
 }
 
 void H264ByteStreamSource::setStreamScale(float scaleFactor)
@@ -243,11 +254,11 @@ H264ByteStreamSource* H264ByteStreamSource
       string url_params, string sourceState, string sessionId,
 	    unsigned preferredFrameSize, unsigned playTimePerFrame)
 {
-    H264ByteStreamSource* newSource
-      = new H264ByteStreamSource(env, streamName, mediasource, url_params, sourceState, sessionId,
+    auto newSource
+      = std::make_unique<H264ByteStreamSource>(env, streamName, mediasource, url_params, sourceState, sessionId,
               preferredFrameSize, playTimePerFrame);
 
-    return newSource;
+    return newSource.release();
 }
 
 void H264ByteStreamSource::doGetNextFrame()
@@ -257,6 +268,34 @@ void H264ByteStreamSource::doGetNextFrame()
     do
     {
         fFrameSize = 0;
+        /* Quorum parking: with nv_streamer_sync_file_count>0 a synchronized
+         * source must not emit ANY frame until the group has actually started
+         * (the quorum of sync_file_count clients has requested PLAY and
+         * startPlayingAllSources() has released them together). Frames primed
+         * into the stream buffer while building the SDP would otherwise leak a
+         * lone stale frame to a client that connects before the quorum is met.
+         * Drop those primed frames and keep waiting so the client stays paused
+         * at PLAY with no output. The DESCRIBE probe source (sourceState
+         * "describe") is exempt so SPS/PPS can still be read for the SDP. */
+        if (GET_CONFIG().nv_streamer_sync_file_count > 0 &&
+            m_sourceState != "describe" &&
+            !RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())
+        {
+            /* Drop frames primed during DESCRIBE exactly once. The demux is
+             * paused while parked, so the buffer stays empty afterwards; guard
+             * on queue size so we don't re-clear (and re-log) on every poll. */
+            if (m_mediaSource && m_mediaSource->m_streamBuf.getQueueSize() > 0)
+            {
+                m_mediaSource->m_streamBuf.clear();
+            }
+            if (!m_trunctedBytes.empty())
+            {
+                m_trunctedBytes.clear();
+            }
+            nextTask() = envir().taskScheduler().scheduleDelayedTask(DEFAULT_VIDEO_FRAME_PLAY_TIME_USEC,
+                (TaskFunc*)H264ByteStreamSource::retryGetFrame, this);
+            return;
+        }
         if (m_mediaSource)
         {
             if (m_trunctedBytes.size() > 0)
@@ -504,13 +543,11 @@ void H264ByteStreamSource::doGetNextFrame()
 }
 
 void H264ByteStreamSource
-  ::afterGettingFrame(void* clientData,
+  ::afterGettingFrame(H264ByteStreamSource* source,
 		      unsigned frameSize, unsigned numTruncatedBytes,
 		      struct timeval presentationTime,
 		      unsigned durationInMicroseconds)
 {
-    H264ByteStreamSource* source
-      = (H264ByteStreamSource*)clientData;
     source->fFrameSize = frameSize;
     source->fNumTruncatedBytes = numTruncatedBytes;
     source->fPresentationTime = presentationTime;
@@ -518,10 +555,8 @@ void H264ByteStreamSource
     FramedSource::afterGetting(source);
 }
 
-void H264ByteStreamSource::onSourceClosure(void* clientData)
+void H264ByteStreamSource::onSourceClosure(H264ByteStreamSource* source)
 {
-    H264ByteStreamSource* source
-      = (H264ByteStreamSource*)clientData;
     source->onSourceClosure1();
 }
 
@@ -627,7 +662,7 @@ void H264ByteStreamSource::closeSource()
 void H264ByteStreamSource::restartForLoop()
 {
     LOG(info) << "H264ByteStreamSource restartForLoop, m_sessionId:" << m_sessionId << endl;
-    if (GET_CONFIG().nv_streamer_sync_playback == true)
+    if (GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0)
     {
         m_seekOffset = 0;
         m_start = 0;

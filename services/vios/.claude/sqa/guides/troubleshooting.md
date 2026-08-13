@@ -86,6 +86,81 @@ If the buffers are already at or above the targets (e.g., after a previous succe
 
 ---
 
+### Deploy exits immediately with `manifest unknown` after a local build
+
+The tag flags override the **tag** only, not the repository. A locally built
+image lives under a different repository than the registry path pinned in
+`compose.env`, so compose resolves to a registry reference that has no such tag
+and **no containers start**.
+
+Add the repository overrides (`--image-registry`, `--nvstreamer-image`, or the
+per-service `--*-image` flags) alongside the tag flags — see
+`skills/deployment/deploy.md` Step 1b-i.
+
+### UI build fails during npm install (missing build tool reported)
+
+Restricted outbound access can break a dependency's post-install fetch, aborting
+the install so a later build tool appears missing. The reported error names the
+tool, not the network. Check egress and prefer an internal mirror — see
+`skills/build/build-containers.md`.
+
+---
+
+## BDD Failures Caused by Missing or Stale Test Data
+
+**Always rule these out before reporting a product defect.**
+
+### Symptom: `file_download` / `webrtc` / replay tests fail on a fresh deployment
+
+A newly deployed stack has no sensors and no recordings. The suite's own
+prerequisite (`scripts/stream_prerequisite.py`) is best-effort — on a native run
+it cannot find clips (`/app/test_videos` exists only inside the BDD container
+image), logs a warning, and lets the session continue against an **empty
+system**. Failures then look like defects but are missing data.
+
+Fix: run `skills/testing/run-bdd-tests.md` **Step 0** (set `TEST_VIDEOS_DIR`,
+seed NVStreamer, scan, verify recordings). Ask the user for clips if none exist.
+
+Quick check — is anything recorded at all?
+
+```bash
+curl -s "<BASE_URL>/vst/api/v1/storage/file/list" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('segments:', sum(len(v) for v in d.values() if isinstance(v,list)))"
+```
+
+The payload is a **dict keyed by sensor id**, not a list — parsing it as a list
+reports `0` on a perfectly healthy system.
+
+### Symptom: suite runs for a very long time, or times out
+
+Recordings accumulate across deployments because `stop` without `--clean` keeps
+the VST volume. Suites that poll every stream with a per-stream wait (see the
+`max_wait` / `parallelism` values in `config.json`) scale with the amount of
+stored data, so a long-lived volume can push a single test well past its
+expected duration.
+
+Fix: if the user wants a clean slate, `python3 oneclick_dc_deployment.py stop
+all --clean`, redeploy, reseed. Confirm first — `--clean` deletes recordings
+irreversibly. If they want the existing deployment kept, narrow the test scope
+instead and note the pre-existing data in the report.
+
+### Symptom: NVStreamer upload rejected
+
+```
+HTTP 422 UnprocessableEntityError: Video encode format not supported: mpeg4
+```
+
+Correct validation, not a defect. NVStreamer accepts H.264 / H.265; exclude the
+clip and continue.
+
+### Symptom: offline / bad-state sensors reported as defects
+
+Orphaned sensors from earlier runs persist when data is not wiped. Per
+`AGENT.md`, clean the baseline before asserting system health; never score
+leftover test artifacts as product FAIL.
+
+---
+
 ## Stale Database — Sensor Failures (503/504)
 
 When a sensor returns 503 (No Cluster) on recorder/livestream endpoints or 504 (Upstream Timeout) on picture/stream endpoints, the sensor entry in PostgreSQL may be stale — registered in a previous deployment whose backing NVStreamer video file no longer exists on disk.

@@ -2,6 +2,73 @@
 
 Comprehensive Behavior-Driven Development (BDD) test suite for the VST API, featuring organized test categories, parallel execution, and automated resource monitoring.
 
+> ### ⚠️ Read this before your first run
+>
+> Most "mystery failures" in this suite are **environment**, not product bugs.
+> Two things catch almost everyone:
+>
+> 1. **A fresh deployment has no sensors and no recordings.** The stream,
+>    download and WebRTC suites need seeded data. The auto-seeder only finds
+>    clips inside the BDD *container* image (`/app/test_videos`); on a native
+>    run it silently finds nothing and the suite tests an **empty system**.
+>    → Set `TEST_VIDEOS_DIR` and seed first — see
+>    [Seeding test data](#seeding-test-data-required-for-streamdownloadwebrtc-suites).
+>
+> 2. **Old recordings affect results.** `stop` keeps the VST volume, so
+>    segments and sensors survive redeploys — they slow long-polling suites and
+>    can appear as stale entries. If you want a clean slate, use
+>    `python3 oneclick_dc_deployment.py stop all --clean` (irreversible — it
+>    deletes recordings). Testing against an existing deployment is fine; just
+>    account for the pre-existing data when reading results.
+>
+> Agent-facing detail lives in `.claude/sqa/skills/testing/run-bdd-tests.md`.
+
+---
+
+## Seeding test data (required for stream/download/webrtc suites)
+
+```bash
+# 0. Only if you want a clean slate (irreversible) — otherwise skip
+cd <PROJECT_ROOT>/services/vios/deployment/stream-processing
+python3 oneclick_dc_deployment.py stop all --clean
+
+# 0b. If deploying and you have a clips directory, point NVStreamer at it
+python3 oneclick_dc_deployment.py deploy --target all --force \
+    --nvstreamer-video-path /path/to/clips
+
+# 1. Point config.json at the deployment (api.base_url AND nvstreamer.host)
+
+# 2. Seed NVStreamer -> VIOS sensors -> recordings
+cd <PROJECT_ROOT>/services/vios/test/bdd_tests
+export TEST_VIDEOS_DIR=/path/to/clips     # e.g. /home/vst/vst_release/streamer_videos/clip
+poetry run python -c "
+import json, logging, sys
+logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+sys.path.insert(0, '.')
+from scripts.stream_prerequisite import ensure_streams
+cfg = json.load(open('config.json'))
+print(ensure_streams(cfg['api']['base_url'], cfg['api'].get('verify_ssl', False), cfg))
+"
+
+# 3. Verify recordings are accumulating (dict keyed by sensorId, NOT a list)
+curl -s "<BASE_URL>/vst/api/v1/storage/file/list" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('segments:', sum(len(v) for v in d.values() if isinstance(v,list)))"
+
+# 4. Upload one clip directly to VIOS for file-sensor coverage
+curl --location --request PUT --fail \
+  "<BASE_URL>/vst/api/v1/storage/file/test_video.mp4?sensorId=test_video&timestamp=2025-01-01T00:00:00.000Z" \
+  --header "Content-Type: video/mp4" --data-binary "@/path/to/test_video.mp4"
+```
+
+Notes:
+- **No clips available?** Ask whoever owns the machine; on VST dev hosts they
+  are often under `/home/vst/vst_release/streamer_videos/clip/`.
+- **NVStreamer accepts H.264 / H.265 only.** An mpeg4 clip returns
+  `422 … Video encode format not supported: mpeg4` — expected, just skip it.
+- Give recording a few minutes so multi-segment tests (e.g.
+  `test_download_inter_file_gap.py`, which picks a *non-first* recorded file)
+  have enough segments.
+
 ## Quick Start
 
 ### Option 1: Automated Setup (Recommended)
@@ -73,6 +140,7 @@ bdd_tests/
 │   │   ├── video_download_by_blocking_url.feature
 │   │   └── video_download_by_non_blocking_url.feature
 │   ├── picture/                  # 3 picture features
+│   ├── ui/                       # Browser-driven VIOS UI features
 │   ├── webrtc/                   # 5 WebRTC features
 │   │   ├── bbox_overlay.feature              # bbox/overlay rendering on live/replay/download (needs metadata fixture)
 │   │   ├── live_webrtc_stream.feature
@@ -99,6 +167,7 @@ bdd_tests/
 │   ├── file_upload/              # Upload tests + utilities
 │   ├── file_download/            # Download tests + utilities
 │   ├── picture/                  # Picture tests + utilities
+│   ├── ui/                       # Playwright browser tests
 │   ├── webrtc/                   # WebRTC tests + utilities
 │   ├── perf/                     # Performance tests + utilities
 │   └── unit_tests/               # Unit tests (API endpoint validation)
@@ -110,6 +179,8 @@ bdd_tests/
 │       ├── sensor_management/
 │       ├── storage_management/
 │       ├── stream_recorder/
+│       ├── ingress/
+│       ├── nvstreamer/
 │       └── mcp_gateway/
 │
 ├── scripts/                       # Utility scripts
@@ -120,14 +191,15 @@ bdd_tests/
 └── reports/                       # Generated test reports
     ├── report.html               # pytest HTML test report
     ├── junit.xml                 # JUnit XML report
-    ├── unit_tests/               # Per-service unit test CSVs
-    │   ├── live_stream.csv
-    │   ├── replay_stream.csv
-    │   ├── rtsp_proxy.csv
+    ├── unit_tests/               # Per-container unit test CSVs / JUnit
     │   ├── sensor_management.csv
-    │   ├── storage_management.csv
-    │   ├── stream_recorder.csv
-    │   └── mcp_gateway.csv
+    │   ├── streamprocessing.csv
+    │   ├── ingress.csv
+    │   ├── nvstreamer.csv
+    │   ├── vst-sensor.xml
+    │   ├── vst-streamprocessing.xml
+    │   ├── vst-ingress.xml
+    │   └── vst-nvstreamer.xml
     ├── stats/                    # Container resource monitoring
     │   ├── container_stats.json
     │   ├── container_stats.csv
@@ -236,13 +308,11 @@ bdd_tests/
 | 78 | `test_list_storage_files_by_sensor` | MCP tool storage_file_list_by_sensor - validates JSON response | Unit |
 | 79 | `test_get_storage_file_paths_by_sensor` | MCP tool storage_file_path_by_sensor - validates JSON response | Unit |
 
-**Total Tests:** 138 scenarios across 33 test files
-- **Functional / Negative / Boundary / Stress Tests:** 82
-- **Non-Functional Tests:** 1 (comprehensive latency and performance testing)
-- **Unit Tests:** 55 (API endpoint validation across 7 services)
+**Total Tests:** 194 scenarios across 49 test files
 
-> Default `pytest` runs collect 128 tests; 10 are deselected by opt-in markers
-> (`@longrun`, `@needs_iptables`, `@needs_bbox_metadata`). See [Test Markers](#test-markers).
+> Default `pytest` runs skip environment-specific scenarios tagged with
+> `@longrun`, `@needs_iptables`, `@needs_bbox_metadata`, `@mcp_gateway`, or
+> `@ui`. See [Test Markers](#test-markers).
 
 ### Coverage notes
 
@@ -258,8 +328,9 @@ Some scenarios are opt-in via pytest markers. They are tagged in the feature fil
 |---|---|---|---|
 | `longrun` | Yes | Stress / long-run tests with 30 min – 2 h wall-clock | `pytest -m longrun` |
 | `needs_iptables` | Yes | Tests that require iptables / privileged Docker (e.g. WebRTC network-break simulation) | `pytest -m needs_iptables` |
-| `needs_bbox_metadata` | Yes | Tests that require a sensor seeded with stored bbox / overlay metadata from a Metropolis perception pipeline | `pytest -m needs_bbox_metadata` |
+| `needs_bbox_metadata` | Yes | Live bbox overlay via Redis protobuf publisher (live picture + live WebRTC); GAP-050/052 still need stored metadata | `pytest -m needs_bbox_metadata` |
 | `mcp_gateway` | Yes | MCP gateway tests (require the vios-mcp container on port 8001) | `pytest -m mcp_gateway` |
+| `ui` | Yes | Playwright browser tests against a running VIOS UI | `pytest -m ui` |
 
 ### Examples
 
@@ -276,11 +347,17 @@ poetry run pytest -m "longrun or not longrun" tests/
 # Run the WebRTC network-break test on a privileged runner:
 poetry run pytest -m needs_iptables tests/webrtc/
 
-# Run bbox-overlay tests against an environment seeded with metadata
-# (also requires tests.bbox_overlay_tests.test_parameters.bbox_stream_id in config.json):
-poetry run pytest -m needs_bbox_metadata tests/webrtc/test_bbox_overlay.py
-```
+# Live bbox overlay: Redis nv.Frame protobuf → live picture + live WebRTC.
+# Requires VIOS enable_notification_consumer=true,
+# use_message_broker_consumer=redis, topic matching test_parameters.topic,
+# an active live stream, and redis+protobuf+aiortc deps (+ ffmpeg/ffprobe).
+# Protobuf sensorId must match camera name; empty stream_id prefers H264 /
+# warehouse_sample when auto-picking.
+poetry run pytest -m needs_bbox_metadata tests/webrtc/test_bbox_overlay.py -k "live"
 
+# Run the browser-driven fullscreen controls scenario:
+poetry run pytest -m ui tests/ui/test_video_player_fullscreen_controls.py
+```
 ### Long-running tests (`@longrun`)
 
 | Scenario | Wall-clock |
@@ -294,8 +371,41 @@ poetry run pytest -m needs_bbox_metadata tests/webrtc/test_bbox_overlay.py
 
 A few markers also require a value in `config.json` to be meaningful:
 
-- `needs_bbox_metadata` — set `tests.bbox_overlay_tests.test_parameters.bbox_stream_id` to the streamId of a sensor that already has stored bbox metadata.
+- `needs_bbox_metadata` — live picture + live WebRTC publish protobuf to Redis;
+  set `tests.bbox_overlay_tests.test_parameters` (`redis_host`/`topic`/`stream_id`) to
+  match the VIOS consumer. Protobuf `sensorId` must match the camera **name**.
+  GAP-050/052 still need stored replay metadata.
 - Continuous-recording tests under `unit_tests/stream_recorder/continuous_recording.feature` — set `tests.continuous_recording_tests.test_parameters.alwaysOn_sensor_id` to the sensorId of an always-on RTSP sensor in the deployment. If missing, the scenarios skip with guidance.
+
+### Browser UI tests (`@ui`)
+
+Browser scenarios use Playwright with Chromium and are skipped unless `-m ui`
+is selected. Install the Python dependencies and browser runtime once:
+
+```bash
+poetry install
+poetry run playwright install chromium
+```
+
+Run the fullscreen-controls scenario against the URL in
+`config.json` (`api.base_url`):
+
+```bash
+poetry run pytest tests/ui/test_video_player_fullscreen_controls.py -m ui
+```
+
+Use a different VIOS UI URL or display the browser while debugging:
+
+```bash
+poetry run pytest tests/ui/test_video_player_fullscreen_controls.py -m ui \
+  --ui-base-url http://<HOST>:30888/vst/#
+poetry run pytest tests/ui/test_video_player_fullscreen_controls.py -m ui \
+  --headed
+```
+
+The VIOS deployment must be running and expose at least one live sensor. A
+missing live sensor skips the scenario; an unavailable UI or Chromium
+installation is reported as a test-environment error.
 
 ## Test Categories
 
@@ -379,6 +489,8 @@ API endpoint validation tests for each VST microservice. Each service produces i
 | Sensor Management | 13 | list, status, streams, info, qos, system/stats, timelines, version, help, configuration (+ per-sensor variants) |
 | Storage Management | 7 | size, info, version, help, configuration, file/list, file/protected |
 | Stream Recorder | 5 | streams, version, help, configuration, timelines |
+| Ingress | 4 | /health, sensor proxy, streamprocessing proxy, unknown-route 4xx |
+| NVStreamer | 11 | ready probes, version/list/help, upload→streams→info→mediainfo→RTSP→delete, POST transcode |
 | MCP Gateway | 16 | sensor tools, recording tools, picture tools, storage tools (via MCP protocol) |
 
 **Running all unit tests (generates per-service CSVs):**
@@ -420,6 +532,11 @@ poetry run pytest tests/unit_tests/stream_recorder/ \
     --csv=reports/unit_tests/stream_recorder.csv \
     --override-ini="addopts=" -v --tb=short --disable-container-monitor
 
+# NVStreamer (hits :31000; override with NVSTREAMER_ENDPOINTS or nvstreamer.host)
+poetry run pytest tests/unit_tests/nvstreamer/test_nvstreamer_api.py \
+    --csv=reports/unit_tests/nvstreamer.csv \
+    --override-ini="addopts=" -v --tb=short --disable-container-monitor
+
 # MCP Gateway
 poetry run pytest tests/unit_tests/mcp_gateway/ \
     --csv=reports/unit_tests/mcp_gateway.csv \
@@ -431,7 +548,10 @@ poetry run pytest tests/unit_tests/mcp_gateway/ \
 - `--disable-container-monitor` prevents redundant monitor start/stop per service
 - WebRTC signaling endpoints are excluded (require full WebRTC handshake)
 - MCP tests require the MCP gateway to be running (port 8001 by default)
-
+- NVStreamer tests target port 31000 (not ingress 30888). `run_unit_tests.sh` writes
+  `vst-nvstreamer.xml` / `nvstreamer.csv` for the dashboard container row.
+- Opt-in route-mode tests under `tests/unit_tests/nvstreamer_routes/` stay gated by
+  `RUN_NVSTREAMER_ROUTE_TESTS=1` and are not part of the default container group.
 ## Configuration
 
 All tests are configured via `config.json`:
@@ -534,6 +654,7 @@ poetry install
 # - requests, aiohttp (HTTP clients)
 # - aiortc (WebRTC implementation)
 # - websockets (WebSocket client)
+# - playwright (Chromium browser automation for opt-in UI tests)
 ```
 
 ### Setup Script (setup.sh)
@@ -1380,11 +1501,11 @@ sudo apt-get install -y \
 
 ## Statistics
 
-- **Total Tests:** 138 scenarios across 33 test files
-- **Test Categories:** 7 (upload, download, picture, webrtc, url_optimization, performance, unit tests)
-- **Unit Tests:** 55 scenarios across 7 services (live, replay, proxy, sensor, storage, recorder, MCP)
+- **Total Tests:** 194 scenarios across 49 test files
+- **Test Categories:** 8 (upload, download, picture, UI, webrtc, url_optimization, performance, unit tests)
+- **Unit Tests:** API scenarios across ingress, live, replay, proxy, sensor, storage, recorder, and MCP services
 - **Performance Tests:** 1 comprehensive latency test (40+ internal scenarios)
-- **Opt-in scenarios:** 10 (gated by `@longrun`, `@needs_iptables`, `@needs_bbox_metadata`)
+- **Opt-in scenarios:** gated by `@longrun`, `@needs_iptables`, `@needs_bbox_metadata`, `@mcp_gateway`, and `@ui`
 - **Shared Utilities:** 7 modules (one per category + unit test utils)
 
 ## Contributing

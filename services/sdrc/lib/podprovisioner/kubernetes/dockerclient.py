@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 class dockerclient(k8sclient):
     def __init__(self, app_config, **kvargs):
         self.downpodsArray = []
+        self.health_watcher = None
         self.docker = docker.from_env()
         self.namespace = app_config["KUBERNETS_NAMESPACE"]
         self.kind = app_config["WDM_WL_KIND"]
@@ -88,6 +89,8 @@ class dockerclient(k8sclient):
         return super().delete_allocation_config(config_details)
 
     def getReadyReplicas (self):
+        if self.health_watcher is not None:
+            return self.health_watcher.healthy_count()
         return super().getReadyReplicas()
     
     def setReadyReplicas (self, readyReplicaCount=0):
@@ -151,6 +154,16 @@ class dockerclient(k8sclient):
                 )
             )
             docker_service_address = self._docker_service_address(i)
+            provisioning_address = None
+            cfg_entry = self.cluster_config_data.get(i.metadata.name)
+            if isinstance(cfg_entry, dict):
+                provisioning_address = cfg_entry.get("provisioning_address")
+            if not provisioning_address and i.status.pod_ip is not None:
+                port = i.status.port
+                if port is not None and str(port).strip() != "":
+                    provisioning_address = f"{i.status.pod_ip}:{port}"
+                else:
+                    provisioning_address = str(i.status.pod_ip)
             ipobj = {
                 "podName": i.metadata.name,
                 "podIp": i.status.pod_ip,
@@ -159,6 +172,7 @@ class dockerclient(k8sclient):
                 "phase": i.status.phase,
                 "podPort": i.status.port,
                 "poddns": docker_service_address,
+                "provisioning_address": provisioning_address,
             }
             podIps.append(ipobj)
         logger.info("len(podsips): " + str(len(podIps)) + ", values: " + str(podIps))
@@ -183,7 +197,17 @@ class dockerclient(k8sclient):
             # TODO: not sure if the values in here are correct
             provisioning_addr_base = value["provisioning_address"].split(":")[0]
             provisioning_addr_port = value["provisioning_address"].split(":")[1]
-            phase = self._phase_from_docker_container(key)
+            if (
+                self.health_watcher is not None
+                and self.health_watcher.is_pod_known(key)
+            ):
+                phase = (
+                    "Running"
+                    if self.health_watcher.is_pod_healthy(key)
+                    else "Pending"
+                )
+            else:
+                phase = self._phase_from_docker_container(key)
 
             new_obj = {
                 "status": {
@@ -233,15 +257,45 @@ class dockerclient(k8sclient):
         return None
 
     def ifPodDown(self, podname):
-        if super().ifPodDown(podname):
+        # Prefer HTTP health watcher (application readiness) over Docker socket
+        # container status. Unknown / not-yet-probed pods are treated as down.
+        if self.health_watcher is not None:
+            if self.health_watcher.is_pod_known(podname):
+                return not self.health_watcher.is_pod_healthy(podname)
             return True
-        # Watch state can lag; align with live Docker status (same source as phase in getWorkloadObjects).
+        if podname in self.downpodsArray:
+            return True
+        # Legacy fallback when no health watcher is attached.
         return self._phase_from_docker_container(podname) != "Running"
 
     def watchAllPodState(self):
         return None
 
     def watchPodState(self):
+        """Watch pod readiness for PodErrorWatcher.
+
+        When an HTTP health watcher is attached
+        (``WDM_WL_HEALTH_CHECK_WAIT_ENABLED``), consume its transitions.
+        Otherwise fall back to legacy Docker socket container status.
+        """
+        if self.health_watcher is not None:
+            logger.info(
+                "Docker pod watch using HTTP health checks at %s",
+                self.app_config.get("WDM_WL_HEALTH_CHECK_URL"),
+            )
+            for is_down, podname, generate_name in self.health_watcher.iter_transitions():
+                if is_down:
+                    if podname not in self.downpodsArray:
+                        self.downpodsArray.append(podname)
+                    yield True, podname, generate_name
+                else:
+                    if podname in self.downpodsArray:
+                        self.downpodsArray.remove(podname)
+                    yield False, podname, generate_name
+            return
+
+        # Legacy Docker socket polling when HTTP health checks are disabled.
+        logger.info("Docker pod watch using container state (HTTP health disabled)")
         error = False
         previous_ts_checked = datetime.utcnow()
         while True:
@@ -332,3 +386,35 @@ class dockerclient(k8sclient):
 
     def get_podname_keys(self):
         return self.cluster_config_data.keys()
+
+    def get_health_check_targets(self):
+        """Return health-probe targets from ``docker_cluster_config.json``.
+
+        Host/port come from each entry's ``provisioning_address``. Only the
+        health path (``WDM_WL_HEALTH_CHECK_URL``) is supplied separately by the
+        health watcher when building the full URL.
+        """
+        targets = []
+        for pod_name, value in self.cluster_config_data.items():
+            provisioning_address = value.get("provisioning_address")
+            if not provisioning_address or not str(provisioning_address).strip():
+                logger.warning(
+                    "Skipping health target %s — missing provisioning_address "
+                    "in docker cluster config",
+                    pod_name,
+                )
+                continue
+            provisioning_address = str(provisioning_address).strip()
+            host = provisioning_address
+            port = None
+            if ":" in provisioning_address:
+                host, port = provisioning_address.rsplit(":", 1)
+            targets.append(
+                {
+                    "podName": pod_name,
+                    "podIp": host,
+                    "podPort": port,
+                    "provisioning_address": provisioning_address,
+                }
+            )
+        return targets

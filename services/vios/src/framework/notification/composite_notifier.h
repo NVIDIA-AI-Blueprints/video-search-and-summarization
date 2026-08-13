@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -49,9 +50,11 @@ public:
 private:
     CompositeNotifier();
 
+    friend std::unique_ptr<CompositeNotifier> std::make_unique<CompositeNotifier>();
+
     mutable std::mutex m_notifiersMutex;
     std::vector<nv_vms::INotificationInterface*> m_notifiers;
 
-    static CompositeNotifier* _instance;
+    static std::unique_ptr<CompositeNotifier> _instance;
     static std::mutex _instanceMutex;
 };

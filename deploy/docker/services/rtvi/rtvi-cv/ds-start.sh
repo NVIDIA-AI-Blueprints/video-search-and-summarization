@@ -37,6 +37,15 @@ _ARCH="$(uname -m)"
 export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
 unset _ARCH
 
+# HARDWARE_PROFILE names each Thor board separately (IGX-THOR, AGX-THOR,
+# DGX-THOR, ...) but the DeepStream tuning below is identical across the
+# family. Match on the family the same way dev-profile.sh canonicalizes it
+# (case-insensitive *thor*) so a new board name needs no change here.
+is_thor_profile() {
+    local profile="${HARDWARE_PROFILE:-}"
+    [[ "${profile,,}" == *thor* ]]
+}
+
 # Shared: build extra flags from env vars
 build_extra_flags() {
     local flags=""
@@ -426,7 +435,7 @@ start_rtdetr_gdino()
     sed -i "/^\[streammux\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
     sed -i "/^\[primary-gie\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
 
-    if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
+    if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" ]] || is_thor_profile; then
         # Replace or add msg-conv-msg2p-lib property in sink1 group
         echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv.so for sink1 group... #####"
         # First, remove any existing msg-conv-msg2p-lib line within [sink1] section
@@ -444,7 +453,7 @@ start_rtdetr_gdino()
         sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so' "$config_file"
     fi
 
-    if [[ "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
+    if is_thor_profile; then
         # Set compute-hw=2 under tracker section in config_file
         echo "##### Setting compute-hw=2 in tracker section of $config_file... #####"
         sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' "$config_file"

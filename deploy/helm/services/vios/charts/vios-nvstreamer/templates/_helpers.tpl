@@ -28,3 +28,8 @@
 {{- end }}
 {{- end }}
 {{- define "vss-vios-nvstreamer.image" -}}{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}{{- end -}}
+
+{{/* Shared streamer_videos claim created by the vios parent chart. */}}
+{{- define "vss-vios-nvstreamer.sharedVstClaimStreamerVideos" -}}
+{{- printf "%s-vst-streamer-videos" (.Release.Name | trunc 63 | trimSuffix "-") }}
+{{- end }}

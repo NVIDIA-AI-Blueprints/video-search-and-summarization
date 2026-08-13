@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -87,10 +87,7 @@ NvFileServerMediaSubsession::~NvFileServerMediaSubsession()
         }
         m_stream_state = DestroyState;
         setDoneFlag();
-        if (fAuxSDPLine != nullptr)
-        {
-            delete[] fAuxSDPLine;
-        }
+        fAuxSDPLine.reset();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~NvFileServerMediaSubsession: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
     } catch (...) {
@@ -154,9 +151,8 @@ void NvFileServerMediaSubsession::checkIfSourceInPlayMode(void* clientData)
     }
 }
 
-static void frameSourceEvent(eFrameSourceEvent sourceEvent, void *data)
+static void frameSourceEvent(eFrameSourceEvent sourceEvent, NvFileServerMediaSubsession *fileServer)
 {
-    NvFileServerMediaSubsession *fileServer = (NvFileServerMediaSubsession *) data;
     if (fileServer)
     {
         fileServer->frameSourceEventChange(sourceEvent);
@@ -269,7 +265,7 @@ void NvFileServerMediaSubsession::setRtcpBaseTime()
         ntpTime.tv_usec = (startTime % 1000) * 1000;
         LOG(info) << "Setting RTCP base time for:" << m_streamName << ", ActualStartTime:" << startTime
                 << ", ntpTime:" << ntpTime.tv_sec << "." << ntpTime.tv_usec << endl;
-        StreamState* streamState = (StreamState*)m_streamToken;
+        StreamState* streamState = m_streamToken;
         if (streamState != nullptr)
         {
             streamState->setRtcpBaseTime(ntpTime);
@@ -277,8 +273,9 @@ void NvFileServerMediaSubsession::setRtcpBaseTime()
     }
 }
 
+/* Parameter types are fixed by the live555 OnDemandServerMediaSubsession virtual. */
 void NvFileServerMediaSubsession
-::startStream(unsigned clientSessionId, void* streamToken, TaskFunc* rtcpRRHandler,
+::startStream(unsigned clientSessionId, void* streamToken, TaskFunc* rtcpRRHandler, // NOSONAR
 	      void* rtcpRRHandlerClientData, unsigned short& rtpSeqNum,
 	      unsigned& rtpTimestamp,
 	      ServerRequestAlternativeByteHandler* serverRequestAlternativeByteHandler,
@@ -286,7 +283,7 @@ void NvFileServerMediaSubsession
 {
     LOG(info) << "startStream, clientSessionId:" << clientSessionId << ", streamName:" << m_streamName
             << ", mediaType:" << mediaTypeAsString(m_mediaType) << ", m_sessionId:" << m_sessionId << endl;
-    m_streamToken = streamToken;
+    m_streamToken = static_cast<StreamState*>(streamToken);
     if (m_mediaSource)
     {
         if (m_stream_state == PauseState)
@@ -325,12 +322,13 @@ void NvFileServerMediaSubsession
                 if (GET_CONFIG().nv_streamer_sync_file_count > 0)
                 {
                     RtspSyncPlayback *syncPlaybackInstance = RtspSyncPlayback::getInstance();
-                    if (GET_CONFIG().nv_streamer_sync_file_count > 0)
+                    syncPlaybackInstance->insertMediaSource(m_mediaSource);
+                    if (!syncPlaybackInstance->isSyncPlaybackStarted())
                     {
-                        RtspSyncPlayback::getInstance()->insertMediaSource(m_mediaSource);
-                    }
-                    if (syncPlaybackInstance && !syncPlaybackInstance->isSyncPlaybackStarted())
-                    {
+                        /* Initial synchronized start: park this source until the
+                         * quorum (nv_streamer_sync_file_count streams) have
+                         * requested PLAY, then release them all together at
+                         * frame 0 on a shared clock. */
                         if (syncPlaybackInstance->getMediaSourceListSize() >= (size_t)GET_CONFIG().nv_streamer_sync_file_count)
                         {
                             syncPlaybackInstance->startPlayingAllSources();
@@ -338,7 +336,11 @@ void NvFileServerMediaSubsession
                     }
                     else
                     {
-                        m_mediaSource->play();
+                        /* Group already running: this is a late joiner (e.g. a
+                         * 5th RTSP client) or a reconnecting stream. Align it to
+                         * the group's current loop position instead of
+                         * restarting from frame 0. */
+                        joinRunningSyncGroup();
                     }
                 }
                 else
@@ -438,19 +440,19 @@ void NvFileServerMediaSubsession::checkForAuxSDPLine1()
 {
     nextTask() = nullptr;
 
-    if ((GET_CONFIG().nv_streamer_sync_playback == true ||
+    if ((((GET_CONFIG().nv_streamer_sync_playback == true) && (GET_CONFIG().nv_streamer_sync_file_count <= 0)) ||
         (GET_CONFIG().nv_streamer_sync_file_count > 0 && RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())) &&
         (m_syncSourceToGlobalFrameId == -1))
     {
-        int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait();
+        int64_t currentFrame = RtspSyncPlayback::getInstance()->getGlobalFrameId();
+        int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait(currentFrame);
         if (frames_to_wait == 0)
         {
             m_syncSourceToGlobalFrameId = 0;
         }
         else
         {
-            m_syncSourceToGlobalFrameId = RtspSyncPlayback::getInstance()->getGlobalFrameId();
-            m_syncSourceToGlobalFrameId += frames_to_wait;
+            m_syncSourceToGlobalFrameId = currentFrame + frames_to_wait;
         }
 
         int timeTosync_us = RtspSyncPlayback::getInstance()->timeToSync() * 1000;
@@ -470,7 +472,7 @@ void NvFileServerMediaSubsession::checkForAuxSDPLine1()
         dasl = fDummyRTPSink ? fDummyRTPSink->auxSDPLine() : nullptr;
         if (fDummyRTPSink != nullptr && dasl != nullptr)
         {
-            fAuxSDPLine = strDup(dasl);
+            fAuxSDPLine.reset(strDup(dasl));
             fDummyRTPSink = nullptr;
 
             // Signal the event loop that we're done:
@@ -495,7 +497,7 @@ char const* NvFileServerMediaSubsession::getAuxSDPLine(RTPSink* rtpSink, FramedS
 {
     if (fAuxSDPLine != nullptr)
     {
-        return fAuxSDPLine; // it's already been set up (for a previous client)
+        return fAuxSDPLine.get(); // it's already been set up (for a previous client)
     }
 
     if (m_mediaSource && m_mediaSource->isError())
@@ -529,7 +531,7 @@ char const* NvFileServerMediaSubsession::getAuxSDPLine(RTPSink* rtpSink, FramedS
         m_PlayModeCheckTask = envir().taskScheduler().scheduleDelayedTask(_delay,
                 (TaskFunc*)checkIfSourceInPlayMode, this);
     }
-    return fAuxSDPLine;
+    return fAuxSDPLine.get();
 }
 
 std::pair<uint64_t, uint64_t> NvFileServerMediaSubsession::getRangeFromUrlParams(const string& url_params)
@@ -591,7 +593,9 @@ std::pair<uint64_t, uint64_t> NvFileServerMediaSubsession::getRangeFromUrlParams
 
 void NvFileServerMediaSubsession::testScaleFactor(float& scale)
 {
-
+    /* Intentionally blank: unlike the base class, which clamps "scale" back
+     * to 1.0, the file source honours any client-requested scale factor via
+     * setStreamSourceScale(), so the requested value is left untouched. */
 }
 void NvFileServerMediaSubsession::setStreamSourceScale(FramedSource* inputSource, float scale)
 {
@@ -621,31 +625,36 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
 void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
         char*& absStart, char*& absEnd)
 {
+    std::unique_ptr<char[]> absStartOwner(absStart);
+    std::unique_ptr<char[]> absEndOwner(absEnd);
+    absStart = nullptr;
+    absEnd = nullptr;
+
     if (inputSource == nullptr)
     {
         LOG(error) << "input source is null" << endl;
         return;
     }
 
-    /* Ignore this seek in case of sync_playback, It will be handled while createNewStreamSource */
-    if (GET_CONFIG().nv_streamer_sync_playback == true || m_vodEnableOverlay)
+    /* Ignore this seek in case of sync_playback, It will be handled while createNewStreamSource.
+     * The new sync_file_count quorum engine takes precedence: when it is active the legacy
+     * sync_playback branch is suppressed so both engines never drive the same source. */
+    if ((GET_CONFIG().nv_streamer_sync_playback == true && GET_CONFIG().nv_streamer_sync_file_count <= 0) || m_vodEnableOverlay)
     {
-        delete[] absStart; absStart = nullptr;
-        delete[] absEnd; absEnd = nullptr;
         return;
     }
 
     FramedFilter* fSource = static_cast<FramedFilter*>(inputSource);
     H264ByteStreamSource* source = static_cast<H264ByteStreamSource *> (fSource->inputSource());
     uint64_t start = 0;
-    if (absStart != nullptr)
+    if (absStartOwner != nullptr)
     {
-        start = getEpocTimeInMS(absStart, false);
+        start = getEpocTimeInMS(absStartOwner.get(), false);
     }
     uint64_t end = 0;
-    if (absEnd != nullptr)
+    if (absEndOwner != nullptr)
     {
-        end = getEpocTimeInMS(absEnd, false);
+        end = getEpocTimeInMS(absEndOwner.get(), false);
     }
 
     start = m_startTime;
@@ -669,8 +678,6 @@ void NvFileServerMediaSubsession::seekStreamSource(FramedSource* inputSource,
             m_isSeekStreamDone = true;
         }
     }
-    delete[] absStart; absStart = nullptr;
-    delete[] absEnd; absEnd = nullptr;
 }
 
 static void checkAndSeekToGlobalFrameId(void* clientData)
@@ -712,6 +719,40 @@ void NvFileServerMediaSubsession::seekStreamByGlobalFrameId(H264ByteStreamSource
         {
             source->setStreamSeek(start, end);
         }
+    }
+}
+
+void NvFileServerMediaSubsession::joinRunningSyncGroup()
+{
+    RtspSyncPlayback* sync = RtspSyncPlayback::getInstance();
+
+    /* Bind this source's demux to the group's shared clock/base time so its
+     * pacing stays locked to the running group (must happen before the seek,
+     * which reapplies the clock while flushing to the target position). */
+    sync->bindSourceToGroupClock(m_mediaSource);
+
+    /* Seek to the group's current loop position, snapped forward to the next
+     * IDR boundary. The demux seek uses GST_SEEK_FLAG_KEY_UNIT, so it always
+     * lands on a keyframe and decoding starts cleanly. Sample the frame id once
+     * and reuse it for framesToWait() so both are computed from a single,
+     * consistent clock read (no IDR-boundary skew from a second read). */
+    int64_t currentFrame = sync->getGlobalFrameId();
+    int64_t targetFrame = currentFrame + sync->framesToWait(currentFrame);
+    m_syncSourceToGlobalFrameId = targetFrame;
+    LOG(info) << "Joining running sync group, streamName:" << m_streamName
+              << ", targetFrame:" << targetFrame
+              << ", m_sessionId:" << m_sessionId << endl;
+
+    if (m_mediaType == MediaTypeVideo && m_videoStreamSource)
+    {
+        seekStreamByGlobalFrameId(m_videoStreamSource);
+    }
+    else
+    {
+        /* Audio-only subsession, or the video source is not built yet: play
+         * bound to the shared clock. Audio realignment then rides on the
+         * AV-loop-sync coordinator at the next loop boundary. */
+        m_mediaSource->play();
     }
 }
 
@@ -766,10 +807,26 @@ FramedSource* NvFileServerMediaSubsession
         // Create a framer for the Video Elementary Stream:
         estBitrate = 500; // kbps, estimate`
         m_videoStreamSource = H264ByteStreamSource::createNew(envir(), m_streamName, m_mediaSource, m_url_params, sourceState, m_sessionId);
-        if ((GET_CONFIG().nv_streamer_sync_playback == true ||
+        if ((((GET_CONFIG().nv_streamer_sync_playback == true) && (GET_CONFIG().nv_streamer_sync_file_count <= 0)) ||
             (GET_CONFIG().nv_streamer_sync_file_count > 0 && RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())) &&
             m_syncSourceToGlobalFrameId > 0)
         {
+            /* Late joiner / reconnecting stream into a running group. Register
+             * with the group and bind to its shared clock/base time BEFORE the
+             * seek below. The seek reapplies the clock (gstdemux::seek), so this
+             * keeps the joiner frame-locked to the group rather than free-running
+             * from the seek point, and insertMediaSource() makes it participate
+             * in the group's loop-restart barrier. Guarded on sync_file_count so
+             * the legacy nv_streamer_sync_playback path is untouched. This is the
+             * effective join point: seekStreamByGlobalFrameId() sets PlayState,
+             * so startStream()'s join branch is intentionally skipped. */
+            if (GET_CONFIG().nv_streamer_sync_file_count > 0)
+            {
+                RtspSyncPlayback::getInstance()->insertMediaSource(m_mediaSource);
+                RtspSyncPlayback::getInstance()->bindSourceToGroupClock(m_mediaSource);
+                LOG(info) << "Late-join into running sync group, streamName:" << m_streamName
+                          << ", m_sessionId:" << m_sessionId << endl;
+            }
             int timeInDescribeAndPlay = abs(m_syncSourceToGlobalFrameId - RtspSyncPlayback::getInstance()->getGlobalFrameId());
             LOG(info) << "Time (frames) between describe and play:" << timeInDescribeAndPlay << endl;
             if (timeInDescribeAndPlay > 5)
@@ -777,15 +834,15 @@ FramedSource* NvFileServerMediaSubsession
                 /* There is much time difference between describe & play, this can happen in case of proxyserver,where
                 *  proxyserver just sends describe & seats idle till new client request.
                 *  In this case get new seek point from global clock */
-                int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait();
+                int64_t currentFrame = RtspSyncPlayback::getInstance()->getGlobalFrameId();
+                int frames_to_wait = RtspSyncPlayback::getInstance()->framesToWait(currentFrame);
                 if (frames_to_wait == 0)
                 {
                     m_syncSourceToGlobalFrameId = 0;
                 }
                 else
                 {
-                    m_syncSourceToGlobalFrameId = RtspSyncPlayback::getInstance()->getGlobalFrameId();
-                    m_syncSourceToGlobalFrameId += frames_to_wait;
+                    m_syncSourceToGlobalFrameId = currentFrame + frames_to_wait;
                 }
                 int timeTosync_us = RtspSyncPlayback::getInstance()->timeToSync() * 1000;
                 m_stream_state = PlayState;

@@ -29,7 +29,7 @@ include:
 
 services:
   redis:
-    image: redis:8.6.2-alpine
+    image: redis:8.10.0-alpine
     container_name: sdrc-http-header-redis
     ports:
       - ${REDIS_HOST_PORT:-6379}:6379
@@ -72,7 +72,7 @@ services:
         required: false
 
   sdr-controller:
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.4.0-2026.08.3-1}
     container_name: sdr-controller
     ports:
       # SDRC router API for workload-scoped lifecycle calls.

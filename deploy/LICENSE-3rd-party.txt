@@ -220,8 +220,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://www.apache.org/licenses/LICENSE-2.0
 
 
-18. postgres:17.9-alpine
-    Image: postgres:17.9-alpine
+18. postgres:17.10-alpine
+    Image: postgres:17.10-alpine
     License: PostgreSQL License (BSD-style).
     Registry: https://hub.docker.com/_/postgres
     Source: https://github.com/docker-library/postgres
@@ -255,8 +255,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://www.apache.org/licenses/LICENSE-2.0
 
 
-21. redis:8.6.2-alpine
-    Image: redis:8.6.2-alpine
+21. redis:8.10.0-alpine
+    Image: redis:8.10.0-alpine
     License: Redis 8 is available under a tri-license: Redis Source Available
              License v2 (RSALv2), SSPL v1, or AGPL v3. See Redis licensing.
     Registry: https://hub.docker.com/_/redis

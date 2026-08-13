@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,6 +19,7 @@
 
 #include <dlfcn.h>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 // Include for platform-specific macros (same as vstmodule.cpp)
 #include <string>
@@ -44,6 +45,9 @@ extern "C" {
 #include <libavutil/samplefmt.h>
 }
 struct AVFrame;
+
+// Opaque handle returned by the dynamic loader helpers
+struct LibavLibraryHandle;
 
 #define DL_ERROR_EXIT  { char *dlsym_error = dlerror(); \
                             if (dlsym_error) { \
@@ -102,10 +106,10 @@ private:
         "/lib64/",
         "/usr/lib64/"
     };
-    static constexpr size_t TRUSTED_SYSTEM_DIRS_COUNT = sizeof(TRUSTED_SYSTEM_DIRS) / sizeof(TRUSTED_SYSTEM_DIRS[0]);
+    static constexpr size_t TRUSTED_SYSTEM_DIRS_COUNT = std::size(TRUSTED_SYSTEM_DIRS);
 
     // Secure library loading function with path validation
-    void* tryLoadLibrary(const char* lib_path)
+    LibavLibraryHandle* tryLoadLibrary(const char* lib_path)
     {
         if (!lib_path || lib_path[0] == '\0')
         {
@@ -119,7 +123,7 @@ private:
             for (size_t i = 0; i < TRUSTED_SYSTEM_DIRS_COUNT; i++)
             {
                 std::string full_path = std::string(TRUSTED_SYSTEM_DIRS[i]) + lib_path;
-                void* handle = tryLoadLibraryFullPath(full_path.c_str());
+                LibavLibraryHandle* handle = tryLoadLibraryFullPath(full_path.c_str());
                 if (handle)
                 {
                     return handle;
@@ -133,7 +137,7 @@ private:
     }
     
     // Helper function for loading with full path validation
-    void* tryLoadLibraryFullPath(const char* lib_path)
+    LibavLibraryHandle* tryLoadLibraryFullPath(const char* lib_path)
     {
         // Check if file exists and is readable
         if (access(lib_path, R_OK) != 0)
@@ -169,7 +173,7 @@ private:
         }
         
         // Load the library with RTLD_NOW for immediate symbol resolution
-        void* handle = dlopen(resolved_path, RTLD_NOW | RTLD_LOCAL);
+        LibavLibraryHandle* handle = static_cast<LibavLibraryHandle*>(dlopen(resolved_path, RTLD_NOW | RTLD_LOCAL));
         if (handle)
         {
             std::cout << "[INFO] LibavWrapper: Successfully loaded library from: " << resolved_path << std::endl;
@@ -354,6 +358,11 @@ public:
         if (handle_libavutil) dlclose(handle_libavutil);
     }
 
+    LibavWrapper(const LibavWrapper&) = delete;
+    LibavWrapper& operator=(const LibavWrapper&) = delete;
+    LibavWrapper(LibavWrapper&&) = delete;
+    LibavWrapper& operator=(LibavWrapper&&) = delete;
+
     LibavMode getLibavMode() const
     {
         return m_libavMode;
@@ -405,7 +414,7 @@ public:
 
 private:
     LibavMode m_libavMode;
-    void* handle_libavformat;
-    void* handle_libavcodec;
-    void* handle_libavutil;
+    LibavLibraryHandle* handle_libavformat;
+    LibavLibraryHandle* handle_libavcodec;
+    LibavLibraryHandle* handle_libavutil;
 }; 

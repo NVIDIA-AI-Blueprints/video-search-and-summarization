@@ -118,10 +118,6 @@
 			"value": "200"
 		},
 		{
-			"name": "inSimulationMode",
-			"value": "false"
-		},
-		{
 			"name": "in3dMode",
 			"value": "true"
 		},

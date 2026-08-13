@@ -40,6 +40,10 @@ pydantic = "^2.0"
 minio = "^7.2"
 PyYAML = "^6.0"
 pynvml = "^12.0"
+# Live bbox overlay (GAP-051): Redis nv.Frame publisher + protobuf serialize.
+protobuf = "^5.28.0"
+redis = "^5.0.0"
+playwright = "^1.61.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.12.0"
@@ -90,7 +94,8 @@ markers = [
     "longrun: marks tests that run for an extended period (skipped by default unless -m longrun is passed)",
     "needs_iptables: marks tests that require iptables / privileged runner",
     "needs_h265: marks tests that require an H.265 source",
-    "needs_bbox_metadata: marks tests that require stored bbox/overlay metadata"
+    "needs_bbox_metadata: marks tests that require live Redis protobuf bbox metadata (or stored metadata for GAP-050/052)"
+    "ui: marks browser UI tests (skipped by default unless -m ui is passed)"
 ]
 
 [tool.black]

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,7 @@
 #include <mutex>
 #include <set>
 #include <limits>
+#include <memory>
 
 using namespace nv_vms;
 
@@ -107,21 +108,15 @@ namespace
             }
         }
 
-        // Update stream to STREAMING status
+        // STREAMING: for RTSP proxy, registerStreamAsync already set status and
+        // persisted before sendEvent(), so this is usually an early-out.
+        // Fallback below remains for needRtspServer == false (StreamMonitor emits
+        // STREAMING); codec/resolution DB updates come from StreamMonitor's
+        // metadata task, not from this callback.
         for (auto const& stream : streamList)
         {
             if (stream->live_proxy_url == url)
             {
-                if (!details.codec.empty())
-                {
-                    SensorVideoEncoderSettingsValues& enc_values = stream->getvideoEncoderValues();
-                    enc_values.encoding = details.codec;
-                    stream->updateVideoEncoderValues(enc_values, /*updateDB=*/false);
-                    LOG(info) << "RtspStreamStatusListener: Updated codec for stream: "
-                              << stream->name << ", id: " << stream->id
-                              << ", codec: " << details.codec << endl;
-                }
-
                 if (stream->getErrorStatus().first == StreamStatus::STREAM_STATUS_STREAMING)
                 {
                     LOG(info) << "RtspStreamStatusListener: stream "
@@ -682,7 +677,7 @@ VmsErrorCode RtspServerManager::handleProxyConfiguration(const Json::Value &req_
         response["webserviceAccessControlList"] = config.webservice_access_control_list;
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["useMultiUser"] = config.use_multi_user;
     }
     else
@@ -954,10 +949,10 @@ VmsErrorCode RtspServerManager::handleStreamAPIrequest(const Json::Value &req_in
 
 extern "C" void* createRtspServerManagerObject()
 {
-    return new RtspServerManager;
+    return std::make_unique<RtspServerManager>().release();
 }
 
 extern "C" void deleteRtspServerManagerObject(RtspServerManager* object)
 {
-    delete object;
+    std::unique_ptr<RtspServerManager> owner(object);
 }
