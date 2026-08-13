@@ -80,9 +80,9 @@ set -u
 cd "$HOME/video-search-and-summarization"
 scratch=/tmp/skill-eval/nemoclaw
 venv="$scratch/notebook-venv"
-# Earlier Phase 1 runs used names longer than NemoClaw's registry limit and
-# could leave an unreadable row. Remove only those numeric CI rows before the
-# current, valid `se-<run-id>` sandbox is onboarded.
+# Earlier skill-eval runs can leave rows written by older NemoClaw schemas.
+# Remove only known CI sandbox names from the default and gateway-scoped
+# registries before the current `se-<run-id>` sandbox is onboarded.
 python3 - <<'__NEMOCLAW_LEGACY_ROW_CLEANUP__'
 import json
 import os
@@ -90,18 +90,56 @@ import re
 import stat
 from pathlib import Path
 
-registry = Path.home() / ".nemoclaw" / "sandboxes.json"
-if registry.exists():
+home = Path.home()
+state_root = home / ".nemoclaw"
+registries = [state_root / "sandboxes.json"]
+gateways = state_root / "gateways"
+if os.path.lexists(gateways):
+    gateways_metadata = gateways.lstat()
+    if stat.S_ISLNK(gateways_metadata.st_mode) or not stat.S_ISDIR(
+        gateways_metadata.st_mode
+    ):
+        raise SystemExit(f"Refusing unsafe NemoClaw gateways path: {{gateways}}")
+    if gateways_metadata.st_uid != os.getuid():
+        raise SystemExit(
+            f"Refusing NemoClaw gateways owned by uid {{gateways_metadata.st_uid}}"
+        )
+    for gateway in gateways.iterdir():
+        if not re.fullmatch(r"[0-9]{{1,5}}", gateway.name):
+            continue
+        gateway_port = int(gateway.name)
+        if not 1 <= gateway_port <= 65535:
+            continue
+        gateway_metadata = gateway.lstat()
+        if stat.S_ISLNK(gateway_metadata.st_mode) or not stat.S_ISDIR(
+            gateway_metadata.st_mode
+        ):
+            raise SystemExit(f"Refusing unsafe NemoClaw gateway path: {{gateway}}")
+        if gateway_metadata.st_uid != os.getuid():
+            raise SystemExit(
+                f"Refusing NemoClaw gateway owned by uid {{gateway_metadata.st_uid}}"
+            )
+        registries.append(gateway / "sandboxes.json")
+
+legacy_name = re.compile(
+    r"(?:skill-eval-[0-9]+|se-[0-9]+|"
+    r"vss-eval-u[0-9]+-p[0-9]+(?:-nc[0-9]+-c[0-9]+)?)"
+)
+for registry in registries:
+    if not os.path.lexists(registry):
+        continue
     metadata = registry.lstat()
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
         raise SystemExit(f"Refusing unsafe NemoClaw registry path: {{registry}}")
     if metadata.st_uid != os.getuid():
         raise SystemExit(f"Refusing NemoClaw registry owned by uid {{metadata.st_uid}}")
+    if metadata.st_size > 16 * 1024 * 1024:
+        raise SystemExit(f"Refusing oversized NemoClaw registry: {{registry}}")
     document = json.loads(registry.read_text(encoding="utf-8"))
     sandboxes = document.get("sandboxes")
     if not isinstance(sandboxes, dict):
         raise SystemExit("NemoClaw registry has no sandbox mapping")
-    legacy = [name for name in sandboxes if re.fullmatch(r"skill-eval-[0-9]+", name)]
+    legacy = [name for name in sandboxes if legacy_name.fullmatch(name)]
     if legacy:
         for name in legacy:
             del sandboxes[name]
@@ -115,7 +153,9 @@ if registry.exists():
             os.fsync(stream.fileno())
         os.chmod(replacement, stat.S_IMODE(metadata.st_mode))
         os.replace(replacement, registry)
-        print(f"Removed {{len(legacy)}} malformed legacy skill-eval registry row(s)")
+        print(
+            f"Removed {{len(legacy)}} stale skill-eval row(s) from {{registry}}"
+        )
 __NEMOCLAW_LEGACY_ROW_CLEANUP__
 # The Docker reset runs before this command. Remove the remaining host-side
 # state that Docker cannot see so both notebooks start from a deterministic
