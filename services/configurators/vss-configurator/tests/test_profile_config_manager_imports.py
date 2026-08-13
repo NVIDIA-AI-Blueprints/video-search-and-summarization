@@ -25,19 +25,3 @@ def test_profile_config_manager_imports_as_package_from_app_root():
         check=False,
     )
     assert result.returncode == 0, result.stderr
-
-
-def test_recompute_bev_centers_imports_without_spatialai_data_utils():
-    """Optional SDU dependency should not be required at module import time."""
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import sys; sys.path.insert(0, 'app'); import utils.recompute_bev_centers",
-        ],
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr

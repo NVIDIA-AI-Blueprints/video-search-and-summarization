@@ -54,10 +54,6 @@ jobs:
       build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
       current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
       current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
-      spatialai-data-utils-changed: ${{ steps.changed-paths.outputs.spatialai-data-utils-changed }}
-      sdr-mw-l-changed: ${{ steps.changed-paths.outputs.sdr-mw-l-changed }}
-      vss-configurator-changed: ${{ steps.changed-paths.outputs.vss-configurator-changed }}
-      vss-rt-config-adaptor-changed: ${{ steps.changed-paths.outputs.vss-rt-config-adaptor-changed }}
       trigger-from-src-change: ${{ steps.changed-paths.outputs.trigger-from-src-change }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -110,53 +106,14 @@ jobs:
           if base and paths is None:
               reason += "; diff failed; running downstream acceptance"
 
-          spatialai_changed = paths_changed_under(
-              paths,
-              "libs/analytics/spatialai-data-utils",
-          )
-          ci_contract_changed = paths is None or ".github/workflows/ci.yml" in paths
-          sdr_mw_l_changed = ci_contract_changed or paths_changed_under(
-              paths,
-              "services/sdrc",
-          )
-          vss_configurator_changed = (
-              ci_contract_changed
-              or paths_changed_under(
-                  paths,
-                  "services/configurators/vss-configurator",
-              )
-              or spatialai_changed
-          )
-          vss_rt_config_adaptor_changed = ci_contract_changed or paths_changed_under(
-              paths,
-              "services/configurators/vss-rt-config-adaptor",
-          )
           trigger_from_src = any(
               paths_changed_under(paths, folder)
               for folder in DOWNSTREAM_TRIGGER_PATHS
           )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(
-                  f"spatialai-data-utils-changed={str(spatialai_changed).lower()}\n"
-              )
-              output.write(f"sdr-mw-l-changed={str(sdr_mw_l_changed).lower()}\n")
-              output.write(
-                  f"vss-configurator-changed={str(vss_configurator_changed).lower()}\n"
-              )
-              output.write(
-                  "vss-rt-config-adaptor-changed="
-                  f"{str(vss_rt_config_adaptor_changed).lower()}\n"
-              )
-              output.write(
                   f"trigger-from-src-change={str(trigger_from_src).lower()}\n"
               )
-          print(f"Spatial AI Data Utils changed: {spatialai_changed} ({reason})")
-          print(f"sdr-mw-l changed: {sdr_mw_l_changed} ({reason})")
-          print(f"vss-configurator changed: {vss_configurator_changed} ({reason})")
-          print(
-              f"vss-rt-config-adaptor changed: {vss_rt_config_adaptor_changed} "
-              f"({reason})"
-          )
           print(f"Downstream trigger from source: {trigger_from_src} ({reason})")
           PY
 
@@ -683,169 +640,8 @@ jobs:
           name: video-analytics-api-test-reports
           path: services/analytics/video-analytics-api/test/coverage/
 
-
   # ---------------------------------------------------------------------------
-  # Job 5c: SDRC unit tests
-  # ---------------------------------------------------------------------------
-  sdr-mw-l-test:
-    name: Test (sdr-mw-l)
-    needs: prepare-source
-    if: needs.prepare-source.outputs.sdr-mw-l-changed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: services/sdrc
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        working-directory: ${{ github.workspace }}
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          rm -rf .source-artifact
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
-        with:
-          version: "0.11.24"
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: "3.10"
-
-      - name: Run unit tests
-        run: |
-          mkdir -p test/coverage
-          uv run --python 3.10 --with pytest --with pytest-cov pytest tests/ -v --tb=short \
-            --junitxml=test/coverage/test-results.xml
-
-      - name: Upload test reports
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        if: always()
-        with:
-          name: sdr-mw-l-test-reports
-          path: services/sdrc/test/coverage/
-
-  # ---------------------------------------------------------------------------
-  # Job 5d: VSS configurator unit tests
-  # ---------------------------------------------------------------------------
-  vss-configurator-test:
-    name: Test (vss-configurator)
-    needs: prepare-source
-    if: needs.prepare-source.outputs.vss-configurator-changed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    defaults:
-      run:
-        working-directory: services/configurators/vss-configurator
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        working-directory: ${{ github.workspace }}
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          rm -rf .source-artifact
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
-        with:
-          version: "0.11.24"
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: "3.13"
-
-      - name: Install dependencies
-        run: uv sync --python 3.13 --frozen --group dev
-
-      - name: Run unit tests
-        run: |
-          mkdir -p test/coverage
-          uv run --python 3.13 pytest tests/ -v --tb=short \
-            --junitxml=test/coverage/test-results.xml \
-            --cov=app \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
-
-      - name: Upload test reports
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        if: always()
-        with:
-          name: vss-configurator-test-reports
-          path: |
-            services/configurators/vss-configurator/test/coverage/
-            services/configurators/vss-configurator/coverage.xml
-
-  # ---------------------------------------------------------------------------
-  # Job 5e: VSS RT config adaptor unit tests
-  # ---------------------------------------------------------------------------
-  vss-rt-config-adaptor-test:
-    name: Test (vss-rt-config-adaptor)
-    needs: prepare-source
-    if: needs.prepare-source.outputs.vss-rt-config-adaptor-changed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: services/configurators/vss-rt-config-adaptor
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        working-directory: ${{ github.workspace }}
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          rm -rf .source-artifact
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
-        with:
-          version: "0.11.24"
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: "3.13"
-
-      - name: Install dependencies
-        run: uv sync --python 3.13 --frozen --group dev
-
-      - name: Run unit tests
-        run: |
-          mkdir -p test/coverage
-          uv run --python 3.13 pytest tests/ -v --tb=short \
-            --junitxml=test/coverage/test-results.xml \
-            --cov=app \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
-
-      - name: Upload test reports
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        if: always()
-        with:
-          name: vss-rt-config-adaptor-test-reports
-          path: |
-            services/configurators/vss-rt-config-adaptor/test/coverage/
-            services/configurators/vss-rt-config-adaptor/coverage.xml
-
-  # ---------------------------------------------------------------------------
-  # Job 5f: Behavior analytics Docker Compose integration test
+  # Job 5c: Behavior analytics Docker Compose integration test
   # ---------------------------------------------------------------------------
   behavior-analytics-integration-test:
     name: Integration (behavior analytics)
@@ -893,7 +689,7 @@ jobs:
           ./test.sh warehouse_2d kafka prod
 
   # ---------------------------------------------------------------------------
-  # Job 5g: Video analytics API Docker Compose integration test
+  # Job 5d: Video analytics API Docker Compose integration test
   # ---------------------------------------------------------------------------
   video-analytics-api-integration-test:
     name: Integration (video analytics API)

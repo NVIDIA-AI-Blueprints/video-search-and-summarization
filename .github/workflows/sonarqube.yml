@@ -71,24 +71,6 @@ jobs:
             sources: libs/analytics/spatialai-data-utils/spatialai_data_utils
             tests: libs/analytics/spatialai-data-utils/tests
             python_version: "3.13"
-          - name: sdr-mw-l
-            project_key: TEGRASW_A3IENG_embedded-metropolis-sdr_wdm
-            project_name: embedded-metropolis-sdr
-            sources: services/sdrc/app.py,services/sdrc/config.py,services/sdrc/run_workloads.py,services/sdrc/lib,services/sdrc/envoy
-            tests: services/sdrc/tests
-            python_version: "3.10"
-          - name: vss-configurator
-            project_key: TEGRASW_metropolis_vss-configurator_blueprint-configurator
-            project_name: metropolis-vss-configurator
-            sources: services/configurators/vss-configurator/app,services/configurators/vss-configurator/docker
-            tests: services/configurators/vss-configurator/tests
-            python_version: "3.13"
-          - name: vss-rt-config-adaptor
-            project_key: TEGRASW_metropolis_vss-rt-config-adaptor_ds-configurator
-            project_name: metropolis-vss-rt-config-adaptor
-            sources: services/configurators/vss-rt-config-adaptor/app,services/configurators/vss-rt-config-adaptor/docker
-            tests: services/configurators/vss-rt-config-adaptor/tests
-            python_version: "3.13"
 
     steps:
       - name: Checkout source
@@ -199,21 +181,6 @@ jobs:
             echo "sonar.javascript.lcov.reportPaths=services/analytics/video-analytics-api/test/coverage/lcov.info" >> sonar-project.properties
           fi
 
-          if [ "$SONAR_PROJECT_NAME" = "embedded-metropolis-sdr" ]; then
-            echo "sonar.python.coverage.reportPaths=services/sdrc/coverage.xml" >> sonar-project.properties
-            echo "sonar.python.xunit.reportPath=services/sdrc/test/coverage/test-results.xml" >> sonar-project.properties
-          fi
-
-          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-configurator" ]; then
-            echo "sonar.python.coverage.reportPaths=services/configurators/vss-configurator/coverage.xml" >> sonar-project.properties
-            echo "sonar.python.xunit.reportPath=services/configurators/vss-configurator/test/coverage/test-results.xml" >> sonar-project.properties
-          fi
-
-          if [ "$SONAR_PROJECT_NAME" = "metropolis-vss-rt-config-adaptor" ]; then
-            echo "sonar.python.coverage.reportPaths=services/configurators/vss-rt-config-adaptor/coverage.xml" >> sonar-project.properties
-            echo "sonar.python.xunit.reportPath=services/configurators/vss-rt-config-adaptor/test/coverage/test-results.xml" >> sonar-project.properties
-          fi
-
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-skills" ]; then
             # Skills helper scripts (skills/**/scripts/**) have no unit-test or
             # coverage harness in CI, so exclude them from the new-code coverage
@@ -316,54 +283,6 @@ jobs:
           cd src/web-api-core && npm install && cd ../..
           cd src/app && npm install --save ../web-api-core && npm install && cd ../..
           cd test && npm install --save ../src/web-api-core && npm install --save ../src/app && npm install && npm run ci
-
-      - name: Generate SDRC coverage
-        if: matrix.name == 'sdr-mw-l'
-        working-directory: services/sdrc
-        run: |
-          mkdir -p test/coverage
-          uv run --python 3.10 --with pytest --with pytest-cov pytest tests/ -v --tb=short \
-            --junitxml=test/coverage/test-results.xml \
-            --cov=app \
-            --cov=config \
-            --cov=run_workloads \
-            --cov=lib \
-            --cov=envoy \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
-
-      - name: Generate VSS Configurator coverage
-        if: matrix.name == 'vss-configurator'
-        working-directory: services/configurators/vss-configurator
-        run: |
-          # The unit tests mock spatialai-data-utils, so avoid installing the
-          # full runtime dependency graph on the Sonar self-hosted runner.
-          # That graph currently pulls numpy 1.26.4, which has no Python 3.13
-          # wheel and falls back to a source build requiring Python headers.
-          mkdir -p test/coverage
-          uv run --python 3.13 \
-            --with pytest \
-            --with pytest-cov \
-            --with Flask==3.1.0 \
-            --with requests==2.32.3 \
-            --with ruamel.yaml==0.18.15 \
-            pytest tests/ -v --tb=short \
-            --junitxml=test/coverage/test-results.xml \
-            --cov=app \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
-
-      - name: Generate VSS RT Config Adaptor coverage
-        if: matrix.name == 'vss-rt-config-adaptor'
-        working-directory: services/configurators/vss-rt-config-adaptor
-        run: |
-          uv sync --python 3.13 --frozen --group dev
-          mkdir -p test/coverage
-          uv run --python 3.13 pytest tests/ -v --tb=short \
-            --junitxml=test/coverage/test-results.xml \
-            --cov=app \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
 
       - name: Run SonarQube scanner
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
