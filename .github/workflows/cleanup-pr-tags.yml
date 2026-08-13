@@ -56,8 +56,12 @@ jobs:
       # tree-/develop- and loses nothing, and the PR tags end up on a scratch digest
       # that the unchanged delete rule can remove. Best-effort — if a retag fails the
       # tag simply stays put, which is today's behaviour.
+      # continue-on-error on both registry steps: detaching is best-effort, and a
+      # registry outage must not stop the REST delete pass below from removing the
+      # PR-only versions it can already handle without any registry access.
       - name: Log in to GHCR
         if: inputs.dry_run != 'true'
+        continue-on-error: true
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
         with:
           registry: ghcr.io

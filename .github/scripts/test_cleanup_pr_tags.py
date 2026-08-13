@@ -10,9 +10,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cleanup_pr_tags import (  # noqa: E402
+    PER_PAGE,
     detachable_tags,
     ghcr_packages,
     is_deletable,
+    iter_versions,
     plan_deletions,
     plan_detach,
     pr_tag_pattern,
@@ -145,6 +147,46 @@ class DetachableTagsTest(unittest.TestCase):
     def test_other_prs_tags_are_never_detached(self):
         self.assertEqual(
             detachable_tags([f"pr-999-{SHA}", f"develop-{SHA}"], self.pattern), []
+        )
+
+
+class PaginationTest(unittest.TestCase):
+    """These packages run to several pages — vss/vss-agent has 600 versions."""
+
+    def _paged(self, pages: list[list[dict]]):
+        seen: list[str] = []
+
+        def requester(_method: str, url: str):
+            seen.append(url)
+            page = int(url.rsplit("page=", 1)[1])
+            return pages[page - 1] if page <= len(pages) else []
+
+        return requester, seen
+
+    def test_follows_every_page(self):
+        pages = [
+            [version(i, [f"pr-1234-{SHA}"]) for i in range(PER_PAGE)],
+            [version(1000 + i, [f"develop-{SHA}"]) for i in range(7)],
+        ]
+        requester, seen = self._paged(pages)
+        got = iter_versions("NVIDIA-AI-Blueprints", "vss/vss-agent", requester)
+        self.assertEqual(len(got), PER_PAGE + 7)
+        self.assertEqual(len(seen), 2)
+
+    def test_stops_on_short_page(self):
+        requester, seen = self._paged([[version(1, [])]])
+        iter_versions("NVIDIA-AI-Blueprints", "vss/vss-agent", requester)
+        self.assertEqual(len(seen), 1)
+
+    def test_detach_sees_tags_beyond_the_first_page(self):
+        pages = [
+            [version(i, [f"develop-{SHA}"]) for i in range(PER_PAGE)],
+            [version(1000, [f"pr-1234-{OTHER_SHA}", "tree-" + "c" * 40])],
+        ]
+        requester, _ = self._paged(pages)
+        self.assertEqual(
+            plan_detach("NVIDIA-AI-Blueprints", "vss/vss-agent", 1234, requester),
+            [f"pr-1234-{OTHER_SHA}"],
         )
 
 

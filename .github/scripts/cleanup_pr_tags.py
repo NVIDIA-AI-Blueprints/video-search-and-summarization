@@ -120,6 +120,35 @@ def _request(method: str, url: str) -> object:
         raise
 
 
+PER_PAGE = 100
+
+
+def iter_versions(
+    org: str, package: str, requester: Requester = _request
+) -> list[dict]:
+    """Every version of ``package``, following pagination.
+
+    These packages routinely run to several pages — ``vss/vss-agent`` alone has
+    600 versions — so a single ``per_page=100`` request silently sees a fraction
+    of them and leaves the rest of the PR's tags behind.
+    """
+    encoded = urllib.parse.quote(package, safe="")
+    versions: list[dict] = []
+    page = 1
+    while True:
+        url = (
+            f"{API_ROOT}/orgs/{org}/packages/container/{encoded}"
+            f"/versions?per_page={PER_PAGE}&page={page}"
+        )
+        batch = requester("GET", url)
+        if not batch:
+            return versions
+        versions.extend(batch)
+        if len(batch) < PER_PAGE:
+            return versions
+        page += 1
+
+
 def plan_deletions(
     org: str,
     package: str,
@@ -130,9 +159,7 @@ def plan_deletions(
 
     ``to_delete`` is ``(version_id, reason)``; ``skipped`` is ``(tags, reason)``.
     """
-    encoded = urllib.parse.quote(package, safe="")
-    url = f"{API_ROOT}/orgs/{org}/packages/container/{encoded}/versions?per_page=100"
-    versions = requester("GET", url)
+    versions = iter_versions(org, package, requester)
     if not versions:
         return [], []
     pattern = pr_tag_pattern(pr_number)
@@ -159,9 +186,7 @@ def plan_detach(
     requester: Requester = _request,
 ) -> list[str]:
     """Return this PR's tags that sit on versions the delete pass must keep."""
-    encoded = urllib.parse.quote(package, safe="")
-    url = f"{API_ROOT}/orgs/{org}/packages/container/{encoded}/versions?per_page=100"
-    versions = requester("GET", url)
+    versions = iter_versions(org, package, requester)
     if not versions:
         return []
     pattern = pr_tag_pattern(pr_number)
