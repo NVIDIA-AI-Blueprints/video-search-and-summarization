@@ -82,6 +82,14 @@ set -u
 cd "$HOME/video-search-and-summarization"
 scratch=/tmp/skill-eval/nemoclaw
 venv="$scratch/notebook-venv"
+# A retry of the same Actions run reuses its run-scoped sandbox name. Remove
+# that sandbox before running the notebook; onboarding itself stays unchanged.
+if command -v nemoclaw >/dev/null 2>&1 && \
+   command -v openshell >/dev/null 2>&1 && \
+   openshell sandbox get "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1; then
+  timeout --signal=TERM --kill-after=30 600s \
+    nemoclaw "$NEMOCLAW_SANDBOX_NAME" destroy --yes
+fi
 # Earlier skill-eval runs can leave rows written by older NemoClaw schemas.
 # Remove only known CI sandbox names from the default and gateway-scoped
 # registries before the current `se-<run-id>` sandbox is onboarded.
