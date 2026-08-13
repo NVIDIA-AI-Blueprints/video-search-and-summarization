@@ -412,8 +412,9 @@ rtvi:
         fusion:
           enabled: true
           image:
-            repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
-            tag: "3.2.0"
+            # repository/tag intentionally unset: inherit the managed GHCR
+            # channel from the rtvi-cv subchart so Helm and Compose ship the
+            # same image. Override with global.container_prefix/container_tag.
             pullPolicy: IfNotPresent
           rawTopic: mdx-raw
           fusedTopic: mdx-bev
