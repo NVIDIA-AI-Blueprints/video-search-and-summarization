@@ -859,6 +859,10 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn('--skills "$INPUT_SKILLS"', workflow)
         self.assertIn('NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}"', workflow)
         self.assertIn("NEMOCLAW_GATEWAY_PORT=8990", workflow)
+        self.assertIn(
+            "NEMOCLAW_DASHBOARD_PORT=$((20000 + GITHUB_RUN_ID % 40000))",
+            workflow,
+        )
         self.assertIn("NEMOCLAW_INSTALL_REF=v0.0.108", workflow)
         self.assertIn("--exclude='agent'", workflow)
         self.assertIn('if [ -d "$RUN_RESULTS" ]; then', workflow)
