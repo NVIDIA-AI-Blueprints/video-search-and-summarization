@@ -114,6 +114,14 @@ def generate_cam_info_files(
         camera_matrix = sensor.get("cameraMatrix")
         if not isinstance(sensor_id, str) or not sensor_id:
             raise ValueError("Encountered camera sensor with missing/invalid 'id'.")
+        # The id becomes a filename below, so it must be a single path component.
+        # Rejecting separators and traversal here keeps every write inside
+        # output_dir and fails before any work is done. ".." needs its own case:
+        # Path("..").name is "..", so the name comparison alone lets it through.
+        if sensor_id in {".", ".."} or Path(sensor_id).name != sensor_id:
+            raise ValueError(
+                f"Sensor id {sensor_id!r} is not a valid filename component."
+            )
         if camera_matrix is None:
             raise ValueError(f"Sensor '{sensor_id}' is missing 'cameraMatrix'.")
 

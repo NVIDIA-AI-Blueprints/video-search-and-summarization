@@ -52,6 +52,41 @@ def _sensor_ids(calibration_json: Path) -> list[str]:
         return [s["id"] for s in json.load(fh)["sensors"]]
 
 
+@pytest.mark.parametrize(
+    "bad_id", ["../escape", "nested/cam", "..", ".", "cam/", "/abs/path", "a/../b"]
+)
+def test_generate_cam_info_rejects_ids_that_are_not_filenames(
+    tmp_path, src_dir, bad_id
+):
+    """A sensor id becomes a filename, so it must stay inside output_dir."""
+    import json
+
+    from generate_cam_info_configs import _parse_model_args, generate_cam_info_files
+
+    calibration = tmp_path / "calibration.json"
+    calibration.write_text(
+        json.dumps(
+            {
+                "sensors": [
+                    {
+                        "id": bad_id,
+                        "type": "camera",
+                        "cameraMatrix": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    model_entries = _parse_model_args([["0", "1.60", "0.3"]])
+    out = tmp_path / "camInfo"
+
+    with pytest.raises(ValueError, match="not a valid filename component"):
+        generate_cam_info_files(calibration, out, model_entries)
+
+    assert not list(tmp_path.rglob("*.yml")), "a file was written despite the bad id"
+
+
 def test_generate_cam_info_writes_one_file_per_sensor(
     tmp_path, src_dir, calibration_json
 ):
