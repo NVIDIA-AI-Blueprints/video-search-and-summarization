@@ -31,13 +31,62 @@ Usage:
 import argparse
 import importlib.util
 import os
+import stat
 import subprocess
 import sys
 import time
 
 
-def run_pytest(test_paths, markers=None, verbose=False, coverage=False, parallel=False):
-    """Run pytest with specified options"""
+def _pytest_env(coverage=False):
+    """Build cwd/env for pytest subprocess invocations."""
+    this_file = os.path.abspath(__file__)
+    tests_dir = os.path.dirname(os.path.dirname(this_file))
+    workspace_root = os.path.dirname(tests_dir)
+    src_path = os.path.join(workspace_root, "src")
+
+    env = os.environ.copy()
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = src_path
+
+    if coverage:
+        _prepare_coverage_layout(tests_dir, env)
+
+    return tests_dir, env
+
+
+def _prepare_coverage_layout(tests_dir, env):
+    """Original coverage layout: tests/.coverage and tests/htmlcov/ (pytest cwd)."""
+    os.makedirs(os.path.join(tests_dir, "htmlcov"), exist_ok=True)
+    env["COVERAGE_FILE"] = os.path.join(tests_dir, ".coverage")
+    if os.access(tests_dir, os.W_OK):
+        return
+    try:
+        writable = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+        os.chmod(tests_dir, os.stat(tests_dir).st_mode | writable)
+        htmlcov = os.path.join(tests_dir, "htmlcov")
+        if os.path.isdir(htmlcov):
+            os.chmod(htmlcov, os.stat(htmlcov).st_mode | writable)
+    except OSError:
+        pass
+
+
+def _pytest_succeeded(returncode):
+    # pytest exit code 5 means no tests were collected for the given marker filter.
+    return returncode in (0, 5)
+
+
+def _invoke_pytest(
+    test_paths,
+    markers=None,
+    verbose=False,
+    coverage=False,
+    parallel=False,
+    cov_append=False,
+    cov_report=True,
+):
+    """Run a single pytest subprocess."""
     cmd = ["python3", "-m", "pytest"]
 
     if verbose:
@@ -49,10 +98,13 @@ def run_pytest(test_paths, markers=None, verbose=False, coverage=False, parallel
         cmd.extend(["-m", markers])
 
     if coverage:
-        cmd.extend(["--cov=server", "--cov=cli", "--cov-report=html", "--cov-report=term"])
+        cmd.extend(["--cov=server", "--cov=cli"])
+        if cov_report:
+            cmd.extend(["--cov-report=html", "--cov-report=term"])
+        if cov_append:
+            cmd.append("--cov-append")
 
     if parallel:
-        # Only enable xdist if the plugin is installed
         if importlib.util.find_spec("xdist") is not None:
             cmd.extend(["-n", "auto"])
         else:
@@ -60,26 +112,63 @@ def run_pytest(test_paths, markers=None, verbose=False, coverage=False, parallel
 
     cmd.extend(test_paths)
 
+    tests_dir, env = _pytest_env(coverage=coverage)
     print(f"Running: {' '.join(cmd)}")
-
-    # Run from parent tests/ directory so imports work
-    this_file = os.path.abspath(__file__)
-    tests_dir = os.path.dirname(os.path.dirname(this_file))
-
-    # Add src folder to PYTHONPATH
-    workspace_root = os.path.dirname(tests_dir)
-    src_path = os.path.join(workspace_root, "src")
-
-    env = os.environ.copy()
-    if "PYTHONPATH" in env:
-        env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
-    else:
-        env["PYTHONPATH"] = src_path
-
     print(f"PYTHONPATH: {env['PYTHONPATH']}")
+    if coverage:
+        print(f"COVERAGE_FILE: {env['COVERAGE_FILE']}")
 
     result = subprocess.run(cmd, cwd=tests_dir, env=env)
-    return result.returncode == 0
+    return _pytest_succeeded(result.returncode)
+
+
+def run_pytest(test_paths, markers=None, verbose=False, coverage=False, parallel=False):
+    """Run pytest with specified options.
+
+    When ``parallel`` is enabled without an explicit marker filter, run in two
+    phases (NVBug 6183036): ``no_gpu`` tests in parallel via xdist, then GPU
+    tests serially so only one worker loads the shared session RTVIServer/VLM.
+    """
+    if not parallel or markers:
+        return _invoke_pytest(
+            test_paths,
+            markers=markers,
+            verbose=verbose,
+            coverage=coverage,
+            parallel=parallel,
+        )
+
+    if importlib.util.find_spec("xdist") is None:
+        print("Warning: pytest-xdist not installed, running sequentially")
+        return _invoke_pytest(
+            test_paths,
+            verbose=verbose,
+            coverage=coverage,
+            parallel=False,
+        )
+
+    print(
+        "Parallel mode: running no_gpu tests with xdist, then GPU tests serially "
+        "(single RTVIServer session; NVBug 6183036)"
+    )
+    no_gpu_ok = _invoke_pytest(
+        test_paths,
+        markers="no_gpu",
+        verbose=verbose,
+        coverage=coverage,
+        parallel=True,
+        cov_report=not coverage,
+    )
+    gpu_ok = _invoke_pytest(
+        test_paths,
+        markers="not no_gpu",
+        verbose=verbose,
+        coverage=coverage,
+        parallel=False,
+        cov_append=coverage,
+        cov_report=True,
+    )
+    return no_gpu_ok and gpu_ok
 
 
 # def run_performance_benchmark(config_file=None):
@@ -194,6 +283,7 @@ def main():
         print("Running Unit Tests")
         print("=" * 80)
         unit_tests = [
+            "test_ce1_nim_backend.py",
             "test_rtvi_embed_server.py",
             "test_rtvi_embed_stream_handler.py",
             "test_rtvi_embed_client_cli.py",

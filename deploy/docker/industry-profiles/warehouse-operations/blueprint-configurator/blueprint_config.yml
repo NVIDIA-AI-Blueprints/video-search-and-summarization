@@ -429,7 +429,7 @@ commons:
           class-attrs-0.pre-cluster-threshold: "${person_detection_threshold}"
         
       - operation_type: "file_management"
-        enabled: "${trim_sample_videos}"
+        enabled: false
         target_directories:
           - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
@@ -512,7 +512,7 @@ commons:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
       - operation_type: "file_management"
-        enabled: "${trim_sample_videos}"
+        enabled: false
         target_directories:
           - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
@@ -584,7 +584,7 @@ commons:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
       - operation_type: "file_management"
-        enabled: "${trim_sample_videos}"
+        enabled: false
         target_directories:
           - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
@@ -639,12 +639,21 @@ RTXA6000ADA:
 
 RTXPRO6000BW:
   2d:
+    max_streams_supported: 52
+  3d:
+    max_streams_supported: 19
+  mv3dt:
+    max_streams_supported: 39
+
+# RTX PRO 6000 Blackwell Server Edition.
+RTXPRO6000BW-SE:
+  2d:
     max_streams_supported: 47
   3d:
     max_streams_supported: 19
   mv3dt:
     max_streams_supported: 39
-    
+
 RTXPRO4500BW:
   2d:
     max_streams_supported: 20
