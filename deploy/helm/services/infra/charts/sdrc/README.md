@@ -49,7 +49,7 @@ sdrc:
   enabled: true
   image:
     repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-    tag: 3.4.0-2026.08.3-1
+    tag: 3.3.0-2026.08.13
   imagePullSecrets:
     - name: ngc-docker-reg-secret
   service:
