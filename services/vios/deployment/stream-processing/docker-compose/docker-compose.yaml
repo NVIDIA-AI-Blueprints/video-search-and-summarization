@@ -80,6 +80,7 @@ services:
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB:-}
       - CONTAINER_NAME=streamprocessing-ms-1
+      - VST_APT_CACHE_DIR=/opt/apt-cache
       - ADAPTOR=${VST_ADAPTOR}
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT_1}
       - PROMETHEUS_PORT=${STREAM_PROCESSOR_PROMETHEUS_PORT_1}
@@ -96,6 +97,7 @@ services:
       - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - vios_apt_cache:/opt/apt-cache:ro
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -120,6 +122,8 @@ services:
       retries: 60
       start_period: 20s
     depends_on:
+      vios-apt-cache-init:
+        condition: service_completed_successfully
       centralizedb:
         condition: service_healthy
       redis:
@@ -193,5 +197,27 @@ services:
       retries: 60
       start_period: 2s
 
+  # Downloads the runtime media packages once per host into a shared volume so
+  # every VIOS service installs from disk instead of re-fetching ~138MB. Runs to
+  # completion before the services start and is the only writer; services mount
+  # the cache read-only, which is what makes skipping the apt archives lock safe
+  # (see the note in user_additional_install.sh).
+  vios-apt-cache-init:
+    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    container_name: vios-apt-cache-init
+    user: "0:0"
+    network_mode: host
+    environment:
+      - VST_APT_CACHE_POPULATE=true
+      - VST_APT_CACHE_DIR=/opt/apt-cache
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; else echo 'additional packages disabled; nothing to cache'; fi"]
+    volumes:
+      - vios_apt_cache:/opt/apt-cache
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    restart: "no"
+
 volumes:
   vst_pg_data:
+  vios_apt_cache:
+    name: vios_apt_cache
