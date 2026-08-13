@@ -68,6 +68,40 @@ def _sandbox_exec(
     )
 
 
+def _nemoclaw_exec(
+    sandbox: str,
+    script: str,
+    *,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    """Run through NemoClaw's public exec boundary.
+
+    Unlike a raw OpenShell exec, this sources NemoClaw's trusted runtime env.
+    The split-user OpenClaw image needs that env during long-context transcript
+    compaction so its shared-state permission patch selects group-safe modes.
+    """
+    return subprocess.run(
+        [
+            "nemoclaw",
+            "sandbox",
+            "exec",
+            sandbox,
+            "--no-stdin",
+            "--timeout",
+            str(timeout),
+            "--",
+            "sh",
+            "-lc",
+            script,
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=timeout + 30,
+        check=False,
+    )
+
+
 def _gateway_healthy(sandbox: str) -> bool:
     result = _sandbox_exec(
         sandbox,
@@ -360,7 +394,7 @@ def _run_openclaw(
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
     )
-    result = _sandbox_exec(sandbox, command, timeout=timeout + 120)
+    result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "")[-1000:]
         raise RuntimeError(

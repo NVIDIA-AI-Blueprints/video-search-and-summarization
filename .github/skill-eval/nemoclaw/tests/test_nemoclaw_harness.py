@@ -334,6 +334,88 @@ class HeadlessTrajectoryTests(unittest.TestCase):
         self.assertEqual(metrics["cached_tokens"], 2)
         self.assertEqual(trajectory["final_metrics"]["total_prompt_tokens"], 12)
 
+    def test_nemoclaw_exec_uses_the_runtime_env_boundary(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="{}", stderr="")
+        with mock.patch.object(
+            self.runner.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            result = self.runner._nemoclaw_exec(
+                "demo",
+                "openclaw agent --message test",
+                timeout=120,
+            )
+
+        self.assertIs(result, completed)
+        command = run.call_args.args[0]
+        self.assertEqual(command[:4], ["nemoclaw", "sandbox", "exec", "demo"])
+        self.assertIn("--no-stdin", command)
+        self.assertEqual(command[command.index("--timeout") + 1], "120")
+        self.assertEqual(
+            command[command.index("--") + 1 :],
+            ["sh", "-lc", "openclaw agent --message test"],
+        )
+        self.assertNotEqual(command[:3], ["openshell", "sandbox", "exec"])
+
+    def test_openclaw_run_routes_only_the_agent_through_nemoclaw_exec(self) -> None:
+        session_file = "/sandbox/.openclaw/agents/main/sessions/session-1.jsonl"
+        envelope = {
+            "meta": {
+                "agentMeta": {
+                    "sessionId": "session-1",
+                    "sessionFile": session_file,
+                    "model": "test-model",
+                }
+            }
+        }
+        session = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {"role": "user", "content": "deploy"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "done"}],
+                            "usage": {"input": 10, "output": 2},
+                        },
+                    }
+                ),
+            ]
+        )
+        with (
+            mock.patch.object(
+                self.runner,
+                "_nemoclaw_exec",
+                return_value=subprocess.CompletedProcess(
+                    [], 0, stdout=json.dumps(envelope), stderr=""
+                ),
+            ) as nemoclaw_exec,
+            mock.patch.object(
+                self.runner,
+                "_sandbox_exec",
+                return_value=subprocess.CompletedProcess(
+                    [], 0, stdout=session, stderr=""
+                ),
+            ) as sandbox_exec,
+        ):
+            _, metrics, _ = self.runner._run_openclaw("demo", "deploy", 120)
+
+        nemoclaw_exec.assert_called_once()
+        sandbox_exec.assert_called_once_with(
+            "demo",
+            f"cat -- {session_file}",
+            timeout=60,
+        )
+        self.assertEqual(metrics["turns"], 1)
+        self.assertEqual(metrics["prompt_tokens"], 10)
+
 
 class GatewayReleaseTests(unittest.TestCase):
     @classmethod
