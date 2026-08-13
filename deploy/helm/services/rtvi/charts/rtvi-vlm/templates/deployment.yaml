@@ -24,10 +24,6 @@
 {{- $wfkRepo := $wfkImg.repository | default "docker.io/confluentinc/cp-kafka" }}
 {{- $wfkTag := $wfkImg.tag | default "8.3.0" }}
 {{- $wfkTopics := $wfk.topics | default (list "mdx-vlm" "mdx-vlm-incidents") }}
-{{- $subVlm := trim (default "" .Values.vlmBaseUrl) }}
-{{- $globVlm := trim (default "" (index $g "vlmBaseUrl")) }}
-{{- $vlmBase := $subVlm | default $globVlm }}
-{{- $useProxyVlm := or .Values.useSharedNim (ne $vlmBase "") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -130,15 +126,25 @@ spec:
             - name: REDIS_PASSWORD
               value: {{ .Values.redisPassword | quote }}
             {{- end }}
-            {{- if $useProxyVlm }}
+            {{- if .Values.useSharedNim }}
+            {{- /* vss-rtvi-vlm.nims.enabled mirrors root nims.enabled in values files; --set nims.enabled=false does NOT update it. Use remote VIA_VLM when vss-rtvi-vlm.nims.enabled is false OR global.vlmBaseUrl is set (vss-agent-style: explicit remote URL wins). */}}
+            {{- $nims := .Values.nims | default dict }}
+            {{- $nimsEnabled := true }}
+            {{- if hasKey $nims "enabled" }}{{- $nimsEnabled = index $nims "enabled" }}{{- end }}
+            {{- /* Prefer non-empty vss-rtvi-vlm.vlmBaseUrl; do not use coalesce — empty string would hide global.vlmBaseUrl. */}}
+            {{- $subVlm := trim (default "" .Values.vlmBaseUrl) }}
+            {{- $globVlm := trim (default "" (index $g "vlmBaseUrl")) }}
+            {{- $vlmBase := $subVlm | default $globVlm }}
             {{- $slug := trim (default "nvidia-cosmos3-reasoner" .Values.vlmNameSlug) }}
             {{- $nimHost := ternary (printf "%s-%s" .Release.Name $slug) $slug $pfx }}
             {{- $localSvc := coalesce .Values.sharedNimService $nimHost }}
             {{- $inClusterEp := printf "http://%s:%s/v1" $localSvc .Values.sharedNimPort }}
+            {{- $useRemote := or (not $nimsEnabled) (ne $vlmBase "") }}
             {{- $viaEp := $inClusterEp }}
             {{- /* NGC model id (e.g. nvidia/cosmos3-nano-reasoner). Do not derive from vlmNameSlug. */}}
             {{- $vlmModel := trim (default "" (coalesce .Values.vlmName (index $g "vlmName") "nvidia/cosmos3-nano-reasoner")) }}
             {{- $deployName := .Values.viaVlmOpenAiModelDeploymentName | default $vlmModel }}
+            {{- if $useRemote }}
             {{- if ne $vlmBase "" }}
             {{- $vb := trimSuffix "/" (trim $vlmBase) }}
             {{- if hasSuffix "/v1" $vb }}
@@ -146,6 +152,9 @@ spec:
             {{- else }}
             {{- $viaEp = print $vb "/v1" }}
             {{- end }}
+            {{- end }}
+            {{- else }}
+            {{- $viaEp = $inClusterEp }}
             {{- end }}
             - name: MODEL_PATH
               value: "none"
@@ -169,54 +178,28 @@ spec:
                 secretKeyRef:
                   name: {{ $ngcSecret }}
                   key: {{ $ngcKey }}
-            {{- $globalHfTok := index $g "hfTokenSecret" | default dict }}
             {{- $hfTok := .Values.hfTokenSecret | default dict }}
-            {{- $localHfTokName := trim ($hfTok.name | default "") }}
-            {{- $hfTokName := trim ($localHfTokName | default $globalHfTok.name | default "") }}
+            {{- $hfTokName := trim (default "" $hfTok.name) }}
             {{- if ne $hfTokName "" }}
-            {{- $hfTokKey := ternary ($hfTok.key | default "HF_TOKEN") ($globalHfTok.key | default "HF_TOKEN") (ne $localHfTokName "") }}
+            {{- $hfTokKey := $hfTok.key | default "HF_TOKEN" }}
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ $hfTokName }}
                   key: {{ $hfTokKey }}
             {{- end }}
-            {{- $nvidiaSecret := index $g "nvidiaApiKeySecret" | default dict }}
-            {{- $nvidiaSecretName := trim ($nvidiaSecret.name | default "") }}
-            {{- if ne $nvidiaSecretName "" }}
-            - name: NVIDIA_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $nvidiaSecretName }}
-                  key: {{ $nvidiaSecret.key | default "NVIDIA_API_KEY" }}
-            {{- end }}
-            {{- $openaiSecret := index $g "openaiApiKeySecret" | default dict }}
-            {{- $openaiSecretName := trim ($openaiSecret.name | default "") }}
-            {{- if ne $openaiSecretName "" }}
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $openaiSecretName }}
-                  key: {{ $openaiSecret.key | default "OPENAI_API_KEY" }}
-            {{- end }}
-            {{- if $useProxyVlm }}
-            # Shared or remote VLMs use the OpenAI-compatible VIA endpoint.
+            {{- if .Values.useSharedNim }}
+            # Shared-NIM mode uses the OpenAI-compatible VIA endpoint rather than
+            # the integrated Cosmos pipeline.
             - name: VLM_MODEL_TO_USE
               value: "openai-compat"
             {{- end }}
+            {{- $useSharedNim := .Values.useSharedNim }}
             {{- $envOverrides := .Values.envOverrides | default dict }}
-            {{- $seenEnv := dict }}
             {{- range .Values.env }}
-            {{- $_ := set $seenEnv .name true }}
-            {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useProxyVlm) (ne .name "VLM_MODEL_TO_USE")) (or (eq $nvidiaSecretName "") (ne .name "NVIDIA_API_KEY")) (or (eq $openaiSecretName "") (ne .name "OPENAI_API_KEY")) }}
+            {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useSharedNim) (ne .name "VLM_MODEL_TO_USE")) }}
             - name: {{ .name }}
               value: {{ ternary (index $envOverrides .name) .value (hasKey $envOverrides .name) | quote }}
-            {{- end }}
-            {{- end }}
-            {{- range $name, $value := $envOverrides }}
-            {{- if and (not (hasKey $seenEnv $name)) (or (not $useProxyVlm) (ne $name "VLM_MODEL_TO_USE")) }}
-            - name: {{ $name }}
-              value: {{ $value | quote }}
             {{- end }}
             {{- end }}
           ports:

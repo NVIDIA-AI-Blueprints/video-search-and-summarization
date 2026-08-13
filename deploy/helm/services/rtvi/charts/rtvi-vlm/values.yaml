@@ -28,8 +28,7 @@ useSharedNim: false
 # NIM VLM service for useSharedNim: default <release>-nvidia-cosmos3-reasoner:8000
 sharedNimService: ""
 sharedNimPort: "8000"
-# Optional override of global.vlmBaseUrl / global.vlmName. A non-empty URL
-# always switches this pod to its OpenAI-compatible remote-proxy mode.
+# Optional override of global.vlmBaseUrl / global.vlmName. Used only when nims.enabled below is false (remote VLM).
 vlmBaseUrl: ""
 # Optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME when useSharedNim (same idea as vss-agent.vlmName).
 vlmName: ""
@@ -44,16 +43,10 @@ ngcApiSecret:
   name: ""   # default: ngc-api (from parent global.ngcApiSecret)
   key: ""    # default: NGC_API_KEY
 
-# If name is non-empty, HF_TOKEN is taken from this Secret (key defaults to
-# HF_TOKEN). Plain HF_TOKEN in env is then ignored. Umbrella charts may instead
-# set global.hfTokenSecret; this local value takes precedence.
-hfTokenSecret:
-  name: ""
-  key: HF_TOKEN
-
-# Map of name: value pairs applied after env. Profile charts should put only
-# mode-specific deltas here so new leaf defaults are inherited automatically.
-envOverrides: {}
+# If name is non-empty, HF_TOKEN is taken from this Secret (key defaults to HF_TOKEN). Plain HF_TOKEN in env is then ignored for injection.
+# hfTokenSecret:
+#   name: ""
+#   key: HF_TOKEN
 
 # Kafka/Redis: leave "" for defaults — kafka-kafka:9092 and redis:6379; with global.useReleaseNamePrefix, <release>-kafka-kafka:9092 and <release>-redis:6379
 kafkaBootstrapServers: ""
@@ -92,8 +85,7 @@ resources:
 
 # Env (Compose parity). Template injects KAFKA_BOOTSTRAP_SERVERS, REDIS_*, VIA_VLM_ENDPOINT/MODEL_PATH/VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME when useSharedNim.
 # Align with helm-work/docker-compose-out-alert-realtime.yaml vss-rtvi-vlm.service.environment
-# Kubernetes allocates a dedicated GPU to this pod; Docker local_shared memory
-# fractions and device IDs do not have a direct Kubernetes equivalent.
+# Edge (DGX-SPARK, IGX-THOR, AGX-THOR): set VLM_INPUT_WIDTH=860, VLM_INPUT_HEIGHT=467, VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=20 to match dev-profile.sh.
 env:
   - name: OPENAI_API_KEY
     value: "NOAPIKEYSET"
@@ -196,6 +188,7 @@ env:
     value: ""
   - name: VLM_BATCH_SIZE
     value: ""
+  # For edge (DGX-SPARK, IGX-THOR, AGX-THOR): dev-profile.sh sets 860, 467, 20. Override when using edge hardware.
   - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
     value: "1"
   - name: VLM_INPUT_WIDTH
