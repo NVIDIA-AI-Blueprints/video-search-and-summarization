@@ -863,6 +863,7 @@ class WorkflowScopeTests(unittest.TestCase):
             "NEMOCLAW_DASHBOARD_PORT=$((20000 + GITHUB_RUN_ID % 40000))",
             workflow,
         )
+        self.assertIn("NEMOCLAW_POLICY_MODE=skip", workflow)
         self.assertIn("NEMOCLAW_INSTALL_REF=v0.0.108", workflow)
         self.assertIn("--exclude='agent'", workflow)
         self.assertIn('if [ -d "$RUN_RESULTS" ]; then', workflow)
