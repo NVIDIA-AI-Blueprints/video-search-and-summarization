@@ -1782,6 +1782,95 @@ class TestNestedOverrides:
         assert resolved["VLM_NIM_KVCACHE_PERCENT"] == "0.2"
 
 
+class TestComposeEnvFileLayering:
+    def test_compose_process_env_sources_containers_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.delenv("VSS_CONTAINER_TAG", raising=False)
+        recipe = _make_recipe(
+            tmp_path,
+            "MODE=2d",
+            containers_env_text='VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"',
+        )
+
+        compose_env = dcu._compose_subprocess_env_for_config(recipe)
+
+        assert compose_env["VSS_CONTAINER_TAG"] == "develop-latest"
+
+    def test_resolve_compose_uses_dev_profile_env_file_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(tmp_path, "MODE=2d")
+        commands: list[list[str]] = []
+
+        def fake_run(command, **_kwargs):
+            commands.append(command)
+            return dcu.subprocess.CompletedProcess(command, 0, stdout="services: {}\n", stderr="")
+
+        monkeypatch.setattr(dcu, "_compose_subprocess_env_for_config", lambda _config: {})
+        monkeypatch.setattr(dcu.subprocess, "run", fake_run)
+
+        dcu.resolve_compose(recipe)
+
+        assert commands == [
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(recipe.compose_file),
+                "--env-file",
+                str(recipe.containers_env_file),
+                "--env-file",
+                str(recipe.source_env_file),
+                "--env-file",
+                str(recipe.output_env_file),
+                "config",
+            ]
+        ]
+
+    def test_run_compose_uses_same_env_file_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(tmp_path, "MODE=2d")
+        commands: list[list[str]] = []
+
+        def fake_run(command, **_kwargs):
+            commands.append(command)
+            return dcu.subprocess.CompletedProcess(command, 0)
+
+        monkeypatch.setattr(
+            dcu,
+            "_compose_subprocess_env_for_config",
+            lambda _config, _defaults: {},
+        )
+        monkeypatch.setattr(dcu.subprocess, "run", fake_run)
+
+        dcu.run_compose_command(
+            recipe,
+            recipe.output_env_file,
+            recipe.output_compose_file,
+            "up",
+            "--detach",
+        )
+
+        assert commands == [
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(recipe.output_compose_file),
+                "--env-file",
+                str(recipe.containers_env_file),
+                "--env-file",
+                str(recipe.source_env_file),
+                "--env-file",
+                str(recipe.output_env_file),
+                "up",
+                "--detach",
+            ]
+        ]
+
+
 class TestGenerateDryRunArtifacts:
     def test_generate_dry_run_artifacts_persists_profile_mode_in_generated_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

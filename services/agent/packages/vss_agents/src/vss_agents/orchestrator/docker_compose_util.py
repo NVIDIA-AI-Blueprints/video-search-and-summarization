@@ -63,8 +63,6 @@ UNRESOLVED_SHELL_VAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$[A-Za-z_][
 ENV_VAR_INTERPOLATION_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
 )
-# First-party image SSOT next to compose files; same file `dev-profile.sh` passes as
-# `--env-file containers.env` ahead of the profile env files.
 CONTAINERS_ENV_FILENAME: Final[str] = "containers.env"
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
@@ -231,8 +229,6 @@ def create_dry_run_recipe(
         error_type=ValidationError,
     )
 
-    # containers.env is mandatory and must live in the deployments (compose) root —
-    # same file `dev-profile.sh` passes as `--env-file containers.env`.
     containers_env_file = resolve_required_absolute_file(
         str(deployments_path / CONTAINERS_ENV_FILENAME),
         field_name=CONTAINERS_ENV_FILENAME,
@@ -790,14 +786,40 @@ def _compose_subprocess_env(extra_defaults: Mapping[str, str] = MappingProxyType
     return env
 
 
+def _compose_env_file_args(config: DryRunRecipe, generated_env_file: Path) -> list[str]:
+    """Return the env-file layering used by ``dev-profile.sh``."""
+
+    return [
+        "--env-file",
+        str(config.containers_env_file),
+        "--env-file",
+        str(config.source_env_file),
+        "--env-file",
+        str(generated_env_file),
+    ]
+
+
+def _compose_subprocess_env_for_config(
+    config: DryRunRecipe,
+    extra_defaults: Mapping[str, str] = MappingProxyType({}),
+) -> dict[str, str]:
+    """Source containers.env into the Compose process environment like dev-profile.sh."""
+
+    compose_env = _compose_subprocess_env(extra_defaults)
+    compose_env.update(load_shell_env_file(config.containers_env_file, compose_env))
+    return compose_env
+
+
 def resolve_compose(config: DryRunRecipe) -> str:
+    env_file_args = _compose_env_file_args(config, config.output_env_file)
+    compose_env = _compose_subprocess_env_for_config(config)
     try:
         result = subprocess.run(
-            ["docker", "compose", "-f", str(config.compose_file), "--env-file", str(config.output_env_file), "config"],
+            ["docker", "compose", "-f", str(config.compose_file), *env_file_args, "config"],
             cwd=str(config.deployments_dir),
             capture_output=True,
             text=True,
-            env=_compose_subprocess_env(),
+            env=compose_env,
         )
     except FileNotFoundError as exc:
         raise RuntimeError("docker command not found. Install Docker with Compose v2.") from exc
@@ -808,10 +830,14 @@ def resolve_compose(config: DryRunRecipe) -> str:
 
 def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path, *args: str) -> None:
     # Prefer plain, non-ANSI output so status logs are visible/persistent in non-interactive captures.
-    compose_env = _compose_subprocess_env({"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"})
+    env_file_args = _compose_env_file_args(config, env_file)
+    compose_env = _compose_subprocess_env_for_config(
+        config,
+        {"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"},
+    )
     try:
         result = subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "--env-file", str(env_file), *args],
+            ["docker", "compose", "-f", str(compose_file), *env_file_args, *args],
             cwd=str(config.deployments_dir),
             env=compose_env,
         )
@@ -820,7 +846,7 @@ def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path
     if result.returncode != 0:
         raise RuntimeError(
             "docker compose command failed.\n"
-            f"command: docker compose -f {compose_file} --env-file {env_file} {' '.join(args)}\n"
+            f"command: docker compose -f {compose_file} {' '.join(env_file_args)} {' '.join(args)}\n"
             f"exit_code: {result.returncode}"
         )
 
