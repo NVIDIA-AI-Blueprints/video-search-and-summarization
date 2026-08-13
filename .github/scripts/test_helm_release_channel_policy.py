@@ -29,6 +29,9 @@ HELM_VALUES = {
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/values.yaml",
     ],
+    "vss-rt-cv-mv3dt-bev-fusion": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -46,6 +49,9 @@ HELM_HELPERS = {
     "vss-video-summarization": [
         "deploy/helm/services/video-summarization/templates/_helpers.tpl",
     ],
+    "vss-rt-cv-mv3dt-bev-fusion": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
 }
 COMPOSE_FILES = {
     "vss-agent": "deploy/docker/services/agent/compose.yml",
@@ -57,17 +63,22 @@ COMPOSE_FILES = {
 }
 
 
-def image_coordinates(path: Path) -> tuple[str, str]:
+def image_coordinates(path: Path, name: str) -> tuple[str, str]:
+    """Return the (repository, tag) that *path* pins for image *name*.
+
+    Charts may host several images, so select by trailing image name rather
+    than taking the first ``image:`` stanza in the file.
+    """
     text = path.read_text()
-    match = re.search(
+    for match in re.finditer(
         r"image:\s*\n"
         r"\s+repository:\s*(\S+)\s*\n"
         r'\s+tag:\s*"?([^"\s]+)"?',
         text,
-    )
-    if match is None:
-        raise AssertionError(f"{path} lacks an image block")
-    return match.group(1), match.group(2)
+    ):
+        if match.group(1).endswith(f"/{name}"):
+            return match.group(1), match.group(2)
+    raise AssertionError(f"{path} lacks an image block for {name}")
 
 
 class HelmReleaseChannelPolicyTest(unittest.TestCase):
@@ -85,7 +96,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():
             for relative_path in relative_paths:
-                repository, tag = image_coordinates(REPO_ROOT / relative_path)
+                repository, tag = image_coordinates(REPO_ROOT / relative_path, name)
                 self.assertEqual(repository, f"{GHCR_ROOT}/{name}")
                 self.assertEqual(tag, "develop-latest")
 
