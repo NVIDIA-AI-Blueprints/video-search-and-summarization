@@ -89,6 +89,23 @@ class NotebookRunnerTests(unittest.TestCase):
         )
         self.assertTrue(namespace["NEMOCLAW_CLEAN_SETUP"])
 
+    def test_webhook_config_uses_a_bounded_shields_window(self) -> None:
+        notebook = json.loads(
+            (REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb").read_text(
+                encoding="utf-8"
+            )
+        )
+        cell = next(cell for cell in notebook["cells"] if cell.get("id") == "s37-code")
+        source = "".join(cell["source"])
+
+        self.assertIn('shields down "', source)
+        self.assertIn('--timeout 15m --reason "notebook webhook config"', source)
+        self.assertIn("finally:\n", source)
+        self.assertIn("shields up", source)
+        self.assertLess(source.index("shields down"), source.index("_config_set_cmd"))
+        self.assertLess(source.index("_config_set_cmd"), source.index("finally:\n"))
+        self.assertLess(source.index("finally:\n"), source.index("shields up"))
+
     def test_remote_vss_models_are_mapped_to_notebook_variables(self) -> None:
         environment = {
             "NGC_CLI_API_KEY": "ngc-test",
