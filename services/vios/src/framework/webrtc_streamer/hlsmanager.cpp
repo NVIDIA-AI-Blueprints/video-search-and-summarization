@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,16 +19,15 @@
 #include "hlsmanager.h"
 #include "rtspserver.h"
 
-static void process_hls_message(std::shared_ptr<EventLoopData> data, void* parent)
+void HLSManager::process_hls_message(std::shared_ptr<EventLoopData> data)
 {
     shared_ptr<HlsData> in_data = std::static_pointer_cast<HlsData>(data);
     shared_ptr<HlsOutData> out_data = std::static_pointer_cast<HlsOutData>(data->m_outResult);
-    HLSManager* hls = static_cast <HLSManager*>(parent);
     std::map<std::string, std::string, std::less<>> opts = in_data->m_opts;
     Json::Value out;
     VmsErrorCode error_code = VmsErrorCode::NoError;
     string peerid = opts["peerid"];
-    if (in_data == nullptr || hls == nullptr)
+    if (in_data == nullptr)
     {
         LOG(error) << "Received null in data" << endl;
         return;
@@ -44,11 +43,11 @@ static void process_hls_message(std::shared_ptr<EventLoopData> data, void* paren
 
     if(in_data->m_taskName == "start")
     {
-        error_code = hls->start(opts, out);
+        error_code = start(opts, out);
     }
     else if(in_data->m_taskName == "stop")
     {
-        error_code = hls->stop(peerid, out);
+        error_code = stop(peerid, out);
     }
     else
     {
@@ -62,9 +61,10 @@ static void process_hls_message(std::shared_ptr<EventLoopData> data, void* paren
     }
 }
 
-HLSManager::HLSManager() : m_eventLoop("hls_event_loop", process_hls_message)
+HLSManager::HLSManager()
+    : m_eventLoop("hls_event_loop", [this](std::shared_ptr<EventLoopData> data) { process_hls_message(std::move(data)); })
 {
-    
+
 }
 
 HLSManager::~HLSManager()
@@ -77,11 +77,6 @@ HLSManager::~HLSManager()
         delete it_del->second;
         it = m_streamMap.erase(it_del);
     }
-}
-
-void HLSManager::start()
-{
-    m_eventLoop.setParent(this);
 }
 
 VmsErrorCode HLSManager::startStream(std::map<std::string, std::string, std::less<>> opts, Json::Value &response)

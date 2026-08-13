@@ -24,6 +24,7 @@
         "No file under `{{repo_root}}/deploy/docker/` is modified by the build.",
         "The deployment is launched directly from `_builds/at-1/resolved.yml` without Foundation env files, profile flags, or a copied Compose project.",
         "All long-running selected containers are running or healthy, and all selected one-shot initialization containers exit 0.",
+        "`curl -sf http://localhost:${RTVI_CV_HOST_PORT:-9010}/api/v1/ready` returns HTTP 200 with `ready-info.ds-ready=YES`.",
         "RT-CV and Behavior Analytics publish candidate alerts, `alert-bridge` can retrieve the corresponding VIOS clip, and the verifier records a verdict of `confirmed`, `rejected`, or `unverified` in Elasticsearch and Kafka.",
         "The VSS Agent, video-analytics MCP, alert API, VIOS playback API, and Elasticsearch health endpoints respond successfully.",
         "The final response identifies `alerts` as the Foundation, reports the effective service delta and changed environment knobs, and includes evidence for the alert-verification round trip."

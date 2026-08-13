@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,7 +43,7 @@ class UnifiedStorageWriter
 {
 public:
 
-    UnifiedStorageWriter(StorageType type);
+    explicit UnifiedStorageWriter(StorageType type);
     virtual ~UnifiedStorageWriter();
 
     // Independent interface
@@ -55,7 +55,7 @@ public:
                                    size_t estimated_size = 0);
 
     // Frame handling
-    bool onFrame(const std::string& session_id, const void* data, size_t size, int64_t pts = 0,
+    bool onFrame(const std::string& session_id, const unsigned char* data, size_t size, int64_t pts = 0,
                  const std::string& media_type = "video");
 
     StorageResult stopWrite(const std::string& session_id, const std::string& stream_id);
@@ -106,14 +106,16 @@ protected:
     // Pipeline management
     bool setPipelineState(GstState state);
     bool isPipelineReady() const;
-    // Internal pipeline destruction (no locking - for internal use)
-    bool destroyPipelineInternal();
+    // Internal pipeline destruction (no locking - for internal use).
+    // call_cleanup_session must be false when invoked from the destructor, since
+    // cleanupSession() is virtual and calling it during destruction is undefined.
+    bool destroyPipelineInternal(bool call_cleanup_session = true);
 
 public:
     bool resetPipeline();
 
     // Buffer handling
-    bool pushBufferToPipeline(const void* data, size_t size, int64_t pts, const std::string& media_type);
+    bool pushBufferToPipeline(const unsigned char* data, size_t size, int64_t pts, const std::string& media_type);
     bool sendEOS();
     bool waitForEOSMessage(int timeout_ms = 5000);
 
@@ -195,7 +197,7 @@ public:
     int m_height = 0;
     int m_numerator = 0;
     int m_denominator = 0;
-    char* m_format = nullptr;
+    std::string m_format;
     std::string m_resolution;
     int m_maxAllowedFrameDiff = 0;
     std::string m_parserVideoName; // Store parser element name
@@ -234,7 +236,7 @@ public:
     {
         return m_height;
     }
-    char* getFormat() const
+    std::string getFormat() const
     {
         return m_format;
     }

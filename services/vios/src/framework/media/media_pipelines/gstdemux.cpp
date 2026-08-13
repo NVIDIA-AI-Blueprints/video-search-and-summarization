@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1357,133 +1357,135 @@ string GstDeMux::getNextFile ()
 {
     auto dbHelper = GET_DB_INSTANCE();
 
-check_next_file:
-    // Check if array is empty
-    if (m_fileNameArray.empty() || dbHelper == nullptr)
+    while (true)
     {
-        LOG(warning) << "Invalid file array or dbHelper is null" << endl;
-        return "";
-    }
-
-    string file_name;
-    if(m_currentFileIndex == m_fileNameArray.size())
-    {
-        LOG(info) << "Reached at end of file, try to fetch next file(S) if available ..." << endl;
-        if (m_currentFileIndex == 0)
+        // Check if array is empty
+        if (m_fileNameArray.empty() || dbHelper == nullptr)
         {
-            LOG(error) << "Invalid file index" << endl;
+            LOG(warning) << "Invalid file array or dbHelper is null" << endl;
             return "";
         }
-        VideoFileInfo last_file = m_fileNameArray[m_currentFileIndex - 1 ];
-        if (last_file.m_fileFPS == 0) // File FPS is not updated in DB
+
+        string file_name;
+        if(m_currentFileIndex == m_fileNameArray.size())
         {
-            last_file = dbHelper->getRecordFileInfo(m_sensorId, last_file.m_startTime);
-            if (last_file.m_fileFPS != 0) // File FPS is now updated in DB
+            LOG(info) << "Reached at end of file, try to fetch next file(S) if available ..." << endl;
+            if (m_currentFileIndex == 0)
             {
-                m_fileNameArray[m_currentFileIndex - 1 ] = last_file;
+                LOG(error) << "Invalid file index" << endl;
+                return "";
             }
-        }
-        LOG(info) << "Duration of last file : " << last_file.m_duration << endl;
-        if (last_file.m_duration != 1) // check if the last file is being written
-        {
-            uint64_t last_file_start_time = last_file.m_startTime;
-            std::vector <VideoFileInfo> next_files = dbHelper->getNextFileList(m_sensorId, last_file_start_time);
-            if (next_files.size() > 0)
+            VideoFileInfo last_file = m_fileNameArray[m_currentFileIndex - 1 ];
+            if (last_file.m_fileFPS == 0) // File FPS is not updated in DB
             {
-                for (auto file : next_files)
+                last_file = dbHelper->getRecordFileInfo(m_sensorId, last_file.m_startTime);
+                if (last_file.m_fileFPS != 0) // File FPS is now updated in DB
                 {
-                    if (std::find(m_fileNameArray.begin(), m_fileNameArray.end(), file) != m_fileNameArray.end())
+                    m_fileNameArray[m_currentFileIndex - 1 ] = last_file;
+                }
+            }
+            LOG(info) << "Duration of last file : " << last_file.m_duration << endl;
+            if (last_file.m_duration != 1) // check if the last file is being written
+            {
+                uint64_t last_file_start_time = last_file.m_startTime;
+                std::vector <VideoFileInfo> next_files = dbHelper->getNextFileList(m_sensorId, last_file_start_time);
+                if (next_files.size() > 0)
+                {
+                    for (auto file : next_files)
                     {
-                        continue;
-                    }
-                    else
-                    {
-                        // push file which has start time > last file in current list
-                        if(last_file < file)
+                        if (std::find(m_fileNameArray.begin(), m_fileNameArray.end(), file) != m_fileNameArray.end())
                         {
-                            m_fileNameArray.push_back(file);
+                            continue;
+                        }
+                        else
+                        {
+                            // push file which has start time > last file in current list
+                            if(last_file < file)
+                            {
+                                m_fileNameArray.push_back(file);
+                            }
                         }
                     }
                 }
-            }
-            else
-            {
-                LOG(warning) << "No next files are available" << endl;
-                return "";
-            }
-        }
-    }
-
-    if (m_currentFileIndex < m_fileNameArray.size())
-    {
-        file_name = m_fileNameArray[m_currentFileIndex].m_filePath;
-        std::string object_id = m_fileNameArray[m_currentFileIndex].m_objectId;
-        VideoFileInfo currentFile = m_fileNameArray[m_currentFileIndex];
-
-        //If file exists in recorded_video_root, we don't need to download it from cloud
-        if (isFileExist(file_name))
-        {
-            LOG(info) << "File = " << file_name << " is already in the recorded video root path, skipping downloading it from cloud" << endl;
-            m_fileEndTime = m_fileNameArray[m_currentFileIndex].m_startTime + m_fileNameArray[m_currentFileIndex].m_duration;
-            m_currentFileIndex++;
-            return file_name;
-        }
-
-        bool file_exists = false;
-        if (m_unifiedStorageReader && !object_id.empty())
-        {
-            nv_vms::FileResult file_result = m_unifiedStorageReader->checkFileExists(object_id);
-            file_exists = file_result.success;
-
-            LOG(info) << "File exists check result: " << (file_exists ? "true" : "false") << std::endl;
-            if (!file_exists)
-            {
-                LOG(warning) << "File check error: " << file_result.message << std::endl;
+                else
+                {
+                    LOG(warning) << "No next files are available" << endl;
+                    return "";
+                }
             }
         }
-        else
-        {
-            LOG(warning) << "Unified storage reader is not initialized, assuming file does not exist" << std::endl;
-        }
 
-        /* If cloud storage is enabled and object id is not empty, download the file from cloud */
-        if (isCloudStorageEnabled() && !object_id.empty())
+        if (m_currentFileIndex < m_fileNameArray.size())
         {
-            LOG(info) << "Attempting to download from cloud: " << object_id << " to local path: " << file_name << std::endl;
+            file_name = m_fileNameArray[m_currentFileIndex].m_filePath;
+            std::string object_id = m_fileNameArray[m_currentFileIndex].m_objectId;
+            VideoFileInfo currentFile = m_fileNameArray[m_currentFileIndex];
 
-            if (m_unifiedStorageReader && nv_vms::UnifiedStorageReaderUtils::getFile(m_unifiedStorageReader, object_id, file_name))
+            //If file exists in recorded_video_root, we don't need to download it from cloud
+            if (isFileExist(file_name))
             {
-                LOG(verbose) << "Successfully downloaded file from cloud: " << object_id << " to local path: " << file_name << endl;
-                // Add the downloaded file to our tracking list for cleanup
-                addDownloadedFile(file_name);
+                LOG(info) << "File = " << file_name << " is already in the recorded video root path, skipping downloading it from cloud" << endl;
                 m_fileEndTime = m_fileNameArray[m_currentFileIndex].m_startTime + m_fileNameArray[m_currentFileIndex].m_duration;
                 m_currentFileIndex++;
                 return file_name;
             }
+
+            bool file_exists = false;
+            if (m_unifiedStorageReader && !object_id.empty())
+            {
+                nv_vms::FileResult file_result = m_unifiedStorageReader->checkFileExists(object_id);
+                file_exists = file_result.success;
+
+                LOG(info) << "File exists check result: " << (file_exists ? "true" : "false") << std::endl;
+                if (!file_exists)
+                {
+                    LOG(warning) << "File check error: " << file_result.message << std::endl;
+                }
+            }
             else
             {
-                LOG(warning) << "Failed to download file from cloud: " << object_id << " to local path: " << file_name << endl;
-                LOG(warning) << "Download error: " << nv_vms::UnifiedStorageReaderUtils::getLastError() << std::endl;
+                LOG(warning) << "Unified storage reader is not initialized, assuming file does not exist" << std::endl;
+            }
+
+            /* If cloud storage is enabled and object id is not empty, download the file from cloud */
+            if (isCloudStorageEnabled() && !object_id.empty())
+            {
+                LOG(info) << "Attempting to download from cloud: " << object_id << " to local path: " << file_name << std::endl;
+
+                if (m_unifiedStorageReader && nv_vms::UnifiedStorageReaderUtils::getFile(m_unifiedStorageReader, object_id, file_name))
+                {
+                    LOG(verbose) << "Successfully downloaded file from cloud: " << object_id << " to local path: " << file_name << endl;
+                    // Add the downloaded file to our tracking list for cleanup
+                    addDownloadedFile(file_name);
+                    m_fileEndTime = m_fileNameArray[m_currentFileIndex].m_startTime + m_fileNameArray[m_currentFileIndex].m_duration;
+                    m_currentFileIndex++;
+                    return file_name;
+                }
+                else
+                {
+                    LOG(warning) << "Failed to download file from cloud: " << object_id << " to local path: " << file_name << endl;
+                    LOG(warning) << "Download error: " << nv_vms::UnifiedStorageReaderUtils::getLastError() << std::endl;
+                }
+            }
+            else
+            {
+                LOG(info) << "Cloud storage is not enabled for this reader" << std::endl;
+            }
+
+            /* File doesn't exist locally or in cloud storage, try next file */
+            LOG(warning) << "File = " << file_name << " not available, checking next files in list" << endl;
+            if (m_currentFileIndex < m_fileNameArray.size() - 1)
+            {
+                m_currentFileIndex++;
+                continue;
             }
         }
         else
         {
-            LOG(info) << "Cloud storage is not enabled for this reader" << std::endl;
+            LOG(warning) << " Reached at end of playlist, retry after 1sec" << endl;
         }
-
-        /* File doesn't exist locally or in cloud storage, try next file */
-        LOG(warning) << "File = " << file_name << " not available, checking next files in list" << endl;
-        if (m_currentFileIndex < m_fileNameArray.size() - 1)
-        {
-            m_currentFileIndex++;
-            goto check_next_file;
-        }
+        return file_name;
     }
-    else
-    {
-        LOG(warning) << " Reached at end of playlist, retry after 1sec" << endl;
-    }
-    return file_name;
 }
 
 string GstDeMux::getFirstAvailableFile()

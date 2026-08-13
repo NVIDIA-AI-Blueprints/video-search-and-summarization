@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,9 +20,9 @@
 class DecoderBase
 {
     public:
-        virtual void setResolution(int width, int height) { }
+        virtual void setResolution(int width, int height) { /* Default: consumers that do not track resolution changes ignore them. */ }
         /** Pass decoder output strides (Y, U, V) to consumers; 0 means not set / use width. */
-        virtual void setDecoderStride(int stride_y, int stride_u, int stride_v) { }
+        virtual void setDecoderStride(int stride_y, int stride_u, int stride_v) { /* Default: consumers that do not care about strides ignore them. */ }
         /** B-frame presence flag for low-latency mode optimization */
         virtual bool hasBframes() const { return false; }
 };

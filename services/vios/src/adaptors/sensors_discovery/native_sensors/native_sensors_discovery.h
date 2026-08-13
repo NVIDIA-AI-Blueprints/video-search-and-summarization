@@ -20,6 +20,7 @@
 #include "sensor_discovery_adaptor.h"
 #include <memory>
 #include <thread>
+#include <atomic>
 #include <mutex>
 
 namespace nv_vms {
@@ -41,7 +42,8 @@ private:
     void doNativeSensorDiscovery(vector<SensorInfo>& sensors);
 
     std::thread m_nativeSensorDiscoveryThread;
-    bool m_exit;
+    // Read by the worker loop without holding m_monitorMutex.
+    std::atomic<bool> m_exit;
     std::mutex   m_monitorMutex;
     map<string, SensorInfo> m_freshList;
     std::mutex   m_sleeperLock;

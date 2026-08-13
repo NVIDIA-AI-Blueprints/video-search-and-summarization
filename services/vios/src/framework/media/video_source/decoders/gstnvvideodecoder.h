@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -79,7 +79,6 @@ struct DecoderData : public EventLoopData
 struct DecoderOutData : public EventLoopOutData
 {
     map<string, string> data;
-    void* data2;
     int result;
 };
 
@@ -153,7 +152,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         GstFlowReturn processJpegImageFromSink(GstElement *appsink);
         void setSourceFrameSize(uint32_t w, uint32_t h);
         friend gboolean busWatch (GstBus *bus, GstMessage *message, gpointer data);
-        friend void process_dec_message(std::shared_ptr<EventLoopData> data, void*);
+        friend void process_dec_message(std::shared_ptr<EventLoopData> data, GstNvVideoDecoder*);
 
         int create_internal();
         int create_recorded_internal();

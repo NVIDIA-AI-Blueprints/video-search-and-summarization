@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,7 +38,7 @@ class FPSDisplay
             m_fpsCaptureIntervalSecs = DEFAULT_FPS_CAPTURE_INTERVAL_SEC * 1000 * 1000;
             m_fpsPublishIntervalSecs = DEFAULT_FPS_PUBLISH_INTERVAL_SEC * 1000 * 1000;
         }
-        ~FPSDisplay(){ }
+        ~FPSDisplay() = default;
 
         void       displayFPS           (unsigned long pts_in_ms, string peerId_streamId);
         double     getAvgFPS            () { return m_avgFPS; }

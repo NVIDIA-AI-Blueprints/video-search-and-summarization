@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -93,6 +93,7 @@ protected:
     bool isLocalFilePath(const std::string& path) const;
     DeleteResult deleteLocalFile(const std::string& path);
 
+private:
     // Member variables
     // Mutex to protect m_cloud_manager from concurrent access and use-after-free issues
     // All methods accessing m_cloud_manager must acquire this lock before dereferencing

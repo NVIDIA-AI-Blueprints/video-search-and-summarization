@@ -446,13 +446,13 @@ int RtspStreams::connect()
     int result = -1;
     string url;
     int online_sensors = 0;
-    if (m_adaptorInfo.m_type == TYPE_VST)
+    if (adaptorInfo().m_type == TYPE_VST)
     {
-        addRtspStreams(m_cacheSensorList);
+        addRtspStreams(cacheSensorList());
 
         int max_sensors = GET_CONFIG().max_sensors_supported;
         std::vector<shared_ptr<SensorInfo>>::iterator it;
-        for (it = m_cacheSensorList.begin(); it != m_cacheSensorList.end();)
+        for (it = cacheSensorList().begin(); it != cacheSensorList().end();)
         {
             auto sensor =  *it;
             bool is_stream_offline = false;
@@ -481,7 +481,7 @@ int RtspStreams::connect()
             if(online_sensors >= max_sensors)
             {
                 LOG(warning) << "Max sensor limit is reached, so deleting extra sensor: " << sensor->name << " id: " << sensor->id << endl;
-                it = m_cacheSensorList.erase(it);
+                it = cacheSensorList().erase(it);
                 continue;
             }
             else

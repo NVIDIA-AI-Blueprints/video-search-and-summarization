@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,7 +45,7 @@ NvEncoderVideoConsumer::NvEncoderVideoConsumer(const std::string& consumer_name,
     m_encoderProcessThread = std::thread(&NvEncoderVideoConsumer::encoderProcessThread, this);
     m_transcodeStats.clear();
     // Performance tracking element name is now set in base constructor
-    setConsumerType (encoder);
+    IMediaDataConsumer::setConsumerType (encoder);
 
     /* Initialize encoder with default resolution */
     if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
@@ -375,7 +375,7 @@ void NvEncoderVideoConsumer::encoderProcessThread()
                 }
                 if (output_buffer)
                 {
-                    free (output_buffer);
+                    delete[] output_buffer;
                     output_buffer = nullptr;
                 }
             }
@@ -578,7 +578,7 @@ void NvEncoderVideoConsumer::encoderProcessThread()
         }
         if (output_buffer)
         {
-            free (output_buffer);
+            delete[] output_buffer;
             output_buffer = nullptr;
         }
         {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,7 +34,7 @@ import {
     IconButton,
 } from '@mui/material';
 import { Sensors, CloudUpload, Close as CloseIcon, CameraAlt, Image, Wallpaper, Info, Description, Upload } from '@mui/icons-material';
-import { Project } from './types';
+import { Project, Sensor } from './types';
 import nvAxios from '../../../services/Axios';
 import config from '../../../config';
 import { useExportFunctions } from './hooks/useExportFunctions';
@@ -71,6 +71,325 @@ interface CalibrationJSON {
     corridors?: unknown[]; // Make corridors optional to match ReactJS behavior
 }
 
+type Point2D = { x: number; y: number };
+type LatLngPoint = { lat: number; lng: number };
+type Roi = { id: string; roiCoordinates: Point2D[] };
+type Tripwire = {
+    id: string;
+    wire: { p1: Point2D; p2: Point2D };
+    direction: { p1: Point2D; p2: Point2D };
+};
+
+// Fallback values used when a sensor does not carry the attribute itself
+interface AttributeDefaults {
+    source: string;
+    frameWidth: string;
+    frameHeight: string;
+}
+
+const EXPORT_ATTRIBUTE_DEFAULTS: AttributeDefaults = { source: '', frameWidth: '0', frameHeight: '0' };
+const UPSERT_ATTRIBUTE_DEFAULTS: AttributeDefaults = { source: 'vst', frameWidth: '1920', frameHeight: '1080' };
+
+// Sensor shape produced for both the exported and the upserted calibration JSON
+interface BuiltSensor {
+    id: string;
+    type: string;
+    imageCoordinates: Point2D[];
+    globalCoordinates: Point2D[];
+    coordinates: Point2D;
+    origin: LatLngPoint;
+    geoLocation: LatLngPoint;
+    scaleFactor: number;
+    attributes: { name: string; value: string }[];
+    rois: Roi[];
+    place: { name: string; value: string }[];
+    tripwires: Tripwire[];
+}
+
+// Helper function to replicate ReactJS getHomographyPolygon transformation exactly
+const transformPointsWithHomography = (points: LatLngPoint[], homographyMatrix: number[][], invImHeight: number): LatLngPoint[] => {
+    const homography = matrix(homographyMatrix);
+
+    return points.map(point => {
+        // Exactly replicate ReactJS getHomographyPolygon sequence:
+        // 1. flipPointY(point, invImHeight)
+        const flippedPoint = flipPointY(point, invImHeight);
+        // 2. convertLatLngToXYMatrix(flippedPoint, invImHeight) - which does flipPointY again internally
+        const matrixPoint = convertLatLngToXYMatrix(flippedPoint, invImHeight);
+        // 3. Apply homography and convertProjectedPoint
+        const projectedPoint = convertProjectedPoint(multiply(homography, matrixPoint));
+
+        return projectedPoint;
+    });
+};
+
+// Only calibrated and validated sensors with usable origin coordinates are exported.
+// For cartesian calibration, (0,0) coordinates are valid as origin point, so only
+// undefined/null coordinates are skipped.
+const isSensorExportable = (sensor: Sensor): boolean => {
+    if (!sensor.isCalibrated || !sensor.isValidated) {
+        return false;
+    }
+
+    const { sensorId, originLat, originLng } = sensor;
+    if (originLat === undefined || originLng === undefined || originLat === null || originLng === null) {
+        LOG.warn(`Skipping sensor ${sensorId} due to undefined coordinates: lat=${originLat}, lng=${originLng}`);
+        return false;
+    }
+
+    return true;
+};
+
+// Parse ROIs for image calibration
+const parseImageRois = (sensor: Sensor): Roi[] => {
+    const rois: Roi[] = [];
+    try {
+        const roiPolygons = JSON.parse(sensor.roiPolygon || '[]');
+        roiPolygons.forEach((roi: { points?: LatLngPoint[] }, index: number) => {
+            if (roi.points && Array.isArray(roi.points)) {
+                rois.push({
+                    id: `roi-id-${index + 1}`,
+                    roiCoordinates: roi.points.map((point: LatLngPoint) => ({
+                        x: point.lng,
+                        y: point.lat,
+                    })),
+                });
+            }
+        });
+    } catch (e) {
+        LOG.warn('Failed to parse ROI polygon:', e);
+    }
+    return rois;
+};
+
+// Parse tripwires for image calibration
+const parseImageTripwires = (sensor: Sensor): Tripwire[] => {
+    const tripwires: Tripwire[] = [];
+    try {
+        const tripwireLines = JSON.parse(sensor.tripwireLines || '[]');
+        const tripDirLines = JSON.parse(sensor.tripDirLines || '[]');
+
+        tripwireLines.forEach((tripwire: { points?: LatLngPoint[] }, index: number) => {
+            if (tripwire.points && Array.isArray(tripwire.points) && tripwire.points.length >= 2) {
+                const direction = tripDirLines[index];
+                if (direction && direction.points && direction.points.length >= 2) {
+                    // For image calibration, use coordinates directly (lng -> x, lat -> y)
+                    tripwires.push({
+                        id: `tripwire-id-${index + 1}`,
+                        wire: {
+                            p1: { x: tripwire.points[0].lng, y: tripwire.points[0].lat },
+                            p2: { x: tripwire.points[1].lng, y: tripwire.points[1].lat },
+                        },
+                        direction: {
+                            p1: { x: direction.points[0].lng, y: direction.points[0].lat },
+                            p2: { x: direction.points[1].lng, y: direction.points[1].lat },
+                        },
+                    });
+                }
+            }
+        });
+    } catch (e) {
+        LOG.warn('Failed to parse tripwires:', e);
+    }
+    return tripwires;
+};
+
+// Parse sensor polygon for cartesian image coordinates
+const parseCartesianImageCoordinates = (sensor: Sensor): Point2D[] => {
+    try {
+        const sensorPolygons = JSON.parse(sensor.sensorPolygon || '[]');
+        if (sensorPolygons.length > 0 && sensorPolygons[0].points) {
+            // Convert lat/lng to x/y (matching ReactJS convertLatLngToXY)
+            return sensorPolygons[0].points.map((point: LatLngPoint) => ({
+                x: point.lng, // lng becomes x
+                y: point.lat, // lat becomes y
+            }));
+        }
+    } catch (e) {
+        LOG.warn('Failed to parse sensor polygon:', e);
+    }
+    return [];
+};
+
+// Parse edge lengths for cartesian global coordinates (matching ReactJS exactly)
+const parseCartesianGlobalCoordinates = (sensor: Sensor): Point2D[] => {
+    try {
+        const edgeLengths = JSON.parse(sensor.edgeLengths || '[]');
+        if (Array.isArray(edgeLengths) && edgeLengths.length > 0) {
+            // Step 1: Convert lat/lng to x/y (ReactJS convertLatLngToXY function)
+            const tempCoordinates = edgeLengths.map((point: LatLngPoint) => ({
+                x: point.lng, // lng becomes x
+                y: point.lat, // lat becomes y
+            }));
+
+            // Step 2: Apply padding (ReactJS padCoordinates function)
+            const tempGlobalCoordinates = tempCoordinates.map((point: Point2D) => ({
+                x: point.x + (sensor.invertImXPad || 0),
+                y: point.y + (sensor.invertImYPad || 0),
+            }));
+
+            // Step 3: Scale coordinates (ReactJS scaleCoordinates function - DIVISION by 100)
+            return tempGlobalCoordinates.map((point: Point2D) => ({
+                x: point.x / 100, // Note: DIVISION, not multiplication
+                y: point.y / 100, // Note: DIVISION, not multiplication
+            }));
+        }
+        LOG.warn(`Sensor ${sensor.sensorId} has no edge lengths data`);
+    } catch (e) {
+        LOG.warn('Failed to parse edge lengths:', e);
+    }
+    return [];
+};
+
+// Parse ROIs for cartesian calibration (matching ReactJS getCartesianPolygons)
+const parseCartesianRois = (sensor: Sensor): Roi[] => {
+    const rois: Roi[] = [];
+    try {
+        const roiPolygons = JSON.parse(sensor.roiPolygon || '[]');
+
+        // Apply homography transformation (matching ReactJS behavior)
+        if (sensor.homography && sensor.invertImHeight) {
+            const homographyMatrix: HomographyMatrix = JSON.parse(sensor.homography) as number[][];
+
+            roiPolygons.forEach((roi: { points?: LatLngPoint[] }, index: number) => {
+                if (roi.points && Array.isArray(roi.points)) {
+                    // Apply exact ReactJS homography transformation sequence
+                    const transformedPoints = transformPointsWithHomography(roi.points, homographyMatrix, sensor.invertImHeight);
+
+                    // Scale by 100 (matching ReactJS scaleCoordinates function)
+                    const roiCoordinates = transformedPoints.map(point => ({
+                        x: point.lng / 100,
+                        y: point.lat / 100,
+                    }));
+
+                    rois.push({
+                        id: `roi-id-${index + 1}`,
+                        roiCoordinates,
+                    });
+                }
+            });
+        } else {
+            LOG.warn(`Sensor ${sensor.sensorId} missing homography or invertImHeight for ROI transformation`);
+        }
+    } catch (e) {
+        LOG.warn('Failed to parse ROI polygon:', e);
+    }
+    return rois;
+};
+
+// Parse tripwires for cartesian calibration (matching ReactJS getCartesianPolygons)
+const parseCartesianTripwires = (sensor: Sensor): Tripwire[] => {
+    const tripwires: Tripwire[] = [];
+    try {
+        const tripwireLines = JSON.parse(sensor.tripwireLines || '[]');
+        const tripDirLines = JSON.parse(sensor.tripDirLines || '[]');
+
+        // Apply homography transformation to tripwires (matching ReactJS behavior)
+        if (sensor.homography && sensor.invertImHeight) {
+            const homographyMatrix: HomographyMatrix = JSON.parse(sensor.homography) as number[][];
+
+            tripwireLines.forEach((tripwire: { points?: LatLngPoint[] }, index: number) => {
+                if (tripwire.points && Array.isArray(tripwire.points) && tripwire.points.length >= 2) {
+                    const direction = tripDirLines[index];
+                    if (direction && direction.points && direction.points.length >= 2) {
+                        // Transform tripwire coordinates
+                        const transformedTripwire = transformPointsWithHomography(
+                            tripwire.points,
+                            homographyMatrix,
+                            sensor.invertImHeight
+                        );
+
+                        // Transform direction coordinates
+                        const transformedDirection = transformPointsWithHomography(
+                            direction.points,
+                            homographyMatrix,
+                            sensor.invertImHeight
+                        );
+
+                        tripwires.push({
+                            id: `tripwire-id-${index + 1}`,
+                            wire: {
+                                p1: { x: transformedTripwire[0].lng / 100, y: transformedTripwire[0].lat / 100 },
+                                p2: { x: transformedTripwire[1].lng / 100, y: transformedTripwire[1].lat / 100 },
+                            },
+                            direction: {
+                                p1: { x: transformedDirection[0].lng / 100, y: transformedDirection[0].lat / 100 },
+                                p2: { x: transformedDirection[1].lng / 100, y: transformedDirection[1].lat / 100 },
+                            },
+                        });
+                    }
+                }
+            });
+        } else {
+            LOG.warn(`Sensor ${sensor.sensorId} missing homography or invertImHeight for tripwire transformation`);
+        }
+    } catch (e) {
+        LOG.warn('Failed to parse tripwires:', e);
+    }
+    return tripwires;
+};
+
+const resolveFps = (sensor: Sensor, strict: boolean): string => {
+    if (strict) {
+        return sensor.fps && sensor.fps !== '0.0' && sensor.fps !== '0' ? sensor.fps : '30';
+    }
+    return sensor.fps || '30'; // Don't override original fps value
+};
+
+const buildSensorAttributes = (sensor: Sensor, defaults: AttributeDefaults, strictFps: boolean): { name: string; value: string }[] => [
+    { name: 'fps', value: resolveFps(sensor, strictFps) },
+    { name: 'depth', value: sensor.depth || '' },
+    { name: 'fieldOfView', value: sensor.fieldOfView || '' },
+    { name: 'direction', value: sensor.direction || '' },
+    { name: 'source', value: sensor.mmsInfo_type || defaults.source },
+    { name: 'frameWidth', value: sensor.width?.toString() || defaults.frameWidth },
+    { name: 'frameHeight', value: sensor.height?.toString() || defaults.frameHeight },
+];
+
+// Use actual project values, not defaults (matching ReactJS)
+const buildSensorPlace = (project: Project): { name: string; value: string }[] => [
+    { name: 'city', value: project.cityPlace || 'Unknown' },
+    { name: 'building', value: project.name || 'Unknown' },
+    { name: 'room', value: project.roomPlace || 'Unknown' },
+];
+
+// Ensure project has valid origin coordinates, fallback to sensor coordinates
+const resolveProjectOrigin = (project: Project, originLat: number, originLng: number): LatLngPoint => ({
+    lat: project.originLat && project.originLat !== 0 ? project.originLat : originLat,
+    lng: project.originLng && project.originLng !== 0 ? project.originLng : originLng,
+});
+
+const buildImageSensor = (project: Project, sensor: Sensor, defaults: AttributeDefaults): BuiltSensor => ({
+    id: sensor.sensorId,
+    type: 'camera',
+    imageCoordinates: [],
+    globalCoordinates: [],
+    coordinates: { x: 0, y: 0 },
+    origin: resolveProjectOrigin(project, sensor.originLat, sensor.originLng),
+    geoLocation: { lat: sensor.originLat, lng: sensor.originLng },
+    scaleFactor: sensor.scaleFactor || 1,
+    attributes: buildSensorAttributes(sensor, defaults, true),
+    rois: parseImageRois(sensor),
+    place: buildSensorPlace(project),
+    tripwires: parseImageTripwires(sensor),
+});
+
+// Cartesian calibration logic (matching ReactJS exactly)
+const buildCartesianSensor = (project: Project, sensor: Sensor, defaults: AttributeDefaults): BuiltSensor => ({
+    id: sensor.sensorId,
+    type: 'camera',
+    imageCoordinates: parseCartesianImageCoordinates(sensor),
+    globalCoordinates: parseCartesianGlobalCoordinates(sensor),
+    origin: resolveProjectOrigin(project, sensor.originLat, sensor.originLng),
+    geoLocation: { lat: sensor.originLat, lng: sensor.originLng },
+    coordinates: { x: 0, y: 0 },
+    scaleFactor: 100,
+    rois: parseCartesianRois(sensor),
+    place: buildSensorPlace(project),
+    tripwires: parseCartesianTripwires(sensor),
+    attributes: buildSensorAttributes(sensor, defaults, false),
+});
+
 const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ project }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -83,27 +402,6 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
 
     // Use export functions hook
     const exportFunctions = useExportFunctions();
-
-    // Helper function to replicate ReactJS getHomographyPolygon transformation exactly
-    const transformPointsWithHomography = (
-        points: { lat: number; lng: number }[],
-        homographyMatrix: number[][],
-        invImHeight: number
-    ): { lat: number; lng: number }[] => {
-        const homography = matrix(homographyMatrix);
-
-        return points.map(point => {
-            // Exactly replicate ReactJS getHomographyPolygon sequence:
-            // 1. flipPointY(point, invImHeight)
-            const flippedPoint = flipPointY(point, invImHeight);
-            // 2. convertLatLngToXYMatrix(flippedPoint, invImHeight) - which does flipPointY again internally
-            const matrixPoint = convertLatLngToXYMatrix(flippedPoint, invImHeight);
-            // 3. Apply homography and convertProjectedPoint
-            const projectedPoint = convertProjectedPoint(multiply(homography, matrixPoint));
-
-            return projectedPoint;
-        });
-    };
 
     // Calculate sensor statistics
     const sensors = project?.sensor_set || [];
@@ -181,287 +479,14 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
 
         // Process all calibrated and validated sensors (matching ReactJS logic)
         sensors.forEach(sensor => {
-            if (sensor.isCalibrated && sensor.isValidated) {
-                const { sensorId, originLat, originLng, scaleFactor } = sensor;
-                const id = sensorId;
+            if (!isSensorExportable(sensor)) {
+                return;
+            }
 
-                // For cartesian calibration, (0,0) coordinates are valid as origin point
-                // Only skip if coordinates are undefined/null, not if they're zero
-                if (originLat === undefined || originLng === undefined || originLat === null || originLng === null) {
-                    LOG.warn(`Skipping sensor ${sensorId} due to undefined coordinates: lat=${originLat}, lng=${originLng}`);
-                    return;
-                }
-
-                const geoLocation = { lat: originLat, lng: originLng };
-
-                if (calibrationType === 'image') {
-                    // Image calibration logic
-                    const imageCoordinates: { x: number; y: number }[] = [];
-                    const globalCoordinates: { x: number; y: number }[] = [];
-
-                    // Parse ROIs
-                    const rois: { id: string; roiCoordinates: { x: number; y: number }[] }[] = [];
-                    try {
-                        const roiPolygons = JSON.parse(sensor.roiPolygon || '[]');
-                        roiPolygons.forEach((roi: { points?: { lat: number; lng: number }[] }, index: number) => {
-                            if (roi.points && Array.isArray(roi.points)) {
-                                rois.push({
-                                    id: `roi-id-${index + 1}`,
-                                    roiCoordinates: roi.points.map((point: { lat: number; lng: number }) => ({
-                                        x: point.lng,
-                                        y: point.lat,
-                                    })),
-                                });
-                            }
-                        });
-                    } catch (e) {
-                        LOG.warn('Failed to parse ROI polygon:', e);
-                    }
-
-                    // Parse tripwires for image calibration
-                    const tripwires: Array<{
-                        id: string;
-                        wire: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                        direction: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                    }> = [];
-                    try {
-                        const tripwireLines = JSON.parse(sensor.tripwireLines || '[]');
-                        const tripDirLines = JSON.parse(sensor.tripDirLines || '[]');
-
-                        tripwireLines.forEach((tripwire: { points?: { lat: number; lng: number }[] }, index: number) => {
-                            if (tripwire.points && Array.isArray(tripwire.points) && tripwire.points.length >= 2) {
-                                const direction = tripDirLines[index];
-                                if (direction && direction.points && direction.points.length >= 2) {
-                                    // For image calibration, use coordinates directly (lng -> x, lat -> y)
-                                    tripwires.push({
-                                        id: `tripwire-id-${index + 1}`,
-                                        wire: {
-                                            p1: { x: tripwire.points[0].lng, y: tripwire.points[0].lat },
-                                            p2: { x: tripwire.points[1].lng, y: tripwire.points[1].lat },
-                                        },
-                                        direction: {
-                                            p1: { x: direction.points[0].lng, y: direction.points[0].lat },
-                                            p2: { x: direction.points[1].lng, y: direction.points[1].lat },
-                                        },
-                                    });
-                                }
-                            }
-                        });
-                    } catch (e) {
-                        LOG.warn('Failed to parse tripwires:', e);
-                    }
-
-                    const attributes = [
-                        { name: 'fps', value: sensor.fps && sensor.fps !== '0.0' && sensor.fps !== '0' ? sensor.fps : '30' },
-                        { name: 'depth', value: sensor.depth || '' },
-                        { name: 'fieldOfView', value: sensor.fieldOfView || '' },
-                        { name: 'direction', value: sensor.direction || '' },
-                        { name: 'source', value: sensor.mmsInfo_type || '' },
-                        { name: 'frameWidth', value: sensor.width?.toString() || '0' },
-                        { name: 'frameHeight', value: sensor.height?.toString() || '0' },
-                    ];
-
-                    const place = [
-                        { name: 'city', value: project.cityPlace || 'Unknown' },
-                        { name: 'building', value: project.name || 'Unknown' },
-                        { name: 'room', value: project.roomPlace || 'Unknown' },
-                    ];
-
-                    // Ensure project has valid origin coordinates, fallback to sensor coordinates
-                    const projectOrigin = {
-                        lat: project.originLat && project.originLat !== 0 ? project.originLat : originLat,
-                        lng: project.originLng && project.originLng !== 0 ? project.originLng : originLng,
-                    };
-
-                    calibrationJSON.sensors.push({
-                        id,
-                        type: 'camera',
-                        imageCoordinates,
-                        globalCoordinates,
-                        coordinates: { x: 0, y: 0 },
-                        origin: projectOrigin,
-                        geoLocation,
-                        scaleFactor: scaleFactor || 1,
-                        attributes,
-                        rois,
-                        place,
-                        tripwires,
-                    });
-                } else if (calibrationType === 'cartesian') {
-                    // Cartesian calibration logic (matching ReactJS exactly)
-                    let imageCoordinates: { x: number; y: number }[] = [];
-                    let globalCoordinates: { x: number; y: number }[] = [];
-
-                    // Parse sensor polygon for image coordinates
-                    try {
-                        const sensorPolygons = JSON.parse(sensor.sensorPolygon || '[]');
-                        if (sensorPolygons.length > 0 && sensorPolygons[0].points) {
-                            // Convert lat/lng to x/y (matching ReactJS convertLatLngToXY)
-                            imageCoordinates = sensorPolygons[0].points.map((point: { lat: number; lng: number }) => ({
-                                x: point.lng, // lng becomes x
-                                y: point.lat, // lat becomes y
-                            }));
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse sensor polygon:', e);
-                    }
-
-                    // Parse edge lengths for global coordinates (matching ReactJS exactly)
-                    try {
-                        const edgeLengths = JSON.parse(sensor.edgeLengths || '[]');
-                        if (Array.isArray(edgeLengths) && edgeLengths.length > 0) {
-                            // Step 1: Convert lat/lng to x/y (ReactJS convertLatLngToXY function)
-                            const tempCoordinates = edgeLengths.map((point: { lat: number; lng: number }) => ({
-                                x: point.lng, // lng becomes x
-                                y: point.lat, // lat becomes y
-                            }));
-
-                            // Step 2: Apply padding (ReactJS padCoordinates function)
-                            const tempGlobalCoordinates = tempCoordinates.map((point: { x: number; y: number }) => ({
-                                x: point.x + (sensor.invertImXPad || 0),
-                                y: point.y + (sensor.invertImYPad || 0),
-                            }));
-
-                            // Step 3: Scale coordinates (ReactJS scaleCoordinates function - DIVISION by 100)
-                            globalCoordinates = tempGlobalCoordinates.map((point: { x: number; y: number }) => ({
-                                x: point.x / 100, // Note: DIVISION, not multiplication
-                                y: point.y / 100, // Note: DIVISION, not multiplication
-                            }));
-                        } else {
-                            LOG.warn(`Sensor ${sensorId} has no edge lengths data`);
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse edge lengths:', e);
-                    }
-
-                    // Parse ROIs (matching ReactJS getCartesianPolygons)
-                    const rois: { id: string; roiCoordinates: { x: number; y: number }[] }[] = [];
-                    try {
-                        const roiPolygons = JSON.parse(sensor.roiPolygon || '[]');
-
-                        // Apply homography transformation (matching ReactJS behavior)
-                        if (sensor.homography && sensor.invertImHeight) {
-                            const homographyMatrix: HomographyMatrix = JSON.parse(sensor.homography) as number[][];
-
-                            roiPolygons.forEach((roi: { points?: { lat: number; lng: number }[] }, index: number) => {
-                                if (roi.points && Array.isArray(roi.points)) {
-                                    // Apply exact ReactJS homography transformation sequence
-                                    const transformedPoints = transformPointsWithHomography(
-                                        roi.points,
-                                        homographyMatrix,
-                                        sensor.invertImHeight
-                                    );
-
-                                    // Scale by 100 (matching ReactJS scaleCoordinates function)
-                                    const roiCoordinates = transformedPoints.map(point => ({
-                                        x: point.lng / 100,
-                                        y: point.lat / 100,
-                                    }));
-
-                                    rois.push({
-                                        id: `roi-id-${index + 1}`,
-                                        roiCoordinates,
-                                    });
-                                }
-                            });
-                        } else {
-                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for ROI transformation`);
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse ROI polygon:', e);
-                    }
-
-                    // Parse tripwires (matching ReactJS getCartesianPolygons)
-                    const tripwires: Array<{
-                        id: string;
-                        wire: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                        direction: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                    }> = [];
-                    try {
-                        const tripwireLines = JSON.parse(sensor.tripwireLines || '[]');
-                        const tripDirLines = JSON.parse(sensor.tripDirLines || '[]');
-
-                        // Apply homography transformation to tripwires (matching ReactJS behavior)
-                        if (sensor.homography && sensor.invertImHeight) {
-                            const homographyMatrix: HomographyMatrix = JSON.parse(sensor.homography) as number[][];
-
-                            tripwireLines.forEach((tripwire: { points?: { lat: number; lng: number }[] }, index: number) => {
-                                if (tripwire.points && Array.isArray(tripwire.points) && tripwire.points.length >= 2) {
-                                    const direction = tripDirLines[index];
-                                    if (direction && direction.points && direction.points.length >= 2) {
-                                        // Transform tripwire coordinates
-                                        const transformedTripwire = transformPointsWithHomography(
-                                            tripwire.points,
-                                            homographyMatrix,
-                                            sensor.invertImHeight
-                                        );
-
-                                        // Transform direction coordinates
-                                        const transformedDirection = transformPointsWithHomography(
-                                            direction.points,
-                                            homographyMatrix,
-                                            sensor.invertImHeight
-                                        );
-
-                                        tripwires.push({
-                                            id: `tripwire-id-${index + 1}`,
-                                            wire: {
-                                                p1: { x: transformedTripwire[0].lng / 100, y: transformedTripwire[0].lat / 100 },
-                                                p2: { x: transformedTripwire[1].lng / 100, y: transformedTripwire[1].lat / 100 },
-                                            },
-                                            direction: {
-                                                p1: { x: transformedDirection[0].lng / 100, y: transformedDirection[0].lat / 100 },
-                                                p2: { x: transformedDirection[1].lng / 100, y: transformedDirection[1].lat / 100 },
-                                            },
-                                        });
-                                    }
-                                }
-                            });
-                        } else {
-                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for tripwire transformation`);
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse tripwires:', e);
-                    }
-
-                    const attributes = [
-                        { name: 'fps', value: sensor.fps || '30' }, // Don't override original fps value
-                        { name: 'depth', value: sensor.depth || '' },
-                        { name: 'fieldOfView', value: sensor.fieldOfView || '' },
-                        { name: 'direction', value: sensor.direction || '' },
-                        { name: 'source', value: sensor.mmsInfo_type || '' },
-                        { name: 'frameWidth', value: sensor.width?.toString() || '0' },
-                        { name: 'frameHeight', value: sensor.height?.toString() || '0' },
-                    ];
-
-                    // Fix place values to match ReactJS (use actual project values, not defaults)
-                    const place = [
-                        { name: 'city', value: project.cityPlace || 'Unknown' },
-                        { name: 'building', value: project.name || 'Unknown' },
-                        { name: 'room', value: project.roomPlace || 'Unknown' },
-                    ];
-
-                    // Ensure project has valid origin coordinates, fallback to sensor coordinates
-                    const projectOrigin = {
-                        lat: project.originLat && project.originLat !== 0 ? project.originLat : originLat,
-                        lng: project.originLng && project.originLng !== 0 ? project.originLng : originLng,
-                    };
-
-                    calibrationJSON.sensors.push({
-                        id,
-                        type: 'camera',
-                        imageCoordinates,
-                        globalCoordinates,
-                        origin: projectOrigin,
-                        geoLocation,
-                        coordinates: { x: 0, y: 0 },
-                        scaleFactor: 100,
-                        rois,
-                        place,
-                        tripwires,
-                        attributes,
-                    });
-                }
+            if (calibrationType === 'image') {
+                calibrationJSON.sensors.push(buildImageSensor(project, sensor, EXPORT_ATTRIBUTE_DEFAULTS));
+            } else if (calibrationType === 'cartesian') {
+                calibrationJSON.sensors.push(buildCartesianSensor(project, sensor, EXPORT_ATTRIBUTE_DEFAULTS));
             }
         });
 
@@ -505,285 +530,17 @@ const CalibrationDataManagement: React.FC<CalibrationDataManagementProps> = ({ p
 
         // Process all calibrated and validated sensors
         sensors.forEach(sensor => {
-            if (sensor.isCalibrated && sensor.isValidated) {
-                const { sensorId, originLat, originLng } = sensor;
-                const id = sensorId;
+            if (!isSensorExportable(sensor)) {
+                return;
+            }
 
-                // For cartesian calibration, (0,0) coordinates are valid as origin point
-                // Only skip if coordinates are undefined/null, not if they're zero
-                if (originLat === undefined || originLng === undefined || originLat === null || originLng === null) {
-                    LOG.warn(`Skipping sensor ${sensorId} due to undefined coordinates: lat=${originLat}, lng=${originLng}`);
-                    return;
-                }
-
-                const geoLocation = { lat: originLat, lng: originLng };
-
-                if (calibrationType === 'cartesian') {
-                    // Cartesian calibration logic for upsert format
-                    let imageCoordinates: { x: number; y: number }[] = [];
-                    let globalCoordinates: { x: number; y: number }[] = [];
-
-                    // Parse sensor polygon for image coordinates
-                    try {
-                        const sensorPolygons = JSON.parse(sensor.sensorPolygon || '[]');
-                        if (sensorPolygons.length > 0 && sensorPolygons[0].points) {
-                            imageCoordinates = sensorPolygons[0].points.map((point: { lat: number; lng: number }) => ({
-                                x: point.lng,
-                                y: point.lat,
-                            }));
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse sensor polygon:', e);
-                    }
-
-                    // Parse edge lengths for global coordinates
-                    try {
-                        const edgeLengths = JSON.parse(sensor.edgeLengths || '[]');
-                        if (Array.isArray(edgeLengths) && edgeLengths.length > 0) {
-                            const tempCoordinates = edgeLengths.map((point: { lat: number; lng: number }) => ({
-                                x: point.lng,
-                                y: point.lat,
-                            }));
-
-                            const tempGlobalCoordinates = tempCoordinates.map((point: { x: number; y: number }) => ({
-                                x: point.x + (sensor.invertImXPad || 0),
-                                y: point.y + (sensor.invertImYPad || 0),
-                            }));
-
-                            globalCoordinates = tempGlobalCoordinates.map((point: { x: number; y: number }) => ({
-                                x: point.x / 100,
-                                y: point.y / 100,
-                            }));
-                        } else {
-                            LOG.warn(`Sensor ${sensorId} has no edge lengths data`);
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse edge lengths:', e);
-                    }
-
-                    // Parse ROIs (matching ReactJS getCartesianPolygons)
-                    const rois: { id: string; roiCoordinates: { x: number; y: number }[] }[] = [];
-                    try {
-                        const roiPolygons = JSON.parse(sensor.roiPolygon || '[]');
-
-                        // Apply homography transformation (matching ReactJS behavior)
-                        if (sensor.homography && sensor.invertImHeight) {
-                            const homographyMatrix: HomographyMatrix = JSON.parse(sensor.homography) as number[][];
-
-                            roiPolygons.forEach((roi: { points?: { lat: number; lng: number }[] }, index: number) => {
-                                if (roi.points && Array.isArray(roi.points)) {
-                                    // Apply exact ReactJS homography transformation sequence
-                                    const transformedPoints = transformPointsWithHomography(
-                                        roi.points,
-                                        homographyMatrix,
-                                        sensor.invertImHeight
-                                    );
-
-                                    // Scale by 100 (matching ReactJS scaleCoordinates function)
-                                    const roiCoordinates = transformedPoints.map(point => ({
-                                        x: point.lng / 100,
-                                        y: point.lat / 100,
-                                    }));
-
-                                    rois.push({
-                                        id: `roi-id-${index + 1}`,
-                                        roiCoordinates,
-                                    });
-                                }
-                            });
-                        } else {
-                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for ROI transformation`);
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse ROI polygon:', e);
-                    }
-
-                    // Parse tripwires (matching ReactJS getCartesianPolygons)
-                    const tripwires: Array<{
-                        id: string;
-                        wire: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                        direction: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                    }> = [];
-                    try {
-                        const tripwireLines = JSON.parse(sensor.tripwireLines || '[]');
-                        const tripDirLines = JSON.parse(sensor.tripDirLines || '[]');
-
-                        // Apply homography transformation to tripwires (matching ReactJS behavior)
-                        if (sensor.homography && sensor.invertImHeight) {
-                            const homographyMatrix: HomographyMatrix = JSON.parse(sensor.homography) as number[][];
-
-                            tripwireLines.forEach((tripwire: { points?: { lat: number; lng: number }[] }, index: number) => {
-                                if (tripwire.points && Array.isArray(tripwire.points) && tripwire.points.length >= 2) {
-                                    const direction = tripDirLines[index];
-                                    if (direction && direction.points && direction.points.length >= 2) {
-                                        // Transform tripwire coordinates
-                                        const transformedTripwire = transformPointsWithHomography(
-                                            tripwire.points,
-                                            homographyMatrix,
-                                            sensor.invertImHeight
-                                        );
-
-                                        // Transform direction coordinates
-                                        const transformedDirection = transformPointsWithHomography(
-                                            direction.points,
-                                            homographyMatrix,
-                                            sensor.invertImHeight
-                                        );
-
-                                        tripwires.push({
-                                            id: `tripwire-id-${index + 1}`,
-                                            wire: {
-                                                p1: { x: transformedTripwire[0].lng / 100, y: transformedTripwire[0].lat / 100 },
-                                                p2: { x: transformedTripwire[1].lng / 100, y: transformedTripwire[1].lat / 100 },
-                                            },
-                                            direction: {
-                                                p1: { x: transformedDirection[0].lng / 100, y: transformedDirection[0].lat / 100 },
-                                                p2: { x: transformedDirection[1].lng / 100, y: transformedDirection[1].lat / 100 },
-                                            },
-                                        });
-                                    }
-                                }
-                            });
-                        } else {
-                            LOG.warn(`Sensor ${sensorId} missing homography or invertImHeight for tripwire transformation`);
-                        }
-                    } catch (e) {
-                        LOG.warn('Failed to parse tripwires:', e);
-                    }
-
-                    const attributes = [
-                        { name: 'fps', value: sensor.fps || '30' }, // Don't override original fps value
-                        { name: 'depth', value: sensor.depth || '' },
-                        { name: 'fieldOfView', value: sensor.fieldOfView || '' },
-                        { name: 'direction', value: sensor.direction || '' },
-                        { name: 'source', value: sensor.mmsInfo_type || 'vst' },
-                        { name: 'frameWidth', value: sensor.width?.toString() || '1920' },
-                        { name: 'frameHeight', value: sensor.height?.toString() || '1080' },
-                    ];
-
-                    const place = [
-                        { name: 'city', value: project.cityPlace || 'Unknown' },
-                        { name: 'building', value: project.name || 'Unknown' },
-                        { name: 'room', value: project.roomPlace || 'Unknown' },
-                    ];
-
-                    // Ensure project has valid origin coordinates, fallback to sensor coordinates
-                    const projectOrigin = {
-                        lat: project.originLat && project.originLat !== 0 ? project.originLat : originLat,
-                        lng: project.originLng && project.originLng !== 0 ? project.originLng : originLng,
-                    };
-
-                    upsertCalibrationJSON.sensors.push({
-                        id,
-                        type: 'camera',
-                        imageCoordinates,
-                        globalCoordinates,
-                        origin: projectOrigin,
-                        geoLocation,
-                        coordinates: { x: 0, y: 0 },
-                        scaleFactor: 100,
-                        rois,
-                        place,
-                        tripwires,
-                        attributes,
-                    });
-                } else if (calibrationType === 'image') {
-                    // Image calibration logic for upsert format
-                    const imageCoordinates: { x: number; y: number }[] = [];
-                    const globalCoordinates: { x: number; y: number }[] = [];
-
-                    // Parse ROIs
-                    const rois: { id: string; roiCoordinates: { x: number; y: number }[] }[] = [];
-                    try {
-                        const roiPolygons = JSON.parse(sensor.roiPolygon || '[]');
-                        roiPolygons.forEach((roi: { points?: { lat: number; lng: number }[] }, index: number) => {
-                            if (roi.points && Array.isArray(roi.points)) {
-                                rois.push({
-                                    id: `roi-id-${index + 1}`,
-                                    roiCoordinates: roi.points.map((point: { lat: number; lng: number }) => ({
-                                        x: point.lng,
-                                        y: point.lat,
-                                    })),
-                                });
-                            }
-                        });
-                    } catch (e) {
-                        LOG.warn('Failed to parse ROI polygon:', e);
-                    }
-
-                    // Parse tripwires for image calibration (upsert format)
-                    const tripwires: Array<{
-                        id: string;
-                        wire: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                        direction: { p1: { x: number; y: number }; p2: { x: number; y: number } };
-                    }> = [];
-                    try {
-                        const tripwireLines = JSON.parse(sensor.tripwireLines || '[]');
-                        const tripDirLines = JSON.parse(sensor.tripDirLines || '[]');
-
-                        tripwireLines.forEach((tripwire: { points?: { lat: number; lng: number }[] }, index: number) => {
-                            if (tripwire.points && Array.isArray(tripwire.points) && tripwire.points.length >= 2) {
-                                const direction = tripDirLines[index];
-                                if (direction && direction.points && direction.points.length >= 2) {
-                                    // For image calibration, use coordinates directly (lng -> x, lat -> y)
-                                    tripwires.push({
-                                        id: `tripwire-id-${index + 1}`,
-                                        wire: {
-                                            p1: { x: tripwire.points[0].lng, y: tripwire.points[0].lat },
-                                            p2: { x: tripwire.points[1].lng, y: tripwire.points[1].lat },
-                                        },
-                                        direction: {
-                                            p1: { x: direction.points[0].lng, y: direction.points[0].lat },
-                                            p2: { x: direction.points[1].lng, y: direction.points[1].lat },
-                                        },
-                                    });
-                                }
-                            }
-                        });
-                    } catch (e) {
-                        LOG.warn('Failed to parse tripwires:', e);
-                    }
-
-                    const attributes = [
-                        { name: 'fps', value: sensor.fps && sensor.fps !== '0.0' && sensor.fps !== '0' ? sensor.fps : '30' },
-                        { name: 'depth', value: sensor.depth || '' },
-                        { name: 'fieldOfView', value: sensor.fieldOfView || '' },
-                        { name: 'direction', value: sensor.direction || '' },
-                        { name: 'source', value: sensor.mmsInfo_type || 'vst' },
-                        { name: 'frameWidth', value: sensor.width?.toString() || '1920' },
-                        { name: 'frameHeight', value: sensor.height?.toString() || '1080' },
-                    ];
-
-                    const place = [
-                        { name: 'city', value: project.cityPlace || 'Unknown' },
-                        { name: 'building', value: project.name || 'Unknown' },
-                        { name: 'room', value: project.roomPlace || 'Unknown' },
-                    ];
-
-                    // Ensure project has valid origin coordinates, fallback to sensor coordinates
-                    const projectOrigin = {
-                        lat: project.originLat && project.originLat !== 0 ? project.originLat : originLat,
-                        lng: project.originLng && project.originLng !== 0 ? project.originLng : originLng,
-                    };
-
-                    upsertCalibrationJSON.sensors.push({
-                        id,
-                        type: 'camera',
-                        imageCoordinates,
-                        globalCoordinates,
-                        coordinates: { x: 0, y: 0 },
-                        origin: projectOrigin,
-                        geoLocation,
-                        scaleFactor: sensor.scaleFactor || 1,
-                        attributes,
-                        rois,
-                        place,
-                        tripwires,
-                    });
-                } else {
-                    // For other calibration types, use similar logic but adjust as needed
-                    LOG.warn(`Upsert calibration not fully implemented for calibration type: ${calibrationType}`);
-                }
+            if (calibrationType === 'cartesian') {
+                upsertCalibrationJSON.sensors.push(buildCartesianSensor(project, sensor, UPSERT_ATTRIBUTE_DEFAULTS));
+            } else if (calibrationType === 'image') {
+                upsertCalibrationJSON.sensors.push(buildImageSensor(project, sensor, UPSERT_ATTRIBUTE_DEFAULTS));
+            } else {
+                // For other calibration types, use similar logic but adjust as needed
+                LOG.warn(`Upsert calibration not fully implemented for calibration type: ${calibrationType}`);
             }
         });
 

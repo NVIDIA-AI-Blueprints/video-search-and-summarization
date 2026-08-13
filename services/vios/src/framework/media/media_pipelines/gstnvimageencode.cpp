@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -295,7 +295,7 @@ void NvImageEncode::onFrame(const unsigned char *buffer, ssize_t size)
     /* Map the Gst Buffer to write the data */
     gst_buffer_map (gstbuffer, &map, GST_MAP_WRITE);
 
-    memcpy (map.data, (uint8_t*)buffer, size);
+    memcpy (map.data, buffer, size);
     map.size = size;
 
     /* Unmap the Gst Buffer */
