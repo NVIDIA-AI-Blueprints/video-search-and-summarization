@@ -551,7 +551,7 @@ the profile-specific stream cap and per-profile tuning are skipped.
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX PRO 6000 Blackwell Server Edition | `RTXPRO6000BW-SE` — same stream caps as the workstation part. No `hw-RTXPRO6000BW-SE.env` ships for any LLM NIM, so `LLM_MODE=local` needs `HARDWARE_PROFILE=OTHER` or a new sizing file. |
+| RTX PRO 6000 Blackwell Server Edition | `RTXPRO6000BW-SE` — capped at 47 streams for 2D, 19 for 3D, and 39 for mv3dt. No `hw-RTXPRO6000BW-SE.env` ships for any LLM NIM, so `LLM_MODE=local` needs `HARDWARE_PROFILE=OTHER` or a new sizing file. |
 | RTX PRO 4500 Blackwell | `RTXPRO4500BW` (32 GB, 2D-tuned only). When `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}` deploys `vss-rtvi-vlm`, set `RTVI_VLM_MAX_MODEL_LEN=18000` to cap RT-VLM context and allow KV-cache allocation. |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
