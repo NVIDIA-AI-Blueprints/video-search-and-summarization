@@ -8,7 +8,9 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -698,6 +700,32 @@ class SingleScenarioTests(unittest.TestCase):
 
 
 class WorkflowScopeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        envs = types.ModuleType("envs")
+        envs.__path__ = []
+        brev_env = types.ModuleType("envs.brev_env")
+        brev_env.BrevEnvironment = type("BrevEnvironment", (), {})
+        brev_env._run_brev_exec = lambda *args, **kwargs: None
+        previous_envs = sys.modules.get("envs")
+        previous_brev_env = sys.modules.get("envs.brev_env")
+        sys.modules["envs"] = envs
+        sys.modules["envs.brev_env"] = brev_env
+        try:
+            cls.env_module = _load(
+                "nemoclaw_brev_env",
+                REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py",
+            )
+        finally:
+            if previous_envs is None:
+                del sys.modules["envs"]
+            else:
+                sys.modules["envs"] = previous_envs
+            if previous_brev_env is None:
+                del sys.modules["envs.brev_env"]
+            else:
+                sys.modules["envs.brev_env"] = previous_brev_env
+
     def test_remote_notebook_kernel_uses_supported_python(self) -> None:
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
             encoding="utf-8"
@@ -754,6 +782,11 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn('re.fullmatch(r"skill-eval-[0-9]+", name)', source)
         self.assertIn("del sandboxes[name]", source)
         self.assertNotIn("sandboxes.clear", source)
+        command = self.env_module._setup_command(5400)
+        cleanup = command.split("python3 - <<'__NEMOCLAW_LEGACY_ROW_CLEANUP__'\n", 1)[
+            1
+        ].split("\n__NEMOCLAW_LEGACY_ROW_CLEANUP__", 1)[0]
+        compile(cleanup, "<nemoclaw-legacy-row-cleanup>", "exec")
 
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/skills-eval.yml").read_text(
