@@ -16,11 +16,20 @@
 services:
   # Runs once and exits: fetches calibration from the video-analytics API,
   # validates it, and writes the per-camera camInfo files plus the pub/sub
-  # topology to the shared volumes. Behind the `dynamic-config` profile so the
-  # default stack keeps using the static committed configs and does not gain a
-  # startup dependency on the calibration API. Enable with:
+  # topology to the named volumes below. Enable with:
   #   docker compose --profile dynamic-config up
-  # Counterpart of standaloneWarehouse.mv3dt.dynamicCameraConfig in the Helm chart.
+  #
+  # NOT yet consumed: `perception` does not mount these volumes and does not
+  # wait for this service, so enabling the profile generates the configs but the
+  # pipeline still runs on the static committed ones. Wiring that up means
+  # mounting both volumes into `perception`, adding
+  # `depends_on: {mv3dt-config-init: {condition: service_completed_successfully}}`,
+  # and pointing the DeepStream start script at the generated files. That is a
+  # separate change: it makes the calibration API a hard startup dependency for
+  # every compose user, which is why Helm keeps the equivalent
+  # standaloneWarehouse.mv3dt.dynamicCameraConfig disabled by default too.
+  # The image coordinate is declared here so the release-set tooling can resolve
+  # it; the profile keeps the default stack byte-identical to before.
   mv3dt-config-init:
     profiles: ["dynamic-config"]
     image: ${VSS_RT_CV_MV3DT_CONFIG_INIT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv-mv3dt-config-init}:${VSS_RT_CV_MV3DT_CONFIG_INIT_TAG:-develop-latest}
