@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 class cluster():
     def __init__(self, app_config, **kvargs):
         self.cluster_type = app_config["WDM_CLUSTER_TYPE"].lower()
+        self.health_watcher = None
 
         if self.cluster_type == "k8s":
             self.client = k8sclient(app_config, **kvargs)
@@ -38,6 +39,12 @@ class cluster():
             self.client = dockerclient(app_config, **kvargs)
         
         return None
+
+    def set_health_watcher(self, health_watcher):
+        """Attach the shared HTTP health watcher used for readiness gating."""
+        self.health_watcher = health_watcher
+        if hasattr(self.client, "set_health_watcher"):
+            self.client.set_health_watcher(health_watcher)
     
     def get_current_allocation_configs(self):
         return self.client.get_current_allocation_configs()
@@ -96,6 +103,11 @@ class cluster():
     def ifPodDown (self, podname):
         return self.client.ifPodDown(podname)
 
+    def isPodHealthy(self, podname):
+        if hasattr(self.client, "isPodHealthy"):
+            return self.client.isPodHealthy(podname)
+        return not self.ifPodDown(podname)
+
     def watchAllPodState(self):
         return self.client.watchAllPodState()
     
@@ -140,6 +152,12 @@ class cluster():
         
     def get_podname_keys(self):
         return self.client.get_podname_keys()
+
+    def get_health_check_targets(self):
+        """Return pod targets for HTTP health probes when the client supports it."""
+        if hasattr(self.client, "get_health_check_targets"):
+            return self.client.get_health_check_targets()
+        return None
 
     def disaggregate_podInfo(self, pod_data):
         """Extract owner information to separate fields"""
