@@ -12,9 +12,9 @@ The option surface splits the same three ways ``search`` did:
 * **The request stays** as :class:`SummarizeInput` -- what the caller is
   asking the VLM for, named exactly as the REST API names it so the payload
   needs no translation table.
-* **Endpoints leave entirely.** The LVS origin, Elasticsearch, RT-Embed and
-  the embedding model are read from ``~/.vss/config.json``, which ``vss
-  configure`` populated from what those backends reported about themselves.
+* **Endpoints leave entirely.** The LVS origin and the Elasticsearch holding
+  memory are read from ``~/.vss/config.json``, which ``vss configure``
+  populated from what those backends reported about themselves.
   ``--backend-url``/``--es-endpoint``/``--embedding-endpoint`` described a
   *deployment*, not a request, and are gone (NFR-6).
 * **Persistence identity and transport** are caller preferences rather than
@@ -23,19 +23,30 @@ The option surface splits the same three ways ``search`` did:
 
 Only ``run`` is implemented here. ``status``/``get``/``list`` are pure reads
 against the memory index (§6.2), so they are inherited from
-:class:`~vss_cli.group.CommandGroup` and answer from ``ctx.memory`` once the
-memory tier lands -- which is also what replaces the interim subprocess bridge
-below. There is deliberately no ``recall``: fetching one record by id *is*
-``get``, and querying recent ones *is* ``list``.
+:class:`~vss_cli.group.CommandGroup` and answer from the same
+``nv.vss.memory/1.0`` records this group writes. There is deliberately no
+``recall``: fetching one record by id *is* ``get``, and querying recent ones
+*is* ``list``.
+
+Persistence is in-process through ``vss_core.memory``. The job is written
+twice -- ``submitted`` before the VLM call, terminal after -- so a run that
+times out or dies still leaves a record saying so, which ``status`` and ``get``
+can answer from.
+
+What exit 7 gives back is that handle, not the work: the record is written
+``timeout``, a terminal status, and carries no ``backend_ref``, so nothing
+revisits it if LVS finishes server-side after the client stopped waiting.
+"Resume by job id" therefore means the caller can identify the job and decide
+to run it again -- not that an in-flight VLM call can be rejoined.
 """
 
 from __future__ import annotations
 
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
 import json
-import os
-from pathlib import Path
 import secrets
-import subprocess
 import time
 from typing import TYPE_CHECKING
 from typing import Any
@@ -44,9 +55,11 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 from pydantic import model_validator
 
 from . import config as config_mod
+from . import memory as memory_mod
 from . import params as params_mod
 from .exits import Exit
 from .group import CommandGroup
@@ -55,13 +68,19 @@ from .group import InvalidInput
 from .group import Result
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from collections.abc import Sequence
 
     import click
 
+    from vss_core.memory import MemoryInput
+    from vss_core.memory import SummaryAdapter
+    from vss_core.memory import UnifiedMemoryRecord
+    from vss_core.memory.models import JobStatus
+
 #: Route the LVS service exposes under its recorded mount. ``vss configure``
-#: records the ``agent`` service at ``/api``, so the full path resolves to the
-#: deployment's ``/api/v1/summarize``.
+#: records the ``lvs`` service, so the full path resolves to that service's own
+#: ``/v1/summarize`` -- not the agent's, which has no such endpoint.
 _SUMMARIZE_PATH = "/v1/summarize"
 
 #: Job ids stay ``summarize-<ULID>`` (design §5.2/§7.2), while the record's
@@ -71,17 +90,19 @@ _JOB_DOMAIN = "summarize"
 #: Crockford base32, for ULID job ids.
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-#: Entrypoint of the unified-memory tool, relative to its checkout.
-_PERSIST_SCRIPT = "scripts/persist_summary.py"
+#: Attempts allowed for the write that closes a job out, and the delay before
+#: the first retry (doubled after each one). Worth retrying because a terminal
+#: write follows a submitted write that already succeeded: the store was
+#: reachable moments ago, so the plausible failure is transient -- a rolling
+#: restart, a brief 503 -- and losing that race strands the record at
+#: ``submitted``, which `status` then reports as running forever.
+_TERMINAL_WRITE_ATTEMPTS = 3
+_TERMINAL_WRITE_BACKOFF_SECONDS = 0.5
 
-#: The memory tool reads its own configuration from these; the values come
-#: from the recorded deployment rather than from flags.
-_ENV_ES_ENDPOINT = "VSS_MEMORY_ELASTICSEARCH_ENDPOINT"
-_ENV_ES_INDEX = "VSS_MEMORY_ELASTICSEARCH_INDEX"
-_ENV_EMBED_ENDPOINT = "VSS_MEMORY_EMBEDDING_ENDPOINT"
-_ENV_EMBED_MODEL = "VSS_MEMORY_EMBEDDING_MODEL"
-_ENV_EMBED_DIMENSIONS = "VSS_MEMORY_EMBEDDING_DIMENSIONS"
-_ENV_TOKENIZER_VOCAB = "VSS_MEMORY_TOKENIZER_VOCAB_PATH"
+#: Below this an event time is an offset into the clip rather than an epoch
+#: instant (1e8 seconds is 1973), which is how LVS answers without a
+#: ``creation_time`` to anchor against.
+_EPOCH_FLOOR = 1e8
 
 
 class SummarizeInput(BaseModel):
@@ -90,14 +111,20 @@ class SummarizeInput(BaseModel):
     Exactly one source is required: ``--id`` names media the deployment has
     already ingested, ``--url`` points at a video to fetch directly.
 
+    ``--scenario`` and at least one ``--event`` are required because LVS
+    requires them: its schema marks ``model``, ``scenario`` and ``events``
+    mandatory and answers 422 without them. They are what steers the
+    summarization, so there is no sensible default to invent here -- the
+    caller states the use case and what to look for.
+
     Sampling and chunking fields are passed through to the VLM untouched and
     are named as the REST API names them. Omitted fields are absent from the
     request rather than sent as null, so the backend's own defaults apply.
 
-    ``--enable-vlm-structured-output`` is worth setting whenever the result
-    will be persisted: it asks the VLM for a JSON object with ``video_summary``
-    and ``events``, which is the shape memory stores. Prose output is still
-    persistable, but arrives as a summary with no events.
+    Structured output is on by default, matching LVS: it asks the VLM for a
+    JSON object with ``video_summary`` and ``events``, which is the shape
+    memory stores. ``--no-enable-vlm-structured-output`` gives prose, still
+    persistable but as a summary with no events.
     """
 
     # Unknown keys are an error rather than something to drop. Click rejects
@@ -107,25 +134,81 @@ class SummarizeInput(BaseModel):
 
     id: str | None = Field(None, description="ID of an already-added file or live stream.")
     url: str | None = Field(None, description="Direct URL to a video to summarize (HTTP/HTTPS/S3).")
+    scenario: str = Field(
+        max_length=1024,
+        description="Use-case context for the summarization, e.g. 'warehouse monitoring'.",
+    )
+    events: list[str] = Field(
+        max_length=1000,
+        description="Event to detect or summarize. Repeat for several.",
+        json_schema_extra={params_mod.FLAG_KEY: "--event"},
+    )
+    objects_of_interest: list[str] = Field(
+        default=[],
+        max_length=1000,
+        description="Object to detect or extract. Repeat for several.",
+        json_schema_extra={params_mod.FLAG_KEY: "--object-of-interest"},
+    )
+    creation_time: str | None = Field(
+        None,
+        description=(
+            "Absolute start time of the media, ISO-8601 UTC. Anchors the times LVS reports: "
+            "without it they are offsets from the start of the clip, which unified memory "
+            "cannot store as instants, so the record cannot be written."
+        ),
+    )
     model: str | None = Field(
         None,
         description="VLM to summarize with. Defaults to the model the deployment's RT-VLM reports serving.",
     )
     prompt: str | None = Field(None, description="VLM prompt.")
     system_prompt: str | None = Field(None, description="VLM system prompt.")
-    chunk_duration: int | None = Field(None, ge=1, description="Chunk duration in seconds.")
-    chunk_overlap_duration: int | None = Field(None, ge=0, description="Chunk overlap duration in seconds.")
-    temperature: float | None = Field(None, ge=0.0, le=2.0, description="Sampling temperature.")
+    # Bounds are copied from LVS's own SummarizationQuery
+    # (services/video-summarization/src/vss_api_models.py), so a value this
+    # model accepts is one the backend accepts. A second, looser set here would
+    # spend a round trip to be told 422; a stricter one would refuse values LVS
+    # documents, as `--chunk-duration 0` -- its "no chunking" -- once was.
+    chunk_duration: int | None = Field(
+        None, ge=0, le=3600, description="Chunk duration in seconds. 0 disables chunking."
+    )
+    chunk_overlap_duration: int | None = Field(None, ge=0, le=3600, description="Chunk overlap duration in seconds.")
+    temperature: float | None = Field(None, ge=0.0, le=1.0, description="Sampling temperature.")
     top_p: float | None = Field(None, ge=0.0, le=1.0, description="Nucleus sampling probability mass.")
-    top_k: int | None = Field(None, ge=0, description="Top-k sampling cutoff.")
-    max_tokens: int | None = Field(None, ge=1, description="Maximum tokens to generate.")
-    seed: int | None = Field(None, description="Sampling seed, for reproducible generations.")
-    num_frames_per_chunk: int | None = Field(None, ge=1, description="Frames sampled from each chunk.")
+    top_k: int | None = Field(None, ge=1, le=1000, description="Top-k sampling cutoff.")
+    max_tokens: int | None = Field(None, ge=1, le=1_000_000, description="Maximum tokens to generate.")
+    seed: int | None = Field(None, ge=1, le=2**32 - 1, description="Sampling seed, for reproducible generations.")
+    # LVS marks this deprecated and forwards it to
+    # num_frames_per_second_or_fixed_frames_chunk, which the CLI does not expose.
+    num_frames_per_chunk: int | None = Field(None, ge=0, le=120, description="Frames sampled from each chunk.")
     enable_audio: bool = Field(False, description="Transcribe the audio stream alongside the video.")
     enable_vlm_structured_output: bool = Field(
-        False,
+        # LVS defaults this to true. Declaring false here would have made
+        # --no-enable-vlm-structured-output a no-op: the value would equal the
+        # field default, exclude_defaults would drop it, and LVS would apply
+        # its own true. Matching LVS keeps the negative spelling meaningful.
+        True,
         description="Request structured JSON (summary + events). Recommended when persisting.",
     )
+
+    @field_validator("creation_time")
+    @classmethod
+    def _millisecond_utc(cls, value: str | None) -> str | None:
+        """LVS accepts exactly ``YYYY-MM-DDTHH:MM:SS.sssZ`` -- 24 characters, no more.
+
+        Normalized here rather than left to the caller to count digits: any
+        ISO-8601 instant becomes the one spelling LVS accepts, instead of a 422
+        for a timestamp that was already unambiguous.
+        """
+        if value is None:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError(f"creation_time must be an ISO-8601 instant, got {value!r}") from error
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        parsed = parsed.astimezone(UTC)
+        return f"{parsed:%Y-%m-%dT%H:%M:%S}.{parsed.microsecond // 1000:03d}Z"
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> SummarizeInput:
@@ -159,15 +242,9 @@ class SummarizeOptions(BaseModel):
         ge=1,
         description="HTTP timeout for the (long-running) summarization request.",
     )
-    memory_index: str | None = Field(None, description="Elasticsearch index for unified memory.")
-    memory_tool_dir: str | None = Field(
+    memory_index: str | None = Field(
         None,
-        description="Path to tools/vss-unified-memory (auto-detected from the checkout when omitted).",
-    )
-    embedding_dimensions: int | None = Field(None, ge=1, description="Embedding vector size used by the memory write.")
-    tokenizer_vocab_path: str | None = Field(
-        None,
-        description="Path to the embedding model's vocab.txt, required by the memory write.",
+        description="Elasticsearch index for unified memory. Defaults to the memory module's own.",
     )
 
 
@@ -186,17 +263,52 @@ def _mint_job_id() -> str:
 
 
 def _default_model(deployment: config_mod.Deployment) -> str:
-    """The VLM the deployment reports serving, or a ConfigError naming the fix."""
-    service = deployment.services.get("rt_vlm")
-    if service and service.models:
-        return service.models[0]
+    """The VLM the deployment reports serving, or a ConfigError naming the fix.
+
+    LVS first, because LVS is what serves this request: it reports the model
+    it summarizes with, which is the one that has to appear in the payload.
+    RT-VLM is the fallback for a deployment recorded before ``vss configure``
+    probed ``lvs``, where the two are usually the same model anyway.
+    """
+    for name in ("lvs", "rt_vlm"):
+        service = deployment.services.get(name)
+        if service and service.models:
+            return service.models[0]
     raise config_mod.ConfigError(
-        f"deployment at {deployment.base_url} reports no RT-VLM model, so --model cannot be defaulted. "
+        f"deployment at {deployment.base_url} reports no LVS or RT-VLM model, so --model cannot be defaulted. "
         f"Pass --model explicitly, or re-run `vss configure --base-url {deployment.base_url}`."
     )
 
 
-def _summary_content(completion: dict[str, Any]) -> dict[str, Any]:
+def _instant(value: Any, anchor: datetime | None) -> Any:
+    """Spell one LVS event time the way unified memory stores instants.
+
+    LVS answers in numbers -- epoch seconds once ``creation_time`` anchors the
+    clip, plain offsets into it otherwise -- while memory keys recall off
+    ISO-8601 instants. Non-numeric values pass through untouched: a backend
+    that already returns a timestamp needs no help.
+    """
+    if isinstance(value, str):
+        try:
+            seconds = float(value)
+        except ValueError:
+            return value
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        seconds = float(value)
+    else:
+        return value
+
+    if seconds >= _EPOCH_FLOOR:
+        return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
+    if anchor is None:
+        raise ValueError(
+            f"event time {value!r} is an offset into the clip, which unified memory cannot store as an "
+            f"instant; pass --creation-time <media start, ISO-8601 UTC> so the times are absolute"
+        )
+    return (anchor + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+
+
+def _summary_content(completion: dict[str, Any], anchor: datetime | None = None) -> dict[str, Any]:
     """Map an LVS completion into the memory write's ``content`` contract.
 
     Structured output yields a JSON object with ``video_summary`` and
@@ -219,104 +331,134 @@ def _summary_content(completion: dict[str, Any]) -> dict[str, Any]:
             parsed = None
 
     if isinstance(parsed, dict) and "video_summary" in parsed:
-        return {"video_summary": parsed["video_summary"], "events": parsed.get("events") or []}
+        events = [
+            {key: _instant(value, anchor) if key in ("start_time", "end_time") else value for key, value in row.items()}
+            if isinstance(row, dict)
+            else row
+            for row in (parsed.get("events") or [])
+        ]
+        return {"video_summary": parsed["video_summary"], "events": events}
     return {"video_summary": text if isinstance(text, str) else json.dumps(text), "events": []}
 
 
-def _memory_tool_dir(options: SummarizeOptions) -> Path:
-    """Locate the unified-memory checkout, or raise with the flag that fixes it."""
-    if options.memory_tool_dir:
-        return Path(options.memory_tool_dir)
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / "tools" / "vss-unified-memory"
-        if (candidate / _PERSIST_SCRIPT).is_file():
-            return candidate
-    raise config_mod.ConfigError(
-        "could not locate tools/vss-unified-memory; pass --memory-tool-dir, or --no-persist to skip the memory write"
-    )
+def _adapter() -> SummaryAdapter:
+    """The adapter that maps this group's jobs onto memory records.
 
+    One binding rather than an import at each use, and resolved on call rather
+    than at module scope: every ``vss_core`` import in this file is deliberately
+    lazy, so ``vss summarize --help`` does not pay for the memory package.
 
-def _memory_env(deployment: config_mod.Deployment, options: SummarizeOptions) -> dict[str, str]:
-    """Configuration for the memory write, taken from the recorded deployment.
-
-    Endpoints and the embedding model are what the backends reported about
-    themselves. Only the values ``vss configure`` cannot discover -- the index
-    name, the tokenizer vocabulary -- remain caller-supplied.
+    The concrete class, not the registry's ``get_adapter``: ``build_input`` and
+    ``build_output`` live on the subclass with per-group signatures, which the
+    ``MemoryAdapter`` protocol cannot type. The adapter holds no state, so an
+    instance serves the static builders and the record builders alike.
     """
-    env = dict(os.environ)
-    env[_ENV_ES_ENDPOINT] = deployment.endpoint("elasticsearch")
-    env[_ENV_EMBED_ENDPOINT] = deployment.endpoint("rt_embed")
-    embed = deployment.services.get("rt_embed")
-    if embed and embed.models:
-        env[_ENV_EMBED_MODEL] = embed.models[0]
-    for value, key in (
-        (options.memory_index, _ENV_ES_INDEX),
-        (options.embedding_dimensions, _ENV_EMBED_DIMENSIONS),
-        (options.tokenizer_vocab_path, _ENV_TOKENIZER_VOCAB),
-    ):
-        if value is not None:
-            env[key] = str(value)
-    return env
+    from vss_core.memory import SummaryAdapter
+
+    return SummaryAdapter()
 
 
-def _persist(
-    deployment: config_mod.Deployment,
-    options: SummarizeOptions,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Write one summary to unified memory.
+def _memory_input(inputs: SummarizeInput, options: SummarizeOptions, request: dict[str, Any]) -> MemoryInput:
+    """The record's request side: what was asked, of which asset, with what.
 
-    An interim bridge: it drives the memory tool's own entrypoint over stdin
-    JSON so the embedding and Elasticsearch dependencies stay isolated in that
-    tool's virtualenv. When ``vss_core`` ships the memory module this becomes
-    an in-process call through ``ctx.memory``, and the subprocess goes away.
+    ``params`` carries the LVS request verbatim, so a persisted job describes
+    the call that produced it without a second schema to keep in step.
     """
-    script = _memory_tool_dir(options) / _PERSIST_SCRIPT
-    if not script.is_file():
-        raise config_mod.ConfigError(f"memory entrypoint not found: {script}")
-    try:
-        completed = subprocess.run(
-            [str(script)],
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            env=_memory_env(deployment, options),
-            check=False,
-        )
-    except OSError as error:
-        raise config_mod.ConfigError(f"failed to execute {script}: {error}") from error
-
-    stdout = completed.stdout.strip()
-    if not stdout:
-        raise RuntimeError(f"memory write produced no output (exit {completed.returncode}): {completed.stderr[:500]}")
-    try:
-        parsed = json.loads(stdout.splitlines()[-1])
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"memory write returned non-JSON output: {stdout[:500]}") from error
-    if not isinstance(parsed, dict):
-        raise RuntimeError(f"memory write returned non-object JSON: {stdout[:500]}")
-    return parsed
-
-
-def _persist_payload(
-    inputs: SummarizeInput,
-    options: SummarizeOptions,
-    completion: dict[str, Any],
-    model: str,
-) -> dict[str, Any]:
     media_ref: dict[str, Any] = {"source": options.media_source}
     if inputs.id:
         media_ref["stream_id"] = inputs.id
+    if inputs.url:
+        media_ref["url"] = inputs.url
     if options.media_name:
         media_ref["name"] = options.media_name
-    return {
+    return _adapter().build_input(
+        prompt=inputs.prompt,
+        video_id=options.video_id or inputs.id,
+        media_ref=media_ref,
+        params=request,
+    )
+
+
+def _memory_output(completion: dict[str, Any], model: str, anchor: datetime | None) -> tuple[Any, dict[str, Any]]:
+    """The record's result side, plus the content it was built from."""
+    content = _summary_content(completion, anchor)
+    provenance = {
         "completion_id": completion.get("id"),
-        "video_id": options.video_id or inputs.id,
-        "created": completion.get("created"),
         "model": completion.get("model") or model,
-        "media_ref": media_ref,
-        "content": _summary_content(completion),
+        "created": completion.get("created"),
     }
+    output = _adapter().build_output(
+        answer=content["video_summary"],
+        events=content["events"],
+        ext={k: v for k, v in provenance.items() if v is not None},
+    )
+    return output, content
+
+
+def _mark_terminal(
+    memory: memory_mod.Memory | None,
+    *,
+    job_id: str,
+    created_at: str,
+    input_data: MemoryInput,
+    status: JobStatus,
+    message: str,
+) -> bool:
+    """Close out a submitted job that will not produce a summary.
+
+    Retried, then best-effort: this runs on paths that are already failing, so
+    a memory write that keeps failing must not replace the caller's diagnosis
+    with one about Elasticsearch. Whether it finally succeeded is returned
+    rather than swallowed, because a record that stays ``submitted`` is one
+    ``status`` will report as running forever.
+    """
+    if memory is None:
+        return False
+    # From .models directly: the package's lazy re-exports omit MemoryError,
+    # whose name would collide with the builtin at the top level.
+    from vss_core.memory.models import MemoryError as MemoryErrorModel
+
+    record = _adapter().terminal_record(
+        job_id=job_id,
+        created_at=created_at,
+        status=status,
+        input_data=input_data,
+        error=MemoryErrorModel(code=status, message=message),
+    )
+    delay = _TERMINAL_WRITE_BACKOFF_SECONDS
+    for attempt in range(1, _TERMINAL_WRITE_ATTEMPTS + 1):
+        try:
+            memory.service.upsert(record)
+        except Exception:
+            if attempt == _TERMINAL_WRITE_ATTEMPTS:
+                return False
+            time.sleep(delay)
+            delay *= 2
+        else:
+            return True
+    return False
+
+
+def _record(
+    memory: memory_mod.Memory,
+    *,
+    job_id: str,
+    created_at: str,
+    input_data: MemoryInput,
+    completion: dict[str, Any],
+    model: str,
+    anchor: datetime | None,
+) -> tuple[UnifiedMemoryRecord, dict[str, Any]]:
+    """Build and store the completed record."""
+    output, content = _memory_output(completion, model, anchor)
+    record = _adapter().terminal_record(
+        job_id=job_id,
+        created_at=created_at,
+        status="completed",
+        input_data=input_data,
+        output=output,
+    )
+    return memory.service.upsert(record), content
 
 
 class SummarizeGroup(CommandGroup):
@@ -326,16 +468,20 @@ class SummarizeGroup(CommandGroup):
     summary: ClassVar[str] = "Summarize video and persist to memory"
 
     Input: ClassVar[type[BaseModel] | None] = SummarizeInput
+    #: Checked before dispatch, so a deployment without LVS says so instead of
+    #: failing later and less clearly -- as `--model cannot be defaulted`, which
+    #: names the wrong cause -- and before `--persist` opens Elasticsearch for a
+    #: summarization that was never going to run.
+    requires: ClassVar[frozenset[str]] = frozenset({"lvs"})
     extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SummarizeOptions))
+    #: Which memory adapter this group's records are built by, alongside the
+    #: other declarations rather than restated at each use. A callable so the
+    #: ``vss_core`` import stays off the ``--help`` path.
+    Adapter: ClassVar[Callable[[], SummaryAdapter]] = staticmethod(_adapter)
 
     def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:  # noqa: ARG002 - fixed verb signature
         import click
         import httpx
-
-        # Named so the framework's exit-code table recognises them: it maps a
-        # library failure to an exit code by class name, so a plain
-        # ConnectionError would surface as exit 1 with a traceback.
-        from vss_core._foundation.errors import BackendUnreachableError
 
         if not isinstance(inputs, SummarizeInput):  # pragma: no cover - the framework builds this
             raise TypeError(f"expected SummarizeInput, got {type(inputs).__name__}")
@@ -353,50 +499,161 @@ class SummarizeGroup(CommandGroup):
         model = inputs.model or _default_model(deployment)
         request["model"] = model
 
+        # Opened before the VLM call, not after: a deployment with no memory at
+        # all is worth an immediate exit 4, rather than an hour of
+        # summarization followed by the discovery that nothing can hold it.
+        memory = self.memory(ctx) if options.persist else None
+
+        from vss_core.memory.adapters import utc_now_iso
+
         job_id = _mint_job_id()
-        url = deployment.endpoint("agent").rstrip("/") + _SUMMARIZE_PATH
+        created_at = utc_now_iso()
+        input_data = _memory_input(inputs, options, request)
+        persist_error: str | None = None
+        if memory is not None:
+            # Write the job before doing the work. From here on every exit path
+            # calls close(), which tries -- with a bounded retry -- to replace
+            # this with the outcome. When every attempt fails the record stays
+            # `submitted` and the marker says `stale`, which is the one case
+            # `status` reports a finished job as still running.
+            try:
+                memory.service.upsert(
+                    _adapter().submitted_record(job_id=job_id, created_at=created_at, input_data=input_data)
+                )
+            except memory_mod.write_failures() as error:
+                # A configured store that refuses the write is a persistence
+                # failure, not a reason to skip the work the caller asked for:
+                # carry on unpersisted and report it in the marker.
+                click.echo(f"vss: unified memory is not writable, summarizing without it ({error})", err=True)
+                persist_error = str(error)
+                memory = None
+
+        def close(status: JobStatus, message: str) -> str:
+            """Close the record out and say what the job_id is now worth.
+
+            ``absent`` when nothing was persisted, ``closed`` when the record
+            reflects the outcome, ``stale`` when it could not be updated and so
+            still reads as ``submitted``. Reported rather than swallowed: an
+            exit that advertises "reconcile with status" must not point at a
+            record that will answer with the wrong state.
+            """
+            if memory is None:
+                return "absent"
+            if _mark_terminal(
+                memory,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status=status,
+                message=message,
+            ):
+                return "closed"
+            click.echo(
+                f"vss: could not record job {job_id} as {status} in unified memory, "
+                f"so `status` still reports it submitted",
+                err=True,
+            )
+            return "stale"
+
+        def failed(detail: str, diagnostic: str, code: Exit) -> Result:
+            """Close the record out, diagnose on stderr, and still mark completion.
+
+            §7.2 makes the marker the final stdout line of *any* run, failures
+            included, for the same reason the timeout path returns instead of
+            raising: a harness reads stdout, so raising would leave the handle
+            for the record this just wrote nowhere it can be found.
+            """
+            record = close("failed", detail)
+            click.echo(diagnostic, err=True)
+            return Result(
+                body={"job_id": job_id, "status": "failed", "record": record, "error": detail},
+                exit=code,
+                job_id=job_id,
+            )
+
+        url = deployment.endpoint("lvs").rstrip("/") + _SUMMARIZE_PATH
         try:
             response = httpx.post(url, json=request, timeout=float(options.request_timeout_seconds))
         except httpx.TimeoutException as error:
             # Exit 7 carries the job id as a correlation handle: reconcile with
-            # `status` rather than re-running an hour of summarization.
+            # `status` rather than re-running an hour of summarization. Returned
+            # as a Result so that handle is the final line of stdout like any
+            # other outcome -- a harness should not have to parse stderr prose
+            # for the one identifier it needs.
+            record = close("timeout", str(error))
             click.echo(
                 f"vss: summarization timed out after {options.request_timeout_seconds}s (job {job_id})",
                 err=True,
             )
-            raise SystemExit(int(Exit.TIMEOUT)) from error
+            return Result(
+                body={"job_id": job_id, "status": "timeout", "record": record},
+                exit=Exit.TIMEOUT,
+                job_id=job_id,
+            )
         except httpx.HTTPError as error:
-            raise BackendUnreachableError("lvs", f"unreachable at {url}: {error}") from error
+            return failed(str(error), f"vss: lvs unreachable at {url}: {error}", Exit.BACKEND_UNREACHABLE)
 
-        if response.status_code >= 500:
-            raise BackendUnreachableError("lvs", f"backend error HTTP {response.status_code}")
         if response.status_code >= 400:
-            raise InvalidInput(f"summarization rejected HTTP {response.status_code}: {response.text[:500]}")
+            detail = f"HTTP {response.status_code}"
+            if response.status_code >= 500:
+                return failed(detail, f"vss: lvs backend error {detail}", Exit.BACKEND_UNREACHABLE)
+            # Built through InvalidInput rather than by hand: returning instead
+            # of raising skips the framework's formatting, and a second copy of
+            # the prefix would drift the moment that one is reworded.
+            return failed(
+                detail,
+                InvalidInput(f"summarization rejected {detail}: {response.text[:500]}").format_message(),
+                Exit.INVALID_INPUT,
+            )
 
         try:
             completion = response.json()
-        except ValueError as error:
-            raise BackendUnreachableError("lvs", "response was not valid JSON") from error
+        except ValueError:
+            detail = "response was not valid JSON"
+            return failed(detail, f"vss: lvs {detail}", Exit.BACKEND_UNREACHABLE)
         if not isinstance(completion, dict):
-            raise BackendUnreachableError("lvs", "response was not a JSON object")
+            detail = "response was not a JSON object"
+            return failed(detail, f"vss: lvs {detail}", Exit.BACKEND_UNREACHABLE)
 
         body: dict[str, Any] = {"job_id": job_id, "summary": completion}
-        if not options.persist:
-            return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+        if memory is None:
+            if persist_error is None:
+                return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+            # Retrieval succeeded and only the write did not: exit 6 tells the
+            # harness to keep this answer instead of re-running the job.
+            body["persist"] = {"status": "failed", "error": persist_error}
+            return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
 
+        # ValueError joins the store's own failures: a completion this command
+        # cannot shape into a record is as unpersistable as a refused write,
+        # and costs the caller the same nothing.
+        unpersistable: tuple[type[BaseException], ...] = (ValueError, *memory_mod.write_failures())
         try:
-            receipt = _persist(deployment, options, _persist_payload(inputs, options, completion, model))
-        except (config_mod.ConfigError, RuntimeError, ValueError) as error:
+            _, content = _record(
+                memory,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                completion=completion,
+                model=model,
+                anchor=datetime.fromisoformat(inputs.creation_time.replace("Z", "+00:00"))
+                if inputs.creation_time
+                else None,
+            )
+        except unpersistable as error:
             # Never lose the summary the caller already paid for: degrade to
             # partial so only the write is retried, not the whole job.
+            close("partial", str(error))
             body["persist"] = {"status": "failed", "error": str(error)}
             return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
 
-        body["persist"] = receipt
-        # "complete" is the memory tool's terminal write status; anything else
-        # means the summary is in hand but not durably stored.
-        exit_code = Exit.SUCCESS if receipt.get("status") == "complete" else Exit.PARTIAL
-        return Result(body=body, exit=exit_code, job_id=job_id)
+        body["persist"] = {
+            "status": "complete",
+            "index": memory.index,
+            "group": memory_mod.group_token(self.name),
+            "events": len(content["events"]),
+        }
+        return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
 
 
 SUMMARIZE = SummarizeGroup()

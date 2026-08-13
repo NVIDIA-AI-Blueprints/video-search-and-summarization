@@ -454,6 +454,11 @@ vssIngress:
   # /v1/models and /v1/chat/completions route to RT-VLM.
   lvsBackendPort: 38111
   rtviVlmPort: 8000
+  # CLI edge routes for `vss configure` discovery. Off by default -- see the
+  # comment in templates/vss-ingress.yaml for what enabling it exposes.
+  cliRoutes:
+    enabled: false
+    elasticsearchPort: 9200
   # Optional; default kibana.<global.externalHost or vssIngress.host>.
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
