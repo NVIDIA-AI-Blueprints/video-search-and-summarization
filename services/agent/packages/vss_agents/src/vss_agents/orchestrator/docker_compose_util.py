@@ -332,7 +332,7 @@ def load_shell_env_file(path: Path, base_env: Mapping[str, str] | None = None) -
     """
 
     keys = list(parse_env_file(path))
-    result = subprocess.run(  # noqa: S603 - repository-owned containers.env is intentionally sourced
+    result = subprocess.run(
         [
             "bash",
             "-c",
