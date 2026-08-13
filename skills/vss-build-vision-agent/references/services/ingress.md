@@ -57,9 +57,11 @@ which is expected and harmless because no read path consumes it. Do not add the
 route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
 through HAProxy.
 
-- **Curated (patch).** Mount a trimmed config via a `patches/<haproxy>.yml`
-  service-definition patch that overrides the config volume, keeping the browse +
-  operate routes above for the build's deployed backends and replacing the catch-all.
+- **Curated (patch).** Write the trimmed config to `patches/haproxy.cfg`, beside
+  the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the
+  config volume with a relative `./haproxy.cfg` source (it resolves against the
+  patch's own directory, not the build root), keeping the browse + operate routes
+  above for the build's deployed backends and replacing the catch-all.
 - **As-is (explicit shortcut only).** Activate `vss-haproxy-ingress` and set the
   host-identity env. Interactive routes 503 harmlessly; the browse and operate
   routes work, but dead routes are advertised and `/` 503s.
