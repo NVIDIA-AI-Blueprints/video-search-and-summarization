@@ -542,15 +542,17 @@ async def delete_sensor(sensor_id: str | None, vst_internal_url: str | None = No
     """
     if vst_internal_url is None:
         vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
-    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/{sensor_id}"
+    if sensor_id is None:
+        return False, "sensor_id is required"
+    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/{quote_path_segment(sensor_id)}"
 
-    logger.info(f"Deleting VST sensor: DELETE {url}")
+    logger.info("Deleting VST sensor: DELETE %s", scrub_log(url))
 
     async with aiohttp.ClientSession() as session:
         try:
             async with session.delete(url) as response:
                 if response.status in (200, 204):
-                    logger.info(f"VST sensor deleted: {sensor_id}")
+                    logger.info("VST sensor deleted: %s", scrub_log(sensor_id))
                     return True, "OK"
                 # Try to parse VST error response for cleaner message
                 try:
@@ -592,7 +594,7 @@ async def get_storage_timeline(
             stream_timeline = timelines.get(sensor_id)
 
             if not stream_timeline or len(stream_timeline) == 0:
-                logger.info(f"No timeline found for {sensor_id}")
+                logger.info("No timeline found for %s", scrub_log(sensor_id))
                 return True, "No timeline", None, None
 
             start_time = stream_timeline[0].get("startTime")
@@ -610,6 +612,8 @@ async def delete_storage(sensor_id: str | None, vst_internal_url: str | None = N
     """
     if vst_internal_url is None:
         vst_internal_url = os.getenv("VST_INTERNAL_URL", "http://localhost:30888")
+    if sensor_id is None:
+        return False, "sensor_id is required"
 
     # Get timeline first
     success, msg, start_time, end_time = await get_storage_timeline(sensor_id, vst_internal_url)
@@ -617,18 +621,18 @@ async def delete_storage(sensor_id: str | None, vst_internal_url: str | None = N
         return False, msg
 
     if start_time is None or end_time is None:
-        logger.info(f"No timeline found for {sensor_id}, nothing to delete")
+        logger.info("No timeline found for %s, nothing to delete", scrub_log(sensor_id))
         return True, "No storage to delete"
 
     # Delete storage
-    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{sensor_id}"
+    url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{quote_path_segment(sensor_id)}"
     params = {"startTime": start_time, "endTime": end_time}
-    logger.info(f"Deleting VST storage: DELETE {url} params={params}")
+    logger.info("Deleting VST storage: DELETE %s params=%s", scrub_log(url), params)
 
     try:
         async with aiohttp.ClientSession() as session, session.delete(url, params=params) as response:
             if response.status in (200, 204):
-                logger.info(f"VST storage deleted: {sensor_id}")
+                logger.info("VST storage deleted: %s", scrub_log(sensor_id))
                 return True, "OK"
             # Try to parse VST error response for cleaner message
             try:
