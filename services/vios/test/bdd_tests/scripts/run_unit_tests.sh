@@ -17,8 +17,8 @@
 
 # Run unit tests (API tests) grouped to match the VST containers the default
 # stream-processing docker-compose deployment exposes (sensor-ms +
-# streamprocessing-ms), producing one CSV and one JUnit XML per group under
-# reports/unit_tests/:
+# streamprocessing-ms + vst-ingress + nvstreamer), producing one CSV and one
+# JUnit XML per group under reports/unit_tests/:
 #
 #   vst-sensor.xml           <- sensor_management            (sensor-ms container)
 #   vst-streamprocessing.xml <- live_stream, replay_stream, rtsp_proxy,
@@ -27,14 +27,18 @@
 #   vst-ingress.xml          <- ingress (basic nginx-gateway health and routing
 #                               tests: /health, and that sensor + streamprocessing
 #                               APIs are proxied through the gateway)
+#   vst-nvstreamer.xml       <- nvstreamer (file-to-RTSP republisher on :31000;
+#                               sensor/live/storage version + list probes)
 #
-# These three match the containers the stream-processing compose deploys
-# (sensor-ms, streamprocessing-ms, vst-ingress). mcp_gateway is intentionally not
-# grouped here -- vst-mcp is not part of this stack.
+# These four match the containers the stream-processing compose typically
+# deploys (sensor-ms, streamprocessing-ms, vst-ingress, nvstreamer). mcp_gateway
+# is intentionally not grouped here -- vst-mcp is not part of this stack.
 #
 # Usage:
 #   ./scripts/run_unit_tests.sh [--base-url http://host:30888]
 #
+# NVStreamer URL resolution: NVSTREAMER_ENDPOINTS env, else config.json
+# nvstreamer.host/port_base, else host derived from --base-url + port 31000.
 # Any extra arguments are forwarded to every pytest invocation.
 #
 # -e is intentionally omitted so the summary block runs even when pytest
@@ -74,6 +78,7 @@ CONTAINER_GROUPS=(
     "vst-sensor|sensor_management|sensor_management"
     "vst-streamprocessing|streamprocessing|live_stream replay_stream rtsp_proxy storage_management stream_recorder"
     "vst-ingress|ingress|ingress"
+    "vst-nvstreamer|nvstreamer|nvstreamer"
 )
 
 for GROUP in "${CONTAINER_GROUPS[@]}"; do
