@@ -182,6 +182,36 @@ if [[ -n "${VST_APT_PIPELINE_DEPTH:-}" ]]; then
   APT_OPTS+=(-o "Acquire::http::Pipeline-Depth=${VST_APT_PIPELINE_DEPTH}")
 fi
 
+# ---------------------------------------------------------------------------
+# Shared package cache
+#
+# Every VIOS service on a host installs the same package set, and each cold
+# start otherwise re-downloads ~138MB. An init container populates a shared
+# volume once (VST_APT_CACHE_POPULATE=true); services then install from it with
+# no network.
+#
+# Consumers mount the cache READ-ONLY at VST_APT_CACHE_DIR. Two options make
+# that work and both matter:
+#
+#   Dir::Cache::archives  points apt at the shared copy instead of its own.
+#   Debug::NoLocking      skips the archives lock. apt takes that lock even with
+#                         nothing to download, and a shared volume means a shared
+#                         lock file -- measured: two containers starting together,
+#                         the loser fails outright with
+#                         "Could not get lock ... held by process 0".
+#
+# Skipping the lock is safe HERE ONLY because consumers never write to that
+# directory: the mount is read-only and the init container has finished. If the
+# mount is ever made writable, or a service can start before the init completes,
+# restore locking -- two writers with NoLocking race unprotected.
+APT_CACHE_DIR="${VST_APT_CACHE_DIR:-/opt/apt-cache}"
+APT_CACHE_POPULATE="${VST_APT_CACHE_POPULATE:-false}"
+
+if [[ "${APT_CACHE_POPULATE}" != "true" ]] && compgen -G "${APT_CACHE_DIR}/*.deb" >/dev/null 2>&1; then
+  echo "Using shared package cache at ${APT_CACHE_DIR} ($(ls "${APT_CACHE_DIR}"/*.deb | wc -l) packages)."
+  APT_OPTS+=(-o "Dir::Cache::archives=${APT_CACHE_DIR}" -o Debug::NoLocking=true)
+fi
+
 
 install_packages() {
   apt-get install --reinstall -y --no-install-recommends "${APT_OPTS[@]}" "${RUNTIME_PACKAGES[@]}"
@@ -232,6 +262,41 @@ refresh_apt_metadata() {
   done
   return 1
 }
+
+# ---------------------------------------------------------------------------
+# Init-container mode: populate the shared cache and exit.
+#
+# The only writer, so it removes docker-clean -- the base image ships that file
+# and it deletes every .deb after each apt operation, which would leave the cache
+# volume empty and the whole scheme silently doing nothing.
+#
+# flock serialises populators: in the standalone deployment nvstreamer and
+# stream-processing are separate compose projects, so depends_on cannot order
+# them and both run an init against the same volume. The second blocks here, then
+# finds the cache warm and returns in seconds.
+if [[ "${APT_CACHE_POPULATE}" == "true" ]]; then
+  echo "Populating shared package cache in ${APT_CACHE_DIR}..."
+  install -d "${APT_CACHE_DIR}/partial"
+  rm -f /etc/apt/apt.conf.d/docker-clean
+  exec 9>"${APT_CACHE_DIR}/.populate.lock"
+  if ! flock -w "${VST_APT_CACHE_LOCK_WAIT:-600}" 9; then
+    echo "ERROR: timed out waiting for another cache populator."
+    exit 1
+  fi
+  if ! refresh_apt_metadata; then
+    echo "ERROR: Unable to refresh APT metadata."
+    exit 1
+  fi
+  # -d downloads without installing: this container only fills the cache.
+  if ! apt-get install --reinstall -d -y --no-install-recommends \
+         "${APT_OPTS[@]}" -o "Dir::Cache::archives=${APT_CACHE_DIR}" \
+         "${RUNTIME_PACKAGES[@]}"; then
+    echo "ERROR: Unable to populate the package cache."
+    exit 1
+  fi
+  echo "Cache ready: $(ls "${APT_CACHE_DIR}"/*.deb 2>/dev/null | wc -l) packages, $(du -sh "${APT_CACHE_DIR}" | cut -f1)."
+  exit 0
+fi
 
 # A mirror override invalidates the metadata the base image ships, which is
 # indexed against the default archive. Measured: with a mirror configured and the
