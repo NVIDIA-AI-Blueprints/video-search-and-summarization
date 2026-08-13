@@ -347,18 +347,14 @@ def load_shell_env_file(path: Path, base_env: Mapping[str, str] | None = None) -
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"Failed to resolve shell environment file {path}.\nstderr:\n"
-            f"{result.stderr.decode(errors='replace')}"
+            f"Failed to resolve shell environment file {path}.\nstderr:\n{result.stderr.decode(errors='replace')}"
         )
     fields = result.stdout.split(b"\0")
     if fields and not fields[-1]:
         fields.pop()
     if len(fields) % 2:
         raise RuntimeError(f"Failed to parse resolved shell environment file {path}.")
-    return {
-        fields[index].decode(): fields[index + 1].decode()
-        for index in range(0, len(fields), 2)
-    }
+    return {fields[index].decode(): fields[index + 1].decode() for index in range(0, len(fields), 2)}
 
 
 def load_profile_env(path: Path) -> dict[str, str]:

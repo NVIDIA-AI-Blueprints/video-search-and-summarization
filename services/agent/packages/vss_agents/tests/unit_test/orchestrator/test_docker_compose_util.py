@@ -61,9 +61,7 @@ def _make_recipe(
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
     containers_env_file = deployments_dir / "containers.env"
-    containers_env_file.write_text(
-        (containers_env_text.strip() + "\n") if containers_env_text else ""
-    )
+    containers_env_file.write_text((containers_env_text.strip() + "\n") if containers_env_text else "")
     mdx_data_dir = tmp_path / "mdx-data"
     mdx_data_dir.mkdir()
     source_env_file = tmp_path / source_env_filename
@@ -961,9 +959,7 @@ class TestContainersEnvImageChannel:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["CONTAINER_IMAGE"] == (
-            "nvcr.io/nvstaging/vss-core/vss-video-summarization:nightly-20260806"
-        )
+        assert resolved["CONTAINER_IMAGE"] == ("nvcr.io/nvstaging/vss-core/vss-video-summarization:nightly-20260806")
         assert resolved["VSS_AGENT_IMAGE"] == "nvcr.io/nvstaging/vss-core/vss-agent"
 
 
@@ -978,9 +974,7 @@ class TestCreateDryRunRecipeContainersEnv:
         (profile_dir / "overrides.env").write_text("LLM_NAME_SLUG=slug\n")
         (tmp_path / "compose.yml").write_text("services: {}\n")
         if create_containers_env:
-            (tmp_path / "containers.env").write_text(
-                'VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"\n'
-            )
+            (tmp_path / "containers.env").write_text('VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"\n')
         return dcu.create_dry_run_recipe(
             profile="lvs",
             env_overrides={},
@@ -1783,9 +1777,7 @@ class TestNestedOverrides:
 
 
 class TestComposeEnvFileLayering:
-    def test_compose_process_env_sources_containers_env(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_compose_process_env_sources_containers_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("VSS_CONTAINER_TAG", raising=False)
         recipe = _make_recipe(
             tmp_path,
@@ -1797,9 +1789,7 @@ class TestComposeEnvFileLayering:
 
         assert compose_env["VSS_CONTAINER_TAG"] == "develop-latest"
 
-    def test_resolve_compose_uses_dev_profile_env_file_order(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_resolve_compose_uses_dev_profile_env_file_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(tmp_path, "MODE=2d")
         commands: list[list[str]] = []
 
@@ -1828,9 +1818,7 @@ class TestComposeEnvFileLayering:
             ]
         ]
 
-    def test_run_compose_uses_same_env_file_order(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_run_compose_uses_same_env_file_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(tmp_path, "MODE=2d")
         commands: list[list[str]] = []
 
