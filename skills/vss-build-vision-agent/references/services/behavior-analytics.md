@@ -27,7 +27,8 @@
   that JSON; env reconciliation alone silently inherits the source mode (Search
   ships `inSimulationMode=true` with incidents off, yielding no alerts).
 - To serve more than one capability at once, run a single combined instance
-  rather than two, mounting the shipped joint config
+  rather than two — under the selected Foundation's key for the one
+  `vss-behavior-analytics` container, never both — mounting the shipped joint config
   `<repo-root>/services/analytics/behavior-analytics/configs/search_and_alerts_config.json`.
   This file is outside `VSS_APPS_DIR`, which points to
   `<repo-root>/deploy/docker`. Bind the shipped file directly, without copying

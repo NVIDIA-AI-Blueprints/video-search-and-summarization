@@ -25,7 +25,10 @@
   REST query/browse surface over ES indices; the search-analytics service is the
   Behavior-Analytics container that produces `mdx-embed-filtered` and
   `mdx-behavior`. Both are in the Search Foundation's service set; do not
-  confuse or substitute one for the other.
+  confuse or substitute one for the other. The analytics API is a per-Foundation
+  singleton — when included, use the selected Foundation's key, never a second
+  key for the same container; on `search` that key is
+  `vss-video-analytics-api-fusion`.
 - When this container also serves another capability on one shared instance (a
   combined build), it is the shared **Behavior-Analytics** instance — converge its
   mounted JSON config per [`behavior-analytics.md`](behavior-analytics.md); its
