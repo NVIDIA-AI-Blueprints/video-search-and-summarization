@@ -103,6 +103,16 @@ backend bk_rtvi_vlm_strip
     http-request replace-path ^/rtvi-vlm$ /
     server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
 
+backend bk_lvs_strip
+    http-request replace-path ^/lvs/(.*) /\1
+    http-request replace-path ^/lvs$ /
+    # Summarizing a long video legitimately outlasts the 120s default, and the
+    # CLI already bounds the wait itself (--request-timeout-seconds). Without a
+    # longer server timeout here the origin returns 504 on a request LVS is
+    # still working on, which reads as a backend failure rather than a slow job.
+    timeout server 3600s
+    server s1 "${LVS_SERVICE_HOST}:${LVS_SERVICE_PORT}" check resolvers docker init-addr none
+
 backend bk_phoenix_strip
     http-request replace-path ^/phoenix/(.*) /\1
     http-request replace-path ^/phoenix$ /
@@ -177,7 +187,24 @@ frontend fe_http
     acl es_read_method method GET HEAD POST OPTIONS
     acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
     acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method
+
+    # Unified memory is written through this origin, so one write has to be
+    # allowed: the memory store persists a job record with
+    # PUT /<index>/_doc/<job_id>, which a read-only method rule answers 405.
+    #
+    # Scoped to vss-* indices, which is where memory lives (vss-memory by
+    # default), so the mdx-* search indices stay read-only at the edge --
+    # allowing PUT across /elasticsearch would also grant overwriting any search
+    # document, which nothing needs.
+    #
+    # Expressed as two denies rather than an `http-request allow`: allow ends
+    # http-request evaluation everywhere, including the backend's replace-path
+    # rules, so the exempted request would reach Elasticsearch with the
+    # /elasticsearch prefix still on it and hang instead of being served.
+    acl es_memory_write method PUT
+    acl es_memory_doc_path path_reg ^/elasticsearch/vss-[^/]+/_doc/[^/]+
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method es_memory_doc_path !es_memory_write
     http-request deny status 403 if h_main p_elasticsearch es_admin_path
     http-request deny status 403 if h_main p_elasticsearch es_mutating_op
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
@@ -198,6 +225,13 @@ frontend fe_http
     acl p_rtvi_vlm path /rtvi-vlm
     acl p_rtvi_vlm path_beg /rtvi-vlm/
     use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
+
+    # Long-video summarization. Profiles without lvs-server leave the backend
+    # DOWN, so the route answers 503 and `vss configure` records it absent
+    # rather than present-but-broken.
+    acl p_lvs path /lvs
+    acl p_lvs path_beg /lvs/
+    use_backend bk_lvs_strip if h_main p_lvs
 
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/
