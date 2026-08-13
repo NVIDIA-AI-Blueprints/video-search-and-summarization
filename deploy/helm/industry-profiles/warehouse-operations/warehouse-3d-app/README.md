@@ -66,14 +66,20 @@ to an empty map in your values override:
 ```yaml
 vios:
   vss-vios-streamprocessing:
+    useSoftwarePath: true
     resources: null
 ```
 
 Or inline at install time:
 
 ```bash
+--set vios.vss-vios-streamprocessing.useSoftwarePath=true \
 --set 'vios.vss-vios-streamprocessing.resources=null'
 ```
+
+Both flags are required together — **`useSoftwarePath`** switches the VST encode/decode
+path in the config, and **`resources: null`** drops the GPU claim from the pod spec.
+Setting only one leaves the stack misconfigured.
 
 `resources: {}` does **not** work — Helm deep-merges maps, so the subchart default
 keys survive an empty-map override. Use `null` to drop the block entirely.
