@@ -36,6 +36,7 @@
       ]
     },
     {
+      "scenario": "search-missing-source",
       "query": "Find all instances of forklifts in the airport video. The Docker search profile and evaluation fixtures are already prepared on this host.",
       "checks": [
         "The agent successfully listed available video sources from the prepared Docker deployment using the configured origin's VST route before attempting search",

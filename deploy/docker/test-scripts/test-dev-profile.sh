@@ -1920,11 +1920,11 @@ _alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-
 _alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
 _alerts_cv_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_cv.json"
 _alerts_vlm_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_vlm.json"
-if [[ -f "${_alerts_agent_config}" ]] \
-  && [[ ! -e "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml" ]] \
-  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}" \
-  && grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}" \
-  && grep -q 'vss-rtvi-cv:9010/api/v1/stream/add' "${_alerts_cv_webhook}" \
+if [[ -f "${_alerts_agent_config}" ]]
+  && [[ ! -e "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml" ]]
+  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}"
+  && grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}"
+  && grep -q 'vss-rtvi-cv:9010/api/v1/stream/add' "${_alerts_cv_webhook}"
   && grep -q 'vss-alert-bridge:9080/api/v1/realtime/always-on' "${_alerts_vlm_webhook}"; then
   echo "PASS: alerts uses MODE-selected VIOS webhooks for stream registration"
   ((TESTS_PASSED++)) || true
@@ -1937,14 +1937,33 @@ fi
 # deployment-selected VLM_NAME instead of a hardcoded model id.
 _alert_compose="${REPO_ROOT}/deploy/docker/services/alert/compose.yml"
 _alerts_realtime_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml"
-if grep -Fq 'ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml' "${_alert_compose}" \
-  && grep -Fq '/app/configs/realtime-config.yml' "${_alert_compose}" \
-  && grep -Fq '/app/runtime/realtime-config.yml' "${_alert_compose}" \
+if grep -Fq 'ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml' "${_alert_compose}"
+  && grep -Fq '/app/configs/realtime-config.yml' "${_alert_compose}"
+  && grep -Fq '/app/runtime/realtime-config.yml' "${_alert_compose}"
   && grep -Fq 'model: "${VLM_NAME}"' "${_alerts_realtime_config}"; then
   echo "PASS: alert-bridge renders always-on rules with deployment-selected VLM_NAME"
   ((TESTS_PASSED++)) || true
 else
   echo "FAIL: alert-bridge should render always-on rules with deployment-selected VLM_NAME"
+  ((TESTS_FAILED++)) || true
+fi
+
+# RT-Embed owns its message-bus contract through its service-local env file.
+_rtvi_embed_compose="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml"
+_rtvi_embed_env="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-embed/.env"
+_search_compose="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/compose.yml"
+if grep -A1 '^    env_file:$' "${_rtvi_embed_compose}" | grep -Fq -- '- .env' &&
+   grep -Fxq 'MESSAGE_BUS=kafka' "${_rtvi_embed_env}" &&
+   grep -Fxq 'MESSAGE_BUS_TOPIC=mdx-embed' "${_rtvi_embed_env}" &&
+   grep -Fxq 'KAFKA_ENABLED=true' "${_rtvi_embed_env}" &&
+   grep -Fxq 'KAFKA_TOPIC=mdx-embed' "${_rtvi_embed_env}" &&
+   ! grep -Eq '^      (MESSAGE_BUS|MESSAGE_BUS_TOPIC|ERROR_BUS):' "${_rtvi_embed_compose}" &&
+   grep -A3 '^  rtvi-embed:$' "${_search_compose}" | grep -Fq 'broker-health-check:' &&
+   grep -A3 '^      broker-health-check:$' "${_search_compose}" | grep -Fq 'condition: service_completed_successfully'; then
+  echo "PASS: RT-Embed loads its service message-bus contract after broker readiness"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: RT-Embed must load its service message-bus contract after broker readiness"
   ((TESTS_FAILED++)) || true
 fi
 

@@ -41,6 +41,9 @@ remoteEmbedEndpointBatchSize: "64"
 kafkaBootstrapServers: "127.0.0.1:9092"
 messageBus: ""
 messageBusTopic: "mdx-embed"
+# Released images still inspect KAFKA_ENABLED. Keep the legacy switch empty in
+# the brokerless standalone example so it agrees with MESSAGE_BUS.
+kafkaEnabled: ""
 errorBus: ""
 waitForKafka:
   enabled: false

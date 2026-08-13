@@ -16,6 +16,13 @@
 include:
   - path: ./video-analytics-2d-app/compose.yml
 services:
+  # The search profile consumes RT-Embed events from Kafka. Keep this
+  # profile-owned dependency out of the standalone RT-Embed service.
+  rtvi-embed:
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
   kibana-init-container-search:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-search

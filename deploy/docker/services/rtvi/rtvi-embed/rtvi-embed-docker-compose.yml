@@ -23,6 +23,8 @@ services:
     container_name: vss-rtvi-embed
     user: "1001:1001"
     profiles: ["rtvi-embed"]
+    env_file:
+      - .env
     deploy:
       resources:
         reservations:
@@ -65,10 +67,8 @@ services:
       OTEL_METRIC_EXPORT_INTERVAL: "${RTVI_EMBED_OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
       ERROR_MESSAGE_TOPIC: "${RTVI_EMBED_ERROR_MESSAGE_TOPIC:-vision-embed-errors}"
       KAFKA_BOOTSTRAP_SERVERS: ${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
-      # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
-      MESSAGE_BUS: "${MESSAGE_BUS:-}"
-      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
-      ERROR_BUS: "${ERROR_BUS:-}"
+      # MESSAGE_BUS, MESSAGE_BUS_TOPIC, and ERROR_BUS come from this service's
+      # env_file so root profile interpolation cannot override its contract.
       HF_TOKEN: "${HF_TOKEN:-}"
       ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
@@ -119,7 +119,6 @@ services:
       retries: 3
       start_period: 1200s
     restart: unless-stopped
-
 volumes:
   rtvi-hf-cache:
   rtvi-ngc-model-cache:

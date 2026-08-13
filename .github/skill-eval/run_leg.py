@@ -1513,6 +1513,15 @@ def run_invocations(
                     )
                 return 124
 
+        # Harbor can flatten ``environment_dir`` to the platform directory,
+        # so the Brev environment cannot safely infer step-N from that path.
+        # Pass the invocation's authoritative chain metadata explicitly; a
+        # mistaken step-1 classification wipes the deployment before step-2.
+        if invocation.step_index is None:
+            env.pop("HARBOR_SKILL_EVAL_STEP_INDEX", None)
+        else:
+            env["HARBOR_SKILL_EVAL_STEP_INDEX"] = str(invocation.step_index)
+
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
@@ -1528,15 +1537,20 @@ def run_invocations(
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
+        trial_succeeded = False
         if invocation.step_index is not None and invocation.step_count is not None:
             reward = latest_reward(results_root, invocation.include_task_name, started_at)
             reward_value = _reward_value(reward)
+            trial_succeeded = reward_value >= 1.0
             print(
                 f"[run-leg] {invocation.chain_key}/{invocation.include_task_name} "
                 f"rc={rc} reward={reward if reward is not None else 'missing'}",
                 flush=True,
             )
-            if rc == 124 or rc >= 128 or reward_value < 1.0:
+            # rc=124 with reward 1.0 is a post-trial transport-cleanup timeout:
+            # the trial already recorded a passing reward, so descendants must
+            # still run. Only a genuine failure (reward < 1.0) skips the chain.
+            if reward_value < 1.0:
                 write_skip_markers(
                     scratch,
                     spec_stem,
@@ -1551,8 +1565,10 @@ def run_invocations(
         # only a multi-step chain. Continuing could wipe/reuse the same Brev
         # box while descendants from the timed-out process are still settling.
         # For chained tasks the block above writes every applicable skip marker
-        # before this return.
-        if rc == 124 or rc >= 128:
+        # before this return. A trial that already recorded reward 1.0 before
+        # the transport cleanup timed out is the one exception: its work is
+        # done, so the leg proceeds to the next step instead of aborting.
+        if (rc == 124 or rc >= 128) and not trial_succeeded:
             return rc
 
     return overall_rc

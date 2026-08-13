@@ -737,6 +737,48 @@ class RunInvocations(unittest.TestCase):
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
     }
 
+    def test_chain_passes_authoritative_step_index_to_environment(self):
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path("/tmp/datasets/spec"),
+                include_task_name=f"step-{index}",
+                chain_key="spec_rtx",
+                step_index=index,
+                step_count=2,
+            )
+            for index in (1, 2)
+        ]
+        observed: list[str | None] = []
+
+        def capture_env(_cmd, env, _timeout):
+            observed.append(env.get("HARBOR_SKILL_EVAL_STEP_INDEX"))
+            return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, self.ENV, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ),
+                mock.patch.object(run_leg, "run_command", side_effect=capture_env),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "search",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(observed, ["1", "2"])
+
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [
             run_leg.HarborInvocation(
@@ -859,6 +901,55 @@ class RunInvocations(unittest.TestCase):
 
         self.assertEqual(rc, 124)
         run.assert_called_once()
+
+    def test_chain_transport_timeout_with_passing_reward_continues_chain(self):
+        # rc=124 after a trial that already recorded reward 1.0 is a
+        # post-trial transport-cleanup timeout, not a trial failure: the
+        # remaining steps must still run and no skip markers are written.
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path("/tmp/datasets/spec"),
+                include_task_name=f"step-{index}",
+                chain_key="spec_rtx",
+                step_index=index,
+                step_count=3,
+            )
+            for index in (1, 2, 3)
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scratch = root / "scratch"
+            with (
+                mock.patch.dict(run_leg.os.environ, self.ENV, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ),
+                mock.patch.object(
+                    run_leg, "run_command", side_effect=[124, 0, 0]
+                ) as run,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    scratch,
+                    "search",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+            # Every step ran despite step-1's transport-cleanup timeout.
+            self.assertEqual(run.call_count, 3)
+            # No skip markers: the chain was not abandoned.
+            for step in (2, 3):
+                marker = scratch / f"skipped-search-RTXPRO6000BW-step-{step}.txt"
+                self.assertFalse(marker.is_file())
+            # overall_rc preserves step-1's nonzero rc, but the leg did not
+            # abort early.
+            self.assertEqual(rc, 124)
 
     def test_whole_leg_deadline_refuses_unfunded_step_and_marks_chain(self):
         invocation = run_leg.HarborInvocation(

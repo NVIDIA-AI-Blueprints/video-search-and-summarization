@@ -233,8 +233,12 @@ If the user hands you a file path or a URL, use it directly — **VST/VIOS is no
 
 - **Local file** → set `VIDEO_FILE=/path/to/clip.mp4`. Step 3 inlines it as a base64 video block
   (`file_base64`) so the VLM ingests the video directly. Nothing is downloaded.
-- **URL the VLM can fetch** → set `VIDEO_URL=<url>`. Step 3 sends it as a `video_url` block; if the
-  VLM is remote and can't reach the URL, inline it instead (`file_base64`).
+- **URL the VLM can fetch** → set `VIDEO_URL=<url>`. Step 3 sends it as a `video_url` block. If the
+  request fails with a fetch/SSRF error (the VLM refused or could not reach the URL), that is a
+  **technical failure — report it; do not retry with a different upload format**. Inlining instead
+  (`file_base64`) is a decision made *before* the request for a genuinely remote VLM, never a
+  fallback after a failed one: the clip bytes come from the caller-resolved URL, so an inline retry
+  fetches the same blocked origin a second time.
 
 A user-confirmed search-result handoff with a pre-resolved bounded `VIDEO_URL`
 uses this same path. Do not discard that URL and enter Path B merely because
@@ -303,9 +307,10 @@ base64). A user-supplied `VIDEO_FILE` (Path A) is always inlined — there is no
 
 **One endpoint, one attempt.** Resolve the VLM endpoint once and send the request once. A `401`
 or `403` is an answer — the endpoint needs credentials you were not given — not a reason to try
-another host, port or auth header. Retry only to repair malformed structured output, and only
-once. Hunting for a combination that returns 200 turns one failed call into several and buries
-the actual problem, which is that the endpoint is gated.
+another host, port or auth header. The same applies to an SSRF/fetch refusal, a timeout, or any
+other non-200 transport error: stop and report it. Retry only to repair malformed structured
+output, and only once. Hunting for a combination that returns 200 turns one failed call into
+several and buries the actual problem, which is that the endpoint is gated.
 
 If the caller already provides a VLM endpoint, use it directly — this skill only requires a
 reachable OpenAI-compatible `chat/completions` endpoint:
