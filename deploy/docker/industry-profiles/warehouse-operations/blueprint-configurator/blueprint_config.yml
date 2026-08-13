@@ -428,16 +428,15 @@ commons:
           class-attrs-all.pre-cluster-threshold: "${pre_cluster_threshold}"
           class-attrs-0.pre-cluster-threshold: "${person_detection_threshold}"
         
-      # Disabled: keep all sample videos; do not trim to final_stream_count.
-      # - operation_type: "file_management"
-      #   enabled: "${trim_sample_videos}"
-      #   target_directories:
-      #     - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
-      #   file_management:
-      #     action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
-      #     parameters:
-      #       count: ${final_stream_count}
-      #       pattern: "*.mp4"
+      - operation_type: "file_management"
+        enabled: false
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+        file_management:
+          action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
+          parameters:
+            count: ${final_stream_count}
+            pattern: "*.mp4"
 
     3d:
       # Update DeepStream YAML config
@@ -512,16 +511,15 @@ commons:
         updates:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
-      # Disabled: keep all sample videos; do not trim to final_stream_count.
-      # - operation_type: "file_management"
-      #   enabled: "${trim_sample_videos}"
-      #   target_directories:
-      #     - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
-      #   file_management:
-      #     action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
-      #     parameters:
-      #       count: ${final_stream_count}
-      #       pattern: "*.mp4"
+      - operation_type: "file_management"
+        enabled: false
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+        file_management:
+          action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
+          parameters:
+            count: ${final_stream_count}
+            pattern: "*.mp4"
 
     mv3dt:
       # Update DeepStream main config
@@ -585,16 +583,15 @@ commons:
         updates:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
-      # Disabled: keep all sample videos; do not trim to final_stream_count.
-      # - operation_type: "file_management"
-      #   enabled: "${trim_sample_videos}"
-      #   target_directories:
-      #     - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
-      #   file_management:
-      #     action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
-      #     parameters:
-      #       count: ${final_stream_count}
-      #       pattern: "*.mp4"
+      - operation_type: "file_management"
+        enabled: false
+        target_directories:
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+        file_management:
+          action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
+          parameters:
+            count: ${final_stream_count}
+            pattern: "*.mp4"
 
 # ========================================================================================================
 # HARDWARE PROFILES
