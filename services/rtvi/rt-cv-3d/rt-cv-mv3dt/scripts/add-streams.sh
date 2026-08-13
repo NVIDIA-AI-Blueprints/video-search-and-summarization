@@ -358,6 +358,18 @@ except ImportError:
         for item in missing:
             print(f"  missing: {item}", file=sys.stderr)
         sys.exit(2)
+    # camInfo exists, but without pyyaml the tracker and pub/sub membership checks
+    # cannot run. Say so rather than reporting a pass the check did not make: an
+    # id present in camInfo but absent from pub_sub_info_config.yml still crashes
+    # the tracker, which is the failure this validation exists to prevent.
+    print(
+        f"   ⚠ pyyaml unavailable: checked only generated/camInfo/{camera_id}.yml,",
+        file=sys.stderr,
+    )
+    print(
+        "     not the tracker cameraModelFilepath or pub/sub topic entries.",
+        file=sys.stderr,
+    )
     sys.exit(0)
 
 
