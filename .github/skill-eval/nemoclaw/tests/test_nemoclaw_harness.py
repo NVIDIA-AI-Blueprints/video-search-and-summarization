@@ -759,6 +759,7 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
         self.assertIn('--skills "$INPUT_SKILLS"', workflow)
         self.assertIn('NEMOCLAW_SANDBOX_NAME="skill-eval-${GITHUB_RUN_ID}"', workflow)
+        self.assertIn("NEMOCLAW_INSTALL_REF=v0.0.108", workflow)
         self.assertIn("--exclude='agent'", workflow)
         self.assertIn('if [ -d "$RUN_RESULTS" ]; then', workflow)
 
