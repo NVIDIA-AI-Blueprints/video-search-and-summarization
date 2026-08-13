@@ -404,7 +404,7 @@ jobs:
           # notebook setup before Harbor starts the selected eval plan.
           # A run-scoped name avoids inheriting a prior run's sandbox lifecycle
           # lock on a reused worker; Docker resources are still reset below.
-          export NEMOCLAW_SANDBOX_NAME="skill-eval-${GITHUB_RUN_ID}"
+          export NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}"
           # Keep CI's NemoClaw gateway/state separate from interactive sandboxes
           # already registered on the worker's default port (8080).
           export NEMOCLAW_GATEWAY_PORT=8990

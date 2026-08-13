@@ -80,6 +80,43 @@ set -u
 cd "$HOME/video-search-and-summarization"
 scratch=/tmp/skill-eval/nemoclaw
 venv="$scratch/notebook-venv"
+# Earlier Phase 1 runs used names longer than NemoClaw's registry limit and
+# could leave an unreadable row. Remove only those numeric CI rows before the
+# current, valid `se-<run-id>` sandbox is onboarded.
+python3 - <<'__NEMOCLAW_LEGACY_ROW_CLEANUP__'
+import json
+import os
+import re
+import stat
+from pathlib import Path
+
+registry = Path.home() / ".nemoclaw" / "sandboxes.json"
+if registry.exists():
+    metadata = registry.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise SystemExit(f"Refusing unsafe NemoClaw registry path: {{registry}}")
+    if metadata.st_uid != os.getuid():
+        raise SystemExit(f"Refusing NemoClaw registry owned by uid {{metadata.st_uid}}")
+    document = json.loads(registry.read_text(encoding="utf-8"))
+    sandboxes = document.get("sandboxes")
+    if not isinstance(sandboxes, dict):
+        raise SystemExit("NemoClaw registry has no sandbox mapping")
+    legacy = [name for name in sandboxes if re.fullmatch(r"skill-eval-[0-9]+", name)]
+    if legacy:
+        for name in legacy:
+            del sandboxes[name]
+        if document.get("defaultSandbox") in legacy:
+            document["defaultSandbox"] = None
+        replacement = registry.with_name(f".{{registry.name}}.skill-eval-{{os.getpid()}}")
+        with replacement.open("x", encoding="utf-8") as stream:
+            json.dump(document, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(replacement, stat.S_IMODE(metadata.st_mode))
+        os.replace(replacement, registry)
+        print(f"Removed {{len(legacy)}} malformed legacy skill-eval registry row(s)")
+__NEMOCLAW_LEGACY_ROW_CLEANUP__
 # The Docker reset runs before this command. Remove the remaining host-side
 # state that Docker cannot see so both notebooks start from a deterministic
 # baseline while retaining image and package caches.
