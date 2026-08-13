@@ -793,15 +793,6 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertNotIn("pkill", source)
         self.assertNotIn("killall", source)
 
-    def test_failed_notebook_setup_collects_bounded_gateway_errors(self) -> None:
-        source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('nemoclaw "$NEMOCLAW_SANDBOX_NAME" logs --tail 200', source)
-        self.assertIn("timeout --signal=TERM --kill-after=10 60s", source)
-        self.assertIn("tail -n 120", source)
-        self.assertNotIn("logs --follow", source)
-
     def test_eval_harness_destroys_existing_run_scoped_sandbox(self) -> None:
         command = self.env_module._setup_command(5400)
         destroy = 'nemoclaw "$NEMOCLAW_SANDBOX_NAME" destroy --yes'

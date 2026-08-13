@@ -338,23 +338,11 @@ timeout --signal=TERM --kill-after=30 600s \
   --name nemoclaw-skill-eval --display-name "NemoClaw skill eval"
 export NEMOCLAW_CI_KERNEL=nemoclaw-skill-eval
 export NEMOCLAW_SETUP_CELL_TIMEOUT_SEC={adapter_timeout}
-set +e
 timeout --signal=TERM --kill-after=120 {adapter_timeout}s \
   "$venv/bin/python" \
   .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --env-out "$scratch/nemoclaw.env" \
   --timeout "$NEMOCLAW_SETUP_CELL_TIMEOUT_SEC"
-notebook_status=$?
-set -e
-if [ "$notebook_status" -ne 0 ]; then
-  echo "NemoClaw sandbox error diagnostics:" >&2
-  timeout --signal=TERM --kill-after=10 60s \
-    nemoclaw "$NEMOCLAW_SANDBOX_NAME" logs --tail 200 2>&1 | \
-    grep -Eai \
-      'error|fatal|exception|failed|denied|address|eaddr|listen|invalid|missing|not found|crash|exited|warn' | \
-    tail -n 120 >&2 || true
-  exit "$notebook_status"
-fi
 """.strip()
 
 
