@@ -465,7 +465,12 @@ async def execute_core_search(
             [*seen.values(), *unmergeable], key=lambda r: _coerce_float(r.metadata.behavior_score), reverse=True
         )[:top_k]
 
-        await enrich_attribute_results(attr_results, config.vst_internal_url, config.vst_external_url)
+        await enrich_attribute_results(
+            attr_results,
+            config.vst_internal_url,
+            config.vst_external_url,
+            source_type=search_input.source_type,
+        )
 
         search_results = [attribute_result_to_search_result(r) for r in attr_results]
         result_count = len(search_results)

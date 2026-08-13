@@ -46,6 +46,7 @@ from vss_core._foundation.time import iso8601_to_datetime
 from vss_core._foundation.time import safe_iso8601_to_datetime
 from vss_core.vst import VSTError
 from vss_core.vst import build_screenshot_url
+from vss_core.vst import fold_looped_file_window
 from vss_core.vst import get_stream_id
 from vss_core.vst import get_timeline
 from vss_core.vst import get_timelines_map
@@ -626,23 +627,48 @@ async def enrich_attribute_results(
     results: list[AttributeSearchResult],
     vst_internal_url: str | None,
     vst_external_url: str | None = None,
+    source_type: str = "video_file",
 ) -> None:
-    """Resolve stream ids and build screenshot URLs in place (best-effort)."""
+    """Resolve stream ids, fold looped-file windows, and build screenshot URLs.
+
+    Uploaded files played on a loop keep one VST recording at the file epoch
+    while analytics stamps later passes with an ever-advancing clock. For those
+    epoch-anchored timelines, ``start_time`` / ``end_time`` / ``frame_timestamp``
+    are folded onto the recorded pass so clip and picture requests address
+    footage VST actually holds. Live ``rtsp`` and wall-clock-anchored recordings
+    are left unchanged so metadata stays on the ES clock.
+
+    Best-effort throughout: when VST cannot be reached the raw timestamps are
+    kept rather than dropping otherwise-usable results.
+    """
     resolution_base_url = vst_internal_url or vst_external_url
     screenshot_base_url = vst_external_url or vst_internal_url
     if not resolution_base_url or not screenshot_base_url:
         return
 
-    needs_screenshots = any(r.metadata and r.metadata.sensor_id and not r.screenshot_url for r in results)
-    timelines = await _get_timelines_best_effort(resolution_base_url) if needs_screenshots else {}
+    needs_enrichment = any(r.metadata and r.metadata.sensor_id and not r.screenshot_url for r in results)
+    timelines = await _get_timelines_best_effort(resolution_base_url) if needs_enrichment else {}
 
     async def _enrich(r: AttributeSearchResult) -> None:
         if not (r.metadata and r.metadata.sensor_id and not r.screenshot_url):
             return
         try:
-            ts = r.metadata.start_time or r.metadata.frame_timestamp
             stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
             if stream_id:
+                timeline = timelines.get(stream_id)
+                if source_type == "video_file" and timeline:
+                    (
+                        r.metadata.start_time,
+                        r.metadata.end_time,
+                        r.metadata.frame_timestamp,
+                    ) = fold_looped_file_window(
+                        r.metadata.start_time,
+                        r.metadata.end_time,
+                        r.metadata.frame_timestamp,
+                        timeline[0],
+                        timeline[1],
+                    )
+                ts = r.metadata.start_time or r.metadata.frame_timestamp
                 if ts:
                     mapped_ts = _map_to_timeline(ts, stream_id, timelines)
                     if mapped_ts is not None:
@@ -996,7 +1022,12 @@ async def _fuse_multi_attribute(
     # several sensors, so relabeling every result with one sensor's stream id (and
     # sharing one screenshot) would misattribute matches on other sensors.
     if vst_external_url:
-        await enrich_attribute_results(all_results, vst_internal_url, vst_external_url)
+        await enrich_attribute_results(
+            all_results,
+            vst_internal_url,
+            vst_external_url,
+            source_type=search_input.source_type,
+        )
 
     return all_results
 

@@ -1034,7 +1034,9 @@ async def execute_core_search(
 
         vst_internal_url = getattr(config, "vst_internal_url", None)
         vst_external_url = getattr(config, "vst_external_url", None)
-        await enrich_attribute_results(attr_results, vst_internal_url, vst_external_url)
+        await enrich_attribute_results(
+            attr_results, vst_internal_url, vst_external_url, source_type=search_input.source_type
+        )
 
         search_results = [attribute_result_to_search_result(r) for r in attr_results]
         result_count = len(search_results)

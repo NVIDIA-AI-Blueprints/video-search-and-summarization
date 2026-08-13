@@ -40,6 +40,8 @@ from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.uuid_string import is_standard_uuid_string
+from vss_core.vst import fold_looped_file_window
+from vss_core.vst import get_timelines_map
 
 logger = logging.getLogger(__name__)
 
@@ -554,12 +556,19 @@ async def enrich_attribute_results(
     results: list["AttributeSearchResult"],
     vst_internal_url: str | None,
     vst_external_url: str | None = None,
+    source_type: str = "video_file",
 ) -> None:
     """Enrich attribute search results with screenshot URLs and resolved stream IDs.
 
-    Mutates results in-place: resolves sensor_id → stream_id (UUID) and builds
-    screenshot URLs via VST. Stream resolution prefers the internal VST URL;
+    Mutates results in-place: resolves sensor_id → stream_id (UUID), folds
+    looped ``video_file`` windows onto the stream's epoch-anchored VST pass,
+    and builds screenshot URLs. Stream resolution prefers the internal VST URL;
     returned screenshot URLs prefer the external VST URL.
+
+    Looped nvstreamer playback stamps later passes past the single recorded
+    file; folding those bounds is what makes clip/picture requests succeed
+    (NVBug 6538344). Live ``rtsp`` and wall-clock-anchored recordings stay
+    literal so metadata remains on the ES clock.
     """
     resolution_base_url = vst_internal_url or vst_external_url
     screenshot_base_url = vst_external_url or vst_internal_url
@@ -567,19 +576,46 @@ async def enrich_attribute_results(
         return
     from vss_agents.tools.vst.utils import get_stream_id
 
+    needs_enrichment = any(r.metadata and r.metadata.sensor_id and not r.screenshot_url for r in results)
+    timelines = await _get_timelines_best_effort(resolution_base_url) if needs_enrichment else {}
+
     async def _enrich_result(r: AttributeSearchResult) -> None:
         if r.metadata and r.metadata.sensor_id and not r.screenshot_url:
             try:
-                ts = r.metadata.start_time or r.metadata.frame_timestamp
                 stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
                 if stream_id:
-                    if ts:
+                    timeline = timelines.get(stream_id)
+                    if source_type == "video_file" and timeline:
+                        mapped_start, mapped_end, mapped_frame = fold_looped_file_window(
+                            r.metadata.start_time,
+                            r.metadata.end_time,
+                            r.metadata.frame_timestamp,
+                            timeline[0],
+                            timeline[1],
+                        )
+                        r.metadata.start_time = mapped_start
+                        r.metadata.end_time = mapped_end
+                        if mapped_frame is not None:
+                            r.metadata.frame_timestamp = mapped_frame
+                    ts = r.metadata.start_time or r.metadata.frame_timestamp
+                    if timelines and not timeline:
+                        logger.warning(f"Stream {stream_id} not in VST timelines; returning hit without screenshot")
+                    elif ts:
                         r.screenshot_url = build_screenshot_url(screenshot_base_url, stream_id, ts)
                     r.metadata.sensor_id = stream_id
             except Exception as e:
                 logger.warning(f"Failed to enrich result for sensor {r.metadata.sensor_id}: {e}")
 
     await asyncio.gather(*(_enrich_result(r) for r in results))
+
+
+async def _get_timelines_best_effort(vst_base_url: str) -> dict[str, tuple[str, str]]:
+    """Fetch every VST replay timeline, or {} when VST cannot be reached."""
+    try:
+        return await get_timelines_map(vst_base_url, timeout_seconds=5, retries=1)
+    except Exception as e:
+        logger.warning(f"Could not fetch VST timelines; result timestamps left unmapped: {e}")
+        return {}
 
 
 async def _search_behavior(

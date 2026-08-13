@@ -5,6 +5,7 @@
 from .client import VSTClient
 from .client import VSTError
 from .client import build_screenshot_url
+from .client import fold_looped_file_window
 from .client import get_name_to_stream_id_map
 from .client import get_sensor_id_from_stream_id
 from .client import get_stream_id
@@ -21,6 +22,7 @@ __all__ = [
     "VSTError",
     "VSTSnapshot",
     "build_screenshot_url",
+    "fold_looped_file_window",
     "get_name_to_stream_id_map",
     "get_sensor_id_from_stream_id",
     "get_stream_id",

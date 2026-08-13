@@ -30,6 +30,8 @@ def _make_result(
     sensor_id: str = "camera-1",
     screenshot_url: str | None = None,
     start_time: str | None = None,
+    end_time: str | None = None,
+    frame_timestamp: str = "2025-01-01T00:00:01Z",
 ) -> AttributeSearchResult:
     return AttributeSearchResult(
         screenshot_url=screenshot_url,
@@ -37,14 +39,21 @@ def _make_result(
             sensor_id=sensor_id,
             object_id="42",
             object_type="person",
-            frame_timestamp="2025-01-01T00:00:01Z",
+            frame_timestamp=frame_timestamp,
             start_time=start_time,
-            end_time=None,
+            end_time=end_time,
             bbox=None,
             behavior_score=0.95,
             frame_score=None,
             video_name=None,
         ),
+    )
+
+
+def _patch_timelines(timelines: dict | None = None):
+    return patch(
+        "vss_agents.tools.attribute_search._get_timelines_best_effort",
+        AsyncMock(return_value={} if timelines is None else timelines),
     )
 
 
@@ -60,7 +69,7 @@ class TestEnrichAttributeResults:
 
         mock_get_stream_id = AsyncMock(side_effect=["stream-1", "stream-2"])
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id), _patch_timelines():
             await enrich_attribute_results(results, "http://vst-internal:30888")
 
         assert [r.metadata.sensor_id for r in results] == ["stream-1", "stream-2"]
@@ -83,7 +92,7 @@ class TestEnrichAttributeResults:
                 raise RuntimeError("boom")
             return "stream-2"
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", side_effect=_get_stream_id):
+        with patch("vss_agents.tools.vst.utils.get_stream_id", side_effect=_get_stream_id), _patch_timelines():
             await enrich_attribute_results(results, "http://vst-internal:30888")
 
         assert results[0].metadata.sensor_id == "camera-1"
@@ -102,7 +111,7 @@ class TestEnrichAttributeResults:
 
         mock_get_stream_id = AsyncMock(return_value="stream-2")
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id), _patch_timelines():
             await enrich_attribute_results(results, "http://vst-internal:30888")
 
         assert results[0].screenshot_url == "http://existing"
@@ -115,7 +124,7 @@ class TestEnrichAttributeResults:
         results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
         mock_get_stream_id = AsyncMock(return_value="stream-1")
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id), _patch_timelines():
             await enrich_attribute_results(
                 results,
                 vst_internal_url="http://vst-internal:30888",
@@ -133,7 +142,7 @@ class TestEnrichAttributeResults:
         results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
         mock_get_stream_id = AsyncMock(return_value="stream-1")
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id), _patch_timelines():
             await enrich_attribute_results(
                 results,
                 vst_internal_url=None,
@@ -144,6 +153,28 @@ class TestEnrichAttributeResults:
         assert results[0].metadata.sensor_id == "stream-1"
         assert results[0].screenshot_url == (
             "https://7777-brev.brevlab.com/vst/api/v1/replay/stream/stream-1/picture?startTime=2025-01-01T00:00:00Z"
+        )
+
+    @pytest.mark.asyncio
+    async def test_folds_looped_file_windows_onto_recorded_pass(self):
+        results = [
+            _make_result(
+                sensor_id="camera-1",
+                start_time="2025-01-01T00:08:20.866Z",
+                end_time="2025-01-01T00:08:28.966Z",
+                frame_timestamp="2025-01-01T00:08:24.000Z",
+            )
+        ]
+        mock_get_stream_id = AsyncMock(return_value="stream-1")
+        loop_timeline = {"stream-1": ("2025-01-01T00:00:00.000Z", "2025-01-01T00:03:29.967Z")}
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id), _patch_timelines(loop_timeline):
+            await enrich_attribute_results(results, "http://vst-internal:30888", source_type="video_file")
+
+        assert results[0].metadata.start_time == "2025-01-01T00:01:20.932Z"
+        assert results[0].metadata.end_time == "2025-01-01T00:01:29.032Z"
+        assert results[0].screenshot_url == (
+            "http://vst-internal:30888/vst/api/v1/replay/stream/stream-1/picture?startTime=2025-01-01T00:01:20.932Z"
         )
 
 

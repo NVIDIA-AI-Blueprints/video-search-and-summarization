@@ -97,19 +97,25 @@ def map_timestamp_to_timeline(timestamp: str, timeline_start: str, timeline_end:
     """Map an ES hit timestamp onto a stream's VST replay timeline.
 
     File-ingested sources are indexed on a synthetic, midnight-anchored epoch
-    (e.g. ``2025-01-01T00:01:00Z`` = 60s into the file) while VST anchors the
-    replay timeline at ingest wall-clock. A raw ES timestamp therefore points
-    outside the recording and VST rejects the picture request
+    (e.g. ``2025-01-01T00:01:00Z`` = 60s into the file) while VST may anchor
+    the replay timeline at ingest wall-clock. A raw ES timestamp therefore
+    points outside the recording and VST rejects the picture/clip request
     (``VMSInternalError: no valid stream found for given timestamps``). Live
     RTSP sources index real wall-clock, which lands inside the timeline and
     must pass through unchanged.
 
     Rules:
-      - timestamp within [start, end]: returned unchanged (live sources)
-      - otherwise: the elapsed offset from the fixed uploaded-file epoch
-        (2025-01-01T00:00:00Z) is re-based onto ``timeline_start``, clamped to
-        the real timeline. Keeping the date component preserves offsets in
-        files longer than 24 hours.
+      - timestamp within [start, end]: returned unchanged
+      - epoch-anchored recording (``timeline_start`` == the uploaded-file epoch,
+        i.e. a single looped file): the file offset is folded modulo the
+        recording duration. ``nvstreamer`` loops the source with an
+        ever-advancing analytics clock, so ES accumulates hits past the single
+        pass VST keeps; wrapping re-anchors later passes onto the recorded
+        frame (NVBug 6538344).
+      - otherwise (wall-clock-anchored recording): the elapsed offset from the
+        fixed uploaded-file epoch is re-based onto ``timeline_start`` and
+        clamped to the real timeline. A multi-segment envelope is never wrapped
+        because a fold could land in a gap between segments.
 
     Any parse failure returns the original timestamp (best-effort — a raw URL
     that may 404 beats dropping the hit).
@@ -123,12 +129,63 @@ def map_timestamp_to_timeline(timestamp: str, timeline_start: str, timeline_end:
     if start <= ts <= end:
         return timestamp
     offset = ts - _FILE_TIMELINE_EPOCH
-    mapped = start + offset
-    if mapped > end:
-        mapped = end
-    elif mapped < start:
-        mapped = start
+    duration = end - start
+    if start == _FILE_TIMELINE_EPOCH and duration.total_seconds() > 0:
+        # Python's timedelta modulo takes the sign of the (positive) divisor, so
+        # the fold lands in [0, duration) even for a timestamp before the epoch.
+        mapped = start + (offset % duration)
+    else:
+        mapped = start + offset
+        if mapped > end:
+            mapped = end
+        elif mapped < start:
+            mapped = start
     return mapped.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def fold_looped_file_window(
+    start: str | None,
+    end: str | None,
+    frame_timestamp: str | None,
+    timeline_start: str,
+    timeline_end: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Fold a looped-file result window onto the single recorded VST pass.
+
+    Only mutates when ``timeline_start`` is the uploaded-file epoch — that is
+    the looped ``nvstreamer`` case where analytics times run past the one file
+    VST recorded. Wall-clock-anchored timelines are left alone so result
+    metadata stays on the ES clock the MDX ``/frames`` API is keyed on.
+
+    Zero-length windows are mapped as a single timestamp because
+    :func:`map_interval_to_timeline` declines non-positive ranges.
+    """
+    try:
+        if iso8601_to_datetime(timeline_start) != _FILE_TIMELINE_EPOCH:
+            return start, end, frame_timestamp
+    except (TypeError, ValueError):
+        return start, end, frame_timestamp
+
+    mapped_start, mapped_end = start, end
+    if start and end:
+        try:
+            if iso8601_to_datetime(end) != iso8601_to_datetime(start):
+                mapped_start, mapped_end = map_interval_to_timeline(start, end, timeline_start, timeline_end)
+            else:
+                mapped_start = map_timestamp_to_timeline(start, timeline_start, timeline_end)
+                mapped_end = mapped_start
+        except (TypeError, ValueError):
+            mapped_start = map_timestamp_to_timeline(start, timeline_start, timeline_end)
+            mapped_end = mapped_start if end else end
+    elif start:
+        mapped_start = map_timestamp_to_timeline(start, timeline_start, timeline_end)
+        mapped_end = mapped_start if end else end
+    elif end:
+        mapped_end = map_timestamp_to_timeline(end, timeline_start, timeline_end)
+    mapped_frame = (
+        map_timestamp_to_timeline(frame_timestamp, timeline_start, timeline_end) if frame_timestamp else frame_timestamp
+    )
+    return mapped_start, mapped_end, mapped_frame
 
 
 def map_interval_to_timeline(
