@@ -60,7 +60,7 @@ def _make_recipe(
 ) -> dcu.DryRunRecipe:
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
-    containers_env_file = deployments_dir / dcu.CONTAINERS_ENV_FILENAME
+    containers_env_file = deployments_dir / "containers.env"
     containers_env_file.write_text(
         (containers_env_text.strip() + "\n") if containers_env_text else ""
     )
@@ -914,7 +914,7 @@ class TestContainersEnvImageChannel:
     )
 
     def test_load_shell_env_file_sources_with_bash(self, tmp_path: Path):
-        path = tmp_path / dcu.CONTAINERS_ENV_FILENAME
+        path = tmp_path / "containers.env"
         path.write_text(self._MINI_CONTAINERS_ENV + "\n")
 
         resolved = dcu.load_shell_env_file(path, {})
@@ -940,7 +940,7 @@ class TestContainersEnvImageChannel:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert recipe.containers_env_file == recipe.deployments_dir / dcu.CONTAINERS_ENV_FILENAME
+        assert recipe.containers_env_file == recipe.deployments_dir / "containers.env"
         assert resolved["CONTAINER_IMAGE"] == (
             "ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest"
         )
@@ -978,7 +978,7 @@ class TestCreateDryRunRecipeContainersEnv:
         (profile_dir / "overrides.env").write_text("LLM_NAME_SLUG=slug\n")
         (tmp_path / "compose.yml").write_text("services: {}\n")
         if create_containers_env:
-            (tmp_path / dcu.CONTAINERS_ENV_FILENAME).write_text(
+            (tmp_path / "containers.env").write_text(
                 'VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"\n'
             )
         return dcu.create_dry_run_recipe(
@@ -1003,7 +1003,7 @@ class TestCreateDryRunRecipeContainersEnv:
 
     def test_containers_env_resolves_from_deployments_dir(self, tmp_path: Path):
         recipe = self._make(tmp_path, create_containers_env=True)
-        assert recipe.containers_env_file == (tmp_path / dcu.CONTAINERS_ENV_FILENAME).resolve()
+        assert recipe.containers_env_file == (tmp_path / "containers.env").resolve()
 
     def test_missing_containers_env_fails_fast(self, tmp_path: Path):
         with pytest.raises(dcu.ValidationError, match=r"containers\.env"):
@@ -1101,7 +1101,7 @@ class TestCreateDryRunRecipeOverridesEnv:
         profile_dir.mkdir(parents=True)
         (profile_dir / ".env").write_text("MODE=2d\n")
         (tmp_path / "compose.yml").write_text("services: {}\n")
-        (tmp_path / dcu.CONTAINERS_ENV_FILENAME).write_text("")
+        (tmp_path / "containers.env").write_text("")
         if create_overrides:
             (profile_dir / "overrides.env").write_text("LLM_NAME_SLUG=slug\n")
         kwargs = {
@@ -1923,7 +1923,7 @@ def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_pa
     deploy_dir.mkdir(parents=True)
     profile_dir.mkdir(parents=True)
     (deploy_dir / "compose.yml").write_text("services: {}\n")
-    (deploy_dir / dcu.CONTAINERS_ENV_FILENAME).write_text("")
+    (deploy_dir / "containers.env").write_text("")
     (profile_dir / ".env").write_text("HOST_IP=\n")
     (profile_dir / "overrides.env").write_text("")
     monkeypatch.setenv("HOME", str(fake_home))
@@ -1954,4 +1954,4 @@ def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_pa
     assert recipe.compose_file == (deploy_dir / "compose.yml").resolve()
     assert recipe.source_env_file == (profile_dir / ".env").resolve()
     assert recipe.profile_env_override_file == (profile_dir / "overrides.env").resolve()
-    assert recipe.containers_env_file == (deploy_dir / dcu.CONTAINERS_ENV_FILENAME).resolve()
+    assert recipe.containers_env_file == (deploy_dir / "containers.env").resolve()

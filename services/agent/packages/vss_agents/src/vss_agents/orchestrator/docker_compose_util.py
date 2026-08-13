@@ -63,7 +63,6 @@ UNRESOLVED_SHELL_VAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$[A-Za-z_][
 ENV_VAR_INTERPOLATION_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
 )
-CONTAINERS_ENV_FILENAME: Final[str] = "containers.env"
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
@@ -230,8 +229,8 @@ def create_dry_run_recipe(
     )
 
     containers_env_file = resolve_required_absolute_file(
-        str(deployments_path / CONTAINERS_ENV_FILENAME),
-        field_name=CONTAINERS_ENV_FILENAME,
+        str(deployments_path / "containers.env"),
+        field_name="containers.env",
         missing_label="Containers env",
         error_type=ValidationError,
     )
