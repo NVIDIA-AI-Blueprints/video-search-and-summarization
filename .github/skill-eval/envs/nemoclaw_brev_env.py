@@ -379,7 +379,14 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
         )
         result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
         if result.return_code != 0:
-            tail = (result.stderr or result.stdout or "")[-500:]
+            tail = "\n".join(
+                part
+                for part in (
+                    (result.stdout or "").strip(),
+                    (result.stderr or "").strip(),
+                )
+                if part
+            )[-2000:]
             raise RuntimeError(
                 f"Docker runtime reset failed on {self._instance_name}: "
                 f"exit {result.return_code}; tail:\n{tail}"
