@@ -10,7 +10,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from container_build_plan import source_tree_hash  # noqa: E402
 from advance_ghcr_alias import (  # noqa: E402
     advance,
     alias_plan,
@@ -141,7 +140,7 @@ class TreeShaGateTest(unittest.TestCase):
             )
 
     def test_unresolvable_source_path_fails_closed(self):
-        with self.assertRaisesRegex(RuntimeError, "does not resolve to source content"):
+        with self.assertRaisesRegex(RuntimeError, "does not resolve to a tree"):
             verify_tree_shas(
                 release_set(), Path("/repo"), "abc123", lambda *_: None
             )
@@ -234,24 +233,6 @@ class TreeSourceTest(unittest.TestCase):
         data = release_set()  # vss-agent has a real digest
         plan = {i.name: i.source for i in alias_plan(data, "develop-latest", ALL_CONTENT)}
         self.assertTrue(plan["vss-agent"].endswith(":" + ALL_CONTENT["vss-agent"]))
-
-
-    def test_multi_source_entry_gets_combined_content_tag(self):
-        data = self._digestless()
-        data["images"][0]["source_paths"] = ["services/agent", "libs/shared"]
-        mapping = {"services/agent": TREE, "libs/shared": OTHER_TREE}
-
-        def reader(_repo: Path, _commit: str, source_path: str) -> str | None:
-            return mapping.get(source_path)
-
-        expected = source_tree_hash(
-            Path("/repo"),
-            "abc123",
-            ["services/agent", "libs/shared"],
-            tree_reader=reader,
-        )
-        found = tree_sources(data, Path("/repo"), "abc123", reader)
-        self.assertEqual(found.get("vss-agent"), f"tree-{expected}")
 
     def test_missing_content_tag_refuses_to_plan(self):
         """No fallback: a reference that may not describe this commit is worse

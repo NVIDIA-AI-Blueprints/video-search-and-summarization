@@ -15,9 +15,9 @@
 #     promotion always use the immutable tag + digest.
 #   * NO NGC credentials live in GitHub. The nightly GitHub controller selects
 #     a green release set, then GitLab copies those same digests to NGC.
-#   * The com.nvidia.vss.source_tree_sha label carries the source content hash
-#     (the git tree hash for single-source images) — the exact value the
-#     check-*-container-source gate compares. A post-push verification
+#   * The com.nvidia.vss.source_tree_sha label carries the git TREE hash of
+#     the source folder (git rev-parse HEAD:<source_path>) — the exact value
+#     the check-*-container-source gate compares. A post-push verification
 #     reads it back through the same code path as the gate.
 #   * Candidate tags are immutable: the preflight guard refuses to overwrite
 #     an existing tag with different content and no-ops on idempotent re-runs.
@@ -136,7 +136,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.name }}" \
-            --tree-sha "$(python3 .github/scripts/container_build_plan.py source-hash --commit HEAD --source-paths '${{ matrix.source_paths }}')" \
+            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -303,7 +303,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.name }}" \
-            --tree-sha "$(python3 .github/scripts/container_build_plan.py source-hash --commit HEAD --source-paths '${{ matrix.source_paths }}')" \
+            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Compute platform staging tag
@@ -427,7 +427,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.name }}" \
-            --tree-sha "$(python3 .github/scripts/container_build_plan.py source-hash --commit HEAD --source-paths '${{ matrix.source_paths }}')" \
+            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR

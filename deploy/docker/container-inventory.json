@@ -130,16 +130,12 @@
       "ghcr_build": true,
       "native_platform_build": true,
       "source_path": "services/configurators/vss-configurator",
-      "source_paths": [
-        "services/configurators/vss-configurator",
-        "libs/analytics/spatialai-data-utils"
-      ],
       "context": ".",
       "dockerfile": "services/configurators/vss-configurator/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-configurator"],
       "tag_variables": ["VSS_CONFIGURATOR_TAG"],
-      "notes": "Built by GitHub from the configurator service plus Spatial AI Data Utils; GitLab consumes the exact GHCR digest."
+      "notes": "Built by GitHub from the configurator service; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-rt-config-adaptor",

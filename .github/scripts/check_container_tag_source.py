@@ -6,7 +6,7 @@
 For every configured VSS service image referenced from ``deploy/docker``
 compose + env files, fetch the image's OCI index annotations from the
 registry and compare ``com.nvidia.vss.source_tree_sha`` to the current
-checkout's source content hash for the corresponding source inputs.
+checkout's tree SHA for the corresponding source folder.
 
 The ``ci-vss-oss`` build pipeline (``ci/tools/create_manifest.py``) stamps that
 annotation at build time via ``docker buildx imagetools create --annotation
@@ -32,9 +32,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from container_build_plan import source_tree_hash  # noqa: E402
 
 # Optional per-service file (e.g. services/agent/.ignore_source_code_check) that
 # lists gitignore-style paths which are NOT built into the image (unit tests,
@@ -60,7 +57,6 @@ COMPOSE_VAR_RE = re.compile(
 class ImageConfig:
     image_name: str
     source_path: Path
-    source_paths: tuple[Path, ...] = ()
     # Compose basenames that identify this image in deploy/docker. Defaults to
     # (image_name,). The alert service is published/promoted as ``vss-alert-ms``
     # but the deploy stack still pins the released basename
@@ -70,9 +66,6 @@ class ImageConfig:
 
     def compose_names(self) -> tuple[str, ...]:
         return self.deploy_image_names or (self.image_name,)
-
-    def all_source_paths(self) -> tuple[Path, ...]:
-        return self.source_paths or (self.source_path,)
 
 
 IMAGE_CONFIGS = {
@@ -101,10 +94,6 @@ IMAGE_CONFIGS = {
     "vss-configurator": ImageConfig(
         image_name="vss-configurator",
         source_path=Path("services/configurators/vss-configurator"),
-        source_paths=(
-            Path("services/configurators/vss-configurator"),
-            Path("libs/analytics/spatialai-data-utils"),
-        ),
     ),
     "vss-rt-config-adaptor": ImageConfig(
         image_name="vss-rt-config-adaptor",
@@ -305,17 +294,6 @@ def tree_sha(repo: Path, commit: str, source_path: Path) -> str | None:
     return result.stdout.strip()
 
 
-def source_content_hash(repo: Path, commit: str, config: ImageConfig) -> str | None:
-    try:
-        return source_tree_hash(
-            repo,
-            commit,
-            [path.as_posix() for path in config.all_source_paths()],
-        )
-    except ValueError:
-        return None
-
-
 def load_source_ignore_patterns(repo: Path, source_path: Path) -> list[str]:
     """Read gitignore-style patterns from ``<source_path>/.ignore_source_code_check``.
 
@@ -422,8 +400,6 @@ def rescue_ignored_only(
     confirms its ``source_path`` tree matches ``build_tree_sha`` (so we know we
     found the exact source the image was built from) before diffing to HEAD.
     """
-    if len(config.all_source_paths()) != 1:
-        return False
     patterns = load_source_ignore_patterns(repo, config.source_path)
     if not patterns:
         return False
@@ -431,7 +407,7 @@ def rescue_ignored_only(
     build_commit = resolve_commit(repo, prefix) if prefix else None
     if not build_commit:
         return False
-    if source_content_hash(repo, build_commit, config) != build_tree_sha:
+    if tree_sha(repo, build_commit, config.source_path) != build_tree_sha:
         # The tag-suffix commit isn't the one this image was built from; don't
         # trust a diff against it.
         return False
@@ -889,7 +865,7 @@ def check_resolved_image(
             )
             return False
         print(f"  manifest:      {SOURCE_TREE_SHA_LABEL}={labels.source_tree_sha}")
-        print(f"  comparing source content ({src} primary):")
+        print(f"  comparing {src}/:")
         print(f"    at HEAD ({current_commit[:12]}):  {current_tree}")
         print(f"    in image manifest:              {labels.source_tree_sha}")
         if labels.source_tree_sha == current_tree:
@@ -910,7 +886,7 @@ def check_resolved_image(
         print(
             f"         Image's source tree SHA at build time: {labels.source_tree_sha}"
         )
-        print(f"         Current source content hash:               {current_tree}")
+        print(f"         Current {src}/ tree SHA:               {current_tree}")
         _print_fix_hint(config)
         return False
 
@@ -957,12 +933,12 @@ def check_resolved_image(
         return False
     print(f"  built from:    {tag_commit}")
 
-    tag_tree = source_content_hash(repo_root, tag_commit, config)
+    tag_tree = tree_sha(repo_root, tag_commit, config.source_path)
     if not tag_tree:
-        print(f"  [FAIL] could not read source content at commit {tag_commit[:12]}.")
+        print(f"  [FAIL] could not read {src}/ at commit {tag_commit[:12]}.")
         return False
 
-    print(f"  comparing source content ({src} primary):")
+    print(f"  comparing {src}/:")
     print(f"    at HEAD              ({current_commit[:12]}):  {current_tree}")
     print(f"    at container commit  ({tag_commit[:12]}):  {tag_tree}")
     if tag_tree == current_tree:
@@ -1014,23 +990,22 @@ def verify(repo_root: Path, config: ImageConfig) -> int:
     bar = "=" * 78
     print(bar)
     print(
-        f" {config.image_name}  —  check every deployable container tag against source content"
+        f" {config.image_name}  —  check every deployable container tag against {src}/"
     )
     print(bar)
     print()
 
     current_commit = git_stdout(repo_root, "rev-parse", "HEAD")
     current_branch = git_stdout(repo_root, "rev-parse", "--abbrev-ref", "HEAD")
-    current_tree = source_content_hash(repo_root, "HEAD", config)
+    current_tree = tree_sha(repo_root, "HEAD", config.source_path)
     if not current_tree:
-        print(f"ERROR: could not resolve HEAD source content for {src}", file=sys.stderr)
+        print(f"ERROR: could not resolve HEAD:{src}", file=sys.stderr)
         return 1
 
     print("Current source (HEAD)")
     print(f"  branch:  {current_branch}")
     print(f"  commit:  {current_commit}")
-    sources = ", ".join(path.as_posix() + "/" for path in config.all_source_paths())
-    print(f"  source:  {sources}  (content hash: {current_tree})")
+    print(f"  folder:  {src}/  (content hash: {current_tree})")
     print()
 
     compose_files = discover_compose_files(repo_root)

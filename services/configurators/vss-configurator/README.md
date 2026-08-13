@@ -51,7 +51,7 @@ vss-configurator/
 │   └── Dockerfile                            # Container build recipe (monorepo-root context)
 ```
 
-Python dependencies are managed with **uv** in this service directory (`requires-python >= 3.13`). The runtime image is **distroless** (no shell); startup uses `entrypoint.py`. The image installs `spatialai-data-utils` separately from the monorepo source under `libs/analytics/spatialai-data-utils` so SDU updates do not require churn in this service lock file.
+Python dependencies are managed with **uv** in this service directory (`requires-python >= 3.13`). The `spatialai-data-utils` dependency is built from the monorepo source under `libs/analytics/spatialai-data-utils`. The runtime image is **distroless** (no shell); startup uses `entrypoint.py`.
 
 ---
 
@@ -310,7 +310,7 @@ docker build \
   -t vss-configurator .
 ```
 
-The image uses a multi-stage build: **Python 3.13** configurator dependencies via `uv sync --frozen --no-dev`, then the in-repo SDU package via `uv pip install`, with runtime on **`nvcr.io/nvidian/distroless/python:3.13-v4.0.5`**.
+The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidian/distroless/python:3.13-v4.0.5`**.
 
 **Legal requirements (container distribution):**
 
@@ -629,7 +629,7 @@ Status for NVStreamer/VMS video upload (for init-container polling).
 | Item | Value |
 |------|--------|
 | Build context | monorepo root (`.`) |
-| Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` for configurator deps, then `uv pip install` for in-repo SDU |
+| Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` |
 | Runtime base | `nvcr.io/nvidian/distroless/python:3.13-v4.0.5` |
 | Entrypoint | `python entrypoint.py` (no shell in image) |
 | Working directory | `/usr/src/app` |
@@ -965,7 +965,7 @@ Runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 | redis | 5.0.1 | Redis streams / duplicator |
 | requests | 2.32.3 | HTTP client (calibration, MSB, NVStreamer, VMS) |
 | ruamel.yaml | 0.18.15 | Profile YAML read/write |
-| spatialai-data-utils | installed separately from in-repo path (`libs/analytics/spatialai-data-utils/release`) in the Dockerfile | BEV center recomputation (optional, 3D mode only) |
+| spatialai-data-utils | in-repo path (`libs/analytics/spatialai-data-utils/release`) | BEV center recomputation (optional, 3D mode only) |
 
 Full transitive runtime licenses: [3rdParty_Licenses.md](3rdParty_Licenses.md).
 

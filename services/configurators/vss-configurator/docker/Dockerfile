@@ -25,19 +25,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install locked configurator deps via uv. Build context: monorepo root.
+# Install Python deps via uv (locked). Build context: monorepo root.
 # External CI should build with:
 # docker build -f services/configurators/vss-configurator/docker/Dockerfile .
 COPY --from=ghcr.io/astral-sh/uv:0.11.24 /uv /usr/local/bin/uv
+COPY libs/analytics/spatialai-data-utils /libs/analytics/spatialai-data-utils
 COPY services/configurators/vss-configurator/pyproject.toml \
     services/configurators/vss-configurator/uv.lock \
     ./
 RUN uv sync --frozen --no-dev
-
-# Install Spatial AI Data Utils from the current monorepo source outside the
-# configurator lock so SDU source/dependency changes do not require lock churn.
-COPY libs/analytics/spatialai-data-utils /libs/analytics/spatialai-data-utils
-RUN uv pip install --python .venv/bin/python /libs/analytics/spatialai-data-utils/release
 
 # -----------------------------------------------------------------------------
 # Stage 2: Runtime — distroless Python 3.13 (no shell, no package manager)

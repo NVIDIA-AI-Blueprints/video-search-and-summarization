@@ -54,17 +54,12 @@
           },
           "source_path": {
             "type": ["string", "null"],
-            "description": "Primary repo-relative source folder (build strategy only)."
-          },
-          "source_paths": {
-            "type": ["array", "null"],
-            "items": { "type": "string" },
-            "description": "All repo-relative source folders that contribute to this build input."
+            "description": "Repo-relative source folder (build strategy only)."
           },
           "source_tree_sha": {
             "type": ["string", "null"],
             "pattern": "^[0-9a-f]{40}$",
-            "description": "Source content hash the container-source gate compares, not the commit SHA. For single-source images this is git rev-parse <commit>:<source_path>."
+            "description": "git rev-parse <commit>:<source_path> — the TREE hash the container-source gate compares, not the commit SHA."
           },
           "upstream_digest": {
             "type": ["string", "null"],

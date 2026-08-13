@@ -34,8 +34,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from container_build_plan import source_tree_hash  # noqa: E402
-from release_set import entry_source_paths, load_inventory  # noqa: E402
+from release_set import load_inventory  # noqa: E402
 
 ZERO_SHA = "0" * 40
 
@@ -46,13 +45,12 @@ BUILD_CONTRACT_PATHS = (
     ".github/scripts/detect_changed_images.py",
     ".github/scripts/ghcr_image_guard.py",
     ".github/scripts/release_set.py",
-    ".github/scripts/container_build_plan.py",
     "deploy/docker/container-inventory.json",
 )
 
 # Agent, UI, and alert share VSS_CONTAINER_TAG and must move as one set.
 # Analytics/configurator images have independent tag variables and build only when
-# their own source inputs change.
+# their own service source changes.
 SHARED_TAG_IMAGE_NAMES = frozenset({"vss-agent", "vss-agent-ui", "vss-alert-ms"})
 
 # Behavior analytics native-runner routing predates the SDR/configurator GHCR
@@ -147,7 +145,6 @@ def paths_changed_under(changed: list[str] | None, directory: str) -> bool:
     )
 
 
-
 def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict], str]:
     """Matrix entries for the buildable images that need a build."""
     buildable = [
@@ -166,10 +163,7 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
     changed_images = [
         entry
         for entry in buildable
-        if any(
-            paths_changed_under(changed, source_path)
-            for source_path in entry_source_paths(entry)
-        )
+        if paths_changed_under(changed, entry["source_path"])
     ]
     if changed_images:
         selected_names = {entry["name"] for entry in changed_images}
@@ -254,14 +248,14 @@ def content_tag_missing(
     spurious rebuild costs minutes, a spurious skip costs a missing tag that
     surfaces somewhere else hours later.
     """
-    source_paths = entry_source_paths(entry)
-    if not source_paths:
+    source_path = entry.get("source_path")
+    if not source_path:
         return False
-    try:
-        content_hash = source_tree_hash(repo, commit, source_paths)
-    except ValueError:
+    result = run_git(repo, "rev-parse", f"{commit}:{source_path}")
+    if result.returncode != 0:
         return True
-    reference = f"ghcr.io/{owner.lower()}/vss/{entry['name']}:tree-{content_hash}"
+    tree_sha = result.stdout.strip()
+    reference = f"ghcr.io/{owner.lower()}/vss/{entry['name']}:tree-{tree_sha}"
     return probe(reference) is not True
 
 
@@ -273,7 +267,6 @@ def matrix_entry(entry: dict) -> dict:
         "lfs_include": entry.get("lfs_include", ""),
         "platforms": ",".join(entry["platforms"]),
         "source_path": entry["source_path"],
-        "source_paths": ",".join(entry_source_paths(entry)),
     }
 
 

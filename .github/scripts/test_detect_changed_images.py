@@ -225,10 +225,6 @@ class SelectImagesTest(unittest.TestCase):
             "vss-configurator": {
                 "context": ".",
                 "source_path": "services/configurators/vss-configurator",
-                "source_paths": [
-                    "services/configurators/vss-configurator",
-                    "libs/analytics/spatialai-data-utils",
-                ],
                 "native_platform_build": True,
             },
             "vss-rt-config-adaptor": {
@@ -243,8 +239,6 @@ class SelectImagesTest(unittest.TestCase):
             self.assertEqual(entry["strategy"], "build")
             self.assertEqual(entry["context"], expected_fields["context"])
             self.assertEqual(entry["source_path"], expected_fields["source_path"])
-            if "source_paths" in expected_fields:
-                self.assertEqual(entry["source_paths"], expected_fields["source_paths"])
             if "native_platform_build" in expected_fields:
                 self.assertIs(entry["native_platform_build"], True)
             self.assertEqual(
@@ -281,9 +275,7 @@ class SelectImagesTest(unittest.TestCase):
         spatialai_entries, _ = dci.select_images(
             inventory, ["libs/analytics/spatialai-data-utils/release/pyproject.toml"]
         )
-        self.assertEqual(
-            [entry["name"] for entry in spatialai_entries], ["vss-configurator"]
-        )
+        self.assertEqual([entry["name"] for entry in spatialai_entries], [])
 
         adaptor_entries, _ = dci.select_images(
             inventory, ["services/configurators/vss-rt-config-adaptor/app/config.py"]
@@ -316,7 +308,6 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
-                        "source_paths": "services/agent",
                     },
                     {
                         "name": "vss-agent-ui",
@@ -325,7 +316,6 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/ui",
-                        "source_paths": "services/ui",
                     },
                 ]
             },
