@@ -747,6 +747,14 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertNotIn("pkill", source)
         self.assertNotIn("killall", source)
 
+    def test_legacy_registry_cleanup_is_limited_to_old_ci_names(self) -> None:
+        source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('re.fullmatch(r"skill-eval-[0-9]+", name)', source)
+        self.assertIn("del sandboxes[name]", source)
+        self.assertNotIn("sandboxes.clear", source)
+
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/skills-eval.yml").read_text(
             encoding="utf-8"
@@ -758,7 +766,7 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
         self.assertIn('--skills "$INPUT_SKILLS"', workflow)
-        self.assertIn('NEMOCLAW_SANDBOX_NAME="skill-eval-${GITHUB_RUN_ID}"', workflow)
+        self.assertIn('NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}"', workflow)
         self.assertIn("NEMOCLAW_GATEWAY_PORT=8990", workflow)
         self.assertIn("NEMOCLAW_INSTALL_REF=v0.0.108", workflow)
         self.assertIn("--exclude='agent'", workflow)
