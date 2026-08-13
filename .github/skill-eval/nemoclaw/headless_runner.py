@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Run one Harbor prompt synchronously inside NemoClaw/OpenClaw."""
+
 from __future__ import annotations
 
 import argparse
@@ -38,6 +39,13 @@ def _gateway_name() -> str:
     if not raw.isdigit() or not 1024 <= int(raw) <= 65535:
         raise ValueError("invalid NEMOCLAW_GATEWAY_PORT")
     return "nemoclaw" if int(raw) == 8080 else f"nemoclaw-{int(raw)}"
+
+
+def _dashboard_port() -> int:
+    raw = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
+    if not raw.isdigit() or not 1024 <= int(raw) <= 65535:
+        raise ValueError("invalid NEMOCLAW_DASHBOARD_PORT")
+    return int(raw)
 
 
 def _sandbox_exec(
@@ -87,19 +95,19 @@ def _nemoclaw_exec(
         f"[ -r {shlex.quote(runtime_env)} ] || "
         "{ echo 'NemoClaw runtime env is unavailable' >&2; exit 1; }; "
         f". {shlex.quote(runtime_env)} || exit $?; "
-        "unset OPENCLAW_GATEWAY_TOKEN; "
-        + script
+        "unset OPENCLAW_GATEWAY_TOKEN; " + script
     )
     return _sandbox_exec(sandbox, wrapped, timeout=timeout)
 
 
 def _gateway_healthy(sandbox: str) -> bool:
+    port = _dashboard_port()
     result = _sandbox_exec(
         sandbox,
         (
             "code=$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 "
-            "-o /dev/null -w '%{http_code}' http://127.0.0.1:18789/health) "
-            "&& { [ \"$code\" = 200 ] || [ \"$code\" = 401 ]; }"
+            f"-o /dev/null -w '%{{http_code}}' http://127.0.0.1:{port}/health) "
+            '&& { [ "$code" = 200 ] || [ "$code" = 401 ]; }'
         ),
         timeout=30,
     )
@@ -205,9 +213,7 @@ def _tool_calls(content: Any) -> list[dict[str, Any]]:
             arguments["command"] = arguments.pop("cmd")
         calls.append(
             {
-                "tool_call_id": str(
-                    part.get("id") or f"openclaw-tool-{index:06d}"
-                ),
+                "tool_call_id": str(part.get("id") or f"openclaw-tool-{index:06d}"),
                 "function_name": function_name,
                 "arguments": arguments,
             }
@@ -246,7 +252,9 @@ def _session_to_atif(
             step: dict[str, Any] = {
                 "step_id": len(steps) + 1,
                 "source": "user",
-                "message": prompt if first_user else (_text(message.get("content")) or "(empty)"),
+                "message": prompt
+                if first_user
+                else (_text(message.get("content")) or "(empty)"),
             }
             first_user = False
             if isinstance(timestamp, str):
@@ -262,7 +270,9 @@ def _session_to_atif(
         observations: list[dict[str, Any]] = []
         next_index = index + 1
         call_ids = {call["tool_call_id"] for call in calls}
-        while next_index < len(rows) and rows[next_index][1].get("role") == "toolResult":
+        while (
+            next_index < len(rows) and rows[next_index][1].get("role") == "toolResult"
+        ):
             result_message = rows[next_index][1]
             source_id = str(result_message.get("toolCallId") or "")
             if call_ids and source_id not in call_ids:
@@ -313,13 +323,9 @@ def _session_to_atif(
     final_usage = agent_meta.get("usage") if isinstance(agent_meta, dict) else {}
     if isinstance(final_usage, dict):
         final_cache = _int(final_usage.get("cacheRead"))
-        prompt_tokens = max(
-            prompt_tokens, _int(final_usage.get("input")) + final_cache
-        )
+        prompt_tokens = max(prompt_tokens, _int(final_usage.get("input")) + final_cache)
         cached_tokens = max(cached_tokens, final_cache)
-        completion_tokens = max(
-            completion_tokens, _int(final_usage.get("output"))
-        )
+        completion_tokens = max(completion_tokens, _int(final_usage.get("output")))
     turns = sum(step.get("source") == "agent" for step in steps)
     metrics = {
         "turns": turns,
@@ -331,9 +337,7 @@ def _session_to_atif(
     trajectory = {
         "schema_version": "ATIF-v1.7",
         "session_id": str(
-            agent_meta.get("sessionId")
-            if isinstance(agent_meta, dict)
-            else ""
+            agent_meta.get("sessionId") if isinstance(agent_meta, dict) else ""
         ),
         "agent": {
             "name": "openclaw",
@@ -369,10 +373,7 @@ def _run_openclaw(
     prompt: str,
     timeout: int,
 ) -> tuple[dict[str, Any], dict[str, int], dict[str, Any]]:
-    session_id = (
-        f"{os.environ.get('GITHUB_RUN_ID', 'local')}-"
-        f"{uuid.uuid4().hex}"
-    )
+    session_id = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid.uuid4().hex}"
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1"
     command = (
         "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
@@ -388,9 +389,7 @@ def _run_openclaw(
     result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "")[-1000:]
-        raise RuntimeError(
-            f"OpenClaw agent exited {result.returncode}: {detail}"
-        )
+        raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
     envelope = _json_object(result.stdout)
     session_file = _session_file(envelope)
     session = _sandbox_exec(
@@ -429,17 +428,13 @@ def main(argv: list[str] | None = None) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     agent_log_dir = Path(args.agent_log_dir)
     agent_log_dir.mkdir(parents=True, exist_ok=True)
-    sandbox = os.environ.get(
-        "NEMOCLAW_SANDBOX_NAME", "skill-eval-nemoclaw"
-    )
+    sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval-nemoclaw")
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
     started = time.monotonic()
 
     try:
         _ensure_gateway(sandbox)
-        envelope, metrics, trajectory = _run_openclaw(
-            sandbox, prompt, args.timeout
-        )
+        envelope, metrics, trajectory = _run_openclaw(sandbox, prompt, args.timeout)
         meta = envelope.get("meta")
         agent_meta = meta.get("agentMeta") if isinstance(meta, dict) else {}
         report = {
@@ -448,8 +443,7 @@ def main(argv: list[str] | None = None) -> int:
             "elapsed_s": round(time.monotonic() - started, 3),
             "session_id": (
                 str(agent_meta.get("sessionId"))
-                if isinstance(agent_meta, dict)
-                and agent_meta.get("sessionId")
+                if isinstance(agent_meta, dict) and agent_meta.get("sessionId")
                 else ""
             ),
         }
@@ -477,8 +471,7 @@ def main(argv: list[str] | None = None) -> int:
         # The exception is printed for GitHub's normal secret masking. No
         # failure transcript or environment snapshot is written to artifacts.
         print(
-            f"NemoClaw/OpenClaw headless run failed: "
-            f"{type(exc).__name__}: {exc}",
+            f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
         return 1
