@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,12 +81,12 @@ bool StorageManagement::m_isStorageCapacityInitialized = false;
 extern "C" void* createStorageManagementObject()
 {
     std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
-    return new StorageManagement(ModuleLoader::getInstance()->getDeviceType(), ModuleLoader::getInstance()->getDeviceId(), deviceManager);
+    return std::make_unique<StorageManagement>(ModuleLoader::getInstance()->getDeviceType(), ModuleLoader::getInstance()->getDeviceId(), deviceManager).release();
 }
 
 extern "C" void deleteStorageManagementObject(StorageManagement* object)
 {
-    delete object;
+    std::unique_ptr<StorageManagement> owner(object);
 }
 
 StorageManagement::StorageManagement(const string deviceType, const string deviceId, std::shared_ptr<DeviceManager> deviceMngr)
@@ -109,7 +109,7 @@ StorageManagement::StorageManagement(const string deviceType, const string devic
         const uint64_t frequency = config.storage_monitoring_frequency_secs;
         std::chrono::seconds seconds (frequency);
         m_storage = make_unique<Bosma::Scheduler>(AGING_POLICY_THREAD_COUNT);
-        m_storage->interval(seconds, [=]() {
+        m_storage->interval(seconds, [this]() {
             StorageMonitorTask();
         });
         LOG(info) << "Aging policy enabled (enable_aging_policy=" << config.enable_aging_policy << ")" << endl;
@@ -134,7 +134,7 @@ StorageManagement::StorageManagement(const string deviceType, const string devic
 
     std::chrono::seconds prometheus_interval (5);
     m_monitoring = make_unique<Bosma::Scheduler>(1);
-    m_monitoring->interval(prometheus_interval, [=]() {
+    m_monitoring->interval(prometheus_interval, [this]() {
         sendCurrentUsedStorageSizeToPrometheus();
     });
 
@@ -1281,7 +1281,7 @@ VmsErrorCode StorageManagement::getStorageConfiguration(const Json::Value & req_
         response["enableUserCleanup"] = config.enable_user_cleanup;
         response["multiUserExtraOptions"] = vectorToString(config.multi_user_extra_options);
         response["useMultiUser"] = config.use_multi_user;
-        response["vstIp"] = g_hostIp;
+        response["vstIp"] = getHostIpAddress();
         response["recordedVideoDirRoot"] = GET_CONFIG().recorded_video_root;
         response["enableAgingPolicy"] = GET_CONFIG().enable_aging_policy;
         response["totalVideoStorageSizeMB"] = (uint32_t)GET_CONFIG().total_video_storage_size_MB;
@@ -1620,7 +1620,7 @@ VmsErrorCode StorageManagement::getFileListSensorIdBased(const string &sensorId,
                 try
                 {
                     Json::CharReaderBuilder builder;
-                    Json::CharReader* reader = builder.newCharReader();
+                    std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
                     Json::Value metadata;
                     string errors;
 
@@ -1630,7 +1630,6 @@ VmsErrorCode StorageManagement::getFileListSensorIdBased(const string &sensorId,
                         &metadata,
                         &errors
                     );
-                    delete reader;
 
                     if (parsingSuccessful && !metadata.isNull())
                     {
@@ -3725,7 +3724,7 @@ VmsErrorCode StorageManagement::listLocalFiles(const Json::Value& req_info, cons
                 try
                 {
                     Json::CharReaderBuilder builder;
-                    Json::CharReader* reader = builder.newCharReader();
+                    std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
                     Json::Value metadata;
                     string errors;
 
@@ -3735,7 +3734,6 @@ VmsErrorCode StorageManagement::listLocalFiles(const Json::Value& req_info, cons
                         &metadata,
                         &errors
                     );
-                    delete reader;
 
                     if (parsingSuccessful && !metadata.isNull())
                     {

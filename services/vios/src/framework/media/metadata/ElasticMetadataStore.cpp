@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,7 +51,7 @@ namespace
 }
 
 ElasticMetadataStore::ElasticMetadataStore(MetadataParams& params, bool use_frameid)
-    : m_bboxMetadata(m_metadataQueue, m_metadataQueueMutex)
+    : m_bboxMetadata(metadataQueue(), metadataQueueMutex())
 {
     SearchParams inData(params.m_startTime, params.m_endTime, params.m_sensorName);
     if (use_frameid)
@@ -93,21 +93,21 @@ ElasticMetadataStore::~ElasticMetadataStore()
 
 // Pops queue entries older than frameTS and returns the first entry whose
 // timestamp is >= frameTS (the "ceiling" match), or nullValue if the queue
-// drained. Caller must NOT hold m_metadataQueueMutex.
+// drained. Caller must NOT hold metadataQueueMutex().
 Json::Value ElasticMetadataStore::matchQueueFront(const int64_t frameTS)
 {
-    std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
+    std::lock_guard<std::mutex> guard(metadataQueueMutex());
     Json::Value metadata = Json::nullValue;
-    if (!m_metadataQueue.empty())
+    if (!metadataQueue().empty())
     {
-        metadata = m_metadataQueue.front();
+        metadata = metadataQueue().front();
         int64_t elasticTS = metadata["epocTime"].asUInt64() * 1000;
-        while(elasticTS < frameTS && !m_metadataQueue.empty())
+        while(elasticTS < frameTS && !metadataQueue().empty())
         {
-            m_metadataQueue.pop();
-            if (!m_metadataQueue.empty())
+            metadataQueue().pop();
+            if (!metadataQueue().empty())
             {
-                metadata = m_metadataQueue.front();
+                metadata = metadataQueue().front();
                 elasticTS = metadata["epocTime"].asUInt64() * 1000;
             }
             else
@@ -386,10 +386,10 @@ void ElasticMetadataStore::prefetchRange()
                       });
 
             {
-                std::lock_guard<std::mutex> guard(m_metadataQueueMutex);
+                std::lock_guard<std::mutex> guard(metadataQueueMutex());
                 for (auto& h : all)
                 {
-                    m_metadataQueue.push(h);
+                    metadataQueue().push(h);
                 }
             }
 

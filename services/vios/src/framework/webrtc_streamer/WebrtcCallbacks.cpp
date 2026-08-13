@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -158,7 +158,7 @@ void PeerConnectionObserver::OnIceCandidate(const webrtc::IceCandidateInterface 
                 }
                 else
                 {
-                    node_ip = g_hostIp;
+                    node_ip = getHostIpAddress();
                 }
 
                 string local_ip = candidate->candidate().address().ipaddr().ToString();
@@ -287,7 +287,7 @@ void VideoSink::OnFrame(const webrtc::VideoFrame& video_frame)
     webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer(frame_buffer->ToI420());
     int width = frame_buffer->width();
     int height = frame_buffer->height();
-    void* dataY = nullptr;
+    unsigned char* dataY = nullptr;
     /* Size is 1.5 times resolution for I420 Buffer
        and Size is stored in width and codec type is specified in height for pass through */
     unsigned int size = width * height * 1.5;
@@ -301,13 +301,13 @@ void VideoSink::OnFrame(const webrtc::VideoFrame& video_frame)
     if (buffer == nullptr)
     {
         size = sizeof(NvBufSurface);
-        dataY = (void *)&frame_buffer; //webrtc::scoped_refptr<NvVideoFrameBuffer>*
+        dataY = (unsigned char *)&frame_buffer; //webrtc::scoped_refptr<NvVideoFrameBuffer>*
     }
     else
     {
         width = buffer->width();
         height = buffer->height();
-        dataY = m_passThrough ? (void *)buffer.get()->DataY() : (void *)buffer.get();
+        dataY = m_passThrough ? (unsigned char *)buffer.get()->DataY() : (unsigned char *)buffer.get();
     }
 
     /* Frame rate measurements */
@@ -383,7 +383,7 @@ void AudioSink::OnData(const void* audio_data,
         }
     }
     size_t streamSizeBytes = (bits_per_sample / 8) * number_of_channels * number_of_frames;
-    m_producer->addFrame ("audio", (unsigned char *)audio_data, streamSizeBytes, sample_rate, number_of_channels);
+    m_producer->addAudioFrame (static_cast<const unsigned char *>(audio_data), streamSizeBytes, sample_rate, number_of_channels);
     m_webrtcAudioInDataFlow = true;
 }
 
@@ -409,7 +409,7 @@ void CreateSessionDescriptionObserver::OnSuccess(webrtc::SessionDescriptionInter
 {
     if (desc)
     {
-        m_pc->SetLocalDescription(SetSessionDescriptionObserver::Create(m_pc, m_promise, m_sdp), desc);
+        m_pc->SetLocalDescription(SetSessionDescriptionObserver::Create(m_pc, m_promise, m_sdp).get(), desc);
     }
 }
 
@@ -480,7 +480,7 @@ void PeerConnectionObserver::OnAddStream(webrtc::scoped_refptr<webrtc::MediaStre
     m_bitrateThresold *= STANDARD_BITRATE_720P_KBPS;
     m_webrtcInputDataWatchDog = make_unique<Bosma::Scheduler>(1);
     m_webrtcInputDataWatchDog->every(
-                WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [=, this]() {
+                WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL, [this]() {
                 checkInputDataFlowStatus();
                 Json::Value inboundVideoStats = getInboundVideoStats();
                 uint64_t currentBitrate = calculateCurrentBitrate(inboundVideoStats);
@@ -525,7 +525,7 @@ void PeerConnectionObserver::OnSignalingChange(webrtc::PeerConnectionInterface::
         const uint64_t frequency = GET_CONFIG().webrtc_peer_conn_timeout_sec;
         std::chrono::seconds seconds (frequency);
         m_peerConnectionTimeout = make_unique<Bosma::Scheduler>(PEER_CONNECTION_TIMEOUT_THREAD_COUNT);
-        m_peerConnectionTimeout->in(seconds, [=, this]() {
+        m_peerConnectionTimeout->in(seconds, [this]() {
             m_peerConnection->isIceCandidateAdded();
         });
 

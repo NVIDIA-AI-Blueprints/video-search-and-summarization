@@ -15,8 +15,8 @@ useReleaseNamePrefix: null
 replicas: 1
 
 image:
-  repository: ""
-  tag: ""
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
+  tag: develop-latest
   pullPolicy: IfNotPresent
 
 init:

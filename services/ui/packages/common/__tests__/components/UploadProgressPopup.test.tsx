@@ -28,6 +28,33 @@ describe('UploadProgressPopup', () => {
     expect(screen.getByText('network error')).toBeInTheDocument();
   });
 
+  // Chat wants the full window; Video Management needs the overlay confined to its pane so
+  // the popup is not painted underneath the chat sidebar next to it.
+  it('overlays the full viewport by default', () => {
+    render(
+      <UploadProgressPopup
+        files={[{ id: '1', displayName: 'video-1.mp4', uploadStatus: 'uploading', uploadProgress: 10 }]}
+        onCancelAll={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('upload-progress-panel')).toHaveClass('fixed', 'z-50');
+  });
+
+  it('overlays only the positioned ancestor when overlay is contained', () => {
+    render(
+      <UploadProgressPopup
+        overlay="contained"
+        files={[{ id: '1', displayName: 'video-1.mp4', uploadStatus: 'uploading', uploadProgress: 10 }]}
+        onCancelAll={jest.fn()}
+      />,
+    );
+
+    const overlay = screen.getByTestId('upload-progress-panel');
+    expect(overlay).toHaveClass('absolute', 'z-40');
+    expect(overlay).not.toHaveClass('fixed');
+  });
+
   it('calls onCancelAll when Cancel All is clicked', () => {
     const onCancelAll = jest.fn();
     render(

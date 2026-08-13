@@ -2,12 +2,9 @@
 # Regenerate with:  python3 .github/scripts/compose_image_golden.py --update
 # A diff in this file means a registry, image name, or default tag changed.
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
-deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
-deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml nvcr.io/nvstaging/vss-core/vss-configurator:3.3.0-2026.08.2-1
-deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0
-deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvstaging/vss-core/vss-configurator:3.3.0-2026.08.2-1
+deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvstaging/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
+deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-config-adaptor:develop-latest
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:3.2.0
-deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvstaging/vss-core/vss-configurator:3.3.0-2026.08.2-1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
@@ -16,6 +13,7 @@ deploy/docker/services/analytics/behavior-analytics/compose.yml ghcr.io/nvidia-a
 deploy/docker/services/analytics/video-analytics-api/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api:develop-latest
 deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.3.0-1
 deploy/docker/services/auto-calibration/ui/compose.yml nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.3.0-1
+deploy/docker/services/configurators/vss-configurator/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-configurator:develop-latest
 deploy/docker/services/infra/compose.yml alpine:3.24.1
 deploy/docker/services/infra/compose.yml arizephoenix/phoenix:19.8.0
 deploy/docker/services/infra/compose.yml confluentinc/cp-kafka:8.3.0
@@ -31,7 +29,7 @@ deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
 deploy/docker/services/infra/sdrc/docker-compose.yaml alpine:3.24.1
-deploy/docker/services/infra/sdrc/docker-compose.yaml nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.2-2
+deploy/docker/services/infra/sdrc/docker-compose.yaml ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l:develop-latest
 deploy/docker/services/infra/sdrc/docker-compose.yaml redis:8.10.0-alpine
 deploy/docker/services/monitoring/compose.yml docker.io/grafana/grafana:13.1.1-ubuntu
 deploy/docker/services/monitoring/compose.yml docker.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
@@ -53,8 +51,8 @@ deploy/docker/services/nim/nemotron-3-nano/compose.yml alpine:3.24.1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
 deploy/docker/services/nim/nemotron-3-nano/compose.yml nvcr.io/nim/nvidia/nemotron-3-nano:1
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml docker.io/alpine/curl:8.21.0
-deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
-deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
+deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
+deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml nvcr.io/nvidia/vllm:26.07-py3
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3

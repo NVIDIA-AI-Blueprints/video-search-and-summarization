@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -233,7 +233,7 @@ VideoTaskStatus AsyncVideoStreamHandler::getTaskStatus()
     return cachedTaskStatus;
 }
 
-bool AsyncVideoStreamHandler::sendHttpChunk(struct mg_connection* conn, const void* data, size_t size)
+bool AsyncVideoStreamHandler::sendHttpChunk(struct mg_connection* conn, const char* data, size_t size)
 {
     // Send chunk size in hex
     if (mg_printf(conn, "%zx\r\n", size) <= 0)

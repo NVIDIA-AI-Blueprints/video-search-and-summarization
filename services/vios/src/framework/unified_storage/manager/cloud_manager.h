@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -66,7 +66,7 @@ struct CloudManagerConfig
     } request;
     
     CloudManagerConfig() = default;
-    CloudManagerConfig(CloudStorageType type) : storageType(type)
+    explicit CloudManagerConfig(CloudStorageType type) : storageType(type)
     {
     }
 };
@@ -224,7 +224,18 @@ protected:
     std::string formatTimestamp(const std::string& timestamp) const;
     bool validateConfiguration(const CloudManagerConfig& config) const;
     bool validateEndpointUrl(const std::string& endpointUrl) const;
-    
+
+    // Accessors for derived classes
+    const CloudManagerConfig& config() const { return m_config; }
+    void setConfig(const CloudManagerConfig& newConfig) { m_config = newConfig; }
+    CloudManagerStats& stats() { return m_stats; }
+    const CloudManagerStats& stats() const { return m_stats; }
+    const std::string& lastError() const { return m_last_error; }
+    void storeLastError(const std::string& error) { m_last_error = error; }
+    bool isInitialized() const { return m_initialized; }
+    void setInitialized(bool initialized) { m_initialized = initialized; }
+
+private:
     // Member variables
     CloudManagerConfig m_config;
     CloudManagerStats m_stats;

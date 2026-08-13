@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -302,19 +302,23 @@ public:
         }
     }
 
-    void close() override {}
+    void close() override
+    {
+        // Intentionally blank: no persistent connection is held. The gRPC client
+        // owns its channel and is released by the destructor via its unique_ptr.
+    }
 };
 
 } // anonymous namespace
 
 extern "C" nv_vms::IMediaInterface* createMediaObject()
 {
-    return new VmsMedia();
+    return std::make_unique<VmsMedia>().release();
 }
 
 extern "C" void destroyMediaObject(nv_vms::IMediaInterface* object)
 {
-    delete object;
+    std::unique_ptr<nv_vms::IMediaInterface> owner(object);
 }
 
 

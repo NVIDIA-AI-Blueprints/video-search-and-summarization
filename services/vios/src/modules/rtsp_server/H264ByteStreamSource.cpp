@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -192,21 +192,32 @@ H264ByteStreamSource
 
 H264ByteStreamSource::~H264ByteStreamSource()
 {
-    LOG(info) << __METHOD_NAME__ << ", sourceState:" << m_sourceState <<  endl;
+    try
+    {
+        LOG(info) << __METHOD_NAME__ << ", sourceState:" << m_sourceState <<  endl;
 
-    if (m_DataArrivalCheckTask)
-    {
-        envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        if (m_DataArrivalCheckTask)
+        {
+            envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalCheckTask);
+        }
+        /* Unregister from the AV-loop-sync coordinator. If we were parked
+         * at EOS waiting on the audio side, this also releases the audio
+         * side so it doesn't deadlock waiting for a now-gone video. */
+        if (m_avLoopSync)
+        {
+            m_avLoopSync->unregisterParticipant(this);
+            m_avLoopSync.reset();
+        }
+        LOG(info) << "Exiting ~H264ByteStreamSource(), m_sessionId:" << m_sessionId << endl;
     }
-    /* Unregister from the AV-loop-sync coordinator. If we were parked
-     * at EOS waiting on the audio side, this also releases the audio
-     * side so it doesn't deadlock waiting for a now-gone video. */
-    if (m_avLoopSync)
+    catch (const std::exception& e)
     {
-        m_avLoopSync->unregisterParticipant(this);
-        m_avLoopSync.reset();
+        try { LOG(error) << "Exception in ~H264ByteStreamSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
     }
-    LOG(info) << "Exiting ~H264ByteStreamSource(), m_sessionId:" << m_sessionId << endl;
+    catch (...)
+    {
+        try { LOG(error) << "Unknown exception in ~H264ByteStreamSource" << endl; } catch (...) { (void)std::current_exception(); }
+    }
 }
 
 void H264ByteStreamSource::setStreamScale(float scaleFactor)
@@ -243,11 +254,11 @@ H264ByteStreamSource* H264ByteStreamSource
       string url_params, string sourceState, string sessionId,
 	    unsigned preferredFrameSize, unsigned playTimePerFrame)
 {
-    H264ByteStreamSource* newSource
-      = new H264ByteStreamSource(env, streamName, mediasource, url_params, sourceState, sessionId,
+    auto newSource
+      = std::make_unique<H264ByteStreamSource>(env, streamName, mediasource, url_params, sourceState, sessionId,
               preferredFrameSize, playTimePerFrame);
 
-    return newSource;
+    return newSource.release();
 }
 
 void H264ByteStreamSource::doGetNextFrame()
@@ -532,13 +543,11 @@ void H264ByteStreamSource::doGetNextFrame()
 }
 
 void H264ByteStreamSource
-  ::afterGettingFrame(void* clientData,
+  ::afterGettingFrame(H264ByteStreamSource* source,
 		      unsigned frameSize, unsigned numTruncatedBytes,
 		      struct timeval presentationTime,
 		      unsigned durationInMicroseconds)
 {
-    H264ByteStreamSource* source
-      = (H264ByteStreamSource*)clientData;
     source->fFrameSize = frameSize;
     source->fNumTruncatedBytes = numTruncatedBytes;
     source->fPresentationTime = presentationTime;
@@ -546,10 +555,8 @@ void H264ByteStreamSource
     FramedSource::afterGetting(source);
 }
 
-void H264ByteStreamSource::onSourceClosure(void* clientData)
+void H264ByteStreamSource::onSourceClosure(H264ByteStreamSource* source)
 {
-    H264ByteStreamSource* source
-      = (H264ByteStreamSource*)clientData;
     source->onSourceClosure1();
 }
 

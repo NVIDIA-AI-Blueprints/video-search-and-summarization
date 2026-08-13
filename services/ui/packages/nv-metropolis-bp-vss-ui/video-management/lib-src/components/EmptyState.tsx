@@ -61,7 +61,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onFilesSelected, enableV
   }
 
   return (
-    <div className="flex-1 flex items-center justify-center">
+    <div className="flex-1 flex min-w-0 items-center justify-center px-4">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -78,7 +78,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onFilesSelected, enableV
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`rounded-lg border-2 border-dashed text-center transition-colors cursor-pointer w-[580px] py-[60px] px-12 ${
+        className={`rounded-lg border-2 border-dashed text-center transition-colors cursor-pointer w-full max-w-[580px] py-[60px] px-12 ${
           isDragOver
             ? 'border-green-500 bg-green-50 dark:bg-green-500/10'
             : 'border-gray-400 dark:border-gray-600 bg-transparent hover:border-gray-500'

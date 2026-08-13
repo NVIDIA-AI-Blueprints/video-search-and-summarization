@@ -37,6 +37,8 @@ env:
   # Public UI/API path. A non-empty value requires the upstream proxy to strip it.
   NVSTREAMER_UI_BASE_PATH: ""
   NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES: "true"
+  # Point APT at an internal/nearby mirror. Empty uses the public archive.
+  VST_APT_MIRROR: ""
 
 service:
   port: 31000

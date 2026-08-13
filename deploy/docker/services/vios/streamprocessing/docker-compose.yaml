@@ -29,6 +29,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
@@ -85,6 +86,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
@@ -152,6 +154,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
@@ -221,6 +224,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && bash /home/vst/vst_release/tools/apply_turn_config.sh && exec /home/vst/vst_release/launch_vst"]
     environment:
+      - VST_APT_MIRROR=${VST_APT_MIRROR:-}
       - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
       - CONTAINER_NAME=vss-vios-streamprocessing
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}

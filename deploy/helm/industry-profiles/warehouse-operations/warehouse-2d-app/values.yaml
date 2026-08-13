@@ -9,6 +9,9 @@ global:
   # VIOS-only SDRC mode. Mirrors docker warehouse-operations/.env VST_USE_SDRC=true.
   vios:
     useSdrc: true
+  ngcApiSecret:
+    name: ngc-api
+    key: NGC_CLI_API_KEY
   imagePullSecrets:
     - name: ngc-docker-reg-secret
   storageClass: ""
@@ -20,8 +23,8 @@ bp-configurator:
   enabled: true
   name: bp-configurator-2d
   image:
-    repository: nvcr.io/nvstaging/vss-core/vss-configurator
-    tag: "3.3.0-2026.08.2-1"
+    repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
+    tag: develop-latest
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -151,6 +154,9 @@ vios:
     enabled: true
     useSdrEnvoyStyleHeadless: false
     headlessServiceName: ""
+    # No bind-mounts in Helm: download overlay assets from video-analytics-api.
+    calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -251,6 +257,10 @@ analytics:
   vss-behavior-analytics:
     enabled: true
     fullnameOverride: vss-behavior-analytics
+    waitForKafka:
+      enabled: true
+      host: kafka-kafka
+      topic: mdx-raw
     replicas: 1
     command:
       - python3
@@ -396,6 +406,10 @@ agent:
   # va-mcp is off in the agent chart by default; alerts needs it.
   vss-va-mcp:
     enabled: true
+  vss-agent:
+    waitForDependencies:
+      enabled: true
+      waitForMcp: true
 
 # Prometheus + Grafana (K8s port of deploy/docker/services/monitoring).
 # dcgmExporter stays off because the NVIDIA GPU operator already runs

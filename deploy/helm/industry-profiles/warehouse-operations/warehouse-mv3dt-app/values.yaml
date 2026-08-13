@@ -32,8 +32,8 @@ bp-configurator:
     mountPath: /opt/data
     seedConfigMapName: vss-behavior-analytics-resources
   image:
-    repository: nvcr.io/nvstaging/vss-core/vss-configurator
-    tag: "3.3.0-2026.08.2-1"
+    repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
+    tag: develop-latest
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -161,6 +161,9 @@ vios:
     enabled: true
     useSdrEnvoyStyleHeadless: false
     headlessServiceName: ""
+    # No bind-mounts in Helm: download overlay assets from video-analytics-api.
+    calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1%2Fregion%3DRegion-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -267,6 +270,10 @@ analytics:
   vss-behavior-analytics:
     enabled: true
     fullnameOverride: vss-behavior-analytics
+    waitForKafka:
+      enabled: true
+      host: kafka-kafka
+      topic: mdx-bev
     replicas: 1
     command:
       - python3
@@ -402,8 +409,8 @@ rtvi:
           calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
           configInit:
             image:
-              repository: nvcr.io/nv-metropolis-dev/vss-warehouse/vss-rt-cv-mv3dt-config-init
-              tag: "3.2.0-3"
+              repository: nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-config-init
+              tag: "3.3.0-26.08.1"
               pullPolicy: IfNotPresent
         fusion:
           enabled: true

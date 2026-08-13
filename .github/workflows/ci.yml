@@ -425,6 +425,7 @@ jobs:
         run: |
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
+            .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
@@ -434,6 +435,8 @@ jobs:
             .github/skill-eval/tests/test_run_leg.py::RunCommand \
             .github/skill-eval/tests/test_run_leg.py::ProcessGroupShutdown \
             .github/skill-eval/tests/test_run_leg.py::RunInvocations \
+            .github/skill-eval/tests/test_run_leg.py::TheHeartbeatNamesTheRightPhase \
+            .github/skill-eval/tests/test_run_leg.py::InstrumentationNeverChangesTheVerdict \
             -q
 
       - name: Upload coverage report
