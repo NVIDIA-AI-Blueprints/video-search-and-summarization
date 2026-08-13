@@ -1406,7 +1406,7 @@ bool curlGetRequest(const string url, string& outData, const vector<string>& cus
     return ret;
 }
 
-bool curlGetRequest(const string url, string& outData)
+bool curlGetRequest(const string url, string& outData, long timeout_ms)
 {
     bool ret = false;
     CURLcode errCode = CURLE_OK;
@@ -1429,8 +1429,13 @@ bool curlGetRequest(const string url, string& outData)
     errCode = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     CURL_CHECK_ERROR(curl_easy_setopt, errCode, false)
 
-    /*Set curl request timeout 10secs*/
-    errCode = curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    // Keep the connection phase within the same caller-supplied deadline as
+    // the complete transfer.  This is used by the WebRTC overlay fallback,
+    // where a request must not block stream setup for the default 10 seconds.
+    errCode = curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
+    CURL_CHECK_ERROR(curl_easy_setopt, errCode, false)
+
+    errCode = curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     CURL_CHECK_ERROR(curl_easy_setopt, errCode, false)
 
     unique_ptr<string> httpData(new string());
