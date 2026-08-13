@@ -50,7 +50,7 @@ metadata:
 {{- if $nvstreamerEnabled }}
       /streamer/(.*) /\1
 {{- end }}
-      /storage/(.*) /vst/storage/\1
+      ^/storage/(.*) /vst/storage/\1
     haproxy.org/frontend-config-snippet: |
       http-request replace-path ^//vst(/.*)?$ /vst\1
       http-request set-var(txn.path) path
