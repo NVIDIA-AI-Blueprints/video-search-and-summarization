@@ -33,21 +33,11 @@ services:
 
   nvstreamer-alerts:
     extends:
-      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
       service: nvstreamer-base
     profiles: ["nvstreamer-alerts"]
-    ports:
-      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
-    container_name: vss-vios-nvstreamer
-    networks:
-      default:
-        aliases:
-          - vss-vios-nvstreamer
     volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $VSS_DATA_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
+      - ${NVSTREAMER_ALERTS_VIDEO_DIR:-${NVSTREAMER_VIDEO_DIR:-${VSS_DATA_DIR}}/videos/dev-profile-alerts}:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:

@@ -48,28 +48,17 @@ services:
       elasticsearch-init-container:
         condition: service_completed_successfully
 
-
   nvstreamer-2d-fusion:
     extends:
-      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
       service: nvstreamer-base
-    container_name: vss-vios-nvstreamer
-    networks:
-      default:
-        aliases:
-          - vss-vios-nvstreamer
-    #runtime: nvidia
     profiles: ["nvstreamer-2d-fusion"]
-    ports:
-      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+
 
   perception-2d-fusion:
     extends:
