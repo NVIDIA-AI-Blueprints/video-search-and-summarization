@@ -32,8 +32,15 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | Kafka | `kafka` | 9092 | Message broker (VLM captions topic: `mdx-vlm-captions`) |
 | Redis | `redis` | 6379 | Cache |
 | Phoenix | `phoenix` | 6006 | Observability |
+| NVIDIA DCGM Exporter | `dcgm-exporter` | 9400 | Prometheus-format GPU utilization, memory, power, temperature, and decoder metrics |
 
 Post-deploy readiness probe: `curl -sf http://${HOST_IP}:38111/v1/ready` should return exit 0 once `vss-lvs` is serving. The VSS Agent at `http://${HOST_IP}:8000/health` is the cross-profile readiness signal; this one confirms the LVS-specific microservice.
+
+GPU telemetry is available at `http://${HOST_IP}:${DCGM_EXPORTER_HOST_PORT:-9400}/metrics`.
+Use `DCGM_EXPORTER_HOST_PORT` in `dev-profile-lvs/overrides.env` when the default
+host port conflicts with another exporter. DCGM reports host-level GPU metrics,
+so use the `gpu` or `UUID` labels to select the devices assigned to the LVS
+deployment.
 
 For LVS with `LLM_MODE=local` or `LLM_MODE=local_shared`, also require:
 
