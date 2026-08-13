@@ -15,6 +15,7 @@
 """Unit tests for VST utils module."""
 
 import json
+import logging
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -28,6 +29,7 @@ from vss_agents.tools.vst.utils import delete_storage
 from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
+from vss_agents.tools.vst.utils import get_storage_timeline
 from vss_agents.tools.vst.utils import validate_video_url
 
 # Sample mock data based on real VST server responses
@@ -451,6 +453,21 @@ class TestLegacyDeleteResources:
 
         assert success is False
         assert message == "sensor_id is required"
+
+    @pytest.mark.asyncio
+    async def test_missing_timeline_scrubs_sensor_id_from_log(self, caplog):
+        caplog.set_level(logging.INFO, logger="vss_agents.tools.vst.utils")
+        sensor_id = "camera\r\nforged log line"
+        mock_response = create_mock_response(200, "{}")
+        mock_response.json = AsyncMock(return_value={})
+        mock_session = create_mock_session(mock_response)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message, start_time, end_time = await get_storage_timeline(sensor_id, "http://localhost:30888")
+
+        assert (success, message, start_time, end_time) == (True, "No timeline", None, None)
+        assert "No timeline found for camera  forged log line" in caplog.messages
+        assert all("\r" not in message and "\n" not in message for message in caplog.messages)
 
 
 class TestValidateVideoUrl:

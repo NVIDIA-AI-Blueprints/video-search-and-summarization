@@ -594,7 +594,7 @@ async def get_storage_timeline(
             stream_timeline = timelines.get(sensor_id)
 
             if not stream_timeline or len(stream_timeline) == 0:
-                logger.info(f"No timeline found for {sensor_id}")
+                logger.info("No timeline found for %s", scrub_log(sensor_id))
                 return True, "No timeline", None, None
 
             start_time = stream_timeline[0].get("startTime")
