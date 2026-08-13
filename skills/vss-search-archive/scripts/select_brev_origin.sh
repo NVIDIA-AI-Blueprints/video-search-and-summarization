@@ -4,7 +4,7 @@
 
 # Select the final host-side VSS origin with exactly one public VST request.
 # JSON is the only stdout so callers can consume the decision deterministically.
-set -u
+set -euo pipefail
 
 if [[ "$#" -ne 2 ]]; then
   echo "usage: select_brev_origin.sh <public-https-origin> <host-origin>" >&2

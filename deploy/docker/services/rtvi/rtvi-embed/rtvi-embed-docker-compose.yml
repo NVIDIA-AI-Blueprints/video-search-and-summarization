@@ -65,8 +65,15 @@ services:
       ERROR_MESSAGE_TOPIC: "${RTVI_EMBED_ERROR_MESSAGE_TOPIC:-vision-embed-errors}"
       KAFKA_BOOTSTRAP_SERVERS: ${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
-      MESSAGE_BUS: "${MESSAGE_BUS:-}"
-      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
+      # Full developer profiles do not load this service directory's .env.
+      # Prefer namespaced inputs so an unrelated service's generic MESSAGE_BUS
+      # cannot silently enable, disable, or redirect RT-Embed publishing.
+      MESSAGE_BUS: "${RTVI_EMBED_MESSAGE_BUS:-${MESSAGE_BUS:-}}"
+      MESSAGE_BUS_TOPIC: "${RTVI_EMBED_KAFKA_TOPIC:-${RTVI_EMBED_MESSAGE_BUS_TOPIC:-${MESSAGE_BUS_TOPIC:-mdx-embed}}}"
+      # Preserve the legacy image contract while released tags transition to
+      # MESSAGE_BUS/MESSAGE_BUS_TOPIC.
+      KAFKA_ENABLED: "${RTVI_EMBED_KAFKA_ENABLED:-}"
+      KAFKA_TOPIC: "${RTVI_EMBED_KAFKA_TOPIC:-${MESSAGE_BUS_TOPIC:-mdx-embed}}"
       ERROR_BUS: "${ERROR_BUS:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
       ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"

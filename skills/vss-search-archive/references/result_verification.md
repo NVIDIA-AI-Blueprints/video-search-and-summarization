@@ -95,8 +95,8 @@ a cached/local copy.
 
 ## Invoke ordinary ask-video
 
-Pass the complete original visual intent and the resolved `VIDEO_URL`. Ask the
-VLM to analyze only that bounded clip, ignore scores, filenames, object IDs,
+Pass the complete original visual intent and the resolved `VIDEO_URL`. Instruct
+the VLM to analyze only that bounded clip, ignore scores, filenames, object IDs,
 and other retrieval metadata, and return exactly one JSON object:
 
 ```json

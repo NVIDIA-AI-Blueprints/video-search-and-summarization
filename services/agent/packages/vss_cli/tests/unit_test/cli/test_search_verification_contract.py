@@ -46,6 +46,7 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
     verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
     cli_usage = (SEARCH_SKILL / "references/cli_usage.md").read_text(encoding="utf-8")
+    result_template = (SEARCH_SKILL / "assets/search_result_template.md").read_text(encoding="utf-8")
     normalized_main = " ".join(main.split())
     normalized_verification = " ".join(verification.split())
 
@@ -54,7 +55,7 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert "The CLI attempts critic verification by default" in main
     assert 'VSS_ORIGIN=$("${VSS[@]}" configure show' in main
     assert "Do not repeat public-origin selection" in main
-    assert "Would you like me to verify the unverified search results?" in main
+    assert "Would you like me to verify the unverified search results?" in result_template
     assert "only when every displayed result is" in normalized_main
     assert "Never hand off a partially verified result set" in normalized_main
     assert "Verification is fail-open" in cli_usage
@@ -161,8 +162,11 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "`docker compose up`" in ingestion_preamble
     assert 'VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)' in ingestion_preamble
     assert "project-local `vss configure show`" in ingestion_preamble
-    assert any("one bounded source-setup deadline" in check for check in ingestion_checks)
-    assert len(ingestion_checks) == 7
+    assert any("source_setup_budget.sh start 2400" in check for check in ingestion_checks)
+    assert "not a `vss source-setup` subcommand" in ingestion_preamble
+    assert any("RT-Embed" in check and "/v1/models" in check for check in deployment_checks)
+    assert any("RT-Embed" in check and "/v1/models" in check for check in ingestion_checks)
+    assert len(ingestion_checks) == 8
     assert len([check for check in ingestion_checks if check.startswith("The trajectory shows")]) == 2
     assert any("waited until those matching sources were absent" in check for check in ingestion_checks)
     assert any("derived both upload paths from that extraction" in check for check in ingestion_checks)
@@ -241,15 +245,17 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "must not block fixture download, Agent-backed ingestion, or index readiness" in prose
     assert "ONE shared 40-minute source-setup budget, not 40 minutes each" in prose
     assert "Deployment and public-origin selection are prerequisite work outside this ingestion budget" in prose
-    assert "SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))" in lifecycle
-    assert "CURRENT_EPOCH < SEARCH_READINESS_DEADLINE" in lifecycle
+    assert '"${SOURCE_SETUP_BUDGET}" start 2400' in lifecycle
+    assert '"${SOURCE_SETUP_BUDGET}" remaining 900' in lifecycle
+    assert ".services.rt_embed.models[0]" in lifecycle
+    assert '"${RTVI_EMBED_URL%/}/v1/models"' in lifecycle
     assert "is the one sanctioned construction" in prose
     assert "--max-redirs 0" in origin_selector
     assert '.type == "vst"' in origin_selector
     assert origin_selector.count("curl ") == 1
     assert "Do not issue a public-origin `curl` before or after it" in prose
-    assert "readiness_timeout 300" in lifecycle
-    assert "readiness_timeout 900" in lifecycle
+    assert '"${SOURCE_SETUP_BUDGET}" remaining 300' in lifecycle
+    assert '"${SOURCE_SETUP_BUDGET}" remaining 900' in lifecycle
     assert 'max-time "${DELETE_TIMEOUT}"' in lifecycle
     assert 'max-time "${COUNT_TIMEOUT}"' in lifecycle
     assert "DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))" in lifecycle
@@ -316,19 +322,35 @@ printf '%s' "${CURL_STATUS}"
     run_probe(200, '{"type":"vst","version":"3.2.0"}', "https://public.example")
 
 
-def test_readiness_timeout_caps_each_blocking_request() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    match = re.search(r"(readiness_timeout\(\) \{.*?\n\})", lifecycle, flags=re.DOTALL)
-    assert match is not None
-    script = f"""set -euo pipefail
-{match.group(1)}
-SEARCH_READINESS_DEADLINE=$(($(date +%s) + 3))
-value=$(readiness_timeout 900)
-[ "$value" -ge 1 ] && [ "$value" -le 3 ]
-SEARCH_READINESS_DEADLINE=$(($(date +%s) - 1))
-! readiness_timeout 30
-"""
-    subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
+def test_source_setup_budget_persists_across_shell_calls(tmp_path: Path) -> None:
+    helper = SEARCH_SKILL / "scripts/source_setup_budget.sh"
+    env = {**os.environ, "VSS_CONFIG_HOME": str(tmp_path)}
+    subprocess.run([str(helper), "start", "3"], check=True, env=env)
+    deadline = subprocess.run(
+        [str(helper), "deadline"], check=True, capture_output=True, text=True, env=env
+    ).stdout.strip()
+    value = int(
+        subprocess.run([str(helper), "remaining", "900"], check=True, capture_output=True, text=True, env=env).stdout
+    )
+    assert 1 <= value <= 3
+    assert (
+        subprocess.run([str(helper), "deadline"], check=True, capture_output=True, text=True, env=env).stdout.strip()
+        == deadline
+    )
+
+
+def test_source_setup_budget_rejects_expired_state(tmp_path: Path) -> None:
+    helper = SEARCH_SKILL / "scripts/source_setup_budget.sh"
+    state = tmp_path / "search-source-setup.deadline"
+    state.write_text("1\n", encoding="utf-8")
+    completed = subprocess.run(
+        [str(helper), "remaining", "30"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "VSS_CONFIG_HOME": str(tmp_path)},
+    )
+    assert completed.returncode == 1
+    assert "deadline exhausted" in completed.stderr
 
 
 def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
@@ -336,9 +358,10 @@ def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
     source_setup = lifecycle.split("## Pre-ingestion cleanup", 1)[1].split("## Delete source", 1)[0]
     shell = "\n".join(re.findall(r"```bash\n(.*?)```", source_setup, flags=re.DOTALL))
 
-    assert shell.count("SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))") == 1
+    assert shell.count('"${SOURCE_SETUP_BUDGET}" start 2400') == 1
+    assert shell.count("source_setup_budget.sh") >= 2
     assert not re.search(r"(?m)^(?:DEADLINE|READINESS_DEADLINE|CLEANUP_DEADLINE)=", shell)
-    assert re.findall(r"\$\(date \+%s\) \+ (\d+)", shell) == ["2400"]
+    assert not re.findall(r"\$\(date \+%s\) \+ (\d+)", shell)
     assert not re.search(r"--max-time\s+[0-9]+(?:\s|$)", shell)
 
 

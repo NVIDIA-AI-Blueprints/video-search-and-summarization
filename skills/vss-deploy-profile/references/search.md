@@ -132,6 +132,9 @@ Knobs (in `dev-profile-search/.env` unless noted):
 | `RTVI_EMBED_NUM_VLM_PROCS` | `NUM_VLM_PROCS` | `10` | Parallel embedding workers. More procs = more throughput, more VRAM per process. |
 | `VLM_BATCH_SIZE` | `VLM_BATCH_SIZE` | auto (3 / 16 / 64 / 128 by GPU mem) | Batch size for inference. Auto-clamps to GPU capacity. |
 | `RTVI_EMBED_NUM_GPUS` / `VSS_NUM_GPUS_PER_VLM_PROC` | `NUM_GPUS` | empty (1) | Multi-GPU distribution per embed process. |
+| `RTVI_EMBED_MESSAGE_BUS` | `MESSAGE_BUS` | `kafka` | Enables embedding-event publishing in the full search profile; the service-local `.env` is not loaded by the root Compose project. |
+| `RTVI_EMBED_KAFKA_ENABLED` | `KAFKA_ENABLED` | `true` | Legacy released-image compatibility flag; keep it aligned with `RTVI_EMBED_MESSAGE_BUS`. |
+| `RTVI_EMBED_KAFKA_TOPIC` | `MESSAGE_BUS_TOPIC`, `KAFKA_TOPIC` | `mdx-embed` | Raw embedding topic consumed by Search analytics before `mdx-embed-filtered`. |
 | `RT_EMBED_DEVICE_ID` | (compose `device_ids`) | `1` | Which GPU RT-Embed pins to. |
 | `RTVI_EMBED_TAG` | (image tag) | `3.3.0-26.07.4` | x86 / iGPU. For DGX Spark: use the published `3.3.0-26.07.4-sbsa` variant when available. |
 

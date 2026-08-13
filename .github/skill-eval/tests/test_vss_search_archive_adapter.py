@@ -43,3 +43,27 @@ def test_verification_scenario_requires_ask_video_skill() -> None:
 
     with pytest.raises(ValueError, match="requires vss-ask-video"):
         adapter._validate_spec(spec)
+
+
+def test_ingestion_contract_gates_rtvi_cv_before_mutation() -> None:
+    spec = _search_spec()
+    deploy = spec["expects"][0]
+    ingest = spec["expects"][1]
+
+    assert "/api/v1/ready" in deploy["query"]
+    assert "ds-ready` exactly `YES" in deploy["query"]
+    assert "/api/v1/ready" in ingest["query"]
+    assert "Before cleanup, download, or upload" in ingest["checks"][1]
+    assert "original source-setup budget" in ingest["checks"][1]
+
+
+def test_agent_backed_ingestion_means_agent_http_routes() -> None:
+    spec = _search_spec()
+    ingest = spec["expects"][1]
+    route_check = ingest["checks"][4]
+
+    assert "Bash/curl" in route_check
+    assert "POST /api/v1/videos" in route_check
+    assert "upload to its returned URL" in route_check
+    assert "POST /api/v1/videos/<sensor-id>/complete" in route_check
+    assert "no dedicated Workflow or Agent tool call was required" in route_check

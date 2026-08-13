@@ -39,6 +39,9 @@ VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss
 CONFIG_JSON=$("${VSS[@]}" configure show) || exit 1
 
 ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') || exit 1
+RTVI_EMBED_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rt_embed.url') || exit 1
+RTVI_EMBED_MODEL=$(printf '%s' "${CONFIG_JSON}" | jq -er \
+  '.services.rt_embed.models[0] | select(type == "string" and length > 0)') || exit 1
 RTVI_CV_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rtvi_cv.url') || exit 1
 RTVI_VLM_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er \
   '.services.rt_vlm.url // empty') || RTVI_VLM_URL=
@@ -59,14 +62,19 @@ resolve_search_indexes() {
 ```
 
 Do not call `resolve_search_indexes` on a fresh stack. Indexes are created
-lazily by ingestion. After every intended upload completes, re-run
-`vss configure --base-url "${VSS_ORIGIN}"`, refresh `CONFIG_JSON`, and call
-`resolve_search_indexes` before readiness checks.
+lazily and may not all appear at the same instant after ingestion. After every
+intended upload completes, boundedly refresh
+`vss configure --base-url "${VSS_ORIGIN}"` under the shared source-setup budget
+until `resolve_search_indexes` observes all three distinct indexes. Only then
+begin document readiness checks.
 Never use `ELASTIC_SEARCH_INDEX`, an index template, or a guessed date in place
 of `vss configure show`.
 
 Before downloading or ingesting media, require bounded Agent and VST health
-through the deployment's host-reachable origin and RTVI-CV readiness. If
+through the deployment's host-reachable origin, a nonempty model from the
+recorded RT-Embed `/v1/models` route, and RTVI-CV readiness. Missing RT-Embed
+is a deployment-readiness failure: stop before cleanup, download, or upload
+instead of waiting for an embedding index that cannot be produced. If
 RT-VLM is recorded, probe its `/v1/models` endpoint; if it is absent, continue
 and let search hits remain `unverified`. A particular eval or deployment
 request may explicitly require RT-VLM and should then stop when that stronger
@@ -141,7 +149,8 @@ index_count() {
   INDEX=$1 FIELD=$2 VALUE=$3
   QUERY=$(jq -cn --arg field "${FIELD}" --arg value "${VALUE}" \
     '{query:{term:{($field):$value}}}') || return 1
-  COUNT_TIMEOUT=$(readiness_timeout 15) || return 1
+  SOURCE_SETUP_BUDGET="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/source_setup_budget.sh"
+  COUNT_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 15) || return 1
   curl -fsS --max-time "${COUNT_TIMEOUT}" -H 'Content-Type: application/json' \
     "${ES_URL}/${INDEX}/_count" -d "${QUERY}" | jq -er '.count | numbers'
 }
@@ -150,37 +159,67 @@ index_count() {
 ## Pre-ingestion cleanup
 
 At the start of one source-setup operation, after deployment, public-origin
-selection, and `vss configure` are complete, initialize the one ingestion
-deadline. Assign `SEARCH_READINESS_DEADLINE` only here; never create
-`DEADLINE`, `READINESS_DEADLINE`, `CLEANUP_DEADLINE`, or another phase timer,
-and never reserve or subtract a fixed number of seconds from it:
+selection, and `vss configure` are complete, initialize the persisted ingestion
+budget exactly once. The helper stores its absolute deadline under the VSS
+configuration directory, so independent Bash tool calls consume the same
+clock. Later calls must use `remaining`; never call `start` again during the
+operation, create a phase timer, or recompute an epoch-plus-duration deadline:
 
 ```bash
-: "${SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))}"
-export SEARCH_READINESS_DEADLINE
-readiness_timeout() {
-  local request_cap=$1 current_epoch remaining
-  current_epoch=$(date +%s)
-  remaining=$((SEARCH_READINESS_DEADLINE - current_epoch))
-  (( remaining > 0 )) || {
-    echo "Search source-setup deadline exhausted" >&2
-    return 1
-  }
-  (( request_cap < remaining )) && printf '%s\n' "${request_cap}" || printf '%s\n' "${remaining}"
-}
+SOURCE_SETUP_BUDGET="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/source_setup_budget.sh"
+test -x "${SOURCE_SETUP_BUDGET}" || exit 1
+"${SOURCE_SETUP_BUDGET}" start 2400 || exit 1
 ```
 
 For every subsequent blocking source-mutation or readiness request, obtain its
-`--max-time` from `readiness_timeout <per-request-cap>` immediately before the
-request. A literal `--max-time`, a new epoch-plus-duration expression, or a
-phase-local deadline after this initialization violates the source-setup
-contract.
+`--max-time` from `${SOURCE_SETUP_BUDGET} remaining <per-request-cap>`
+immediately before the request. Re-declare only the helper path when a new Bash
+call begins. A literal `--max-time`, another `start`, a new
+epoch-plus-duration expression, or a phase-local deadline after initialization
+violates the source-setup contract.
+
+Before fixture cleanup, prove that the deployment recorded a working embedding
+model and that RT-CV finished initializing its DeepStream pipeline. These
+read-only probes consume the same source-setup budget. An HTTP 200 alone is not
+RT-CV readiness: require `ds-ready` to be exactly `YES`, accepting the response
+field either at the top level or below `ready-info` for compatibility across
+the supported RT-CV API shapes:
+
+```bash
+SOURCE_SETUP_BUDGET="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/source_setup_budget.sh"
+EMBED_MODELS_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 30) || exit 1
+EMBED_MODELS=$(curl -fsS --connect-timeout 5 --max-time "${EMBED_MODELS_TIMEOUT}" \
+  "${RTVI_EMBED_URL%/}/v1/models") || exit 1
+printf '%s' "${EMBED_MODELS}" | jq -e \
+  '.data | type == "array" and length > 0 and
+   all(.[]; .id | type == "string" and length > 0)' >/dev/null || exit 1
+
+while :; do
+  RTVI_CV_READY_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 15) || exit 1
+  RTVI_CV_READY=$(curl -fsS --connect-timeout 5 \
+    --max-time "${RTVI_CV_READY_TIMEOUT}" \
+    "${RTVI_CV_URL%/}/api/v1/ready" 2>/dev/null || true)
+  if printf '%s' "${RTVI_CV_READY}" | jq -e \
+    '(."ds-ready" // ."ready-info"."ds-ready" // "") == "YES"' \
+    >/dev/null 2>&1; then
+    break
+  fi
+  "${SOURCE_SETUP_BUDGET}" remaining 10 >/dev/null || exit 1
+  sleep 10
+done
+```
+
+Do not begin cleanup, fixture download, or an Agent upload while this poll is
+still pending. In particular, a listening REST endpoint with `ds-ready: NO`
+can still be building TensorRT engines; adding streams during that phase can
+turn an initialization problem into a persistent CUDNN processing failure.
 
 Cleanup is an Agent operation. Resolve every exact or duplicate fixture entry
 from the VST source list, then delete its UUID only through the Agent:
 
 ```bash
-VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
+SOURCE_SETUP_BUDGET="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/source_setup_budget.sh"
+VST_LIST_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 15) || exit 1
 VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
   "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
 mapfile -t SENSORS_TO_DELETE < <(
@@ -193,14 +232,14 @@ mapfile -t SENSORS_TO_DELETE < <(
 )
 for SENSOR_TO_DELETE in "${SENSORS_TO_DELETE[@]}"; do
   test -n "${SENSOR_TO_DELETE}" || exit 1
-  DELETE_TIMEOUT=$(readiness_timeout 300) || exit 1
+  DELETE_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 300) || exit 1
   curl -fsS --connect-timeout 5 --max-time "${DELETE_TIMEOUT}" -X DELETE \
     "${AGENT_URL%/}/api/v1/videos/${SENSOR_TO_DELETE}" |
     jq -e '.status == "success"' >/dev/null || exit 1
 done
 
 while :; do
-  VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
+  VST_LIST_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 15) || exit 1
   VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
     "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
   if ! printf '%s' "${VST_SENSOR_LIST}" | jq -e \
@@ -223,7 +262,9 @@ partial state through a backend.
 
 List current sources through `vss-manage-video-io-storage`; do not upload an
 exact existing source. Confirm an interactive upload, then use the mandatory
-three-step agent flow. This flow is mandatory for every file ingestion:
+three-step Agent HTTP flow. This flow is a sequence of HTTP requests sent with
+Bash/curl; it does not imply or require a dedicated Workflow or Agent harness
+tool call. The three mutations are mandatory for every file ingestion:
 
 For the release fixtures, download the exact pinned bundle into a fresh
 directory; never use `find` to substitute a pre-existing warehouse-looking
@@ -251,7 +292,8 @@ CANONICAL_SOURCE="${UPLOAD_FILENAME%.*}"
 RTVI_CV_LOG_SINCE="${RTVI_CV_LOG_SINCE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
 UPLOAD_REQUEST=$(jq -cn --arg filename "${UPLOAD_FILENAME}" '{filename: $filename}')
-UPLOAD_REQUEST_TIMEOUT=$(readiness_timeout 30) || exit 1
+SOURCE_SETUP_BUDGET="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/source_setup_budget.sh"
+UPLOAD_REQUEST_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 30) || exit 1
 UPLOAD_URL_RESPONSE=$(curl -sfS --max-time "${UPLOAD_REQUEST_TIMEOUT}" -X POST \
   "${AGENT_URL}/api/v1/videos" \
   -H "Content-Type: application/json" -d "${UPLOAD_REQUEST}")
@@ -259,7 +301,7 @@ UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" |
   jq -er '.url | select(type == "string" and length > 0)') || exit 1
 
 IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
-UPLOAD_TIMEOUT=$(readiness_timeout 300) || exit 1
+UPLOAD_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 300) || exit 1
 UPLOAD_RESPONSE=$(curl -sfS --connect-timeout 10 --max-time "${UPLOAD_TIMEOUT}" -X POST \
   "${UPLOAD_URL}" \
   -H "nvstreamer-chunk-number: 1" \
@@ -273,7 +315,7 @@ UPLOAD_RESPONSE=$(curl -sfS --connect-timeout 10 --max-time "${UPLOAD_TIMEOUT}" 
 
 SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" |
   jq -er '.sensorId | select(type == "string" and length > 0)') || exit 1
-COMPLETE_TIMEOUT=$(readiness_timeout 900) || exit 1
+COMPLETE_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 900) || exit 1
 COMPLETE_RESPONSE=$(printf '%s' "${UPLOAD_RESPONSE}" |
   jq --arg filename "${UPLOAD_FILENAME}" '. + {filename: $filename}' |
   curl -sfS --connect-timeout 10 --max-time "${COMPLETE_TIMEOUT}" -X POST \
@@ -286,7 +328,7 @@ printf '%s' "${COMPLETE_RESPONSE}" |
      (.chunks_processed | type == "number" and . > 0)' >/dev/null ||
   { echo "Upload completion failed validation" >&2; exit 1; }
 
-VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
+VST_LIST_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 15) || exit 1
 VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
   "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
 printf '%s' "${VST_SENSOR_LIST}" | jq -e \
@@ -321,9 +363,18 @@ bounded wait:
 ```bash
 : "${WAREHOUSE_SAMPLE_SENSOR:?preserve warehouse_sample upload sensorId}"
 : "${WAREHOUSE_LADDER_SENSOR:?preserve warehouse-ladder upload sensorId}"
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
-resolve_search_indexes || exit 1
-: "${SEARCH_READINESS_DEADLINE:?initialize once when source setup begins}"
+SOURCE_SETUP_BUDGET="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/source_setup_budget.sh"
+while :; do
+  CONFIGURE_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 30) || break
+  if timeout "${CONFIGURE_TIMEOUT}" "${VSS[@]}" configure \
+       --base-url "${VSS_ORIGIN}" >/dev/null && resolve_search_indexes; then
+    break
+  fi
+  sleep 15
+done
+: "${EMBED_INDEX:?embedding index was not discovered before the deadline}"
+: "${BEHAVIOR_INDEX:?behavior index was not discovered before the deadline}"
+: "${RAW_INDEX:?raw index was not discovered before the deadline}"
 while :; do
   SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
     "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
@@ -337,8 +388,7 @@ while :; do
         LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )); then
     break
   fi
-  CURRENT_EPOCH=$(date +%s)
-  (( CURRENT_EPOCH < SEARCH_READINESS_DEADLINE )) || break
+  "${SOURCE_SETUP_BUDGET}" remaining 15 >/dev/null || break
   sleep 15
 done
 printf 'indexes=%s,%s,%s sensors=%s,%s counts=%s,%s,%s,%s\n' \
@@ -358,12 +408,14 @@ resolved endpoints, index names, UUIDs, and counts, then collect only bounded
 read-only diagnostics:
 
 ```bash
-DIAGNOSTIC_TIMEOUT=$(readiness_timeout 15) || exit 1
-curl -fsS --connect-timeout 5 --max-time "${DIAGNOSTIC_TIMEOUT}" \
-  "${ES_URL%/}/_cat/indices/mdx-*?format=json" | jq . || true
-for CONTAINER in vss-rtvi-cv vss-behavior-analytics vss-video-analytics-api; do
-  docker logs --since "${RTVI_CV_LOG_SINCE}" --tail 200 "${CONTAINER}" 2>&1 || true
-done
+SOURCE_SETUP_BUDGET="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/source_setup_budget.sh"
+if DIAGNOSTIC_TIMEOUT=$("${SOURCE_SETUP_BUDGET}" remaining 15); then
+  curl -fsS --connect-timeout 5 --max-time "${DIAGNOSTIC_TIMEOUT}" \
+    "${ES_URL%/}/_cat/indices/mdx-*?format=json" | jq . || true
+  for CONTAINER in vss-rtvi-embed vss-rtvi-cv vss-behavior-analytics vss-video-analytics-api; do
+    docker logs --since "${RTVI_CV_LOG_SINCE}" --tail 200 "${CONTAINER}" 2>&1 || true
+  done
+fi
 ```
 
 Then stop with an error. Never post directly to RTVI-CV or Elasticsearch to
