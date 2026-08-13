@@ -118,11 +118,46 @@
       "tag_variables": ["RTVI_EMBED_TAG"]
     },
     {
-      "name": "vss-vios-nvstreamer",
-      "strategy": "mirror",
+      "name": "vss-vios-sensor",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/vios",
+      "context": "services/vios",
+      "dockerfile": "services/vios/docker/Dockerfile",
+      "build_args": {"MODULE": "sensor"},
       "platforms": ["linux/amd64", "linux/arm64"],
+      "lfs_include": "services/vios/prebuilts/**",
+      "compose_image_names": ["vss-vios-sensor"],
+      "tag_variables": ["VSS_VIOS_SENSOR_TAG"],
+      "notes": "Built from services/vios/docker/Dockerfile (MODULE=sensor). STAGED: flip ghcr_build=true after a real build is validated and build_args matrix support lands."
+    },
+    {
+      "name": "vss-vios-streamprocessing",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/vios",
+      "context": "services/vios",
+      "dockerfile": "services/vios/docker/Dockerfile",
+      "build_args": {"MODULE": "streamprocessing"},
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "lfs_include": "services/vios/prebuilts/**",
+      "compose_image_names": ["vss-vios-streamprocessing"],
+      "tag_variables": ["VSS_VIOS_STREAMPROCESSING_TAG"],
+      "notes": "Built from services/vios/docker/Dockerfile (MODULE=streamprocessing). STAGED: flip ghcr_build=true after validation."
+    },
+    {
+      "name": "vss-vios-nvstreamer",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/vios",
+      "context": "services/vios",
+      "dockerfile": "services/vios/docker/Dockerfile",
+      "build_args": {"MODULE": "nvstreamer"},
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "lfs_include": "services/vios/prebuilts/**",
       "compose_image_names": ["vss-vios-nvstreamer"],
-      "tag_variables": ["NVSTREAMER_IMAGE_TAG"]
+      "tag_variables": ["VSS_VIOS_NVSTREAMER_TAG"],
+      "notes": "Built from services/vios/docker/Dockerfile (MODULE=nvstreamer: empty make MODULE = full lib set, plus the vios-ui webroot). STAGED: flip ghcr_build=true after validation."
     },
     {
       "name": "vss-configurator",

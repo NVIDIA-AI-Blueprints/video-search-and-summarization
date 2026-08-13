@@ -15,7 +15,7 @@
 
 services:
   streamprocessing-ms:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-2.1.0-26.07.1}
     profiles: ["streamprocessing-ms"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -72,7 +72,7 @@ services:
         condition: service_started
 
   streamprocessing-ms-2d:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-2.1.0-26.07.1}
     profiles: ["streamprocessing-ms-2d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -140,7 +140,7 @@ services:
         condition: service_started
 
   streamprocessing-ms-3d:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-2.1.0-26.07.1}
     profiles: ["streamprocessing-ms-3d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -210,7 +210,7 @@ services:
         condition: service_started
 
   streamprocessing-ms-mv3dt:
-    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-2.1.0-26.07.1}
     profiles: ["streamprocessing-ms-mv3dt"]
     container_name: vss-vios-streamprocessing
     ports:
