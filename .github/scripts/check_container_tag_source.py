@@ -726,6 +726,8 @@ def read_image_manifest_labels(
 
 
 def discover_compose_files(repo_root: Path) -> list[Path]:
+    # Validate committed deploy state; generated or untracked compose files in
+    # the workspace should not affect the container-source gate.
     tracked = run_git(
         repo_root,
         "ls-files",
