@@ -12,6 +12,20 @@ at 0% holding 210.8 GiB resident, with 11 of 13 boxes still running a full VSS
 stack hours after their last leg. That is suggestive, not attributable: it says
 nothing about which spec caused it. This module makes it attributable.
 
+NOT A DUPLICATE OF THE DCGM WORK. PR #1678 adds a DCGM exporter to the LVS
+developer profile, which instruments GPUs in a product DEPLOYMENT: it touches
+`deploy/docker`, `deploy/helm` and `skills/vss-deploy-profile`. This module
+instruments the CI plane, the `vss-eval-*` boxes running skill-eval legs, and
+touches only `.github/skill-eval`. The two share no files and answer different
+questions: DCGM tells an operator what a running stack is doing right now,
+while this answers "the spec declared gpu_count: 2, did the leg use them", per
+spec, after the fact, joined to run and step.
+
+The "no DCGM exporter" line above is about the eval fleet specifically, and
+#1678 as scoped does not change it. If DCGM does reach `vss-eval-*` later and
+can be joined to job identity, that is the better mechanism and this module
+should be retired rather than extended.
+
 WHERE IT HOOKS. `run_leg.py` holds the per-box `flock` and knows the run, spec,
 platform and chosen instance at the same moment. That is the only place in the
 pipeline where GPU identity and job identity coexist, so joining them here is
