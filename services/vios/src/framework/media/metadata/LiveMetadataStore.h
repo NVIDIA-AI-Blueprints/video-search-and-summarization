@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,6 +16,8 @@
  */
 
 #pragma once
+
+#include <memory>
 
 #include "MetadataStore.h"
 #include "syncobject.h"
@@ -46,7 +48,7 @@ private:
 
     SyncObject                      m_metaWait = {};
     nv_vms::INotificationInterface* m_notificationConsumer = nullptr;
-    NotificationListener*           m_notificationListener = nullptr;
+    std::unique_ptr<NotificationListener> m_notificationListener;
     std::string                     m_sensorName = "";
     std::string                     m_sensorName3d = "";
     std::string                     m_cachedSensorId = "";

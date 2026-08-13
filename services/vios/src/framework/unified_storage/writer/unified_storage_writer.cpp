@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -66,11 +66,6 @@ UnifiedStorageWriter::UnifiedStorageWriter(StorageType type) : m_storageMode(typ
 UnifiedStorageWriter::~UnifiedStorageWriter()
 {
     try {
-        if (m_format)
-        {
-            free(m_format);
-            m_format = nullptr;
-        }
         destroyPipeline();
     } catch (const std::exception& e) {
         try { LOG(error) << "Exception in ~UnifiedStorageWriter: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
@@ -166,7 +161,7 @@ std::string UnifiedStorageWriter::startWrite(const std::string& remote_path, con
     return session_id;
 }
 
-bool UnifiedStorageWriter::onFrame(const std::string& session_id, const void* data, size_t size, int64_t pts,
+bool UnifiedStorageWriter::onFrame(const std::string& session_id, const unsigned char* data, size_t size, int64_t pts,
                                    const std::string& media_type)
 {
     if (!m_session_active.load() || session_id != m_current_session_id)
@@ -184,7 +179,7 @@ bool UnifiedStorageWriter::onFrame(const std::string& session_id, const void* da
     }
 
     // Push buffer to pipeline with PTS and media type
-    return pushBufferToPipeline(data, size, pts, media_type);
+    return pushBufferToPipeline(static_cast<const unsigned char*>(data), size, pts, media_type);
 }
 
 StorageResult UnifiedStorageWriter::stopWrite(const std::string& session_id, const std::string& stream_id)
@@ -375,7 +370,7 @@ bool UnifiedStorageWriter::createPipelineInternal(const std::string& video_codec
         std::string vcodec_lc = video_codec;
         std::transform(vcodec_lc.begin(), vcodec_lc.end(), vcodec_lc.begin(), ::tolower);
         std::string filter_caps_str = "video/x-" + vcodec_lc + ", alignment=(string)au";
-        m_capsfilterVideo = gst_element_factory_make("capsfilter", NULL);
+        m_capsfilterVideo = gst_element_factory_make("capsfilter", nullptr);
         if (m_capsfilterVideo)
         {
             GstCaps* filter_caps = gst_caps_from_string(filter_caps_str.c_str());
@@ -428,10 +423,9 @@ bool UnifiedStorageWriter::createPipelineInternal(const std::string& video_codec
         else if (iequals(audio_codec, "mpeg4-generic"))
         {
             m_parserAudio = gst_element_factory_make("aacparse", nullptr);
-            std::string caps_string = string(
-                                          "audio/mpeg, mpegversion=(int)4, \
-                                    stream-format=(string)raw, \
-                                    codec_data=(buffer)") +
+            std::string caps_string = string("audio/mpeg, mpegversion=(int)4, "
+                                             "stream-format=(string)raw, "
+                                             "codec_data=(buffer)") +
                                       to_string(codec_data);
             GstCaps* caps_before_dec = gst_caps_from_string(caps_string.c_str());
             if (caps_before_dec)
@@ -669,7 +663,7 @@ bool UnifiedStorageWriter::destroyPipeline()
     return destroyPipelineInternal();
 }
 
-bool UnifiedStorageWriter::destroyPipelineInternal()
+bool UnifiedStorageWriter::destroyPipelineInternal(bool call_cleanup_session)
 {
     // Store stream ID before clearing it for logging purposes
     std::string stream_id = m_streamId;
@@ -687,7 +681,10 @@ bool UnifiedStorageWriter::destroyPipelineInternal()
     // Clean up session state without calling stopWrite (which could cause recursion)
     if (!m_current_session_id.empty())
     {
-        cleanupSession(m_current_session_id);
+        if (call_cleanup_session)
+        {
+            cleanupSession(m_current_session_id);
+        }
         m_current_session_id.clear();
         m_current_remote_path.clear();
     }
@@ -886,11 +883,7 @@ bool UnifiedStorageWriter::destroyPipelineInternal()
     m_height = 0;
     m_numerator = 0;
     m_denominator = 0;
-    if (m_format)
-    {
-        free(m_format);
-        m_format = nullptr;
-    }
+    m_format.clear();
 
     // Reset session state
     m_session_active = false;
@@ -1000,7 +993,7 @@ bool UnifiedStorageWriter::resetPipeline()
     return createPipeline(m_videoCodec, m_audioSupported, current_stream_id);
 }
 
-bool UnifiedStorageWriter::pushBufferToPipeline(const void* data, size_t size, int64_t pts,
+bool UnifiedStorageWriter::pushBufferToPipeline(const unsigned char* data, size_t size, int64_t pts,
                                                 const std::string& media_type)
 {
     // Validate input parameters to prevent crashes
@@ -1342,11 +1335,7 @@ void UnifiedStorageWriter::setVideoMetadata(int width, int height, int numerator
     m_height = height;
     m_numerator = numerator;
     m_denominator = denominator;
-    if (m_format)
-    {
-        free(m_format);
-    }
-    m_format = format ? strdup(format) : nullptr;
+    m_format = format ? format : "";
 }
 
 void UnifiedStorageWriter::setResolution(const std::string& resolution)
@@ -1572,7 +1561,7 @@ GstPadProbeReturn event_probe(GstPad* pad, GstPadProbeInfo* info, gpointer user_
         format = gst_structure_get_string(gstStruct, "stream-format");
 
         // Store video metadata
-        if (writer->getWidth() == 0 && writer->getHeight() == 0 && writer->getFormat() == nullptr)
+        if (writer->getWidth() == 0 && writer->getHeight() == 0 && writer->getFormat().empty())
         {
             writer->setVideoMetadata(width, height, numerator, denominator, format);
 
@@ -1592,8 +1581,8 @@ GstPadProbeReturn event_probe(GstPad* pad, GstPadProbeInfo* info, gpointer user_
         }
 
         // Drop caps events if only framerate changed
-        if (writer->getWidth() == width && writer->getHeight() == height && writer->getFormat() && format &&
-            !strcmp(writer->getFormat(), format) &&
+        if (writer->getWidth() == width && writer->getHeight() == height && !writer->getFormat().empty() && format &&
+            writer->getFormat() == format &&
             (writer->getNumerator() != numerator || writer->getDenominator() != denominator))
         {
             LOG(verbose) << "Dropping framerate-only caps change for stream ID: "

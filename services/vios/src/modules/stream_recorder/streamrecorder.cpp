@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -324,12 +324,12 @@ void StreamRecorder::performCrashRecovery()
 
 extern "C" void *createStreamRecorderObject()
 {
-    return new StreamRecorder(GET_CONFIG().recorded_video_root, ModuleLoader::getInstance()->getDeviceId());
+    return std::make_unique<StreamRecorder>(GET_CONFIG().recorded_video_root, ModuleLoader::getInstance()->getDeviceId()).release();
 }
 
 extern "C" void deleteStreamRecorderObject(StreamRecorder *object)
 {
-    delete object;
+    std::unique_ptr<StreamRecorder> owner(object);
 }
 
 string StreamRecorder::recordStatus(const string streamId)
@@ -1095,7 +1095,7 @@ bool RecordScheduler::createNewSchedule(StreamRecorder *recorder,
     // Schedule start of recording
     try
     {
-        start_tp = current_schedule->m_scheduler->cron(start_time, [=]()
+        start_tp = current_schedule->m_scheduler->cron(start_time, [this, current_schedule, recorder, streamId]()
                                                        {
             std::lock_guard<std::mutex> mlock(m_recorderMutex);
             current_schedule->m_isRunning = recorder->startRecord(streamId, Schedule); });
@@ -1106,7 +1106,7 @@ bool RecordScheduler::createNewSchedule(StreamRecorder *recorder,
     {
         try
         {
-            start_tp = current_schedule->m_scheduler->at(start_time, [=]()
+            start_tp = current_schedule->m_scheduler->at(start_time, [this, current_schedule, recorder, streamId]()
                                                          {
                 std::lock_guard<std::mutex> mlock(m_recorderMutex);
                 current_schedule->m_isRunning = recorder->startRecord(streamId, Schedule); });
@@ -1126,7 +1126,7 @@ bool RecordScheduler::createNewSchedule(StreamRecorder *recorder,
     {
         if (start_schedule_type == at)
         {
-            end_tp = current_schedule->m_scheduler->cron(end_time, [=]()
+            end_tp = current_schedule->m_scheduler->cron(end_time, [this, current_schedule, recorder, streamId, unique_id, start_time_utc, end_time_utc]()
                                                          {
                 std::lock_guard<std::mutex> mlock(m_recorderMutex);
                 if (current_schedule->m_isRunning == RecordScheduleStarted)
@@ -1134,14 +1134,14 @@ bool RecordScheduler::createNewSchedule(StreamRecorder *recorder,
                     stopRecordIfScheduled(recorder, streamId);
                     current_schedule->m_isRunning = RecordScheduleOFF;
                 }
-                m_schedule_eraser->in(5s, [=]() {
+                m_schedule_eraser->in(5s, [this, recorder, streamId, unique_id, start_time_utc, end_time_utc]() {
                     LOG(info) << "Erasing schedule: " << unique_id <<endl;
                     deleteStreamSchedule(recorder, streamId, start_time_utc, end_time_utc);
                 }); });
         }
         else
         {
-            end_tp = current_schedule->m_scheduler->cron(end_time, [=]()
+            end_tp = current_schedule->m_scheduler->cron(end_time, [this, current_schedule, recorder, streamId]()
                                                          {
                 std::lock_guard<std::mutex> mlock(m_recorderMutex);
                 if (current_schedule->m_isRunning == RecordScheduleStarted)
@@ -1157,7 +1157,7 @@ bool RecordScheduler::createNewSchedule(StreamRecorder *recorder,
     {
         try
         {
-            end_tp = current_schedule->m_scheduler->at(end_time, [=]()
+            end_tp = current_schedule->m_scheduler->at(end_time, [this, current_schedule, recorder, streamId, unique_id, start_time_utc, end_time_utc]()
                                                        {
                 std::lock_guard<std::mutex> mlock(m_recorderMutex);
                 if (current_schedule->m_isRunning == RecordScheduleStarted)
@@ -1165,7 +1165,7 @@ bool RecordScheduler::createNewSchedule(StreamRecorder *recorder,
                     stopRecordIfScheduled(recorder, streamId);
                     current_schedule->m_isRunning = RecordScheduleOFF;
                 }
-                m_schedule_eraser->in(5s, [=]() {
+                m_schedule_eraser->in(5s, [this, recorder, streamId, unique_id, start_time_utc, end_time_utc]() {
                     LOG(info) << "Erasing schedule: " << unique_id <<endl;
                     deleteStreamSchedule(recorder, streamId, start_time_utc, end_time_utc);
                 }); });

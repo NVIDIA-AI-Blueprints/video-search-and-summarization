@@ -31,7 +31,7 @@ services:
 
   nvidia-nemotron-nano-9b-v2-fp8:
     # Nemotron-Nano-V2 and tool-parser (nemotron_toolcall_parser_no_streaming.py) require vLLM 25.12+; 25.10 does not support Nemotron.
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m
@@ -94,7 +94,7 @@ services:
 
   nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
     # Nemotron-Nano-V2 and tool-parser require vLLM 25.12+ (see rel-25-12 release notes).
-    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    image: nvcr.io/nvidia/vllm:26.07-py3
     command:
       - python3
       - -m

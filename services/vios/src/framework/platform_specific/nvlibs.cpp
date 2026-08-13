@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,15 +31,10 @@
 #define ABSOLUTE_LIBRARY_PATH_X86_64 "/usr/lib/x86_64-linux-gnu/libv4l2.so.0"
 #define ABSOLUTE_LIBRARY_PATH_ARCH64 "/usr/lib/aarch64-linux-gnu/libv4l2.so.0"
 
-NvLibs* NvLibs::_instance = NULL;
-
 NvLibs* NvLibs::getInstance()
 {
-    if(_instance == NULL)
-    {
-        _instance = new NvLibs();
-    }
-    return _instance;
+    static NvLibs instance;
+    return &instance;
 }
 
 NvLibs::NvLibs()
@@ -55,7 +50,7 @@ NvLibs::NvLibs()
 #else
     lib_path = ABSOLUTE_LIBRARY_PATH_X86_64;
 #endif
-    handle_v4l2 = dlopen(lib_path, RTLD_LAZY); 
+    handle_v4l2 = static_cast<NvV4l2LibHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!handle_v4l2)
     {
         LOG(error) << "Cannot open v4l2 library: " << dlerror() << endl;
@@ -101,11 +96,11 @@ bool NvLibs::isV4l2EncPresent()
         struct v4l2_capability encoder_caps;
         int fd = -1;
 
-        if (g_gpuNodePath.empty())
+        if (getGpuNodePath().empty())
         {
             return false;
         }
-        fd = v4l2_open(g_gpuNodePath.c_str(), O_RDWR);
+        fd = v4l2_open(getGpuNodePath().c_str(), O_RDWR);
         if (fd == -1)
         {
             LOG(error) << "Could not open device ENCODER DEV" << endl;
@@ -193,11 +188,11 @@ bool NvLibs::isV4l2DecPresent()
         struct v4l2_ext_control control;
         struct v4l2_ext_controls ctrls;
 
-        if (g_gpuNodePath.empty())
+        if (getGpuNodePath().empty())
         {
             return false;
         }
-        fd = v4l2_open(g_gpuNodePath.c_str(), O_RDWR);
+        fd = v4l2_open(getGpuNodePath().c_str(), O_RDWR);
         if (fd == -1)
         {
             LOG(error) << "Could not open device DECODER DEV" << endl;

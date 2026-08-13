@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -1207,13 +1207,13 @@ build_streamprocessing_app() {
     rm -rf vst-streamprocessing-app-*
     ucf_app_builder_cli app build vst-streamprocessing-app.yaml
     streamprocessing_app_name=$(ls -d vst-streamprocessing-app-* 2>/dev/null)
-    if [ -d "$streamprocessing_app_name" ]; then
+    if [[ -d "$streamprocessing_app_name" ]]; then
         tar czf "${streamprocessing_app_name}.tgz" "$streamprocessing_app_name" || { echo "[ERROR] Tar creation failed"; }
         rm -rf $streamprocessing_app_name
     fi
     cd "$build_root" || exit 1
 
-    if [ $package -eq 1 ]; then
+    if [[ $package -eq 1 ]]; then
         echo "Packaging streamprocessing-app helm charts"
 
         rm -rf vst-streamprocessing-app-package*
@@ -1623,7 +1623,7 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
         if [[ $VSTAPP -eq 1 ]]; then
             echo "Building helm chart package for vst-app"
             build_vst_app 1
-        elif [ $STREAMPROCESSINGAPP -eq 1 ]; then
+        elif [[ $STREAMPROCESSINGAPP -eq 1 ]]; then
             echo "Building helm chart package for streamprocessing-app"
             build_streamprocessing_app 1
         else
@@ -1722,10 +1722,10 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
         else
             build_all 0 0 0
         fi
-    elif [ $VSTAPP -eq 1 ]; then
+    elif [[ $VSTAPP -eq 1 ]]; then
         echo "Building helm chart for vst-app"
         build_vst_app 0
-    elif [ $STREAMPROCESSINGAPP -eq 1 ]; then
+    elif [[ $STREAMPROCESSINGAPP -eq 1 ]]; then
         echo "Building helm chart for streamprocessing-app"
         build_streamprocessing_app 0
     fi

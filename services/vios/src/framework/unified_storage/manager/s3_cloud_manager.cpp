@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -48,7 +48,7 @@ S3CloudManager::~S3CloudManager()
 
 bool S3CloudManager::isAvailable() const
 {
-    return m_initialized;
+    return isInitialized();
 }
 
 bool S3CloudManager::configure(const CloudManagerConfig& config)
@@ -62,24 +62,24 @@ bool S3CloudManager::configure(const CloudManagerConfig& config)
     // Validate required configuration parameters
     if (config.endpoint.empty())
     {
-        m_last_error = "Endpoint is required but not provided";
+        storeLastError("Endpoint is required but not provided");
         return false;
     }
     
     if (config.accessKeyId.empty())
     {
-        m_last_error = "Access key ID is required but not provided";
+        storeLastError("Access key ID is required but not provided");
         return false;
     }
     
     if (config.secretAccessKey.empty())
     {
-        m_last_error = "Secret access key is required but not provided";
+        storeLastError("Secret access key is required but not provided");
         return false;
     }
     
     // Store configuration
-    m_config = config;
+    setConfig(config);
     m_endpoint = config.endpoint;
     m_access_key = config.accessKeyId;
     m_secret_key = config.secretAccessKey;
@@ -91,24 +91,24 @@ bool S3CloudManager::configure(const CloudManagerConfig& config)
     // Attempt to initialize the S3 client
     if (!initializeS3Client())
     {
-        m_last_error = "Failed to initialize S3 client";
-        m_initialized = false;
+        storeLastError("Failed to initialize S3 client");
+        setInitialized(false);
         return false;
     }
     
     // Only set initialized to true if client initialization succeeds
-    m_initialized = true;
+    setInitialized(true);
     return true;
 }
 
 CloudManagerConfig S3CloudManager::getConfiguration() const
 {
-    return m_config;
+    return config();
 }
 
 CloudResult S3CloudManager::deleteObject(const std::string& bucket, const std::string& objectKey)
 {
-    if (!m_initialized)
+    if (!isInitialized())
     {
         CloudResult result(false);
         result.message = "S3 cloud manager not initialized";
@@ -121,7 +121,7 @@ CloudResult S3CloudManager::deleteObject(const std::string& bucket, const std::s
 
 CloudResult S3CloudManager::deleteMultipleObjects(const std::string& bucket, const std::vector<std::string>& objectKeys)
 {
-    if (!m_initialized)
+    if (!isInitialized())
     {
         CloudResult result(false);
         result.message = "S3 cloud manager not initialized";
@@ -215,19 +215,19 @@ CloudResult S3CloudManager::performHealthCheck()
 std::string S3CloudManager::getLastError() const
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    return m_last_error;
+    return lastError();
 }
 
 CloudManagerStats S3CloudManager::getStats() const
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    return m_stats;
+    return stats();
 }
 
 void S3CloudManager::resetStats()
 {
     std::lock_guard<std::mutex> lock(m_client_mutex);
-    m_stats.reset();
+    stats().reset();
 }
 
 bool S3CloudManager::validateBucketName(const std::string& bucketName) const
@@ -264,8 +264,8 @@ bool S3CloudManager::initializeS3Client()
         
         if (!sdkManager.initializeAwsSDK())
         {
-            m_last_error = "Failed to initialize AWS SDK";
-            LOG(error) << m_last_error;
+            storeLastError("Failed to initialize AWS SDK");
+            LOG(error) << lastError();
             return false;
         }
         m_awsSdkInitialized = true;
@@ -274,8 +274,8 @@ bool S3CloudManager::initializeS3Client()
         m_credentialsProvider = sdkManager.createCredentialsProvider(m_access_key, m_secret_key);
         if (!m_credentialsProvider)
         {
-            m_last_error = "Failed to create AWS credentials provider";
-            LOG(error) << m_last_error;
+            storeLastError("Failed to create AWS credentials provider");
+            LOG(error) << lastError();
             return false;
         }
         
@@ -287,8 +287,8 @@ bool S3CloudManager::initializeS3Client()
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent);
         if (!m_signer)
         {
-            m_last_error = "Failed to create AWS V4 signer";
-            LOG(error) << m_last_error;
+            storeLastError("Failed to create AWS V4 signer");
+            LOG(error) << lastError();
             return false;
         }
         
@@ -297,8 +297,8 @@ bool S3CloudManager::initializeS3Client()
         m_clientConfig = sdkManager.createClientConfiguration(m_region, m_use_ssl, m_timeout_seconds, m_endpoint);
         if (!m_clientConfig)
         {
-            m_last_error = "Failed to create AWS client configuration";
-            LOG(error) << m_last_error;
+            storeLastError("Failed to create AWS client configuration");
+            LOG(error) << lastError();
             return false;
         }
         
@@ -306,8 +306,8 @@ bool S3CloudManager::initializeS3Client()
         m_httpClient = sdkManager.createHttpClient(m_clientConfig);
         if (!m_httpClient)
         {
-            m_last_error = "Failed to create AWS HTTP client";
-            LOG(error) << m_last_error;
+            storeLastError("Failed to create AWS HTTP client");
+            LOG(error) << lastError();
             return false;
         }
         
@@ -317,8 +317,8 @@ bool S3CloudManager::initializeS3Client()
     }
     catch (const std::exception& e)
     {
-        m_last_error = "Exception during S3 client initialization: " + std::string(e.what());
-        LOG(error) << m_last_error;
+        storeLastError("Exception during S3 client initialization: " + std::string(e.what()));
+        LOG(error) << lastError();
         return false;
     }
 }
@@ -352,7 +352,7 @@ bool S3CloudManager::ensureClientInitialized()
     
     if (!m_httpClient || !m_signer || !m_credentialsProvider)
     {
-        m_last_error = "S3 client not initialized";
+        storeLastError("S3 client not initialized");
         return false;
     }
     
@@ -365,7 +365,7 @@ CloudResult S3CloudManager::deleteObjectWithS3Client(const std::string& bucket, 
     
     if (!ensureClientInitialized())
     {
-        result.message = m_last_error;
+        result.message = lastError();
         result.errorCode = "CLIENT_NOT_INITIALIZED";
         return result;
     }
@@ -384,10 +384,10 @@ CloudResult S3CloudManager::deleteObjectWithS3Client(const std::string& bucket, 
         // Update stats
         {
             std::lock_guard<std::mutex> lock(m_client_mutex);
-            m_stats.recordRequest(result.success, latency, result.errorCode);
+            stats().recordRequest(result.success, latency, result.errorCode);
             if (result.success)
             {
-                m_stats.objectsDeleted++;
+                stats().objectsDeleted++;
             }
         }
         
@@ -408,7 +408,7 @@ CloudResult S3CloudManager::deleteMultipleObjectsWithS3Client(const std::string&
     
     if (!ensureClientInitialized())
     {
-        result.message = m_last_error;
+        result.message = lastError();
         result.errorCode = "CLIENT_NOT_INITIALIZED";
         return result;
     }
@@ -434,10 +434,10 @@ CloudResult S3CloudManager::deleteMultipleObjectsWithS3Client(const std::string&
         // Update stats
         {
             std::lock_guard<std::mutex> lock(m_client_mutex);
-            m_stats.recordRequest(result.success, latency, result.errorCode);
+            stats().recordRequest(result.success, latency, result.errorCode);
             if (result.success)
             {
-                m_stats.objectsDeleted += objectKeys.size();
+                stats().objectsDeleted += objectKeys.size();
             }
         }
         

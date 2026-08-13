@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -84,7 +84,8 @@ class VideoDataConsumer : public IMediaDataConsumer
             return m_videoSinkList.size();
         }
 
-        void onFrame(FrameParams& params)
+        using IMediaDataConsumer::onFrame;
+        void onFrame(FrameParams& params) override
         {
             std::lock_guard<std::mutex> lock(m_videoSinkLock);
             m_sourceWidth  = params.m_width;
@@ -289,7 +290,9 @@ class NvGstUDPVideoSource : public webrtc::VideoSourceInterface<webrtc::VideoFra
 public:
     void getDecodeStats(LatencyStats& stats)
     {
-
+        // The UDP source receives already-decoded frames, so it owns no decoder
+        // and has no latency statistics to report. Leave the caller's stats untouched.
+        (void)stats;
     }
     NvGstUDPVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts)
     : m_udpVideoClient(nullptr)
@@ -398,7 +401,10 @@ public:
 
     void controlStreamFileVideoSource(const std::string& action, const std::string& seek_value)
     {
-
+        // Intentionally empty: a UDP source is a live stream with no file playback
+        // to pause, resume or seek, so playback control requests are a no-op here.
+        (void)action;
+        (void)seek_value;
     }
 
     void setupClient (const std::map<std::string, std::string, std::less<>> &opts)

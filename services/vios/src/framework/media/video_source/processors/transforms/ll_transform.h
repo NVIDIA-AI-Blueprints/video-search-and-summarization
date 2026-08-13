@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,10 +33,11 @@ using namespace std;
 class NvLLTransform : public IMediaDataConsumer
 {
 public:
-    NvLLTransform(const std::string& consumer_name);
+    explicit NvLLTransform(const std::string& consumer_name);
     ~NvLLTransform();
 
     void doTransformTask();
+    using IMediaDataConsumer::onFrame;
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void setConsumer(std::shared_ptr<IMediaDataConsumer> consumer);
     void stopTransform();

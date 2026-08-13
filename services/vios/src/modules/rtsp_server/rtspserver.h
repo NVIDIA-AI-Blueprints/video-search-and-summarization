@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -62,7 +62,7 @@ typedef struct _StreamDetails
 class RtspServer
 {
     public:
-        RtspServer(u_int16_t port);
+        explicit RtspServer(u_int16_t port);
         ~RtspServer();
         int16_t getPort() { return m_rtspServerPortNum; }
         std::string createProxy(const string& id, const string& name, const string& url);
@@ -135,8 +135,9 @@ class RtspServer
         TaskToken m_eventAddStream;
         TaskToken m_eventRemoveStream;
         std::string m_urlPrefix;
+        std::string m_preferredIface;
         ServerMediaSession* m_sms = nullptr;
-        UserAuthenticationDatabase* m_authDB = nullptr;
+        std::unique_ptr<UserAuthenticationDatabase> m_authDB;
         SyncObject m_sync;
         map<string, StreamDetails, std::less<>> m_streamsList;
         std::string m_rtspServerDomainPrefix;
@@ -165,11 +166,12 @@ class RtspServer
                                                     int socketNumToServer = -1,
                                                     MediaTranscodingTable* transcodingTable = nullptr)
         {
-            return new AppProxyServerMediaSession(rtspServer, env, ourMediaServer, inputStreamURL,
+            return std::make_unique<AppProxyServerMediaSession>(
+                                                rtspServer, env, ourMediaServer, inputStreamURL,
                                                 streamName, username, password,
                                                 tunnelOverHTTPPortNum, verbosityLevel,
                                                 initialPortNum, multiplexRTCPWithRTP,
-                                                socketNumToServer, transcodingTable);
+                                                socketNumToServer, transcodingTable).release();
         }
 
         AppProxyServerMediaSession(RtspServer *rtspServer,
@@ -214,10 +216,10 @@ class RtspServer
             Json::Value detectedAudioInfo;
             Json::Value videoParameterSets(Json::arrayValue);
             detectedAudioInfo["present"] = false;
-            char* sdpDesc = generateSDPDescription(AF_INET);
+            std::unique_ptr<char[]> sdpDesc(generateSDPDescription(AF_INET));
             if (sdpDesc)
             {
-                Json::Value videoInfo = parseVideoInfoFromSDP(sdpDesc);
+                Json::Value videoInfo = parseVideoInfoFromSDP(sdpDesc.get());
                 detectedVideoCodecs = videoInfo["codecs"];
                 videoParameterSets  = videoInfo["parameterSets"];
                 for (const auto& codec : detectedVideoCodecs)
@@ -228,7 +230,7 @@ class RtspServer
                  * earliest hook we have for audio detection -- it runs at
                  * proxy DESCRIBE-response time, before any RTSP client
                  * connects and well before the recorder is started. */
-                detectedAudioInfo = parseAudioInfoFromSDP(sdpDesc);
+                detectedAudioInfo = parseAudioInfoFromSDP(sdpDesc.get());
                 if (detectedAudioInfo.get("present", false).asBool())
                 {
                     LOG(warning) << "Detected audio from SDP: codec="
@@ -252,7 +254,6 @@ class RtspServer
                     }
                     detectedAudioInfo["encoding"] = normalizedCodec;
                 }
-                delete[] sdpDesc; // Important: free the memory as per Live555 documentation
             }
 
 

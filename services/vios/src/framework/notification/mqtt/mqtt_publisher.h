@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,6 +30,8 @@ class MqttPublisher : public nv_vms::INotificationInterface
 public:
     static MqttPublisher* getInstance();
 
+    // Intentionally blank: the paho async client is created with
+    // set_automatic_reconnect(true), so reconnection is handled internally.
     void retryConnection() override {}
     bool deliverMessage(Json::Value& message) override;
     bool sendToMqtt(std::string payload);

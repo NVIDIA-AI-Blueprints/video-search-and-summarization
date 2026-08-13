@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -59,21 +59,20 @@ DynamicRTSPServer::~DynamicRTSPServer()
     LOG(info) << "~DynamicRTSPServer" << endl;
 }
 
-void DynamicRTSPServer::cleanup()
+void DynamicRTSPServer::cleanupAndDestroy()
 {
-    LOG(info) << "DynamicRTSPServer::cleanup()" << endl;
+    LOG(info) << "DynamicRTSPServer::cleanupAndDestroy()" << endl;
 
     std::vector<std::string> streamNames;
     {
-        GenericMediaServer::ServerMediaSessionIterator *iter =
-                new GenericMediaServer::ServerMediaSessionIterator(*this);
+        auto iter =
+                std::make_unique<GenericMediaServer::ServerMediaSessionIterator>(*this);
         ServerMediaSession *sms = nullptr;
         while((sms = (ServerMediaSession *)iter->next()) != nullptr)
         {
             LOG(info) << "scheduling removal of sms:" << sms << ", stream:" << sms->streamName() << endl;
             streamNames.push_back(sms->streamName());
         }
-        delete iter;
     }
 
     for (const auto& name : streamNames)
@@ -85,14 +84,14 @@ void DynamicRTSPServer::cleanup()
         removeServerMediaSession(name.c_str());
     }
     LOG(info) << "DynamicRTSPServer::cleanup() - deleted streams" << endl;
-    delete this;
+    Medium::close(this);
 }
 
 vector<string> DynamicRTSPServer::getActiveStreams()
 {
     vector<string> active_streams;
-    GenericMediaServer::ServerMediaSessionIterator *iter =
-            new GenericMediaServer::ServerMediaSessionIterator(*this);
+    auto iter =
+            std::make_unique<GenericMediaServer::ServerMediaSessionIterator>(*this);
     ServerMediaSession *sms = nullptr;
     while((sms = (ServerMediaSession *)iter->next()) != nullptr)
     {
@@ -101,7 +100,6 @@ vector<string> DynamicRTSPServer::getActiveStreams()
             active_streams.push_back(sms->streamName());
         }
     }
-    delete iter;  // Add cleanup of iterator
     return active_streams;
 }
 
@@ -253,11 +251,18 @@ void DynamicRTSPServer
         return;
     }
 
-    /* nv_streamer_sync_file_count is the initial quorum for a clean
-     * frame-0 start, NOT a hard cap. Late joiners (e.g. a 5th RTSP client)
-     * and reconnecting streams are allowed through here and are aligned to
-     * the group's current loop position in NvFileServerMediaSubsession::
-     * startStream() -> joinRunningSyncGroup(). */
+    if (GET_CONFIG().nv_streamer_sync_file_count > 0)
+    {
+        if (RtspSyncPlayback::getInstance()->getMediaSourceListSize() >= (size_t)GET_CONFIG().nv_streamer_sync_file_count)
+        {
+            LOG(info) << "RTSP lookup: Exceeded sync file count, ignoring the request" << std::endl;
+            if (completionFunc != nullptr)
+            {
+                (*completionFunc)(completionClientData, sms);
+            }
+            return;
+        }
+    }
 
     // First, check whether the specified "streamName" exists as a local file:
     string token = string(NV_STREAMER);
