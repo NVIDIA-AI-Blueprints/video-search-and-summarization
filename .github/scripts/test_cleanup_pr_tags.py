@@ -10,9 +10,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cleanup_pr_tags import (  # noqa: E402
+    detachable_tags,
     ghcr_packages,
     is_deletable,
     plan_deletions,
+    plan_detach,
     pr_tag_pattern,
 )
 
@@ -115,6 +117,56 @@ class PlanDeletionsTest(unittest.TestCase):
         )
         self.assertEqual(to_delete, [])
         self.assertEqual(skipped, [])
+
+
+class DetachableTagsTest(unittest.TestCase):
+    def setUp(self):
+        self.pattern = pr_tag_pattern(1234)
+
+    def test_shared_with_content_tag_is_detachable(self):
+        self.assertEqual(
+            detachable_tags(
+                [f"pr-1234-{SHA}", "pr-1234-latest", "tree-" + "a" * 40], self.pattern
+            ),
+            [f"pr-1234-{SHA}", "pr-1234-latest"],
+        )
+
+    def test_deletable_version_needs_no_detach(self):
+        # Every tag belongs to this PR, so the delete pass handles it directly.
+        self.assertEqual(
+            detachable_tags([f"pr-1234-{SHA}", "pr-1234-latest"], self.pattern), []
+        )
+
+    def test_foreign_only_version_is_untouched(self):
+        self.assertEqual(
+            detachable_tags([f"develop-{SHA}", "tree-" + "a" * 40], self.pattern), []
+        )
+
+    def test_other_prs_tags_are_never_detached(self):
+        self.assertEqual(
+            detachable_tags([f"pr-999-{SHA}", f"develop-{SHA}"], self.pattern), []
+        )
+
+
+class PlanDetachTest(unittest.TestCase):
+    def test_collects_tags_from_shared_versions_only(self):
+        payload = [
+            version(1, [f"pr-1234-{SHA}", "pr-1234-latest"]),  # deletable outright
+            version(2, [f"pr-1234-{OTHER_SHA}", "tree-" + "b" * 40]),  # shared
+            version(3, [f"develop-{SHA}"]),
+            version(4, []),
+        ]
+        self.assertEqual(
+            plan_detach(
+                "NVIDIA-AI-Blueprints", "vss/vss-agent", 1234, lambda *_: payload
+            ),
+            [f"pr-1234-{OTHER_SHA}"],
+        )
+
+    def test_missing_package_yields_empty_plan(self):
+        self.assertEqual(
+            plan_detach("NVIDIA-AI-Blueprints", "vss/absent", 1234, lambda *_: None), []
+        )
 
 
 if __name__ == "__main__":
