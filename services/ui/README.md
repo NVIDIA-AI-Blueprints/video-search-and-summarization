@@ -197,5 +197,10 @@ Third-party open-source components bundled in the container image are attributed
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
 The presence of `NVIDIA-Software-License-Agreement.pdf` in this directory does **not** modify the MIT
-License that governs the source code in this directory. It is included here so that the pre-built
-container images carry the license they ship under.
+License that governs the source code in this directory.
+
+The container image itself carries only `LICENSE` (MIT) and `LICENSE-3rd-party.txt`. The NVIDIA
+Software License Agreement is not copied into the image: it is built from MIT-licensed source and
+published to GHCR, so embedding a proprietary EULA in the artifact would misstate the terms it is
+distributed under. Where the NVIDIA Software License Agreement governs an NVIDIA-distributed build,
+it is conveyed by that distribution channel rather than by a file inside the image.
