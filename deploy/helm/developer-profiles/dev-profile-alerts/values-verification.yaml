@@ -82,5 +82,7 @@ rtvi:
     envOverrides:
       VLM_MODEL_TO_USE: "cosmos-reason3"
       KAFKA_ENABLED: "false"
+      MESSAGE_BUS: ""
+      ERROR_BUS: ""
       INSTALL_PROPRIETARY_CODECS: "true"
         

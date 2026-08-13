@@ -74,6 +74,8 @@ rtvi:
     envOverrides:
       VLM_MODEL_TO_USE: "cosmos-reason3"
       KAFKA_ENABLED: "true"
+      MESSAGE_BUS: "kafka"
+      ERROR_BUS: "kafka"
       INSTALL_PROPRIETARY_CODECS: "true"
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-alerts/values.yaml for full nims.* defaults).
