@@ -23,6 +23,8 @@ import pytest
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import delete_sensor
+from vss_agents.tools.vst.utils import delete_storage
 from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
@@ -396,6 +398,59 @@ class TestDeleteVSTResources:
         assert success is True
         assert message == "No storage to delete"
         mock_session.delete.assert_not_called()
+
+
+class TestLegacyDeleteResources:
+    """Legacy deletion helpers must encode request-derived path segments."""
+
+    @pytest.mark.asyncio
+    async def test_delete_sensor_quotes_sensor_id(self):
+        mock_delete_response = create_mock_response(204, "")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_sensor("../../camera 1", "http://localhost:30888/")
+
+        assert success is True
+        assert message == "OK"
+        assert mock_session.delete.call_args.args[0] == (
+            "http://localhost:30888/vst/api/v1/sensor/..%2F..%2Fcamera%201"
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_storage_quotes_sensor_id(self):
+        mock_delete_response = create_mock_response(204, "")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch(
+                "vss_agents.tools.vst.utils.get_storage_timeline",
+                new_callable=AsyncMock,
+                return_value=(True, "OK", "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+            ),
+        ):
+            success, message = await delete_storage("../../camera 1", "http://localhost:30888/")
+
+        assert success is True
+        assert message == "OK"
+        assert mock_session.delete.call_args.args[0] == (
+            "http://localhost:30888/vst/api/v1/storage/file/..%2F..%2Fcamera%201"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("delete_fn", [delete_sensor, delete_storage])
+    async def test_missing_sensor_id_is_rejected(self, delete_fn):
+        success, message = await delete_fn(None, "http://localhost:30888")
+
+        assert success is False
+        assert message == "sensor_id is required"
 
 
 class TestValidateVideoUrl:
