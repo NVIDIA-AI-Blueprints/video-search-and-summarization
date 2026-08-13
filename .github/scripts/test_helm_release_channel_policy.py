@@ -61,6 +61,7 @@ HELM_HELPERS = {
         "deploy/helm/services/bp-configurator/templates/_helpers.tpl",
     ],
     "vss-rt-config-adaptor": [
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/templates/warehouse-extra-services.yaml",
         "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/templates/warehouse-extra-services.yaml",
     ],
 }

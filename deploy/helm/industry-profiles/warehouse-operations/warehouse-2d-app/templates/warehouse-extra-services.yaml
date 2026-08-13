@@ -8,11 +8,13 @@
 {{- $image := $ds.image | default dict }}
 {{- $global := .Values.global | default dict }}
 {{- $prefix := index $global "container_prefix" | default "" }}
-{{- $repository := required "warehouse.dsConfigurator.image.repository is required" $image.repository }}
+{{- $repository := $image.repository }}
 {{- if $prefix }}
 {{- $repository = printf "%s/vss-rt-config-adaptor" (trimSuffix "/" $prefix) }}
 {{- end }}
-{{- $tag := index $global "container_tag" | default (required "warehouse.dsConfigurator.image.tag is required" $image.tag) }}
+{{- if not $repository }}{{ fail "warehouse.dsConfigurator.image.repository is required" }}{{ end }}
+{{- $tag := index $global "container_tag" | default $image.tag }}
+{{- if not $tag }}{{ fail "warehouse.dsConfigurator.image.tag is required" }}{{ end }}
 {{- $dsName := $ds.name | default (printf "ds-configurator-%s" $mode) }}
 apiVersion: apps/v1
 kind: Deployment
