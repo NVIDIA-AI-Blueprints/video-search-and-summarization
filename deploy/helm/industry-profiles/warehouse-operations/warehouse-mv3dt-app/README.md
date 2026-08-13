@@ -174,6 +174,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | Key | Default | Description |
 |-----|---------|-------------|
 | **`infra.mosquitto.enabled`** | **`true`** | MQTT broker used by the MV3DT pipeline for inter-service messaging. Disable only if providing an external broker. |
+| **`infra.phoenix.enabled`** | **`false`** | Phoenix observability is off by default in this profile. Set **`true`** to enable pipeline traces and spans. |
 | **`infra.redis.persistence.size`** | **`5Gi`** | PVC size for Redis. |
 | **`infra.elasticsearch.persistence.data.size`** | **`10Gi`** | PVC size for Elasticsearch data. |
 | **`infra.elasticsearch.persistence.logs.size`** | **`5Gi`** | PVC size for Elasticsearch logs. |
