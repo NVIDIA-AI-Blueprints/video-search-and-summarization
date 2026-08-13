@@ -204,7 +204,9 @@ the root file when multiple service definitions change.
 
 A build-local file a patch bind-mounts (e.g. a curated `haproxy.cfg`) lives in
 `patches/` beside its `.yml` and is referenced by a relative `./` source, which
-resolves against the patch's directory — never stranded at the build root.
+resolves against the patch's directory — never stranded at the build root. A
+checked-in repo file a patch mounts is instead bound by its absolute repo path,
+never copied into the build.
 
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
