@@ -434,7 +434,7 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
             timeout=timeout + 60,
         )
         if result.return_code != 0:
-            detail = (result.stderr or result.stdout or "")[-2000:]
+            detail = (result.stderr or result.stdout or "")[-12000:]
             raise RuntimeError(
                 f"NemoClaw notebook setup failed (exit {result.return_code}):\n{detail}"
             )
