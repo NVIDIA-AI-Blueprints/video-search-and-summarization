@@ -85,11 +85,11 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
-  # Edge routes `vss configure` probes, mirroring the four the Docker edge
+  # Edge routes `vss configure` probes, mirroring the ones the Docker edge
   # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
   # same paths resolve on Compose and Kubernetes. Each mount carries whatever
   # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
-  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/... .
+  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/..., /lvs/v1/summarize .
   #
   # Off by default. Enabling this publishes Elasticsearch on the public origin
   # with no per-path guard, because an Ingress annotation cannot express one.
@@ -102,6 +102,11 @@ ingress:
   # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
   # enabled -- that Ingress already publishes both paths. /rtvi-vlm is not one
   # of them, so it follows cliRoutes.enabled alone.
+  #
+  # /lvs is off unless lvsRoute.enabled: dev-profile-search does not deploy
+  # lvs-server, so the Service does not exist and referencing it would fail
+  # ingress validation. Enable only in a cluster where an LVS backend Service
+  # is present under the configured lvsBackendService name.
   cliRoutes:
     enabled: false
     elasticsearchPort: 9200
@@ -110,6 +115,14 @@ ingress:
     # RT-VLM's cluster Service port. Not 8018 -- that is the Compose
     # host-published port and has no meaning in Kubernetes.
     rtviVlmPort: 8000
+    lvsRoute:
+      enabled: false
+      # Name of the Service exposing lvs-server in this cluster. When the
+      # Service is absent (default dev-profile-search install), leave
+      # lvsRoute.enabled false so the ingress does not reference a
+      # non-existent backend.
+      lvsBackendService: "vss-summarization"
+      lvsBackendPort: 38111
 
 sharedStorage:
   streamerVideos:

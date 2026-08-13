@@ -41,12 +41,12 @@
 {{- $vssAgent := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
 {{- $agentEnabled := index $agent "enabled" | default true }}
 {{/*
-  CLI edge routes. Mirrors the four backends the Docker edge exposes in
+  CLI edge routes. Mirrors the backends the Docker edge exposes in
   deploy/docker/services/infra/haproxy/haproxy.cfg.template so `vss configure`
   resolves the same paths on both. Each mount carries whatever that service
   itself serves -- /elasticsearch/_cat/..., /rtvi-embed/v1/...,
-  /rtvi-cv/api/v1/... and /rtvi-vlm/v1/... -- the same convention /vst/api
-  already follows.
+  /rtvi-cv/api/v1/..., /rtvi-vlm/v1/..., /lvs/v1/summarize -- the same
+  convention /vst/api already follows.
 
   Off by default: enabling this publishes Elasticsearch on the public origin
   with no per-path guard at all, because an Ingress annotation cannot express
@@ -60,17 +60,26 @@
   when its own `host` is empty -- two Ingress objects claiming one path on one
   host is ambiguous. /rtvi-vlm is not among them, so it is gated on cliRoutes
   alone.
+
+  /lvs is gated on cliRoutes.lvsRoute.enabled: dev-profile-search does not
+  deploy lvs-server, so the Service does not exist and unconditionally routing
+  to it would fail ingress validation. Turn on lvsRoute.enabled only in a
+  cluster that already has an LVS backend Service present.
 */}}
 {{- $rii := (.Values.global | default dict).rtviInternalIngress | default dict }}
 {{- $cli := (.Values.ingress | default dict).cliRoutes | default dict }}
 {{- $cliOn := default false $cli.enabled }}
 {{- $cliRtvi := and $cliOn (not (default false $rii.enabled)) }}
+{{- $cliLvsCfg := $cli.lvsRoute | default dict }}
+{{- $cliLvs := and $cliOn (default false $cliLvsCfg.enabled) }}
+{{- $cliLvsSvc := $cliLvsCfg.lvsBackendService | default "vss-summarization" }}
 {{- $embedSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-embed") }}
 {{- $cvSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-cv") }}
 {{- $vlmSvc := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "rtvi" "chartName" "vss-rtvi-vlm") }}
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $esSvc := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+{{- $cliLvsSvcFull := ternary (printf "%s-%s" .Release.Name $cliLvsSvc) $cliLvsSvc $pfx }}
 {{- $analytics := index .Values "analytics" | default dict }}
 {{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
 {{- $videoAnalyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
@@ -93,6 +102,10 @@ metadata:
       /elasticsearch /
       /rtvi-vlm/(.*) /\1
       /rtvi-vlm /
+{{- end }}
+{{- if $cliLvs }}
+      /lvs/(.*) /\1
+      /lvs /
 {{- end }}
 {{- if $cliRtvi }}
       /rtvi-embed/(.*) /\1
@@ -232,6 +245,15 @@ spec:
                 name: {{ $vlmSvc }}
                 port:
                   number: {{ $cli.rtviVlmPort | default 8000 }}
+          {{- end }}
+          {{- if $cliLvs }}
+          - path: /lvs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $cliLvsSvcFull }}
+                port:
+                  number: {{ $cliLvsCfg.lvsBackendPort | default 38111 }}
           {{- end }}
           {{- if $cliRtvi }}
           - path: /rtvi-embed
