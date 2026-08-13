@@ -66,8 +66,6 @@ ENV_VAR_INTERPOLATION_PATTERN: Final[re.Pattern[str]] = re.compile(
 # First-party image SSOT next to compose files; same file `dev-profile.sh` passes as
 # `--env-file containers.env` ahead of the profile env files.
 CONTAINERS_ENV_FILENAME: Final[str] = "containers.env"
-SHELL_VAR_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-SHELL_DEFAULT_SEPARATOR: Final[str] = ":-"
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
@@ -331,92 +329,41 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return env
 
 
-def _find_closing_brace(value: str, open_index: int) -> int:
-    depth = 0
-    for index in range(open_index, len(value)):
-        if value[index] == "{":
-            depth += 1
-        elif value[index] == "}":
-            depth -= 1
-            if depth == 0:
-                return index
-    return -1
-
-
-def _split_shell_default(inner: str) -> tuple[str, bool, str]:
-    depth = 0
-    for index, char in enumerate(inner):
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-        elif depth == 0 and inner.startswith(SHELL_DEFAULT_SEPARATOR, index):
-            return inner[:index], True, inner[index + len(SHELL_DEFAULT_SEPARATOR) :]
-    return inner, False, ""
-
-
-def _expand_braced_reference(inner: str, scope: Mapping[str, str]) -> str:
-    name, has_default, default = _split_shell_default(inner)
-    current = scope.get(name.strip(), "")
-    if current or not has_default:
-        return current
-    return expand_shell_value(default, scope)
-
-
-def expand_shell_value(value: str, scope: Mapping[str, str]) -> str:
-    """Expand ``$VAR``, ``${VAR}`` and ``${VAR:-default}`` against ``scope``.
-
-    Mirrors bash parameter expansion used by ``containers.env`` so an already-exported
-    value wins over the file default
-    (``VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"``).
-    """
-
-    out: list[str] = []
-    index = 0
-    while index < len(value):
-        char = value[index]
-        if char != "$":
-            out.append(char)
-            index += 1
-            continue
-        if value.startswith("${", index):
-            end = _find_closing_brace(value, index + 1)
-            if end == -1:
-                out.append(char)
-                index += 1
-                continue
-            out.append(_expand_braced_reference(value[index + 2 : end], scope))
-            index = end + 1
-            continue
-        match = SHELL_VAR_NAME_PATTERN.match(value, index + 1)
-        if match is None:
-            out.append(char)
-            index += 1
-            continue
-        out.append(scope.get(match.group(0), ""))
-        index = match.end()
-    return "".join(out)
-
-
 def load_shell_env_file(path: Path, base_env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Load an env file whose values use shell-style ``${VAR:-default}`` self-defaults.
 
-    Mirrors ``set -a; source <file>`` as done by ``dev-profile.sh``: each value is
-    expanded against the process environment plus earlier assignments in the same file.
+    Source the file with bash exactly as ``dev-profile.sh`` does instead of duplicating
+    shell parameter expansion in Python.
     """
 
-    scope: dict[str, str] = dict(os.environ if base_env is None else base_env)
-    resolved: dict[str, str] = {}
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, raw_value = line.split("=", 1)
-        key = key.strip()
-        value = expand_shell_value(raw_value.strip().strip("'").strip('"'), scope)
-        resolved[key] = value
-        scope[key] = value
-    return resolved
+    keys = list(parse_env_file(path))
+    result = subprocess.run(  # noqa: S603 - repository-owned containers.env is intentionally sourced
+        [
+            "bash",
+            "-c",
+            'set -a; source "$1"; shift; for key in "$@"; do printf "%s\\0%s\\0" "$key" "${!key}"; done',
+            "bash",
+            str(path),
+            *keys,
+        ],
+        check=False,
+        capture_output=True,
+        env=dict(os.environ if base_env is None else base_env),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to resolve shell environment file {path}.\nstderr:\n"
+            f"{result.stderr.decode(errors='replace')}"
+        )
+    fields = result.stdout.split(b"\0")
+    if fields and not fields[-1]:
+        fields.pop()
+    if len(fields) % 2:
+        raise RuntimeError(f"Failed to parse resolved shell environment file {path}.")
+    return {
+        fields[index].decode(): fields[index + 1].decode()
+        for index in range(0, len(fields), 2)
+    }
 
 
 def load_profile_env(path: Path) -> dict[str, str]:

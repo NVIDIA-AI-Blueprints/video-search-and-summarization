@@ -910,9 +910,10 @@ class TestContainersEnvImageChannel:
         'VSS_CONTAINER_STAGING_REGISTRY="${VSS_CONTAINER_STAGING_REGISTRY:-nvcr.io/nvstaging/vss-core}"',
         'VSS_AGENT_IMAGE="${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-${VSS_CONTAINER_STAGING_REGISTRY}}/vss-agent}"',
         'CONTAINER_IMAGE="${CONTAINER_IMAGE:-${VSS_CONTAINER_REGISTRY}/vss-video-summarization:${VSS_CONTAINER_TAG}}"',
+        'BASH_RESOLVED="$(printf %s sourced-by-bash)"',
     )
 
-    def test_load_shell_env_file_expands_defaults(self, tmp_path: Path):
+    def test_load_shell_env_file_sources_with_bash(self, tmp_path: Path):
         path = tmp_path / dcu.CONTAINERS_ENV_FILENAME
         path.write_text(self._MINI_CONTAINERS_ENV + "\n")
 
@@ -922,6 +923,7 @@ class TestContainersEnvImageChannel:
             "ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest"
         )
         assert resolved["VSS_AGENT_IMAGE"] == "ghcr.io/nvidia-ai-blueprints/vss/vss-agent"
+        assert resolved["BASH_RESOLVED"] == "sourced-by-bash"
 
     def test_containers_env_wins_over_profile_lvs_tag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("VSS_CONTAINER_REGISTRY", raising=False)
