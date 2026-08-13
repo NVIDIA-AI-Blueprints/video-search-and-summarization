@@ -50,6 +50,21 @@ data:
   {{- end }}
 {{- end }}
 
+{{- if .Values.nemotron3.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nims.nemotron3.fullname" . }}-nim-env
+  labels:
+    {{- include "nims.labels" . | nindent 4 }}
+    nims.nvidia.com/gpu-type: {{ $gpuType | quote }}
+data:
+  {{- range $k, $v := (index $profile "nemotron3") }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+{{- end }}
+
 {{- if .Values.cosmos.enabled }}
 ---
 apiVersion: v1

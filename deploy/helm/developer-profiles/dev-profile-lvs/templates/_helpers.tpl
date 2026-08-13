@@ -62,3 +62,43 @@
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{- define "lvs.vlmPrecision" -}}
+{{- $gt := (index .Values "nims" | default dict).gpuType | default "" -}}
+{{- $vp := .Values.vlmPrecision | default dict -}}
+{{- $map := $vp.byGpuType | default dict -}}
+{{- $p := index $map $gt -}}
+{{- if not $p -}}
+{{- fail (printf "dev-profile-lvs: no VLM precision mapping for nims.gpuType %q. Set nims.gpuType to one of [%s], or add it under vlmPrecision.byGpuType." $gt (keys $map | sortAlpha | join ", ")) -}}
+{{- end -}}
+{{- $p -}}
+{{- end -}}
+
+{{- define "lvs.assertVlmPrecision" -}}
+{{- $vp := .Values.vlmPrecision | default dict -}}
+{{- $rtvi := index .Values "rtvi" | default dict -}}
+{{- $vlm := index $rtvi "vss-rtvi-vlm" | default dict -}}
+{{- $shared := $vlm.useSharedNim | default false -}}
+{{- if and $vp (not $shared) -}}
+{{- $gt := (index .Values "nims" | default dict).gpuType | default "" -}}
+{{- $p := include "lvs.vlmPrecision" . -}}
+{{- $want := index $vp $p | default dict -}}
+{{- $g := .Values.global | default dict -}}
+{{- $summ := index .Values "vss-summarization" | default dict -}}
+{{- $vlmName := coalesce ($summ.vlmName | default "") (index $g "vlmName" | default "") -}}
+{{- if and $vlmName (ne $vlmName $want.vlmName) -}}
+{{- fail (printf "dev-profile-lvs: nims.gpuType %q => %s precision (vlmName %s), but resolved vlmName is %q. Fix global.vlmName / vss-summarization.vlmName to match the platform." $gt $p $want.vlmName $vlmName) -}}
+{{- end -}}
+{{- $mp := $vlm.modelPath | default "" -}}
+{{- if and $mp (ne $mp $want.modelPath) -}}
+{{- fail (printf "dev-profile-lvs: nims.gpuType %q => %s precision (modelPath %s), but rtvi.vss-rtvi-vlm.modelPath is %q. Fix modelPath to match the platform." $gt $p $want.modelPath $mp) -}}
+{{- end -}}
+{{- $n3 := index (index .Values "nims" | default dict) "nemotron3" | default dict -}}
+{{- if $n3.enabled -}}
+{{- $llmPrec := $n3.modelPrecision | default "" -}}
+{{- if and $llmPrec (ne $llmPrec $p) -}}
+{{- fail (printf "dev-profile-lvs: nims.gpuType %q => %s precision, but nims.nemotron3.modelPrecision is %q. Set nims.nemotron3.modelPrecision to %s to match the platform." $gt $p $llmPrec $p) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
