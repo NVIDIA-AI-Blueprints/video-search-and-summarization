@@ -540,7 +540,8 @@ Run each check in order. **If a check fails, automatically install and re-verify
 
 The profiles that actually carry perception tuning are the top-level sections of
 `industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml`:
-`H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO4500BW, IGX-THOR, DGX-SPARK`.
+`H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO6000BW-SE, RTXPRO4500BW, IGX-THOR,
+DGX-SPARK`.
 All of these define `max_streams_supported` for `2d`, `3d` and `mv3dt` **except `RTXPRO4500BW`,
 which is tuned for `2d` only**. The `overrides.env` comment does not match that set exactly — it
 lists `L40`, which has no section, and omits `RTXA6000ADA`, which has one. A profile with no
@@ -550,6 +551,7 @@ the profile-specific stream cap and per-profile tuning are skipped.
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
+| RTX PRO 6000 Blackwell Server Edition | `RTXPRO6000BW-SE` — same stream caps as the workstation part. No `hw-RTXPRO6000BW-SE.env` ships for any LLM NIM, so `LLM_MODE=local` needs `HARDWARE_PROFILE=OTHER` or a new sizing file. |
 | RTX PRO 4500 Blackwell | `RTXPRO4500BW` (32 GB, 2D-tuned only). When `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}` deploys `vss-rtvi-vlm`, set `RTVI_VLM_MAX_MODEL_LEN=18000` to cap RT-VLM context and allow KV-cache allocation. |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
@@ -582,7 +584,7 @@ Two independent things key off the value, and they do **not** cover the same set
 
 | | Sections that exist |
 |---|---|
-| Perception tuning (`blueprint_config.yml`) | `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK` — **no `OTHER`** |
+| Perception tuning (`blueprint_config.yml`) | `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK` — **no `OTHER`** |
 | LLM NIM sizing (`services/nim/<slug>/hw-<PROFILE>.env`) | Per model. Every model ships `hw-OTHER.env`; coverage of the named profiles is patchy |
 
 So `OTHER` is a safe fallback for the **NIM sizing** half only — it still matches no tuning section, exactly like any unrecognized string.
@@ -591,7 +593,7 @@ Three ways `HARDWARE_PROFILE` hard-fails a deploy:
 
 1. `BP_PROFILE=bp_wh` with `IGX-THOR` or `DGX-SPARK` — explicitly disallowed by the configurator.
 2. `HARDWARE_PROFILE=DGX-SPARK` without an `sbsa`-tagged `PERCEPTION_TAG` — enforced in all three modes.
-3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nvidia-nemotron-nano-9b-v2` ships only `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=L4` (or `RTXA6000`, `RTXA6000ADA`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`) fails with that model. Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
+3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nvidia-nemotron-nano-9b-v2` ships only `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=L4` (or `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`) fails with that model. Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
 
 **Required driver versions:** see the canonical per-platform pins in [`prerequisites.md` § 1 GPU Detection](prerequisites.md#1-gpu-detection) and [§ Canonical version matrix](prerequisites.md#canonical-version-matrix) — that table also covers Ubuntu 22.04 and AGX-THOR, which the warehouse profile does not restrict. On x86 Ubuntu 24.04 the pin is **`580.105.08`**.
 
@@ -1007,7 +1009,7 @@ ELASTICSEARCH_MODE=cpu              # inert on the compose path — leave at cpu
 
 # --- Hardware ---
 # Tuned in blueprint_config.yml: H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW,
-# RTXPRO4500BW (2d only), IGX-THOR, DGX-SPARK
+# RTXPRO6000BW-SE, RTXPRO4500BW (2d only), IGX-THOR, DGX-SPARK
 HARDWARE_PROFILE=H100
 
 # GPU device IDs (defaults shown — change only if you need a non-default layout)
