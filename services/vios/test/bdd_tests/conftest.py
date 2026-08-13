@@ -292,7 +292,7 @@ def pytest_collection_modifyitems(config, items):
     skip_mcp = pytest.mark.skip(reason="MCP gateway tests skipped by default (use -m mcp_gateway)")
     skip_longrun = pytest.mark.skip(reason="Long-running test skipped by default (use -m longrun)")
     skip_iptables = pytest.mark.skip(reason="Test requires iptables/privileged runner (use -m needs_iptables)")
-    skip_bbox = pytest.mark.skip(reason="Test requires stored bbox metadata (use -m needs_bbox_metadata)")
+    skip_bbox = pytest.mark.skip(reason="Opt-in bbox overlay test (use -m needs_bbox_metadata; GAP-051 needs Redis consumer)")
     skip_ui = pytest.mark.skip(reason="Browser UI test skipped by default (use -m ui)")
 
     priority_order = [

@@ -33,7 +33,9 @@ Feature: VST Live Stream Service API Unit Tests
     Then the response status is 200
     And the response contains a picture URL
 
-  # Regression for NVBug 6167266: live stream objects must surface sensor tags
+  # Regression for NVBug 6167266: tags must be present on /live/streams.
+  # Tags are set at sensor/add (live MS does not pick up mid-session /info edits).
+  # Seeds a unique NVStreamer clip via stream_prerequisite helpers.
   Scenario: Live stream objects include the tags assigned to their sensor
     Given the VST live stream API is accessible
     And an RTSP sensor tagged with a unique tag has been added
