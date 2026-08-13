@@ -61,7 +61,9 @@ through HAProxy.
   the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the
   config volume with a relative `./haproxy.cfg` source (it resolves against the
   patch's own directory, not the build root), keeping the browse + operate routes
-  above for the build's deployed backends and replacing the catch-all.
+  above for the build's deployed backends and replacing the catch-all. This is a
+  build-local payload, so bind it relative — never by an absolute path like a
+  checked-in repo file a patch mounts.
 - **As-is (explicit shortcut only).** Activate `vss-haproxy-ingress` and set the
   host-identity env. Interactive routes 503 harmlessly; the browse and operate
   routes work, but dead routes are advertised and `/` 503s.
