@@ -48,6 +48,15 @@ dependencies:
     version: 3.2.1
     repository: "file://../../services/rtvi"
     condition: rtvi.enabled
+  # Mirrors the LVS compose profile's dcgm-exporter opt-in (see
+  # deploy/docker/developer-profiles/dev-profile-lvs/overrides.env,
+  # COMPOSE_PROFILES=...,dcgm-exporter,...). Chart-level toggle;
+  # sub-services (prometheus/grafana/node-exporter/dcgm) are gated by
+  # monitoring.*.enabled in values-lvs.yaml.
+  - name: monitoring
+    version: 3.2.0
+    repository: "file://../../services/monitoring"
+    condition: monitoring.enabled
   # Optional HAProxy Kubernetes Ingress controller was previously vendored here; it pulled
   # https://haproxytech.github.io/helm-charts on every `helm dependency build`. Install the
   # controller cluster-wide instead (see README). Re-enable as a dependency if you need it back:
