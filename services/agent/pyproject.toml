@@ -193,6 +193,8 @@ ignore = ["E501", "W505", "SIM108", "B024"]
 "__init__.py" = ["F401"]
 # Tests at any depth (packages/<dist>/tests/**); mock args + nested `with`.
 "**/tests/**" = ["ARG001", "ARG002", "SIM117", "B017"]
+# Memory helpers keep runtime imports lazy (TC001/TC003) to stay NAT-free.
+"packages/vss_core/src/vss_core/memory/**" = ["TC001", "TC003"]
 
 [tool.ruff.format]
 docstring-code-format = true

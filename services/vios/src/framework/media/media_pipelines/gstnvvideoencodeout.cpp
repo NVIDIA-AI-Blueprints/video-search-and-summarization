@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -79,7 +79,7 @@ GstElement* NvVideoEncodeOut::create(const string& file_name)
     }
     g_object_set(m_filesink, "location", fname.c_str(), nullptr);
     g_object_set(m_encoder, "tune", 4, nullptr);
-    g_object_set (G_OBJECT (m_encoder), "gpu-id"   , g_gpuIndex, nullptr);
+    g_object_set (G_OBJECT (m_encoder), "gpu-id"   , getGpuIndex(), nullptr);
 
     source_pad = gst_element_get_static_pad (m_queue_display, "src");
     if (source_pad)

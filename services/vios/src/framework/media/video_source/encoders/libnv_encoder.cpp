@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -89,21 +89,19 @@ std::unordered_map<std::string, uint32_t> stringToPresetIDMap =
         {"slow"       , 7 }
 };
 
-NvVideoEncoder::NvVideoEncoder()
-{
-}
+NvVideoEncoder::NvVideoEncoder() = default;
 
 NvVideoEncoder::~NvVideoEncoder()
 {
     // Ensure cleanup of allocated resources
     if (capturePlane != nullptr)
     {
-        free(capturePlane);
+        delete capturePlane;
         capturePlane = nullptr;
     }
     if (outputPlane != nullptr)
     {
-        free(outputPlane);
+        delete outputPlane;
         outputPlane = nullptr;
     }
 }
@@ -113,13 +111,13 @@ void NvVideoEncoder::Init()
     int ret = 0;
     if (capturePlane == nullptr)
     {
-        capturePlane = (v4l2Planes_ *)(malloc(sizeof(v4l2Planes_)));
+        capturePlane = new v4l2Planes_();
         capturePlane->plane_name = "Capture Plane";
         InitPlane(capturePlane);
     }
     if (outputPlane == nullptr)
     {
-        outputPlane = (v4l2Planes_ *)(malloc(sizeof(v4l2Planes_)));
+        outputPlane = new v4l2Planes_();
         outputPlane->plane_name = "Output Plane";
         InitPlane(outputPlane);
     }
@@ -141,12 +139,12 @@ void NvVideoEncoder::Init()
         }
         else
         {
-            if (g_gpuNodePath.empty())
+            if (getGpuNodePath().empty())
             {
-                g_gpuNodePath = ENCODER_DEV;
+                setGpuNodePath(ENCODER_DEV);
             }
-            encoder_fd = NvLibs::getInstance()->v4l2_open(g_gpuNodePath.c_str(), flags | O_RDWR);
-            LOG(error) << "Opening Nvidia Enc device: " << g_gpuNodePath << endl;
+            encoder_fd = NvLibs::getInstance()->v4l2_open(getGpuNodePath().c_str(), flags | O_RDWR);
+            LOG(error) << "Opening Nvidia Enc device: " << getGpuNodePath() << endl;
         }
         if (encoder_fd == -1)
         {
@@ -181,13 +179,13 @@ void NvVideoEncoder::Deinit()
 
     if (capturePlane != nullptr)
     {
-        free(capturePlane);
+        delete capturePlane;
         capturePlane = nullptr;
     }
 
     if (outputPlane != nullptr)
     {
-        free(outputPlane);
+        delete outputPlane;
         outputPlane = nullptr;
     }
 
@@ -588,11 +586,11 @@ int NvVideoEncoder::reqbufs(struct v4l2Planes_ * currentPlane, uint32_t num)
         if (reqbuf.count)
         {
             currentPlane->buffer_count = reqbuf.count;
-            currentPlane->buffers  = (NvBuffer ** )malloc(reqbuf.count*sizeof(NvBuffer *));
+            currentPlane->buffers  = new NvBuffer *[reqbuf.count]();
 
             for (uint32_t i = 0; i < reqbuf.count; i++)
             {
-                currentPlane->buffers[i] = (NvBuffer *)malloc(sizeof(NvBuffer));
+                currentPlane->buffers[i] = new NvBuffer();
                 InitNvBuffer(currentPlane->buffers[i], currentPlane->buf_type,
                         currentPlane->memory_type, currentPlane->n_planes,
                         currentPlane->planefmts, i);
@@ -602,9 +600,9 @@ int NvVideoEncoder::reqbufs(struct v4l2Planes_ * currentPlane, uint32_t num)
         {
             for (uint32_t i = 0; i < currentPlane->num_buffers; i++)
             {
-                free(currentPlane->buffers[i]);
+                delete currentPlane->buffers[i];
             }
-            free(currentPlane->buffers);
+            delete[] currentPlane->buffers;
             currentPlane->buffers = nullptr;
         }
         currentPlane->num_buffers = reqbuf.count;
@@ -874,8 +872,8 @@ int NvVideoEncoder::InitEncode(uint32_t width, uint32_t height, string codecStri
             return -1;
         }
         CudaLoader::getInstance()->cuInit(0);
-        LOG(info) << "Init CUDA device " << g_gpuIndex << endl;
-        cu_result = CudaLoader::getInstance()->cuDeviceGet(&cuDevice, g_gpuIndex);
+        LOG(info) << "Init CUDA device " << getGpuIndex() << endl;
+        cu_result = CudaLoader::getInstance()->cuDeviceGet(&cuDevice, getGpuIndex());
         if (cu_result != CUDA_SUCCESS)
         {
             LOG(error) << "ENC_CTX Unable to get Cuda device\n" << cu_result << endl;
@@ -932,7 +930,7 @@ int NvVideoEncoder::InitEncode(uint32_t width, uint32_t height, string codecStri
 
     if (!isJetsonPlatform())
     {
-        setGPUIndex(g_gpuIndex);
+        setGPUIndex(getGpuIndex());
     }
 
     DeviceConfig config =  GET_CONFIG();
@@ -1446,7 +1444,7 @@ int NvVideoEncoder::GetEncodedPartitions(unsigned char** data, ssize_t *size, bo
         LOG(error) << "capplane_buffer is NULL" << endl;
         return -1;
     }
-    *data = (uint8_t* )malloc(capplane_buffer->planes[0].bytesused);
+    *data = new uint8_t[capplane_buffer->planes[0].bytesused];
     *size =  capplane_buffer->planes[0].bytesused;
     if (isJetsonPlatform())
     {
@@ -1454,10 +1452,10 @@ int NvVideoEncoder::GetEncodedPartitions(unsigned char** data, ssize_t *size, bo
     }
     else
     {
-        void* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
+        unsigned char* surface_data_ptr = NvBufWrapper::getInstance()->extractSurface(capplane_buffer->planes[0].fd);
         if (surface_data_ptr)
         {
-            memcpy(*data,  (unsigned char*)surface_data_ptr,  capplane_buffer->planes[0].bytesused);
+            memcpy(*data,  surface_data_ptr,  capplane_buffer->planes[0].bytesused);
         }
     }
 

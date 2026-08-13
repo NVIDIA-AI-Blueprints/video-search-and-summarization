@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -232,14 +232,14 @@ void CompositePipelineBuilder::buildCompositorPipeline(const PipelineConfigurati
               << " with " << gridLayout.tiles.size() << " tiles" << endl;
     
     if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true) {
-        m_compositor->setConsumer(m_transform);
-        m_transform->setConsumer(m_encoder);
-        m_encoder->setConsumer(m_webrtcConsumer);
+        m_compositor->setConsumer(getTransform());
+        getTransform()->setConsumer(getEncoder());
+        getEncoder()->setConsumer(getWebrtcConsumer());
         LOG(info) << "   🔗 [Compositor] → [Transform] → [HW Encoder] → [WebRTC Consumer]" << endl;
         LOG(info) << "✅ Compositor Pipeline: Using Hardware Encoding" << endl;
     } else {
-        m_compositor->setConsumer(m_transformSink);
-        m_transformSink->setConsumer(m_webrtcConsumer);
+        m_compositor->setConsumer(getTransformSink());
+        getTransformSink()->setConsumer(getWebrtcConsumer());
         LOG(info) << "   🔗 [Compositor] → [TransformSink] → [WebRTC Consumer]" << endl;
         LOG(info) << "✅ Compositor Pipeline: Using Software Encoding" << endl;
     }
@@ -265,7 +265,7 @@ void CompositePipelineBuilder::setupCompositorConsumers(const PipelineConfigurat
         LOG(info) << "==========================================" << endl;
         
         // Validate that we have the required components for image capture
-        if (!m_imageEncoder) {
+        if (!getImageEncoder()) {
             LOG(error) << "❌ Image encoder not initialized for composite image capture" << endl;
             return;
         }
@@ -281,14 +281,14 @@ void CompositePipelineBuilder::setupCompositorConsumers(const PipelineConfigurat
         }
 
         // For composite image capture, we'll use the first decoder and connect it to image encoder
-        if (m_transform) {
-            m_decoders[0]->setConsumer(config.getPeerId(), m_transform);
-            m_transform->setConsumer(m_imageEncoder);
+        if (getTransform()) {
+            m_decoders[0]->setConsumer(config.getPeerId(), getTransform());
+            getTransform()->setConsumer(getImageEncoder());
             LOG(info) << "✅ Pipeline: [First Decoder] → [Transform] → [ImageEncoder] → [JPEG Output]" << endl;
             LOG(info) << "   📸 Composite image will be captured from first stream and returned as JPEG buffer" << endl;
         } else {
             // Fallback: First Decoder -> ImageEncoder (direct connection)
-            m_decoders[0]->setConsumer(config.getPeerId(), m_imageEncoder);
+            m_decoders[0]->setConsumer(config.getPeerId(), getImageEncoder());
             LOG(info) << "✅ Pipeline: [First Decoder] → [ImageEncoder] → [JPEG Output]" << endl;
             LOG(info) << "   📸 Composite image will be captured from first stream and returned as JPEG buffer" << endl;
         }
@@ -301,7 +301,7 @@ void CompositePipelineBuilder::setupCompositorConsumers(const PipelineConfigurat
             resizeHeight = stringToInt(opts.at("resize_height"), 0);
         }
         // Set target resolution in decoder if transform is present and resize dimensions provided
-        if (m_transform && resizeWidth > 0 && resizeHeight > 0)
+        if (getTransform() && resizeWidth > 0 && resizeHeight > 0)
         {
             m_decoders[0]->setQuality(config.getPeerId(), "custom", resizeWidth, resizeHeight);
             LOG(info) << "   ⚙️  Quality set to: custom, " << resizeWidth << "x" << resizeHeight << endl;

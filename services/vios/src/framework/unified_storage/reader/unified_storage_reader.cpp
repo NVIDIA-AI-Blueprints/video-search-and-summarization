@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,6 +24,7 @@
 #include <iostream>
 #include <mutex>
 #include <sstream>
+#include <utility>
 
 namespace nv_vms
 {
@@ -491,6 +492,16 @@ FileResult UnifiedStorageReader::performHealthCheck()
 
     updateStats(result.success, result.duration, result.errorCode);
     return result;
+}
+
+const std::shared_ptr<CloudReader>& UnifiedStorageReader::getCloudReaderInternal() const
+{
+    return m_cloudReader;
+}
+
+void UnifiedStorageReader::setCloudReaderInternal(std::shared_ptr<CloudReader> cloudReader)
+{
+    m_cloudReader = std::move(cloudReader);
 }
 
 void UnifiedStorageReader::setLastError(const std::string& error)

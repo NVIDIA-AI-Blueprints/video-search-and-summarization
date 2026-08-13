@@ -175,29 +175,71 @@
  
  /* Complex controls */
  
- #define V4L2_H264_SPS_CONSTRAINT_SET0_FLAG          0x01
- #define V4L2_H264_SPS_CONSTRAINT_SET1_FLAG          0x02
- #define V4L2_H264_SPS_CONSTRAINT_SET2_FLAG          0x04
- #define V4L2_H264_SPS_CONSTRAINT_SET3_FLAG          0x08
- #define V4L2_H264_SPS_CONSTRAINT_SET4_FLAG          0x10
- #define V4L2_H264_SPS_CONSTRAINT_SET5_FLAG          0x20
- 
- #define V4L2_H264_SPS_FLAG_SEPARATE_COLOUR_PLANE        0x01
- #define V4L2_H264_SPS_FLAG_QPPRIME_Y_ZERO_TRANSFORM_BYPASS  0x02
- #define V4L2_H264_SPS_FLAG_DELTA_PIC_ORDER_ALWAYS_ZERO      0x04
- #define V4L2_H264_SPS_FLAG_GAPS_IN_FRAME_NUM_VALUE_ALLOWED  0x08
- #define V4L2_H264_SPS_FLAG_FRAME_MBS_ONLY           0x10
- #define V4L2_H264_SPS_FLAG_MB_ADAPTIVE_FRAME_FIELD      0x20
- #define V4L2_H264_SPS_FLAG_DIRECT_8X8_INFERENCE         0x40
- 
- #define V4L2_H264_PPS_FLAG_ENTROPY_CODING_MODE              0x0001
- #define V4L2_H264_PPS_FLAG_BOTTOM_FIELD_PIC_ORDER_IN_FRAME_PRESENT  0x0002
- #define V4L2_H264_PPS_FLAG_WEIGHTED_PRED                0x0004
- #define V4L2_H264_PPS_FLAG_DEBLOCKING_FILTER_CONTROL_PRESENT        0x0008
- #define V4L2_H264_PPS_FLAG_CONSTRAINED_INTRA_PRED           0x0010
- #define V4L2_H264_PPS_FLAG_REDUNDANT_PIC_CNT_PRESENT            0x0020
- #define V4L2_H264_PPS_FLAG_TRANSFORM_8X8_MODE               0x0040
- #define V4L2_H264_PPS_FLAG_PIC_SCALING_MATRIX_PRESENT           0x0080
+ #ifndef V4L2_H264_SPS_CONSTRAINT_SET0_FLAG
+ constexpr __u8 V4L2_H264_SPS_CONSTRAINT_SET0_FLAG = 0x01;
+ #endif
+ #ifndef V4L2_H264_SPS_CONSTRAINT_SET1_FLAG
+ constexpr __u8 V4L2_H264_SPS_CONSTRAINT_SET1_FLAG = 0x02;
+ #endif
+ #ifndef V4L2_H264_SPS_CONSTRAINT_SET2_FLAG
+ constexpr __u8 V4L2_H264_SPS_CONSTRAINT_SET2_FLAG = 0x04;
+ #endif
+ #ifndef V4L2_H264_SPS_CONSTRAINT_SET3_FLAG
+ constexpr __u8 V4L2_H264_SPS_CONSTRAINT_SET3_FLAG = 0x08;
+ #endif
+ #ifndef V4L2_H264_SPS_CONSTRAINT_SET4_FLAG
+ constexpr __u8 V4L2_H264_SPS_CONSTRAINT_SET4_FLAG = 0x10;
+ #endif
+ #ifndef V4L2_H264_SPS_CONSTRAINT_SET5_FLAG
+ constexpr __u8 V4L2_H264_SPS_CONSTRAINT_SET5_FLAG = 0x20;
+ #endif
+
+ #ifndef V4L2_H264_SPS_FLAG_SEPARATE_COLOUR_PLANE
+ constexpr __u8 V4L2_H264_SPS_FLAG_SEPARATE_COLOUR_PLANE = 0x01;
+ #endif
+ #ifndef V4L2_H264_SPS_FLAG_QPPRIME_Y_ZERO_TRANSFORM_BYPASS
+ constexpr __u8 V4L2_H264_SPS_FLAG_QPPRIME_Y_ZERO_TRANSFORM_BYPASS = 0x02;
+ #endif
+ #ifndef V4L2_H264_SPS_FLAG_DELTA_PIC_ORDER_ALWAYS_ZERO
+ constexpr __u8 V4L2_H264_SPS_FLAG_DELTA_PIC_ORDER_ALWAYS_ZERO = 0x04;
+ #endif
+ #ifndef V4L2_H264_SPS_FLAG_GAPS_IN_FRAME_NUM_VALUE_ALLOWED
+ constexpr __u8 V4L2_H264_SPS_FLAG_GAPS_IN_FRAME_NUM_VALUE_ALLOWED = 0x08;
+ #endif
+ #ifndef V4L2_H264_SPS_FLAG_FRAME_MBS_ONLY
+ constexpr __u8 V4L2_H264_SPS_FLAG_FRAME_MBS_ONLY = 0x10;
+ #endif
+ #ifndef V4L2_H264_SPS_FLAG_MB_ADAPTIVE_FRAME_FIELD
+ constexpr __u8 V4L2_H264_SPS_FLAG_MB_ADAPTIVE_FRAME_FIELD = 0x20;
+ #endif
+ #ifndef V4L2_H264_SPS_FLAG_DIRECT_8X8_INFERENCE
+ constexpr __u8 V4L2_H264_SPS_FLAG_DIRECT_8X8_INFERENCE = 0x40;
+ #endif
+
+ #ifndef V4L2_H264_PPS_FLAG_ENTROPY_CODING_MODE
+ constexpr __u16 V4L2_H264_PPS_FLAG_ENTROPY_CODING_MODE = 0x0001;
+ #endif
+ #ifndef V4L2_H264_PPS_FLAG_BOTTOM_FIELD_PIC_ORDER_IN_FRAME_PRESENT
+ constexpr __u16 V4L2_H264_PPS_FLAG_BOTTOM_FIELD_PIC_ORDER_IN_FRAME_PRESENT = 0x0002;
+ #endif
+ #ifndef V4L2_H264_PPS_FLAG_WEIGHTED_PRED
+ constexpr __u16 V4L2_H264_PPS_FLAG_WEIGHTED_PRED = 0x0004;
+ #endif
+ #ifndef V4L2_H264_PPS_FLAG_DEBLOCKING_FILTER_CONTROL_PRESENT
+ constexpr __u16 V4L2_H264_PPS_FLAG_DEBLOCKING_FILTER_CONTROL_PRESENT = 0x0008;
+ #endif
+ #ifndef V4L2_H264_PPS_FLAG_CONSTRAINED_INTRA_PRED
+ constexpr __u16 V4L2_H264_PPS_FLAG_CONSTRAINED_INTRA_PRED = 0x0010;
+ #endif
+ #ifndef V4L2_H264_PPS_FLAG_REDUNDANT_PIC_CNT_PRESENT
+ constexpr __u16 V4L2_H264_PPS_FLAG_REDUNDANT_PIC_CNT_PRESENT = 0x0020;
+ #endif
+ #ifndef V4L2_H264_PPS_FLAG_TRANSFORM_8X8_MODE
+ constexpr __u16 V4L2_H264_PPS_FLAG_TRANSFORM_8X8_MODE = 0x0040;
+ #endif
+ #ifndef V4L2_H264_PPS_FLAG_PIC_SCALING_MATRIX_PRESENT
+ constexpr __u16 V4L2_H264_PPS_FLAG_PIC_SCALING_MATRIX_PRESENT = 0x0080;
+ #endif
  
  struct v4l2_h264_pred_weight_table {
      __u8 luma_log2_weight_denom;
@@ -205,10 +247,18 @@
      struct v4l2_h264_weight_factors weight_factors[2];
  };
  
- #define V4L2_SLICE_FLAG_FIELD_PIC       0x01
- #define V4L2_SLICE_FLAG_BOTTOM_FIELD        0x02
- #define V4L2_SLICE_FLAG_DIRECT_SPATIAL_MV_PRED  0x04
- #define V4L2_SLICE_FLAG_SP_FOR_SWITCH       0x08
+ #ifndef V4L2_SLICE_FLAG_FIELD_PIC
+ constexpr __u8 V4L2_SLICE_FLAG_FIELD_PIC = 0x01;
+ #endif
+ #ifndef V4L2_SLICE_FLAG_BOTTOM_FIELD
+ constexpr __u8 V4L2_SLICE_FLAG_BOTTOM_FIELD = 0x02;
+ #endif
+ #ifndef V4L2_SLICE_FLAG_DIRECT_SPATIAL_MV_PRED
+ constexpr __u8 V4L2_SLICE_FLAG_DIRECT_SPATIAL_MV_PRED = 0x04;
+ #endif
+ #ifndef V4L2_SLICE_FLAG_SP_FOR_SWITCH
+ constexpr __u8 V4L2_SLICE_FLAG_SP_FOR_SWITCH = 0x08;
+ #endif
  struct v4l2_ctrl_h264_slice_param {
      /** Holds the size in bytes, including the header. */
      __u32 size;
@@ -263,9 +313,15 @@
      struct v4l2_h264_dpb_entry dpb[16];
  };
  
- #define V4L2_VP8_SEGMNT_HDR_FLAG_ENABLED              0x01
- #define V4L2_VP8_SEGMNT_HDR_FLAG_UPDATE_MAP           0x02
- #define V4L2_VP8_SEGMNT_HDR_FLAG_UPDATE_FEATURE_DATA  0x04
+ #ifndef V4L2_VP8_SEGMNT_HDR_FLAG_ENABLED
+ constexpr __u8 V4L2_VP8_SEGMNT_HDR_FLAG_ENABLED = 0x01;
+ #endif
+ #ifndef V4L2_VP8_SEGMNT_HDR_FLAG_UPDATE_MAP
+ constexpr __u8 V4L2_VP8_SEGMNT_HDR_FLAG_UPDATE_MAP = 0x02;
+ #endif
+ #ifndef V4L2_VP8_SEGMNT_HDR_FLAG_UPDATE_FEATURE_DATA
+ constexpr __u8 V4L2_VP8_SEGMNT_HDR_FLAG_UPDATE_FEATURE_DATA = 0x04;
+ #endif
  struct v4l2_vp8_sgmnt_hdr {
      __u8 segment_feature_mode;
  
@@ -276,8 +332,12 @@
      __u8 flags;
  };
  
- #define V4L2_VP8_LF_HDR_ADJ_ENABLE  0x01
- #define V4L2_VP8_LF_HDR_DELTA_UPDATE    0x02
+ #ifndef V4L2_VP8_LF_HDR_ADJ_ENABLE
+ constexpr __u8 V4L2_VP8_LF_HDR_ADJ_ENABLE = 0x01;
+ #endif
+ #ifndef V4L2_VP8_LF_HDR_DELTA_UPDATE
+ constexpr __u8 V4L2_VP8_LF_HDR_DELTA_UPDATE = 0x02;
+ #endif
  struct v4l2_vp8_loopfilter_hdr {
      __u8 type;
      __u8 level;
@@ -305,9 +365,15 @@
      __u8 mv_probs[2][19];
  };
  
- #define V4L2_VP8_FRAME_HDR_FLAG_EXPERIMENTAL        0x01
- #define V4L2_VP8_FRAME_HDR_FLAG_SHOW_FRAME      0x02
- #define V4L2_VP8_FRAME_HDR_FLAG_MB_NO_SKIP_COEFF    0x04
+ #ifndef V4L2_VP8_FRAME_HDR_FLAG_EXPERIMENTAL
+ constexpr __u8 V4L2_VP8_FRAME_HDR_FLAG_EXPERIMENTAL = 0x01;
+ #endif
+ #ifndef V4L2_VP8_FRAME_HDR_FLAG_SHOW_FRAME
+ constexpr __u8 V4L2_VP8_FRAME_HDR_FLAG_SHOW_FRAME = 0x02;
+ #endif
+ #ifndef V4L2_VP8_FRAME_HDR_FLAG_MB_NO_SKIP_COEFF
+ constexpr __u8 V4L2_VP8_FRAME_HDR_FLAG_MB_NO_SKIP_COEFF = 0x04;
+ #endif
  struct v4l2_ctrl_vp8_frame_hdr {
      /** 0: keyframe, 1: not a keyframe. */
      __u8 key_frame;
@@ -2249,7 +2315,7 @@
  /**
   * Defines the maximum number of ROI regions supported by the encoder.
   */
- #define V4L2_MAX_ROI_REGIONS 8
+ constexpr __u32 V4L2_MAX_ROI_REGIONS = 8;
  
  /**
   * Holds the encoder quality parameters for a single ROI region.
@@ -2352,7 +2418,7 @@
  /**
   * Maximum number of reference frames supported by the encoder.
   */
- #define V4L2_MAX_REF_FRAMES  8
+ constexpr __u32 V4L2_MAX_REF_FRAMES = 8;
  
  /**
   * Holds the RPS List parameters of encoded frame.
@@ -2732,7 +2798,7 @@
   * Setting Qp values in #v4l2_ctrl_video_qp_range to QP_RETAIN_VAL
   * retains default or previously set QP values.
   */
- #define QP_RETAIN_VAL -1
+ constexpr int QP_RETAIN_VAL = -1;
  
  /**
   * Holds the encoder frame min/max QP parameters.

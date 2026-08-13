@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -190,7 +190,7 @@ class RTSPConnection
 				bool                     m_isQoSMode;
 				MediaSession*            m_session;                   
 				MediaSubsession*         m_subSession;
-				MediaSubsessionIterator* m_subSessionIter;
+				std::unique_ptr<MediaSubsessionIterator> m_subSessionIter;
 				Callback*                m_callback; 	
 				unsigned int             m_nbPacket;
 				std::string              m_startTime;
@@ -199,7 +199,7 @@ class RTSPConnection
 				std::string              m_action;
 				uint64_t*                m_resumeTimeEpoch;
 				int64_t                  m_playback_speed;
-				Authenticator* 		     m_authenticator;
+				std::unique_ptr<Authenticator> m_authenticator;
 			private:
                 std::string              m_playbackState;
 #ifdef QuickTimeFileSink
@@ -219,11 +219,7 @@ class RTSPConnection
 		int         getRtpTransport() { return m_rtptransport; }
 		void closeRTSPClient()
 		{
-			if (m_rtspClient)
-			{
-				Medium::close(m_rtspClient);
-				m_rtspClient = nullptr;
-			}
+			m_rtspClient.reset();
 		}
 
 	protected:
@@ -238,6 +234,10 @@ class RTSPConnection
 		double                   m_framerate;
 		int                      m_verbosity;
 		bool m_isFileSink;
-		RTSPClientConnection*    m_rtspClient;
+		struct RTSPClientConnectionDeleter
+		{
+			void operator()(RTSPClientConnection* client) const { Medium::close(client); }
+		};
+		std::unique_ptr<RTSPClientConnection, RTSPClientConnectionDeleter> m_rtspClient;
 		bool                     m_isQoSMode;
 };

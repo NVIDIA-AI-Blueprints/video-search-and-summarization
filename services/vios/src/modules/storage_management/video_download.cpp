@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -569,13 +569,13 @@ nv_vms::VmsErrorCode downloadVideoFile(
     std::atomic<bool> finished{false};
     std::atomic<bool> readerError{false};
 
-    readerProducer->onFinished([&]() {
+    readerProducer->onFinished([&finished, &log_prefix, &videoConsumer]() {
         finished = true;
         LOG(info) << log_prefix << "Reader producer: EOS reached" << endl;
         videoConsumer->sendEOS();
     });
 
-    readerProducer->onError([&](const std::string& errorMsg, int errorCode) {
+    readerProducer->onError([&finished, &readerError, &log_prefix, &videoConsumer](const std::string& errorMsg, int errorCode) {
         finished = true;
         readerError = true;
         LOG(error) << log_prefix << "Reader producer error: " << errorMsg << " (code: " << errorCode << ")" << endl;

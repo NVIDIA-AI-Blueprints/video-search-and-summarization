@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -156,8 +156,8 @@ bool Websocket::sendMessage(std::string peerId, std::string data, int op_code)
 
     std::lock_guard<std::mutex> lock(ws->connectionMutex);
     LOG(verbose2) << "Writing " << data.size() << " bytes on websocket with ID: " << peerId << std::endl;
-    size_t ret = mg_websocket_write(ws->connection, op_code, data.c_str(), data.size());
-    if (ret != data.size())
+    int ret = mg_websocket_write(ws->connection, op_code, data.c_str(), data.size());
+    if (ret < 0 || static_cast<size_t>(ret) != data.size())
     {
         std::string msg = (ret == 0) ? "Connection Closed" : (ret < 0) ? "Send Error: " + std::string(std::strerror(errno)) : "Partial data sent";
         LOG(warning) << "Failed to send data via websocket connection. Reason: " << msg;
