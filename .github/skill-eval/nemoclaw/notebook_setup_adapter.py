@@ -264,6 +264,7 @@ def write_runtime_environment(
     values = {
         "NEMOCLAW_SANDBOX_NAME": environment["NEMOCLAW_SANDBOX_NAME"],
         "NEMOCLAW_GATEWAY_PORT": environment["NEMOCLAW_GATEWAY_PORT"],
+        "NEMOCLAW_DASHBOARD_PORT": environment["NEMOCLAW_DASHBOARD_PORT"],
         "ORCHESTRATOR_ENABLE_HTTPS": environment["ORCHESTRATOR_ENABLE_HTTPS"],
         "MCP_URL": f"http://127.0.0.1:{port}/mcp",
         "VSS_ORCHESTRATOR_MCP_URL": environment["VSS_ORCHESTRATOR_MCP_URL"],

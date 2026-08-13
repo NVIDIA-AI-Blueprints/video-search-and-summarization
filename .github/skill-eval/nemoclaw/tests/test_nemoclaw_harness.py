@@ -133,6 +133,7 @@ class NotebookRunnerTests(unittest.TestCase):
         environment = {
             "NEMOCLAW_SANDBOX_NAME": "demo",
             "NEMOCLAW_GATEWAY_PORT": "8080",
+            "NEMOCLAW_DASHBOARD_PORT": "30754",
             "ORCHESTRATOR_ENABLE_HTTPS": "false",
             "VSS_ORCHESTRATOR_MCP_PORT": "9988",
             "VSS_ORCHESTRATOR_MCP_URL": "http://host.openshell.internal:9988/mcp",
@@ -146,6 +147,7 @@ class NotebookRunnerTests(unittest.TestCase):
             self.adapter.write_runtime_environment(output, environment)
             content = output.read_text(encoding="utf-8")
         self.assertIn("export NEMOCLAW_SANDBOX_NAME=demo", content)
+        self.assertIn("export NEMOCLAW_DASHBOARD_PORT=30754", content)
         self.assertIn("export MCP_URL=http://127.0.0.1:9988/mcp", content)
         self.assertNotIn("must-not-be-written", content)
 
@@ -284,6 +286,25 @@ class HeadlessTrajectoryTests(unittest.TestCase):
             sandbox_exec.call_args.kwargs,
             {"timeout": 120},
         )
+
+    def test_gateway_health_uses_configured_dashboard_port(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"NEMOCLAW_DASHBOARD_PORT": "30754"},
+            ),
+            mock.patch.object(
+                self.runner,
+                "_sandbox_exec",
+                return_value=completed,
+            ) as sandbox_exec,
+        ):
+            self.assertTrue(self.runner._gateway_healthy("demo"))
+
+        command = sandbox_exec.call_args.args[1]
+        self.assertIn("http://127.0.0.1:30754/health", command)
+        self.assertNotIn("http://127.0.0.1:18789/health", command)
 
     def test_openclaw_run_routes_only_the_agent_through_nemoclaw_exec(self) -> None:
         session_file = "/sandbox/.openclaw/agents/main/sessions/session-1.jsonl"
