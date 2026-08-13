@@ -411,6 +411,9 @@ jobs:
           # Run-scoped sandboxes must not inherit a stale OpenShell dashboard
           # forward from another run on this reused worker.
           export NEMOCLAW_DASHBOARD_PORT=$((20000 + GITHUB_RUN_ID % 40000))
+          # The notebook applies the repository's VSS policy after onboarding;
+          # skip optional tier presets that overlap with that policy.
+          export NEMOCLAW_POLICY_MODE=skip
           export NEMOCLAW_INSTALL_REF=v0.0.108
           export HARDWARE_PROFILE=RTXPRO6000BW
           export NEMOCLAW_SETUP_TIMEOUT_SEC=5400
