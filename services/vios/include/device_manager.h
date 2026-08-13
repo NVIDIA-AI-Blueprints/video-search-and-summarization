@@ -125,10 +125,12 @@ struct DeviceConfig
     bool enable_gem_drawing;
     string analytic_server_address;
     string calibration_file_path;
+    string calibration_file_endpoint;
     string calibration_mode;
     bool use_camera_groups;
     bool enable_recentering;
     string floor_map_file_path;
+    string floormap_image_endpoint;
     string overlay_3d_sensor_name;
     string overlay_text_font_type;
     int bbox_debug_font_size;

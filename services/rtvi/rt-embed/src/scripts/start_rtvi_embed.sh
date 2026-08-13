@@ -47,9 +47,31 @@ MODE="${MODE:-release}"
 NUM_GPUS="${NUM_GPUS:-`nvidia-smi --query-gpu=name --format=csv,noheader | wc -l`}"
 EXAMPLE_STREAMS_DIR="${EXAMPLE_STREAMS_DIR:-/opt/nvidia/rtvi/streams}"
 
+_CALLER_MODEL_IMPLEMENTATION_PATH_SET="${MODEL_IMPLEMENTATION_PATH+x}"
+_CALLER_MODEL_PATH_SET="${MODEL_PATH+x}"
+_CALLER_MODEL_REPOSITORY_SCRIPT_PATH_SET="${MODEL_REPOSITORY_SCRIPT_PATH+x}"
+_DEFAULT_EMBED_MODEL_IMPLEMENTATION_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
+_DEFAULT_EMBED_MODEL_PATH="git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+_DEFAULT_EMBED_MODEL_REPOSITORY_SCRIPT_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+
 VLM_MODEL_TO_USE="${VLM_MODEL_TO_USE:-custom}"
-MODEL_IMPLEMENTATION_PATH="${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
-MODEL_PATH="${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
+MODEL_IMPLEMENTATION_PATH="${MODEL_IMPLEMENTATION_PATH:-${_DEFAULT_EMBED_MODEL_IMPLEMENTATION_PATH}}"
+MODEL_PATH="${MODEL_PATH:-${_DEFAULT_EMBED_MODEL_PATH}}"
+MODEL_REPOSITORY_SCRIPT_PATH="${MODEL_REPOSITORY_SCRIPT_PATH:-${_DEFAULT_EMBED_MODEL_REPOSITORY_SCRIPT_PATH}}"
+
+if [ -n "${REMOTE_EMBED_ENDPOINT}" ]; then
+    export REMOTE_EMBED_ENDPOINT_MODEL_NAME="${REMOTE_EMBED_ENDPOINT_MODEL_NAME:-nvidia/cosmos-embed1}"
+    if [ -z "${_CALLER_MODEL_IMPLEMENTATION_PATH_SET}" ] || [ "${MODEL_IMPLEMENTATION_PATH}" = "${_DEFAULT_EMBED_MODEL_IMPLEMENTATION_PATH}" ]; then
+        MODEL_IMPLEMENTATION_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/ce1-nim"
+    fi
+    if [ -z "${_CALLER_MODEL_PATH_SET}" ] || [ "${MODEL_PATH}" = "${_DEFAULT_EMBED_MODEL_PATH}" ]; then
+        MODEL_PATH="${REMOTE_EMBED_ENDPOINT_MODEL_NAME}"
+    fi
+    if [ -z "${_CALLER_MODEL_REPOSITORY_SCRIPT_PATH_SET}" ] || [ "${MODEL_REPOSITORY_SCRIPT_PATH}" = "${_DEFAULT_EMBED_MODEL_REPOSITORY_SCRIPT_PATH}" ]; then
+        MODEL_REPOSITORY_SCRIPT_PATH=""
+    fi
+    echo "Using CE1 (Cosmos-Embed1) NIM backend at ${REMOTE_EMBED_ENDPOINT}"
+fi
 
 export VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME="${VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-gpt-4o}"
 export LOG_LEVEL=$LOG_LEVEL
@@ -226,15 +248,18 @@ start_rtvi_server() {
         EXTRA_ARGS+=" --model-repository-script-path $MODEL_REPOSITORY_SCRIPT_PATH"
     fi
 
-    # Kafka configuration - export environment variables for Kafka integration
-    if [ "$KAFKA_ENABLED" = "true" ]; then
-        EXTRA_ARGS+=" --kafka-enabled"
-        if [ ! -z "$KAFKA_TOPIC" ]; then
-            EXTRA_ARGS+=" --kafka-topic $KAFKA_TOPIC"
-        fi
-        if [ ! -z "$KAFKA_BOOTSTRAP_SERVERS" ]; then
-            EXTRA_ARGS+=" --kafka-bootstrap-servers $KAFKA_BOOTSTRAP_SERVERS"
-        fi
+    # Generated-message output bus configuration.
+    if [ ! -z "$MESSAGE_BUS" ]; then
+        EXTRA_ARGS+=" --message-bus $MESSAGE_BUS"
+    fi
+    if [ ! -z "$MESSAGE_BUS_TOPIC" ]; then
+        EXTRA_ARGS+=" --message-bus-topic $MESSAGE_BUS_TOPIC"
+    fi
+    if [ ! -z "$ERROR_BUS" ]; then
+        EXTRA_ARGS+=" --error-bus $ERROR_BUS"
+    fi
+    if [ ! -z "$KAFKA_BOOTSTRAP_SERVERS" ]; then
+        EXTRA_ARGS+=" --kafka-bootstrap-servers $KAFKA_BOOTSTRAP_SERVERS"
     fi
 
 

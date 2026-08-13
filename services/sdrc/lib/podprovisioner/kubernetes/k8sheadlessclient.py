@@ -161,6 +161,10 @@ class k8sheadlessclient(k8sclient):
         return None
 
     def ifPodDown (self, podname):
+        if self.health_watcher is not None:
+            if self.health_watcher.is_pod_known(podname):
+                return not self.health_watcher.is_pod_healthy(podname)
+            return True
         return None
 
     def watchAllPodState(self):
