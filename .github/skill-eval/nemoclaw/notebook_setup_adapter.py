@@ -77,8 +77,6 @@ def prepare_environment(
     env.setdefault("VSS_ORCHESTRATOR_MCP_PORT", "9988")
     env.setdefault("NEMOCLAW_SANDBOX_NAME", "demo")
     env.setdefault("NEMOCLAW_GATEWAY_PORT", "8080")
-    env["NEMOCLAW_CLEAN_SETUP"] = "true"
-
     if not env["NEMOCLAW_GATEWAY_PORT"].isdigit() or not (
         1024 <= int(env["NEMOCLAW_GATEWAY_PORT"]) <= 65535
     ):
