@@ -233,4 +233,4 @@ batch-size=8
 config-file=ppl_analytics_sgie_config.txt
 
 [tests]
-file-loop=1
+file-loop=0
