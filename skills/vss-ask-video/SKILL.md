@@ -619,9 +619,21 @@ fi
 # Send THIS body for both formats. Do not write a separate minimal video_url curl — hand-built
 # requests keep dropping ${MM_KWARGS} / ${RTVI_SAMPLING}, which under-samples the clip: on NIM
 # Cosmos it degrades the answer, and on RT-VLM it collapses to the first frame.
-curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
+AUTH_HEADER=()
+REMOTE_BASE=${VLM_REMOTE_URL:-}
+REMOTE_BASE=${REMOTE_BASE%/}
+ENDPOINT_BASE=${VLM_ENDPOINT%/}
+if [ -n "${REMOTE_BASE}" ] && { [[ "${ENDPOINT_BASE}" == "${REMOTE_BASE}" ]] || \
+   [[ "${ENDPOINT_BASE}" == "${REMOTE_BASE}/"* ]]; }; then
+  AUTH_HEADER=(-H "Authorization: Bearer ${NVIDIA_API_KEY:?NVIDIA_API_KEY is required for VLM_REMOTE_URL}")
+fi
+RESPONSE_FILE=$(mktemp) || exit 1
+trap 'rm -f -- "${RESPONSE_FILE}"' EXIT
+HTTP_CODE=$(curl -sS --connect-timeout 5 --max-time 120 \
+  -o "${RESPONSE_FILE}" -w '%{http_code}' -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
-  -d @- <<EOF | jq -r '.choices[0].message.content'
+  "${AUTH_HEADER[@]}" \
+  -d @- <<EOF
 {
   "model": $(jq -n --arg m "${VLM_MODEL}" '$m'),
   "messages": [
@@ -637,6 +649,12 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
   "temperature": 0.0${MM_KWARGS}${RTVI_SAMPLING}
 }
 EOF
+) || { echo "Video question request failed" >&2; exit 1; }
+[[ "${HTTP_CODE}" =~ ^2[0-9][0-9]$ ]] || {
+  echo "Video question endpoint returned HTTP ${HTTP_CODE}" >&2
+  exit 1
+}
+jq -er '.choices[0].message.content | select(type == "string")' "${RESPONSE_FILE}"
 ```
 
 ---

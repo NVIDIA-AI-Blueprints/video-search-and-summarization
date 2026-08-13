@@ -1,474 +1,120 @@
 # Search source lifecycle
 
-Use the search agent's source endpoints so VST, VIOS, and Elasticsearch remain
-consistent. Never replace these operations with direct backend mutations.
+Use the search Agent endpoints for source mutations so VST, VIOS, and every
+search index stay consistent. Never mutate VST, storage, RTVI-CV, or
+Elasticsearch directly.
 
-These Agent-backed mutations are the full-stack path. For a headless
-`vss-build-vision-agent` deployment with no Agent tier, provision the source
-through `vss-manage-video-io-storage`'s
-[direct register-and-fan-out workflow](../../vss-manage-video-io-storage/references/provision-vios-source.md),
-then return here for search. Do not apply the Agent endpoint recipes below to
-a deployment that has no Agent.
+## Deployment state
 
-## Contents
-
-- [Deployment and runtime state](#deployment-and-runtime-state)
-- [Pre-ingestion cleanup](#pre-ingestion-cleanup)
-- [File source](#file-source)
-- [RTSP source](#rtsp-source)
-- [Delete source](#delete-source)
-
-## Deployment and runtime state
-
-Use the operator-provided Compose or Ingress origin. Never inspect Compose or
-Kubernetes internals to rediscover it. On Brev, run the public-origin selection
-block below first and set `VSS_ORIGIN` to its result. Do not configure a
-provisional origin and change it afterward. Record that final origin, then read
-the backends' own service, model, and index inventory:
+Source operations require a prepared `search` profile and the project-local
+CLI. Resolve the checkout and reuse the origin already recorded by the
+deployment:
 
 ```bash
-: "${VSS_ORIGIN:?set the deployment origin}"
-: "${VSS_REPO_ROOT:?set the validated checkout}"
-VSS_ORIGIN="${VSS_ORIGIN%/}"
-AGENT_URL="${VSS_ORIGIN}"
-VST_URL="${VSS_ORIGIN}"
-
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || exit 1
 VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-"${VSS[@]}" search run --help >/dev/null || exit 1
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
 CONFIG_JSON=$("${VSS[@]}" configure show) || exit 1
-
-ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') || exit 1
-RTVI_CV_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rtvi_cv.url') || exit 1
-RTVI_VLM_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-  '.services.rt_vlm.url // empty') || RTVI_VLM_URL=
-resolve_search_indexes() {
-  CONFIG_JSON=$("${VSS[@]}" configure show) || return 1
-  printf '%s' "${CONFIG_JSON}" |
-    jq -e '.services.elasticsearch.indices | type == "array"' >/dev/null || return 1
-  EMBED_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-embed-"))] | sort | first') || return 1
-  BEHAVIOR_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-behavior-"))] | sort | first') || return 1
-  RAW_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-raw-"))] | sort | first') || return 1
-  [ "${EMBED_INDEX}" != "${BEHAVIOR_INDEX}" ] &&
-    [ "${EMBED_INDEX}" != "${RAW_INDEX}" ] &&
-    [ "${BEHAVIOR_INDEX}" != "${RAW_INDEX}" ]
-}
+VSS_ORIGIN=$(printf '%s' "${CONFIG_JSON}" |
+  jq -er '.base_url | select(type == "string" and length > 0)') || exit 1
 ```
 
-Do not call `resolve_search_indexes` on a fresh stack. Indexes are created
-lazily by ingestion. After every intended upload completes, re-run
-`vss configure --base-url "${VSS_ORIGIN}"`, refresh `CONFIG_JSON`, and call
-`resolve_search_indexes` before readiness checks.
-Never use `ELASTIC_SEARCH_INDEX`, an index template, or a guessed date in place
-of `vss configure show`.
+Do not redeploy, restart containers, edit routing, or repeat public-origin
+selection to repair a source operation. On Brev, the deployment workflow owns
+the one public-origin decision through `scripts/select_brev_origin.sh`. If it
+selected the documented host fallback, media URLs remain host-local until the
+public route is repaired.
 
-Before downloading or ingesting media, require bounded Agent and VST health
-through the deployment's host-reachable origin and RTVI-CV readiness. If
-RT-VLM is recorded, probe its `/v1/models` endpoint; if it is absent, continue
-and let search hits remain `unverified`. A particular eval or deployment
-request may explicitly require RT-VLM and should then stop when that stronger
-prerequisite is unmet. RTVI-CV may build its TensorRT engine for several
-minutes, so poll its readiness with backoff rather than probing once.
+Indexes are created lazily. Never guess index names or reuse the embedding
+index for behavior or raw documents; read all three distinct names from
+`vss configure show` after ingestion.
 
-Cleanup, upload, RTVI-CV readiness, and post-ingest index readiness draw on ONE
-shared 40-minute source-setup budget, not 40 minutes each. Deployment and
-public-origin selection are prerequisite work outside this ingestion budget.
-Carry the remaining source-setup budget forward instead of restarting the
-clock, and never redeploy, restart, or re-ingest to recover time already spent.
+## Ingest the bundled search fixtures
 
-On Brev, two different origins produce media URLs, and they are easy to
-conflate:
-
-1. **The host CLI stamps the origin you gave `vss configure`.** `vss search
-   run` builds every `screenshot_url` from the recorded deployment origin —
-   `vst_external_url` is set to that base URL, not to `VST_EXTERNAL_URL`. So
-   the only way to make CLI hits carry browser-usable media links is to run
-   `vss configure --base-url` against the public HTTPS secure-link origin.
-   Editing `VST_EXTERNAL_URL` in `generated.env` cannot change them, and
-   recreating containers to chase that value is wasted work.
-2. **`VST_EXTERNAL_URL` governs the Agent-served path.** The profile's
-   `config.yml` feeds it to the agent, so it is what the UI and
-   `/api/v1/search` responses emit. Give the deployment workflow the Brev
-   values before it writes `generated.env` so that path is right too, but do
-   not expect it to affect the CLI.
-
-Prefer the public secure-link origin for `vss configure` whenever a bounded
-probe shows it answers `/vst/api/v1/sensor/version` from this host. If it does
-not answer, configure against the host-reachable origin so retrieval still
-works, and report that CLI media URLs will be host-local until the secure link
-is fixed — that is a routing failure to report, not to repair in a loop, and it
-must not block fixture download, Agent-backed ingestion, or index readiness.
-
-A probe succeeds only on a non-redirecting HTTP 200 with the VST version
-schema. A Cloudflare/Pomerium redirect or HTML login page is a failed public
-probe even though plain `curl -f` would return zero for a 3xx response. The
-bundled selector owns the sole public request. Execute it exactly once and
-consume its decision, even when it selects the fallback. Do not issue a
-public-origin `curl` before or after it, reconstruct its command, rerun it to
-confirm the result, or troubleshoot a `000`/redirect/schema failure during
-this workflow:
+For the release fixtures, run the bundled operation once:
 
 ```bash
-: "${VSS_PUBLIC_CANDIDATE:?deployment-minted public HTTPS origin}"
-: "${VSS_HOST_ORIGIN:?host-reachable HAProxy origin}"
-ORIGIN_SELECTOR="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/select_brev_origin.sh"
-test -x "${ORIGIN_SELECTOR}" || exit 1
-ORIGIN_SELECTION=$("${ORIGIN_SELECTOR}" \
-  "${VSS_PUBLIC_CANDIDATE}" "${VSS_HOST_ORIGIN}") || exit 1
-VSS_ORIGIN=$(printf '%s' "${ORIGIN_SELECTION}" |
-  jq -er '.origin | select(type == "string" and length > 0)') || exit 1
-VSS_MEDIA_SCOPE=$(printf '%s' "${ORIGIN_SELECTION}" |
-  jq -er '.media_scope | select(. == "public" or . == "host-local")') || exit 1
-if [ "${VSS_MEDIA_SCOPE}" = host-local ]; then
-  echo "Public VST probe failed semantic validation; CLI media URLs will be host-local" >&2
-fi
+INGEST_FIXTURES="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/ingest_search_fixtures.sh"
+test -x "${INGEST_FIXTURES}" || exit 1
+"${INGEST_FIXTURES}" 2400
 ```
 
-Never assemble a Brev hostname from guesswork: the documented
-`7777-<BREV_ENV_ID>.<BREV_LINK_DOMAIN>` form, built only from values read out
-of `/etc/environment`, is the one sanctioned construction, and letting the
-deployment workflow write it is preferred. Never rewrite a returned media URL.
+The script owns one absolute deadline and the complete operation: prerequisite
+health, idempotent Agent cleanup, pinned NGC download, both Agent upload
+handshakes and transfers, simultaneous VST registration evidence, concurrent
+completion, configuration refresh, and exact index readiness checks. Do not
+recreate those steps in shell, rerun the script after a failure, or use logs as
+readiness evidence.
 
-On Kubernetes, use only routed Ingress services. Do not port-forward
-Elasticsearch for readiness or cleanup. When Elasticsearch is not routed,
-report only the Agent and VST state you can actually validate.
+Success is one JSON object containing the configured origin, both canonical
+source UUIDs, three distinct index names, and positive document counts. A
+failure is a nonzero exit with a structured `error`; report it without
+redeploying or resetting the deadline.
+
+The script downloads `nvidia/vss-developer/dev-profile-sample-data:3.2.0` into
+a fresh `mktemp -d` directory and uploads only the extracted
+`warehouse_sample.mp4` and `sample-warehouse-ladder.mp4` bytes. It names the
+second source `warehouse-ladder.mp4`. Its upload authority translation is
+restricted to the exact VST storage path when the already-recorded origin is a
+literal non-global IP fallback; otherwise the Agent-returned URL is unchanged.
+
+## Ingest another file source
+
+First list registered sources and refuse an exact duplicate. For a non-fixture
+file, use the same three Agent-backed stages documented by the Agent API:
+request `{\"filename\": \"<name>\"}` with `POST /api/v1/videos`, upload the
+bytes to the exact returned `url` using the returned upload contract, and send
+the preserved upload response to `POST /api/v1/videos/<sensor-id>/complete`.
+Keep the filename consistent across all three stages and validate the separate
+completion response. Never send a mutating request directly to a backend.
+Re-run project-local `vss configure --base-url "${VSS_ORIGIN}"` after the
+upload, then wait boundedly for the relevant configured indexes.
+
+## Ingest an RTSP source
+
+Use the Agent's `POST /api/v1/rtsp-streams/add` endpoint with JSON fields
+`sensorUrl`, `name`, `username`, `password`, `location`, and `tags`. Preserve
+the exact operator-supplied URL and credentials; do not copy credentials into
+logs, prompts, or final output. The response reports status rather than a
+sensor UUID, so list VST afterward and require one exact canonical source match
+before searching. If the source is absent, continue polling only within the
+caller's bounded operation; do not mutate VIOS directly.
+
+## Delete an uploaded file source
+
+Use the bundled operation once with the exact canonical source name:
 
 ```bash
-index_count() {
-  INDEX=$1 FIELD=$2 VALUE=$3
-  QUERY=$(jq -cn --arg field "${FIELD}" --arg value "${VALUE}" \
-    '{query:{term:{($field):$value}}}') || return 1
-  COUNT_TIMEOUT=$(readiness_timeout 15) || return 1
-  curl -fsS --max-time "${COUNT_TIMEOUT}" -H 'Content-Type: application/json' \
-    "${ES_URL}/${INDEX}/_count" -d "${QUERY}" | jq -er '.count | numbers'
-}
+DELETE_SOURCE="${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/delete_search_source.sh"
+test -x "${DELETE_SOURCE}" || exit 1
+"${DELETE_SOURCE}" warehouse-ladder 600
 ```
 
-## Pre-ingestion cleanup
+This operation is for uploaded files. Uploaded files use the fixed timestamped
+search indexes configured by the Agent; do not use this `/videos` route for an
+RTSP registration. The script resolves and saves the canonical name and UUID,
+reads those distinct indexes from project-local `vss configure show`, issues
+exactly one canonical Agent `DELETE /api/v1/videos/<video-id>`, and verifies
+bounded convergence. It
+checks VST absence by both UUID and name, because VST can retain a same-name
+sensor under a suffixed UUID. It also checks these exact tuples:
 
-At the start of one source-setup operation, after deployment, public-origin
-selection, and `vss configure` are complete, initialize the one ingestion
-deadline. Assign `SEARCH_READINESS_DEADLINE` only here; never create
-`DEADLINE`, `READINESS_DEADLINE`, `CLEANUP_DEADLINE`, or another phase timer,
-and never reserve or subtract a fixed number of seconds from it:
+- embedding: `sensor.id.keyword=<saved UUID>` in the embedding index
+- behavior: `sensor.id.keyword=<canonical name>` in the behavior index
+- raw: `sensorId.keyword=<canonical name>` in the raw index
 
-```bash
-: "${SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))}"
-export SEARCH_READINESS_DEADLINE
-readiness_timeout() {
-  local request_cap=$1 current_epoch remaining
-  current_epoch=$(date +%s)
-  remaining=$((SEARCH_READINESS_DEADLINE - current_epoch))
-  (( remaining > 0 )) || {
-    echo "Search source-setup deadline exhausted" >&2
-    return 1
-  }
-  (( request_cap < remaining )) && printf '%s\n' "${request_cap}" || printf '%s\n' "${remaining}"
-}
-```
+Success is one JSON object containing the Agent status and warnings, VST
+presence, and all three index/field/value/count tuples. Overall success
+requires Agent status `success`, VST absence, and all three counts equal to
+zero. Every failure emits structured JSON and exits nonzero. Do not retry the
+DELETE, rerun the script, probe alternate route spellings, or replace its
+verification with direct backend commands.
 
-For every subsequent blocking source-mutation or readiness request, obtain its
-`--max-time` from `readiness_timeout <per-request-cap>` immediately before the
-request. A literal `--max-time`, a new epoch-plus-duration expression, or a
-phase-local deadline after this initialization violates the source-setup
-contract.
+## Delete an RTSP source
 
-Cleanup is an Agent operation. Resolve every exact or duplicate fixture entry
-from the VST source list, then delete its UUID only through the Agent:
-
-```bash
-VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-  "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
-mapfile -t SENSORS_TO_DELETE < <(
-  printf '%s' "${VST_SENSOR_LIST}" |
-    jq -er '.[] | select(.name == "airport" or
-                        .name == "warehouse_sample" or
-                        .name == "warehouse-ladder" or
-                        .name == "sample-warehouse-ladder") |
-            .sensorId | select(type == "string" and length > 0)'
-)
-for SENSOR_TO_DELETE in "${SENSORS_TO_DELETE[@]}"; do
-  test -n "${SENSOR_TO_DELETE}" || exit 1
-  DELETE_TIMEOUT=$(readiness_timeout 300) || exit 1
-  curl -fsS --connect-timeout 5 --max-time "${DELETE_TIMEOUT}" -X DELETE \
-    "${AGENT_URL%/}/api/v1/videos/${SENSOR_TO_DELETE}" |
-    jq -e '.status == "success"' >/dev/null || exit 1
-done
-
-while :; do
-  VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-  VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-    "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
-  if ! printf '%s' "${VST_SENSOR_LIST}" | jq -e \
-    'any(.[]; .name == "airport" or
-              .name == "warehouse_sample" or
-              .name == "warehouse-ladder" or
-              .name == "sample-warehouse-ladder")' >/dev/null; then
-    break
-  fi
-  sleep 10
-done
-```
-
-Never send a mutating request directly to VST, RTVI-CV, RTVI-Embed,
-storage-ms, or Elasticsearch. In particular, do not use `DELETE` on ports
-30888, 9000, 8010, 8017, or 9200. If Agent cleanup fails, stop; do not repair
-partial state through a backend.
-
-## File source
-
-List current sources through `vss-manage-video-io-storage`; do not upload an
-exact existing source. Confirm an interactive upload, then use the mandatory
-three-step agent flow. This flow is mandatory for every file ingestion:
-
-For the release fixtures, download the exact pinned bundle into a fresh
-directory; never use `find` to substitute a pre-existing warehouse-looking
-file. Ingest only the files the request names:
-
-```bash
-FIXTURE_ROOT=$(mktemp -d /tmp/vss-search-fixtures.XXXXXX)
-cd "${FIXTURE_ROOT}" || exit 1
-ngc registry resource download-version \
-  nvidia/vss-developer/dev-profile-sample-data:3.2.0 \
-  --org nvidia --team vss-developer || exit 1
-tar -xzf dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz || exit 1
-SAMPLE_DIR="${FIXTURE_ROOT}/dev-profile-sample-data"
-test -s "${SAMPLE_DIR}/warehouse_sample.mp4" || exit 1
-test -s "${SAMPLE_DIR}/sample-warehouse-ladder.mp4" || exit 1
-```
-
-```bash
-: "${AGENT_URL:?resolve the selected search agent}"
-: "${FILE_PATH:?set the local media path}"
-test -r "${FILE_PATH}" || exit 1
-SOURCE_FILENAME=$(basename -- "${FILE_PATH}")
-UPLOAD_FILENAME="${UPLOAD_FILENAME:-${SOURCE_FILENAME}}"
-CANONICAL_SOURCE="${UPLOAD_FILENAME%.*}"
-RTVI_CV_LOG_SINCE="${RTVI_CV_LOG_SINCE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
-
-UPLOAD_REQUEST=$(jq -cn --arg filename "${UPLOAD_FILENAME}" '{filename: $filename}')
-UPLOAD_REQUEST_TIMEOUT=$(readiness_timeout 30) || exit 1
-UPLOAD_URL_RESPONSE=$(curl -sfS --max-time "${UPLOAD_REQUEST_TIMEOUT}" -X POST \
-  "${AGENT_URL}/api/v1/videos" \
-  -H "Content-Type: application/json" -d "${UPLOAD_REQUEST}")
-UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" |
-  jq -er '.url | select(type == "string" and length > 0)') || exit 1
-
-IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
-UPLOAD_TIMEOUT=$(readiness_timeout 300) || exit 1
-UPLOAD_RESPONSE=$(curl -sfS --connect-timeout 10 --max-time "${UPLOAD_TIMEOUT}" -X POST \
-  "${UPLOAD_URL}" \
-  -H "nvstreamer-chunk-number: 1" \
-  -H "nvstreamer-total-chunks: 1" \
-  -H "nvstreamer-is-last-chunk: true" \
-  -H "nvstreamer-identifier: ${IDENTIFIER}" \
-  -H "nvstreamer-file-name: ${UPLOAD_FILENAME}" \
-  -F "mediaFile=@${FILE_PATH};filename=${UPLOAD_FILENAME}" \
-  -F "filename=${UPLOAD_FILENAME}" \
-  -F 'metadata={"timestamp":"2025-01-01T00:00:00"}')
-
-SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" |
-  jq -er '.sensorId | select(type == "string" and length > 0)') || exit 1
-COMPLETE_TIMEOUT=$(readiness_timeout 900) || exit 1
-COMPLETE_RESPONSE=$(printf '%s' "${UPLOAD_RESPONSE}" |
-  jq --arg filename "${UPLOAD_FILENAME}" '. + {filename: $filename}' |
-  curl -sfS --connect-timeout 10 --max-time "${COMPLETE_TIMEOUT}" -X POST \
-    "${AGENT_URL}/api/v1/videos/${SENSOR}/complete" \
-    -H "Content-Type: application/json" -d @-)
-printf '%s' "${COMPLETE_RESPONSE}" | jq -e . >/dev/null || exit 1
-printf '%s' "${COMPLETE_RESPONSE}" |
-  jq -e --arg sensor "${SENSOR}" \
-    '.sensor_id == $sensor and
-     (.chunks_processed | type == "number" and . > 0)' >/dev/null ||
-  { echo "Upload completion failed validation" >&2; exit 1; }
-
-VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-  "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
-printf '%s' "${VST_SENSOR_LIST}" | jq -e \
-  --arg sensor "${SENSOR}" --arg name "${CANONICAL_SOURCE}" \
-  'any(.[]; .sensorId == $sensor and .name == $name)' >/dev/null || {
-    echo "VST did not register ${CANONICAL_SOURCE} with sensorId ${SENSOR}" >&2
-    exit 1
-  }
-```
-
-Never call the deprecated single-step
-`PUT /api/v1/videos-for-search/{filename}`. Use
-`UPLOAD_FILENAME` consistently in every request and multipart field; use that
-same value for the upload request, VST metadata, and completion body.
-Completion alone is not readiness. After completing all intended uploads, run
-one bounded readiness wait (at most 20 minutes) until VST lists the sources and
-the search indexes contain the required documents:
-
-- `EMBED_INDEX`, `sensor.id.keyword`, resolved VST sensor UUID;
-- `BEHAVIOR_INDEX`, `sensor.id.keyword`, canonical source name;
-- `RAW_INDEX`, `sensorId.keyword`, canonical source name.
-
-Embed search requires the first tuple. Fusion requires all three. Agent and
-RTVI-CV logs are bounded diagnostics only: live VST registration plus the
-required embedding, behavior, and raw documents are the readiness contract.
-Never keep an otherwise-ready setup waiting for an exact log message.
-
-For the two search fixtures, preserve the upload UUIDs as
-`WAREHOUSE_SAMPLE_SENSOR` and `WAREHOUSE_LADDER_SENSOR`, then use this single
-bounded wait:
-
-```bash
-: "${WAREHOUSE_SAMPLE_SENSOR:?preserve warehouse_sample upload sensorId}"
-: "${WAREHOUSE_LADDER_SENSOR:?preserve warehouse-ladder upload sensorId}"
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
-resolve_search_indexes || exit 1
-: "${SEARCH_READINESS_DEADLINE:?initialize once when source setup begins}"
-while :; do
-  SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
-    "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
-  LADDER_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
-    "${WAREHOUSE_LADDER_SENSOR}" 2>/dev/null || echo 0)
-  LADDER_BEHAVIOR_COUNT=$(index_count "${BEHAVIOR_INDEX}" sensor.id.keyword \
-    warehouse-ladder 2>/dev/null || echo 0)
-  LADDER_RAW_COUNT=$(index_count "${RAW_INDEX}" sensorId.keyword \
-    warehouse-ladder 2>/dev/null || echo 0)
-  if (( SAMPLE_EMBED_COUNT > 0 && LADDER_EMBED_COUNT > 0 &&
-        LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )); then
-    break
-  fi
-  CURRENT_EPOCH=$(date +%s)
-  (( CURRENT_EPOCH < SEARCH_READINESS_DEADLINE )) || break
-  sleep 15
-done
-printf 'indexes=%s,%s,%s sensors=%s,%s counts=%s,%s,%s,%s\n' \
-  "${EMBED_INDEX}" "${BEHAVIOR_INDEX}" "${RAW_INDEX}" \
-  "${WAREHOUSE_SAMPLE_SENSOR}" "${WAREHOUSE_LADDER_SENSOR}" \
-  "${SAMPLE_EMBED_COUNT}" "${LADDER_EMBED_COUNT}" \
-  "${LADDER_BEHAVIOR_COUNT}" "${LADDER_RAW_COUNT}"
-(( SAMPLE_EMBED_COUNT > 0 && LADDER_EMBED_COUNT > 0 &&
-   LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )) || exit 1
-```
-
-A timeout or partial registration is an error, not
-permission to query another source. Do not automatically delete, repair, or
-reingest after `/complete`: that turns a bounded setup into an unbounded
-recovery loop and destroys evidence of the original failure. Print the
-resolved endpoints, index names, UUIDs, and counts, then collect only bounded
-read-only diagnostics:
-
-```bash
-DIAGNOSTIC_TIMEOUT=$(readiness_timeout 15) || exit 1
-curl -fsS --connect-timeout 5 --max-time "${DIAGNOSTIC_TIMEOUT}" \
-  "${ES_URL%/}/_cat/indices/mdx-*?format=json" | jq . || true
-for CONTAINER in vss-rtvi-cv vss-behavior-analytics vss-video-analytics-api; do
-  docker logs --since "${RTVI_CV_LOG_SINCE}" --tail 200 "${CONTAINER}" 2>&1 || true
-done
-```
-
-Then stop with an error. Never post directly to RTVI-CV or Elasticsearch to
-patch partial state. Use `index_count` with each exact tuple and accept
-readiness only when each required count is greater than zero. A count from
-another index or field does not satisfy readiness.
-
-For Kubernetes, do not query Elasticsearch directly. After `/complete`
-succeeds, poll `${VSS_VIOS_URL}/api/v1/sensor/list` for the canonical source,
-then retry the requested Agent search only while ingestion is incomplete. A
-valid Agent result proves the public workflow is operational; do not claim
-direct index-level validation or create a port-forward.
-
-## RTSP source
-
-Register the exact RTSP URL through the selected search agent:
-
-```bash
-curl -sfS -X POST "${AGENT_URL}/api/v1/rtsp-streams/add" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sensorUrl": "rtsp://<host>:<port>/<path>",
-    "name": "<source-name>",
-    "username": "",
-    "password": "",
-    "location": "",
-    "tags": ""
-  }' | jq .
-```
-
-The response is `{status, message, error}` and does not contain a sensor UUID;
-the agent keys the stream by `name`. Do not log credentials. Poll boundedly
-until the source is registered, then resolve its exact VST sensor identity
-before search. A successful add only starts embedding generation; it does not
-prove that searchable documents exist. Poll the selected embedding index for
-the exact registered stream identity and require a count greater than zero
-within five minutes.
-
-## Delete source
-
-Resolve exactly one source and save its UUID and canonical name before deletion.
-Confirm the target unless deletion was already explicit:
-
-```bash
-: "${SAVED_SENSOR_ID:?save the exact file-source UUID before deletion}"
-: "${SAVED_SOURCE_NAME:?save the canonical source name before deletion}"
-: "${EMBED_INDEX:?resolve from vss configure show}"
-: "${BEHAVIOR_INDEX:?resolve from vss configure show}"
-: "${RAW_INDEX:?resolve from vss configure show}"
-
-DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))
-delete_timeout() {
-  local request_cap=$1 remaining
-  remaining=$((DELETE_READINESS_DEADLINE - $(date +%s)))
-  (( remaining > 0 )) || return 1
-  (( request_cap < remaining )) && printf '%s\n' "${request_cap}" || printf '%s\n' "${remaining}"
-}
-delete_index_count() {
-  local index=$1 field=$2 value=$3 timeout query
-  timeout=$(delete_timeout 15) || return 1
-  query=$(jq -cn --arg field "${field}" --arg value "${value}" \
-    '{query:{term:{($field):$value}}}') || return 1
-  curl -fsS --max-time "${timeout}" -H 'Content-Type: application/json' \
-    "${ES_URL%/}/${index}/_count" -d "${query}" | jq -er '.count | numbers'
-}
-
-DELETE_TIMEOUT=$(delete_timeout 60) || exit 1
-DELETE_RESPONSE=$(curl -sfS --max-time "${DELETE_TIMEOUT}" -X DELETE \
-  "${AGENT_URL%/}/api/v1/videos/${SAVED_SENSOR_ID}") || exit 1
-printf '%s' "${DELETE_RESPONSE}" | jq -e '.status == "success"' >/dev/null || exit 1
-
-while :; do
-  VST_TIMEOUT=$(delete_timeout 15) || {
-    echo "Timed out waiting for source and index cleanup" >&2
-    exit 1
-  }
-  VST_SENSORS=$(curl -fsS --max-time "${VST_TIMEOUT}" \
-    "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
-  VST_PRESENT=$(printf '%s' "${VST_SENSORS}" | jq -r \
-    --arg id "${SAVED_SENSOR_ID}" --arg name "${SAVED_SOURCE_NAME}" \
-    'any(.[]; .sensorId == $id or .name == $name)') || exit 1
-  case "${VST_PRESENT}" in true|false) ;; *) exit 1 ;; esac
-  EMBED_COUNT=$(delete_index_count "${EMBED_INDEX}" sensor.id.keyword \
-    "${SAVED_SENSOR_ID}") || exit 1
-  BEHAVIOR_COUNT=$(delete_index_count "${BEHAVIOR_INDEX}" sensor.id.keyword \
-    "${SAVED_SOURCE_NAME}") || exit 1
-  RAW_COUNT=$(delete_index_count "${RAW_INDEX}" sensorId.keyword \
-    "${SAVED_SOURCE_NAME}") || exit 1
-  if [ "${VST_PRESENT}" = false ] &&
-     (( EMBED_COUNT == 0 && BEHAVIOR_COUNT == 0 && RAW_COUNT == 0 )); then
-    break
-  fi
-  sleep 10
-done
-printf 'delete_status=success vst_present=%s counts=%s,%s,%s\n' \
-  "${VST_PRESENT}" "${EMBED_COUNT}" "${BEHAVIOR_COUNT}" "${RAW_COUNT}"
-```
-
-Require response `status` to be `success`; `partial` is not success. Reuse the
-same runtime values and poll until VST no longer lists the source, the embedding
-tuple for the saved UUID is zero, and behavior/raw tuples for the canonical name
-are zero. Report all counts. Never delete an ambiguous source or issue
-independent backend cleanup. RTSP deletion uses the advertised
-`DELETE /api/v1/rtsp-streams/delete/<name>` Agent route and the same bounded
-absence checks; never substitute a direct backend mutation.
-
-For storage API version details use `vss-manage-video-io-storage`; use schemas
-advertised by the exact running deployment rather than guessing.
+Resolve the exact canonical stream name first, then issue one Agent-backed
+`DELETE /api/v1/rtsp-streams/delete/<encoded-name>` request through
+`${AGENT_URL}`. This is a different lifecycle from uploaded-file deletion; do
+not call `delete_search_source.sh` or `/api/v1/videos/<video-id>` for an RTSP
+source. Validate the response and boundedly require the exact name and UUID to
+disappear from VST before reporting success.

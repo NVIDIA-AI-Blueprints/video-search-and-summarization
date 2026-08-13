@@ -1,6 +1,6 @@
 ---
 name: vss-search-archive
-description: Use this skill when a user wants to search archived VSS video or ingest or delete a source for search. Do not use it for visual Q&A, live captioning, or video summarization.
+description: Searches archived VSS video and manages source ingestion and deletion through the project-local CLI. Use this skill when the user requests archive search, video-file or RTSP ingestion, or registered-source deletion; not for visual Q&A, live captioning, or summarization.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
@@ -11,9 +11,9 @@ metadata:
 
 ## Purpose
 
-Operate archive search from the caller's host. Compose and Kubernetes use the
-same `vss configure` and `vss search run` commands; only the deployment origin
-differs. Source ingestion and deletion remain Agent-backed.
+This skill operates archive search from the caller's host. Compose and
+Kubernetes use the same `vss configure` and `vss search run` commands; only the
+deployment origin differs. Source ingestion and deletion remain Agent-backed.
 
 ## Hard boundaries
 
@@ -73,16 +73,16 @@ In a persisted multi-step workflow, reuse the origin recorded by the prepared
 deployment as above. Do not repeat public-origin selection, edit routing, or
 redeploy merely because the next agent turn did not inherit shell variables.
 
-See [deployment resolution](../vss-build-vision-agent/references/deployment_resolution.md)
-for the deployment-owned `VSS_PUBLIC_URL` contract. On Kubernetes, never use
+See [deployment resolution](references/deployment_resolution.md) for the
+deployment-owned `VSS_PUBLIC_URL` contract. On Kubernetes, never use
 port-forwarding, Service DNS, NodePorts, or a guessed Helm release. Routes not
 exposed through the Ingress are recorded as absent and a search path needing
 one exits 4.
 
-For deployment readiness, ingestion, fixture cleanup, index checks, RTSP, or
-deletion, read [source lifecycle](references/source_lifecycle.md) completely
-before acting. Re-run `vss configure` after ingestion because the recorded
-index inventory is a snapshot.
+Read [source lifecycle](references/source_lifecycle.md) completely when you are
+about to ingest, delete, or poll readiness for a source—not during a read-only
+search turn. Re-run `vss configure` after ingestion because the recorded index
+inventory is a snapshot.
 
 ## Mandatory search workflow
 
@@ -122,7 +122,9 @@ index inventory is a snapshot.
    "red jacket"`.
 
 4. Construct the invocation as a Bash array and validate only its exact
-   stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
+   stdout. Read [CLI usage](references/cli_usage.md) when retrieval-tuning flags
+   such as `--fusion-method`, `--w-embed`, or `--rrf-k` are needed, or whenever
+   a flag's behavior is uncertain.
 
 ```bash
 : "${SEARCH_PATH:?set embed|attribute|fusion|object}"
@@ -180,19 +182,12 @@ The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
 availability. Treat boolean `criteria_met` values as critic evidence only.
 
-7. Format nonempty results without raw JSON:
-
-```text
-## Video Search Results
-<each hit's exact source, start/end, similarity, complete media URL,
-verification result, and criteria when present>
-
-Similarity scores are retrieval evidence; the separate verification result
-records whether the bounded clip satisfied the visual request.
-
-## Verification Step
-Would you like me to verify the unverified search results?
-```
+7. Format nonempty results without raw JSON. Use one per-hit block and print
+each exact `screenshot_url` as `Media URL:`.
+URL validation in a shell/tool call is not user-visible reporting. Before the
+final reply, require the counts of displayed hits, exact source/time/score/
+verification entries, and `Media URL:` lines all to equal `.data | length`.
+Never replace a media URL with an object ID or omit it to make a table compact.
 
 Include `## Verification Step` only when the nonempty displayed result set is
 entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
@@ -218,7 +213,7 @@ requires the deployment Agent to decompose a natural-language request, its
 the known text field and present it as prose; never run `.data[]`, screenshot,
 or verification parsing against that response or invent structured hit rows.
 
-## Troubleshooting
+## Troubleshooting and error handling
 
 - CLI unavailable: retain `--extra cli`, verify `VSS_REPO_ROOT`, and stop.
 - Exit 2: read the selected path's `--help`; do not guess flags.
@@ -230,3 +225,13 @@ or verification parsing against that response or invent structured hit rows.
 - Missing RT-VLM: retrieval remains valid and results remain `unverified`.
 - Authentication: use the operator-approved route. Never place secrets in
   prompts, flags, generated files, logs, or skill output.
+- Ingestion, deletion, or readiness timeout: stop the bounded operation,
+  report the last observed source/index state, and follow
+  [source lifecycle](references/source_lifecycle.md). Do not rerun its
+  self-contained script, redeploy, restart, or mutate a backend directly.
+- Critic or media verification failure: keep successful retrieval evidence as
+  `unverified` and follow
+  [search-result verification](references/result_verification.md) only after
+  the user explicitly requests it.
+- Authentication failure: report the affected route without exposing secrets;
+  use only operator-approved credentials and do not retry with guessed values.

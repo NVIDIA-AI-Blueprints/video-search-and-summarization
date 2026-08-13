@@ -20,6 +20,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 import types
@@ -61,7 +62,9 @@ def _async_ok(*_a, **_kw):
 
 
 class StepGateTest(unittest.IsolatedAsyncioTestCase):
-    async def _run_start_for(self, task_dir_name: str):
+    async def _run_start_for(
+        self, task_dir_name: str, *, explicit_step: str | None = None
+    ):
         """Drive start() for a task dir named `task_dir_name`, with every
         box-side coroutine stubbed, and return the set of gated helpers that
         were awaited."""
@@ -77,7 +80,12 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         purge = mock.AsyncMock()
         sync = mock.AsyncMock()
 
-        with mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
+        env_values = {
+            "HARBOR_SKILL_EVAL_STEP_INDEX": explicit_step or "",
+        }
+
+        with mock.patch.dict(os.environ, env_values, clear=False), \
+             mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
              mock.patch.object(env, "_reset_docker_runtime", new=reset), \
              mock.patch.object(env, "_purge_host_data_dirs", new=purge), \
              mock.patch.object(env, "_sync_repo_to_pr_head", new=sync), \
@@ -123,6 +131,19 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         # Guard the string compare: `step-10` must not be mistaken for step-1.
         calls = await self._run_start_for("step-10")
         self.assertEqual(calls, set(), "step-10 must skip all destructive prep")
+
+    async def test_explicit_step2_survives_flattened_platform_directory(self):
+        calls = await self._run_start_for("rtxpro6000bw", explicit_step="2")
+        self.assertEqual(
+            calls,
+            set(),
+            "explicit chain metadata must override Harbor's flattened path",
+        )
+
+    async def test_explicit_step1_resets_flattened_platform_directory(self):
+        calls = await self._run_start_for("rtxpro6000bw", explicit_step="1")
+        self.assertEqual(calls, {"reset", "purge", "sync"})
+
 
 if __name__ == "__main__":
     unittest.main()

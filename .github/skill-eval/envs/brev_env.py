@@ -443,12 +443,26 @@ class BrevEnvironment(BaseEnvironment):
         # environment step-1 established. This one predicate gates every
         # destructive box-prep action below — docker reset, host-data purge,
         # AND the repo sync — because each of them tears down state the later
-        # step under test depends on. (`environment_dir.parent` is the task
-        # dir — named `step-N` for multi-step, the platform for single-step.)
+        # step under test depends on. run_leg.py supplies the authoritative
+        # step index because Harbor can flatten `environment_dir.parent` to
+        # the platform directory even for a selected `step-N` task.
         task_dir_name = self.environment_dir.parent.name
-        is_first_trial = not (
-            task_dir_name.startswith("step-") and task_dir_name != "step-1"
-        )
+        explicit_step = os.environ.get("HARBOR_SKILL_EVAL_STEP_INDEX", "").strip()
+        if explicit_step:
+            if not explicit_step.isdigit() or int(explicit_step) < 1:
+                raise RuntimeError(
+                    "HARBOR_SKILL_EVAL_STEP_INDEX must be a positive integer, "
+                    f"got {explicit_step!r}"
+                )
+            step_index = int(explicit_step)
+            step_label = f"step-{step_index}"
+            is_first_trial = step_index == 1
+        else:
+            # Backward-compatible fallback for direct Harbor invocations.
+            step_label = task_dir_name
+            is_first_trial = not (
+                task_dir_name.startswith("step-") and task_dir_name != "step-1"
+            )
         if is_first_trial:
             await self._reset_docker_runtime()
             # Host bind-mount purge runs AFTER the docker reset so every
@@ -463,7 +477,7 @@ class BrevEnvironment(BaseEnvironment):
                 "and its live bind-mount host dirs (e.g. deploy/docker/data-dir/, "
                 "whose clip_storage/vst_data are bind-mounted into the still-"
                 "running VIOS containers)",
-                self._instance_name, task_dir_name,
+                self._instance_name, step_label,
             )
 
         # Sync ~/video-search-and-summarization on the box to the PR's
@@ -514,10 +528,10 @@ class BrevEnvironment(BaseEnvironment):
         #     `git clean` deleted the data-dir root out from under the
         #     containers) — the regression, caught loudly.
         # Output lands in <trial>/artifacts/logs/artifacts/mount-probe.log.
-        await self._probe_bind_mount(f"{task_dir_name}:before-sync")
+        await self._probe_bind_mount(f"{step_label}:before-sync")
         if is_first_trial:
             await self._sync_repo_to_pr_head()
-        await self._probe_bind_mount(f"{task_dir_name}:after-sync")
+        await self._probe_bind_mount(f"{step_label}:after-sync")
 
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible

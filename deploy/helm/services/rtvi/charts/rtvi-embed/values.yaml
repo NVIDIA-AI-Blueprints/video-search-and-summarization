@@ -61,6 +61,12 @@ clearCachedEnginesOnStart: false
 kafkaBootstrapServers: ""
 messageBus: "kafka"
 messageBusTopic: "mdx-embed"
+# Legacy image-contract flags. Released rt-embed image tags still read
+# KAFKA_ENABLED/KAFKA_TOPIC for embedding publication; keep them set here
+# so Helm-installed pods behave the same as Compose-installed pods while
+# tags transition to MESSAGE_BUS/MESSAGE_BUS_TOPIC.
+kafkaEnabled: "true"
+kafkaTopic: "mdx-embed"
 errorBus: "kafka"
 # Wait for Kafka before starting the workload (busybox nc). Set enabled: false for standalone
 # installs where no broker exists yet.

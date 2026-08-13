@@ -16,25 +16,24 @@
   "expects": [
     {
       "scenario": "deploy-search-profile",
-      "query": "Deploy the VSS **search** profile on `{{platform}}` via `/vss-deploy-profile -p search -m remote-all`. Set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`; after local Agent and VST health succeeds, validate `services/agent/pyproject.toml` and run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run --help`. Define `VSS=(uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss)` and use `\"${VSS[@]}\"` rather than a bare or globally installed `vss` for every CLI command. On Brev, provide `BREV_ENV_ID` and the platform-provided `BREV_LINK_DOMAIN` to the deployment workflow before it writes `generated.env`; do not invent a hostname. After deployment is complete, use the bundled `skills/vss-search-archive/scripts/select_brev_origin.sh` to make the single public-origin decision. Do not issue curl against the public candidate yourself. Its public request disables redirects and accepts the public origin only for HTTP 200 plus JSON `type: vst` and a nonempty string `version`; otherwise consume its host-reachable fallback. Record that final origin with the project-local `vss configure --base-url`, require `vss-rtvi-vlm` to be running, and require its bounded `/v1/models` response to contain a nonempty served model list. Do not download or ingest sample media in this step.",
+      "query": "Deploy the VSS **search** profile on `{{platform}}` in `remote-all` mode and validate that the profile, host CLI, configured origin, and required models are ready. Do not ingest sample media yet.",
       "checks": [
         "The search profile was deployed in `remote-all` mode; `curl -sf --max-time 15 http://localhost:8000/health` and the project-local `vss search run --help` command both returned exit 0 from the validated checkout, with `vss-agent` and `redis` running",
         "The public-origin decision made exactly one public-candidate VST request, through the bundled `select_brev_origin.sh`; the agent issued no public-candidate curl itself. That request disabled redirects and accepted only HTTP 200 plus JSON `type: vst` and a nonempty string `version`; otherwise the selector returned the exact host-reachable origin. The project-local `vss configure` recorded the selected origin, and the agent neither edited `VST_EXTERNAL_URL` nor looped on routing. Compose activity that belongs to the initial `/vss-deploy-profile` workflow is deployment, not a routing violation",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returned exit 0, including in `remote-all` mode where RT-VLM remains the local media-processing proxy",
-        "A bounded request to the configured RT-VLM `/v1/models` endpoint returned a nonempty served model list, and no sample bundle was downloaded or video ingested during this deployment-only step"
+        "A bounded request to the configured RT-VLM `/v1/models` endpoint returned a nonempty served model list",
+        "The project-local `vss configure show` recorded RT-Embed, a bounded request to its configured `/v1/models` route returned a nonempty served model list, the configured RT-CV `/api/v1/ready` route boundedly returned HTTP 200 with `ds-ready` exactly `YES` at the top level or under `ready-info`, and no sample bundle was downloaded or video ingested during this deployment-only step"
       ]
     },
     {
       "scenario": "ingest-search-fixtures",
-      "query": "The search profile is already deployed, healthy, configured, and must not be deployed or recreated in this step. Ingest the two search fixtures. Set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate its agent project, define `VSS=(uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss)`, and read the existing origin with `\"${VSS[@]}\" configure show`; fail rather than running `docker compose`, restarting containers, changing routing, or invoking `/vss-deploy-profile` if that prepared deployment is unavailable. At the start of this ingestion step, initialize one bounded source-setup deadline using the vss-search-archive lifecycle recipe. Make ingestion idempotent: list VST, Agent-delete exact or deduplicated `warehouse_sample`, `warehouse-ladder`, or legacy `sample-warehouse-ladder` remnants that are present, and wait for absence. Download and extract the pinned `nvidia/vss-developer/dev-profile-sample-data:3.2.0` bundle into a fresh temporary directory and derive both upload inputs only from that extraction; do not reuse a host copy. Ingest only `warehouse_sample.mp4` and `sample-warehouse-ladder.mp4` through the Agent-backed three-step workflow, consistently uploading the ladder bytes as `warehouse-ladder.mp4`, and validate each separate `/complete` response. Re-run the project-local `vss configure` after ingestion because indexes are lazy. Poll until VST lists both canonical sources with resolved UUIDs, embedding documents exist under `sensor.id.keyword=<UUID>` for both, behavior documents exist under `sensor.id.keyword=warehouse-ladder`, and raw documents exist under `sensorId.keyword=warehouse-ladder`. Require the distinct configured indexes `mdx-embed-filtered-2025-01-01`, `mdx-behavior-2025-01-01`, and `mdx-raw-2025-01-01`. Logs are diagnostics only. If the bounded ingestion deadline expires, print diagnostics and fail without redeploying, restarting, resetting the deadline, or re-ingesting.",
+      "query": "The search profile is already deployed and configured. Ingest the two bundled search fixtures and verify that both sources and all search indexes are ready. Do not redeploy, restart services, or change routing.",
       "checks": [
-        "The trajectory reused the healthy deployment and origin recorded by the project-local `vss configure show`; it did not invoke `/vss-deploy-profile`, `docker compose up`, restart or recreate containers, edit routing, or reset deployment state during fixture ingestion",
-        "Before downloading or uploading fixtures, the trajectory shows that the agent listed sources through the configured origin's VST route, Agent-deleted only matching `warehouse_sample`, `warehouse-ladder`, or legacy `sample-warehouse-ladder` remnants when present, and waited until those matching sources were absent",
-        "The trajectory shows that the agent downloaded and extracted the pinned `nvidia/vss-developer/dev-profile-sample-data:3.2.0` bundle into a fresh temporary directory, derived both upload paths from that extraction, and did not use a cached host media file",
-        "The trajectory shows that the agent ingested only the extracted `warehouse_sample.mp4` and `sample-warehouse-ladder.mp4` bytes through the Agent-backed three-step workflow, consistently named the ladder upload `warehouse-ladder.mp4`, validated each separate `/complete` response, and never called the deprecated `PUT /api/v1/videos-for-search/{filename}` route",
-        "Fixture ingestion used one bounded source-setup deadline with finite request timeouts and no deadline reset, redeploy, restart, or re-ingest recovery loop. Bounded logs and other read-only diagnostics were allowed, but could not replace the VST and index readiness checks",
-        "A bounded VST source listing returned both `warehouse_sample` and canonical `warehouse-ladder` with resolved sensor UUIDs, and the project-local `vss configure show` reported the distinct exact embedding, behavior, and raw indexes",
-        "The embedding index contained documents for both resolved UUIDs under `sensor.id.keyword`; the behavior index contained documents for `warehouse-ladder` under `sensor.id.keyword`; and the raw index contained documents for `warehouse-ladder` under `sensorId.keyword`"
+        "The agent invoked the bundled `ingest_search_fixtures.sh` operation exactly once and used its structured result; it did not reconstruct the workflow, redeploy, restart services, edit routing, or reset deployment state",
+        "The operation verified Agent, VST, RT-Embed, and RT-CV readiness before mutation and performed idempotent fixture cleanup only through the Agent",
+        "The operation downloaded the pinned NGC bundle into a fresh temporary directory and uploaded only its two extracted fixture files through the Agent-backed three-stage workflow, naming the ladder source `warehouse-ladder.mp4`",
+        "Both upload handshakes and transfers completed before either completion call; one bounded VST listing contained both canonical source name/UUID pairs, both completion calls were started before either was awaited, and each response was validated independently",
+        "The operation used one bounded deadline and returned structured evidence containing both source UUIDs, the distinct configured indexes `mdx-embed-filtered-2025-01-01`, `mdx-behavior-2025-01-01`, and `mdx-raw-2025-01-01`, positive embedding counts for both UUIDs, and positive behavior and raw counts for `warehouse-ladder`"
       ]
     },
     {
@@ -46,7 +45,7 @@
       ]
     },
     {
-      "query": "Find up to three instances of forklifts in the registered sample warehouse source `warehouse_sample`. Resolve its exact sensor ID from VST, then use `vss search run embed` with `--query forklifts`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. The Docker search profile and evaluation fixtures are already prepared on this host.",
+      "query": "Find up to three instances of forklifts in the registered `warehouse_sample` video.",
       "checks": [
         "Before search, the agent listed sources through the configured origin's VST route and resolved the explicitly requested `warehouse_sample` to its exact registered name and nonempty sensor ID",
         "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run embed` command from the validated checkout, relying on the deployment recorded by `vss configure`; it passed no endpoint, index, or model flags, and did not use `--search-mode`, `--deployment`, `--profile`, `--base-url`, a container/pod shell, or `/api/v1/search`",
@@ -58,7 +57,7 @@
       ]
     },
     {
-      "query": "Return up to three candidates for a person wearing a white jacket climbing a ladder in `warehouse-ladder`. Resolve its exact sensor ID from VST, then use `vss search run fusion` with `--query \"person climbing a ladder\"`, `--attribute \"white jacket\"`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. Report the default CLI critic result for every hit. The Docker search profile and evaluation fixtures are already prepared on this host.",
+      "query": "Find up to three instances of a person wearing a white jacket climbing a ladder in `warehouse-ladder`.",
       "checks": [
         "Before search, the agent listed sources through the configured origin's VST route and resolved `warehouse-ladder` to its exact registered name and nonempty sensor ID",
         "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run fusion` command from the validated checkout, relying on the deployment recorded by `vss configure`; it passed no endpoint, index, or model flags and did not use `--search-mode`, `--decomposed-json`, `--deployment`, `--base-url`, a container/pod shell, or `/api/v1/search`",
@@ -70,7 +69,7 @@
       ]
     },
     {
-      "query": "Return up to three retrieval candidates from the registered `warehouse_sample` source for a neon-pink monster truck. Resolve its exact sensor ID from VST, then use `vss search run embed` with `--query \"neon-pink monster truck\"`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3`. Report the retrieval result faithfully without treating similarity as proof that the object is present. The Docker search profile and evaluation fixtures are already prepared on this host.",
+      "query": "Find up to three candidates for a neon-pink monster truck in `warehouse_sample`; report retrieval evidence without claiming visual proof.",
       "checks": [
         "Before search, the agent listed sources through the configured origin's VST route and resolved the explicitly requested `warehouse_sample` to its exact registered name and nonempty sensor ID",
         "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run embed` command from the validated checkout with the resolved sensor ID as `--video-source`, `--source-type video_file`, `--top-k 3`, and the neon-pink monster-truck query; it relied on the recorded deployment rather than endpoint flags or forbidden execution paths",
@@ -81,7 +80,7 @@
     },
     {
       "scenario": "confirmed-search-result-verification",
-      "query": "A previously displayed `warehouse-ladder` search hit had CLI critic result `unverified`, with the complete original visual intent `a person wearing a white jacket climbing a ladder` and exact file-search bounds `2025-01-01T00:00:00Z` through `2025-01-01T00:00:20Z`. Yes, verify this one result now. Resolve the current exact sensor ID, rebase that synthetic interval onto its VST timeline without changing its 20-second duration, resolve only that bounded clip, and use the existing vss-ask-video workflow. Do not rerun search.",
+      "query": "Yes—visually verify the previously displayed unverified `warehouse-ladder` hit for a person wearing a white jacket climbing a ladder over its displayed interval, `2025-01-01T00:00:00Z` through `2025-01-01T00:00:20Z`. Do not rerun search.",
       "checks": [
         "The agent treated this as explicit post-results confirmation, resolved the current `warehouse-ladder` sensor and main stream through the configured VST origin, and did not rerun search, deploy, ingest, delete, or inspect screenshot pixels first",
         "The agent mapped the exact synthetic file-search interval onto the current VST timeline while preserving its 20-second duration, requested only that bounded MP4 clip with encoded start and end parameters, and did not broaden the interval or substitute another sensor, stream, or local file",
@@ -91,18 +90,17 @@
       ]
     },
     {
-      "query": "Delete the video `warehouse-ladder` from the prepared Docker search deployment. Resolve and save its UUID and canonical name first, reuse the index names from the project-local `vss configure show`, require agent DELETE status `success`, and poll VST absence plus the exact embedding, behavior, and raw index tuples to zero before reporting success.",
+      "query": "Delete `warehouse-ladder` from the prepared Docker search deployment and verify that its source and search documents are removed.",
       "checks": [
-        "The agent listed registered sources and resolved `warehouse-ladder` to its exact VIOS sensor/video UUID before deletion",
-        "The agent issued an agent-backed `DELETE /api/v1/videos/<video_id>` through the configured origin's agent route using the resolved UUID, required status `success`, and did not use bare VIOS sensor or storage DELETE endpoints as the primary cleanup path",
-        "At the end of deletion, a successful source listing through the configured origin's VST route no longer returned `warehouse-ladder`; immediate absence or bounded retry are both acceptable",
-        "The agent read the index names from the project-local `vss configure show` and, after immediate verification or a bounded convergence retry, verified exactly zero embedding documents in `mdx-embed-filtered-2025-01-01` for the resolved UUID using `sensor.id.keyword`, exactly zero behavior documents in `mdx-behavior-2025-01-01` for `warehouse-ladder` using `sensor.id.keyword`, and exactly zero raw documents in `mdx-raw-2025-01-01` for `warehouse-ladder` using `sensorId.keyword`; it did not reuse the embedding index for behavior/raw cleanup checks",
-        "The final reply reported the DELETE status and the actual VIOS, embedding, behavior, and raw cleanup results"
+        "The agent invoked `delete_search_source.sh warehouse-ladder` exactly once and used only its structured output; it did not reconstruct cleanup commands, retry deletion, or probe alternate routes",
+        "The operation resolved and saved the exact canonical source name and UUID, read three distinct index names from project-local configuration, and issued exactly one Agent-backed DELETE through the configured origin",
+        "The structured result reported Agent status `success`, no source with the saved UUID or canonical name in VST, and zero documents for the exact embedding, behavior, and raw index/field/value tuples in `mdx-embed-filtered-2025-01-01`, `mdx-behavior-2025-01-01`, and `mdx-raw-2025-01-01` respectively",
+        "The final reply reported the Agent status and warnings plus the actual VST, embedding, behavior, and raw cleanup results"
       ]
     },
     {
       "scenario": "kubernetes-ingress-contract",
-      "query": "Explain the exact host-side commands you would use to list registered sources and search the Kubernetes search profile exposed at `VSS_PUBLIC_URL=https://vss-search.example.com`. Set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate its agent project, define `VSS=(uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss)`, run `\"${VSS[@]}\" configure --base-url https://vss-search.example.com` once, then use that project-local CLI for search. Search only the resolved `warehouse_sample` source for forklifts with the embed path and top-k 3. This is a contract check: show the commands but do not execute them or deploy anything.",
+      "query": "Show, but do not run, the host-side commands to list sources and search only `warehouse_sample` for forklifts (embed, top-k 3) through the Kubernetes search Ingress at `https://vss-search.example.com`.",
       "checks": [
         "The answer trims the trailing slash and uses `https://vss-search.example.com/vst/api/v1/sensor/list` for source listing",
         "The answer defines the project-local `VSS=(uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss)` command once, runs `\"${VSS[@]}\" configure --base-url https://vss-search.example.com` once, resolves `warehouse_sample` to its sensor ID from the listed source object, then runs `\"${VSS[@]}\" search run embed` with `--query`, that sensor ID as `--video-source`, `--source-type video_file`, and `--top-k 3` \u2014 the same project-local commands it would use for Compose",
