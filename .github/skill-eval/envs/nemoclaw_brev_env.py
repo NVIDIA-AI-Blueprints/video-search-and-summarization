@@ -110,7 +110,7 @@ if registry.exists():
         replacement = registry.with_name(f".{{registry.name}}.skill-eval-{{os.getpid()}}")
         with replacement.open("x", encoding="utf-8") as stream:
             json.dump(document, stream, indent=2)
-            stream.write("\n")
+            stream.write("\\n")
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(replacement, stat.S_IMODE(metadata.st_mode))
