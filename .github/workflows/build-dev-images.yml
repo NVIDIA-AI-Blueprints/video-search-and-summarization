@@ -265,10 +265,10 @@ jobs:
             echo "- **source_tree_sha:** \`${{ steps.meta.outputs.tree_sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Behavior analytics compiles native dependencies (notably OpenCV). Build
-  # each architecture on its matching GitHub-hosted runner so arm64 never runs
-  # through QEMU, then combine the platform images without rebuilding.
-  build-native-behavior-platforms:
+  # Some images compile architecture-sensitive native dependencies or inherit
+  # base images that should not run through QEMU. Build each architecture on
+  # its matching GitHub-hosted runner, then combine the platform images.
+  build-native-platforms:
     name: Build ${{ matrix.name }} (${{ matrix.arch }}, native)
     needs: changes
     if: fromJSON(needs.changes.outputs.native-count) > 0
@@ -400,15 +400,15 @@ jobs:
             echo "- **Staging tag:** \`${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  publish-native-behavior:
+  publish-native-images:
     name: Publish ${{ matrix.name }} multiarch manifest
-    needs: [changes, build-native-behavior-platforms]
+    needs: [changes, build-native-platforms]
     if: >-
       always() &&
       needs.changes.result == 'success' &&
       fromJSON(needs.changes.outputs.native-count) > 0 &&
-      (needs.build-native-behavior-platforms.result == 'success' ||
-       needs.build-native-behavior-platforms.result == 'skipped')
+      (needs.build-native-platforms.result == 'success' ||
+       needs.build-native-platforms.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -536,12 +536,12 @@ jobs:
   # the resulting set is still complete and testable.
   assemble:
     name: Assemble release set
-    needs: [changes, build, publish-native-behavior]
+    needs: [changes, build, publish-native-images]
     if: >-
       always() && needs.changes.result == 'success' &&
       (needs.build.result == 'success' || needs.build.result == 'skipped') &&
-      (needs.publish-native-behavior.result == 'success' ||
-       needs.publish-native-behavior.result == 'skipped')
+      (needs.publish-native-images.result == 'success' ||
+       needs.publish-native-images.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
