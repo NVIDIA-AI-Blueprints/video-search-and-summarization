@@ -160,6 +160,7 @@ class DryRunRecipe:
     edge_device_ids: Mapping[str, str]
     profile_mode_to_env_modes: Mapping[str, Mapping[str, str]]
     profile_env_override_file: Path
+    containers_env_file: Path
     hardware_profile_env_overrides: Mapping[str, Mapping[str, str | Mapping[str, str]]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -227,6 +228,13 @@ def create_dry_run_recipe(
         error_type=ValidationError,
     )
 
+    containers_env_file = resolve_required_absolute_file(
+        str(deployments_path / "containers.env"),
+        field_name="containers.env",
+        missing_label="Containers env",
+        error_type=ValidationError,
+    )
+
     try:
         model_resolution = ModelResolutionInput.model_validate(model_resolution, from_attributes=True)
     except Exception as exc:
@@ -257,6 +265,7 @@ def create_dry_run_recipe(
         compose_file=compose_file,
         source_env_file=source_env_file,
         profile_env_override_file=profile_env_override_file,
+        containers_env_file=containers_env_file,
         supported_hardware_profiles=frozenset(model_resolution.hardware.hardware_profiles.keys()),
         edge_hardware_profiles=frozenset(model_resolution.hardware.edge_profiles),
         edge_allowed_profiles=frozenset(model_resolution.hardware.edge_allowed_profiles),
@@ -313,6 +322,39 @@ def parse_env_file(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         env[key.strip()] = value.strip().strip("'").strip('"')
     return env
+
+
+def load_shell_env_file(path: Path, base_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Load an env file whose values use shell-style ``${VAR:-default}`` self-defaults.
+
+    Source the file with bash exactly as ``dev-profile.sh`` does instead of duplicating
+    shell parameter expansion in Python.
+    """
+
+    keys = list(parse_env_file(path))
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'set -a; source "$1"; shift; for key in "$@"; do printf "%s\\0%s\\0" "$key" "${!key}"; done',
+            "bash",
+            str(path),
+            *keys,
+        ],
+        check=False,
+        capture_output=True,
+        env=dict(os.environ if base_env is None else base_env),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to resolve shell environment file {path}.\nstderr:\n{result.stderr.decode(errors='replace')}"
+        )
+    fields = result.stdout.split(b"\0")
+    if fields and not fields[-1]:
+        fields.pop()
+    if len(fields) % 2:
+        raise RuntimeError(f"Failed to parse resolved shell environment file {path}.")
+    return {fields[index].decode(): fields[index + 1].decode() for index in range(0, len(fields), 2)}
 
 
 def load_profile_env(path: Path) -> dict[str, str]:
@@ -495,6 +537,8 @@ def infer_runtime_mode(
 
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
+    #   0. containers.env first-party image coordinates (same position as
+    #      `docker compose --env-file containers.env` before the profile env files)
     #   1. profile .env defaults
     #   1b. profile overrides.env (mandatory, next to .env)
     #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
@@ -505,7 +549,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #      ... then yml edge_device_ids (for edge HW)
     #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
     #   5. per-call env_overrides
-    merged = parse_env_file(config.source_env_file)
+    merged = load_shell_env_file(config.containers_env_file)
+    merged.update(parse_env_file(config.source_env_file))
     merged.update(parse_env_file(config.profile_env_override_file))
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
@@ -736,14 +781,40 @@ def _compose_subprocess_env(extra_defaults: Mapping[str, str] = MappingProxyType
     return env
 
 
+def _compose_env_file_args(config: DryRunRecipe, generated_env_file: Path) -> list[str]:
+    """Return the env-file layering used by ``dev-profile.sh``."""
+
+    return [
+        "--env-file",
+        str(config.containers_env_file),
+        "--env-file",
+        str(config.source_env_file),
+        "--env-file",
+        str(generated_env_file),
+    ]
+
+
+def _compose_subprocess_env_for_config(
+    config: DryRunRecipe,
+    extra_defaults: Mapping[str, str] = MappingProxyType({}),
+) -> dict[str, str]:
+    """Source containers.env into the Compose process environment like dev-profile.sh."""
+
+    compose_env = _compose_subprocess_env(extra_defaults)
+    compose_env.update(load_shell_env_file(config.containers_env_file, compose_env))
+    return compose_env
+
+
 def resolve_compose(config: DryRunRecipe) -> str:
+    env_file_args = _compose_env_file_args(config, config.output_env_file)
+    compose_env = _compose_subprocess_env_for_config(config)
     try:
         result = subprocess.run(
-            ["docker", "compose", "-f", str(config.compose_file), "--env-file", str(config.output_env_file), "config"],
+            ["docker", "compose", "-f", str(config.compose_file), *env_file_args, "config"],
             cwd=str(config.deployments_dir),
             capture_output=True,
             text=True,
-            env=_compose_subprocess_env(),
+            env=compose_env,
         )
     except FileNotFoundError as exc:
         raise RuntimeError("docker command not found. Install Docker with Compose v2.") from exc
@@ -754,10 +825,14 @@ def resolve_compose(config: DryRunRecipe) -> str:
 
 def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path, *args: str) -> None:
     # Prefer plain, non-ANSI output so status logs are visible/persistent in non-interactive captures.
-    compose_env = _compose_subprocess_env({"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"})
+    env_file_args = _compose_env_file_args(config, env_file)
+    compose_env = _compose_subprocess_env_for_config(
+        config,
+        {"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"},
+    )
     try:
         result = subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "--env-file", str(env_file), *args],
+            ["docker", "compose", "-f", str(compose_file), *env_file_args, *args],
             cwd=str(config.deployments_dir),
             env=compose_env,
         )
@@ -766,7 +841,7 @@ def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path
     if result.returncode != 0:
         raise RuntimeError(
             "docker compose command failed.\n"
-            f"command: docker compose -f {compose_file} --env-file {env_file} {' '.join(args)}\n"
+            f"command: docker compose -f {compose_file} {' '.join(env_file_args)} {' '.join(args)}\n"
             f"exit_code: {result.returncode}"
         )
 
