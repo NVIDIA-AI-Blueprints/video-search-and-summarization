@@ -32,14 +32,17 @@
 #   - RT-DETR model-engine-file batch suffix = NUM_CAMS
 #   - INPUT_MODE=file: static [source-list] of file:///videos/<cam>.mp4 + SEI/sync
 #     off (plays local clips once; no add-streams.sh registration)
-#   - SAVE_VIDEO=1: enable the [sink2] tiled grid file sink → video-output/grid-view.mkv
-#     (the whole annotated camera grid; see README). Works with file or stream input
-#     (stream saves stay playable but unfinalized until remuxed; see README §6.2).
+#   - SAVE_VIDEO=1: enable the [sink2] tiled grid file sink -> video-output/grid-view.mkv
+#     (the whole annotated camera grid; see README). File input is finite; stream input
+#     requires ALLOW_UNBOUNDED_RECORDING=1 because the DeepStream file sink does not
+#     rotate or expire live recordings.
 #
 # Usage:  [OSD=0|1] [INPUT_MODE=stream|file] [SAVE_VIDEO=0|1]
+#         [ALLOW_UNBOUNDED_RECORDING=0|1]
 #         [TRACKER_CONFIG=/path/to/tracker.yml] ./scripts/stage-configs.sh
 # Reads NUM_CAMS / DS_HTTP_PORT / KAFKA_BOOTSTRAP / RAW_TOPIC / INPUT_MODE /
-# VIDEO_DIR / SAVE_VIDEO from docker/.env (already-exported env values win).
+# VIDEO_DIR / SAVE_VIDEO / ALLOW_UNBOUNDED_RECORDING from docker/.env
+# (already-exported env values win).
 #   TRACKER_CONFIG  base tracker config to stage (default:
 #                   configs/ds-mv3dt-tracker-config.yml). Point this at your
 #                   own tracker config to use it instead of the sample.
@@ -66,12 +69,45 @@ RAW_TOPIC="${RAW_TOPIC:-mdx-raw}"
 OSD="${OSD:-0}"
 INPUT_MODE="${INPUT_MODE:-stream}"
 SAVE_VIDEO="${SAVE_VIDEO:-0}"
+ALLOW_UNBOUNDED_RECORDING="${ALLOW_UNBOUNDED_RECORDING:-0}"
+GPU_DEVICE="${GPU_DEVICE:-0}"
+
+if [ "$INPUT_MODE" = "stream" ] && [ "$SAVE_VIDEO" = "1" ] && [ "$ALLOW_UNBOUNDED_RECORDING" != "1" ]; then
+  echo "ERROR: INPUT_MODE=stream SAVE_VIDEO=1 would write an unbounded live recording to video-output/grid-view.mkv." >&2
+  echo "       The current DeepStream file sink does not configure segment rotation, size limits, or retention cleanup." >&2
+  echo "       Use INPUT_MODE=file for finite clips, or set ALLOW_UNBOUNDED_RECORDING=1 to explicitly accept this risk." >&2
+  exit 1
+fi
 
 TRACKER_CONFIG="${TRACKER_CONFIG:-$ROOT/configs/ds-mv3dt-tracker-config.yml}"
 [ -f "$TRACKER_CONFIG" ] || { echo "ERROR: tracker config not found: $TRACKER_CONFIG" >&2; exit 1; }
 
 KAFKA_HOST="${KAFKA_BOOTSTRAP%%:*}"
 KAFKA_PORT_ONLY="${KAFKA_BOOTSTRAP##*:}"
+NVENC_LESS_GPU_NAME=""
+
+# /dev/v4l2-nvenc is a Tegra signal, not a dGPU signal. For dGPU hosts, only
+# switch when the selected GPU is a known encoder-less compute SKU.
+is_nvenc_less_gpu_name() {
+  local name="$1"
+  [[ "$name" =~ (^|[^[:alnum:]])(A100|H100|H200|GB200|GB300)([^[:alnum:]]|$) ]]
+}
+
+detect_nvenc_less_gpu() {
+  local name
+
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    if is_nvenc_less_gpu_name "$name"; then
+      NVENC_LESS_GPU_NAME="$name"
+      return 0
+    fi
+  done < <(nvidia-smi --id="$GPU_DEVICE" --query-gpu=name --format=csv,noheader 2>/dev/null || true)
+
+  return 1
+}
 
 STAGE="$ROOT/generated/configs"
 GEN="$ROOT/generated"
@@ -154,6 +190,10 @@ set_ini sink1        msg-broker-conn-str "$KAFKA_HOST;$KAFKA_PORT_ONLY;$RAW_TOPI
 set_ini sink0 enable "$([ "$OSD" = 1 ] && echo 1 || echo 0)"          # on-screen OSD (needs a display)
 set_ini sink1 enable 1                                                # Kafka metadata sink
 set_ini sink2 enable "$([ "$SAVE_VIDEO" = 1 ] && echo 1 || echo 0)"   # grid file sink (SAVE_VIDEO)
+if [ "$SAVE_VIDEO" = "1" ] && detect_nvenc_less_gpu; then
+  set_ini sink2 enc-type 1
+  echo "   SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} -> using software encoder for sink2 (enc-type=1; no NVENC hardware encoder available)"
+fi
 
 # File input: static file:// [source-list], SEI extraction off, clips play once, and the
 # system clock stamped as NTP so the Kafka/BEV output has per-frame timestamps.
@@ -179,7 +219,11 @@ fi
 if [ "$SAVE_VIDEO" = "1" ]; then
   mkdir -p "$ROOT/video-output"
   chmod 777 "$ROOT/video-output"   # the container (possibly non-root) writes here
-  echo "   SAVE_VIDEO=1 → grid view into video-output/grid-view.mkv"
+  if [ "$INPUT_MODE" = "stream" ]; then
+    echo "   SAVE_VIDEO=1 with ALLOW_UNBOUNDED_RECORDING=1 -> unbounded live grid view into video-output/grid-view.mkv"
+  else
+    echo "   SAVE_VIDEO=1 -> finite grid view into video-output/grid-view.mkv"
+  fi
 fi
 
 # The container's runtime user must be able to read the bind-mounted configs
