@@ -120,8 +120,11 @@ The monitoring profile uses the configs under [`configs/`](configs/): [`promethe
 Only needed if you've edited files under [`src/`](src/) and want those changes baked into the running container. Otherwise skip this step.
 
 ```bash
-# From the rt-embed/ directory — Dockerfile expects src/ in the build context
-docker build -f docker/Dockerfile -t rtvi-embed:3.3.0-custom .
+# From the rt-embed/ directory — Dockerfile expects src/ in the build context.
+# The source build uses BuildKit bind mounts and requires the target architecture.
+DOCKER_BUILDKIT=1 docker build --network host \
+  --build-arg TARGETARCH="$(dpkg --print-architecture)" \
+  -f docker/Dockerfile -t rtvi-embed:3.3.0-custom .
 ```
 
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:

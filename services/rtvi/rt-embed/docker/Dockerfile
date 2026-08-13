@@ -13,30 +13,371 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4"
-FROM ${BASE_IMAGE}
+ARG ARM_PLATFORM="sbsa"
 
-# Overlay the open-source RTVI Embed Python sources on top of the base image.
-# The base image already contains all third-party dependencies, the entrypoint
-# (/opt/nvidia/rtvi/start_rtvi_embed.sh), and a build-time copy of the sources;
-# this layer replaces those sources with the Apache-2.0 licensed tree.
-#
-# start_rtvi_embed.sh `cd`s into a subdirectory before running Python:
-#   MODE=release      → /opt/nvidia/rtvi/rtvi/   (default)
-#   MODE=development  → /opt/nvidia/rtvi/src/
-# We overlay BOTH paths so either mode picks up the Apache source.
-COPY --chown=1001:1001 src/ /opt/nvidia/rtvi/rtvi/
-COPY --chown=1001:1001 src/ /opt/nvidia/rtvi/src/
+######## Pytorch container
+FROM nvcr.io/nvidia/pytorch:26.03-py3 AS pytorch_src-amd64
+FROM nvcr.io/nvidia/pytorch:26.03-py3 AS pytorch_src-arm64
 
-# Overlay the entrypoint and codec installer from src/scripts/. The base
-# image already contains both; this layer replaces them with the Apache-2.0
-# copies. (Note: COPY src/ above also lands these at /opt/nvidia/rtvi/{rtvi,
-# src}/scripts/; the explicit COPYs below pin the canonical paths the
-# ENTRYPOINT expects.)
-COPY --chown=1001:1001 src/scripts/start_rtvi_embed.sh /opt/nvidia/rtvi/start_rtvi_embed.sh
-COPY --chown=1001:1001 src/scripts/install_codecs_nonroot.sh /opt/nvidia/rtvi/install_codecs_nonroot.sh
+FROM pytorch_src-$TARGETARCH AS pytorch_src
+##############################
+
+######## vLLM container
+FROM nvcr.io/nvidia/vllm:26.03-py3 AS vllm_src
+##############################
+
+######### Define base image per platform
+FROM nvcr.io/nvidia/tritonserver:26.03-py3 AS base-amd64
+
+RUN wget -O /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 \
+        https://github.com/NVIDIA/DeepStream/releases/download/v9.1.0/deepstream_sdk_v9.1.0_x86_64.tbz2 && \
+    tar xf /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 -C / && \
+    /opt/nvidia/deepstream/deepstream-9.1/install.sh && \
+    rm /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2
+
+FROM nvcr.io/nvidia/deepstream:9.1-triton-multiarch AS base-igpu
+FROM nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark AS base-sbsa
+
+FROM base-$ARM_PLATFORM AS base-arm64
+###############################
+
+######## Generate requirements.txt
+FROM pytorch_src AS generate-requirements
+ARG TARGETARCH
+RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
+    apt update && apt install python3.12-venv libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev pkg-config -y
+ADD https://raw.githubusercontent.com/pdm-project/pdm/75156a09d7e710d8e10117c2c7c88e8ce5097e7d/install-pdm.py /tmp/python/
+RUN echo "e1c7f6455fa7ffc50cbc13e4d49c06dfaaf8e9b74d0c9b46287bf767f6a4e4fc  /tmp/python/install-pdm.py" | sha256sum -c -
+RUN python3 /tmp/python/install-pdm.py
+COPY docker/py_deps/pdm.lock docker/py_deps/pyproject.toml /tmp/python/
+RUN cd /tmp/python/ && /root/.local/bin/pdm export -G ${TARGETARCH} --no-hashes > requirements.txt
+
+# Build GStreamer timestamp filter plugin
+COPY src/gst-plugins /tmp/gst-plugins
+RUN cd /tmp/gst-plugins && make
+
+# Builder base selection: Use the selected DeepStream image for ARM (has libgstnvdsseimeta.so)
+FROM base-${ARM_PLATFORM} AS builder-base-arm64
+FROM base-amd64 AS builder-base-amd64
+
+# Build stage for video_sei_metadata Python bindings
+FROM builder-base-${TARGETARCH} AS video_sei_metadata_builder
+ARG TARGETARCH
+
+# Install build dependencies (header is bundled in source).
+# Bind-mount ubuntu.sources like other stages so apt does not rely on
+# archive.ubuntu.com (often blocked or flaky off-corporate-network).
+RUN --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
+    apt update && apt install -y --no-install-recommends \
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev pkg-config \
+    python3.12-dev pybind11-dev wget && rm -rf /var/lib/apt/lists/*
+
+# DeepStream is already available in the selected builder base. amd64 installs
+# the public GitHub SDK in base-amd64; ARM uses the DeepStream base image.
+
+# Install pybind11 Python module and ensure python3-config is available
+RUN pip install pybind11 && \
+    if [ ! -f /usr/bin/python3-config ] && [ -f /usr/bin/python3.12-config ]; then \
+        ln -sf /usr/bin/python3.12-config /usr/bin/python3-config; \
+    fi
+
+# Copy source and Makefile
+COPY src/cpp/video_sei_metadata /build/video_sei_metadata
+COPY docker/binaries/igpu/libgstnvdsseimeta.so /tmp/libgstnvdsseimeta.so
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        mkdir -p /opt/nvidia/deepstream/deepstream/lib && \
+        cp -v /tmp/libgstnvdsseimeta.so /opt/nvidia/deepstream/deepstream/lib/ && \
+        chmod 755 /opt/nvidia/deepstream/deepstream/lib/libgstnvdsseimeta.so; \
+    fi && rm -f /tmp/libgstnvdsseimeta.so
+
+# Build the module (pass TARGETARCH to Makefile for platform-specific libs)
+RUN cd /build/video_sei_metadata && TARGETARCH=${TARGETARCH} make
+
+# Final docker stage
+ARG TARGETARCH
+FROM base-${TARGETARCH}
+ARG TARGETARCH
+ARG ARM_PLATFORM
+ARG FORCE_REBUILD=1
+RUN echo "Force rebuild = $FORCE_REBUILD"
+
+ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
+    HF_HOME=/tmp/huggingface \
+    TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 8.7 9.0 10.0 11.0 12.0+PTX" \
+    CUDA_CACHE_DISABLE=0 \
+    TRITON_CUDACRT_PATH=/usr/local/cuda/include \
+    TRITON_CUDART_PATH=/usr/local/cuda/include \
+    TRITON_CUOBJDUMP_PATH=/usr/local/cuda/bin/cuobjdump \
+    TRITON_CUPTI_PATH=/usr/local/cuda/include \
+    TRITON_NVDISASM_PATH=/usr/local/cuda/bin/nvdisasm \
+    TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
+    GST_PLUGIN_PATH=/opt/nvidia/rtvi/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins
+
+# Set LD_LIBRARY_PATH to include DeepStream libs (needed for gst_video_sei_meta module).
+# PyDS on ARM also dynamically loads DeepStream and Tegra runtime libraries.
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/lib/aarch64-linux-gnu/tegra:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+
+RUN mkdir -p /tmp/huggingface
+
+RUN --mount=type=bind,source=docker/requirements_apt.txt,target=/tmp/requirements_apt.txt \
+    --mount=type=bind,source=docker/ubuntu.sources.${TARGETARCH},target=/etc/apt/sources.list.d/ubuntu.sources \
+    sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list \
+    && apt update \
+    && apt install -y --no-install-recommends $(cat /tmp/requirements_apt.txt) \
+    && packagekit_packages="$(dpkg-query -W -f='${binary:Package}\n' packagekit packagekit-tools 2>/dev/null || true)" \
+    && if [ -n "$packagekit_packages" ]; then apt-get purge -y --auto-remove $packagekit_packages; fi \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/lib/*-linux-gnu/gstreamer-1.0/libgstaudioparsers.so \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstfaad.so \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstvoaacenc.so \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstx264.so \
+        /usr/lib/*-linux-gnu/libavresample* /usr/lib/*-linux-gnu/libavutil* \
+        /usr/lib/*-linux-gnu/libavcodec* /usr/lib/*-linux-gnu/libavformat* \
+        /usr/lib/*-linux-gnu/libavfilter* /usr/lib/*-linux-gnu/gstreamer-1.0/libgstde265.so* \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstx265.so* /usr/lib/*-linux-gnu/libde265.so* \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstvpx.so* \
+        /usr/lib/*-linux-gnu/libmpeg2.so.0* /usr/lib/*-linux-gnu/libmpeg2encpp-2.1.so* /usr/lib/*-linux-gnu/libmpg123.so* \
+        /usr/lib/*-linux-gnu/libx265.so* /usr/lib/*-linux-gnu/libx264.so* /usr/lib/*-linux-gnu/libvpx.so* \
+        /usr/lib/*-linux-gnu/libmpeg2convert.so* /usr/lib/*-linux-gnu/gstreamer-1.0/libgstopenh264.so \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstnvcodec.so /usr/lib/*-linux-gnu/gio/modules/libgiolibproxy.so \
+        /usr/lib/*-linux-gnu/libdca.so* /usr/lib/*-linux-gnu/libdvdnav.so* \
+        /usr/lib/*-linux-gnu/libdvdread.so* /usr/lib/*-linux-gnu/libfaad* \
+        /usr/lib/*-linux-gnu/libFLAC.so* /usr/lib/*-linux-gnu/libjbig.so* \
+        /usr/lib/*-linux-gnu/libmjpegutils-2.1.so* /usr/lib/*-linux-gnu/libmpeg2encpp-2.1.so* \
+        /usr/lib/*-linux-gnu/libmplex2-2.1.so* /usr/lib/*-linux-gnu/libslang.so* \
+        /usr/lib/*-linux-gnu/libxvidcore.so* /usr/lib/*-linux-gnu/libzvbi* \
+        /usr/lib/*-linux-gnu/libvo-aacenc.so* /usr/lib/*-linux-gnu/libjack* \
+        /usr/lib/*-linux-gnu/libswresample.so.3* /usr/lib/*-linux-gnu/libopenh264.so.* \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstmpegpsmux.so \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstuvch264.so \
+        /usr/lib/*-linux-gnu/libmp3lame.so.0.0.0 /usr/lib/*-linux-gnu/libmp3lame.so.0 \
+        /usr/lib/*-linux-gnu/mfx/libmfx_h264la_hw64.so /usr/lib/*-linux-gnu/gstreamer-1.0/libgstflac.so \
+        /usr/lib/*-linux-gnu/gstreamer-1.0/libgstmpeg2enc.so /usr/lib/*-linux-gnu/gstreamer-1.0/libgstmpeg2dec.so \
+        /opt/tritonserver/backends/dali/wheel/dali/nvidia/dali/.libs/libFLAC-69eaf1ee.so.12 \
+        /usr/share/icons/Adwaita \
+        /usr/bin/gtk-update-icon-cache \
+        /usr/sbin/update-icon-caches \
+        /usr/share/icons/hicolor \
+        /usr/share/icons/Humanity* \
+        /usr/lib/*-linux-gnu/directfb-1.7-7 \
+        /usr/lib/*-linux-gnu/libdirect*.so* \
+        /usr/lib/*-linux-gnu/libfusion* \
+        /usr/lib/*-linux-gnu/liblrdf.so* \
+        /usr/lib/*-linux-gnu/libneon.so* \
+        /usr/lib/*-linux-gnu/libpipewire* \
+        /usr/lib/*-linux-gnu/libraptor2* \
+        /usr/lib/*-linux-gnu/spa-0.2 \
+        /usr/lib/*-linux-gnu/libunibreak* \
+        /usr/lib/*-linux-gnu/libZXing* \
+        /usr/lib/*-linux-gnu/libgallium* \
+        /usr/share/icons/ubuntu-mono* \
+        /usr/share/icons/LoginIcons
+
+RUN apt remove libslurm40t64 libpmi2-0t64 -y --purge && apt autoremove --purge -y
+
+# Register the x86 DeepStream libv4l CUVID plugin after the final apt layer has
+# created the system libv4l plugin directory.
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        mkdir -p /usr/lib/x86_64-linux-gnu/libv4l/plugins && \
+        update-alternatives --install \
+            /usr/lib/x86_64-linux-gnu/libv4l/plugins/libcuvidv4l2_plugin.so \
+            deepstream-v4l2plugin \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/libv4l/plugins/libcuvidv4l2_plugin.so \
+            91; \
+    fi
+
+# Copy vendored DeepStream runtime patches. The iGPU base uses its R39 Jetson
+# decoder plugin, while SBSA needs the generic aarch64 replacement.
+RUN --mount=type=bind,source=docker/binaries/,target=/tmp/binaries \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        mkdir -p /opt/nvidia/rtvi/warmup_streams && \
+        cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
+        cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h265.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
+        rm -rf /opt/nvidia/deepstream/deepstream/samples/ && \
+        rm -rf /opt/nvidia/deepstream/deepstream/sources/ && \
+        rm -rd /opt/nvidia/deepstream/deepstream/bin && \
+        rm -rf /opt/nvidia/deepstream/deepstream/service-maker/sources/ && \
+        cp /tmp/binaries/amd64/libgstrtpmanager.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/ && \
+        cp /tmp/binaries/amd64/libgstrtsp.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/ && \
+        cp /tmp/binaries/amd64/libgstvideoparsersbad.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/; \
+    else \
+        mkdir -p /opt/nvidia/rtvi/warmup_streams && \
+        cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
+        cp /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h265.mp4 /opt/nvidia/rtvi/warmup_streams/ && \
+        cp /tmp/binaries/arm64/libgstrtpmanager.so /usr/lib/aarch64-linux-gnu/gstreamer-1.0/ && \
+        cp /tmp/binaries/arm64/libgstrtsp.so /usr/lib/aarch64-linux-gnu/gstreamer-1.0/ && \
+        cp /tmp/binaries/arm64/libgstvideoparsersbad.so /usr/lib/aarch64-linux-gnu/gstreamer-1.0/ && \
+        if [ "$ARM_PLATFORM" = "sbsa" ]; then \
+            cp /tmp/binaries/arm64/libgstnvvideo4linux2.so /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/; \
+        fi; \
+    fi
+
+# Avoid warnings about missing plugins
+RUN rm -f /usr/lib/x86_64-linux-gnu/gstreamer-1.0/deepstream/libnvdsgst_udp.so && \
+    rm -f /usr/lib/x86_64-linux-gnu/gstreamer-1.0/deepstream/libnvdsgst_nvmultiurisrcbin.so && \
+    rm -f /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstlame.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstsndfile.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstteletext.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstzxing.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstresindvd.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstassrender.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstdtsdec.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstladspa.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmpg123.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenmpt.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstspandsp.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpulseaudio.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaasink.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstneonhttpsrc.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstfluidsynthmidi.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcacasink.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstdirectfb.so \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmplex.so
+
+RUN --mount=type=bind,source=docker/binaries/,target=/tmp/binaries \
+    if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "igpu" ]; then \
+        mkdir -p /opt/nvidia/rtvi/lib /opt/nvidia/rtvi/gst-plugins && \
+        cp /tmp/binaries/igpu/libnvbufsurface.so /opt/nvidia/rtvi/lib/libnvbufsurface.so && \
+        cp /tmp/binaries/igpu/libnvbufsurface.so /opt/nvidia/rtvi/lib/libnvbufsurface.so.1.0.0 && \
+        cp /tmp/binaries/igpu/libnvbufsurftransform.so /opt/nvidia/rtvi/lib/libnvbufsurftransform.so && \
+        cp /tmp/binaries/igpu/libnvbufsurftransform.so /opt/nvidia/rtvi/lib/libnvbufsurftransform.so.1.0.0 && \
+        cp /tmp/binaries/igpu/libgstnvvideo4linux2.so /opt/nvidia/rtvi/gst-plugins/ && \
+        chmod 755 /opt/nvidia/rtvi/gst-plugins/libgstnvvideo4linux2.so; \
+    fi
+
+RUN --mount=type=bind,from=generate-requirements,source=/tmp/python/requirements.txt,target=/tmp/requirements.txt \
+    --mount=type=cache,target=/root/.cache/pip \
+    pip install -r /tmp/requirements.txt --no-deps --ignore-installed \
+    && rm -f /usr/local/lib/python3.12/dist-packages/decord.libs/libx264*
+
+# The SBSA FlashInfer cubin wheel bundles the TensorRT-LLM batched-GEMM
+# headers in its versioned artifact directory, while the runtime looks for
+# them under the FlashInfer cache path. Populate that path at build time so
+# the non-root VLM user does not attempt to write under site-packages.
+RUN if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "sbsa" ]; then \
+        set -eux; cubin_root=/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins; \
+        artifact_rel=b55211623be7f5697c5262ffd8361fc06c147bc9/batched_gemm-b3c1646-c111d7c; \
+        source_rel=include/trtllmGen_bmm_export; \
+        destination="$cubin_root/flashinfer/trtllm/batched_gemm/trtllmGen_bmm_export"; \
+        cd "$cubin_root/$artifact_rel"; \
+        grep -E "  include/(flashinferMetaInfo[.]h|trtllmGen_bmm_export/)" checksums.txt | sha256sum -c -; \
+        mkdir -p "$destination"; cp -a "$cubin_root/$artifact_rel/$source_rel/." "$destination/"; \
+        printf '%s' "$artifact_rel/" > "$destination/.artifact_hash"; \
+    fi
+
+RUN --mount=type=bind,from=pytorch_src,source=/usr/local/lib/python3.12/dist-packages,target=/tmp/pytorch_src \
+    /bin/bash -lc 'set -e; shopt -s nullglob; \
+    rm -rf /usr/local/lib/python3.12/dist-packages/flash_attn* \
+        /usr/local/lib/python3.12/dist-packages/triton \
+        /usr/local/lib/python3.12/dist-packages/triton-*.dist-info; \
+    cp -r /tmp/pytorch_src/{torch,functorch,torchgen,torch-*,torchvision*,flash_attn*,tensorrt*,triton,triton-*.dist-info,pytorch_triton-*} \
+        /usr/local/lib/python3.12/dist-packages/; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        sed -i "/self.capability = target.arch/a\\        if self.capability == 121: self.capability = 120" /usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/compiler.py; \
+    fi'
+
+COPY --from=pytorch_src /usr/local/lib/libnvpl* /usr/local/lib/
+
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        pip install https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_x86_64.whl --no-deps; \
+    else \
+        pip install https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.2/pyds-1.2.2-cp312-cp312-linux_aarch64.whl --no-deps; \
+    fi
+
+COPY LICENSE.3rdparty /opt/nvidia/rtvi/
+
+RUN --mount=type=bind,src=src/cpp/nvdec_get_count,target=/tmp/nvdec_get_count \
+    cp -r /tmp/nvdec_get_count /tmp/nvdec_get_count_rw && \
+    make install -C /tmp/nvdec_get_count_rw && rm -rf /tmp/nvdec_get_count_rw
+
+# Install GStreamer SEI metadata Python bindings (copy from build stage)
+COPY --from=video_sei_metadata_builder /build/video_sei_metadata/gst_video_sei_meta*.so /usr/local/lib/python3.12/dist-packages/
+
+# For ARM (SBSA and iGPU): Copy libgstnvdsseimeta.so from pre-built binaries
+# This library is required for GStreamer SEI metadata support
+RUN if [ "$TARGETARCH" = "arm64" ]; then mkdir -p /opt/nvidia/deepstream/deepstream/lib; fi
+COPY docker/binaries/igpu/libgstnvdsseimeta.so /tmp/libgstnvdsseimeta.so
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        cp -v /tmp/libgstnvdsseimeta.so /opt/nvidia/deepstream/deepstream/lib/ && \
+        chmod 755 /opt/nvidia/deepstream/deepstream/lib/libgstnvdsseimeta.so; \
+    fi && rm -f /tmp/libgstnvdsseimeta.so
+
+# Install GStreamer timestamp filter plugin
+RUN --mount=type=bind,from=generate-requirements,source=/tmp/gst-plugins/libgsttimestampfilter.so,target=/tmp/libgsttimestampfilter.so \
+    MULTIARCH=$([ "$TARGETARCH" = "amd64" ] && echo x86_64-linux-gnu || echo aarch64-linux-gnu) && \
+    cp /tmp/libgsttimestampfilter.so /usr/lib/${MULTIARCH}/gstreamer-1.0/
+
+RUN mkdir -p /home/triton-server /var/log/rtvi \
+    && chmod -R +r /opt/nvidia/rtvi/warmup_streams /home/triton-server /var/log/rtvi
+
+# Embed application layers, appended directly to the combined base stage.
+ARG NSPECT_ID="NSPECT-KNMC-UF4J"
+LABEL com.nvidia.mm.nspect="${NSPECT_ID}"
+
+# Server containers do not need PackageKit's D-Bus package-management service.
+# Remove it if an inherited base image includes it (CVE-2026-41651).
+RUN packagekit_packages="$(dpkg-query -W -f='${binary:Package}\n' packagekit packagekit-tools 2>/dev/null || true)" \
+    && if [ -n "$packagekit_packages" ]; then apt-get purge -y --auto-remove $packagekit_packages; fi \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the complete open-source RTVI Embed tree for both runtime modes.
+# MODE=release imports from /opt/nvidia/rtvi/rtvi; MODE=development imports
+# from /opt/nvidia/rtvi/src.
+COPY src/ /opt/nvidia/rtvi/rtvi/
+COPY src/ /opt/nvidia/rtvi/src/
+RUN mkdir -p /opt/mm/
+
+# Install transformers==4.52.4 needed by Cosmos-Embed1-448p model
+RUN pip install transformers==4.52.4 >/dev/null
+
+# DLFW 26.03 carries Torch 2.11 while onnxscript 0.5.7 has shims up to Torch 2.9.
+# Cosmos-Embed1 model repo generation imports the Torch-versioned onnxscript shim.
+RUN python3 -c "from pathlib import Path; \
+p=Path('/usr/local/lib/python3.12/dist-packages/onnxscript/_framework_apis'); \
+src=p/'torch_2_9.py'; dst=p/'torch_2_11.py'; \
+src.exists() or (_ for _ in ()).throw(FileNotFoundError(f'Missing onnxscript shim source: {src}')); \
+dst.exists() or dst.write_text(src.read_text())"
+
+COPY src/scripts/start_rtvi_embed.sh /opt/nvidia/rtvi/
+COPY src/scripts/install_codecs_nonroot.sh /opt/nvidia/rtvi/
+
+# Ship the NVIDIA Software License Agreement alongside the source tree (WORKDIR).
+COPY docker/NVIDIA-Software-License-Agreement.pdf /opt/nvidia/rtvi/
+
+# To allow helm chart start script to copy updated config:
+ENV PATH=$PATH:/opt/nvidia/rtvi/
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/tritonserver/lib/
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib/:$LD_LIBRARY_PATH
+
+# Embed does not use PyAV; remove FFmpeg LGPL runtime libraries if the base image ships them under /usr.
+# Use rm -rf (not find -delete): arm64 base images also ship share/doc/libav* directories.
+# This also clears the FFmpeg libs bundled inside Python wheels under
+# /usr/local/lib/python3.12/dist-packages/ (opencv_python*.libs) -
+# libavdevice/libswresample/libswscale in addition to libav{codec,format,filter,util}.
+# libmfx* covers the Intel Media SDK libs (libmfx, libmfx-tracer, libmfxhw64) under
+# /usr/lib, and libavif* covers the AV1 codec bundled in pillow.libs.
+# libgstmsdk* drops the GStreamer Intel Media SDK (QSV) plugin, which is unused on
+# NVIDIA hardware (decode goes through NVDEC) and otherwise logs a load warning once
+# libmfx is removed.
+# Also remove the FFmpeg libs bundled in the DALI wheel under /opt/tritonserver
+# (e.g. .libs/libavcodec-<hash>.so.61).
+RUN cd /usr && find . -depth \( -name 'libavcodec*' -o -name 'libavformat*' -o -name 'libavfilter*' -o -name 'libavutil*' -o -name 'libavdevice*' -o -name 'libswresample*' -o -name 'libswscale*' -o -name 'libmfx*' -o -name 'libavif*' -o -name 'libgstmsdk*' \) -exec rm -rf {} + \
+    ; find /opt/tritonserver/backends/dali \( -name 'libavcodec*' -o -name 'libavformat*' -o -name 'libavfilter*' -o -name 'libavutil*' -o -name 'libavdevice*' -o -name 'libswresample*' -o -name 'libswscale*' \) -type f -delete 2>/dev/null || true
+
+# Create user with UID/GID 1001 for non-root execution and set permissions.
+# install_codecs_nonroot.sh runs apt-get update at startup using user-owned state dirs,
+# so build-time apt lists are not needed and are cleaned up to keep the image smaller.
+RUN groupadd --gid 1001 --non-unique vss && \
+    useradd --create-home --shell /usr/sbin/nologin --uid 1001 --non-unique --gid 1001 vss && \
+    chown -R 1001:1001 /opt/nvidia/rtvi/ && chmod -R 755 /opt/nvidia/rtvi/ && chmod -R 755 /opt/mm/ && \
+    mkdir -p /tmp/huggingface /tmp/triton_model_repo /opt/nvidia/rtvi/.rtvi/ngc_model_cache /opt/nvidia/rtvi/codecs && \
+    chown -R 1001:1001 /tmp/huggingface /tmp/triton_model_repo /opt/nvidia/rtvi/.rtvi/ngc_model_cache /opt/nvidia/rtvi/codecs && \
+    chmod -R 755 /tmp/huggingface /tmp/triton_model_repo /opt/nvidia/rtvi/.rtvi/ngc_model_cache
 
 USER vss:1001
+
 WORKDIR /opt/nvidia/rtvi/
 
 ENTRYPOINT ["/opt/nvidia/rtvi/start_rtvi_embed.sh"]
