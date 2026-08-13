@@ -405,7 +405,9 @@ jobs:
           # A run-scoped name avoids inheriting a prior run's sandbox lifecycle
           # lock on a reused worker; Docker resources are still reset below.
           export NEMOCLAW_SANDBOX_NAME="skill-eval-${GITHUB_RUN_ID}"
-          export NEMOCLAW_GATEWAY_PORT=8080
+          # Keep CI's NemoClaw gateway/state separate from interactive sandboxes
+          # already registered on the worker's default port (8080).
+          export NEMOCLAW_GATEWAY_PORT=8990
           export NEMOCLAW_INSTALL_REF=v0.0.108
           export HARDWARE_PROFILE=RTXPRO6000BW
           export NEMOCLAW_SETUP_TIMEOUT_SEC=5400
