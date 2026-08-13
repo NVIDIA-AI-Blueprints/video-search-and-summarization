@@ -92,6 +92,26 @@ export NGC_CLI_API_KEY="<your-key>"
 ./deploy/docker/scripts/dev-profile.sh --help
 ```
 
+### LVS GPU hardware metrics
+
+The LVS developer profile starts NVIDIA DCGM Exporter alongside the application.
+It uses NVIDIA Data Center GPU Manager to expose host GPU telemetry in Prometheus
+format at `http://localhost:9400/metrics`, including GPU and decoder utilization,
+frame-buffer usage, power draw, and temperature when supported by the GPU and
+driver.
+
+```bash
+# Verify the exporter is ready and inspect its GPU metrics.
+curl --fail http://localhost:9400/metrics |
+  grep -E 'DCGM_FI_DEV_(GPU_UTIL|DEC_UTIL|FB_USED|POWER_USAGE|GPU_TEMP)'
+```
+
+Set `DCGM_EXPORTER_HOST_PORT` in
+`developer-profiles/dev-profile-lvs/overrides.env` if port 9400 is already in
+use. The exporter requires the NVIDIA driver, NVIDIA Container Toolkit, and a
+GPU supported by DCGM. Its `/metrics` endpoint can be scraped directly by
+Prometheus, Dynatrace, or another Prometheus-compatible monitoring system.
+
 Each developer profile ships a stable **`.env`** and a mutable
 **`overrides.env`** under **`developer-profiles/dev-profile-<profile>/`**. On
 `up`, the helper reads both, copies `overrides.env` to **`generated.env`**, adds
