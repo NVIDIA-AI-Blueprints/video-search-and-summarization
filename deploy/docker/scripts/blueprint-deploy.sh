@@ -278,7 +278,7 @@ function usage() {
   echo "Options for 'up':"
   echo "  -d, --deployment                 [REQUIRED] Deployment type."
   echo "                                   • warehouse — .env under industry-profiles/warehouse-operations/"
-  echo "  -m, --mode                       Deployment mode: 2d (default), 3d, or mv3dt"
+  echo "  -m, --mode                       Deployment mode for non-auto-calibration profiles: 2d (default), 3d, or mv3dt"
   echo "  -p, --bp-profile                Blueprint profile:"
   echo "                                   • bp_wh_auto_calib: mode-independent"
   echo "                                   • Other profiles must match MODE (see .env header)"
@@ -949,18 +949,24 @@ function state_up() {
 
     # Select explicit service-list variable for the active warehouse variant.
     local _cp_var
-    case "${bp_profile}_${mode}" in
-      bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
-      bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
-      bp_wh_redis_2d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_2D" ;;
-      bp_wh_kafka_3d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
-      bp_wh_redis_3d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
-      bp_wh_kafka_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_KAFKA_MV3DT" ;;
-      bp_wh_redis_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_REDIS_MV3DT" ;;
-      bp_wh_auto_calib)      _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB" ;;
+    case "${bp_profile}" in
+      bp_wh_auto_calib)
+        _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB"
+        ;;
       *)
-        echo "[ERROR] Unknown warehouse bp-profile/mode combination: ${bp_profile}/${mode}"
-        return 1
+        case "${bp_profile}_${mode}" in
+          bp_wh_2d)          _cp_var="COMPOSE_PROFILES_WH_2D" ;;
+          bp_wh_kafka_2d)    _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
+          bp_wh_redis_2d)    _cp_var="COMPOSE_PROFILES_WH_REDIS_2D" ;;
+          bp_wh_kafka_3d)    _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
+          bp_wh_redis_3d)    _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
+          bp_wh_kafka_mv3dt) _cp_var="COMPOSE_PROFILES_WH_KAFKA_MV3DT" ;;
+          bp_wh_redis_mv3dt) _cp_var="COMPOSE_PROFILES_WH_REDIS_MV3DT" ;;
+          *)
+            echo "[ERROR] Unknown warehouse bp-profile/mode combination: ${bp_profile}/${mode}"
+            return 1
+            ;;
+        esac
         ;;
     esac
     set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
