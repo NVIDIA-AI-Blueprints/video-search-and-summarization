@@ -179,6 +179,13 @@ spec:
               value: {{ .Values.messageBus | quote }}
             - name: MESSAGE_BUS_TOPIC
               value: {{ .Values.messageBusTopic | default "mdx-embed" | quote }}
+            # Legacy image-contract flags mirrored from Compose. Kept alongside
+            # MESSAGE_BUS/MESSAGE_BUS_TOPIC so image tags that still read the
+            # KAFKA_* envs continue to publish embeddings under Helm.
+            - name: KAFKA_ENABLED
+              value: {{ .Values.kafkaEnabled | default "" | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ .Values.kafkaTopic | default (.Values.messageBusTopic | default "mdx-embed") | quote }}
             - name: ERROR_BUS
               value: {{ .Values.errorBus | quote }}
             - name: REDIS_HOST
