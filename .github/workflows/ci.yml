@@ -1324,6 +1324,28 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
+  # Job 12: OSRB dispatch wiring
+  # ---------------------------------------------------------------------------
+  # The OSRB Review workflow itself runs on `workflow_run` from the default
+  # branch, so a pull request never executes its own copy. These tests are the
+  # only pre-merge signal on that wiring: they assert the workflow supplies
+  # every variable the downstream helpers require, keeps the private code-ref
+  # choice out of the public repo, and creates the check before anything that
+  # can fail.
+  osrb-dispatch:
+    name: OSRB Dispatch Wiring
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the OSRB dispatch boundary
+        run: python3 .github/scripts/test_osrb_dispatch.py
+
+  # ---------------------------------------------------------------------------
   # Job 13: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
