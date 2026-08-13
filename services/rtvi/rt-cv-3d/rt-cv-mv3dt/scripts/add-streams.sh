@@ -632,7 +632,19 @@ if isinstance(v, bool):
 }
 
 # ── 1. Wait for the perception REST API ─────────────────────────────────────
-check_sei_frame_ids "${STREAMS[0]#*=}" || exit 2
+# One run can add streams from more than one VST host, and each host carries its
+# own enable_proxy_server_sei_metadata. Check every distinct host, not just the
+# first: a later host with it off would otherwise register and never activate.
+# Deduplicated so the usual single-host case still makes one request.
+sei_checked=""
+for entry in "${STREAMS[@]}"; do
+  sei_url="${entry#*=}"
+  sei_host="${sei_url#rtsp://}"; sei_host="${sei_host%%/*}"; sei_host="${sei_host%%:*}"
+  [[ -n "$sei_host" ]] || continue
+  case " $sei_checked " in *" $sei_host "*) continue ;; esac
+  sei_checked="$sei_checked $sei_host"
+  check_sei_frame_ids "$sei_url" || exit 2
+done
 
 echo "── Waiting up to ${READY_TIMEOUT}s for ${BASE}/api/v1/ready → ds-ready: YES"
 deadline=$(( SECONDS + READY_TIMEOUT ))
