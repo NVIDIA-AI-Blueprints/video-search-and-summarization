@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Rebuild bump: edit this block to re-trigger the CI image build.
+#   [1]: inventory platforms expanded to amd64+arm64
 
 ARG PYTHON_VERSION=3.13
 ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.5
