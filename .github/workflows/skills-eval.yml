@@ -408,6 +408,9 @@ jobs:
           # Keep CI's NemoClaw gateway/state separate from interactive sandboxes
           # already registered on the worker's default port (8080).
           export NEMOCLAW_GATEWAY_PORT=8990
+          # Run-scoped sandboxes must not inherit a stale OpenShell dashboard
+          # forward from another run on this reused worker.
+          export NEMOCLAW_DASHBOARD_PORT=$((20000 + GITHUB_RUN_ID % 40000))
           export NEMOCLAW_INSTALL_REF=v0.0.108
           export HARDWARE_PROFILE=RTXPRO6000BW
           export NEMOCLAW_SETUP_TIMEOUT_SEC=5400
