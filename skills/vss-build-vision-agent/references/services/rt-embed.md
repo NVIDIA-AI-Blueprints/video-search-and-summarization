@@ -10,7 +10,7 @@
 
 - Requires writable model caches and the VIOS clip-storage path.
 - Search event ingestion requires Kafka and the Search analytics owner: RT-Embed
-  publishes to `mdx-embed` (`RTVI_EMBED_KAFKA_TOPIC`), which the Search analytics
+  publishes to `mdx-embed` (`MESSAGE_BUS_TOPIC`), which the Search analytics
   owner filters into `mdx-embed-filtered` (see `services/search.md` for the full
   write path).
 - `HF_TOKEN` is required only for gated or authenticated Hugging Face access.
@@ -23,21 +23,20 @@
 | `RTVI_EMBED_IMAGE`, `RTVI_EMBED_TAG`, `RTVI_EMBED_PORT`, `RT_EMBED_DEVICE_ID` | Select image, host port, and GPU. |
 | `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`, `MODEL_REPOSITORY_SCRIPT_PATH` | Select a supported embedding model implementation. |
 | `RTVI_EMBED_NUM_VLM_PROCS`, `RTVI_EMBED_NUM_GPUS`, `VLM_BATCH_SIZE` | Tune execution parallelism. |
-| `RTVI_EMBED_KAFKA_ENABLED`, `RTVI_EMBED_KAFKA_TOPIC`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding event publishing (see note below). |
+| `MESSAGE_BUS`, `MESSAGE_BUS_TOPIC`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding event publishing (see note below). |
 | `RTVI_EMBED_HF_CACHE`, `NGC_MODEL_CACHE`, `HF_TOKEN`, `NGC_API_KEY` | Configure model caches and credentials. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
 
 ## Kafka output contract
 
-The Search Foundation defaults `RTVI_EMBED_KAFKA_ENABLED=false`. When a
-generated profile requires embedding events to flow through Kafka, set both
-`RTVI_EMBED_KAFKA_ENABLED=true` and `RTVI_EMBED_KAFKA_TOPIC=mdx-embed` in the
-build `override.env`. The root Compose include path does not load
-`services/rtvi/rtvi-embed/.env`, and the service compose fallback topic is
-`vision-embed-messages`, which does not feed the Search analytics `mdx-embed`
--> `mdx-embed-filtered` indexing path. Without this override the embedding
-write path is broken: RT-Embed produces no Kafka output and
-`mdx-embed-filtered` remains empty.
+The generated-output bus is off unless `MESSAGE_BUS` is set: the root Compose
+include path does not load `services/rtvi/rtvi-embed/.env` (which sets
+`MESSAGE_BUS=kafka`), so it falls back to the compose default empty value, which
+disables Kafka output entirely. When a generated profile requires embedding
+events to flow through Kafka, set both `MESSAGE_BUS=kafka` and
+`MESSAGE_BUS_TOPIC=mdx-embed` in the build `override.env`. Without this override
+the embedding write path is broken: RT-Embed produces no Kafka output and the
+Search analytics `mdx-embed` -> `mdx-embed-filtered` indexing path stays empty.
 
 ## Placement and sizing
 
