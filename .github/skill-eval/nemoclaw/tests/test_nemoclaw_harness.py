@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import ast
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -26,7 +27,7 @@ def _load(name: str, path: Path):
     return module
 
 
-class NotebookAdapterTests(unittest.TestCase):
+class NotebookRunnerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.adapter = _load(
@@ -34,195 +35,100 @@ class NotebookAdapterTests(unittest.TestCase):
             NEMOCLAW_DIR / "notebook_setup_adapter.py",
         )
 
-    def test_manifest_selects_current_notebook_cells(self) -> None:
-        manifest = json.loads(
-            (NEMOCLAW_DIR / "notebook_cells.json").read_text(encoding="utf-8")
-        )
-        notebooks = []
-        for section in manifest["notebooks"]:
-            notebook = json.loads(
-                (REPO_ROOT / section["notebook"]).read_text(encoding="utf-8")
-            )
-            ids = {cell.get("id") for cell in notebook["cells"]}
-            self.assertTrue(set(section["cells"]) <= ids)
-            notebooks.append(notebook)
-
-        composed = self.adapter.build_notebooks(notebooks, manifest)
-        cells = {cell.get("id"): cell for cell in composed["cells"]}
-        self.assertEqual(len(composed["cells"]), 24)
-        self.assertIn("_cdi_gpu_devices", cells["f6a006d3"]["source"])
-        self.assertIn(
-            "AGENT_HOOKS_ENABLED = False",
-            cells["e67f6da4"]["source"],
-        )
-        skill_source = cells["s34-code"]["source"]
-        self.assertIn("shields down ", skill_source)
-        self.assertIn("--timeout 15m --reason", skill_source)
-        self.assertIn("try:\n", skill_source)
-        self.assertIn("finally:\n", skill_source)
-        self.assertIn("shields up", skill_source)
-        self.assertLess(
-            skill_source.index("try:\n"),
-            skill_source.index("shields down"),
-        )
-        self.assertLess(
-            skill_source.index("shields down"),
-            skill_source.index("_skill_install_cmd"),
-        )
-        self.assertLess(
-            skill_source.index("_skill_install_cmd"),
-            skill_source.index("finally:\n"),
-        )
-        self.assertLess(
-            skill_source.index("finally:\n"),
-            skill_source.index("shields up"),
-        )
-        workspace_source = cells["s35-code"]["source"]
-        self.assertIn('reason "skill-eval workspace setup"', workspace_source)
-        self.assertIn("shields down failed before workspace upload", workspace_source)
-        self.assertIn("_remote_doc =", workspace_source)
-        self.assertIn("rm -rf --", workspace_source)
-        self.assertIn("workspace cleanup failed", workspace_source)
-        self.assertLess(
-            workspace_source.index("_cleanup_script"),
-            workspace_source.index("_upload_cmd"),
-        )
-        self.assertLess(
-            workspace_source.index("try:\n"),
-            workspace_source.index("shields down"),
-        )
-        self.assertLess(
-            workspace_source.index("_upload_cmd"),
-            workspace_source.index("finally:\n"),
-        )
-        self.assertLess(
-            workspace_source.index("finally:\n"),
-            workspace_source.index("shields up"),
-        )
-        mcp_registration_source = cells["s36-code"]["source"]
-        self.assertIn("mcporter", mcp_registration_source)
-        self.assertIn('"mcporter", "list"', mcp_registration_source)
-        self.assertIn("VSS Orchestrator MCP exposed no tools", mcp_registration_source)
-        rtsp_source = cells["s37-code"]["source"]
-        self.assertIn("config_sets = []", rtsp_source)
-        self.assertIn("env.vars.RTSP_SAMPLE_URL", rtsp_source)
-        self.assertIn("requires the fixed public relay", rtsp_source)
-        self.assertIn('reason "skill-eval agent config"', rtsp_source)
-        self.assertIn("shields down failed before agent config", rtsp_source)
-        self.assertLess(
-            rtsp_source.index("shields down"),
-            rtsp_source.index("env.vars.RTSP_SAMPLE_URL"),
-        )
-        self.assertLess(
-            rtsp_source.index("env.vars.RTSP_SAMPLE_URL"),
-            rtsp_source.index("finally:\n"),
-        )
-        self.assertLess(
-            rtsp_source.index("finally:\n"),
-            rtsp_source.index("shields up"),
-        )
-        self.assertNotIn("print(_rtsp_sample_url", rtsp_source)
-        self.assertIn("--no-install-package", cells["c13aaf5e"]["source"])
-        self.assertIn("ensure_agent_venv", cells["c13aaf5e"]["source"])
-        self.assertIn(
-            'env.pop("UV_PROJECT_ENVIRONMENT", None)',
-            cells["c13aaf5e"]["source"],
-        )
-        self.assertIn(
-            "Refusing to replace symlinked orchestrator environment",
-            cells["c13aaf5e"]["source"],
-        )
-        compile(
-            cells["c13aaf5e"]["source"],
-            "deploy_vss_orchestrator.ipynb:c13aaf5e",
-            "exec",
-        )
-        mcp_source = cells["042eabd1"]["source"]
-        self.assertIn(
-            "Path(config_arg).resolve() == Path(MCP_CONFIG_PATH).resolve()", mcp_source
-        )
-        self.assertIn('Path(arg).name == "nat"', mcp_source)
-        self.assertIn("Prepared MCP port for the current checkout", mcp_source)
-        self.assertIn("orchestrator-mcp.pid", mcp_source)
-        self.assertIn("os.kill(_pid, signal.SIGTERM)", mcp_source)
-        compile(
-            mcp_source,
-            "deploy_vss_orchestrator.ipynb:042eabd1",
-            "exec",
-        )
-        self.assertIn("ci-persist-env", cells)
-
-    def test_invalid_orchestrator_venv_is_rebuilt(self) -> None:
-        notebook = json.loads(
+    def test_checked_in_notebooks_run_in_documented_order(self) -> None:
+        self.assertEqual(
+            self.adapter.notebook_paths(REPO_ROOT),
             (
-                REPO_ROOT / "deploy/docker/scripts/deploy_vss_orchestrator.ipynb"
-            ).read_text(encoding="utf-8")
+                REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb",
+                REPO_ROOT / "deploy/docker/scripts/deploy_vss_orchestrator.ipynb",
+            ),
         )
-        cell = next(cell for cell in notebook["cells"] if cell.get("id") == "c13aaf5e")
-        patched = self.adapter._patch_ci_cell(
-            "c13aaf5e", self.adapter._normalize_cell(cell)
-        )
-        tree = ast.parse(patched["source"])
-        functions = [
-            node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name in {"uv_env_for_agent", "ensure_agent_venv"}
-        ]
-        module = ast.fix_missing_locations(ast.Module(body=functions, type_ignores=[]))
+        self.assertFalse((NEMOCLAW_DIR / "notebook_cells.json").exists())
 
-        with tempfile.TemporaryDirectory() as temporary:
-            agent_dir = Path(temporary) / "services/agent"
-            venv_dir = agent_dir / ".venv"
-            venv_dir.mkdir(parents=True)
-            commands: list[tuple[list[str], dict[str, object]]] = []
-
-            def fake_run(command, **kwargs):
-                commands.append((command, kwargs))
-                if command == ["uv", "venv", "--help"]:
-                    return subprocess.CompletedProcess(command, 0, stdout="  --force\n")
-                python = venv_dir / "bin/python"
-                python.parent.mkdir(parents=True, exist_ok=True)
-                python.write_text("#!/bin/sh\n", encoding="utf-8")
-                python.chmod(0o755)
-                return subprocess.CompletedProcess(command, 0)
-
-            namespace = {
-                "AGENT_DIR": agent_dir,
-                "ORCHESTRATOR_MCP_VENV_DIR": venv_dir,
-                "ORCHESTRATOR_MCP_PYTHON_VERSION": "3.13",
-                "os": os,
-                "subprocess": mock.Mock(run=fake_run),
-            }
-            exec(  # noqa: S102 - execute only AST extracted from a checked-in cell.
-                compile(module, "orchestrator-venv-repair", "exec"),
-                namespace,
+    def test_run_all_preserves_current_nvidia_inference_provider(self) -> None:
+        environment = {
+            "NGC_CLI_API_KEY": "ngc-test",
+            "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com",
+            "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-sonnet-4-6",
+            "ANTHROPIC_API_KEY": "provider-test-key",
+            "PATH": os.environ.get("PATH", ""),
+        }
+        self.adapter.prepare_environment(environment, root=REPO_ROOT)
+        notebook = json.loads(
+            (REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb").read_text(
+                encoding="utf-8"
             )
-            with mock.patch.dict(
-                os.environ,
-                {
-                    "VIRTUAL_ENV": "/outside/kernel",
-                    "UV_PROJECT_ENVIRONMENT": "/outside/project",
-                },
+        )
+        cells = {cell.get("id"): cell for cell in notebook["cells"]}
+        namespace: dict[str, object] = {}
+        with (
+            mock.patch.dict(os.environ, environment, clear=True),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            for cell_id in (
+                "994c77c2",
+                "47d20bb1",
+                "23c61200",
+                "ce326252",
+                "e67f6da4",
             ):
-                namespace["ensure_agent_venv"]()
+                source = "".join(cells[cell_id]["source"])
+                exec(  # noqa: S102 - checked-in notebook settings cells only.
+                    compile(source, f"deploy_nemoclaw.ipynb:{cell_id}", "exec"),
+                    namespace,
+                )
 
-            self.assertEqual(commands[0][0], ["uv", "venv", "--help"])
-            self.assertEqual(
-                commands[1][0],
-                [
-                    "uv",
-                    "venv",
-                    "--clear",
-                    "--force",
-                    "--python",
-                    "3.13",
-                    str(venv_dir),
-                ],
-            )
-            for _, kwargs in commands:
-                self.assertNotIn("VIRTUAL_ENV", kwargs["env"])
-                self.assertNotIn("UV_PROJECT_ENVIRONMENT", kwargs["env"])
+        self.assertEqual(namespace["NEMOCLAW_PROVIDER"], "custom")
+        self.assertEqual(
+            namespace["NEMOCLAW_ENDPOINT_URL"],
+            "https://inference-api.nvidia.com/v1",
+        )
+        self.assertEqual(
+            namespace["NEMOCLAW_MODEL"],
+            "aws/anthropic/bedrock-claude-sonnet-4-6",
+        )
+        self.assertTrue(namespace["NEMOCLAW_CLEAN_SETUP"])
+
+    def test_remote_vss_models_are_mapped_to_notebook_variables(self) -> None:
+        environment = {
+            "NGC_CLI_API_KEY": "ngc-test",
+            "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+            "ANTHROPIC_MODEL": "agent-model",
+            "ANTHROPIC_API_KEY": "provider-test-key",
+            "LLM_REMOTE_URL": "https://integrate.api.nvidia.com/v1",
+            "LLM_REMOTE_MODEL": "llm-model",
+            "VLM_REMOTE_URL": "https://integrate.api.nvidia.com/v1/models",
+            "VLM_REMOTE_MODEL": "vlm-model",
+        }
+        self.adapter.prepare_environment(environment, root=REPO_ROOT)
+        self.assertEqual(
+            environment["LLM_ENDPOINT_URL"], "https://integrate.api.nvidia.com"
+        )
+        self.assertEqual(environment["LLM_NAME"], "llm-model")
+        self.assertEqual(
+            environment["VLM_ENDPOINT_URL"], "https://integrate.api.nvidia.com"
+        )
+        self.assertEqual(environment["VLM_NAME"], "vlm-model")
+
+    def test_runtime_env_contains_coordinates_but_not_credentials(self) -> None:
+        environment = {
+            "NEMOCLAW_SANDBOX_NAME": "demo",
+            "NEMOCLAW_GATEWAY_PORT": "8080",
+            "ORCHESTRATOR_ENABLE_HTTPS": "false",
+            "VSS_ORCHESTRATOR_MCP_PORT": "9988",
+            "VSS_ORCHESTRATOR_MCP_URL": "http://host.openshell.internal:9988/mcp",
+            "VSS_ORCHESTRATOR_MCP_TYPE": "streamable-http",
+            "HOST_INTERNAL_ALIAS": "host.openshell.internal",
+            "HARDWARE_PROFILE": "RTXPRO6000BW",
+            "COMPATIBLE_API_KEY": "must-not-be-written",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "nemoclaw.env"
+            self.adapter.write_runtime_environment(output, environment)
+            content = output.read_text(encoding="utf-8")
+        self.assertIn("export NEMOCLAW_SANDBOX_NAME=demo", content)
+        self.assertIn("export MCP_URL=http://127.0.0.1:9988/mcp", content)
+        self.assertNotIn("must-not-be-written", content)
 
     def test_adapter_has_no_custom_secret_scrubber(self) -> None:
         source = (NEMOCLAW_DIR / "notebook_setup_adapter.py").read_text(
@@ -230,7 +136,8 @@ class NotebookAdapterTests(unittest.TestCase):
         )
         self.assertNotIn("SECRET" + "_TEXT_PATTERNS", source)
         self.assertNotIn("def _" + "redact", source)
-        self.assertIn("executed notebook was not persisted", source)
+        self.assertNotIn("nbformat.write", source)
+        self.assertIn("outputs were not persisted", source)
 
 
 class HeadlessTrajectoryTests(unittest.TestCase):
