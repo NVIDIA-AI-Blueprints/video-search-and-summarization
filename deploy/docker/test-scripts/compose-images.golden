@@ -57,6 +57,7 @@ deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nv
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
+deploy/docker/services/nvstreamer/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/services/rtvi/rtvi-cv/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init:develop-latest
@@ -72,7 +73,6 @@ deploy/docker/services/vios/initiator/docker-compose.yaml ${VST_SENSOR_IMAGE}
 deploy/docker/services/vios/initiator/docker-compose.yaml ${VST_SENSOR_IMAGE}
 deploy/docker/services/vios/initiator/docker-compose.yaml ${VST_SENSOR_IMAGE}
 deploy/docker/services/vios/initiator/docker-compose.yaml busybox:1.37.0
-deploy/docker/services/vios/nvstreamer/compose.yml nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ${VST_STREAM_PROCESSOR_IMAGE}
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ${VST_STREAM_PROCESSOR_IMAGE}
 deploy/docker/services/vios/streamprocessing/docker-compose.yaml ${VST_STREAM_PROCESSOR_IMAGE}

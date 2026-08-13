@@ -48,29 +48,22 @@ services:
 
   nvstreamer-3d:
     extends:
-      file: ${VSS_APPS_DIR}/services/vios/nvstreamer/compose.yml
+      file: ${VSS_APPS_DIR}/services/nvstreamer/compose.yml
       service: nvstreamer-base
-    container_name: vss-vios-nvstreamer
-    networks:
-      default:
-        aliases:
-          - vss-vios-nvstreamer
-    runtime: nvidia
     profiles: ["nvstreamer-3d"]
-    ports:
-      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
+    runtime: nvidia
     deploy:
       resources:
         reservations:
           devices:
-          - capabilities:
-            - gpu
-            device_ids:
-            - "${RT_CV_DEVICE_ID:-0}"
+            - capabilities:
+                - gpu
+              device_ids:
+                - "${RT_CV_DEVICE_ID:-0}"
     volumes:
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_3D_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${NVSTREAMER_3D_CONFIG_DIR}/notification-config.json:/home/vst/vst_release/configs/notification_config.json
+      - ${NVSTREAMER_3D_CONFIG_DIR}/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
