@@ -98,7 +98,6 @@ def image_coordinates(path: Path, image_name: str) -> tuple[str, str]:
     raise AssertionError(f"{path} lacks an image block for {image_name}")
 
 
-
 class HelmReleaseChannelPolicyTest(unittest.TestCase):
     def test_policy_covers_every_github_built_image(self):
         inventory = json.loads(
