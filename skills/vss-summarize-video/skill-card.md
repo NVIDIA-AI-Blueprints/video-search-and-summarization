@@ -1,5 +1,5 @@
 ## Description: <br>
-Summarize recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning. <br>
+Use this skill when summarizing a recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
