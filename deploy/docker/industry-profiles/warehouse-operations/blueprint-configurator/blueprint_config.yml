@@ -639,12 +639,21 @@ RTXA6000ADA:
 
 RTXPRO6000BW:
   2d:
+    max_streams_supported: 52
+  3d:
+    max_streams_supported: 19
+  mv3dt:
+    max_streams_supported: 39
+
+# RTX PRO 6000 Blackwell Server Edition.
+RTXPRO6000BW-SE:
+  2d:
     max_streams_supported: 47
   3d:
     max_streams_supported: 19
   mv3dt:
     max_streams_supported: 39
-    
+
 RTXPRO4500BW:
   2d:
     max_streams_supported: 20
