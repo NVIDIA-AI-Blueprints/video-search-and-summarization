@@ -80,7 +80,26 @@ set -u
 cd "$HOME/video-search-and-summarization"
 scratch=/tmp/skill-eval/nemoclaw
 venv="$scratch/notebook-venv"
-rm -rf "$venv"
+# The Docker reset runs before this command. Remove the remaining host-side
+# state that Docker cannot see so both notebooks start from a deterministic
+# baseline while retaining image and package caches.
+for cleanup_path in \
+  "$scratch" \
+  "$PWD/.orchestrator-artifacts" \
+  "$PWD/services/agent/.venv"; do
+  [ ! -L "$cleanup_path" ] || {{
+    echo "Refusing symlinked notebook cleanup path: $cleanup_path" >&2
+    exit 1
+  }}
+  rm -rf -- "$cleanup_path" 2>/dev/null || true
+  if [ -e "$cleanup_path" ]; then
+    sudo -n rm -rf -- "$cleanup_path"
+  fi
+  [ ! -e "$cleanup_path" ] || {{
+    echo "Notebook cleanup did not remove: $cleanup_path" >&2
+    exit 1
+  }}
+done
 mkdir -p "$scratch"
 # Reuse #925's narrow warm-worker repair: a prior sudo-run gateway can leave
 # only its SQLite files root-owned. Refuse symlinks and unexpected owners;
@@ -235,14 +254,13 @@ export NEMOCLAW_SETUP_CELL_TIMEOUT_SEC={adapter_timeout}
 timeout --signal=TERM --kill-after=120 {adapter_timeout}s \
   "$venv/bin/python" \
   .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
-  --execute \
   --env-out "$scratch/nemoclaw.env" \
   --timeout "$NEMOCLAW_SETUP_CELL_TIMEOUT_SEC"
 """.strip()
 
 
 class NemoClawBrevEnvironment(BrevEnvironment):
-    """Run normal Brev preparation, then the notebook-derived setup once."""
+    """Run normal Brev preparation, then both setup notebooks once."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -399,7 +417,7 @@ echo "docker runtime reset OK; images and valid OpenShell bridge preserved when 
 
         timeout = _bounded_setup_timeout()
         logger.info(
-            "Running notebook-derived NemoClaw setup on %s (timeout=%ss)",
+            "Running both NemoClaw setup notebooks end to end on %s (timeout=%ss)",
             self._instance_name,
             timeout,
         )

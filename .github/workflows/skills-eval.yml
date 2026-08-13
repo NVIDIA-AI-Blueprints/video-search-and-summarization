@@ -400,8 +400,8 @@ jobs:
           export PR_REPO="${{ github.repository }}"
           export SKILLS_EVAL_RUNNER=nemoclaw
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
-          # The notebook intentionally reuses one sandbox per reserved worker;
-          # its OpenShell gateway exposes a single shared inference route.
+          # The dedicated worker is reused, but Phase 1 performs a clean
+          # notebook setup before Harbor starts the selected eval plan.
           export NEMOCLAW_SANDBOX_NAME=demo
           export NEMOCLAW_GATEWAY_PORT=8080
           export NEMOCLAW_INSTALL_REF=v0.0.103
