@@ -64,9 +64,8 @@ spec:
               for i in $(seq 1 {{ .Values.waitForDependencies.maxRetries }}); do
                 if nc -z {{ $kafkaH }} {{ .Values.waitForDependencies.kafkaPort }} 2>/dev/null \
                    && nc -z {{ $redisH }} {{ .Values.waitForDependencies.redisPort }} 2>/dev/null \
-                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null \
-                   {{ if $waitMcp }}&& nc -z {{ $mcpH }} {{ .Values.waitForDependencies.mcpPort }} 2>/dev/null \{{ end }}
-                   ; then
+                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null{{- if $waitMcp }} \
+                   && nc -z {{ $mcpH }} {{ .Values.waitForDependencies.mcpPort }} 2>/dev/null{{- end }}; then
                   echo "All dependencies are accepting connections"
                   exit 0
                 fi
