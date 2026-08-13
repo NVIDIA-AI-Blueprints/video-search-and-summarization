@@ -58,6 +58,17 @@ kafkaServerAddress: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
+# Absolute HTTP URLs for overlay assets (video-analytics-api). Empty = skip download.
+# When either is set, configs are seeded into a writable emptyDir so downloads can
+# write calibration.json / Top.png under /home/vst/vst_release/configs/.
+calibrationFileEndpoint: ""
+floormapImageEndpoint: ""
+# Init container image used to copy ConfigMap configs into the writable emptyDir.
+configSeed:
+  image:
+    repository: docker.io/library/busybox
+    tag: "1.36"
+    pullPolicy: IfNotPresent
 # Centralized DB: host/port from template (Release-vss-vios-postgres:5432). Password from postgres-cm unless overridden.
 # Override for external DB: centralizedDbHost, centralizedDbPort, centralizedDbPassword.
 centralizedDbHost: ""
