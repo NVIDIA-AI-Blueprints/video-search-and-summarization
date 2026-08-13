@@ -14,6 +14,33 @@
 # limitations under the License.
 
 services:
+  # Runs once and exits: fetches calibration from the video-analytics API,
+  # validates it, and writes the per-camera camInfo files plus the pub/sub
+  # topology to the shared volumes. Behind the `dynamic-config` profile so the
+  # default stack keeps using the static committed configs and does not gain a
+  # startup dependency on the calibration API. Enable with:
+  #   docker compose --profile dynamic-config up
+  # Counterpart of standaloneWarehouse.mv3dt.dynamicCameraConfig in the Helm chart.
+  mv3dt-config-init:
+    profiles: ["dynamic-config"]
+    image: ${VSS_RT_CV_MV3DT_CONFIG_INIT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv-mv3dt-config-init}:${VSS_RT_CV_MV3DT_CONFIG_INIT_TAG:-develop-latest}
+    container_name: vss-rtvi-cv-mv3dt-config-init
+    restart: "no"
+    networks:
+      default:
+        aliases:
+          - vss-rtvi-cv-mv3dt-config-init
+    environment:
+      CALIBRATION_API_URL: ${CALIBRATION_API_URL:-http://vss-video-analytics-api:8081/config/calibration}
+      CALIBRATION_WAIT_TIMEOUT: ${CALIBRATION_WAIT_TIMEOUT:-3600}
+      CAM_INFO_OUTPUT_DIR: /tmp/camInfo
+      PUB_SUB_OUTPUT_DIR: /tmp/generated
+      MQTT_HOST: ${MQTT_HOST:-mosquitto}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+    volumes:
+      - mv3dt-caminfo:/tmp/camInfo
+      - mv3dt-generated:/tmp/generated
+
   perception:
     image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.2}
     runtime: nvidia
@@ -62,3 +89,7 @@ services:
       timeout: 2s
       retries: 30
       start_period: 10s
+
+volumes:
+  mv3dt-caminfo:
+  mv3dt-generated:
