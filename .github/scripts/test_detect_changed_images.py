@@ -220,6 +220,7 @@ class SelectImagesTest(unittest.TestCase):
             "sdr-mw-l": {
                 "context": "services/sdrc",
                 "source_path": "services/sdrc",
+                "native_platform_build": True,
             },
             "vss-configurator": {
                 "context": ".",
@@ -228,10 +229,12 @@ class SelectImagesTest(unittest.TestCase):
                     "services/configurators/vss-configurator",
                     "libs/analytics/spatialai-data-utils",
                 ],
+                "native_platform_build": True,
             },
             "vss-rt-config-adaptor": {
                 "context": "services/configurators/vss-rt-config-adaptor",
                 "source_path": "services/configurators/vss-rt-config-adaptor",
+                "native_platform_build": True,
             },
         }
         for name, expected_fields in expected.items():
@@ -242,6 +245,8 @@ class SelectImagesTest(unittest.TestCase):
             self.assertEqual(entry["source_path"], expected_fields["source_path"])
             if "source_paths" in expected_fields:
                 self.assertEqual(entry["source_paths"], expected_fields["source_paths"])
+            if "native_platform_build" in expected_fields:
+                self.assertIs(entry["native_platform_build"], True)
             self.assertEqual(
                 entry["platforms"], ["linux/amd64", "linux/arm64"]
             )
@@ -336,6 +341,14 @@ class SelectImagesTest(unittest.TestCase):
                 "source_path": "services/analytics/behavior-analytics",
             },
             {
+                "name": "sdr-mw-l",
+                "context": "services/sdrc",
+                "dockerfile": "services/sdrc/envoy/Dockerfile.wdm-router",
+                "native_platform_build": True,
+                "platforms": ["linux/amd64", "linux/arm64"],
+                "source_path": "services/sdrc",
+            },
+            {
                 "name": "vss-video-analytics-api",
                 "context": "services/analytics/video-analytics-api",
                 "dockerfile": (
@@ -355,7 +368,7 @@ class SelectImagesTest(unittest.TestCase):
         )
         self.assertEqual(
             [entry["name"] for entry in matrices["native_matrix"]["include"]],
-            ["vss-behavior-analytics"],
+            ["vss-behavior-analytics", "sdr-mw-l"],
         )
         self.assertEqual(
             [
@@ -371,7 +384,25 @@ class SelectImagesTest(unittest.TestCase):
             [
                 ("linux/amd64", "amd64", "ubuntu-24.04", "X64", "x86_64"),
                 ("linux/arm64", "arm64", "ubuntu-24.04-arm", "ARM64", "aarch64"),
+                ("linux/amd64", "amd64", "ubuntu-24.04", "X64", "x86_64"),
+                ("linux/arm64", "arm64", "ubuntu-24.04-arm", "ARM64", "aarch64"),
             ],
+        )
+
+    def test_new_native_images_are_declared_in_the_inventory(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        by_name = {entry["name"]: entry for entry in inventory["images"]}
+        self.assertEqual(
+            {
+                name
+                for name, entry in by_name.items()
+                if entry.get("native_platform_build") is True
+            },
+            {"sdr-mw-l", "vss-configurator", "vss-rt-config-adaptor"},
+        )
+        self.assertNotIn(
+            "native_platform_build", dci.matrix_entry(by_name["sdr-mw-l"])
         )
 
     def test_native_matrix_rejects_platform_without_runner(self):

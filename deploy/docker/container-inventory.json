@@ -128,6 +128,7 @@
       "name": "vss-configurator",
       "strategy": "build",
       "ghcr_build": true,
+      "native_platform_build": true,
       "source_path": "services/configurators/vss-configurator",
       "source_paths": [
         "services/configurators/vss-configurator",
@@ -144,6 +145,7 @@
       "name": "vss-rt-config-adaptor",
       "strategy": "build",
       "ghcr_build": true,
+      "native_platform_build": true,
       "source_path": "services/configurators/vss-rt-config-adaptor",
       "context": "services/configurators/vss-rt-config-adaptor",
       "dockerfile": "services/configurators/vss-rt-config-adaptor/docker/Dockerfile",
@@ -198,6 +200,7 @@
       "name": "sdr-mw-l",
       "strategy": "build",
       "ghcr_build": true,
+      "native_platform_build": true,
       "source_path": "services/sdrc",
       "context": "services/sdrc",
       "dockerfile": "services/sdrc/envoy/Dockerfile.wdm-router",
