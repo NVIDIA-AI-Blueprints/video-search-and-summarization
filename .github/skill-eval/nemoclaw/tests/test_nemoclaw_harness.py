@@ -334,13 +334,13 @@ class HeadlessTrajectoryTests(unittest.TestCase):
         self.assertEqual(metrics["cached_tokens"], 2)
         self.assertEqual(trajectory["final_metrics"]["total_prompt_tokens"], 12)
 
-    def test_nemoclaw_exec_uses_the_runtime_env_boundary(self) -> None:
+    def test_nemoclaw_exec_uses_the_trusted_runtime_env(self) -> None:
         completed = subprocess.CompletedProcess([], 0, stdout="{}", stderr="")
         with mock.patch.object(
-            self.runner.subprocess,
-            "run",
+            self.runner,
+            "_sandbox_exec",
             return_value=completed,
-        ) as run:
+        ) as sandbox_exec:
             result = self.runner._nemoclaw_exec(
                 "demo",
                 "openclaw agent --message test",
@@ -348,15 +348,16 @@ class HeadlessTrajectoryTests(unittest.TestCase):
             )
 
         self.assertIs(result, completed)
-        command = run.call_args.args[0]
-        self.assertEqual(command[:4], ["nemoclaw", "sandbox", "exec", "demo"])
-        self.assertIn("--no-stdin", command)
-        self.assertEqual(command[command.index("--timeout") + 1], "120")
+        sandbox_exec.assert_called_once()
+        self.assertEqual(sandbox_exec.call_args.args[0], "demo")
+        command = sandbox_exec.call_args.args[1]
+        self.assertIn(". /tmp/nemoclaw-proxy-env.sh", command)
+        self.assertIn("unset OPENCLAW_GATEWAY_TOKEN", command)
+        self.assertTrue(command.endswith("openclaw agent --message test"))
         self.assertEqual(
-            command[command.index("--") + 1 :],
-            ["sh", "-lc", "openclaw agent --message test"],
+            sandbox_exec.call_args.kwargs,
+            {"timeout": 120},
         )
-        self.assertNotEqual(command[:3], ["openshell", "sandbox", "exec"])
 
     def test_openclaw_run_routes_only_the_agent_through_nemoclaw_exec(self) -> None:
         session_file = "/sandbox/.openclaw/agents/main/sessions/session-1.jsonl"
