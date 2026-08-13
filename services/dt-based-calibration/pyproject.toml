@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "dt-based-calibration"
+version = "0.0.1"
+description = "Perform calibration related tasks in a DT environment"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+
+dependencies = [
+    "carla==0.9.16",
+    "PyYAML==6.0.3",
+    "numpy==2.2.6",
+    "matplotlib==3.10.8",
+    "pyproj==3.7.1",
+    "gradio>=6.15.0",
+    "trimesh==4.10.1",
+    "scipy==1.15.3",
+    "Flask>=3.1.3",
+    "rasterio==1.4.4",
+    "requests>=2.33.0",
+    "opencv-python-headless>=4.12.0.88",
+    # Minimum versions required to address security vulnerabilities
+    "Pillow>=12.2.0",
+    "werkzeug>=3.1.6",
+    "orjson>=3.11.6",
+    "python-multipart>=0.0.31",
+    "filelock>=3.20.3",
+    "pygments>=2.20.0",
+    "starlette>=1.3.1",
+    "urllib3>=2.7.0",
+]
+
+[dependency-groups]
+dev = []

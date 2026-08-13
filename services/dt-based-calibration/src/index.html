@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROI Simplifier</title>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0a0a12;
+            color: #e0e0e0;
+        }
+        .container { display: flex; height: 100vh; }
+        #map { flex: 1; height: 100%; }
+        .sidebar {
+            width: 300px;
+            background: #12121f;
+            padding: 16px;
+            overflow-y: auto;
+            border-left: 1px solid #2a2a40;
+        }
+        h1 {
+            font-size: 1.2rem;
+            color: #00d4ff;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #00d4ff;
+        }
+        .section {
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .section-title {
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        .btn {
+            width: 100%;
+            padding: 10px;
+            margin: 4px 0;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            color: #000;
+            font-weight: bold;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,212,255,0.3); }
+        .btn-secondary {
+            background: #2a2a40;
+            color: #fff;
+        }
+        .btn-secondary:hover { background: #3a3a50; }
+        .btn-success {
+            background: linear-gradient(135deg, #00ff88, #00cc66);
+            color: #000;
+            font-weight: bold;
+        }
+        .btn-warning {
+            background: linear-gradient(135deg, #ffaa00, #ff8800);
+            color: #000;
+        }
+        input[type="file"] { display: none; }
+        .slider-group {
+            margin: 8px 0;
+        }
+        .slider-group label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            margin-bottom: 4px;
+        }
+        .slider-group input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #2a2a40;
+            border-radius: 3px;
+            outline: none;
+        }
+        .slider-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #00d4ff;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 0.8rem;
+        }
+        .stat { background: rgba(0,212,255,0.1); padding: 8px; border-radius: 4px; text-align: center; }
+        .stat-value { font-size: 1.1rem; font-weight: bold; color: #00d4ff; }
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            font-size: 0.85rem;
+        }
+        .toggle-row input { width: 16px; height: 16px; }
+        .edit-mode { background: rgba(255,170,0,0.2); border: 1px solid #ffaa00; }
+        #status {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1a2e;
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: 1px solid #00d4ff;
+            display: none;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="map"></div>
+        <div class="sidebar">
+            <h1>🎯 ROI Simplifier</h1>
+            
+            <div class="section">
+                <div class="section-title">Load Data</div>
+                <label class="btn btn-primary" for="fileInput">📁 Load JSON File</label>
+                <input type="file" id="fileInput" accept=".json">
+                <button class="btn btn-secondary" onclick="resetApiKey()" style="margin-top:8px;font-size:0.75rem;">🔑 Change API Key</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Parameters</div>
+                <div class="slider-group">
+                    <label><span>Max Edge (km)</span><span id="maxEdgeVal">0.045</span></label>
+                    <input type="range" id="maxEdge" min="0.01" max="0.15" step="0.005" value="0.045">
+                </div>
+                <div class="slider-group">
+                    <label><span>Denoise (σ)</span><span id="denoiseVal">3.0</span></label>
+                    <input type="range" id="denoise" min="1.5" max="5" step="0.1" value="3.0">
+                </div>
+                <div class="toggle-row">
+                    <input type="checkbox" id="denoiseOn" checked>
+                    <span>Enable Denoise</span>
+                </div>
+                <div class="toggle-row">
+                    <input type="checkbox" id="adaptiveOn" checked>
+                    <span>Adaptive (corner-aware)</span>
+                </div>
+            </div>
+
+            <div class="section">
+                <button class="btn btn-success" onclick="simplifyROI()">⚡ Simplify ROI</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">View</div>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showPoints" checked onchange="togglePoints()">
+                    <span>Show Original Points</span>
+                </div>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showOrigPoly" checked onchange="toggleOrigPoly()">
+                    <span>Show Original Polygon</span>
+                </div>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showSimplified" checked onchange="toggleSimplified()">
+                    <span>Show Simplified</span>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Edit & Export</div>
+                <button class="btn btn-warning" id="editBtn" onclick="toggleEdit()">✏️ Edit Polygon</button>
+                <button class="btn btn-secondary" onclick="exportJSON()">💾 Export JSON</button>
+                <button class="btn btn-secondary" onclick="copyCoords()">📋 Copy Coords</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Statistics</div>
+                <div class="stats">
+                    <div class="stat">
+                        <div>Original</div>
+                        <div class="stat-value" id="origCount">0</div>
+                    </div>
+                    <div class="stat">
+                        <div>Simplified</div>
+                        <div class="stat-value" id="simpCount">0</div>
+                    </div>
+                    <div class="stat">
+                        <div>ROIs</div>
+                        <div class="stat-value" id="roiCount">0</div>
+                    </div>
+                    <div class="stat">
+                        <div>Reduction</div>
+                        <div class="stat-value" id="reduction">0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="status"></div>
+
+    <script>
+        let map, markers = [], origPolygons = [], simplifiedPolygons = [];
+        let roiDataList = [], simplifiedDataList = [];
+        let originalJsonData = null;  // Keep original JSON structure
+        let roiRefs = [];  // References to ROI objects in original data
+        let originalFileName = '';  // Store original filename
+        let editMode = false;
+        const COLORS = ['#00ff00', '#ff00ff', '#ffff00', '#00ffff', '#ff8800', '#88ff00'];
+
+        function loadGoogleMapsAPI() {
+            // Try to get API key from: 1) localStorage, 2) URL param, 3) prompt user
+            let apiKey = localStorage.getItem('gmaps_api_key');
+            
+            // Check URL param: ?key=YOUR_KEY
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('key')) {
+                apiKey = urlParams.get('key');
+                localStorage.setItem('gmaps_api_key', apiKey);
+            }
+            
+            if (!apiKey) {
+                apiKey = prompt('Enter Google Maps API Key:\n(Will be saved in localStorage)');
+                if (apiKey) {
+                    localStorage.setItem('gmaps_api_key', apiKey);
+                } else {
+                    alert('Google Maps API key required!');
+                    return;
+                }
+            }
+            
+            const script = document.createElement('script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap`;
+            script.async = true;
+            script.onerror = () => {
+                localStorage.removeItem('gmaps_api_key');
+                alert('Invalid API key. Refresh to try again.');
+            };
+            document.head.appendChild(script);
+        }
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 37.37, lng: -121.96 },
+                zoom: 15,
+                styles: [
+                    { elementType: "geometry", stylers: [{ color: "#0d1117" }] },
+                    { elementType: "labels.text.stroke", stylers: [{ color: "#0d1117" }] },
+                    { elementType: "labels.text.fill", stylers: [{ color: "#8b949e" }] },
+                    { featureType: "road", elementType: "geometry", stylers: [{ color: "#1f2937" }] },
+                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1a2b" }] }
+                ]
+            });
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const data = JSON.parse(evt.target.result);
+                    loadROIData(data);
+                    // Save filename AFTER loadROIData (which calls clearAll)
+                    originalFileName = file.name.replace(/\.json$/i, '');
+                    showStatus('✅ Loaded: ' + file.name);
+                } catch (err) {
+                    showStatus('❌ Error: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function findAllROIs(obj, results = [], refs = [], path = []) {
+            if (!obj || typeof obj !== 'object') return results;
+            if (Array.isArray(obj)) {
+                obj.forEach((item, idx) => findAllROIs(item, results, refs, [...path, idx]));
+            } else {
+                if (obj.rois && Array.isArray(obj.rois)) {
+                    obj.rois.forEach((roi, idx) => {
+                        if (roi.roiCoordinates && roi.roiCoordinates.length > 0) {
+                            results.push(roi);
+                            refs.push([...path, 'rois', idx]);  // Store path to this ROI
+                        }
+                    });
+                }
+                Object.entries(obj).forEach(([key, val]) => {
+                    if (key !== 'rois') findAllROIs(val, results, refs, [...path, key]);
+                });
+            }
+            return results;
+        }
+
+        function loadROIData(data) {
+            clearAll();
+            originalJsonData = JSON.parse(JSON.stringify(data));  // Deep copy original
+            roiRefs = [];
+            const rois = findAllROIs(data, [], roiRefs);
+            if (rois.length === 0) {
+                showStatus('❌ No ROI data found');
+                return;
+            }
+
+            roiDataList = rois.map(roi => {
+                return roi.roiCoordinates.map(c => ({
+                    lat: c.y,
+                    lng: c.x
+                }));
+            });
+
+            let totalPoints = 0;
+            const bounds = new google.maps.LatLngBounds();
+
+            roiDataList.forEach((coords, idx) => {
+                totalPoints += coords.length;
+                const color = COLORS[idx % COLORS.length];
+
+                // Markers
+                coords.forEach(c => {
+                    bounds.extend(c);
+                    const marker = new google.maps.Marker({
+                        position: c,
+                        map: map,
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 5,
+                            fillColor: '#00d4ff',
+                            fillOpacity: 0.8,
+                            strokeColor: '#fff',
+                            strokeWeight: 1
+                        }
+                    });
+                    markers.push(marker);
+                });
+
+                // Original polygon
+                const poly = new google.maps.Polygon({
+                    paths: coords,
+                    strokeColor: '#00d4ff',
+                    strokeOpacity: 0.5,
+                    strokeWeight: 1,
+                    fillColor: '#00d4ff',
+                    fillOpacity: 0.1
+                });
+                poly.setMap(map);
+                origPolygons.push(poly);
+            });
+
+            map.fitBounds(bounds);
+            document.getElementById('origCount').textContent = totalPoints;
+            document.getElementById('roiCount').textContent = roiDataList.length;
+        }
+
+        function denoisePoints(points, threshold) {
+            if (points.length < 5) return points;
+            
+            const centroid = {
+                lat: points.reduce((s, p) => s + p.lat, 0) / points.length,
+                lng: points.reduce((s, p) => s + p.lng, 0) / points.length
+            };
+            
+            const distances = points.map(p => {
+                const dlat = (p.lat - centroid.lat) * 111000;
+                const dlng = (p.lng - centroid.lng) * 111000 * Math.cos(centroid.lat * Math.PI / 180);
+                return Math.sqrt(dlat * dlat + dlng * dlng);
+            });
+            
+            const mean = distances.reduce((s, d) => s + d, 0) / distances.length;
+            const std = Math.sqrt(distances.reduce((s, d) => s + (d - mean) ** 2, 0) / distances.length);
+            
+            return points.filter((p, i) => Math.abs(distances[i] - mean) <= threshold * std);
+        }
+
+        function cornerAwareSmooth(points, angleThreshold = 25) {
+            if (points.length < 4) return points;
+            const n = points.length;
+            const isCorner = [];
+            
+            // Detect corners based on angle change
+            for (let i = 0; i < n; i++) {
+                const prev = points[(i - 1 + n) % n];
+                const curr = points[i];
+                const next = points[(i + 1) % n];
+                const v1x = curr.lng - prev.lng, v1y = curr.lat - prev.lat;
+                const v2x = next.lng - curr.lng, v2y = next.lat - curr.lat;
+                const dot = v1x * v2x + v1y * v2y;
+                const cross = v1x * v2y - v1y * v2x;
+                const angle = Math.abs(Math.atan2(cross, dot) * 180 / Math.PI);
+                isCorner.push(angle > angleThreshold);
+            }
+            
+            const cornerCount = isCorner.filter(c => c).length;
+            console.log(`Corner detection: ${cornerCount} corners found`);
+            
+            if (cornerCount < 3) return points;
+            
+            // Build result: keep corners, simplify straight sections
+            const result = [];
+            let lastCornerIdx = -1;
+            
+            // Find first corner
+            for (let i = 0; i < n; i++) {
+                if (isCorner[i]) { lastCornerIdx = i; break; }
+            }
+            if (lastCornerIdx === -1) return points;
+            
+            // Traverse from first corner
+            const visited = new Set();
+            let i = lastCornerIdx;
+            
+            while (!visited.has(i)) {
+                visited.add(i);
+                
+                if (isCorner[i]) {
+                    result.push(points[i]);
+                    lastCornerIdx = i;
+                } else {
+                    // On straight section - keep if far from last corner or near next corner
+                    const nextIdx = (i + 1) % n;
+                    if (isCorner[nextIdx]) {
+                        const dist = Math.sqrt(
+                            Math.pow((points[i].lat - points[lastCornerIdx].lat) * 111, 2) +
+                            Math.pow((points[i].lng - points[lastCornerIdx].lng) * 111 * Math.cos(points[i].lat * Math.PI/180), 2)
+                        );
+                        if (dist > 0.05) { // > 50m, keep intermediate
+                            result.push(points[i]);
+                        }
+                    }
+                }
+                i = (i + 1) % n;
+            }
+            
+            console.log(`Corner smoothing: ${n} -> ${result.length} points`);
+            return result.length >= 4 ? result : points;
+        }
+
+        function simplifyROI() {
+            if (roiDataList.length === 0) {
+                showStatus('❌ Load data first');
+                return;
+            }
+
+            const maxEdge = parseFloat(document.getElementById('maxEdge').value);
+            const denoiseThresh = parseFloat(document.getElementById('denoise').value);
+            const denoiseOn = document.getElementById('denoiseOn').checked;
+            const adaptiveOn = document.getElementById('adaptiveOn').checked;
+
+            // Clear old simplified
+            simplifiedPolygons.forEach(p => p.setMap(null));
+            simplifiedPolygons = [];
+            simplifiedDataList = [];
+
+            let totalSimplified = 0;
+
+            roiDataList.forEach((coords, idx) => {
+                let points = [...coords];
+                
+                // Denoise
+                if (denoiseOn && points.length > 5) {
+                    points = denoisePoints(points, denoiseThresh);
+                }
+
+                // Concave hull via Turf.js
+                const features = points.map(p => turf.point([p.lng, p.lat]));
+                const collection = turf.featureCollection(features);
+                
+                let result;
+                let currentMaxEdge = maxEdge;
+                
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const concave = turf.concave(collection, { maxEdge: currentMaxEdge, units: 'kilometers' });
+                        if (concave && concave.geometry.type === 'Polygon') {
+                            const coords = concave.geometry.coordinates[0].slice(0, -1);
+                            result = coords.map(c => ({ lng: c[0], lat: c[1] }));
+                            break;
+                        } else if (concave && concave.geometry.type === 'MultiPolygon') {
+                            let maxArea = 0, bestCoords = null;
+                            for (const poly of concave.geometry.coordinates) {
+                                const area = turf.area(turf.polygon(poly));
+                                if (area > maxArea) { maxArea = area; bestCoords = poly[0]; }
+                            }
+                            if (bestCoords) {
+                                result = bestCoords.slice(0, -1).map(c => ({ lng: c[0], lat: c[1] }));
+                                break;
+                            }
+                        }
+                    } catch (e) {}
+                    currentMaxEdge *= 1.5;
+                }
+
+                if (!result || result.length < 3) {
+                    // Fallback to convex hull
+                    const convex = turf.convex(collection);
+                    if (convex) {
+                        result = convex.geometry.coordinates[0].slice(0, -1).map(c => ({ lng: c[0], lat: c[1] }));
+                    } else {
+                        result = points;
+                    }
+                }
+
+                // Simplify if too many points using Douglas-Peucker
+                if (result.length > 30) {
+                    try {
+                        const lats = result.map(p => p.lat);
+                        const lngs = result.map(p => p.lng);
+                        const span = Math.max(Math.max(...lats) - Math.min(...lats), Math.max(...lngs) - Math.min(...lngs));
+                        const tolerance = span * 0.005;
+                        
+                        const simplified = turf.simplify(
+                            turf.polygon([[...result.map(c => [c.lng, c.lat]), [result[0].lng, result[0].lat]]]),
+                            { tolerance: tolerance, highQuality: true }
+                        );
+                        const newCoords = simplified.geometry.coordinates[0].slice(0, -1);
+                        result = newCoords.map(c => ({ lng: c[0], lat: c[1] }));
+                        console.log(`Turf simplify: ${result.length} points`);
+                    } catch (e) {
+                        console.log('Simplify error:', e);
+                    }
+                }
+
+                // Corner-aware smoothing
+                if (adaptiveOn && result.length > 6) {
+                    result = cornerAwareSmooth(result);
+                }
+
+                simplifiedDataList.push(result);
+                totalSimplified += result.length;
+
+                // Draw
+                const color = COLORS[idx % COLORS.length];
+                const poly = new google.maps.Polygon({
+                    paths: result,
+                    strokeColor: color,
+                    strokeOpacity: 1,
+                    strokeWeight: 3,
+                    fillColor: color,
+                    fillOpacity: 0.2,
+                    editable: false
+                });
+                poly.setMap(map);
+                simplifiedPolygons.push(poly);
+            });
+
+            const origTotal = roiDataList.reduce((s, r) => s + r.length, 0);
+            document.getElementById('simpCount').textContent = totalSimplified;
+            document.getElementById('reduction').textContent = ((1 - totalSimplified / origTotal) * 100).toFixed(1) + '%';
+            showStatus(`✅ Simplified: ${origTotal} → ${totalSimplified} points`);
+        }
+
+        function toggleEdit() {
+            editMode = !editMode;
+            const btn = document.getElementById('editBtn');
+            
+            if (editMode) {
+                btn.textContent = '✅ Done Editing';
+                btn.classList.add('edit-mode');
+                simplifiedPolygons.forEach(p => p.setEditable(true));
+                showStatus('📍 Drag vertices to edit. Click Done when finished.');
+            } else {
+                btn.textContent = '✏️ Edit Polygon';
+                btn.classList.remove('edit-mode');
+                
+                // Update data from edited polygons
+                simplifiedPolygons.forEach((poly, idx) => {
+                    const path = poly.getPath();
+                    simplifiedDataList[idx] = [];
+                    for (let i = 0; i < path.getLength(); i++) {
+                        const pt = path.getAt(i);
+                        simplifiedDataList[idx].push({ lat: pt.lat(), lng: pt.lng() });
+                    }
+                });
+                
+                simplifiedPolygons.forEach(p => p.setEditable(false));
+                
+                const total = simplifiedDataList.reduce((s, r) => s + r.length, 0);
+                document.getElementById('simpCount').textContent = total;
+                showStatus('✅ Edit saved');
+            }
+        }
+
+        function exportJSON() {
+            if (simplifiedDataList.length === 0) {
+                showStatus('❌ No simplified data');
+                return;
+            }
+
+            // Deep copy original JSON and update only roiCoordinates
+            const output = JSON.parse(JSON.stringify(originalJsonData));
+            
+            // Update each ROI's coordinates using stored paths
+            simplifiedDataList.forEach((coords, idx) => {
+                if (roiRefs[idx]) {
+                    // Navigate to the ROI object using the path
+                    let target = output;
+                    for (let i = 0; i < roiRefs[idx].length - 1; i++) {
+                        target = target[roiRefs[idx][i]];
+                    }
+                    const lastKey = roiRefs[idx][roiRefs[idx].length - 1];
+                    // Update roiCoordinates
+                    target[lastKey].roiCoordinates = coords.map(c => ({ x: c.lng, y: c.lat }));
+                }
+            });
+
+            const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${originalFileName}_roi_simplified.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showStatus('✅ Exported!');
+        }
+
+        function copyCoords() {
+            if (simplifiedDataList.length === 0) {
+                showStatus('❌ No data to copy');
+                return;
+            }
+            // Copy only simplified roiCoordinates (not full structure)
+            const coords = simplifiedDataList.map((c, idx) => ({
+                roiIndex: idx,
+                roiCoordinates: c.map(p => ({ x: p.lng, y: p.lat }))
+            }));
+            navigator.clipboard.writeText(JSON.stringify(coords, null, 2));
+            showStatus('📋 Copied to clipboard!');
+        }
+
+        function togglePoints() {
+            const show = document.getElementById('showPoints').checked;
+            markers.forEach(m => m.setVisible(show));
+        }
+
+        function toggleOrigPoly() {
+            const show = document.getElementById('showOrigPoly').checked;
+            origPolygons.forEach(p => p.setVisible(show));
+        }
+
+        function toggleSimplified() {
+            const show = document.getElementById('showSimplified').checked;
+            simplifiedPolygons.forEach(p => p.setVisible(show));
+        }
+
+        function clearAll() {
+            markers.forEach(m => m.setMap(null));
+            origPolygons.forEach(p => p.setMap(null));
+            simplifiedPolygons.forEach(p => p.setMap(null));
+            markers = []; origPolygons = []; simplifiedPolygons = [];
+            roiDataList = []; simplifiedDataList = [];
+            originalJsonData = null; roiRefs = []; originalFileName = '';
+        }
+
+        function showStatus(msg) {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 3000);
+        }
+
+        function resetApiKey() {
+            localStorage.removeItem('gmaps_api_key');
+            location.reload();
+        }
+
+        // Slider updates
+        document.getElementById('maxEdge').addEventListener('input', e => {
+            document.getElementById('maxEdgeVal').textContent = e.target.value;
+        });
+        document.getElementById('denoise').addEventListener('input', e => {
+            document.getElementById('denoiseVal').textContent = e.target.value;
+        });
+
+        loadGoogleMapsAPI();
+    </script>
+</body>
+</html>
+

@@ -120,6 +120,16 @@
       "notes": "Native ARM64 SBSA variant published in the shared GHCR package under -sbsa tags"
     },
     {
+      "name": "vss-dt-based-calibration",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/dt-based-calibration",
+      "context": "services/dt-based-calibration",
+      "dockerfile": "services/dt-based-calibration/Dockerfile",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["dt-based-calibration"]
+    },
+    {
       "name": "vss-rt-vlm",
       "strategy": "build",
       "ghcr_build": true,

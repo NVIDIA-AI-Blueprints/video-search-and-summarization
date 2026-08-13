@@ -1,0 +1,71 @@
+sensors:
+- sensor: rgb
+  attributes:
+    image_size_x: 1920
+    image_size_y: 1080
+    fov: 90
+  transform:
+    location:
+      x: 47493.687500
+      y: -34434.593750
+      z: 5020.000
+    rotation:
+      roll: 0
+      pitch: -30.0000
+      yaw: -10.00
+- sensor: depth
+  attributes:
+    image_size_x: 1920
+    image_size_y: 1080
+    fov: 110.0
+  transform:
+    location:
+      x: 47493.687500
+      y: -34434.593750
+      z: 5020.000
+    rotation:
+      roll: 0
+      pitch: -30.0000
+      yaw: -10.00
+- sensor: semantic_segmentation
+  attributes:
+    image_size_x: 1920
+    image_size_y: 1080
+    fov: 110.0
+  transform:
+    location:
+      x: 47493.687500
+      y: -34434.593750
+      z: 5020.000
+    rotation:
+      roll: 0
+      pitch: -30.0000
+      yaw: -10.00
+- sensor: instance_segmentation
+  attributes:
+    image_size_x: 1920
+    image_size_y: 1080
+    fov: 110.0
+  transform:
+    location:
+      x: 47493.687500
+      y: -34434.593750
+      z: 5020.000
+    rotation:
+      roll: 0
+      pitch: -30.0000
+      yaw: -10.00
+- sensor: normals
+  attributes:
+    image_size_x: 1920
+    image_size_y: 1080
+    fov: 110.0
+  transform:
+    location:
+      x: 474.93687500
+      y: -344.34593750
+      z: 50.20000
+    rotation:
+      roll: 0
+      pitch: -30.0000
+      yaw: -10.00

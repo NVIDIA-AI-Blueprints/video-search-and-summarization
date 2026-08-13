@@ -1,0 +1,21 @@
+cameras:
+  - id: cam01
+    position: [10, 20, 3]  # x, y, z in CARLA world coordinates (meters) or if the given position is in lat/long/alt
+    orientation: [0, 0, 90]   # pitch, yaw, roll in degrees
+    fov: 90      # Field of view in degrees
+    resolution: [1280, 720]   # width x height in pixels
+    label: 1   # CARLA segmentation label (e.g., road)
+    carla_map: HQ
+    fps: 30
+    geo_position: false # if the given position the in lat/long/alt
+
+  - id: cam02
+    position: [37.369543551595974, -121.96537133501519, 4]
+    orientation: [0, -15, 45]
+    fov: 70
+    resolution: [1920, 1080]
+    label: 1
+    carla_map: HQ
+    fps: 30
+    geo_position: true
+
