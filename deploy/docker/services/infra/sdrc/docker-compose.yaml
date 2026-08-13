@@ -136,7 +136,7 @@ services:
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
   sdr-controller:
     profiles: ["sdr-controller"]
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.3.0-test-2026-08-12}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.3.0-2026.08.13}
     container_name: sdr-controller
     ports:
       - ${SDRC_CONTROLLER_HOST_PORT:-5003}:5003
