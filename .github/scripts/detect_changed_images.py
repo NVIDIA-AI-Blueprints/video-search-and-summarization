@@ -49,14 +49,13 @@ BUILD_CONTRACT_PATHS = (
 )
 
 # Agent, UI, and alert share VSS_CONTAINER_TAG and must move as one set.
-# Analytics images have independent tag variables and build only when their
-# own service source changes.
+# Analytics/configurator images have independent tag variables and build only when
+# their own service source changes.
 SHARED_TAG_IMAGE_NAMES = frozenset({"vss-agent", "vss-agent-ui", "vss-alert-ms"})
 
-# Behavior analytics compiles architecture-sensitive native dependencies and
-# must not build arm64 through QEMU on an amd64 runner. The build workflow
-# expands it into one job per platform, then combines the native results into
-# the same multiarch candidate expected by the release-set flow.
+# Behavior analytics native-runner routing predates the SDR/configurator GHCR
+# onboarding. New native-build images should declare native_platform_build in
+# deploy/docker/container-inventory.json.
 NATIVE_PLATFORM_IMAGE_NAMES = frozenset({"vss-behavior-analytics"})
 RUNNER_BY_PLATFORM = {
     "linux/amd64": "ubuntu-24.04",
@@ -70,6 +69,13 @@ KERNEL_ARCH_BY_PLATFORM = {
     "linux/amd64": "x86_64",
     "linux/arm64": "aarch64",
 }
+
+
+def is_native_platform_build(entry: dict) -> bool:
+    return (
+        entry["name"] in NATIVE_PLATFORM_IMAGE_NAMES
+        or entry.get("native_platform_build") is True
+    )
 
 
 def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -157,7 +163,7 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
     changed_images = [
         entry
         for entry in buildable
-        if any(path.startswith(entry["source_path"] + "/") for path in changed)
+        if paths_changed_under(changed, entry["source_path"])
     ]
     if changed_images:
         selected_names = {entry["name"] for entry in changed_images}
@@ -270,12 +276,8 @@ def to_matrix(entries: list[dict]) -> dict:
 
 def split_build_matrices(entries: list[dict]) -> dict[str, dict]:
     """Partition selected images and expand native builds by platform."""
-    standard = [
-        entry for entry in entries if entry["name"] not in NATIVE_PLATFORM_IMAGE_NAMES
-    ]
-    native = [
-        entry for entry in entries if entry["name"] in NATIVE_PLATFORM_IMAGE_NAMES
-    ]
+    standard = [entry for entry in entries if not is_native_platform_build(entry)]
+    native = [entry for entry in entries if is_native_platform_build(entry)]
     native_platforms: list[dict] = []
     for entry in native:
         base = matrix_entry(entry)
