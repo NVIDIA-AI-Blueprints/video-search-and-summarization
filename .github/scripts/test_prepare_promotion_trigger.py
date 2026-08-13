@@ -22,6 +22,9 @@ class PromotionTriggerTest(unittest.TestCase):
                 {"name": "vss-alert-ms", "strategy": "build"},
                 {"name": "vss-video-analytics-api", "strategy": "build"},
                 {"name": "vss-behavior-analytics", "strategy": "build"},
+                {"name": "sdr-mw-l", "strategy": "build"},
+                {"name": "vss-configurator", "strategy": "build"},
+                {"name": "vss-rt-config-adaptor", "strategy": "build"},
             ]
         }
         encoded = base64.b64encode(json.dumps(release_set).encode()).decode()
@@ -56,6 +59,11 @@ class PromotionTriggerTest(unittest.TestCase):
         self.assertEqual(
             variables["BEHAVIOR_ANALYTICS_ARTIFACTS_PROMOTION_CONFIG_PATH"],
             "configs/vss-3.2.0/vss-core-behavior-analytics.yml",
+        )
+        self.assertNotIn("SDR_MW_L_ARTIFACTS_PROMOTION_CONFIG_PATH", variables)
+        self.assertNotIn("VSS_CONFIGURATOR_ARTIFACTS_PROMOTION_CONFIG_PATH", variables)
+        self.assertNotIn(
+            "VSS_RT_CONFIG_ADAPTOR_ARTIFACTS_PROMOTION_CONFIG_PATH", variables
         )
 
     def test_requires_config_paths_for_built_analytics_images(self):

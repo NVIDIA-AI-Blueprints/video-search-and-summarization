@@ -104,7 +104,7 @@ spec:
       {{- end }}
       containers:
         - name: bp-configurator
-          image: "{{ required "bp-configurator.image.repository is required" $image.repository }}:{{ required "bp-configurator.image.tag is required" $image.tag }}"
+          image: {{ include "bp-configurator.image" . | quote }}
           imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
           {{- with .Values.securityContext }}
           securityContext:

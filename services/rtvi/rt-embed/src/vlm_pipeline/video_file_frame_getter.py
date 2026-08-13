@@ -59,6 +59,7 @@ from torchvision.transforms import v2
 from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
 from utils.media_file_info import MediaFileInfo
+from vlm_pipeline.errors import format_cuda_oom_error
 
 gi.require_version("Gst", "1.0")
 
@@ -75,6 +76,7 @@ Gst.init(None)
 # ref dropped while the underlying CUDA decoder context was still alive,
 # leaking VRAM permanently. Tune via env if needed in future.
 DECODER_TEARDOWN_TIMEOUT_NS = 120 * Gst.SECOND
+CUDA_OOM_RECOVERY_ENV = "RTVI_ENABLE_CUDA_OOM_RECOVERY"
 
 # Handle FORCE_SW_AV1_DECODER environment variable
 # When set to true/True/TRUE/1, forces software AV1 decoder instead of hardware decoder
@@ -99,11 +101,28 @@ if force_sw_av1:
 UNTRACKED_OBJECT_ID = 0xFFFFFFFFFFFFFFFF
 
 
+def _set_gst_property_if_supported(element, property_name, value):
+    """Set a GStreamer property only when the selected plugin exposes it."""
+    if element.find_property(property_name) is None:
+        return False
+    element.set_property(property_name, value)
+    return True
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw_value = os.environ.get(name)
     if raw_value is None or raw_value == "":
         return default
     return raw_value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _cuda_oom_recovery_enabled() -> bool:
+    return os.environ.get(CUDA_OOM_RECOVERY_ENV, "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
 
 def get_timestamp_str(ts):
@@ -731,6 +750,49 @@ class VideoFileFrameGetter:
     def _decoder_reuse_enabled(self) -> bool:
         return os.environ.get("DISABLE_DECODER_REUSE", "true") == "false"
 
+    def _release_cached_cuda_frames(self, clear_live_selectors: bool = True):
+        with self._file_frame_cache_lock:
+            if self._cached_frames is not None:
+                self._cached_frames = []
+            if self._cached_frames_pts is not None:
+                self._cached_frames_pts = []
+        if clear_live_selectors:
+            with self._live_stream_frame_selectors_lock:
+                for fs_data in self._live_stream_frame_selectors.values():
+                    fs_data.cached_frames = []
+        try:
+            torch.cuda.empty_cache()
+        except RuntimeError:
+            logger.debug("Failed to empty CUDA cache after frame extraction error", exc_info=True)
+
+    def _quit_loop_after_error(self):
+        loop = getattr(self, "_loop", None)
+        if loop is not None and loop.is_running():
+            loop.quit()
+
+    def _handle_cuda_oom(
+        self,
+        exc: torch.OutOfMemoryError,
+        context: str,
+        *,
+        clear_live_selectors: bool = True,
+    ) -> str:
+        if not _cuda_oom_recovery_enabled():
+            logger.debug(
+                "%s disabled; propagating CUDA OOM while %s",
+                CUDA_OOM_RECOVERY_ENV,
+                context,
+            )
+            raise exc
+        error_message = format_cuda_oom_error(exc, context)
+        logger.error(error_message, exc_info=True)
+        with self._err_msg_lock:
+            if self._err_msg is None:
+                self._err_msg = error_message
+        self._release_cached_cuda_frames(clear_live_selectors=clear_live_selectors)
+        self._quit_loop_after_error()
+        return error_message
+
     def _decoder_cache_key(self, codec: str):
         return (
             codec,
@@ -1228,9 +1290,9 @@ class VideoFileFrameGetter:
 
         def cb_elem_added(elem, username, password, selff):
             if "nvv4l2decoder" in elem.get_factory().get_name():
-                elem.set_property("gpu-id", self._gpu_id)
-                elem.set_property("extract-sei-type5-data", True)
-                elem.set_property("sei-uuid", "NVDS_CUSTOMMETA")
+                _set_gst_property_if_supported(elem, "gpu-id", self._gpu_id)
+                _set_gst_property_if_supported(elem, "extract-sei-type5-data", True)
+                _set_gst_property_if_supported(elem, "sei-uuid", "NVDS_CUSTOMMETA")
             if "mpeg4videoparse" in elem.get_factory().get_name():
                 elem.set_property("config-interval", -1)
             parser_name = elem.get_factory().get_name()
@@ -1828,35 +1890,43 @@ class VideoFileFrameGetter:
                 logger.warning("Failed to map decoded frame buffer")
                 return False
             try:
-                if self._enable_jpeg_output:
-                    # Buffer contains JPEG image, add to cache as is.
-                    image_tensor = np.frombuffer(mapinfo.data, dtype=np.uint8).copy()
-                else:
-                    # Extract GPU memory pointer and create tensor from it using
-                    # DeepStream Python Bindings and cupy.
-                    _, shape, strides, dataptr, size = pyds.get_nvds_buf_surface_gpu(
-                        hash(buffer), 0
-                    )
-                    ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.c_void_p
-                    ctypes.pythonapi.PyCapsule_GetPointer.argtypes = [
-                        ctypes.py_object,
-                        ctypes.c_char_p,
-                    ]
-                    owner = None
-                    c_data_ptr = ctypes.pythonapi.PyCapsule_GetPointer(dataptr, None)
-                    unownedmem = cp.cuda.UnownedMemory(c_data_ptr, size, owner)
-                    memptr = cp.cuda.MemoryPointer(unownedmem, 0)
-                    n_frame_gpu = cp.ndarray(
-                        shape=shape, dtype=np.uint8, memptr=memptr, strides=strides, order="C"
-                    )
-                    # Clone on a dedicated stream to avoid blocking the default
-                    # CUDA stream (used by vLLM inference). Sync before buffer
-                    # unmap so the DeepStream buffer can be safely reused.
-                    if self._copy_stream is None:
-                        self._copy_stream = torch.cuda.Stream()
-                    with torch.cuda.stream(self._copy_stream):
-                        image_tensor = torch.as_tensor(n_frame_gpu, device="cuda").clone()
-                    self._copy_stream.synchronize()
+                try:
+                    if self._enable_jpeg_output:
+                        # Buffer contains JPEG image, add to cache as is.
+                        image_tensor = np.frombuffer(mapinfo.data, dtype=np.uint8).copy()
+                    else:
+                        # Extract GPU memory pointer and create tensor from it using
+                        # DeepStream Python Bindings and cupy.
+                        _, shape, strides, dataptr, size = pyds.get_nvds_buf_surface_gpu(
+                            hash(buffer), 0
+                        )
+                        ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.c_void_p
+                        ctypes.pythonapi.PyCapsule_GetPointer.argtypes = [
+                            ctypes.py_object,
+                            ctypes.c_char_p,
+                        ]
+                        owner = None
+                        c_data_ptr = ctypes.pythonapi.PyCapsule_GetPointer(dataptr, None)
+                        unownedmem = cp.cuda.UnownedMemory(c_data_ptr, size, owner)
+                        memptr = cp.cuda.MemoryPointer(unownedmem, 0)
+                        n_frame_gpu = cp.ndarray(
+                            shape=shape,
+                            dtype=np.uint8,
+                            memptr=memptr,
+                            strides=strides,
+                            order="C",
+                        )
+                        # Clone on a dedicated stream to avoid blocking the default
+                        # CUDA stream (used by vLLM inference). Sync before buffer
+                        # unmap so the DeepStream buffer can be safely reused.
+                        if self._copy_stream is None:
+                            self._copy_stream = torch.cuda.Stream()
+                        with torch.cuda.stream(self._copy_stream):
+                            image_tensor = torch.as_tensor(n_frame_gpu, device="cuda").clone()
+                        self._copy_stream.synchronize()
+                except torch.OutOfMemoryError as exc:
+                    self._handle_cuda_oom(exc, "copying decoded frame to CUDA cache")
+                    return False
 
                 # Cache the pre-processed frame / jpeg and its timestamp. Convert
                 # the timestamps from nanoseconds to seconds.
@@ -2819,7 +2889,11 @@ class VideoFileFrameGetter:
         )
         if len(cached_frames) == 0:
             logger.warning("No frames found for chunk %s", chunk)
-        preprocessed_frames = self._preprocess(cached_frames)
+        try:
+            preprocessed_frames = self._preprocess(cached_frames)
+        except torch.OutOfMemoryError as exc:
+            self._handle_cuda_oom(exc, "preprocessing decoded chunk frames")
+            preprocessed_frames = []
         self._frame_selector = frame_selector_backup
 
         with self._err_msg_lock:

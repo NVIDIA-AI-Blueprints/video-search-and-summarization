@@ -3,6 +3,11 @@ Feature: VST BBox Overlay Rendering
   replay pictures, and downloaded clips, and that classType filtering is
   case-insensitive.
 
+  # GAP-051 uses a Redis nv.Frame publisher (scripts/overlay/live_publisher.py).
+  # VIOS must have enable_notification_consumer=true and
+  # use_message_broker_consumer=redis with a matching topic (see config.json
+  # tests.bbox_overlay_tests). GAP-050/052 still need stored metadata.
+
   # BDD-GAP-050
   @needs_bbox_metadata
   Scenario Outline: classType filter is case-insensitive
@@ -24,6 +29,14 @@ Feature: VST BBox Overlay Rendering
     And an active stream has live bbox metadata
     When the live picture is requested with overlay=true
     Then the JPEG contains a region of the expected bbox color
+
+  # Same Redis protobuf publisher as GAP-051; assert first/middle/last WebRTC frames.
+  @needs_bbox_metadata
+  Scenario: BBox renders on the live WebRTC stream
+    Given the VST API is configured for bbox overlay tests
+    And an active stream has live bbox metadata
+    When a live WebRTC stream is started with overlay enabled
+    Then sampled WebRTC frames contain a region of the expected bbox color
 
   # BDD-GAP-052
   @needs_bbox_metadata
