@@ -15,6 +15,7 @@ from pydantic import Field
 import pytest
 
 from vss_cli import config as config_mod
+from vss_cli import memory as memory_mod
 from vss_cli import params as params_mod
 from vss_cli.exits import Exit
 from vss_cli.group import CommandGroup
@@ -116,6 +117,15 @@ def test_run_parses_derived_flags_into_the_model() -> None:
     assert owner.seen.query == "forklift"
     assert owner.seen.attributes == ["red", "large"]
     assert owner.seen.top_k == 3
+
+
+def test_non_memory_group_run_does_not_build_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unexpected_build(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("non-memory group tried to build memory")
+
+    monkeypatch.setattr(memory_mod, "build", unexpected_build)
+    result = CliRunner().invoke(_Group().cli(), ["run", "--query", "forklift"])
+    assert result.exit_code == 0, result.output
 
 
 def test_out_of_range_value_is_rejected() -> None:

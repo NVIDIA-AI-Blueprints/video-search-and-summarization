@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import cast
 
 import click
 
@@ -19,18 +18,16 @@ if TYPE_CHECKING:
 
     from . import config as config_mod
 
-_GROUP_TOKENS = {"summarize": "summary"}
-
 
 class MemoryUnavailable(click.ClickException):
     """Memory was requested but no usable persistent store is configured."""
 
     exit_code = int(Exit.CONFIGURATION)
 
-
-def group_token(name: str) -> MemoryGroup:
-    """Translate a CLI command-group verb into its memory schema token."""
-    return cast("MemoryGroup", _GROUP_TOKENS.get(name, name))
+    @classmethod
+    def for_verb(cls, verb: str) -> MemoryUnavailable:
+        """Describe a read verb used by a group without memory backing."""
+        return cls(f"`{verb}` requires unified-memory backing, which this command group does not provide.")
 
 
 class Memory:
@@ -44,18 +41,18 @@ class Memory:
     def service(self) -> MemoryService:
         return self._service
 
-    def status(self, group: str, job_id: str) -> dict[str, Any]:
+    def status(self, group: MemoryGroup, job_id: str) -> dict[str, Any]:
         return self._ensure_group(group, self._service.status(job_id)).model_dump_memory()
 
-    def get(self, group: str, job_id: str) -> dict[str, Any]:
+    def get(self, group: MemoryGroup, job_id: str) -> dict[str, Any]:
         return self._ensure_group(group, self._service.get(job_id)).model_dump_memory()
 
-    def query(self, group: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    def query(self, group: MemoryGroup, filters: dict[str, Any]) -> list[dict[str, Any]]:
         from vss_core.memory import JobFilters
 
         records = self._service.list_jobs(
             JobFilters(
-                group=group_token(group),
+                group=group,
                 status=filters.get("status"),
                 sensor_id=filters.get("sensor_id"),
                 since=filters.get("since"),
@@ -64,12 +61,11 @@ class Memory:
         return [record.model_dump_memory() for record in records]
 
     @staticmethod
-    def _ensure_group(group: str, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
+    def _ensure_group(group: MemoryGroup, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
         from vss_core.memory import MemoryNotFoundError
 
-        token = group_token(group)
-        if record.job.group != token:
-            raise MemoryNotFoundError(f"job {record.job.job_id} is a {record.job.group!r} job, not a {token!r} job")
+        if record.job.group != group:
+            raise MemoryNotFoundError(f"job {record.job.job_id} is a {record.job.group!r} job, not a {group!r} job")
         return record
 
 
@@ -101,4 +97,4 @@ def index_option() -> click.Option:
     )
 
 
-__all__ = ["Memory", "MemoryUnavailable", "build", "group_token", "index_option"]
+__all__ = ["Memory", "MemoryUnavailable", "build", "index_option"]

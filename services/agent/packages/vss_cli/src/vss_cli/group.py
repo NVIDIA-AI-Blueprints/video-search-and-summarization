@@ -52,6 +52,8 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from vss_core.memory.models import MemoryGroup
+
 #: Contract version. A group built against a different major is refused at
 #: load time rather than half-mounted.
 API_VERSION = 1
@@ -85,7 +87,7 @@ class Context:
     deployment: config_mod.Deployment | None = None
     pretty: bool | None = None
     log_level: str = "WARNING"
-    #: Lazily opened group-scoped memory tier. Tests may inject one directly.
+    #: Eagerly prepared group-scoped memory tier. Tests may inject one directly.
     memory: Any = None
     #: Why the deployment failed to load, when it did. Carried so a verb can
     #: report the specific cause instead of a generic "nothing configured".
@@ -198,6 +200,9 @@ class CommandGroup(ABC):
 
     #: Group name as it appears in ``vss <name> ...``.
     name: ClassVar[str]
+    #: Unified-memory group owned by this command group. None means that the
+    #: group does not persist jobs.
+    memory_group: ClassVar[MemoryGroup | None] = None
     #: One-line help. Mirrors the ``vss.command_summaries`` entry point, which
     #: is what ``vss --help`` reads without importing anything.
     summary: ClassVar[str]
@@ -240,21 +245,23 @@ class CommandGroup(ABC):
 
     # -- framework-provided reads (§6.2) --------------------------------
 
-    @final
-    def memory(self, ctx: Context) -> Any:
-        """Open the configured memory tier lazily, preserving test injection."""
-        if ctx.memory is None:
-            ctx.memory = memory_mod.build(ctx.deployment, index=ctx.extra.get("memory_index"))
-        return ctx.memory
-
     def status(self, job_id: str, ctx: Context) -> Result:
-        return Result(body=self.memory(ctx).status(self.name, job_id), job_id=job_id)
+        if ctx.memory is None:
+            raise memory_mod.MemoryUnavailable.for_verb("status")
+        assert self.memory_group is not None
+        return Result(body=ctx.memory.status(self.memory_group, job_id), job_id=job_id)
 
     def get(self, job_id: str, ctx: Context) -> Result:
-        return Result(body=self.memory(ctx).get(self.name, job_id), job_id=job_id)
+        if ctx.memory is None:
+            raise memory_mod.MemoryUnavailable.for_verb("get")
+        assert self.memory_group is not None
+        return Result(body=ctx.memory.get(self.memory_group, job_id), job_id=job_id)
 
     def list(self, filters: dict[str, Any], ctx: Context) -> Result:
-        return Result(body=self.memory(ctx).query(self.name, filters))
+        if ctx.memory is None:
+            raise memory_mod.MemoryUnavailable.for_verb("list")
+        assert self.memory_group is not None
+        return Result(body=ctx.memory.query(self.memory_group, filters))
 
     # -- CLI construction ------------------------------------------------
 
@@ -287,8 +294,6 @@ class CommandGroup(ABC):
         extra_names = {p.name for p in owner.extra_params if p.name}
 
         def callback(**values: Any) -> None:
-            ctx = _context_from(values)
-            ctx.extra = {k: v for k, v in values.items() if k in extra_names and v is not None and v != ()}
             payload = params_mod.collect(model, values)
             try:
                 inputs = model(**payload)
@@ -297,6 +302,8 @@ class CommandGroup(ABC):
                 # report it as exit 2 with the offending fields named, rather
                 # than letting a pydantic traceback out as a generic exit 1.
                 raise InvalidInput(_format_validation(exc)) from exc
+            ctx = _context_from(values, memory_group=owner.memory_group)
+            ctx.extra = {k: v for k, v in values.items() if k in extra_names and v is not None and v != ()}
             _require_services(action, ctx)
 
             def dispatch() -> Result:
@@ -326,7 +333,7 @@ class CommandGroup(ABC):
         owner = self
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
+            ctx = _context_from(values, memory_group=owner.memory_group)
             _emit(_guarded(lambda: fn(values["job_id"], ctx)), ctx)
 
         return click.Command(
@@ -349,7 +356,7 @@ class CommandGroup(ABC):
         )
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
+            ctx = _context_from(values, memory_group=owner.memory_group)
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
             _emit(_guarded(lambda: owner.list(selected, ctx)), ctx)
 
@@ -364,7 +371,11 @@ class CommandGroup(ABC):
 # -- helpers ------------------------------------------------------------
 
 
-def _context_from(values: dict[str, Any]) -> Context:
+def _context_from(
+    values: dict[str, Any],
+    *,
+    memory_group: MemoryGroup | None = None,
+) -> Context:
     """Assemble a Context from the shared flags, resolving the deployment.
 
     The recorded deployment is the only source of endpoints. When none is
@@ -381,19 +392,14 @@ def _context_from(values: dict[str, Any]) -> Context:
         # and collapsing them to a bare None loses the one that says which.
         deployment = None
         config_error = str(exc)
-    return Context(
+    ctx = Context(
         config_error=config_error,
         deployment=deployment,
         pretty=values.get("pretty"),
         log_level=values.get("log_level") or "WARNING",
     )
-
-
-def _memory_context(values: dict[str, Any]) -> Context:
-    """Build a read context carrying the optional memory-index override."""
-    ctx = _context_from(values)
-    if values.get("memory_index"):
-        ctx.extra["memory_index"] = values["memory_index"]
+    if memory_group is not None:
+        ctx.memory = memory_mod.build(deployment, index=values.get("memory_index"))
     return ctx
 
 

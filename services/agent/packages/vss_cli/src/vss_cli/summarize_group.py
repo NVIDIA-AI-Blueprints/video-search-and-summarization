@@ -26,6 +26,7 @@ import json
 from pathlib import PurePosixPath
 import secrets
 import time
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 from typing import Protocol
@@ -43,6 +44,9 @@ from .group import CommandGroup
 from .group import Context
 from .group import InvalidInput
 from .group import Result
+
+if TYPE_CHECKING:
+    from vss_core.memory.models import MemoryGroup
 
 _SUMMARIZE_PATH = PurePosixPath("/v1/summarize")
 _REQUEST_TIMEOUT_SECONDS = 3600.0
@@ -160,7 +164,7 @@ def _mint_job_id() -> str:
 
 
 def _memory_input(request: SummarizeInput) -> Any:
-    """Map the CLI request into #1583's generic memory input envelope."""
+    """Map the CLI request into the generic memory input envelope."""
     from vss_core.memory import SummaryAdapter
 
     media_ref: dict[str, Any] = {"source": "lvs"}
@@ -259,6 +263,7 @@ class SummarizeGroup(CommandGroup):
     """Summarize video through LVS and persist its lifecycle."""
 
     name: ClassVar[str] = "summarize"
+    memory_group: ClassVar[MemoryGroup] = "summary"
     summary: ClassVar[str] = "Summarize video"
     Input: ClassVar[type[BaseModel] | None] = SummarizeInput
     extra_params: ClassVar[tuple[Any, ...]] = (memory_mod.index_option(),)
@@ -276,7 +281,9 @@ class SummarizeGroup(CommandGroup):
         job_id = _mint_job_id()
         created_at = utc_now_iso()
         input_data = _memory_input(inputs)
-        memory = self.memory(ctx)
+        assert ctx.memory is not None
+        assert self.memory_group is not None
+        memory = ctx.memory
         adapter = SummaryAdapter()
         memory.service.upsert(
             adapter.running_record(

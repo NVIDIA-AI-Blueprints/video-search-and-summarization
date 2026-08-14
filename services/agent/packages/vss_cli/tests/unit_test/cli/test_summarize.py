@@ -105,7 +105,28 @@ def _run(group: SummarizeGroup, *argv: str) -> Any:
 
 def test_group_exposes_fixed_job_verbs() -> None:
     group, _ = _group()
+    assert group.memory_group == "summary"
     assert {"run", "status", "get", "list"} <= set(group.cli().commands)
+
+
+def test_memory_is_built_eagerly_before_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    memory = memory_mod.Memory(MemoryService(_TrackingStore()), index="eager-memory")
+
+    def build(*_args: Any, **_kwargs: Any) -> memory_mod.Memory:
+        order.append("memory")
+        return memory
+
+    class _OrderedRunner:
+        def summarize(self, request: SummarizeInput) -> dict[str, Any]:
+            order.append("runner")
+            return {"id": "completion-eager", "choices": [{"message": {"content": request.scenario}}]}
+
+    monkeypatch.setattr(memory_mod, "build", build)
+    group = SummarizeGroup(runner_factory=lambda _ctx: _OrderedRunner())
+    result = _run(group, "--id", "video-1", "--scenario", "warehouse")
+    assert result.exit_code == 0, result.output
+    assert order == ["memory", "runner"]
 
 
 def test_run_help_uses_model_fields() -> None:
