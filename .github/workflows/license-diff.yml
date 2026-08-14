@@ -140,6 +140,7 @@ jobs:
           RAW_ROWS: ${{ steps.gen.outputs.rows }}
           BASE: ${{ steps.ctx.outputs.base }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GUIDE_URL: ${{ github.server_url }}/${{ github.repository }}/blob/develop/.github/OSRB_REVIEW.md
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
         run: |
           set -euo pipefail
@@ -158,7 +159,14 @@ jobs:
             echo '```'
             echo "</details>"
             echo
-            echo "_This check is informational. CODEOWNERS still gates merge — get approval from \`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers\` for the touched lockfile/manifest paths._"
+            echo "### What to do"
+            echo
+            echo "The **OSRB Review** check evaluates these changes against existing approval evidence and posts its verdict on this PR."
+            echo "While that check is being rolled out, a red License Diff is still a real signal:"
+            echo "get approval from \`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers\` for the touched paths."
+            echo "Do not paste private approval evidence into this public PR."
+            echo
+            echo "[Developer instructions](${GUIDE_URL}) · CODEOWNERS remains the final merge gate."
           } > comment.md
           existing=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
             --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id")

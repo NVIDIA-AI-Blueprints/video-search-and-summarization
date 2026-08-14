@@ -31,7 +31,7 @@ Help the user find the right `./build.sh` invocation by asking clarifying questi
 
 Gather the following from the user's request (ask only for what is missing or ambiguous):
 
-- **What to build**: single module, all modules, container, Helm chart, monolith, nvstreamer, MCP, ingress
+- **What to build**: single module, all modules, container, Helm chart, monolith, nvstreamer, ingress
 - **Module(s)**: sensor, rtspserver, recorder, livestream, replaystream, streambridge, storage, streamprocessing (comma-separated for multiple)
 - **Architecture**: x86_64 (default), arm64/aarch64, sbsa
 - **Build type**: default, debug, or release

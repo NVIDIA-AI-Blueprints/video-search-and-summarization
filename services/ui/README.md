@@ -189,13 +189,15 @@ This module is governed by **two separate licenses**, depending on what you use:
 
 - **The pre-built VSS Agent UI container images distributed by NVIDIA via NGC**
   (`nvcr.io/nvidia/blueprint/vss-agent-ui` and related tags) **are licensed under the NVIDIA Software
-  License Agreement.** The full agreement is included in this directory as
-  [`NVIDIA-Software-License-Agreement.pdf`](./NVIDIA-Software-License-Agreement.pdf). If you pull and
-  use NVIDIA's pre-built container images, the NVIDIA Software License Agreement governs your use.
+  License Agreement.** If you pull and use NVIDIA's pre-built container
+  images, the NVIDIA Software License Agreement governs your use; the agreement is conveyed by the
+  distribution channel those images ship through.
 
 Third-party open-source components bundled in the container image are attributed in
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
-The presence of `NVIDIA-Software-License-Agreement.pdf` in this directory does **not** modify the MIT
-License that governs the source code in this directory. It is included here so that the pre-built
-container images carry the license they ship under.
+The container image itself carries only `LICENSE` (MIT) and `LICENSE-3rd-party.txt`. The NVIDIA
+Software License Agreement is not copied into the image: it is built from MIT-licensed source and
+published to GHCR, so embedding a proprietary EULA in the artifact would misstate the terms it is
+distributed under. Where the NVIDIA Software License Agreement governs an NVIDIA-distributed build,
+it is conveyed by that distribution channel rather than by a file inside the image.

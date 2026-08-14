@@ -346,7 +346,7 @@ const processStorageSize = (result: SettledApiResult, vstAdaptorType: string): v
 // Function to update sensors
 export const updateSensorsAndStreams = async () => {
     try {
-        const vstAdaptorType = useVSTUIStore.getState().vstAdaptorType;
+        const vstAdaptorType = useVSTUIStore.getState().vstAdaptorType ?? 'vst';
         LOG.info('vstAdaptorType', vstAdaptorType);
 
         // Check all services availability

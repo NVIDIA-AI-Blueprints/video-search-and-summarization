@@ -45,13 +45,8 @@ services:
       DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
       OTEL_SDK_DISABLED: "true"
-      DISPLAY: ${DISPLAY:-}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-              device_ids: ["${GPU_DEVICE:-0}"]
+      DISPLAY: ${DISPLAY:-:0}
+      NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
     volumes:
       - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/mtmc:/opt/storage
       - ${MODELS_DIR}/mv3dt/BodyPose3DNet:/opt/storage/BodyPose3DNet

@@ -50,7 +50,7 @@ metadata:
 {{- if $nvstreamerEnabled }}
       /streamer/(.*) /\1
 {{- end }}
-      /storage/(.*) /vst/storage/\1
+      ^/storage/(.*) /vst/storage/\1
     # Normalize //vst/ double-slash produced by the VST UI when served under a
     # /vst/ subpath. replace-path fires before use_backend; re-setting txn.path
     # and txn.path_match lets the router find the vss-vios-ingress backend.

@@ -17,7 +17,7 @@
 import { useEffect, useRef } from 'react';
 
 const useEffectOnce = (effect: () => void | (() => void)) => {
-    const destroyFunc = useRef<void | (() => void)>();
+    const destroyFunc = useRef<void | (() => void)>(undefined);
     const effectCalled = useRef(false);
     const renderAfterCalled = useRef(false);
 

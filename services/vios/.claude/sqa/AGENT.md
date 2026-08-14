@@ -182,7 +182,7 @@ When a deployment or an ad-hoc test needs a video source and none is available:
 - **Build before deploying by default** — run `skills/build/build-containers.md` first to ensure the deployment uses the latest source. Skip build only when explicitly requested (`--skip-build`) or when no deploy is needed (`results`, `ui` arguments).
 - Do not run `--fresh-start` or destructive flags without explicit user approval.
 - Do not modify `deployment/**/docker-compose*.y*ml` without instruction.
-- **Always** sync `test/bdd_tests/config.json` → `api.base_url` to match the resolved BASE_URL before running tests. The file defaults to `localhost:30888` which causes MCP tests to derive the wrong URL. This sync is automatic and requires no user approval.
+- **Always** sync `test/bdd_tests/config.json` → `api.base_url` to match the resolved BASE_URL before running tests. The file defaults to `localhost:30888`, which points tests at the wrong host. This sync is automatic and requires no user approval.
 - **Always stop and redeploy before running tests** — never run tests against an already-running stack. A fresh deployment avoids stale database state from previous runs.
 - Prefer targeted test runs over full suite unless full regression is requested.
 - Always generate `reports/junit.xml` and `reports/report.html` — never run tests without report flags.

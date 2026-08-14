@@ -20,7 +20,7 @@ docker-workload-streamprocessing:
   WDM_WL_CHANGE_ID_ADD: camera_proxy
   WDM_WL_CHANGE_ID_DEL: camera_remove
   WDM_WL_HEALTH_CHECK_URL: /api/v1/proxy/configuration
-  WDM_WL_THRESHOLD: 100
+  WDM_WL_THRESHOLD: ${NUM_STREAMS}
   WDM_CONTROLLER_REPROVISION: true
   WDM_RESET_ON_WLOBJ_CRASH: false
   WDM_CLEAR_DATA_WL: true
@@ -44,6 +44,8 @@ docker-workload-streamprocessing:
   WDM_WL_REDIS_MSG_FIELD: value
   WDM_MSG_KEY: vst_events
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json
+  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false
+  
 
 docker-workload-rtvi-cv:
   wl_obj_name: vss-rtvi-cv
@@ -75,9 +77,13 @@ docker-workload-rtvi-cv:
   WDM_WL_DELETE_URL: /api/v1/stream/remove
   WDM_WL_CHANGE_ID_ADD: camera_streaming
   WDM_WL_CHANGE_ID_DEL: camera_remove
-  WDM_WL_THRESHOLD: 100
-  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 15000
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 5
+  WDM_WL_THRESHOLD: ${NUM_STREAMS}
   WDM_HANDLE_CONFIG_EVENTS: false
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
+  WDM_WL_HEALTH_CHECK_URL: '/api/v1/live'
+  WDM_ADD_CALL_DELAY: 1
+  WDM_PROVISION_ASYNC: false
 
 docker-workload-alerts-2d:
   wl_obj_name: vss-alert-bridge
@@ -88,7 +94,6 @@ docker-workload-alerts-2d:
   WDM_WL_REDIS_MSG_FIELD: value
   WDM_INITIALIZE_FROM_VST: false
   WDM_KFK_ENABLE: false
-  WDM_PRELOAD_DELAY_FOR_DS_API: true
   WDM_WL_THRESHOLD: ${NUM_STREAMS}
   WDM_POD_WATCH_DOCKER_DELAY: 0.5
   WDM_WL_OBJECT_NAME: vss-alert-bridge
@@ -98,7 +103,7 @@ docker-workload-alerts-2d:
   WDM_WL_DELETE_URL: "/api/v1/realtime/always-on"
   WDM_WL_HEALTH_CHECK_URL: "/health"
   WDM_ADD_REMOVE_REQUEST_TIMEOUT: 10
-  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 60
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 5
   WDM_HANDLE_CONFIG_EVENTS: false
   WDM_CLUSTER_TYPE: docker
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-alerts-2d.json
@@ -107,3 +112,4 @@ docker-workload-alerts-2d:
   WDM_MS_LISTENER_PORT: 10002
   NOHEADERTARGETROUTE: false
   HEADERLESS_SERVICE_ENDPOINTS: "[]"
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'

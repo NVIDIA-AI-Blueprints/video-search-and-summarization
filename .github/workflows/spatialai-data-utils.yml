@@ -96,10 +96,10 @@ jobs:
           if not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
               raise RuntimeError(f"invalid Spatial AI source tree SHA: {tree_sha!r}")
 
-          # Match the established GHCR convention: package identity is the
-          # first 12 characters of the VSS source commit, with no CI counter
-          # embedded in the public package version.
-          suffix = f".dev0+g{commit[:12]}"
+          # Package identity is the Spatial AI source tree, so unchanged SDU
+          # content receives the same immutable development version even when
+          # unrelated VSS files change in a later source commit.
+          suffix = f".dev0+g{tree_sha[:12]}"
           publish = changed and ref_name == "develop" and not recovery
           reconcile = recovery or publish
 

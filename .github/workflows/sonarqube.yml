@@ -186,6 +186,17 @@ jobs:
             # coverage harness in CI, so exclude them from the new-code coverage
             # gate. They are still analyzed for bugs, code smells, and duplication.
             echo "sonar.coverage.exclusions=skills/**/scripts/**" >> sonar-project.properties
+            # The LVS benchmark intentionally uses plain-HTTP *local* endpoints
+            # (LVS dev backend, LAN media server) that do not serve TLS, so the
+            # S5332 clear-text-protocol hotspots on these two files are accepted.
+            # Scoped to exactly these files so new http usage elsewhere still flags.
+            {
+              echo "sonar.issue.ignore.multicriteria=lvsbench1,lvsbench2"
+              echo "sonar.issue.ignore.multicriteria.lvsbench1.ruleKey=python:S5332"
+              echo "sonar.issue.ignore.multicriteria.lvsbench1.resourceKey=skills/benchmarking/benchmark-video-summarization/scripts/base.py"
+              echo "sonar.issue.ignore.multicriteria.lvsbench2.ruleKey=shell:S5332"
+              echo "sonar.issue.ignore.multicriteria.lvsbench2.resourceKey=skills/benchmarking/benchmark-video-summarization/scripts/fetch-videos.sh"
+            } >> sonar-project.properties
           fi
 
           if [ "$EVENT_NAME" = "pull_request" ]; then

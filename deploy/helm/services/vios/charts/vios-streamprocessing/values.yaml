@@ -135,7 +135,11 @@ securityContext:
   runAsGroup: 0
   fsGroup: 0
 
-# Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Set to {} to run without GPU (software mode). Requires NVIDIA device plugin on nodes.
+# Set true to use FFmpeg software encode/decode instead of GPU hardware path.
+# Must be paired with resources: null so the pod is not scheduled requiring a GPU.
+useSoftwarePath: false
+
+# Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Requires NVIDIA device plugin on nodes.
 resources:
   limits:
     nvidia.com/gpu: 1

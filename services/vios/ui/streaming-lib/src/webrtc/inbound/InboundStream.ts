@@ -385,7 +385,7 @@ export default class InboundStream {
                 bitrate_max,
                 bitrate_start: settings.bitrate_start,
             };
-        } catch (error) {
+        } catch {
             logger.debug('[INBOUND_STREAM]', 'Failed to do get bitrates');
             return {
                 bitrate_min: null,

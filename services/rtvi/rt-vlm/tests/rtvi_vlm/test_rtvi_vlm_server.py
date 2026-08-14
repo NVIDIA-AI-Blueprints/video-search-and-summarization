@@ -664,8 +664,8 @@ class TestCaptionGeneration:
             second_request_id,
         ]
 
-    def test_vlm_server_rtsp_stop_rejects_multiple_active_caption_requests(self, rtvi_server):
-        """Stopping by asset ID is rejected while multiple caption requests are active."""
+    def test_vlm_server_rtsp_stop_finishes_all_active_caption_requests(self, rtvi_server):
+        """Stopping by asset ID drains the stream and finishes every subscriber."""
         stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
         asset = rtvi_server._asset_manager.get_asset(stream_id)
         query = VlmQuery(
@@ -689,16 +689,25 @@ class TestCaptionGeneration:
         rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.return_value = 0.05
         rtvi_server._stream_handler._safe_rmtree = MagicMock()
 
-        with pytest.raises(ServiceException) as exc_info:
-            rtvi_server._stream_handler.remove_rtsp_stream(asset)
+        first_request = rtvi_server._stream_handler._request_info_map[first_request_id]
+        second_request = rtvi_server._stream_handler._request_info_map[second_request_id]
 
-        assert exc_info.value.status_code == 409
-        assert exc_info.value.code == "ResourceInUse"
-        assert asset.use_count == 2
-        assert first_request_id in rtvi_server._stream_handler._request_info_map
-        assert second_request_id in rtvi_server._stream_handler._request_info_map
-        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.assert_not_called()
-        rtvi_server._stream_handler._safe_rmtree.assert_not_called()
+        rtvi_server._stream_handler.remove_rtsp_stream(asset)
+
+        assert asset.use_count == 0
+        assert first_request_id not in rtvi_server._stream_handler._request_info_map
+        assert second_request_id not in rtvi_server._stream_handler._request_info_map
+        assert first_request.status == RequestInfo.Status.SUCCESSFUL
+        assert second_request.status == RequestInfo.Status.SUCCESSFUL
+        assert first_request.status_event.is_set()
+        assert second_request.status_event.is_set()
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.assert_called_once_with(
+            stream_id,
+            timeout_sec=None,
+        )
+        rtvi_server._stream_handler._safe_rmtree.assert_called_once_with(
+            f"/tmp/rtvi/cached_frames/{stream_id}"
+        )
 
     def test_vlm_server_rtsp_stop_single_caption_request_uses_asset_id(self, rtvi_server):
         """Stopping one live caption request drains the shared RTSP asset ID."""
@@ -716,6 +725,7 @@ class TestCaptionGeneration:
             query,
             is_rtsp=True,
         )
+        req_info = rtvi_server._stream_handler._request_info_map[request_id]
 
         rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.return_value = 0.05
         rtvi_server._stream_handler._safe_rmtree = MagicMock()
@@ -724,6 +734,9 @@ class TestCaptionGeneration:
 
         assert asset.use_count == 0
         assert request_id not in rtvi_server._stream_handler._request_info_map
+        assert req_info.status == RequestInfo.Status.SUCCESSFUL
+        assert req_info.status_event.is_set()
+        assert req_info._live_stop_finalized is True
         rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.assert_called_once_with(
             stream_id,
             timeout_sec=None,
@@ -731,6 +744,129 @@ class TestCaptionGeneration:
         rtvi_server._stream_handler._safe_rmtree.assert_called_once_with(
             f"/tmp/rtvi/cached_frames/{stream_id}"
         )
+
+    def test_vlm_server_rejects_new_caption_request_while_stream_is_stopping(self, rtvi_server):
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+        rtvi_server._stream_handler._live_streams_stopping.add(stream_id)
+
+        with pytest.raises(ServiceException) as exc_info:
+            rtvi_server._stream_handler.generate_vlm_captions(
+                [asset],
+                query,
+                is_rtsp=True,
+            )
+
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.code == "ResourceInUse"
+        assert asset.use_count == 0
+        assert not rtvi_server._stream_handler._get_live_stream_requests(stream_id)
+
+    def test_live_request_finalization_is_idempotent_across_eos_and_delete(self, rtvi_server):
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        req_info = RequestInfo()
+        req_info.is_live = True
+        req_info.status = RequestInfo.Status.PROCESSING
+        req_info.assets = [asset]
+        asset.lock()
+
+        active_counter = MagicMock()
+        rtvi_server._stream_handler._metrics._active_live_streams_counter = active_counter
+        rtvi_server._stream_handler.stop_request_profiling = MagicMock()
+
+        rtvi_server._stream_handler._process_output(req_info, True, [])
+        rtvi_server._stream_handler._finish_stopped_live_caption_request(
+            req_info,
+            was_processing=True,
+        )
+
+        active_counter.add.assert_called_once_with(-1)
+        assert asset.use_count == 0
+        assert req_info.status == RequestInfo.Status.SUCCESSFUL
+        assert req_info.status_event.is_set()
+
+    def test_rtsp_stop_failure_preserves_request_for_retry(self, rtvi_server):
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+        request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+        req_info = rtvi_server._stream_handler._request_info_map[request_id]
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.side_effect = [
+            RuntimeError("drain failed"),
+            0.05,
+        ]
+        rtvi_server._stream_handler._safe_rmtree = MagicMock()
+
+        with pytest.raises(RuntimeError, match="drain failed"):
+            rtvi_server._stream_handler.remove_rtsp_stream(asset)
+
+        assert asset.use_count == 1
+        assert request_id in rtvi_server._stream_handler._request_info_map
+        assert req_info.status == RequestInfo.Status.PROCESSING
+        assert not req_info.status_event.is_set()
+        assert req_info._live_stop_finalized is False
+        assert stream_id in rtvi_server._stream_handler._live_streams_cleanup_required
+
+        with pytest.raises(ServiceException) as exc_info:
+            rtvi_server._stream_handler.generate_vlm_captions(
+                [asset],
+                query,
+                is_rtsp=True,
+            )
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.code == "ResourceInUse"
+
+        rtvi_server._stream_handler.remove_rtsp_stream(asset)
+
+        assert asset.use_count == 0
+        assert request_id not in rtvi_server._stream_handler._request_info_map
+        assert req_info.status == RequestInfo.Status.SUCCESSFUL
+        assert req_info.status_event.is_set()
+        assert req_info._live_stop_finalized is True
+        assert stream_id not in rtvi_server._stream_handler._live_streams_cleanup_required
+        rtvi_server._stream_handler._safe_rmtree.assert_called_once_with(
+            f"/tmp/rtvi/cached_frames/{stream_id}"
+        )
+
+    def test_live_request_finalization_releases_assets_when_profiling_fails(self, rtvi_server):
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        req_info = RequestInfo()
+        req_info.is_live = True
+        req_info.status = RequestInfo.Status.PROCESSING
+        req_info.assets = [asset]
+        req_info._request_metrics = object()
+        asset.lock()
+        rtvi_server._stream_handler.stop_request_profiling = MagicMock(
+            side_effect=RuntimeError("profiling export failed")
+        )
+
+        rtvi_server._stream_handler._finish_stopped_live_caption_request(
+            req_info,
+            was_processing=True,
+        )
+
+        assert asset.use_count == 0
+        assert req_info.status == RequestInfo.Status.SUCCESSFUL
+        assert req_info.status_event.is_set()
 
     def test_vlm_server_rtsp_stop_one_caption_request_by_request_id_keeps_other_active(
         self, rtvi_server
@@ -771,6 +907,97 @@ class TestCaptionGeneration:
         )
         rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.assert_not_called()
         rtvi_server._stream_handler._safe_rmtree.assert_not_called()
+
+    def test_rtsp_stop_final_request_failure_preserves_request_for_retry(self, rtvi_server):
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+        request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+        req_info = rtvi_server._stream_handler._request_info_map[request_id]
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.side_effect = [
+            RuntimeError("drain failed"),
+            0.05,
+        ]
+        rtvi_server._stream_handler._safe_rmtree = MagicMock()
+
+        with pytest.raises(RuntimeError, match="drain failed"):
+            rtvi_server._stream_handler.remove_rtsp_stream_request(asset, request_id)
+
+        assert asset.use_count == 1
+        assert request_id in rtvi_server._stream_handler._request_info_map
+        assert req_info.status == RequestInfo.Status.PROCESSING
+        assert not req_info.status_event.is_set()
+        assert req_info._live_stop_finalized is False
+        assert stream_id in rtvi_server._stream_handler._live_streams_cleanup_required
+        assert stream_id not in rtvi_server._stream_handler._live_streams_stopping
+
+        rtvi_server._stream_handler.remove_rtsp_stream_request(asset, request_id)
+
+        assert asset.use_count == 0
+        assert request_id not in rtvi_server._stream_handler._request_info_map
+        assert req_info.status == RequestInfo.Status.SUCCESSFUL
+        assert req_info.status_event.is_set()
+        assert req_info._live_stop_finalized is True
+        assert stream_id not in rtvi_server._stream_handler._live_streams_cleanup_required
+        rtvi_server._stream_handler._safe_rmtree.assert_called_once_with(
+            f"/tmp/rtvi/cached_frames/{stream_id}"
+        )
+
+    def test_rtsp_stop_subscriber_failure_preserves_request_for_retry(self, rtvi_server):
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+        first_request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+        second_request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+        first_request = rtvi_server._stream_handler._request_info_map[first_request_id]
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream_subscriber.side_effect = [
+            RuntimeError("subscriber removal failed"),
+            True,
+        ]
+
+        with pytest.raises(RuntimeError, match="subscriber removal failed"):
+            rtvi_server._stream_handler.remove_rtsp_stream_request(asset, first_request_id)
+
+        assert asset.use_count == 2
+        assert first_request_id in rtvi_server._stream_handler._request_info_map
+        assert second_request_id in rtvi_server._stream_handler._request_info_map
+        assert first_request.status == RequestInfo.Status.PROCESSING
+        assert not first_request.status_event.is_set()
+        assert stream_id not in rtvi_server._stream_handler._live_streams_stopping
+        assert stream_id not in rtvi_server._stream_handler._live_streams_cleanup_required
+
+        rtvi_server._stream_handler.remove_rtsp_stream_request(asset, first_request_id)
+
+        assert asset.use_count == 1
+        assert first_request_id not in rtvi_server._stream_handler._request_info_map
+        assert second_request_id in rtvi_server._stream_handler._request_info_map
+        assert first_request.status == RequestInfo.Status.SUCCESSFUL
+        assert first_request.status_event.is_set()
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.assert_not_called()
 
     def test_stop_live_stream_with_request_id_keeps_other_caption_requests_active(
         self, test_client, rtvi_server
@@ -871,10 +1098,10 @@ class TestCaptionGeneration:
         assert elapsed < 1.0
         rtvi_server._stream_handler.remove_rtsp_stream.assert_not_called()
 
-    def test_stop_live_stream_rejects_multiple_active_requests_without_wait(
+    def test_stop_live_stream_finishes_multiple_active_requests(
         self, test_client, rtvi_server, monkeypatch
     ):
-        """Stopping by asset ID rejects multiple subscribers immediately."""
+        """Stopping by asset ID drains and finishes all subscribers."""
         monkeypatch.setenv("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "30")
         stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
         asset = rtvi_server._asset_manager.get_asset(stream_id)
@@ -887,15 +1114,17 @@ class TestCaptionGeneration:
         )
         rtvi_server._stream_handler.generate_vlm_captions([asset], query, is_rtsp=True)
         rtvi_server._stream_handler.generate_vlm_captions([asset], query, is_rtsp=True)
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.return_value = 0.05
 
-        t0 = time.monotonic()
         response = test_client.delete(f"{API_PREFIX}/generate_captions/{stream_id}")
-        elapsed = time.monotonic() - t0
 
-        assert response.status_code == 409
-        assert response.json()["code"] == "ResourceInUse"
-        assert elapsed < 1.0
-        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.assert_not_called()
+        assert response.status_code == 200
+        assert asset.use_count == 0
+        assert not rtvi_server._stream_handler._get_live_stream_requests(stream_id)
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.assert_called_once_with(
+            stream_id,
+            timeout_sec=None,
+        )
 
 
 class TestErrorHandling:

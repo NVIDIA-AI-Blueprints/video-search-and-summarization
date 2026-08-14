@@ -46,7 +46,6 @@ test/gtests/     Google Test unit tests
 test/bdd_tests/  Python BDD tests (pytest-bdd + Gherkin)
 deployment/      Kubernetes Helm charts and UCF deployment configs
 cicd_files/      CI/CD scripts, Dockerfiles per arch
-mcp/             MCP gateway (Python)
 ```
 
 # Module System

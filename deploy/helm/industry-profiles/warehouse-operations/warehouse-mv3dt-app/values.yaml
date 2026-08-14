@@ -32,8 +32,8 @@ bp-configurator:
     mountPath: /opt/data
     seedConfigMapName: vss-behavior-analytics-resources
   image:
-    repository: nvcr.io/nvstaging/vss-core/vss-configurator
-    tag: "3.3.0-2026.08.2-1"
+    repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
+    tag: develop-latest
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -168,6 +168,16 @@ vios:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
       streamerVideos: { enabled: true, create: false, existingClaim: "" }
+    # GPU for hardware-accelerated encode/decode. To run in software mode (lower
+    # throughput, frees the GPU for other workloads), set both in your values override:
+    #   vios.vss-vios-streamprocessing.useSoftwarePath: true
+    #   vios.vss-vios-streamprocessing.resources: null
+    useSoftwarePath: false
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
   vss-vios-ingress:
     enabled: true
     # useSdrc is on, so /vst/api/v1/, /vst/storage/ and the replay-picture route
@@ -409,14 +419,16 @@ rtvi:
           calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
           configInit:
             image:
-              repository: nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-config-init
-              tag: "3.3.0-26.08.1"
+              # repository/tag intentionally unset: inherit the managed GHCR
+              # channel from the rtvi-cv subchart so Helm and Compose ship the
+              # same image. Override with global.container_prefix/container_tag.
               pullPolicy: IfNotPresent
         fusion:
           enabled: true
           image:
-            repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
-            tag: "3.2.0"
+            # repository/tag intentionally unset: inherit the managed GHCR
+            # channel from the rtvi-cv subchart so Helm and Compose ship the
+            # same image. Override with global.container_prefix/container_tag.
             pullPolicy: IfNotPresent
           rawTopic: mdx-raw
           fusedTopic: mdx-bev

@@ -86,9 +86,9 @@ class LoadContainersEnvTest(unittest.TestCase):
                 "${VSS_CONTAINER_REGISTRY}/vss-agent:${VSS_CONTAINER_TAG}"
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             uses_shared_coordinate(
-                "nvcr.io/nvidia/vss-core/vss-configurator:${VSS_CONFIGURATOR_TAG}"
+                "${VSS_CONTAINER_REGISTRY}/vss-configurator:${VSS_CONTAINER_TAG}"
             )
         )
 

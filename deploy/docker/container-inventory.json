@@ -125,6 +125,7 @@
       "context": "services/vios",
       "dockerfile": "services/vios/docker/Dockerfile",
       "build_args": {"MODULE": "sensor"},
+      "native_platform_build": true,
       "platforms": ["linux/amd64", "linux/arm64"],
       "lfs_include": "services/vios/prebuilts/**",
       "compose_image_names": ["vss-vios-sensor"],
@@ -139,6 +140,7 @@
       "context": "services/vios",
       "dockerfile": "services/vios/docker/Dockerfile",
       "build_args": {"MODULE": "streamprocessing"},
+      "native_platform_build": true,
       "platforms": ["linux/amd64", "linux/arm64"],
       "lfs_include": "services/vios/prebuilts/**",
       "compose_image_names": ["vss-vios-streamprocessing"],
@@ -173,17 +175,29 @@
     },
     {
       "name": "vss-configurator",
-      "strategy": "mirror",
-      "platforms": ["linux/amd64"],
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "source_path": "services/configurators/vss-configurator",
+      "context": ".",
+      "dockerfile": "services/configurators/vss-configurator/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-configurator"],
-      "tag_variables": ["VSS_CONFIGURATOR_TAG"]
+      "tag_variables": ["VSS_CONFIGURATOR_TAG"],
+      "notes": "Built by GitHub from the configurator service; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-rt-config-adaptor",
-      "strategy": "mirror",
-      "platforms": ["linux/amd64"],
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "source_path": "services/configurators/vss-rt-config-adaptor",
+      "context": "services/configurators/vss-rt-config-adaptor",
+      "dockerfile": "services/configurators/vss-rt-config-adaptor/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-config-adaptor"],
-      "tag_variables": ["VSS_RT_CONFIG_ADAPTOR_TAG"]
+      "tag_variables": ["VSS_RT_CONFIG_ADAPTOR_TAG"],
+      "notes": "Built by GitHub with the managed first-party image set; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-auto-calibration",
@@ -222,17 +236,38 @@
     },
     {
       "name": "vss-rt-cv-mv3dt-bev-fusion",
-      "strategy": "external-pin",
-      "platforms": ["linux/amd64"],
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/rtvi/rt-cv-3d/rt-cv-bev-fusion",
+      "context": "services/rtvi/rt-cv-3d/rt-cv-bev-fusion",
+      "dockerfile": "services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-cv-mv3dt-bev-fusion"],
-      "tag_variables": ["BEV_FUSION_MV3DT_TAG"]
+      "tag_variables": ["VSS_RT_CV_MV3DT_BEV_FUSION_TAG"]
+    },
+    {
+      "name": "vss-rt-cv-mv3dt-config-init",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/rtvi/rt-cv-3d/rt-cv-config-init",
+      "context": "services/rtvi/rt-cv-3d/rt-cv-config-init",
+      "dockerfile": "services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-rt-cv-mv3dt-config-init"],
+      "tag_variables": ["VSS_RT_CV_MV3DT_CONFIG_INIT_TAG"]
     },
     {
       "name": "sdr-mw-l",
-      "strategy": "external-pin",
-      "platforms": ["linux/amd64"],
+      "strategy": "build",
+      "ghcr_build": true,
+      "native_platform_build": true,
+      "source_path": "services/sdrc",
+      "context": "services/sdrc",
+      "dockerfile": "services/sdrc/envoy/Dockerfile.wdm-router",
+      "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["sdr-mw-l"],
-      "tag_variables": ["SDR_MW_L_IMAGE"]
+      "tag_variables": ["SDR_MW_L_IMAGE"],
+      "notes": "Built by GitHub as the SDRC image while preserving the full-ref SDR_MW_L_IMAGE override."
     }
   ]
 }
