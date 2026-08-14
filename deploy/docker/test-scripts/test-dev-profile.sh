@@ -447,6 +447,12 @@ chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
+# gym shares base's LLM/VLM topology but is NOT an edge profile: it exists to add
+# a large eval container, which has no place on an edge device. Without these,
+# excluding gym from the DGX-SPARK loop would be an untested assumption.
+run_negative_test "DGX-SPARK only valid for base or alerts (not gym)" 1 up -p gym -i 127.0.0.1 -H DGX-SPARK
+run_negative_test "IGX-THOR only valid for base or alerts (not gym)" 1 up -p gym -i 127.0.0.1 -H IGX-THOR
+run_negative_test "AGX-THOR only valid for base or alerts (not gym)" 1 up -p gym -i 127.0.0.1 -H AGX-THOR
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
 run_negative_test "IGX-THOR only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H IGX-THOR
 run_negative_test "IGX-THOR only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H IGX-THOR
@@ -1120,7 +1126,7 @@ fi
 EOF
   chmod +x "${mock_dir}"/*
 
-  local ngc_profiles=(base lvs search alerts)
+  local ngc_profiles=(base gym lvs search alerts)
   local ngc_gen_envs=()
   local ngc_backups=()
   local ngc_profile ngc_gen_env ngc_backup
@@ -1756,6 +1762,7 @@ for _env in \
   "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" \
   "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/.env" \
   "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-gym/.env" \
   "${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/.env"; do
   if grep -q "^VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/" "${_env}"; then
     echo "PASS: ${_env} uses an in-container VSS_AGENT_CONFIG_FILE path"
@@ -2044,7 +2051,7 @@ if [[ -f "${_custom_project_overrides}" ]]; then
   CLEANUP_RESTORES+=("${_custom_project_backup}|${_custom_project_overrides}")
   sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=vss-custom-test/' "${_custom_project_overrides}"
   _custom_project_generated_backups=()
-  for _custom_project_profile in base lvs search alerts; do
+  for _custom_project_profile in base gym lvs search alerts; do
     _custom_project_generated="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${_custom_project_profile}/generated.env"
     if [[ -f "${_custom_project_generated}" ]]; then
       _custom_project_generated_backup="$(mktemp)"
@@ -2091,7 +2098,7 @@ else
 fi
 
 # --- Positive: dry-run down tears down each distinct COMPOSE_PROJECT_NAME from generated.env files ---
-_multi_project_specs=("base:vss-base-test" "lvs:vss-base-test" "alerts:vss-alerts-test")
+_multi_project_specs=("base:vss-base-test" "gym:vss-gym-test" "lvs:vss-base-test" "alerts:vss-alerts-test")
 _multi_project_backups=()
 _multi_project_created=()
 for _multi_project_spec in "${_multi_project_specs[@]}"; do
