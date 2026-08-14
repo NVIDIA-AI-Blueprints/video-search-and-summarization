@@ -34,7 +34,7 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval. NemoClaw sweeps use `nemoclaw-compatible-rtx` or `nemoclaw-compatible-l40s`; otherwise use `*` or a bare skill-dir name."
+        description: "Which skill to eval: `*` or a bare skill-directory name."
         required: false
         default: "*"
         type: string
@@ -152,26 +152,7 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
-          INPUT_RUNNER: ${{ inputs.runner || 'claude-code' }}
-        run: |
-          # Compatibility sweeps are curated subsets of the full shared plan.
-          # Apply the subset here so the standard matrix dispatch sees only
-          # the intended NemoClaw rows.
-          if [ "$INPUT_RUNNER" = "nemoclaw" ]; then
-            case "$MANUAL_SKILLS_FILTER" in
-              nemoclaw-compatible-rtx)
-                export MANUAL_SKILLS_FILTER="*"
-                export PLAN_MATRIX_FILE=.github/skill-eval/nemoclaw/compatible_matrix.json
-                export PLAN_MATRIX_WORKER_PROFILE=RTXPRO6000BW
-                ;;
-              nemoclaw-compatible-l40s)
-                export MANUAL_SKILLS_FILTER="*"
-                export PLAN_MATRIX_FILE=.github/skill-eval/nemoclaw/compatible_matrix.json
-                export PLAN_MATRIX_WORKER_PROFILE=L40S
-                ;;
-            esac
-          fi
-          python3 .github/skill-eval/plan_matrix.py
+        run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
   # eval — one leg per (spec, platform). Each leg runs the agent once.
@@ -411,8 +392,7 @@ jobs:
           # skip optional tier presets that overlap with that policy.
           export NEMOCLAW_POLICY_MODE=skip
           export NEMOCLAW_INSTALL_REF=v0.0.108
-          MATRIX_PROFILE="${{ matrix.worker_profile || matrix.platform }}"
-          if [ "$MATRIX_PROFILE" = "L40S" ]; then
+          if [ "${{ matrix.platform }}" = "L40S" ]; then
             export HARDWARE_PROFILE=L40S
           else
             export HARDWARE_PROFILE=RTXPRO6000BW

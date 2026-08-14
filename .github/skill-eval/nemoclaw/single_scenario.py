@@ -48,7 +48,6 @@ class MatrixRow(NamedTuple):
     platform: str
     kind: str
     slug: str
-    task_limit: int | None = None
 
     @property
     def spec_path(self) -> Path:
@@ -166,19 +165,10 @@ def _rows_from_plan(document: object) -> list[MatrixRow]:
             raise ValueError(f"invalid skill-eval plan row: {item!r}")
         if kind == "eval" and not spec_file:
             raise ValueError(f"incomplete skill-eval plan row: {item!r}")
-        task_limit = item.get("task_limit")
-        if task_limit is not None and (
-            isinstance(task_limit, bool)
-            or not isinstance(task_limit, int)
-            or task_limit < 1
-        ):
-            raise ValueError(f"invalid task_limit in skill-eval plan row: {item!r}")
         if slug in seen:
             raise ValueError(f"duplicate skill-eval plan slug: {slug!r}")
         seen.add(slug)
-        rows.append(
-            MatrixRow(skill, spec, spec_file, platform, kind, slug, task_limit)
-        )
+        rows.append(MatrixRow(skill, spec, spec_file, platform, kind, slug))
     return rows
 
 
@@ -196,7 +186,6 @@ def _matrix_json(rows: list[MatrixRow]) -> str:
                 "platform": row.platform,
                 "kind": row.kind,
                 "slug": row.slug,
-                **({"task_limit": row.task_limit} if row.task_limit else {}),
             }
             for row in rows
         ],
@@ -891,14 +880,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         try:
             task_dirs = _generate_dataset(row, dataset_run_root / row.slug)
-            task_limit = row.task_limit
-            if task_limit is not None:
-                if len(task_dirs) < task_limit:
-                    raise RuntimeError(
-                        f"{row.skill}/{row.spec}: adapter generated "
-                        f"{len(task_dirs)} task(s); matrix requires {task_limit}"
-                    )
-                task_dirs = task_dirs[:task_limit]
             scenarios = [
                 _wrap_task(task_dir, row, args.agent_timeout) for task_dir in task_dirs
             ]

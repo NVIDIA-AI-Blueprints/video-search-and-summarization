@@ -15,7 +15,6 @@ Or directly:
 from __future__ import annotations
 
 import importlib.util
-import json
 import os
 import tempfile
 import unittest
@@ -445,90 +444,6 @@ class ListChangedFiles(unittest.TestCase):
             os.environ.pop("MANUAL_SKILLS_FILTER", None)
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
-
-
-class MatrixAllowlist(unittest.TestCase):
-    def test_filter_preserves_planned_row_and_adds_dispatch_metadata(self):
-        include = [
-            {
-                "skill": "skill-a",
-                "spec_path": "skills/skill-a/evals/spec-a.json",
-                "spec_stem": "spec-a",
-                "platform": "L40S",
-                "kind": "eval",
-                "slug": "skill-a__spec-a__L40S",
-                "name": "skill-a · spec-a · L40S",
-                "runs_on": ["self-hosted"],
-            }
-        ]
-        document = {
-            "schema_version": 1,
-            "rows": [
-                {
-                    "skill": "skill-a",
-                    "spec": "spec-a",
-                    "platform": "L40S",
-                    "worker_profile": "L40S",
-                    "task_limit": 2,
-                }
-            ],
-        }
-
-        selected = plan_matrix.filter_matrix(include, document, "L40S")
-
-        self.assertEqual(len(selected), 1)
-        self.assertEqual(selected[0]["name"], include[0]["name"])
-        self.assertEqual(selected[0]["task_limit"], 2)
-        self.assertEqual(selected[0]["worker_profile"], "L40S")
-
-    def test_checked_in_compatibility_profiles_filter_the_shared_plan(self):
-        previous_manual = os.environ.get("MANUAL_SKILLS_FILTER")
-        previous_changed = os.environ.pop("CHANGED_FILES", None)
-        os.environ["MANUAL_SKILLS_FILTER"] = "*"
-        try:
-            include = plan_matrix.build_matrix(plan_matrix.list_changed_files())
-        finally:
-            if previous_manual is None:
-                os.environ.pop("MANUAL_SKILLS_FILTER", None)
-            else:
-                os.environ["MANUAL_SKILLS_FILTER"] = previous_manual
-            if previous_changed is not None:
-                os.environ["CHANGED_FILES"] = previous_changed
-
-        matrix_path = (
-            Path(__file__).resolve().parents[1]
-            / "nemoclaw"
-            / "compatible_matrix.json"
-        )
-        document = json.loads(matrix_path.read_text(encoding="utf-8"))
-        rtx = plan_matrix.filter_matrix(
-            include, document, "RTXPRO6000BW", matrix_path.as_posix()
-        )
-        l40s = plan_matrix.filter_matrix(
-            include, document, "L40S", matrix_path.as_posix()
-        )
-
-        self.assertEqual((len(rtx), sum(row["task_limit"] for row in rtx)), (5, 11))
-        self.assertEqual(
-            (len(l40s), sum(row["task_limit"] for row in l40s)),
-            (3, 8),
-        )
-
-    def test_filter_rejects_rows_outside_the_shared_plan(self):
-        document = {
-            "schema_version": 1,
-            "rows": [
-                {
-                    "skill": "missing",
-                    "spec": "spec",
-                    "platform": "L40S",
-                    "worker_profile": "L40S",
-                    "task_limit": 1,
-                }
-            ],
-        }
-        with self.assertRaisesRegex(ValueError, "not in the shared eval plan"):
-            plan_matrix.filter_matrix([], document, "L40S")
 
 
 class EmitSlugSafety(unittest.TestCase):
