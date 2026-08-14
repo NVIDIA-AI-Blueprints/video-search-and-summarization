@@ -107,10 +107,11 @@
     {
       "name": "vss-rt-vlm",
       "strategy": "build",
-      "ghcr_build": false,
-      "trigger_downstream_from_source": true,
+      "ghcr_build": true,
       "source_path": "services/rtvi/rt-vlm",
+      "context": "services/rtvi/rt-vlm",
       "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+      "lfs_include": "services/rtvi/rt-vlm/docker/base/binaries/**",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-rt-vlm"],
       "tag_variables": ["RTVI_VLM_IMAGE_TAG"]
