@@ -181,6 +181,15 @@ function get_rtvi_vlm_name_from_model_path() {
   fi
 }
 
+# dev-profile-gym is dev-profile-base plus the gym-eval service, so every LLM/VLM
+# derivation that applies to base applies to it identically. Prefer this
+# predicate over repeating profile names: a profile missing from one of these
+# branches gets a generated.env with no VLM wiring and fails SILENTLY rather
+# than erroring, which is how a fifth profile would be broken without noticing.
+function profile_has_base_topology() {
+  [[ "${profile}" == "base" ]] || [[ "${profile}" == "gym" ]]
+}
+
 # Mode: accepted CLI values verification | real-time; written to MODE in env as 2d_cv | 2d_vlm
 function get_mode_env_value() {
   local _mode="${1}"
@@ -746,7 +755,7 @@ function process_args() {
     fi
 
     # Validate profile value
-    _valid_profiles=('base' 'lvs' 'search' 'alerts')
+    _valid_profiles=('base' 'gym' 'lvs' 'search' 'alerts')
     if [[ -n "${profile}" ]]; then
       if ! contains_element "${profile}" "${_valid_profiles[@]}"; then
         echo "[ERROR] Invalid profile: ${profile}. Must be one of: base, lvs, search, alerts"
@@ -840,7 +849,7 @@ function process_args() {
 
       # Alerts or base profile on IGX-THOR or AGX-THOR: VLM options are not accepted (VLM is fixed for this configuration).
       # Note: --vlm-device-id is already rejected for all IGX-THOR/AGX-THOR/DGX-SPARK in the edge_hardware_profiles block above.
-      if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "base" ]]); then
+      if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "alerts" ]] || profile_has_base_topology); then
         if contains_element "use-remote-vlm" "${options_provided[@]}"; then
           echo "[ERROR] --use-remote-vlm is not accepted for ${profile} profile with hardware profile ${hardware_profile}"
           ((_all_good++))
@@ -1438,7 +1447,7 @@ function state_up() {
   # local rtvi-vlm container is serving the integrated checkpoint).
   # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || profile_has_base_topology || [[ "${profile}" == "search" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
     # LVS requests defer frame sampling to RT-VLM. Default remote endpoints to
@@ -1473,7 +1482,7 @@ function state_up() {
   fi
 
   # Base/alerts/LVS/search for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed RT-VLM configuration)
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]); then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || profile_has_base_topology || [[ "${profile}" == "search" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     # Local VLM only: rtvi-vlm serves the VLM locally on the Compose network.
     # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports.
@@ -1507,7 +1516,7 @@ function state_up() {
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
       # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
-      if [[ "${profile}" == "base" ]]; then
+      if profile_has_base_topology; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
       else
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
@@ -1538,7 +1547,7 @@ function state_up() {
   fi
   # Base local VLM always uses the rtvi_vlm agent profile (overrides default to rtvi; keep explicit for Thor/history).
   # Remote VLM may still set VLM_MODEL_TYPE via --vlm-model-type / profile remote defaults above.
-  if [[ "${profile}" == "base" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+  if profile_has_base_topology && [[ "${vlm_mode}" != "remote" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
     local _compose_profiles
     _compose_profiles="$(get_env_value "${_generated_env}" "COMPOSE_PROFILES")"
