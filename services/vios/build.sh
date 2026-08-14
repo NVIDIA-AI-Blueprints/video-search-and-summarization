@@ -381,7 +381,7 @@ declare -A DEFAULT_TAGS=(
     [nvstreamer-ingress]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
-    [vst-base]="2.1.0-runtime-26.07.1"
+    [vst-base]="1.4.0-runtime-26.08.1"
 )
 
 # Function to build base image for faster container builds
