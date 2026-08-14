@@ -28,7 +28,7 @@ the one container.
 - When Behavior Analytics also serves another capability on one shared instance
   (a combined build), it runs as **one** shared instance, not two — converge its
   single mounted JSON config per [`behavior-analytics.md`](behavior-analytics.md);
-  its `inSimulationMode`/`numWorkersFor*` gates are not env-expressible.
+  its `numWorkersFor*` gates are not env-expressible.
 - `vss-va-mcp` requires the matching Agent config and reachable VST/ELK
   endpoints.
 

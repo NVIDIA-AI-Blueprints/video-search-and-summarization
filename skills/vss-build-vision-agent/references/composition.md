@@ -203,10 +203,14 @@ services, volumes, networks, or profile files. Add multiple patch paths after
 the root file when multiple service definitions change.
 
 A build-local file a patch bind-mounts (e.g. a curated `haproxy.cfg`) lives in
-`patches/` beside its `.yml` and is referenced by a relative `./` source, which
-resolves against the patch's directory — never stranded at the build root. A
-checked-in repo file a patch mounts is instead bound by its absolute repo path,
-never copied into the build.
+`patches/` beside its `.yml` and is referenced by an absolute
+`${BUILD_DIR}/patches/<file>` source, with `BUILD_DIR` set to the build's
+absolute path in `override.env`. A relative `./` source would resolve against the
+root Compose file's directory (`deploy/docker/`), not the patch's — the ordered
+`path:` list sets the included model's project directory from its first entry — so
+Docker would create a stray root-owned directory there at `up`. A checked-in repo
+file a patch mounts is likewise bound by its absolute repo path, never copied into
+the build.
 
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the

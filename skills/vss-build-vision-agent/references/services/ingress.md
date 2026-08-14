@@ -30,6 +30,11 @@ never fronted here (see below).
 
 ## Headless single-origin ingress
 
+This section applies only when the build includes `vss-haproxy-ingress`. A
+headless build that exposes no single origin prunes the proxy (see Access role)
+and produces no curated patch — do not reach for it when no service-definition
+change to the ingress is needed.
+
 The shipped `haproxy.cfg.template` is authored for the full stack: its catch-all
 plus the `/api/chat`, `/chat`, `/static`, `/websocket`, `/phoenix`, and `/va-mcp`
 routes target the interactive tier that a headless build prunes. Two headless
@@ -60,12 +65,11 @@ through HAProxy.
 - **Curated (patch).** Write the trimmed config to `patches/haproxy.cfg`, beside
   the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the
   config volume, keeping the browse + operate routes above for the build's deployed
-  backends and replacing the catch-all. Adapt the stock relative mount rather than
-  authoring a new one: the stock `haproxy.cfg.template` mount is
-  `- ./haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg:ro`, so the patch's
-  volume entry is exactly `- ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro` —
-  a relative `./haproxy.cfg` source (it resolves against the patch's own directory,
-  not the build root).
+  backends and replacing the catch-all. Bind the payload by an absolute
+  `${BUILD_DIR}/patches/haproxy.cfg` source (per `composition.md`): the patch is
+  pulled in through the ordered `path:` list, so a relative `./haproxy.cfg` would
+  resolve against the root Compose file's directory (`deploy/docker/`), not the
+  patch's.
 - **As-is (explicit shortcut only).** Activate `vss-haproxy-ingress` and set the
   host-identity env. Interactive routes 503 harmlessly; the browse and operate
   routes work, but dead routes are advertised and `/` 503s.

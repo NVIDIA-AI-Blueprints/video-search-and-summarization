@@ -34,8 +34,9 @@ placement. Keep `VLM_NAME` aligned with the model id advertised by
 `RTVI_VLM_MODEL_PATH`; do not combine values from different variants.
 
 Consumer wiring is not part of that set.
-`RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_KAFKA_TOPIC`, and verifier config mounts
-follow the consuming capability and operating mode, never the profile that
+`RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_MESSAGE_BUS_TOPIC` (generated captions),
+`RTVI_VLM_KAFKA_INCIDENT_TOPIC` (verification incidents), and verifier config
+mounts follow the consuming capability and operating mode, never the profile that
 supplied the variant. Realtime VLM alerting (`2d_vlm`) must set Kafka enablement
 to `true` even when the variant profile defaults it to `false`, or no incidents
 are published; CV verification (`2d_cv`) keeps it `false` — verified incidents

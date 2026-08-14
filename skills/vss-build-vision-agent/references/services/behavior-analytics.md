@@ -20,12 +20,13 @@
   class-label taxonomy the resolved RT-CV detector emits — label set and casing.
   In a combined build these follow the single converged detector, not the value
   a source profile's config happened to ship.
-- This service's operating mode — `inSimulationMode`, the `numWorkersFor*` gates,
-  `playbackLoop`, class scope — lives in the mounted analytics JSON, not env or
-  `COMPOSE_PROFILES`, so env-delta resolution cannot touch it. A build that adds a
-  capability or ingestion mode the source config did not assume **must replace**
-  that JSON; env reconciliation alone silently inherits the source mode (Search
-  ships `inSimulationMode=true` with incidents off, yielding no alerts).
+- This service's operating mode — the `numWorkersFor*` gates, `playbackLoop`,
+  class scope — lives in the mounted analytics JSON, not env or `COMPOSE_PROFILES`,
+  so env-delta resolution cannot touch it. A build that adds a capability or
+  ingestion mode the source config did not assume **must replace** that JSON; env
+  reconciliation alone silently inherits the source mode (Search ships
+  `numWorkersForIncidentGeneration=0`, so it generates no incidents and yields no
+  alerts).
 - To serve more than one capability at once, run a single combined instance
   rather than two — under the selected Foundation's key for the one
   `vss-behavior-analytics` container, never both — mounting the shipped joint config

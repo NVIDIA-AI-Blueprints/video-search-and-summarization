@@ -23,7 +23,7 @@
 | `RTVI_EMBED_IMAGE`, `RTVI_EMBED_TAG`, `RTVI_EMBED_PORT`, `RT_EMBED_DEVICE_ID` | Select image, host port, and GPU. |
 | `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`, `MODEL_REPOSITORY_SCRIPT_PATH` | Select a supported embedding model implementation. |
 | `RTVI_EMBED_NUM_VLM_PROCS`, `RTVI_EMBED_NUM_GPUS`, `VLM_BATCH_SIZE` | Tune execution parallelism. |
-| `MESSAGE_BUS`, `MESSAGE_BUS_TOPIC`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding event publishing (see note below). |
+| `MESSAGE_BUS`, `MESSAGE_BUS_TOPIC`, `ERROR_BUS`, `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` | Configure embedding event and error publishing (see note below). |
 | `RTVI_EMBED_HF_CACHE`, `NGC_MODEL_CACHE`, `HF_TOKEN`, `NGC_API_KEY` | Configure model caches and credentials. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
 
@@ -37,6 +37,10 @@ events to flow through Kafka, set both `MESSAGE_BUS=kafka` and
 `MESSAGE_BUS_TOPIC=mdx-embed` in the build `override.env`. Without this override
 the embedding write path is broken: RT-Embed produces no Kafka output and the
 Search analytics `mdx-embed` -> `mdx-embed-filtered` indexing path stays empty.
+`ERROR_BUS` is the separate error bus, unset by the same mechanism and disabled
+by the same empty default; set `ERROR_BUS=kafka` alongside it if the build needs
+RT-Embed error events on Kafka (the error topic `RTVI_EMBED_ERROR_MESSAGE_TOPIC`
+already defaults to `vision-embed-errors`, so only the bus toggle needs setting).
 
 ## Placement and sizing
 
