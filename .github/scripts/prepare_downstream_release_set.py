@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import re
@@ -125,14 +124,17 @@ def candidate_container_tag(release_set: dict) -> str:
 
 
 def downstream_variables(release_set: dict) -> dict[str, str]:
-    encoded = base64.b64encode(
-        (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
-    ).decode()
+    """Variables the downstream GitLab pipeline actually reads.
+
+    The release set itself is no longer sent. ci-vss-oss retired every
+    consumer of VSS_RELEASE_SET_B64/_ID (its validate/apply/promote scripts
+    and the validate-ghcr-release-set job), so the payload was being
+    base64-encoded and shipped on every trigger for nothing. BUILD_TYPE is
+    now the only signal selecting acceptance mode there.
+    """
     return {
         "BUILD_TYPE": "ghcr-acceptance",
         "VSS_CONTAINER_TAG": candidate_container_tag(release_set),
-        "VSS_RELEASE_SET_ID": release_set["release_set_id"],
-        "VSS_RELEASE_SET_B64": encoded,
     }
 
 
