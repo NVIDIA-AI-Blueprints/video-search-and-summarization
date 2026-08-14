@@ -9,9 +9,10 @@
 #            in single-spec mode (foreground agent, one synchronous harbor
 #            run), posts its own PR comment per AGENTS.md.
 # workflow_dispatch:
-#   plan + eval -> manual full sweep, fanned per (spec, platform) just like
-#                  a push; each leg writes its result to its job summary
-#                  (no PR to comment on). Scoped by the `skills` input.
+#   plan -> computes the same (skill, spec, platform) rows for both runtimes
+#   claude-code -> fans those rows through the standard eval matrix
+#   nemoclaw -> consumes those rows serially while one job owns the explicitly
+#               reserved worker
 
 name: Skills Eval
 
@@ -26,9 +27,8 @@ on:
     branches:
       - "pull-request/[0-9]+"
   # Manual full-sweep trigger. The `plan` job enumerates the picked skill's
-  # specs (or all skills) instead of diffing, and the `eval` matrix fans them
-  # per (spec, platform) like a push. No PR to comment on, so each leg writes
-  # its result to its own job summary.
+  # specs (or all skills) instead of diffing. Claude fans those rows through
+  # the standard matrix; NemoClaw consumes the same rows in one serial job.
   workflow_dispatch:
     inputs:
       skills:
@@ -89,14 +89,14 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
-  # plan — compute the dispatch matrix from the PR diff (push only).
+  # plan — compute the shared dispatch matrix from the PR diff or manual input.
   # Lightweight: gh + python3, no GPU, no brev, no flock.
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
     if: >-
       startsWith(github.ref, 'refs/heads/pull-request/') ||
-      (github.event_name == 'workflow_dispatch' && inputs.runner != 'nemoclaw')
+      github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -151,7 +151,18 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
-        run: python3 .github/skill-eval/plan_matrix.py
+          INPUT_RUNNER: ${{ inputs.runner || 'claude-code' }}
+        run: |
+          # Compatibility sweeps are curated subsets of the full shared plan.
+          # The serial NemoClaw job applies that subset after planning.
+          if [ "$INPUT_RUNNER" = "nemoclaw" ]; then
+            case "$MANUAL_SKILLS_FILTER" in
+              nemoclaw-compatible-rtx|nemoclaw-compatible-l40s)
+                export MANUAL_SKILLS_FILTER="*"
+                ;;
+            esac
+          fi
+          python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
   # eval — one leg per (spec, platform). Each leg runs the agent once.
@@ -159,7 +170,9 @@ jobs:
   eval:
     name: ${{ matrix.name }}
     needs: plan
-    if: needs.plan.outputs.has_targets == 'true'
+    if: >-
+      needs.plan.outputs.has_targets == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.runner != 'nemoclaw')
     runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
       # One slow/failed spec must not cancel its siblings.
@@ -350,7 +363,11 @@ jobs:
   # ---------------------------------------------------------------------
   nemoclaw-eval:
     name: NemoClaw Harbor eval
-    if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
+    needs: plan
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.runner == 'nemoclaw' &&
+      needs.plan.outputs.has_targets == 'true'
     runs-on: [self-hosted, vss-skill-eval-runner]
     # Keep the run step at GitHub's 360-minute maximum and reserve 20 minutes
     # for setup and artifacts. One serial job keeps the explicitly reserved
@@ -377,6 +394,7 @@ jobs:
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NEMOCLAW_INSTANCE: ${{ inputs.nemoclaw_instance }}
           INPUT_SKILLS: ${{ inputs.skills }}
+          EVAL_PLAN_JSON: ${{ needs.plan.outputs.matrix }}
         run: |
           if [ -z "$NEMOCLAW_INSTANCE" ]; then
             echo "::error::nemoclaw_instance must name an operator-reserved worker"
@@ -440,10 +458,12 @@ jobs:
           export NEMOCLAW_HARBOR_TIMEOUT_SEC=12600
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           mkdir -p /tmp/skill-eval/results/nemoclaw
+          PLAN_FILE="${RUNNER_TEMP}/nemoclaw-plan-${GITHUB_RUN_ID}.json"
+          printf '%s\n' "$EVAL_PLAN_JSON" > "$PLAN_FILE"
 
           python3 .github/skill-eval/nemoclaw/single_scenario.py \
             --instance "$NEMOCLAW_INSTANCE" \
-            --skills "$INPUT_SKILLS" \
+            --plan-file "$PLAN_FILE" \
             "${MATRIX_ARGS[@]}"
 
       - name: Collect Harbor result artifact
