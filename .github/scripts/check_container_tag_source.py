@@ -88,6 +88,14 @@ IMAGE_CONFIGS = {
         image_name="vss-behavior-analytics",
         source_path=Path("services/analytics/behavior-analytics"),
     ),
+    "vss-vios-sensor": ImageConfig(
+        image_name="vss-vios-sensor",
+        source_path=Path("services/vios"),
+    ),
+    "vss-vios-streamprocessing": ImageConfig(
+        image_name="vss-vios-streamprocessing",
+        source_path=Path("services/vios"),
+    ),
 }
 
 DEPLOY_DIR = Path("deploy/docker")
