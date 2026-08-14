@@ -119,6 +119,7 @@
       "name": "vss-rt-embed",
       "strategy": "build",
       "ghcr_build": true,
+      "native_platform_build": true,
       "source_path": "services/rtvi/rt-embed",
       "context": "services/rtvi/rt-embed",
       "dockerfile": "services/rtvi/rt-embed/docker/Dockerfile",

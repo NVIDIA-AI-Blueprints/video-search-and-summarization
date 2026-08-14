@@ -450,6 +450,7 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-vios-streamprocessing",
                 "vss-vios-nvstreamer",
                 "vss-vios-ingress",
+                "vss-rt-embed",
             },
         )
         self.assertNotIn(
