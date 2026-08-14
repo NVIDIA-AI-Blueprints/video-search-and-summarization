@@ -104,6 +104,11 @@ RUN mkdir -p /tmp/nginx/client-body \
 # vst-ui) to /vst-ui -- here taken straight from the ui-builder stage.
 COPY --from=ui-builder /workspace/ui/vios-ui/dist/ /vst-ui/
 
+# Ship the 3rd-party license text alongside the UI, matching build.sh
+# (cp -f LICENSE.3rdparty vst-ui/LICENSE.3rdparty) so the image carries the same
+# OSS attributions as the released NGC image.
+COPY LICENSE.3rdparty /vst-ui/LICENSE.3rdparty
+
 # Ensure nginx workers can traverse directories and read the UI files even when
 # the build host uses a restrictive umask.
 RUN chown -R nginx:nginx /vst-ui \
