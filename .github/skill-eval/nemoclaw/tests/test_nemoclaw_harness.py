@@ -362,33 +362,6 @@ class HeadlessTrajectoryTests(unittest.TestCase):
         self.assertEqual(metrics["prompt_tokens"], 10)
 
 
-class GatewayReleaseTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.release = _load(
-            "release_gateway_port",
-            NEMOCLAW_DIR / "release_gateway_port.py",
-        )
-
-    def test_release_is_scoped_to_exact_nemoclaw_gateway_identity(self) -> None:
-        identity = self.release.ProcessIdentity(
-            pid=123,
-            start_time=456,
-            argv=("openshell-gateway[nemoclaw=nemoclaw;port=8080]",),
-            executable="/usr/local/bin/openshell-gateway",
-        )
-        unrelated = self.release.ProcessIdentity(
-            pid=124,
-            start_time=457,
-            argv=("python3", "-m", "http.server", "8080"),
-            executable="/usr/bin/python3",
-        )
-
-        self.assertTrue(self.release._is_managed_gateway(identity, 8080))
-        self.assertFalse(self.release._is_managed_gateway(identity, 19080))
-        self.assertFalse(self.release._is_managed_gateway(unrelated, 8080))
-
-
 class SingleScenarioTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -779,19 +752,26 @@ class WorkflowScopeTests(unittest.TestCase):
             else:
                 sys.modules["envs.brev_env"] = previous_brev_env
 
-    def test_remote_notebook_kernel_uses_supported_python(self) -> None:
+    def test_setup_command_only_executes_the_notebook_adapter(self) -> None:
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn(
-            "uv python install --reinstall --force --no-cache 3.12",
-            source,
-        )
-        self.assertIn("uv venv --managed-python --python 3.12", source)
-        self.assertNotIn("python3 -m venv", source)
-        self.assertIn("openshell.db openshell.db-wal openshell.db-shm", source)
-        self.assertIn("Refusing symlinked OpenShell database", source)
-        self.assertNotIn("chown -R", source)
+        command = self.env_module._setup_command(5400)
+        self.assertIn('. "$HOME/.eval_env"', command)
+        self.assertIn("notebook_setup_adapter.py", command)
+        self.assertIn("--timeout \"$NEMOCLAW_SETUP_CELL_TIMEOUT_SEC\"", command)
+        for excluded in (
+            "apt-get",
+            "chown",
+            "docker network",
+            "gateway-port-release",
+            "release_gateway_port.py",
+            "uv python",
+            "uv pip",
+            "uv venv",
+            "LEGACY_ROW_CLEANUP",
+        ):
+            self.assertNotIn(excluded, source)
 
     def test_rtsp_sample_url_reaches_the_notebook_environment(self) -> None:
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
@@ -802,99 +782,23 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertNotIn("required_mcp_tools", source)
         self.assertNotIn("readiness.py", source)
 
-    def test_docker_reset_preserves_only_validated_openshell_bridge(self) -> None:
+    def test_eval_harness_only_destroys_the_named_sandbox(self) -> None:
+        command = self.env_module._destroy_sandbox_command("skill-eval")
         source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("async def _reset_docker_runtime", source)
-        self.assertIn('network_name" = "openshell-docker', source)
-        self.assertIn('network_driver" = "bridge', source)
-        self.assertIn('network_owner" = "openshell', source)
-        self.assertIn('index .Labels "openshell.ai/managed-by"', source)
-        self.assertNotIn("docker network prune", source)
-        self.assertNotIn("docker network create", source)
-
-    def test_missing_bridge_uses_scoped_gateway_recovery(self) -> None:
-        source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
-            encoding="utf-8"
+        start = source.split("    async def start", 1)[1].split(
+            "    async def exec", 1
+        )[0]
+        self.assertIn("openshell sandbox get skill-eval", command)
+        self.assertIn("nemoclaw skill-eval destroy --yes", command)
+        self.assertLess(
+            start.index("_destroy_sandbox_command(sandbox)"),
+            start.index("await super().start(force_build)"),
         )
-        self.assertIn("openshell_network_names", source)
-        self.assertIn("gateway-port-release.js", source)
-        self.assertIn("releaseManagedGatewayPort", source)
-        self.assertIn("release_gateway_port.py", source)
-        self.assertIn('gateway_release_status" -eq 42', source)
-        self.assertIn('. "$HOME/.profile"', source)
-        self.assertIn("gateway_port_is_free", source)
-        self.assertNotIn("pkill", source)
-        self.assertNotIn("killall", source)
-
-    def test_eval_harness_destroys_existing_run_scoped_sandbox(self) -> None:
-        command = self.env_module._setup_command(5400)
-        destroy = 'nemoclaw "$NEMOCLAW_SANDBOX_NAME" destroy --yes'
-        self.assertIn(destroy, command)
-        self.assertLess(command.index(destroy), command.index("LEGACY_ROW_CLEANUP"))
-
-    def test_legacy_registry_cleanup_is_limited_to_old_ci_names(self) -> None:
-        source = (REPO_ROOT / ".github/skill-eval/envs/nemoclaw_brev_env.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("skill-eval-[0-9]+", source)
-        self.assertIn("se-[0-9]+", source)
-        self.assertIn("vss-eval-u[0-9]+-p[0-9]+", source)
-        self.assertIn('state_root / "gateways"', source)
-        self.assertIn("del sandboxes[name]", source)
-        self.assertNotIn("sandboxes.clear", source)
-        command = self.env_module._setup_command(5400)
-        cleanup = command.split("python3 - <<'__NEMOCLAW_LEGACY_ROW_CLEANUP__'\n", 1)[
-            1
-        ].split("\n__NEMOCLAW_LEGACY_ROW_CLEANUP__", 1)[0]
-        compile(cleanup, "<nemoclaw-legacy-row-cleanup>", "exec")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            home = Path(temp_dir)
-            default_registry = home / ".nemoclaw/sandboxes.json"
-            gateway_registry = home / ".nemoclaw/gateways/19080/sandboxes.json"
-            gateway_registry.parent.mkdir(parents=True)
-            default_registry.write_text(
-                json.dumps(
-                    {
-                        "defaultSandbox": "skill-eval-123",
-                        "sandboxes": {
-                            "skill-eval-123": {"name": "skill-eval-123"},
-                            "interactive": {"name": "interactive"},
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            gateway_registry.write_text(
-                json.dumps(
-                    {
-                        "defaultSandbox": "vss-eval-u1000-p19080-nc097-c5",
-                        "sandboxes": {
-                            "vss-eval-u1000-p19080-nc097-c5": {"legacy": True},
-                            "se-123": {"name": "se-123"},
-                            "keep": {"name": "keep"},
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            subprocess.run(
-                [sys.executable, "-c", cleanup],
-                env={**os.environ, "HOME": str(home)},
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            default_document = json.loads(default_registry.read_text(encoding="utf-8"))
-            gateway_document = json.loads(gateway_registry.read_text(encoding="utf-8"))
-
-        self.assertEqual(default_document["defaultSandbox"], None)
-        self.assertEqual(
-            default_document["sandboxes"], {"interactive": {"name": "interactive"}}
-        )
-        self.assertEqual(gateway_document["defaultSandbox"], None)
-        self.assertEqual(gateway_document["sandboxes"], {"keep": {"name": "keep"}})
+        self.assertNotIn("sudo", command)
+        self.assertNotIn("docker", command)
+        self.assertNotIn("pkill", command)
 
     def test_workflow_keeps_claude_default_and_bounds_nemoclaw(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/skills-eval.yml").read_text(
@@ -915,7 +819,7 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn('--plan-file "$PLAN_FILE"', workflow)
         self.assertNotIn('--skills "$INPUT_SKILLS"', workflow)
         self.assertIn(
-            'NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}-${{ strategy.job-index }}"',
+            'NEMOCLAW_SANDBOX_NAME="skill-eval"',
             workflow,
         )
         self.assertIn("NEMOCLAW_GATEWAY_PORT=8990", workflow)
