@@ -12,3 +12,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+services:
+  # NeMo Gym evaluation runner.
+  #
+  # SHIPPED OFF. The "gym-eval" tag is deliberately absent from COMPOSE_PROFILES
+  # in overrides.env, so compose drops this service from the project entirely:
+  # it is not listed by `config --services`, not resolved by `config --images`,
+  # never pulled and never built. Adding the tag to COMPOSE_PROFILES is what
+  # turns it on, and that is a separate change.
+  #
+  # Before enabling, VSS_GYM_EVAL_TAG must point at a build dated after
+  # NVIDIA-NeMo/Gym#2376 (codec removal) — see containers.env.
+  #
+  # Every interpolated variable carries an inline default on purpose: compose
+  # interpolates before it filters on profiles, so a variable without one would
+  # emit "variable is not set" warnings even while this service is inactive.
+  #
+  # This service is a pure leaf. Nothing may depend_on it: compose hard-errors
+  # with "depends on undefined service" when an active service depends on one
+  # excluded by profile filtering.
+  gym-eval:
+    image: ${VSS_GYM_EVAL_IMAGE:-nvcr.io/nvidia/eval-factory/nemo-gym}:${VSS_GYM_EVAL_TAG:-26.05}
+    profiles: ["gym-eval"]
+    container_name: vss-gym-eval
+    restart: "no"
+    environment:
+      - VSS_GYM_EVAL_OUTPUT_DIR=${VSS_GYM_EVAL_OUTPUT_DIR:-/workspace/outputs}
+    volumes:
+      - ${VSS_DATA_DIR:-./data-dir}/gym_eval:/workspace/outputs

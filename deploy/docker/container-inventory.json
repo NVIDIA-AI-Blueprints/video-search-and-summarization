@@ -219,6 +219,14 @@
       "compose_image_names": ["sdr-mw-l"],
       "tag_variables": ["SDR_MW_L_IMAGE"],
       "notes": "Built by GitHub as the SDRC image while preserving the full-ref SDR_MW_L_IMAGE override."
+    },
+    {
+      "name": "nemo-gym",
+      "strategy": "external-pin",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["nemo-gym"],
+      "tag_variables": ["VSS_GYM_EVAL_TAG"],
+      "notes": "NeMo Gym evaluation runtime, pinned from nvcr.io/nvidia/eval-factory. Outside the four first-party registry roots, so out of GHCR release-set scope. The currently pinned tag predates NVIDIA-NeMo/Gym#2376 (codec removal) and must be updated to a post-#2376 build before the gym-eval service is added to any COMPOSE_PROFILES; see containers.env."
     }
   ]
 }

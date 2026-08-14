@@ -1,6 +1,7 @@
 # Golden resolved image references for deploy/docker (defaults only, no env).
 # Regenerate with:  python3 .github/scripts/compose_image_golden.py --update
 # A diff in this file means a registry, image name, or default tag changed.
+deploy/docker/developer-profiles/dev-profile-base/compose.yml nvcr.io/nvidia/eval-factory/nemo-gym:26.05
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvstaging/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-config-adaptor:develop-latest
