@@ -1,4 +1,6 @@
-FROM node:22.23.2-bullseye AS builder
+# Trixie provides the pinned current Debian stable curl used to retrieve the
+# NVIDIA Software License Agreement during the image build.
+FROM node:22.23.2-trixie AS builder
 
 # Build web-api-core from source
 COPY ./src/web-api-core /web-api-core
@@ -12,7 +14,9 @@ RUN mkdir /web-api-app
 COPY ./src/app /web-api-app
 WORKDIR /web-api-app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl=8.14.1-2+deb13u4 \
+    && rm -rf /var/lib/apt/lists/*
 RUN curl -fL -o NVIDIA-Software-License-Agreement.pdf \
     https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf
 
