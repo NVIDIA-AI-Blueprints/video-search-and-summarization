@@ -62,6 +62,15 @@ FROM ${TOOLCHAIN_IMAGE} AS builder
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 
+# CUDA include root for the Makefile (-I $(CUDA_TARGET_DIR)/include). The internal
+# devel images export this via ENV (cicd_files/aarch64/devel/Dockerfile); the
+# Makefile's `?=` fallback is /usr/local/cuda-13.0, which does NOT exist on the
+# public CUDA 13.2 devel image (it ships /usr/local/cuda, -13, -13.2), so without
+# this the public-toolchain build fails with "cuda.h: No such file or directory"
+# on BOTH arches. Use the version-agnostic /usr/local/cuda symlink so a CUDA bump
+# does not silently re-break this.
+ENV CUDA_TARGET_DIR=/usr/local/cuda
+
 # Toolchain packages (from Dockerfile.devel). No-op if TOOLCHAIN_IMAGE already
 # has them (a prebuilt toolchain), so this stays valid for both paths.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -123,24 +132,39 @@ RUN set -eux; \
         cp -rf ui/vios-ui/dist/. webroot/;; \
       *) echo "MODULE must be one of: sensor | streamprocessing | nvstreamer" >&2; exit 1;; \
     esac; \
-    MODULE="${MK_MODULE}" make package
+    MODULE="${MK_MODULE}" make package; \
+    mkdir -p /stage/home/vst && tar -I lbzip2 -xf out/*/vst_release.tbz2 -C /stage/home/vst
 
 # -----------------------------------------------------------------------------
-# runtime -- base (Dockerfile.base) + app packaging (Dockerfile.app)
+# runtime -- base (Dockerfile.base) + app (Dockerfile.app), reproduced PER ARCH.
+# The x86 and aarch64 originals genuinely differ (USER, several ENV vars, and the
+# app symlink set), so shared static ENV/USER directives cannot express both. All
+# common work + arch-branched RUN wiring lives in `runtime-base`; the per-arch
+# ENV/USER live in runtime-amd64 / runtime-arm64, selected by
+# `FROM runtime-${TARGETARCH}`.
 # -----------------------------------------------------------------------------
-FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-runtime-${UBUNTU_VERSION} AS runtime
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-runtime-${UBUNTU_VERSION} AS runtime-base
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        bzip2 \
-        libcurl4 libxml2 libssl-dev libjsoncpp-dev sqlite3 uuid \
-        gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly \
-        gstreamer1.0-plugins-bad gstreamer1.0-libav libgstreamer1.0-0 \
-        libgstreamer-plugins-base1.0 libboost-filesystem-dev libboost-regex-dev \
-        libboost-thread-dev libyaml-cpp-dev gstreamer1.0-tools libjansson-dev \
-        librdkafka-dev libcogl-pango-dev libopencv-dev libpq-dev libpqxx-dev \
-        libhiredis1.1.0 libpaho-mqttpp-dev \
+# Runtime packages -- EXACT parity with cicd_files/<arch>/Dockerfile.base (runtime
+# libs, NOT -dev; only gstreamer base+good, then the OSRB strip below). No extra
+# packages: the payload is decompressed in the builder and COPYed in extracted.
+# aarch64 base additionally runs `apt-get upgrade -y` (aarch64 Dockerfile.base:23);
+# x86 does not. Per-arch extras are gated on TARGETARCH.
+RUN apt-get update \
+    && case "${TARGETARCH}" in arm64) apt-get upgrade -y;; esac \
+    && apt-get install -y --no-install-recommends \
+        libcurl4 libxml2 libssl3t64 libjsoncpp25 libsqlite3-0 libuuid1 \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good libgstreamer1.0-0 \
+        libgstreamer-plugins-base1.0-0 libboost-filesystem1.83.0 libboost-thread1.83.0 \
+        librdkafka1 libpqxx-7.8t64 libhiredis1.1.0 libpaho-mqttpp3-1 \
+    && case "${TARGETARCH}" in \
+         amd64) apt-get install -y --no-install-recommends \
+                  gstreamer1.0-tools libjansson4 libcairo2 libpango-1.0-0 libpangocairo-1.0-0;; \
+         arm64) apt-get install -y --no-install-recommends \
+                  iptables v4l-utils libprotobuf32t64 libgrpc++1.51t64 kmod;; \
+       esac \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Resolve arch-specific paths once: DEB = multiarch triplet, VST = prebuilts dir.
@@ -149,57 +173,108 @@ RUN set -eux; case "${TARGETARCH}" in \
         arm64) echo aarch64-linux-gnu > /tmp/deb_arch; echo aarch64 > /tmp/vst_arch;; \
         *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1;; esac
 
-ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video,compute,graphics,utility
+# librdkafka linker-name symlink -- BOTH arches (Dockerfile.base x86:47 / arm:51).
+# Kafka dlopen()s the unversioned name; the runtime package ships only the SONAME.
 RUN set -eux; DEB="$(cat /tmp/deb_arch)"; \
-    ln -sf "/usr/lib/${DEB}/libnvcuvid.so.1" "/usr/lib/${DEB}/libnvcuvid.so"; \
-    ln -sf "/usr/lib/${DEB}/libnvidia-encode.so.1" "/usr/lib/${DEB}/libnvidia-encode.so"
+    ln -sf "/usr/lib/${DEB}/librdkafka.so.1" "/usr/lib/${DEB}/librdkafka.so"
 
-# OSRB: strip GPL / patent-encumbered codec, FFmpeg, and Intel MediaSDK libs
-# (transcribed from Dockerfile.base; `|| true` since a lib may be absent per arch).
+# OSRB: strip GPL / patent-encumbered / restricted codec, FFmpeg, Intel MediaSDK
+# libs -- the COMPLETE union of every rm target in cicd_files/{x86_64,aarch64}/
+# Dockerfile.base (mechanically extracted). MediaSDK entries only exist on x86;
+# `|| true` no-ops them on arm. Includes the FluidSynth soundfont TimGM6mb.sf2.
 RUN set -eux; DEB="$(cat /tmp/deb_arch)"; L="/usr/lib/${DEB}"; G="${L}/gstreamer-1.0"; \
-    rm -f "${G}"/libgstaudioparsers.so* "${G}"/libgstx264.so* "${G}"/libgstfaad.so* "${G}"/libgstvoaacenc.so* \
-          "${L}"/libavresample* "${L}"/libavutil* "${L}"/libavcodec* "${L}"/libavformat* "${L}"/libavfilter* \
-          "${G}"/libgstde265.so* "${G}"/libgstx265.so* "${L}"/libde265.so* "${G}"/libgstvpx.so* \
-          "${L}"/libmpeg2.so* "${L}"/libmpeg2encpp-2.1.so* "${L}"/libmpg123.so* "${L}"/libx265.so* "${L}"/libx264.so* \
-          "${L}"/libvpx.so* "${L}"/libmpeg2convert.so* "${G}"/libgstopenh264.so* "${G}"/libgstnvcodec.so* \
-          "${G}"/libgstuvch264.so* "${L}"/libopenh264.so* "${L}"/libvo-aacenc.so* "${L}"/libmp3lame.so* "${L}"/libfaad* \
-          "${L}"/libFLAC.so* "${L}"/libmjpegutils-2.1.so.0* "${L}"/libxvidcore.so* "${G}"/libgstmpegpsmux.so* \
-          "${G}"/libgstflac.so* "${G}"/libgstmpeg2enc.so* "${G}"/libgstmpeg2dec.so* \
-          "${L}"/libmfx.so* "${L}"/libmfxhw64.so* "${L}"/libmfx-tracer.so* "${G}"/libgstmsdk.so* "${G}"/libgstqsv.so* \
-          "${L}"/libswscale.* "${L}"/libswresample.* "${L}"/libpostproc.* \
-          "${L}"/liba52* "${L}"/libcdio.so* "${L}"/libsidplay.so* "${L}"/liblrdf.so* "${L}"/libneon.so* "${L}"/libbs2b.so* \
-          "${L}"/libdca.so* "${L}"/libdvdnav.so* "${L}"/libdvdread.so* "${L}"/libmplex2-2.1.so* "${L}"/libsbc.so* "${L}"/libzvbi* \
-          "${L}"/mfx/libmfx_*_hw64.so* || true; \
-    rm -rf "${L}/mfx" /usr/share/doc/libreadline8; rm -f "${L}"/libreadline*
+    rm -f \
+          "${G}"/libgst1394.so* "${G}"/libgstaom.so* "${G}"/libgstaudioparsers.so* "${G}"/libgstcdparanoia.so* \
+          "${G}"/libgstchromaprint.so* "${G}"/libgstcolormanagement.so* "${G}"/libgstdc1394.so* "${G}"/libgstde265.so* \
+          "${G}"/libgstdv.so* "${G}"/libgstfaad.so* "${G}"/libgstflac.so* "${G}"/libgstflite.so* \
+          "${G}"/libgstfluidsynthmidi.so* "${G}"/libgstgme.so* "${G}"/libgstgsm.so* "${G}"/libgstlc3.so* \
+          "${G}"/libgstldac.so* "${G}"/libgstmidi.so* "${G}"/libgstmodplug.so* "${G}"/libgstmpeg2dec.so* \
+          "${G}"/libgstmpeg2enc.so* "${G}"/libgstmpegpsmux.so* "${G}"/libgstmsdk.so* "${G}"/libgstnvcodec.so* \
+          "${G}"/libgstogg.so* "${G}"/libgstopenaptx.so* "${G}"/libgstopenexr.so* "${G}"/libgstopenh264.so* \
+          "${G}"/libgstopenjpeg.so* "${G}"/libgstopenmpt.so* "${G}"/libgstopus.so* "${G}"/libgstopusparse.so* \
+          "${G}"/libgstqsv.so* "${G}"/libgstspandsp.so* "${G}"/libgstspeex.so* "${G}"/libgstsvtav1.so* \
+          "${G}"/libgstteletext.so* "${G}"/libgsttheora.so* "${G}"/libgsttwolame.so* "${G}"/libgstuvch264.so* \
+          "${G}"/libgstvoaacenc.so* "${G}"/libgstvoamrwbenc.so* "${G}"/libgstvorbis.so* "${G}"/libgstvpx.so* \
+          "${G}"/libgstwavpack.so* "${G}"/libgstwebp.so* "${G}"/libgstwildmidi.so* "${G}"/libgstx264.so* \
+          "${G}"/libgstx265.so* "${L}"/libFLAC.so* "${L}"/libOpenEXR*.so* "${L}"/libSvtAv1Enc.so* \
+          "${L}"/libWildMidi.so* "${L}"/liba52* "${L}"/libaom.so* "${L}"/libavc1394.so* \
+          "${L}"/libavcodec* "${L}"/libavfilter* "${L}"/libavformat* "${L}"/libavresample* \
+          "${L}"/libavutil* "${L}"/libbs2b.so* "${L}"/libcdda_interface.so* "${L}"/libcdda_paranoia.so* \
+          "${L}"/libcdio.so* "${L}"/libchromaprint.so* "${L}"/libdc1394.so* "${L}"/libdca.so* \
+          "${L}"/libde265.so* "${L}"/libdv.so* "${L}"/libdvdnav.so* "${L}"/libdvdread.so* \
+          "${L}"/libfaad* "${L}"/libflite.so* "${L}"/libfluidsynth.so* "${L}"/libfreeaptx.so* \
+          "${L}"/libgme.so* "${L}"/libgsm.so* "${L}"/libgssdp-1.6.so* "${L}"/libiec61883.so* \
+          "${L}"/libinstpatch-1.0.so* "${L}"/libjbig.so* "${L}"/libjpeg.so* "${L}"/liblc3.so* \
+          "${L}"/liblcms2.so* "${L}"/libldacBT_enc.so* "${L}"/liblrdf.so* "${L}"/libmfx-tracer.so* \
+          "${L}"/libmfx.so* "${L}"/libmfxhw64.so* "${L}"/libmjpegutils-2.1.so.0* "${L}"/libmodplug.so* \
+          "${L}"/libmp3lame.so* "${L}"/libmpcdec.so* "${L}"/libmpeg2.so* "${L}"/libmpeg2convert.so* \
+          "${L}"/libmpeg2encpp-2.1.so* "${L}"/libmpg123.so* "${L}"/libmplex2-2.1.so* "${L}"/libneon.so* \
+          "${L}"/libogg.so* "${L}"/libopenh264.so* "${L}"/libopenjp2.so* "${L}"/libopenmpt.so* \
+          "${L}"/libopus.so* "${L}"/libpng16.so* "${L}"/libpostproc.* "${L}"/libreadline* \
+          "${L}"/librom1394.so* "${L}"/libsbc.so* "${L}"/libsharpyuv.so* "${L}"/libsidplay.so* \
+          "${L}"/libspandsp.so* "${L}"/libspeex.so* "${L}"/libswresample.* "${L}"/libswscale.* \
+          "${L}"/libtheora*.so* "${L}"/libtiff.so* "${L}"/libtwolame.so* "${L}"/libv4lconvert.so* \
+          "${L}"/libvo-aacenc.so* "${L}"/libvo-amrwbenc.so* "${L}"/libvorbis*.so* "${L}"/libvpx.so* \
+          "${L}"/libwavpack.so* "${L}"/libwebp.so* "${L}"/libwebpmux.so* "${L}"/libx264.so* \
+          "${L}"/libx265.so* "${L}"/libxvidcore.so* "${L}"/libzvbi* "${L}"/mfx/libmfx_*_hw64.so* \
+          "${L}"/mfx/libmfx_h264la_hw64.so* \
+      || true; \
+    rm -rf "${L}/mfx" /usr/share/doc/libreadline8; \
+    rm -f "${L}"/libreadline* /usr/share/sounds/sf2/TimGM6mb.sf2
 
 LABEL com.nvidia.mm.nspect="NSPECT-1H82-JYCQ"
 
-# App layer (Dockerfile.app): unpack the compiled release and wire prebuilt libs.
-RUN useradd -ms /bin/bash vst
-COPY --from=builder /root/out/*/vst_release.tbz2 /tmp/vst_release.tbz2
-RUN set -eux; VST="$(cat /tmp/vst_arch)"; DEB="$(cat /tmp/deb_arch)"; PB="/home/vst/vst_release/prebuilts/${VST}"; \
-    tar -xjf /tmp/vst_release.tbz2 -C /home/vst; rm -f /tmp/vst_release.tbz2; \
+# App layer (Dockerfile.app), per arch. x86 wires the deepstream/ prebuilts +
+# libnvcuvid/encode symlinks and owns /home/vst as uid 1000. aarch64 wires the
+# sbsa/ prebuilts + the nvidia/ symlink set, runs ldconfig, chmods 755, and runs
+# as ROOT (the aarch64 original has no USER directive).
+COPY --from=builder /stage/home/vst/vst_release /home/vst/vst_release
+RUN set -eux; VST="$(cat /tmp/vst_arch)"; DEB="$(cat /tmp/deb_arch)"; L="/usr/lib/${DEB}"; PB="/home/vst/vst_release/prebuilts/${VST}"; \
     if [ "${VST}" = "x86_64" ]; then \
-        ln -sf "${PB}/deepstream/libcuvidv4l2_plugin.so" "/usr/lib/${DEB}/libv4l/plugins/libcuvidv4l2_plugin.so"; \
-        ln -sf "${PB}/deepstream/libnvbufsurface.so" "/usr/lib/${DEB}/libnvbufsurface.so"; \
-        ln -sf "${PB}/deepstream/libnvbufsurftransform.so" "/usr/lib/${DEB}/libnvbufsurftransform.so"; \
-        ln -sf "${PB}/deepstream/libgstnvdsseimeta.so" "/usr/lib/${DEB}/libgstnvdsseimeta.so"; \
-        ln -sf "${PB}/deepstream/libnvbuf_fdmap.so" "/usr/lib/${DEB}/libnvbuf_fdmap.so"; \
-        rm -rf "/usr/lib/${DEB}/libv4l2.so.0.0.0"; mv "${PB}/deepstream/libv4l2.so" "/usr/lib/${DEB}/libv4l2.so.0.0.0"; \
+        ln -sf "${PB}/deepstream/libcuvidv4l2_plugin.so" "${L}/libv4l/plugins/libcuvidv4l2_plugin.so"; \
+        ln -sf "${PB}/deepstream/libnvbufsurface.so" "${L}/libnvbufsurface.so"; \
+        ln -sf "${PB}/deepstream/libnvbufsurftransform.so" "${L}/libnvbufsurftransform.so"; \
+        ln -sf "${PB}/deepstream/libgstnvdsseimeta.so" "${L}/libgstnvdsseimeta.so"; \
+        ln -sf "${PB}/deepstream/libnvbuf_fdmap.so" "${L}/libnvbuf_fdmap.so"; \
+        rm -rf "${L}/libv4l2.so.0.0.0"; mv "${PB}/deepstream/libv4l2.so" "${L}/libv4l2.so.0.0.0"; \
+        ln -sf "${L}/libnvcuvid.so.1" "${L}/libnvcuvid.so"; \
+        ln -sf "${L}/libnvidia-encode.so.1" "${L}/libnvidia-encode.so"; \
+        chown -R 1000:1000 /home/vst; \
     else \
-        mkdir -p "/usr/lib/${DEB}/libv4l/plugins/nv"; \
-        ln -sf "${PB}/sbsa/libnvv4l2.so" "/usr/lib/${DEB}/libv4l2.so.0.0.999999"; \
-        ln -sf "/usr/lib/${DEB}/libv4l2.so.0.0.999999" "/usr/lib/${DEB}/libv4l2.so.0"; \
-        ln -sf "/usr/lib/${DEB}/libv4l2.so.0" "/usr/lib/${DEB}/libv4l2.so"; \
-        ln -sf "${PB}/sbsa/libv4l2_nvcuvidvideocodec.so" "/usr/lib/${DEB}/libv4l/plugins/nv/libv4l2_nvcuvidvideocodec.so"; \
-    fi; \
-    chown -R 1000:1000 /home/vst
+        chmod -R 755 /home/vst/vst_release; \
+        mkdir -p "${L}/libv4l/plugins/nv"; \
+        ln -sf "${PB}/sbsa/libnvv4l2.so" "${L}/libv4l2.so.0.0.999999"; \
+        ln -sf "${L}/libv4l2.so.0.0.999999" "${L}/libv4l2.so.0"; \
+        ln -sf "${L}/libv4l2.so.0" "${L}/libv4l2.so"; \
+        ln -sf "${PB}/sbsa/libv4l2_nvcuvidvideocodec.so" "${L}/libv4l/plugins/nv/libv4l2_nvcuvidvideocodec.so"; \
+        mkdir -p "${L}/nvidia"; \
+        ln -sf "${PB}/sbsa/libnvbufsurface.so.1.0.0" "${L}/nvidia/libnvbufsurface.so"; \
+        ln -sf "${PB}/sbsa/libnvbufsurftransform.so.1.0.0" "${L}/nvidia/libnvbufsurftransform.so"; \
+        ln -sf "${PB}/sbsa/libnvmm_jpeg.so" "${L}/nvidia/libnvmm_jpeg.so"; \
+        ldconfig; \
+    fi
 
-# Both arch prebuilt dirs on the paths; only the present one resolves.
-ENV LD_LIBRARY_PATH=/home/vst/vst_release/prebuilts/x86_64/deepstream/:/home/vst/vst_release/prebuilts/x86_64/gst-plugins/:/home/vst/vst_release/prebuilts/x86_64/:/home/vst/vst_release/prebuilts/x86_64/aws:/home/vst/vst_release/prebuilts/aarch64/deepstream/:/home/vst/vst_release/prebuilts/aarch64/gst-plugins/:/home/vst/vst_release/prebuilts/aarch64/:/home/vst/vst_release/prebuilts/aarch64/sbsa
-ENV GST_PLUGIN_PATH=/home/vst/vst_release/prebuilts/x86_64/deepstream/gst-plugins:/home/vst/vst_release/prebuilts/x86_64/gst-plugins:/home/vst/vst_release/prebuilts/aarch64/deepstream/gst-plugins:/home/vst/vst_release/prebuilts/aarch64/gst-plugins
 ENV CUDA_CACHE_DISABLE=0
-
 WORKDIR /home/vst/vst_release
-USER 1000:1000
 ENTRYPOINT ["/home/vst/vst_release/launch_vst"]
+
+# ---- per-arch ENV / USER (differ between the x86 and aarch64 originals) ----
+# x86: Dockerfile.base:50 (driver caps) + Dockerfile.app:47,49-50 (USER, paths).
+FROM runtime-base AS runtime-amd64
+ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video,compute,graphics,utility
+ENV LD_LIBRARY_PATH=/home/vst/vst_release/prebuilts/x86_64/deepstream/:/home/vst/vst_release/prebuilts/x86_64/gst-plugins/:/home/vst/vst_release/prebuilts/x86_64/:/home/vst/vst_release/prebuilts/x86_64/aws
+ENV GST_PLUGIN_PATH=/home/vst/vst_release/prebuilts/x86_64/deepstream/gst-plugins:/home/vst/vst_release/prebuilts/x86_64/gst-plugins
+USER 1000:1000
+
+# aarch64: Dockerfile.base:54,63 (driver caps=video, DISABLE_REQUIRE) +
+# Dockerfile.app:49-51 (LD_PRELOAD, paths). Original had NO USER -> runs as root.
+FROM runtime-base AS runtime-arm64
+ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video
+ENV NVIDIA_DISABLE_REQUIRE=1
+ENV LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libgomp.so.1:/lib/aarch64-linux-gnu/libGLdispatch.so.0
+ENV LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/:/usr/lib/aarch64-linux-gnu/nvidia/:/home/vst/vst_release/prebuilts/aarch64/:/home/vst/vst_release/prebuilts/aarch64/gst-plugins/:/home/vst/vst_release/prebuilts/aarch64/sbsa/
+ENV GST_PLUGIN_PATH=/home/vst/vst_release/prebuilts/aarch64/gst-plugins/:/home/vst/vst_release/prebuilts/aarch64/deepstream/gst-plugins/
+
+# Select the arch-appropriate runtime as the final image.
+ARG TARGETARCH
+FROM runtime-${TARGETARCH} AS runtime
