@@ -12,6 +12,10 @@ RUN mkdir /web-api-app
 COPY ./src/app /web-api-app
 WORKDIR /web-api-app
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN curl -fL -o NVIDIA-Software-License-Agreement.pdf \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf
+
 RUN mkdir -p /web-api-app/files
 RUN npm install --save ../web-api-core
 RUN npm install
