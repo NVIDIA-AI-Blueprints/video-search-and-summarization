@@ -57,7 +57,7 @@ Create `docker/.env` with the variables you want to override. A starting templat
 
 ```bash
 BACKEND_PORT=8017
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
+RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1
 #RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #HF_TOKEN=<HF_TOKEN>
@@ -70,7 +70,7 @@ MESSAGE_BUS_TOPIC=mdx-embed
 ERROR_BUS=kafka
 ```
 
-Replace `<tag>` with the NGC image tag for your platform (for example `3.3.0-26.07.4` on x86, or `3.3.0-26.07.4-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
+Replace `<tag>` with the NGC image tag for your platform (for example `3.3.0-26.08.1` on x86, or `3.3.0-26.08.1-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
 
 `compose.yaml` provides defaults for every other variable — see [Complete Environment Variable Reference](#complete-environment-variable-reference) below for the full list.
 
@@ -127,7 +127,7 @@ docker build -f docker/Dockerfile -t rtvi-embed:3.3.0-custom .
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1
 RTVI_IMAGE=docker.io/library/rtvi-embed:3.3.0-custom
 ```
 
@@ -577,7 +577,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Docker Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4` | No |
+| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1` | No |
 | `HF_TOKEN` | Hugging Face Hub access token for private `git:` model downloads; forwarded from `docker/.env` into the container by Compose | - | No |
 
 #### AWS Configuration
