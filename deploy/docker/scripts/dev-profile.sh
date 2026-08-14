@@ -1702,7 +1702,11 @@ function state_down() {
   local _profile_dir_names _profile_dir_name _profile_dir _source_env _overrides_env _generated_env
   local _compose_project_name _compose_project_names=()
 
-  _profile_dir_names=('base' 'lvs' 'search' 'alerts')
+  # Every profile that can be brought up must be listed here, or `down` neither
+  # discovers its COMPOSE_PROJECT_NAME from generated.env nor removes that file.
+  # A shared default project name masks the omission; a profile deployed under a
+  # custom name would simply be left running.
+  _profile_dir_names=('base' 'gym' 'lvs' 'search' 'alerts')
 
   if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
     _compose_project_names+=("${COMPOSE_PROJECT_NAME}")
