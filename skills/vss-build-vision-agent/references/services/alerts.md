@@ -17,8 +17,13 @@ the one container.
 
 ## Required peers
 
-- `alert-bridge` requires Kafka, Elasticsearch, topic initialization, and the
-  matching checked-in alert config mounts.
+- `alert-bridge` requires Kafka, Elasticsearch, and topic initialization, and needs
+  **no service-definition patch**: the stock definition carries the `alert-bridge`
+  profile gate, reads `VLM_BASE_URL`/`VLM_NAME` from env, and mounts its verifier
+  configs from env-interpolated sources (`VLM_AS_VERIFIER_CONFIG_FILE*`). Wire it in
+  `override.env` — add `alert-bridge` to `COMPOSE_PROFILES` and point those
+  mount-source vars at the checked-in alerts verifier configs (not inherited on a
+  non-`alerts` Foundation); do **not** author an `alert-bridge.yml` patch.
 - CV-verification alerts derive from detections: RT-CV feeds Behavior Analytics,
   which generates incidents that a VLM then verifies. This path requires RT-CV
   and Behavior Analytics with its incident processor enabled.
