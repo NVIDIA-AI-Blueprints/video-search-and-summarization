@@ -15,7 +15,7 @@ Authoritative source:
 `2d_cv`:
 
 ```text
-vss-behavior-analytics-alerts,nvstreamer-alerts,perception-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vss-va-mcp,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
+vss-behavior-analytics-alerts,nvstreamer-alerts,perception-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vss-va-mcp,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
 
 `2d_vlm`:
@@ -31,7 +31,7 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api-alerts,vs
 | Alerts | `alert-bridge`, `vss-video-analytics-api-alerts` |
 | Behavior analytics | `vss-behavior-analytics-alerts` (`2d_cv`) |
 | RT-CV | `perception-alerts` (`2d_cv`) |
-| RT-VLM | `rtvi-vlm` (`2d_vlm`) |
+| RT-VLM | `rtvi-vlm` (both modes: `2d_cv` per-clip verification, `2d_vlm` real-time) |
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-alerts` |
 | VIOS | `nvstreamer-alerts`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
 | Agent | `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix` |
@@ -60,12 +60,13 @@ curl -sf "http://${HOST_IP}:9901/health"
 curl -sf "http://${HOST_IP}:3000/"
 ```
 
-For `2d_cv`, also require `vss-rtvi-cv` and `vss-behavior-analytics` to
-resolve and probe
+For `2d_cv`, also require `vss-rtvi-cv`, `vss-behavior-analytics`, and the
+verification `rtvi-vlm` to resolve; probe
 `http://${HOST_IP}:${RTVI_CV_HOST_PORT:-9010}/api/v1/ready`, requiring
-HTTP 200 and `ready-info.ds-ready=YES`.
-For `2d_vlm`, require those two services to be absent and probe
+HTTP 200 and `ready-info.ds-ready=YES`, and
 `http://${HOST_IP}:8018/v1/health/ready`.
+For `2d_vlm`, require `vss-rtvi-cv` and `vss-behavior-analytics` to be absent and
+probe `http://${HOST_IP}:8018/v1/health/ready`.
 
 ## Sources
 
