@@ -80,11 +80,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad libgstreamer1.0-0 \
         libgstreamer-plugins-base1.0-dev libboost-all-dev make build-essential \
         autoconf libtool git pkg-config wget librdkafka-dev libopencv-dev python3 \
-        python3-pip npm ca-certificates gnupg lsb-release ntp ntpstat \
+        python3-pip ca-certificates gnupg lsb-release ntp ntpstat \
         libhiredis1.1.0 libldap2-dev libpq-dev libpqxx-dev libpaho-mqttpp-dev \
         libpaho-mqtt-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --break-system-packages requests
+
+# Node 22 for the nvstreamer vios-ui build. Ubuntu 24.04 apt nodejs is 18 (EOL,
+# below vite 8's ^20.19/>=22.12; the tooling imports node:util `styleText`,
+# added in 20.12/22). Install from NodeSource via an explicit keyring -- same
+# method as cicd_files/x86_64/devel/Dockerfile.devel, not the setup script.
+# Arch-agnostic: NodeSource serves amd64 + arm64, so each native runner gets its
+# own arch's Node. sensor/streamprocessing do not build the UI and ignore this.
+ARG NODE_MAJOR=22
+RUN install -d -m 0755 /usr/share/keyrings \
+    && wget -qO- https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* && node -v && npm -v
 
 # cmake 3.19.6 (required by grpc) -- arch-aware asset
 ENV MY_INSTALL_DIR=/usr/local
