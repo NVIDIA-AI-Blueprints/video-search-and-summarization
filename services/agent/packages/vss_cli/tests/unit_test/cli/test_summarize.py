@@ -780,8 +780,8 @@ def test_a_job_that_fails_is_closed_out_not_left_pending(
 ) -> None:
     """Every exit path after the submitted write leaves a terminal record.
 
-    Otherwise `status` reports a job as running forever, and the exit-7
-    contract -- resume by job id -- resumes into nothing.
+    Otherwise `status` reports a job as running forever, and the handle exit 7
+    hands back names a job nothing can look up.
     """
     _capture_post(monkeypatch, failure)
     assert _run("--id", "v1").exit_code == int(expected)
@@ -806,7 +806,7 @@ def test_a_memory_write_that_fails_does_not_mask_the_real_error(
 def test_a_timeout_puts_its_handle_on_stdout(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
-    """Exit 7 advertises "resume by job id", so the id has to be machine-readable.
+    """Exit 7 hands back a handle, so the id has to be machine-readable.
 
     A harness reads stdout; leaving the only copy of the handle in a stderr
     sentence would make the contract depend on parsing prose.

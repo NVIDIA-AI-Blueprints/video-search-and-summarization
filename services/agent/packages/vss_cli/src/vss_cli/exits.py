@@ -5,7 +5,7 @@
 0-4 shipped with the original search CLI and are frozen -- a harness already
 branches on them. 5-7 are additive, and each exists because a harness needs to
 react differently: 5 means disambiguate, 6 means answer at the level you got,
-7 means resume by job id.
+7 means decide whether to spend the work again.
 """
 
 from __future__ import annotations
