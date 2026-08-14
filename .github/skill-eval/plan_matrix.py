@@ -37,6 +37,8 @@ Env:
     MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
                    (all skills) — enumerates those specs instead of diffing,
                    so the matrix fans per-(spec, platform) like a push
+    PLAN_MATRIX_FILE optional schema-v1 allowlist applied to the planned rows
+    PLAN_MATRIX_WORKER_PROFILE optional worker_profile selector for the allowlist
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
 """
@@ -440,6 +442,65 @@ def build_matrix(changed: list[str]) -> list[dict]:
     return include
 
 
+def filter_matrix(
+    include: list[dict],
+    document: object,
+    worker_profile: str = "",
+    source: str = "matrix allowlist",
+) -> list[dict]:
+    """Select planned rows from a schema-v1 allowlist without replanning."""
+    if not isinstance(document, dict) or document.get("schema_version") != 1:
+        raise ValueError(f"{source}: unsupported matrix allowlist schema")
+    configured = document.get("rows")
+    if not isinstance(configured, list) or not configured:
+        raise ValueError(f"{source}: rows must be a non-empty list")
+
+    planned = {
+        (row["skill"], row["spec_stem"], row["platform"]): row
+        for row in include
+        if row.get("kind") == "eval"
+    }
+    selected: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for index, item in enumerate(configured):
+        if not isinstance(item, dict):
+            raise TypeError(f"{source}: row {index} must be an object")
+        configured_profile = str(item.get("worker_profile") or "")
+        if not configured_profile:
+            raise ValueError(f"{source}: row {index} has no worker_profile")
+        if worker_profile and configured_profile != worker_profile:
+            continue
+        key = tuple(
+            str(item.get(field) or "") for field in ("skill", "spec", "platform")
+        )
+        if key in seen:
+            raise ValueError(f"{source}: duplicate row {'/'.join(key)}")
+        planned_row = planned.get(key)
+        if planned_row is None:
+            raise ValueError(
+                f"{source}: row {'/'.join(key)} is not in the shared eval plan"
+            )
+        task_limit = item.get("task_limit")
+        if (
+            isinstance(task_limit, bool)
+            or not isinstance(task_limit, int)
+            or task_limit < 1
+        ):
+            raise ValueError(f"{source}: row {'/'.join(key)} has invalid task_limit")
+        seen.add(key)
+        selected.append(
+            {
+                **planned_row,
+                "task_limit": task_limit,
+                "worker_profile": configured_profile,
+            }
+        )
+    if not selected:
+        suffix = f" for worker profile {worker_profile}" if worker_profile else ""
+        raise ValueError(f"{source}: no selected rows{suffix}")
+    return selected
+
+
 def emit(include: list[dict]) -> None:
     # Fail fast on an unsafe slug before anything downstream consumes it as
     # an artifact name or filesystem path.
@@ -500,7 +561,16 @@ def main() -> int:
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)
-    emit(build_matrix(changed))
+    include = build_matrix(changed)
+    if matrix_file := os.environ.get("PLAN_MATRIX_FILE"):
+        path = Path(matrix_file)
+        include = filter_matrix(
+            include,
+            json.loads(path.read_text(encoding="utf-8")),
+            os.environ.get("PLAN_MATRIX_WORKER_PROFILE", ""),
+            path.as_posix(),
+        )
+    emit(include)
     return 0
 
 
