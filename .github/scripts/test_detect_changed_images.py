@@ -397,6 +397,8 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-rt-config-adaptor",
                 "vss-vios-sensor",
                 "vss-vios-streamprocessing",
+                "vss-vios-nvstreamer",
+                "vss-vios-ingress",
             },
         )
         self.assertNotIn(
