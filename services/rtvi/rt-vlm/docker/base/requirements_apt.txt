@@ -1,0 +1,15 @@
+python3-gi
+gstreamer1.0-plugins-good
+gstreamer1.0-plugins-bad
+gir1.2-gst-plugins-base-1.0
+gir1.2-gstreamer-1.0
+libyaml-cpp0.8
+libgstrtspserver-1.0-0
+curl
+libcurl3t64-gnutls
+libcurl4t64
+openssh-client
+libmediainfo0v5
+git-lfs
+rsync
+libmosquitto1
