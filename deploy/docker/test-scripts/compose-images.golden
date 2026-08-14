@@ -64,8 +64,8 @@ deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvs
 deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.07.4
 deploy/docker/services/ui/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
 deploy/docker/services/video-summarization/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:develop-latest
-deploy/docker/services/vios/foundational/docker-compose.yaml ${NGINX_IMAGE}
 deploy/docker/services/vios/foundational/docker-compose.yaml ${POSTGRES_IMAGE}
+deploy/docker/services/vios/foundational/docker-compose.yaml nvcr.io/nvstaging/vss-core/vss-vios-ingress:2.1.0-26.07.1
 deploy/docker/services/vios/initiator/docker-compose.yaml busybox:1.37.0
 deploy/docker/services/vios/initiator/docker-compose.yaml nvcr.io/nvstaging/vss-core/vss-vios-sensor:2.1.0-26.07.1
 deploy/docker/services/vios/initiator/docker-compose.yaml nvcr.io/nvstaging/vss-core/vss-vios-sensor:2.1.0-26.07.1

@@ -160,6 +160,18 @@
       "notes": "Built from services/vios/docker/Dockerfile (MODULE=nvstreamer: empty make MODULE = full lib set, plus the vios-ui webroot). STAGED: flip ghcr_build=true after validation."
     },
     {
+      "name": "vss-vios-ingress",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/vios",
+      "context": "services/vios",
+      "dockerfile": "services/vios/docker/Dockerfile.ingress",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-vios-ingress"],
+      "tag_variables": ["VSS_VIOS_INGRESS_TAG"],
+      "notes": "nginx ingress + vios-ui. Self-contained build from services/vios/docker/Dockerfile.ingress: a ui-builder stage builds vios-ui (mirrors build.sh build_vios_ui), and the nginx runtime is identical to deployment/scaling/ingress/Dockerfile (only vst-ui source path differs). No MODULE build_arg, no prebuilts/LFS. STAGED: flip ghcr_build=true after validation AND the vios-ui TypeScript fix (065e2effc) lands on develop (shared blocker with nvstreamer)."
+    },
+    {
       "name": "vss-configurator",
       "strategy": "mirror",
       "platforms": ["linux/amd64"],
