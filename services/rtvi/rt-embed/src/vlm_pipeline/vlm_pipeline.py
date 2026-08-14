@@ -2220,6 +2220,17 @@ class VlmPipeline:
             )
             lsinfo.all_chunks_processed = True
 
+        # Release the stream's EVS sessions before the map pop. The EOS-driven
+        # close (see the end-of-stream branch in the output loop) only fires on a
+        # natural end of stream and bails once the stream is out of
+        # _live_stream_id_map, so an explicitly deleted stream would otherwise
+        # leak its sessions for the life of the process -- eventually failing
+        # session creation with "max sessions reached". Sent after the drain and
+        # while drop-chunks is still active, so no in-flight chunk can recreate a
+        # session behind us. Idempotent: a stream already closed via EOS has no
+        # cache entries left.
+        self.close_evs_sessions(live_stream_id)
+
         if live_stream_lock:
             with live_stream_lock:
                 removed = self._live_stream_id_map.pop(live_stream_id, None)
