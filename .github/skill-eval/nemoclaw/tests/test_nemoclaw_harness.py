@@ -65,6 +65,7 @@ class NotebookRunnerTests(unittest.TestCase):
             REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb",
         )
         cells = {cell.get("id"): cell for cell in notebook["cells"]}
+        self.assertIsInstance(cells["e67f6da4"]["source"], str)
         namespace: dict[str, object] = {}
         with (
             mock.patch.dict(os.environ, environment, clear=True),
