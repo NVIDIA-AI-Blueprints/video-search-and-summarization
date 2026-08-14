@@ -44,6 +44,7 @@ docker-workload-streamprocessing:
   WDM_WL_REDIS_MSG_FIELD: value
   WDM_MSG_KEY: vst_events
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json
+  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false
 
 docker-workload-rtvi-cv:
   wl_obj_name: vss-rtvi-cv
@@ -69,7 +70,6 @@ docker-workload-rtvi-cv:
   WDM_KFK_BOOTSTRAP_URL: "kafka:29092"
   WDM_KFK_ENABLE: ${RTVI_CV_WDM_KFK_ENABLE}
   WDM_INITIALIZE_FROM_VST: false
-  WDM_PRELOAD_DELAY_FOR_DS_API: true
   WDM_WL_ADD_URL: /api/v1/stream/add
   WDM_WL_DELETE_URL: /api/v1/stream/remove
   WDM_WL_CHANGE_ID_ADD: camera_streaming
@@ -78,9 +78,14 @@ docker-workload-rtvi-cv:
   WDM_POD_WATCH_DOCKER_DELAY: 0.5
   WDM_CONFIG_PORT: 9003
   WDM_KAFKA_MSG_KEY: vst.event
-  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 15000
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 5
+  WDM_ADD_REMOVE_REQUEST_TIMEOUT: 10
   WDM_CONFIG_RETRY_ATTEMPTS: 60
   WDM_CONFIG_RETRY_DELAY: 1
   WDM_HANDLE_CONFIG_EVENTS: true
   WDM_REAPPLY_ON_WL_RESTART: true
   WDM_POD_ALLOCATION_HASH_NAME: regex-dns-pod-mapping-rtvi
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
+  WDM_WL_HEALTH_CHECK_URL: '/api/v1/live'
+  WDM_ADD_CALL_DELAY: 1
+  WDM_PROVISION_ASYNC: false
