@@ -18,9 +18,10 @@ imagePullSecrets:
   - name: ngc-image-pull-secret
 
 # Keep image aligned with chart defaults unless you need a specific build.
+# Shared managed-image channel: ghcr_build: true in container-inventory.json.
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-  tag: "3.3.0-26.07.4"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
+  tag: develop-latest
   pullPolicy: IfNotPresent
 
 # Model source and implementation paths
