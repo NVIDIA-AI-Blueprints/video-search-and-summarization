@@ -543,7 +543,7 @@ The profiles that actually carry perception tuning are the top-level sections of
 `H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO6000BW-SE, RTXPRO4500BW, IGX-THOR,
 DGX-SPARK`.
 All of these define `max_streams_supported` for `2d`, `3d` and `mv3dt` **except `RTXPRO4500BW`,
-which is tuned for `2d` only**. The `overrides.env` comment does not match that set exactly — it
+which is tuned for `2d` (20) and `3d` (9) only**. The `overrides.env` comment does not match that set exactly — it
 lists `L40`, which has no section, and omits `RTXA6000ADA`, which has one. A profile with no
 section falls back to `NUM_STREAMS` and still gets the commons DeepStream/VST configuration; only
 the profile-specific stream cap and per-profile tuning are skipped.
@@ -552,7 +552,7 @@ the profile-specific stream cap and per-profile tuning are skipped.
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
 | RTX PRO 6000 Blackwell Server Edition | `RTXPRO6000BW-SE` — capped at 47 streams for 2D, 19 for 3D, and 39 for mv3dt. No `hw-RTXPRO6000BW-SE.env` ships for any LLM NIM, so `LLM_MODE=local` needs `HARDWARE_PROFILE=OTHER` or a new sizing file. |
-| RTX PRO 4500 Blackwell | `RTXPRO4500BW` (32 GB, 2D-tuned only). When `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}` deploys `vss-rtvi-vlm`, set `RTVI_VLM_MAX_MODEL_LEN=18000` to cap RT-VLM context and allow KV-cache allocation. |
+| RTX PRO 4500 Blackwell | `RTXPRO4500BW` (32 GB) — 2D and 3D only, capped at 20 streams for 2D and 9 for 3D. When `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}` deploys `vss-rtvi-vlm`, set `RTVI_VLM_MAX_MODEL_LEN=18000` to cap RT-VLM context and allow KV-cache allocation. |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -1009,7 +1009,7 @@ ELASTICSEARCH_MODE=cpu              # inert on the compose path — leave at cpu
 
 # --- Hardware ---
 # Tuned in blueprint_config.yml: H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW,
-# RTXPRO6000BW-SE, RTXPRO4500BW (2d only), IGX-THOR, DGX-SPARK
+# RTXPRO6000BW-SE, RTXPRO4500BW (2d and 3d only), IGX-THOR, DGX-SPARK
 HARDWARE_PROFILE=H100
 
 # GPU device IDs (defaults shown — change only if you need a non-default layout)
