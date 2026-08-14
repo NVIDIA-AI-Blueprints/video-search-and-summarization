@@ -14,12 +14,6 @@
 # limitations under the License.
 
 {{- if .Values.enabled }}
-{{- $g := .Values.global | default dict }}
-{{- $globalHfTokenSecret := index $g "hfTokenSecret" | default dict }}
-{{- $hfTokenSecret := .Values.hfTokenSecret | default dict }}
-{{- $localHfTokenSecretName := trim ($hfTokenSecret.name | default "") }}
-{{- $hfTokenSecretName := $localHfTokenSecretName | default $globalHfTokenSecret.name | default "" }}
-{{- $hfTokenSecretKey := ternary ($hfTokenSecret.key | default "HF_TOKEN") ($globalHfTokenSecret.key | default "HF_TOKEN") (ne $localHfTokenSecretName "") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -73,16 +67,9 @@ spec:
               value: {{ .Values.service.port | quote }}
             - name: VSS_ES_PORT
               value: "9200"
-            {{- if $hfTokenSecretName }}
-            - name: HF_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $hfTokenSecretName | quote }}
-                  key: {{ $hfTokenSecretKey | quote }}
-            {{- else }}
             - name: HF_TOKEN
               value: {{ .Values.hfToken | quote }}
-            {{- end }}
+            {{- $g := .Values.global | default dict }}
             {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
             {{- $vstMcp := .Values.vstMcpUrl | default (ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx) }}
             - name: VST_MCP_URL

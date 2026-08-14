@@ -43,19 +43,6 @@ global:
   ngcApiSecret:
     name: ngc-api
     key: NGC_API_KEY
-  # Optional existing Secret shared by VA-MCP and RT-VLM for authenticated
-  # Hugging Face downloads. The chart never stores the token in values.
-  hfTokenSecret:
-    name: ""
-    key: HF_TOKEN
-  # Optional existing Secrets for the API keys exported by dev-profile.sh.
-  # Empty names preserve the containers' unauthenticated/default behavior.
-  nvidiaApiKeySecret:
-    name: ""
-    key: NVIDIA_API_KEY
-  openaiApiKeySecret:
-    name: ""
-    key: OPENAI_API_KEY
   externalScheme: ""
   externalHost: ""
   externalPort: ""
