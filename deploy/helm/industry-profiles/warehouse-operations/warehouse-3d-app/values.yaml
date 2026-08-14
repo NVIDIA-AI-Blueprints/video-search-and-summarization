@@ -184,6 +184,16 @@ vios:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
       streamerVideos: { enabled: true, create: false, existingClaim: "" }
+    # GPU for hardware-accelerated encode/decode. To run in software mode (lower
+    # throughput, frees the GPU for other workloads), set both in your values override:
+    #   vios.vss-vios-streamprocessing.useSoftwarePath: true
+    #   vios.vss-vios-streamprocessing.resources: null
+    useSoftwarePath: false
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
   vss-vios-ingress:
     enabled: true
     # useSdrc is on, so /vst/api/v1/, /vst/storage/ and the replay-picture route
