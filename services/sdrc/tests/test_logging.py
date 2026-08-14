@@ -45,13 +45,13 @@ def test_text_and_json_formatters_include_event_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("WDM_LOG_LEVEL", "INFO")
     monkeypatch.setenv("WDM_LOG_FORMAT", "text")
     monkeypatch.setenv("WDM_LOG_TO_FILE", "0")
-    configure_root_logging("wl-test", str(tmp_path))
+    configure_root_logging("wl-test", str(tmp_path), component="workload")
 
     logger = logging.getLogger("sdrc.test.logging")
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(TextFormatter())
-    handler.addFilter(WlObjectNameFilter("wl-test"))
+    handler.addFilter(WlObjectNameFilter("workload:wl-test"))
     from lib.logging.wdm_logging import ContextAndTraceFilter
 
     handler.addFilter(ContextAndTraceFilter())
@@ -73,6 +73,7 @@ def test_text_and_json_formatters_include_event_fields(tmp_path, monkeypatch):
     assert "stream.provision.finished" in text_line
     assert "stream_id=cam-1" in text_line
     assert "outcome=ok" in text_line
+    assert "[workload:wl-test]" in text_line
 
     stream.truncate(0)
     stream.seek(0)
@@ -90,6 +91,7 @@ def test_text_and_json_formatters_include_event_fields(tmp_path, monkeypatch):
     assert payload["message_id"] == "1-0"
     assert payload["severity"] == "INFO"
     assert payload["workload"] == "wl-test"
+    assert payload["component"] == "workload"
 
 
 def test_configure_root_logging_respects_level_and_silences_redis_lock(
@@ -108,7 +110,37 @@ def test_configure_root_logging_respects_level_and_silences_redis_lock(
     assert logging.getLogger().level == logging.DEBUG
 
 
-def test_bind_context_and_clear():
+def test_configure_root_logging_sets_component_display_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("WDM_LOG_LEVEL", "INFO")
+    monkeypatch.setenv("WDM_LOG_FORMAT", "text")
+    monkeypatch.setenv("WDM_LOG_TO_FILE", "0")
+
+    configure_root_logging("vss-rtvi-cv", str(tmp_path), component="workload")
+    from lib.logging.wdm_logging import get_context
+
+    assert get_context().get("component") == "workload"
+    assert get_context().get("workload") == "vss-rtvi-cv"
+
+    logger = logging.getLogger("sdrc.test.source")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(TextFormatter())
+    handler.addFilter(WlObjectNameFilter("workload:vss-rtvi-cv"))
+    from lib.logging.wdm_logging import ContextAndTraceFilter
+
+    handler.addFilter(ContextAndTraceFilter())
+    logger.handlers.clear()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.info("hello")
+    line = stream.getvalue()
+    assert "[workload:vss-rtvi-cv]" in line
+    assert "component=workload" in line
+
+    configure_root_logging("run-workloads", str(tmp_path), component="router")
+    assert get_context().get("component") == "router"
+
     clear_context()
     token = bind_context(stream_id="s1", bus="redis")
     try:

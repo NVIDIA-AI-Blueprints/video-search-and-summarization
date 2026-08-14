@@ -53,7 +53,7 @@ app.config.from_object(s)
 app.template_folder = app.config["TEMPLATE_FOLDER"]
 # Logging is configured in run_workloads before import; standalone uses same formatting as app.py.
 if not logging.getLogger().handlers:
-    configure_root_logging("controller", _REPO_ROOT)
+    configure_root_logging("controller", _REPO_ROOT, component="controller")
 logger = logging.getLogger(__name__)
 file_write_lock = Lock()
 
