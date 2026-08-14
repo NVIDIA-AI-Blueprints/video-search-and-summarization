@@ -448,7 +448,7 @@ class SingleScenarioTests(unittest.TestCase):
             self.assertIn("Original eval request", prompt)
             self.assertIn("Deploy the base profile.", prompt)
 
-    def test_serial_runner_consumes_the_shared_skill_eval_plan(self) -> None:
+    def test_matrix_row_runner_consumes_the_shared_skill_eval_plan(self) -> None:
         rows = self._planned_rows("vss-query-analytics")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].skill, "vss-query-analytics")
@@ -475,39 +475,22 @@ class SingleScenarioTests(unittest.TestCase):
             }
             self.scenario._rows_from_plan({"include": [row, row]})
 
-    def test_compatible_matrix_selects_validated_shared_plan_rows(self) -> None:
-        rows, task_limits = self.scenario._load_matrix_file(
-            self.scenario.DEFAULT_COMPATIBLE_MATRIX,
-            self._planned_rows("*"),
-        )
-        self.assertEqual(len(rows), 8)
-        self.assertEqual(sum(task_limits.values()), 19)
-        self.assertEqual(len(task_limits), len(rows))
-        self.assertEqual(
-            {(row.skill, row.spec, row.platform) for row in rows},
-            {
-                ("vss-ask-video", "base_profile_video_understanding", "L40S"),
-                ("vss-deploy-dense-captioning", "alerts_profile_api", "L40S"),
-                ("vss-deploy-profile", "base", "RTXPRO6000BW"),
-                ("vss-generate-video-report", "base_profile_report", "RTXPRO6000BW"),
-                ("vss-manage-alerts", "alerts_vlm_real_time", "L40S"),
-                ("vss-query-analytics", "query_analytics", "RTXPRO6000BW"),
-                ("vss-setup-behavior-analytics", "deploy_search_and_alerts", "ANY"),
-                ("vss-summarize-video", "lvs_api_ops", "RTXPRO6000BW"),
-            },
-        )
-        rtx_rows, rtx_limits = self.scenario._load_matrix_file(
-            self.scenario.DEFAULT_COMPATIBLE_MATRIX,
-            self._planned_rows("*"),
-            "RTXPRO6000BW",
-        )
-        l40s_rows, l40s_limits = self.scenario._load_matrix_file(
-            self.scenario.DEFAULT_COMPATIBLE_MATRIX,
-            self._planned_rows("*"),
-            "L40S",
-        )
-        self.assertEqual((len(rtx_rows), sum(rtx_limits.values())), (5, 11))
-        self.assertEqual((len(l40s_rows), sum(l40s_limits.values())), (3, 8))
+    def test_shared_plan_task_limit_reaches_the_single_row_runner(self) -> None:
+        row = {
+            "skill": "vss-query-analytics",
+            "spec_stem": "query_analytics",
+            "spec_path": "skills/vss-query-analytics/evals/query_analytics.json",
+            "platform": "RTXPRO6000BW",
+            "kind": "eval",
+            "slug": "vss-query-analytics__query_analytics__RTXPRO6000BW",
+            "task_limit": 3,
+        }
+        parsed = self.scenario._rows_from_plan({"include": [row]})
+        self.assertEqual(parsed[0].task_limit, 3)
+        with self.assertRaisesRegex(ValueError, "invalid task_limit"):
+            self.scenario._rows_from_plan(
+                {"include": [{**row, "slug": "different", "task_limit": 0}]}
+            )
 
     def test_semantic_failure_does_not_block_dependent_scenarios(self) -> None:
         self.assertFalse(self.scenario._blocks_dependent_scenarios({"status": "PASS"}))
@@ -935,13 +918,15 @@ class WorkflowScopeTests(unittest.TestCase):
             encoding="utf-8"
         )
         plan_job = workflow.split("  plan:\n", 1)[1].split("\n  eval:\n", 1)[0]
-        nemoclaw_job = workflow.split("  nemoclaw-eval:\n", 1)[1]
+        eval_job = workflow.split("\n  eval:\n", 1)[1]
         self.assertIn('default: "claude-code"', workflow)
         self.assertNotIn("inputs.runner != 'nemoclaw'", plan_job)
-        self.assertIn("needs: plan", nemoclaw_job)
-        self.assertIn("EVAL_PLAN_JSON: ${{ needs.plan.outputs.matrix }}", workflow)
+        self.assertNotIn("\n  nemoclaw-eval:\n", workflow)
+        self.assertIn("needs: plan", eval_job)
+        self.assertIn("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}", eval_job)
+        self.assertIn("inputs.runner == 'nemoclaw' && 1 || 8", eval_job)
+        self.assertIn("EVAL_PLAN_ROW: ${{ toJSON(matrix) }}", eval_job)
         self.assertIn("nemoclaw_instance must name", workflow)
-        self.assertIn("timeout-minutes: 380", workflow)
         self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
         self.assertIn('--plan-file "$PLAN_FILE"', workflow)
@@ -949,14 +934,22 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("nemoclaw-compatible-rtx", workflow)
         self.assertIn("nemoclaw-compatible-l40s", workflow)
         self.assertIn(
-            "--matrix-file .github/skill-eval/nemoclaw/compatible_matrix.json", workflow
+            "PLAN_MATRIX_FILE=.github/skill-eval/nemoclaw/compatible_matrix.json",
+            workflow,
         )
-        self.assertIn("--matrix-worker-profile RTXPRO6000BW", workflow)
-        self.assertIn("--matrix-worker-profile L40S", workflow)
-        self.assertIn('NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}"', workflow)
+        self.assertIn("PLAN_MATRIX_WORKER_PROFILE=RTXPRO6000BW", workflow)
+        self.assertIn("PLAN_MATRIX_WORKER_PROFILE=L40S", workflow)
+        self.assertIn(
+            'NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}-${{ strategy.job-index }}"',
+            workflow,
+        )
         self.assertIn("NEMOCLAW_GATEWAY_PORT=8990", workflow)
         self.assertIn(
-            "NEMOCLAW_DASHBOARD_PORT=$((20000 + GITHUB_RUN_ID % 40000))",
+            "NEMOCLAW_DASHBOARD_PORT=$((20000 + (GITHUB_RUN_ID + ${{ strategy.job-index }}) % 40000))",
+            workflow,
+        )
+        self.assertIn(
+            "format('skills-eval-nemoclaw-{0}', inputs.nemoclaw_instance)",
             workflow,
         )
         self.assertIn("NEMOCLAW_POLICY_MODE=skip", workflow)
