@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -174,6 +175,62 @@ services:
         )
         self.assertEqual(missing, ())
         self.assertEqual(overridden, "registry.example/rtvi-embed:immutable-tag")
+
+
+class RtviEmbedDependencySourcesTest(unittest.TestCase):
+    """RT Embed's CI image build must use only approved public package indexes."""
+
+    ROOT = Path("services/rtvi/rt-embed/docker")
+    APPROVED_INDEXES = {
+        "https://pypi.org/simple/",
+        "https://pypi.nvidia.com",
+    }
+
+    def test_python_dependency_configuration_uses_only_public_sources(self):
+        pyproject_path = self.ROOT / "py_deps/pyproject.toml"
+        pyproject = pyproject_path.read_text()
+        requirements = (self.ROOT / "py_deps/requirements.txt").read_text()
+        lockfile = (self.ROOT / "py_deps/pdm.lock").read_text()
+
+        source_urls = {
+            source["url"] for source in tomllib.loads(pyproject)["tool"]["pdm"]["source"]
+        }
+        self.assertEqual(source_urls, self.APPROVED_INDEXES)
+
+        index_directives = {
+            line.split(" ", maxsplit=1)[1]
+            for line in requirements.splitlines()
+            if line.startswith(("--index-url ", "--extra-index-url "))
+        }
+        self.assertEqual(index_directives, self.APPROVED_INDEXES)
+        for package in ("vllm", "flashinfer", "xformers"):
+            self.assertNotIn(package, requirements)
+            self.assertNotIn(f'name = "{package}"', lockfile)
+
+    def test_dockerfile_does_not_include_vllm_build_artifacts(self):
+        dockerfile = (self.ROOT / "Dockerfile").read_text()
+        self.assertNotIn("AS vllm_src", dockerfile)
+        self.assertNotIn("flashinfer_cubin", dockerfile)
+        self.assertIn("pip install --index-url https://pypi.org/simple", dockerfile)
+
+    def test_remote_artifacts_are_verified_before_use(self):
+        dockerfile = (self.ROOT / "Dockerfile").read_text()
+        readme = (self.ROOT / "py_deps/README.md").read_text()
+
+        deepstream_checksum = "fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
+        pdm_checksum = "e1c7f6455fa7ffc50cbc13e4d49c06dfaaf8e9b74d0c9b46287bf767f6a4e4fc"
+        self.assertIn(deepstream_checksum, dockerfile)
+        self.assertLess(
+            dockerfile.index(deepstream_checksum),
+            dockerfile.index("tar xf /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 -C /"),
+        )
+
+        self.assertNotIn("| python3 -", readme)
+        self.assertIn(pdm_checksum, readme)
+        self.assertLess(
+            readme.index(pdm_checksum), readme.index('python3 "$PDM_INSTALLER_PATH"')
+        )
+        self.assertIn("sha256sum -c - &&", readme)
 
 
 if __name__ == "__main__":

@@ -176,7 +176,7 @@ python3 rtvi_client_cli.py generate-video-embeddings\
 ### Use python client to generate embeddings for live-stream
 
 ```bash
-LIVE_STREAM="rtsp://nv-wowza-pdc.nvidia.com:1935/vod/Jensen_AI_Summit_India_1080p_blackwell_opus.mp4"
+LIVE_STREAM="${RTVI_TEST_LIVE_STREAM_URL:?Set RTVI_TEST_LIVE_STREAM_URL to an RTSP stream URL}"
 
 # Add live stream
 STREAM_ID=$(python3 rtvi_client_cli.py add-live-stream "$LIVE_STREAM" \
@@ -598,7 +598,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 |----------|-------------|---------|----------|
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Total timeout for asset (file) download via url in seconds | `300` | No |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Timeout for establishing connection for asset (file) download via url in seconds | `10` | No |
-| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains to skip SSL verification (e.g., `artifactory.nvidia.com`) | *(empty)* | No |
+| `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains to skip SSL verification (e.g., `media.example.com`) | *(empty)* | No |
 | `ASSET_DOWNLOAD_MAX_REDIRECTS` | Max redirect hops for URL downloads (0 = disabled, max 10). SSRF-validated. | `0` | No |
 | `ASSET_DOWNLOAD_MAX_FILE_SIZE_GB` | Max file size for HTTP/data URI asset ingestion. Direct multipart uploads are constrained by `ASSET_TMPFS_SIZE` or `ASSET_STORAGE_DIR` plus `MAX_ASSET_STORAGE_SIZE_GB`. | `8` | No |
 | `ASSET_DOWNLOAD_AUTH_TOKENS` | Server-level auth for URL downloads. Format: `domain1=Bearer token1;domain2=Basic xyz` | *(empty)* | No |

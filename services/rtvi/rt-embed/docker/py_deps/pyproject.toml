@@ -13,6 +13,7 @@ dependencies = [
     "schema>=0.7.7,<0.8.0",
     "einops==0.8.0",
     "nvtx==0.2.11",
+    "pynvml==11.5.3",
     "deepspeed==0.15.1",
     "opencv-python==4.10.0.84",
     "starlette==0.50.0",
@@ -24,6 +25,7 @@ dependencies = [
     "hydra-core==1.3.2",
     "s2wrapper @ https://github.com/bfshi/scaling_on_scales/archive/60da2afe5121533947c1dff2d57d9c583516a157.zip",
     "opentelemetry-exporter-otlp-proto-http>=1.28.2",
+    "opentelemetry-exporter-prometheus>=0.49b0",
     "opentelemetry-api>=1.28.2",
     "opentelemetry-sdk>=1.28.2",
     "opentelemetry-instrumentation~=0.47b0",
@@ -35,43 +37,17 @@ dependencies = [
     "networkx==3.5",
     "sympy==1.14.0",
     "transformers==4.57.5",
-    "vllm==0.17.1+a03ca76a.nv26.3.46967107.cu132",
-    "xformers==0.0.33+nv26.3.46967107",
-    "flashinfer-python==0.6.7+a79fb63c.nv26.3.cu132.46951218",
-    "flashinfer-cubin==0.6.7+a79fb63c.nv26.3.cu132.46951218",
-    "flashinfer-jit-cache==0.6.7+a79fb63c.nv26.3.cu132.46951218",
-    "xgrammar==0.1.32",
-    "compressed-tensors==0.13.0",
-    "apache-tvm-ffi==0.1.7",
-    "nvidia-cudnn-frontend==1.18.0",
-    "nvidia-cutlass-dsl-libs-base==4.4.2",
-    "quack-kernels==0.3.6",
-    "torch-c-dlpack-ext==0.1.5",
-    "cuda-tile==1.2.0",
-    "numba==0.64.0",
-    "llvmlite==0.46.0",
     "grpcio==1.78.0",
     "grpcio-reflection==1.78.0",
-    "opencv-python-headless==4.13.0.92",
-    "mistral-common[image]==1.10.0",
-    "mcp==1.26.0",
     "numpy==2.1.0",
     "kafka-python==2.2.15",
-    "nvidia-cutlass-dsl==4.4.2",
-    "ray[default]==2.54.0",
     "urllib3==2.7.0",
     "onnxscript==0.5.7",
     "redis==7.1.0",
     "langchain-core==0.3.81",
     "aiohttp==3.13.3",
-    "fonttools==4.61.1",
-    "nvidia-nvshmem-cu13",
-    "librosa==0.11.0",
     "cryptography>=46.0.5",
-    "pyasn1==0.6.3",
-    "cbor2==5.9.0",
-    "tornado==6.5.5",
-    "annoy==1.17.3"
+    "pyasn1==0.6.3"
 ]
 requires-python = "==3.12.*"
 
@@ -89,16 +65,6 @@ arm64 = [
 
 [[tool.pdm.source]]
 name = "pypi"
-url = "https://urm.nvidia.com/artifactory/api/pypi/nv-shared-pypi/simple/"
-verify_ssl = true
-
-[[tool.pdm.source]]
-name = "pypi"
-url = "https://urm.nvidia.com/artifactory/api/pypi/nv-shared-pypi/simple/"
-verify_ssl = true
-
-[[tool.pdm.source]]
-name = "pypi-standard"
 url = "https://pypi.org/simple/"
 verify_ssl = true
 
@@ -106,35 +72,12 @@ verify_ssl = true
 name = "nvidia"
 url = "https://pypi.nvidia.com"
 verify_ssl = true
-include_packages = ["tensorrt*", "cudf-*", "cuml-*"]
-
-[[tool.pdm.source]]
-name = "nvidia-internal-vllm"
-url = "https://gitlab-master.nvidia.com/api/v4/projects/100660/packages/pypi/simple"
-verify_ssl = true
-include_packages = ["vllm", "xformers"]
-
-[[tool.pdm.source]]
-name = "nvidia-flashinfer-ci"
-url = "https://gitlab-master.nvidia.com/api/v4/projects/dl%2Fflashinfer%2Fflashinfer-ci/packages/pypi/simple"
-verify_ssl = true
-include_packages = ["flashinfer-python", "flashinfer-cubin", "flashinfer-jit-cache"]
-
-[[tool.pdm.source]]
-name = "nvidia-internal-rtvi"
-url = "https://gitlab-master.nvidia.com/api/v4/projects/111221/packages/pypi/simple"
-verify_ssl = true
-include_packages = ["vllm", "xformers"]
+include_packages = ["tensorrt*", "cudf-*", "cuml-*", "nvidia-*"]
 
 [tool.pdm.resolution]
 excludes = ["torch", "torchvision", "ffmpeg", "intel-openmp", "flash_attn", "tensorrt", "triton"]
 
 [tool.pdm.resolution.overrides]
-vllm = "==0.17.1+a03ca76a.nv26.3.46967107.cu132"
-xformers = "==0.0.33+nv26.3.46967107"
-flashinfer-python = "==0.6.7+a79fb63c.nv26.3.cu132.46951218"
-flashinfer-cubin = "==0.6.7+a79fb63c.nv26.3.cu132.46951218"
-flashinfer-jit-cache = "==0.6.7+a79fb63c.nv26.3.cu132.46951218"
 langchain-core = "==0.3.81"
 langchain = "==0.3.27"
 langchain-nvidia-ai-endpoints = "==0.3.14"
@@ -144,12 +87,7 @@ langchain-huggingface = "==0.3.1"
 langchain-experimental = "==0.3.4"
 langchain-community = "==0.3.27"
 protobuf = "==6.33.6"
-xgrammar = "==0.1.32"
 transformers = "==4.57.5"
 grpcio = "==1.78.0"
 grpcio-reflection = "==1.78.0"
-opencv-python-headless = "==4.13.0.92"
-mistral-common = "==1.10.0"
-mcp = "==1.26.0"
 numpy = "==2.1.0"
-# flashinfer-python = "==0.2.6.post1+c1f15370.cu130.31417914; platform_machine == 'aarch64'"

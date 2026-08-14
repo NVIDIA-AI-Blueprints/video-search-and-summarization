@@ -30,38 +30,7 @@
 ##
 ## See the sources.list(5) manual page for further settings.
 Types: deb
-URIs: https://urm.nvidia.com/artifactory/ubuntu-public/
+URIs: http://ports.ubuntu.com/ubuntu-ports/
 Suites: noble noble-updates noble-backports noble-security
 Components: main universe restricted multiverse
-Signed-By:
- -----BEGIN PGP PUBLIC KEY BLOCK-----
- Version: GnuPG v2.0.22 (GNU/Linux)
- .
- mQENBGBeVgABCADSbvwhbG6HZNCLcFl6MIMCXZ13lOp31XATj2NE1mfOHV09HyGa
- q49EGxqO+obIO1W6Q0hzQMJLHDuwpktmXA1kRgkU9Gah5nWXXaqn34TMsO2JBfhu
- 8pXDMDLrRWT16F5L+TeNcwKPFgSsBB6hbNjNzBpA8guHW2PUcW1e2oDUMKOJPqkx
- L8UGI9aBKLdy6fq9C6H910S3xRt1LHS+P90ckxV48oygdR2Sx3k4A1jCAjh19/nK
- 8A46QbHUCBAKca9s5P3iQ2FHpkmT7VM+dUTW+3LZ/yOR4XtNOI06XyTFxbp+1ItA
- DVUFTIqH7I9Mj6ADcc0sQVkuq8ihbFqPdi/VABEBAAG0OHJwYWxhbmlzd2FteSAo
- QXJ0aWZhY3RvcnlQcm9kKSA8cnBhbGFuaXN3YW15QG52aWRpYS5jb20+iQE5BBMB
- AgAjBQJgXlYAAhsDBwsJCAcDAgEGFQgCCQoLBBYCAwECHgECF4AACgkQuQdxdYq8
- r18TBwf/ej5VDFSKgmvBkqgXx4O02ZwPl7FEfQpzCj/l0h037CkrPV+o3sdiq0mk
- oUoXvD42RwdtRz3W62MHePcK6Wy7SgUEh0n1lK2F+QM84FnPBsclHhvWIoqrNTf0
- cf86g9RSCji6RJGZVld6jn/0QoIjAAOtvgyp/sDVWuXSZdC0faDyYWMqR4bPvycF
- sujxBemQa620zSTr55QK/vB0Q2JCDlOgv+IxZNgy/r/UtdcIp+XcvUt7gVMmv6Jz
- PaxPmPp9z597XUyZaqXavDLg87yvSxRpw2PapdMy2WUk+JNV/w/g5HiXOh+kz5h0
- TgM6KJiAB1HlPKgcYpFKXfzE0JWbTbkBDQRgXlYAAQgA6S+H7eggyrkbNOmCr6aM
- JQ9k/PWqZKzE1qAfXT7GR6hwUQGErykexxUe5pmChH3QyKI5DvSqhh9Rgt0DpqjQ
- AjwY08KZN+vQWJjY26inByKCMUo5VaxBz3ODkMpb9pZTsSlXQQ84xsncQ4nzBwMG
- 6Pz2Bna5hmNlRgQrKqOL4/pm1GI59jech/IeY6dmtyj/qD/GHgQW4W9pA9qUCt86
- nqPpPzVLAVJpCacdnozQxsR3JDx78rv7UaXFb5Kxps34sgayiOx8V0rA3aemHFUR
- 8wOrQOBeMkJouPzl7GAUvywnNyYfQFiiae8ydJzgaWvUe8deBWJmY3t9/xFWcW67
- xwARAQABiQEfBBgBAgAJBQJgXlYAAhsMAAoJELkHcXWKvK9fO5sH/3ybE3F+m2ZC
- yY13+jE0+oQsnl0pFcCHwO3bvSc8adjh4++YOAoqawUvT6KI315apsxqHSg9pkB6
- r9hpEFlP4Tjd5uBEeVolzR/F4fY0MRbRUos10D/3upB5MyyUg3Iqkp6Yg/JIRrSg
- FStTr/xc9tbbTuBGh6V7Zinesaz3UeNxjqRsu8I9I/bkdEZsNWY51OrNrFc6hR7q
- 7jwZchrM6tWFdydA42URhdQk+aiRMsbgbXBxo9NOI7q+RBpYS4yUB2QIDTObzRv8
- 2gspVe5YDkM3XjVvnVjdBDN8ydIGkjD+iTmWc7/0fLCxh48KwnSEpyfmg1qjznUy
- Ccc7AFcEifQ=
- =XaBT
- -----END PGP PUBLIC KEY BLOCK-----
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg

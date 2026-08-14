@@ -1175,4 +1175,3 @@ public:
 #endif /* __cplusplus */
 
 #endif // __CUDA_VIDEO_H__
-
