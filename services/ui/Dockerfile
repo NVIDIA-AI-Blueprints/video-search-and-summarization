@@ -21,6 +21,15 @@ ENV NEXT_BUILD_TRACES=false
 # which is where `package.json` and `package-lock.json` live after the COPY above.
 WORKDIR /repo/services/ui
 
+# Fetch the NVIDIA Software License Agreement at build time rather than
+# vendoring it. The source tree stays free of the proprietary EULA while the
+# distributed image still carries it. node:22.23.2 already provides curl and
+# the CA bundle, so no package install is needed here.
+RUN curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
+    -o NVIDIA-Software-License-Agreement.pdf \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    && head -c4 NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'
+
 RUN npm ci
 # Matches CI: run `bundle` after `build` where defined (e.g. nv-metropolis-bp-vss-ui). The runner
 # stage still COPYs standalone, `.next/static`, and `public` explicitly for custom-server.js, so this
@@ -71,12 +80,12 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 # Copy custom server (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/custom-server.js ./custom-server.js
 
-# Copy license files (read-only).
-# LICENSE (MIT) and LICENSE-3rd-party.txt only. The NVIDIA Software License
-# Agreement is deliberately NOT copied: this image is built from MIT-licensed
-# source and published to GHCR, so shipping a proprietary EULA inside it
-# misstates the terms the artifact is distributed under.
+# Copy license files (read-only): LICENSE (MIT), LICENSE-3rd-party.txt, and the
+# NVIDIA Software License Agreement fetched by the builder stage. The EULA is
+# not tracked in the source tree, so it arrives via --from=builder rather than
+# from the build context.
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE* ./
+COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
 
 # Set environment variables
 ENV NODE_ENV=production

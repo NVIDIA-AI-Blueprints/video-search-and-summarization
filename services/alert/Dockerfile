@@ -33,7 +33,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     librdkafka-dev \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Fetch the NVIDIA Software License Agreement at build time rather than
+# vendoring it, so the source tree stays free of the proprietary EULA. The
+# final stage is FROM scratch, so this is copied across explicitly below.
+RUN curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 \
+    -o /app/NVIDIA-Software-License-Agreement.pdf \
+    https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/NVIDIA-Software-License-Agreement-2026.5.7.pdf \
+    && head -c4 /app/NVIDIA-Software-License-Agreement.pdf | grep -q '%PDF'
 
 # Copy only dependency manifest for install
 COPY requirements.txt /app/requirements.txt
@@ -82,6 +91,9 @@ COPY . /app
 
 # Ship the NVIDIA Software License inside the container (governs the distributed
 # image; must match the NGC catalog card). Source files remain Apache-2.0.
+# Fetched by the build stage rather than vendored, so it arrives via --from=build
+# instead of the `COPY . /app` above.
+COPY --from=build /app/NVIDIA-Software-License-Agreement.pdf /app/NVIDIA-Software-License-Agreement.pdf
 
 # Minimal Python runtime settings and non-root execution
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
