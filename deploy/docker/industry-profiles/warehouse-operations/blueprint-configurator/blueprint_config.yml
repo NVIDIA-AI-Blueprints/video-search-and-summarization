@@ -625,7 +625,7 @@ RTXA6000:
   2d:
     max_streams_supported: 15
   3d:
-    max_streams_supported: 3
+    max_streams_supported: 4
   mv3dt:
     max_streams_supported: 4
 
