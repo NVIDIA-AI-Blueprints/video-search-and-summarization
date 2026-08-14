@@ -758,6 +758,7 @@ class WorkflowScopeTests(unittest.TestCase):
         )
         command = self.env_module._setup_command(5400)
         self.assertIn('. "$HOME/.eval_env"', command)
+        self.assertIn("uv run --isolated --no-project --python 3.12", command)
         self.assertIn("notebook_setup_adapter.py", command)
         self.assertIn("--timeout \"$NEMOCLAW_SETUP_CELL_TIMEOUT_SEC\"", command)
         for excluded in (
