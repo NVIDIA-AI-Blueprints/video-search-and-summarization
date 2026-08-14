@@ -55,7 +55,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.08.1` on x86/Tegra; `3.3.0-26.08.1-sbsa` on SBSA | RT-VLM image tag. |
+| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.08.2` on x86/Tegra; `3.3.0-26.08.2-sbsa` on SBSA | RT-VLM image tag. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
