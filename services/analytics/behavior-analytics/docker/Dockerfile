@@ -74,7 +74,7 @@ COPY docker/deps.json deps.json
 # Ensure status.d exists for py-deploy COPY (python:3.13-trixie may not have it)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl=8.14.1-2+deb13u4 \
-        jq=1.7.1-6+deb13u2 \
+        jq=1.7.1-6+deb13u3 \
     && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/dpkg/status.d
 
