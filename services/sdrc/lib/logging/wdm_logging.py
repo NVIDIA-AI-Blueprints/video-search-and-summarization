@@ -220,7 +220,20 @@ class JsonFormatter(logging.Formatter):
         }
         workload = getattr(record, "wl_object_name", None)
         if workload and workload != "-":
-            payload["workload"] = workload
+            # Bracket may be "workload:name"; also emit structured fields.
+            payload["source"] = workload
+        component = getattr(record, "component", None) or (
+            (_log_context.get() or {}).get("component")
+        )
+        if component:
+            payload["component"] = component
+        wl = getattr(record, "workload", None) or (
+            (_log_context.get() or {}).get("workload")
+        )
+        if wl:
+            payload["workload"] = wl
+        elif isinstance(workload, str) and workload.startswith("workload:"):
+            payload["workload"] = workload.split(":", 1)[1]
         event = getattr(record, "event", None)
         if event:
             payload["event"] = event
@@ -357,13 +370,35 @@ def configure_root_logging(
     repo_root: str,
     max_bytes: int = 200000,
     backup_count: int = 2,
+    component: Optional[str] = None,
 ) -> None:
-    """Configure root logger: optional rotating file under logs/ + stdout."""
+    """Configure root logger: optional rotating file under logs/ + stdout.
+
+    ``component`` is a stable source tag for filtering muxed docker logs:
+      - ``workload`` → bracket ``[workload:<wl_log_prefix>]``
+      - ``router`` → ``[router]`` (run_workloads / sdr-controller orchestrator)
+      - ``controller`` → ``[controller]``
+    Every line also includes ``component=...`` (and ``workload=...`` for workers).
+    Envoy is tagged separately via ``--log-format`` in the entrypoint (``[envoy]``).
+    """
     level = parse_log_level(os.environ.get("WDM_LOG_LEVEL"), logging.INFO)
     fmt_name = _env_log_format()
     formatter = wdm_log_formatter(fmt_name)
 
-    wl_name_filter = WlObjectNameFilter(wl_log_prefix)
+    component_name = (
+        (component or os.environ.get("WDM_LOG_COMPONENT") or "sdrc").strip().lower()
+        or "sdrc"
+    )
+    if component_name == "workload":
+        display_name = f"workload:{wl_log_prefix}"
+    elif component_name in ("router", "controller", "envoy"):
+        display_name = component_name
+    else:
+        display_name = (
+            f"{component_name}:{wl_log_prefix}" if wl_log_prefix else component_name
+        )
+
+    wl_name_filter = WlObjectNameFilter(display_name)
     context_filter = ContextAndTraceFilter()
 
     root_logger = logging.getLogger()
@@ -392,4 +427,9 @@ def configure_root_logging(
 
     _apply_noisy_logger_levels()
 
-    bind_context(workload=wl_log_prefix, component="sdrc")
+    ctx = {"component": component_name}
+    if component_name == "workload":
+        ctx["workload"] = wl_log_prefix
+    elif wl_log_prefix and component_name not in ("router", "controller"):
+        ctx["workload"] = wl_log_prefix
+    bind_context(**ctx)

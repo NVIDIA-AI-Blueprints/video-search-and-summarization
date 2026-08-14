@@ -950,13 +950,24 @@ Noisy third-party loggers (`redis_lock`, `urllib3`, `docker`, `kafka`) are raise
 Example (`text`):
 
 ```text
-2026-08-14 13:07:30 INFO [vss-rtvi-cv] __main__ - Committing message id 1786623678634-0
+2026-08-14 13:07:30 INFO [workload:vss-rtvi-cv] __main__ - Committing message id 1786623678634-0 component=workload
+2026-08-14 13:07:30 INFO [router] run_workloads - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.05 component=router
+[envoy] [2026-08-14 13:07:30.401][1][info][upstream] cds: added/updated 0 cluster(s), skipped 5 unmodified cluster(s)
+```
+
+Filter muxed `docker logs` by source:
+
+```bash
+docker logs sdr-controller 2>&1 | grep '\[envoy\]'
+docker logs sdr-controller 2>&1 | grep '\[router\]'
+docker logs sdr-controller 2>&1 | grep '\[workload:'
+docker logs sdr-controller 2>&1 | grep '\[workload:vss-rtvi-cv\]'
 ```
 
 Example (`json`):
 
 ```json
-{"timestamp":"2026-08-14T13:07:30.443Z","severity":"INFO","logger":"__main__","message":"Committing message id 1786623678634-0","workload":"vss-rtvi-cv"}
+{"timestamp":"2026-08-14T13:07:30.443Z","severity":"INFO","logger":"__main__","message":"Committing message id 1786623678634-0","component":"workload","workload":"vss-rtvi-cv","source":"workload:vss-rtvi-cv"}
 ```
 
 ---
