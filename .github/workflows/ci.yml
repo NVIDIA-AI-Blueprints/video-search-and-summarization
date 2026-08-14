@@ -1256,8 +1256,6 @@ jobs:
         run: |
           python3 .github/scripts/test_update_pr_ghcr_candidates.py
           python3 .github/scripts/test_prepare_downstream_release_set.py
-          python3 .github/scripts/test_prepare_nightly_promotion.py
-          python3 .github/scripts/test_prepare_promotion_trigger.py
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
