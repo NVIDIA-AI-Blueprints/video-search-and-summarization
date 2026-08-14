@@ -132,7 +132,7 @@ RUN set -eux; \
         cp -rf ui/vios-ui/dist/. webroot/;; \
       *) echo "MODULE must be one of: sensor | streamprocessing | nvstreamer" >&2; exit 1;; \
     esac; \
-    MODULE="${MK_MODULE}" make package; \
+    MODULE="${MK_MODULE}" make package -j"$(nproc)"; \
     mkdir -p /stage/home/vst && tar -I lbzip2 -xf out/*/vst_release.tbz2 -C /stage/home/vst
 
 # -----------------------------------------------------------------------------
