@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.07.4"
+ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1"
 FROM ${BASE_IMAGE}
 
 # Overlay the open-source RTVI Embed Python sources on top of the base image.
