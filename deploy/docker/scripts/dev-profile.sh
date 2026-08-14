@@ -186,6 +186,10 @@ function get_rtvi_vlm_name_from_model_path() {
 # predicate over repeating profile names: a profile missing from one of these
 # branches gets a generated.env with no VLM wiring and fails SILENTLY rather
 # than erroring, which is how a fifth profile would be broken without noticing.
+#
+# Scope: LLM/VLM topology derivation only. Argument-validation guards keep
+# naming profiles explicitly, because which profiles a given hardware or option
+# combination accepts is per-profile policy, not shared topology.
 function profile_has_base_topology() {
   [[ "${profile}" == "base" ]] || [[ "${profile}" == "gym" ]]
 }
@@ -495,9 +499,11 @@ function usage() {
   echo "  -p, --profile                    [REQUIRED] Profile."
   echo "                                   • One of:"
   echo "                                     - base"
+  echo "                                     - gym"
   echo "                                     - lvs"
   echo "                                     - search"
   echo "                                     - alerts"
+  echo "                                   • gym is base plus the NeMo Gym eval runner"
   echo "                                   • Required for 'up'"
   echo "  -H, --hardware-profile           Hardware profile."
   echo "                                   • One of:"
@@ -758,7 +764,11 @@ function process_args() {
     _valid_profiles=('base' 'gym' 'lvs' 'search' 'alerts')
     if [[ -n "${profile}" ]]; then
       if ! contains_element "${profile}" "${_valid_profiles[@]}"; then
-        echo "[ERROR] Invalid profile: ${profile}. Must be one of: base, lvs, search, alerts"
+        # Derived from the array rather than restated, so the advertised set can
+        # never drift from the accepted one when a profile is added.
+        local _profile_list
+        printf -v _profile_list '%s, ' "${_valid_profiles[@]}"
+        echo "[ERROR] Invalid profile: ${profile}. Must be one of: ${_profile_list%, }"
         ((_all_good++))
       fi
     fi
@@ -849,7 +859,10 @@ function process_args() {
 
       # Alerts or base profile on IGX-THOR or AGX-THOR: VLM options are not accepted (VLM is fixed for this configuration).
       # Note: --vlm-device-id is already rejected for all IGX-THOR/AGX-THOR/DGX-SPARK in the edge_hardware_profiles block above.
-      if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "alerts" ]] || profile_has_base_topology); then
+      # 'base' is named explicitly here rather than using profile_has_base_topology:
+      # gym is not an edge profile (rejected by the edge_hardware_profiles guard
+      # above), so including it would imply an edge combination that cannot occur.
+      if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "base" ]]); then
         if contains_element "use-remote-vlm" "${options_provided[@]}"; then
           echo "[ERROR] --use-remote-vlm is not accepted for ${profile} profile with hardware profile ${hardware_profile}"
           ((_all_good++))
@@ -1689,7 +1702,11 @@ function state_down() {
   local _profile_dir_names _profile_dir_name _profile_dir _source_env _overrides_env _generated_env
   local _compose_project_name _compose_project_names=()
 
-  _profile_dir_names=('base' 'lvs' 'search' 'alerts')
+  # Every profile that can be brought up must be listed here, or `down` neither
+  # discovers its COMPOSE_PROJECT_NAME from generated.env nor removes that file.
+  # A shared default project name masks the omission; a profile deployed under a
+  # custom name would simply be left running.
+  _profile_dir_names=('base' 'gym' 'lvs' 'search' 'alerts')
 
   if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
     _compose_project_names+=("${COMPOSE_PROJECT_NAME}")
