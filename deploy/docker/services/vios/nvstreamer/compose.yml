@@ -37,6 +37,9 @@ services:
           devices:
             - capabilities: [gpu]
               device_ids: ["${RT_CV_DEVICE_ID:-0}"]
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
     volumes:
       - ${VSS_APPS_DIR}/services/vios/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VSS_APPS_DIR}/services/vios/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
@@ -49,7 +52,3 @@ services:
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
       - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 2
