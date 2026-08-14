@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-FROM node:22.23.2-bullseye AS builder
+FROM node:22.23.2-trixie AS builder
 
 # Build web-api-core from source
 COPY ./src/web-api-core /web-api-core
