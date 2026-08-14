@@ -8,16 +8,32 @@
 | Video-analytics MCP | `vss-va-mcp` |
 | Alerts analytics API | `vss-video-analytics-api-alerts` |
 
+`vss-video-analytics-api-alerts` is the **same** single `vss-video-analytics-api`
+container that other Foundations expose under their own key; only one exists per
+build. When included, use `vss-video-analytics-api-alerts` **only when the
+selected Foundation is `alerts`**; on any other Foundation the analytics API is
+that Foundation's key — never introduce the `-alerts` key to add a second key for
+the one container.
+
 ## Required peers
 
-- `alert-bridge` requires Kafka, Elasticsearch, topic initialization, and the
-  matching checked-in alert config mounts.
+- `alert-bridge` requires Kafka, Elasticsearch, and topic initialization, and needs
+  **no service-definition patch**: the stock definition carries the `alert-bridge`
+  profile gate, reads `VLM_BASE_URL`/`VLM_NAME` from env, and mounts its verifier
+  configs from env-interpolated sources (`VLM_AS_VERIFIER_CONFIG_FILE*`). Wire it in
+  `override.env` — add `alert-bridge` to `COMPOSE_PROFILES` and point those
+  mount-source vars at the checked-in alerts verifier configs (not inherited on a
+  non-`alerts` Foundation); do **not** author an `alert-bridge.yml` patch.
 - CV-verification alerts derive from detections: RT-CV feeds Behavior Analytics,
   which generates incidents that a VLM then verifies. This path requires RT-CV
   and Behavior Analytics with its incident processor enabled.
 - Real-time alerts derive from continuous VLM inspection of the media: the signal
   flows `rtvi-vlm` → `alert-bridge` and requires RT-VLM. This path does not use
   Behavior Analytics or incident generation.
+- When Behavior Analytics also serves another capability on one shared instance
+  (a combined build), it runs as **one** shared instance, not two — converge its
+  single mounted JSON config per [`behavior-analytics.md`](behavior-analytics.md);
+  its `numWorkersFor*` gates are not env-expressible.
 - `vss-va-mcp` requires the matching Agent config and reachable VST/ELK
   endpoints.
 

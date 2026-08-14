@@ -8,16 +8,35 @@ contract.
 
 1. Inventory every GPU's model, total memory, free memory, and current users.
 2. List every GPU service in the effective build and its model, precision,
-   device ID, and concurrency or stream count.
-3. Prefer dedicated GPUs when available. Share only when the combined budget
-   fits. Use a remote endpoint only when the user requested one or approved it
-   after local sizing failed.
-4. Put every selected device ID and utilization value in the build
-   `override.env`, resolve Compose, and verify those values in `resolved.yml`.
-5. Under load, watch `nvidia-smi` and model-service logs. Tune one variable at
+   device ID, concurrency or stream count, and whether its footprint is fixed
+   or elastic.
+3. Place fixed-footprint services first according to the placement and sizing
+   contracts for [RT-CV](services/rt-cv.md) and
+   [RT-Embed](services/rt-embed.md).
+4. Place singleton RT-VLM last, into the capacity step 3 leaves behind; never
+   displace or co-pack a fixed service to free a GPU for it. When composition
+   must converge different integrated Cosmos3 Nano variants, use BF16 only if a
+   GPU remains free after every fixed-footprint service has its preferred
+   dedicated device; otherwise use FP8 co-resident on the RT-CV device
+   (`RT_VLM_DEVICE_ID = RT_CV_DEVICE_ID`), which retains the most headroom among
+   the fixed-footprint services placed in step 3. Share only when the combined
+   budget fits. Resolve the atomic variant/placement set without inheriting
+   consumer wiring, as specified by the [RT-VLM owner](services/rt-vlm.md). Stock
+   mode retains its Foundation's reviewed variant and placement. For continuous
+   VLM inference on a shared GPU, reduce `NUM_STREAMS` and verify utilization
+   headroom under load.
+5. Use a remote endpoint only when the user requested one or approved it after
+   local sizing failed.
+6. Put every device ID and utilization value the placement **changes** from the
+   Foundation default into the build `override.env` (with its derived closure; do
+   not repeat unchanged defaults, per `composition.md`), resolve Compose, and
+   verify the full effective placement in `resolved.yml`.
+7. Under load, watch `nvidia-smi` and model-service logs. Tune one variable at
    a time and regenerate `resolved.yml`.
 
 Never silently substitute a smaller model, lower precision, or remote endpoint.
+The placement-driven RT-VLM BF16/FP8 convergence above is part of singleton
+resolution, not a fallback substitution.
 If the requested shape does not fit, show the measured capacity and required
 budget, then ask the user to choose a different placement.
 
@@ -84,24 +103,25 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 | Foundation | Starting layout | Important constraints |
 |---|---|---|
 | Base | One GPU: LLM + integrated RT-VLM shared. Two GPUs: dedicate GPU 0 to LLM and GPU 1 to RT-VLM. | Use `0.40 + 0.40` as the H100/RTX PRO 6000 shared starting point. A 48 GB L40S cannot fit the default FP16/BF16 pair inside its 40.8 GB budget. |
-| Alerts `2d_cv` | GPU 0: RT-CV. GPU 1: LLM. The stock service set does not enable local RT-VLM. | Set `RESERVED_DEVICE_IDS=0`. If a delta adds local VLM verification, include `rtvi-vlm` explicitly and size it as a new co-resident or dedicated service. |
+| Alerts `2d_cv` | GPU 0: RT-CV. GPU 1: LLM + RT-VLM; `rtvi-vlm` performs per-clip verification through Alert Bridge. | Set `RESERVED_DEVICE_IDS=0`. Size the shared LLM and RT-VLM against the combined budget. |
 | Alerts `2d_vlm` | No RT-CV; default device values co-locate LLM + RT-VLM on GPU 1. Move RT-VLM to the free GPU 0 when possible. | Continuous VLM inference needs more headroom; prefer separate GPUs or a user-approved remote model endpoint. |
 | LVS | One GPU: LLM + RT-VLM shared. Two GPUs: LLM on GPU 0 and RT-VLM on GPU 1. | When shared on H100/RTX PRO 6000, set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` and cap the LLM at about `0.40`. |
-| Search | GPU 0: RT-CV. GPU 1: RT-Embed + LLM. GPU 2: RT-VLM. | Default local Search needs three GPUs. On a two-GPU host, use a user-approved remote VLM through RT-VLM's proxy path. |
+| Search | GPU 0: RT-CV + RT-VLM FP8 at `0.40`. GPU 1: RT-Embed + LLM. | The stock local profile uses two shared GPUs (`FIXED_SHARED_DEVICE_IDS=0,1`). |
 
-Alerts-specific RT-VLM starting values:
+RT-VLM placement and utilization starting values:
 
-| Placement | Hardware | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` |
+| Placement | Example profile and hardware | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` |
 |---|---|---:|
-| Shared with LLM | H100, RTX PRO 6000, DGX Spark | 0.40 |
-| Dedicated | H100, RTX PRO 6000, other discrete GPUs | 0.70 |
-| Dedicated | L40S or RTX PRO 4500 | 0.80 |
+| Shared with another GPU service | Search FP8 on H100 or RTX PRO 6000; Alerts/LVS BF16 on H100, RTX PRO 6000, or DGX Spark | 0.40 |
+| Dedicated | Alerts/LVS BF16 on H100, RTX PRO 6000, or supported discrete GPUs not listed below | 0.70 |
+| Dedicated | Alerts/LVS BF16 on L40S or RTX PRO 4500 | 0.80 |
 
 These values apply when `rtvi-vlm` is in the effective service set, including
-stock `2d_vlm` and any `2d_cv` delta that explicitly adds it. Do not share the
-Alerts LLM and RT-VLM on L40S or RTX PRO 4500. On RTX PRO 4500, use a remote
-LLM and start RT-VLM with
-`RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
+stock Alerts `2d_cv` and `2d_vlm`. The BF16 co-resident row is a stock-Foundation
+layout (Alerts/LVS share BF16 with the LLM); a generated build that must converge
+variants co-resides on FP8, per step 4 of the sizing flow. Do not share the
+Alerts LLM and RT-VLM on L40S or RTX PRO 4500. On RTX PRO 4500, use a remote LLM
+and start RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
 `RTVI_VLM_MAX_MODEL_LEN=18000`.
 
 ## Search stream sizing

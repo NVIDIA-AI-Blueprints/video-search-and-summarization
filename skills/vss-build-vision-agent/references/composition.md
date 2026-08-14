@@ -202,6 +202,16 @@ in `COMPOSE_PROFILES`, not a shortened or generic name. Do not copy unchanged
 services, volumes, networks, or profile files. Add multiple patch paths after
 the root file when multiple service definitions change.
 
+A build-local file a patch bind-mounts (e.g. a curated `haproxy.cfg`) lives in
+`patches/` beside its `.yml` and is referenced by an absolute
+`${BUILD_DIR}/patches/<file>` source, with `BUILD_DIR` set to the build's
+absolute path in `override.env`. A relative `./` source would resolve against the
+root Compose file's directory (`deploy/docker/`), not the patch's — the ordered
+`path:` list sets the included model's project directory from its first entry — so
+Docker would create a stray root-owned directory there at `up`. A checked-in repo
+file a patch mounts is likewise bound by its absolute repo path, never copied into
+the build.
+
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
 effective service set and its dependencies are serialized. Normalization then
@@ -249,8 +259,9 @@ errors to stderr. Only stdout may reach `resolved.yml`, so write it with the `>`
 redirect shown: never merge the streams (`2>&1`, `&>`, or a combined `tee`), and
 never reconstruct `resolved.yml` from the command's captured output — an agent
 shell interleaves stderr into that capture, so the warnings pollute the YAML even
-with no explicit merge. Leave stderr on the terminal so it stays visible in the
-command output; do not silence it with `2>/dev/null`. Then act on what it reports: a non-zero exit code
+with no explicit merge. Leave stderr on the terminal: do not silence it
+(`2>/dev/null`) or divert it to a build-directory file (`2> resolve.err`) —
+stderr is transient diagnostics, never a persisted build artifact. Then act on what it reports: a non-zero exit code
 means resolution failed (a required variable, missing file, or invalid
 definition) and must be fixed before continuing; on success, the
 `variable is not set. Defaulting to a blank string.` lines are informational:
@@ -320,6 +331,11 @@ Then verify:
 - Every checked-in bind source exists and a file target is not backed by a
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.
+- A service governed by a mounted config file has that config reconciled to the
+  requested capabilities and ingestion mode — e.g. a mounted analytics JSON's
+  live-vs-simulation mode and processor gates must match the request, as
+  env-delta resolution cannot express them — per its owner contract, not left at
+  a source profile's default.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 
