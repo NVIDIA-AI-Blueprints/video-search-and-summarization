@@ -442,8 +442,42 @@ class SingleScenarioTests(unittest.TestCase):
             "skills/vss-query-analytics/evals/query_analytics.json",
         )
         self.assertEqual(rows[0].kind, "eval")
-        with self.assertRaisesRegex(ValueError, "does not exist"):
+        with self.assertRaisesRegex(ValueError, "does not exist|skill not found"):
             self.scenario._selected_rows("not-a-skill")
+
+    def test_compatible_matrix_selects_validated_shared_plan_rows(self) -> None:
+        rows, task_limits = self.scenario._load_matrix_file(
+            self.scenario.DEFAULT_COMPATIBLE_MATRIX
+        )
+        self.assertEqual(len(rows), 8)
+        self.assertEqual(sum(task_limits.values()), 19)
+        self.assertEqual(len(task_limits), len(rows))
+        self.assertEqual(
+            {(row.skill, row.spec, row.platform) for row in rows},
+            {
+                ("vss-ask-video", "base_profile_video_understanding", "L40S"),
+                ("vss-deploy-dense-captioning", "alerts_profile_api", "L40S"),
+                ("vss-deploy-profile", "base", "RTXPRO6000BW"),
+                ("vss-generate-video-report", "base_profile_report", "RTXPRO6000BW"),
+                ("vss-manage-alerts", "alerts_vlm_real_time", "L40S"),
+                ("vss-query-analytics", "query_analytics", "RTXPRO6000BW"),
+                ("vss-setup-behavior-analytics", "deploy_search_and_alerts", "ANY"),
+                ("vss-summarize-video", "lvs_api_ops", "RTXPRO6000BW"),
+            },
+        )
+        rtx_rows, rtx_limits = self.scenario._load_matrix_file(
+            self.scenario.DEFAULT_COMPATIBLE_MATRIX, "RTXPRO6000BW"
+        )
+        l40s_rows, l40s_limits = self.scenario._load_matrix_file(
+            self.scenario.DEFAULT_COMPATIBLE_MATRIX, "L40S"
+        )
+        self.assertEqual((len(rtx_rows), sum(rtx_limits.values())), (5, 11))
+        self.assertEqual((len(l40s_rows), sum(l40s_limits.values())), (3, 8))
+
+    def test_semantic_failure_does_not_block_dependent_scenarios(self) -> None:
+        self.assertFalse(self.scenario._blocks_dependent_scenarios({"status": "PASS"}))
+        self.assertFalse(self.scenario._blocks_dependent_scenarios({"status": "FAIL"}))
+        self.assertTrue(self.scenario._blocks_dependent_scenarios({"status": "ERROR"}))
 
     def test_common_adapter_contract_generates_complete_ordered_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -872,6 +906,13 @@ class WorkflowScopeTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("NEMOCLAW_HARBOR_TIMEOUT_SEC=12600", workflow)
         self.assertIn('--skills "$INPUT_SKILLS"', workflow)
+        self.assertIn("nemoclaw-compatible-rtx", workflow)
+        self.assertIn("nemoclaw-compatible-l40s", workflow)
+        self.assertIn(
+            "--matrix-file .github/skill-eval/nemoclaw/compatible_matrix.json", workflow
+        )
+        self.assertIn("--matrix-worker-profile RTXPRO6000BW", workflow)
+        self.assertIn("--matrix-worker-profile L40S", workflow)
         self.assertIn('NEMOCLAW_SANDBOX_NAME="se-${GITHUB_RUN_ID}"', workflow)
         self.assertIn("NEMOCLAW_GATEWAY_PORT=8990", workflow)
         self.assertIn(
