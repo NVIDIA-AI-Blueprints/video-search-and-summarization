@@ -1529,7 +1529,10 @@ function state_up() {
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
       # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
-      if profile_has_base_topology; then
+      # 'base' named explicitly, as in the edge guard above: this block is
+      # THOR-only and gym is not an edge profile, so naming gym here would imply
+      # a combination that cannot occur.
+      if [[ "${profile}" == "base" ]]; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
       else
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
