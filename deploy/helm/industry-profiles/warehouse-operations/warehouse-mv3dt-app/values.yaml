@@ -419,8 +419,9 @@ rtvi:
           calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
           configInit:
             image:
-              repository: nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-config-init
-              tag: "3.3.0-26.08.1"
+              # repository/tag intentionally unset: inherit the managed GHCR
+              # channel from the rtvi-cv subchart so Helm and Compose ship the
+              # same image. Override with global.container_prefix/container_tag.
               pullPolicy: IfNotPresent
         fusion:
           enabled: true

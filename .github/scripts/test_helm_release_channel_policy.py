@@ -42,6 +42,9 @@ HELM_VALUES = {
     "vss-rt-cv-mv3dt-bev-fusion": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "vss-rt-cv-mv3dt-config-init": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -68,6 +71,9 @@ HELM_HELPERS = {
         "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/templates/warehouse-extra-services.yaml",
     ],
     "vss-rt-cv-mv3dt-bev-fusion": [
+        "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
     ],
 }
