@@ -134,7 +134,7 @@ for _log_key in ("WDM_LOG_LEVEL", "WDM_LOG_FORMAT", "WDM_LOG_TO_FILE"):
             os.environ[_log_key] = "true" if _val else "false"
         else:
             os.environ[_log_key] = str(_val)
-configure_root_logging(wl_log_prefix, REPO_ROOT)
+configure_root_logging(wl_log_prefix, REPO_ROOT, component="workload")
 app.logger = logging.getLogger(__name__)
 
 

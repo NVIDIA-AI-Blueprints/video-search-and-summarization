@@ -30,5 +30,12 @@ python3 /opt/wdm-runtime/envoy/generate_envoy_config_xds_mw.py \
 N=$(nproc)
 MAX=$((N - 1))
 [ "$MAX" -gt 63 ] && MAX=63
-echo "[envoy-proxy] Pinning envoy to CPUs 0-$MAX (host exposes $N CPU(s)) to avoid tcmalloc percpu crash"
-exec /usr/bin/taskset -c 0-"$MAX" /usr/local/bin/envoy -c "$GEN_OUT" --concurrency 16 --base-id 1
+echo "[envoy] Pinning envoy to CPUs 0-$MAX (host exposes $N CPU(s)) to avoid tcmalloc percpu crash"
+# Prefix every Envoy line with [envoy] so muxed docker logs are easy to filter from
+# [router] / [workload:…] Python lines (see lib/logging/wdm_logging.py).
+ENVOY_LOG_FORMAT="${ENVOY_LOG_FORMAT:-[envoy] [%Y-%m-%d %T.%e][%t][%l][%n] [%g:%#] %v}"
+exec /usr/bin/taskset -c 0-"$MAX" /usr/local/bin/envoy \
+  -c "$GEN_OUT" \
+  --concurrency 16 \
+  --base-id 1 \
+  --log-format "$ENVOY_LOG_FORMAT"
